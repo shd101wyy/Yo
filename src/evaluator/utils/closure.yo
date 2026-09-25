@@ -29,7 +29,7 @@
 { is_fn_trait_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
-{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { get_closure_capture_info } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
@@ -124,12 +124,7 @@ build_path_collection_from_captured_variables :: (
 /// callable-argument and C19 checks in calls/helper.yo.
 _raise_capture_trait_violation :: (
   fn(ctx : EvalContext, exn : Exception, tok : Token, msg : String) -> unit
-)({
-  if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
-    flag_flow_violation(msg.clone());
-  });
-  exn.throw(dyn(format_error_message(tok, msg)));
-});
+)(raise_flow_violation(format_error_message(tok, msg), ctx, exn));
 /// The type a captured variable is JUDGED by for a marker trait such as
 /// `Send`. A captured CLOSURE arrives as its `Impl(Fn(...))` wrapper SomeT,
 /// which carries no `Send` in its required traits — yet a closure is `Send`

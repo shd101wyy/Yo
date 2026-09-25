@@ -14,6 +14,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { cwd } :: import("std/env");
 { Path } :: import("std/path");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
@@ -171,6 +172,28 @@ _is_std_module_path :: (fn(mp : String, std_path : String) -> bool)({
   });
   _lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(sp)}/`)
 });
+/// `_is_std_module_path`, memoized per module path: the call-boundary
+/// re-anchoring (calls/function.yo `evaluate_function_call`) asks it for every
+/// evaluated call, and the lexical absolutization can hit `cwd()`. The std
+/// root is fixed per process; a different one resets the table.
+(g_std_path_memo : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_std_path_memo_root : ArrayList(String)) = ArrayList(String).new();
+is_std_module_path :: (fn(mp : String, std_path : String) -> bool)({
+  if(match(g_std_path_memo_root.get(usize(0)), .Some(r) => (r != std_path), .None => true), {
+    g_std_path_memo.clear();
+    g_std_path_memo_root.clear();
+    g_std_path_memo_root.push(std_path.clone());
+  });
+  match(
+    g_std_path_memo.get(mp),
+    .Some(b) => b,
+    .None => {
+      b := _is_std_module_path(mp.clone(), std_path);
+      g_std_path_memo.insert(mp, b);
+      b
+    }
+  )
+});
 is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
   match(
     module_path,
@@ -322,5 +345,6 @@ export(
   is_class1_panic_method_name,
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
+  is_std_module_path,
   _lex_abs_path
 );

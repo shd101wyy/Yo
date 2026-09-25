@@ -36,8 +36,9 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
-{ EvalValue, create_unknown_val, is_bool_val } :: import("../../value.yo");
+{ EvalValue, create_unknown_val, is_bool_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_unit, t_never } :: import("../../types/creators.yo");
 {
@@ -50,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type
 } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, type_requires_comptime_modifier } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -406,6 +407,13 @@ evaluate_cond :: (
       // take no part in the join and adopt its type afterwards (Phase 3.6).
       never_bodies := ArrayList(AstExpr).new();
       (has_runtime_body_val : bool) = false;
+      // The first condition that is only known at RUNTIME (no value: a
+      // runtime parameter or local; or a runtime call's placeholder). It
+      // picks the arm when the program runs, so the cond's result is a
+      // runtime value even when every arm is a constant. A condition that
+      // is a compile-time UNKNOWN (a `comptime` parameter in a def-time
+      // trial) keeps the result a compile-time unknown.
+      (runtime_cond_tok : Option(Token)) = Option(Token).None;
       (nb_i : usize) = usize(0);
       // Sibling-arm inits must not read as prior inits inside later arms
       // (Impl reassignment rule) — group the arms' branch-init windows.
@@ -421,6 +429,13 @@ evaluate_cond :: (
             // Skip compile-time false conditions.
             is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
             if(!is_comptime_false, {
+              // Not in a CTFE-capability analysis: it binds the parameters to
+              // unknowns, so a call on one yields a runtime-only placeholder
+              // for what is a compile-time value once the function runs at
+              // compile time (`comptime_fn(factorial)`, tests/fn.test.yo).
+              if(runtime_cond_tok.is_none() && !ctx.is_analyzing_ctfe_capability && match(ec_item.cond_value, .Some(rcv) => is_runtime_only_unknown_val(rcv), .None => true), {
+                runtime_cond_tok = Option(Token).Some(ast_expr_token(ec_item.cond_expr));
+              });
               // Mark condition as executed.
               match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(ec_item.cond_expr)),
@@ -693,9 +708,27 @@ evaluate_cond :: (
           });
         };
         env = merge_and_check_envs(env, filtered_bodies, ctx, exn);
+        // A runtime condition cannot select a compile-time-only value: a
+        // `Type`, a module or a trait has no runtime representation, so
+        // `T :: cond(b => i32, true => i64)` with a runtime `b` has no
+        // meaning (it was accepted and emitted an undeclared C name).
+        match(
+          runtime_cond_tok,
+          .Some(rc_tok) => if(type_requires_comptime_modifier(convert_comptime_type_to_runtime_type(vts.ty, env)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  rc_tok,
+                  `This condition is only known at runtime, but the \`cond\` selects a compile-time-only value of type ${type_to_string(vts.ty)}. Every condition before the chosen arm must be known at compile time: make it a \`::\` constant or a \`comptime\` parameter.`
+                )
+              )
+            );
+          }),
+          .None => ()
+        );
         // Determine the compile-time value.
         result_val := cond(
-          has_runtime_body_val => Option(EvalValue).None,
+          (has_runtime_body_val || runtime_cond_tok.is_some()) => Option(EvalValue).None,
           true => Option(EvalValue).Some(create_unknown_val(vts.ty))
         );
         result_ty := cond(

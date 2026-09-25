@@ -727,8 +727,9 @@ evaluate_assignment :: (
         prop_viol_msg := `Writing into '${ast_expr_to_string(lhs)}' (type '${type_to_string(expected_ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives the field's container. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}\n\nThis would let the slice/pointer outlive its backing storage through the container — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses the container; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.`;
         // Flag so a def-time trial-eval swallow re-raises it via the real `exn`
         // (function_type.yo), mirroring the simple-variable assignment gate.
-        flag_flow_violation(prop_viol_msg);
-        exn.throw(dyn(format_error_message(ast_expr_token(rhs), prop_viol_msg)));
+        prop_viol_err := format_error_message(ast_expr_token(rhs), prop_viol_msg);
+        flag_flow_violation(prop_viol_err);
+        exn.throw(dyn(prop_viol_err));
       });
     });
     // Step 4 — Type compatibility check
@@ -1268,8 +1269,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
       viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}`;
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
       // real `exn` (function_type.yo), mirroring the `inout(name) :=` binding-site.
-      flag_flow_violation(viol_msg);
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg)));
+      viol_err := format_error_message(ast_expr_token(rhs), viol_msg);
+      flag_flow_violation(viol_err);
+      exn.throw(dyn(viol_err));
     });
   });
   // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).

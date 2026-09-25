@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
-{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -233,10 +233,7 @@ _require_dyn_traits_implemented :: (
           // the real exn — the def-eval wall otherwise SWALLOWS the throw and
           // the enclosing body silently hollows (same pattern as
           // anonymous_function.yo's return-type rejection).
-          if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-            flag_flow_violation(msg.clone());
-          });
-          exn.throw(dyn(format_error_message(token, msg)));
+          raise_flow_violation(format_error_message(token, msg), ctx, exn);
         });
         i = (i + usize(1));
       });

@@ -625,6 +625,61 @@ take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
 });
+/// The file of `err`'s primary diagnostic (`None` for a non-`YoError`).
+primary_diagnostic_path :: (fn(err : AnyError) -> Option(String))(
+  match(
+    downcast(err, YoError),
+    .Some(ye) => match(
+      ye.diagnostics.get(usize(0)),
+      .Some(d) => Option(String).Some(d.span.path),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// `err` reported at `tok` instead: the primary diagnostic moves there,
+/// keeping its code, message and help, and its old location follows as a note
+/// reading `note`; later notes keep their place. The repair is dropped — it
+/// rewrites the old location's text. Used to report an error raised inside
+/// the standard library at the user's call that led there
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.4).
+reanchor_primary_at :: (fn(err : YoError, tok : Token, note : String) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (ri : usize) = usize(0);
+  while(ri < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get(ri),
+      .Some(d) => {
+        if(ri == usize(0), {
+          entries.push(
+            Diagnostic(
+              code : d.code,
+              severity : d.severity,
+              message : d.message,
+              span : _span_of_token(tok),
+              source_line : _source_line_of_token(tok),
+              help : d.help
+            )
+          );
+          entries.push(
+            Diagnostic(
+              code : Option(String).None,
+              severity : Severity.Note,
+              message : note.clone(),
+              span : d.span,
+              source_line : d.source_line
+            )
+          );
+        }, {
+          entries.push(d);
+        });
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
 /// A Note-severity diagnostic anchored at a token (the import-chain note).
 note_diagnostic_of_token :: (fn(token : Token, message : String) -> Diagnostic)(
   _diagnostic_of_token(token, Severity.Note, message)
@@ -692,7 +747,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics);
+export(yo_error_from_diagnostics, primary_diagnostic_path, reanchor_primary_at);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the

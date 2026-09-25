@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   desugar_if_calls,
   BF_YO_AS
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 {
   ExprInfo,
@@ -183,9 +183,9 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
-{ Exception } :: import("std/error");
+{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at } :: import("../../error.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
+{ Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
@@ -3302,17 +3302,9 @@ _evaluate_funcval_runtime_call :: (
                     // codegen an unresolved receiver type it splices verbatim
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
                     _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"${dyn_upcast_note(_ac_pty, _ac_aty)}${same_name_note(_ac_pty, _ac_aty)}`;
-                    if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
-                      flag_flow_violation(_ac_mmsg.clone());
-                    });
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(expr),
-                          _ac_mmsg
-                        )
-                      )
-                    );
+                    // Reported at the ARGUMENT (index-aligned with the infos here).
+                    _ac_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
+                    raise_flow_violation(format_error_message(_ac_tok, _ac_mmsg), ctx, exn);
                   });
                 },
                 .None => ()
@@ -4214,7 +4206,83 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
   );
   recv_is_module
 });
+/// The note on the standard-library location of an error that
+/// `evaluate_function_call` reports at the user's call.
+STD_RAISE_NOTE :: "raised here, inside the standard library";
+/// An error raised inside the standard library while evaluating a call
+/// written in user code, reported at that call: the outermost user frame,
+/// with the std location as a note. A pending flagged rejection from std gets
+/// the same treatment, since the definition-time re-raise throws the flag
+/// rather than the error this frame sees.
+_reported_at_user_call :: (fn(err : AnyError, call_tok : Token, ctx : EvalContext) -> AnyError)({
+  err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(ep, ctx.std_path.clone()), .None => false);
+  if(!(err_in_std), {
+    return(err);
+  });
+  match(
+    flow_violation_error(),
+    .Some(fv) => match(
+      fv.diagnostics.get(usize(0)),
+      .Some(fd) => if(is_std_module_path(fd.span.path, ctx.std_path.clone()), {
+        flag_flow_violation(reanchor_primary_at(fv, call_tok, String.from(STD_RAISE_NOTE)));
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    downcast(err, YoError),
+    .Some(ye) => dyn(reanchor_primary_at(ye, call_tok, String.from(STD_RAISE_NOTE))),
+    .None => err
+  )
+});
+/// `_evaluate_function_call_unanchored` under a trap that hands the error
+/// back; the result goes to `out`.
+_evaluate_function_call_trapped :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    given_type : TypeValue,
+    given_value : Option(EvalValue),
+    ctx : EvalContext,
+    out : ArrayList(AstExpr)
+  ) -> Option(AnyError)
+)({
+  trap := Exception(throw : ((e) -> unwind(Option(AnyError).Some(e))));
+  out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
+  Option(AnyError).None
+});
+/// Evaluate a call. A call written in user code reports an error raised
+/// inside the standard library at itself (`_reported_at_user_call`):
+/// `println(p)` for a `P` without `ToString` pointed at std/fmt's where
+/// clause, and `i32.MAX + 1` at the prelude's builtin
+/// (issues/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
 evaluate_function_call :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    given_type : TypeValue,
+    given_value : Option(EvalValue),
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  call_tok := ast_expr_token(expr);
+  call_mp := call_tok.module_path.clone();
+  if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(call_mp, ctx.std_path.clone()), {
+    return(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn));
+  });
+  out := ArrayList(AstExpr).new();
+  match(
+    _evaluate_function_call_trapped(expr, env, given_type, given_value, ctx, out),
+    .Some(err) => {
+      exn.throw(_reported_at_user_call(err, call_tok, ctx));
+      expr
+    },
+    .None => match(out.get(usize(0)), .Some(e) => e, .None => expr)
+  )
+});
+_evaluate_function_call_unanchored :: (
   fn(
     expr : AstExpr,
     env : Environment,

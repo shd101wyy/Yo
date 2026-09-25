@@ -177,7 +177,7 @@ pragma(Pragma.AllowUnsafe);
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
   is_control_fn,
@@ -758,10 +758,7 @@ consume_argument_for_parameter :: (
 /// definition-time swallow re-raises it at `check` time (outside trials, cee
 /// propagate mode, and when a flag is already pending).
 _arg_rule_throw :: (fn(tok : Token, msg : String, ctx : EvalContext, exn : Exception) -> unit)({
-  if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
-    flag_flow_violation(msg.clone());
-  });
-  exn.throw(dyn(format_error_message(tok, msg)));
+  raise_flow_violation(format_error_message(tok, msg), ctx, exn);
 });
 /// The argument-side value/type rule. Returns the argument's type as this
 /// parameter's value: a comptime literal is lowered to a runtime type unless
@@ -980,9 +977,12 @@ check_if_function_parameter_matches_argument :: (
           // when an earlier flag is pending.
           if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
             flag_flow_violation(
-              `No matching call found: every overload candidate was rejected, and the closest one failed with:
+              format_error_message(
+                ast_expr_token(actual_arg),
+                `No matching call found: every overload candidate was rejected, and the closest one failed with:
 Value mismatch for parameter "${param_label}"
 ${ast_expr_to_string(actual_arg)}`
+              )
             );
           });
           exn.throw(

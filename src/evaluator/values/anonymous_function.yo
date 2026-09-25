@@ -115,8 +115,8 @@ pragma(Pragma.AllowUnsafe);
 {
   clear_flow_violation,
   flow_violation_pending,
-  flow_violation_message,
-  flag_flow_violation,
+  flow_violation_error,
+  raise_flow_violation,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 /// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
@@ -518,16 +518,10 @@ _trial_eval_annotation_type :: (
 /// `check` stays green (a `with_lock` body's `inout(v)` captured and escaped
 /// past the unlock, `issues/fixed/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
 /// Flag it on the flow-violation channel first so the def-time caller
-/// re-raises it; the re-raise lands on the enclosing definition's token, so
-/// the message carries the capture site.
+/// re-raises it, at the capture site.
 _raise_capture_rejection :: (
   fn(ctx : EvalContext, exn : Exception, capture_tok : Token, msg : String) -> unit
-)({
-  if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-    flag_flow_violation(`${msg} (captured at ${capture_tok.module_path}:${(capture_tok.row + usize(1)).to_string()}:${(capture_tok.column + usize(1)).to_string()})`);
-  });
-  exn.throw(dyn(format_error_message(capture_tok, msg)));
-});
+)(raise_flow_violation(format_error_message(capture_tok, msg), ctx, exn));
 _check_anon_fn_captures :: (
   fn(
     caps : HashMap(String, CapturedVarInfo),
@@ -1571,11 +1565,14 @@ Result type: ${type_to_string(decl_result_ty)}`
     // Channel 1: re-raise a flow violation the trial swallow ate (a
     // deliberate binding-site rejection inside the body). Same pattern as
     // the def-time caller in calls/function_type.yo:601.
-    if(flow_violation_pending(), {
-      anon_viol_msg := flow_violation_message();
-      clear_flow_violation();
-      exn.throw(dyn(format_error_message(tok, anon_viol_msg)));
-    });
+    match(
+      flow_violation_error(),
+      .Some(anon_viol_err) => {
+        clear_flow_violation();
+        exn.throw(dyn(anon_viol_err));
+      },
+      .None => ()
+    );
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
@@ -1956,20 +1953,13 @@ Result type: ${type_to_string(decl_result_ty)}`
               // re-raises it via the real exn (the wall otherwise swallows
               // the throw and the enclosing body silently hollows — same
               // pattern as helper.yo Step 5b's no-matching-overload flag).
-              if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-                flag_flow_violation(
-                  `Incompatible function return type for:
-- Expected: ${dgc_exp_str}
-- Given  : ${dgc_got_str}`
-                );
-              });
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    tok,
-                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
-                  )
-                )
+              raise_flow_violation(
+                format_error_message(
+                  tok,
+                  `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
+                ),
+                ctx,
+                exn
               );
             });
           },
