@@ -29,7 +29,8 @@ json :: import("std/encoding/json");
   format_warning_messages,
   _classify_message,
   format_error_message_with_help,
-  format_error_message_with_repair
+  format_error_message_with_repair,
+  reanchor_primary_at
 } :: import("../../src/error.yo");
 {
   Severity,
@@ -109,6 +110,17 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
   s := render_diagnostics_human(err.diagnostics);
   expected := `error: first error\n  --> b.yo:1:1\n  |\n1 | x y\n  | ^\n\nnote: second error\n  --> b.yo:1:3\n  |\n1 | x y\n  |   ^`;
   assert(s == expected, `error + note blocks, got:\n${s}`);
+});
+// ─── reanchor_primary_at: an error inside std, reported at the user's call ───
+test("reanchor_primary_at moves the primary and keeps the old location as a note", {
+  std_tok := make_token(`std/fmt/index.yo`, `where(T <: ToString)`, usize(0), usize(8), `<:`);
+  call_tok := make_token(`main.yo`, `a\nb\nc\nd\n  println(p);`, usize(4), usize(2), `println`);
+  err := format_error_message_with_help(std_tok, `Type P does not implement required trait ToString.`, Option(String).Some(`implement it`));
+  moved := reanchor_primary_at(err, call_tok, `raised here, inside the standard library`);
+  assert(moved.diagnostics.len() == usize(2), `primary + note, got ${moved.diagnostics.len().to_string()}`);
+  s := render_diagnostics_human(moved.diagnostics);
+  expected := `error[E0602]: Type P does not implement required trait ToString.\n  --> main.yo:5:3\n  |\n5 |   println(p);\n  |   ^^^^^^^\nhelp: implement it\nhelp: run \`yo explain E0602\` for more information\n\nnote: raised here, inside the standard library\n  --> std/fmt/index.yo:1:9\n  |\n1 | where(T <: ToString)\n  |         ^^`;
+  assert(s == expected, `re-anchored render, got:\n${s}`);
 });
 // ─── format_lexer_error (D3: lexer errors carry file + source line) ─────────
 test("format_lexer_error renders like every other stage", {
