@@ -1,16 +1,13 @@
-{ Thread } :: import("std/thread");
 { println } :: import("std/fmt");
-_work :: (fn(io : Io) -> unit)({
-  println("work");
+_tick :: (fn() -> unit)({
+  println("tick");
+});
+_take_own :: (fn(own(cb) : Impl(Fn() -> unit)) -> unit)({
+  cb();
 });
 main :: (fn() -> unit)({
-  t1 := Thread(unit).spawn(_work);
-  t1.join();
-  f := _work;
-  t3 := Thread(unit).spawn((io : Io) => {
-    f(io);
-    ()
-  });
-  t3.join();
+  _take_own(_tick);
+  f := _tick;
+  f();
 });
 export(main);

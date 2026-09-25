@@ -8,14 +8,16 @@
 `issues/repros/passing-a-named-function-to-an-own-parameter-moves-the-definition.yo`:
 
 ```rust
-_work :: (fn(io : Io) -> unit)({ println("work"); });
+_tick :: (fn() -> unit)({ println("tick"); });
+_take_own :: (fn(own(cb) : Impl(Fn() -> unit)) -> unit)({ cb(); });
 main :: (fn() -> unit)({
-  t1 := Thread(unit).spawn(_work);   // spawn's callback parameter consumes its argument
-  t1.join();
-  f := _work;                        // error[E0901]: use of moved value: `_work`
-  ...
+  _take_own(_tick);   // an `own` parameter consumes its argument
+  f := _tick;         // error[E0901]: use of moved value: `_tick`
+  f();
 });
 ```
+
+The same happens with `Thread(unit).spawn(worker)`, whose callback parameter is `own`.
 
 ## Mechanism
 
@@ -31,5 +33,5 @@ A compile-time-only binding whose value is a function is a code pointer, re-mate
 every use. Like a type value, it is never consumed. A local closure VALUE is not
 compile-time-only and still moves, since its captured state moves with it.
 
-Test: the rule-D9 canary in `tests/parallelism_soundness.test.yo` passes `_d9_count` to
-`Thread.spawn` and then binds `f := _d9_count`.
+Test: "a named function passed to an own parameter stays usable" in
+`tests/parallelism_soundness.test.yo`, which fails on the v0.2.42 seed with the error above.

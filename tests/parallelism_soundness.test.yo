@@ -541,3 +541,22 @@ test("D4/D9 canary: arc() of a capture-free closure runs on a thread", {
   t.join();
   assert(d9_arc_hits.load(MemoryOrder.Acquire) == i32(1), "the capture-free closure ran on the thread");
 });
+// A named function passed to an `own` parameter is not MOVED: a `::`
+// definition is a code pointer, re-materialized at every use. Binding it
+// again after the call was "use of moved value"
+// (issues/fixed/passing-a-named-function-to-an-own-parameter-moves-the-definition.md).
+d9_tick_hits := AtomicI32(i32(0));
+_d9_tick :: (fn() -> unit)({
+  d9_tick_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  ();
+});
+_d9_take_own :: (fn(own(cb) : Impl(Fn() -> unit)) -> unit)({
+  cb();
+});
+test("a named function passed to an own parameter stays usable", {
+  _d9_take_own(_d9_tick);
+  f := _d9_tick;
+  f();
+  _d9_take_own(_d9_tick);
+  assert(d9_tick_hits.load(MemoryOrder.Acquire) == i32(3), "all three calls ran the definition");
+});
