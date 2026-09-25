@@ -4173,31 +4173,44 @@ _try_eval_operand_type :: (
 /// Rule D6: is this callee expression a runtime extern named directly — a
 /// bare identifier (a destructured import), or a field of a MODULE value —
 /// rather than a field of a runtime value (`io.await`)?
-_d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)(
-  cond(
-    ast_expr_is_atom(func_expr) => true,
-    true => match(
-      func_expr,
-      .FnCall(_, d6_dot, d6_args, _, _) => if(match(d6_dot, .Atom(_, d6_dtok) => (d6_dtok.kind == TokenKind.Dot), _ => false) && (d6_args.len() == usize(2)), {
+_d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
+  if(ast_expr_is_atom(func_expr), {
+    return(true);
+  });
+  (recv_is_module : bool) = false;
+  match(
+    func_expr,
+    .FnCall(_, d6_dot, d6_args, _, _) => {
+      d6_is_dot := match(d6_dot, .Atom(_, d6_dtok) => (d6_dtok.kind == TokenKind.Dot), _ => false);
+      if(d6_is_dot && (d6_args.len() == usize(2)), {
         match(
           d6_args.get(usize(0)),
           .Some(d6_recv) => match(
-            expr_info_table_get(ctx.expr_info_table,
-            ast_expr_id(d6_recv)),
-            .Some(d6_ri) => (is_module_type(d6_ri.ty) || match(d6_ri.value,
-            .Some(d6_v) => match(d6_v,
-            .TypeVal(d6_t) => is_module_type(d6_t),
-            _ => false),
-            .None => false)),
-            .None => false
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(d6_recv)),
+            .Some(d6_ri) => {
+              recv_is_module = is_module_type(d6_ri.ty);
+              match(
+                d6_ri.value,
+                .Some(d6_v) => match(
+                  d6_v,
+                  .TypeVal(d6_t) => {
+                    recv_is_module = (recv_is_module || is_module_type(d6_t));
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
           ),
-          .None => false
-        )
-      }, false),
-      _ => false
-    )
-  )
-);
+          .None => ()
+        );
+      });
+    },
+    _ => ()
+  );
+  recv_is_module
+});
 evaluate_function_call :: (
   fn(
     expr : AstExpr,
