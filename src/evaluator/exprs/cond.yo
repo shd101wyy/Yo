@@ -429,7 +429,11 @@ evaluate_cond :: (
             // Skip compile-time false conditions.
             is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
             if(!is_comptime_false, {
-              if(runtime_cond_tok.is_none() && match(ec_item.cond_value, .Some(rcv) => is_runtime_only_unknown_val(rcv), .None => true), {
+              // Not in a CTFE-capability analysis: it binds the parameters to
+              // unknowns, so a call on one yields a runtime-only placeholder
+              // for what is a compile-time value once the function runs at
+              // compile time (`comptime_fn(factorial)`, tests/fn.test.yo).
+              if(runtime_cond_tok.is_none() && !ctx.is_analyzing_ctfe_capability && match(ec_item.cond_value, .Some(rcv) => is_runtime_only_unknown_val(rcv), .None => true), {
                 runtime_cond_tok = Option(Token).Some(ast_expr_token(ec_item.cond_expr));
               });
               // Mark condition as executed.
