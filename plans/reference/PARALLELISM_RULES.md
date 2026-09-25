@@ -148,12 +148,18 @@ as for the `unsafe(...)` gate.
 
 ## D7 — A loop never observes `live_wakers == 0` while a post it will receive is in flight
 
-**Status:** PLANNED (Phase 6).
+**Status:** LANDED 2026-09-26 (Phase 6): `__yo_waker_consume_release`, the loop's `visitors`
+count and `__yo_async_loop_quiesce` in `src/codegen/async/runtime_core.yo`.
 
 The foreign `Waker` release decrements the owner's `live_wakers` in the OWNER's drain, after the
-post has been consumed, never on the releasing thread before the post. The same ordering applies
-to `__yo_async_blocking_end`: notify, then decrement. This is what keeps a spawned thread's loop
-alive until every cross-thread message addressed to it has been processed.
+post has been consumed, never on the releasing thread before the post; the drain checks for a
+pending release both before and after it marks the token off the inbox, so a release that lost
+the `queued` race is still consumed. And because a poster's notify necessarily happens after it
+unlocks the owner (the Linux notify takes that lock), every thread that touches a FOREIGN loop —
+a poster, a `blocking_end` — registers itself in the loop's `visitors` count while the loop is
+provably alive, and the loop's thread waits for that count to drain before tearing the loop
+down. Together this keeps a spawned thread's loop alive until every cross-thread message
+addressed to it has been processed and every foreign thread is done touching it.
 
 ## D8 — Closures may not capture second-class bindings
 

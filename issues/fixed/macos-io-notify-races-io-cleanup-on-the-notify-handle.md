@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-22;
 raised by the runtime sub-audit, verified by reading).
-**Status:** OPEN. **Data race, macOS only** (Linux closes the same window under `loop->lock`,
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 6). Was: OPEN. **Data race, macOS only** (Linux closes the same window under `loop->lock`,
 `runtime_io_linux.yo` ~608-621 and ~702-716).
 **Where:** `src/codegen/async/runtime_io_macos.yo` ~838-858.
 
@@ -32,3 +32,12 @@ Mirror Linux: take `loop->lock` in `__yo_io_notify` around the ready check and t
 `runtime_core.yo` is about `__yo_waker_post`'s caller, and the Linux backend already takes
 `loop->lock` inside notify), and clear the handle under the same lock in cleanup. Test: the
 spawn-inside-spawn loop of the companion issue on the macOS leg.
+
+## Fix (2026-09-26)
+
+Mirrors Linux: `__yo_io_notify` (`src/codegen/async/runtime_io_macos.yo`) holds `loop->lock`
+across the ready check, the handle read and the `kevent()`, and `__yo_io_init` / `__yo_io_cleanup`
+set and clear the handle under the same lock, so a foreign notify either completes before the
+clear or sees it. The notify's callers never hold `loop->lock` (runtime_core's post invariant).
+The dead-storage half is closed by the companion fix's visitor count. Test: the stress shape in
+`tests/cross_thread_wake.test.yo` on the macOS legs.

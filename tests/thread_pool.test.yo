@@ -296,3 +296,28 @@ test("a second pool submitting concurrently cannot make join_all return early", 
   a.shutdown();
   b.shutdown();
 });
+// Phase 5.4 of plans/PARALLELISM_SOUNDNESS.md: `join_all` is a per-pool
+// completion counter. Pool B's task blocks until the main thread opens the
+// gate, which it does only AFTER pool A's `join_all` returns — so A's drain
+// must not wait for B's work. The sentinel barrier it replaced queued A's
+// sentinels behind B's blocked task on the shared worker threads and hung
+// here.
+test("join_all waits for its own pool's tasks only", {
+  a := ThreadPool.new(usize(2));
+  b := ThreadPool.new(usize(2));
+  gate := Channel(bool).new(usize(1));
+  opened := gate;
+  spawn(b, (io : Io) => {
+    _o := opened.recv();
+    ()
+  });
+  done := AtomicI32(i32(0));
+  spawn(a, (io : Io) => {
+    _d := done.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ()
+  });
+  a.join_all();
+  assert(done.load(MemoryOrder.Acquire) == i32(1), "pool A's task ran before its join_all returned");
+  gate.send(true);
+  b.join_all();
+});

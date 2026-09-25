@@ -317,10 +317,6 @@ the race it describes.
   calls (a captured helper closure, a closure parameter) or a `dyn` method: the global-reach
   check follows only calls it can resolve to a function body at compile time
   (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
-- **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a
-  spawned thread's loop, the non-atomic `borrow_count` on atomic objects, `rc()` on an `Iso`
-  handle, and Windows/macOS-specific runtime state — listed in `plans/PARALLELISM_SOUNDNESS.md`
-  §3 (P-11 to P-25).
 
 ## See Also
 
