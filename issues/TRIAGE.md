@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 235 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 225 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,15 +28,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 14 | 1 |
-| Async / effects | 32 | 9 |
+| Async / effects | 31 | 8 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 27 | 5 |
 | Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 51 | 13 |
-| **Total** | **235** | **48** |
+| Other | 42 | 11 |
+| **Total** | **225** | **45** |
 
 ## Cross-cutting buckets
 
@@ -140,7 +140,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (32)
+### Async / effects (31)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -168,7 +168,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md`](./io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md) | — | yes |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | OPEN — analysis-verified hazard, not | — |
 | [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./spawn-blocking-degrades-to-inline-on-a-threadless-target.md) | OPEN — the behaviour is deliberate and | — |
-| [`spawn-wrapper-forwarded-io-crosses-specializations.md`](./spawn-wrapper-forwarded-io-crosses-specializations.md) | OPEN — blocks a std-side wrapper around a use | yes |
 | [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | — | — |
 | [`unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`](./unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md) | — | yes |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | — | — |
@@ -345,13 +344,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (51)
+### Other (42)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`](./a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md) | OPEN | yes |
-| [`a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md`](./a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md) | OPEN | — |
-| [`a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md`](./a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md) | OPEN | — |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
@@ -363,7 +360,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`arc-of-a-send-closure-emits-two-capture-struct-typedefs.md`](./arc-of-a-send-closure-emits-two-capture-struct-typedefs.md) | OPEN | yes |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
-| [`borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md`](./borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md) | OPEN | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
 | [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
@@ -375,7 +371,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`](./iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md) | OPEN | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
-| [`macos-io-notify-races-io-cleanup-on-the-notify-handle.md`](./macos-io-notify-races-io-cleanup-on-the-notify-handle.md) | OPEN | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
 | [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
@@ -383,7 +378,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
-| [`rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md`](./rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md) | OPEN | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
 | [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
@@ -394,9 +388,5 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
-| [`windows-socket-fd-registry-is-an-unlocked-process-global-list.md`](./windows-socket-fd-registry-is-an-unlocked-process-global-list.md) | OPEN | — |
-| [`windows-thread-gc-state-is-never-released-at-thread-exit.md`](./windows-thread-gc-state-is-never-released-at-thread-exit.md) | OPEN | — |
-| [`windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md`](./windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md) | OPEN | — |
-| [`worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md`](./worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md) | OPEN | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |
