@@ -636,10 +636,24 @@ with_code :: (fn(err : YoError, code : str) -> YoError)({
     match(
       err.diagnostics.get(wi),
       .Some(d) => {
-        if(wi == usize(0), {
-          d.code = _coded(code);
-        });
-        entries.push(d);
+        // A fresh primary rather than `d.code = …`: `d` borrows the element,
+        // and a field write through a borrowed value binding releases a value
+        // the binding does not own
+        // (issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md).
+        entries.push(
+          cond(
+            (wi == usize(0)) => Diagnostic(
+              code : _coded(code),
+              severity : d.severity,
+              message : d.message,
+              span : d.span,
+              source_line : d.source_line,
+              help : d.help,
+              repair : d.repair
+            ),
+            true => d
+          )
+        );
       },
       .None => ()
     );
