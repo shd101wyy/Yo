@@ -1663,7 +1663,7 @@ _collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String
       types.push(ty);
     },
     .Const(_, _, _, _, _) => (),
-    .Range(_, _, _, _) => (),
+    .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
       ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
@@ -1757,7 +1757,7 @@ _emit_pattern_chain :: (
         em.emit_string_line(line);
       });
     },
-    .Range(_, subject, test, _) => {
+    .Range(_, subject, test, _, _, _, _) => {
       if(emit_tests, {
         cname := sanitize_for_c_identifier(subject.clone(), false);
         _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());

@@ -34,6 +34,15 @@ Three deviations from the design below, each measured on the tree:
    site in `src/`+`std/` (`std/encoding/percent.yo`) and #661's own tests; the
    defensive arm is the idiom the corpus is written in, Rust only warns, and
    Yo has no warnings channel. Exhaustiveness stays full usefulness.
+
+   **Superseded 2026-09-25** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5): the
+   warnings channel landed (#846), so an arm the earlier arms cover only
+   collectively is now a WARNING, single-arm subsumption (now also between
+   or-alternatives) stays an error, an arm no value of the type matches (an
+   empty range, a GADT-excluded variant) is an error, and a trailing
+   catch-all stays exempt. Integer constants and ranges are intervals, so
+   §4.6's "integers are infinite domains" no longer holds for fixed-width
+   types.
 3. **The async state machine keeps the classic shapes only.** An arm that
    awaits and uses a new form is rejected at codegen with a message naming the
    workaround (bind the payload, match again inside the arm). The sync

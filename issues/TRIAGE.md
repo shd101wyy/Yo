@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 217 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 216 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 43 | 12 |
-| **Total** | **217** | **45** |
+| Other | 42 | 12 |
+| **Total** | **216** | **45** |
 
 ## Cross-cutting buckets
 
@@ -335,7 +335,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (43)
+### Other (42)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -362,7 +362,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`macos-io-notify-races-io-cleanup-on-the-notify-handle.md`](./macos-io-notify-races-io-cleanup-on-the-notify-handle.md) | OPEN | — |
-| [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
