@@ -1,6 +1,6 @@
 # Type identity: when two types are the same type
 
-**Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phase 3.1, 3.2 and 3.4 of
+**Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phases 3.1, 3.2, 3.4 and 3.5 of
 `plans/TYPE_SYSTEM_SOUNDNESS.md`). The code is `src/types/compatibility.yo`
 (`are_types_compatible_exact` and `are_types_compatible`) and the CTFE memo in
 `src/evaluator/calls/comptime_fn.yo` (`_ctfe_args_equal`, `_ctfe_types_era_equal`).
@@ -38,7 +38,7 @@ identity plus a short, listed set of coercions.
 | anonymous record (`struct(x : i32)` as an expression, `{ x : ... }`) | the same kind (value, `ref`, atomic, `newtype` are four kinds), the same field labels in order, identical field types |
 | anonymous `enum(...)` | the same variant names in order, identical payloads |
 | tuple | the same arity, **the same labels**, identical field types |
-| function | the same generic count, arity, identical parameter and result types, binders corresponding by position. Parameter modes and implicit parameters are Phase 3.5. |
+| function | the same generic count and arity; identical parameter and result types, binders corresponding by position; the same mode for every parameter (`inout`, `own`, plain) and for the result (`-> inout(T)`); identical implicit (`using`) parameters, labels included |
 | array | identical element type and length (a generic `U : usize` length matches any length) |
 | pointer | identical pointee |
 | `Dyn(...)` | **the same trait set**: every trait on each side is on the other side |
@@ -58,6 +58,10 @@ identity plus a short, listed set of coercions.
   Different labels, a different count or a different kind is a type error.
 - A tuple literal flows into a labelled tuple of the same arity: tuple labels are not compared
   for flow.
+- Function types flow only between the same parameter modes: a `fn(inout(x) : i32)` is not a
+  `fn(x : i32)` in either direction, an `own(x)` parameter is not a borrowing one, and the
+  implicit parameters must agree. The one exception is an impl member's receiver, whose form is
+  free (`self : Self` implements a trait's `inout(self) : Self`); see `_with_receiver_mode_of`.
 - `Dyn(A, B)` flows into `Dyn(A)`: a trait-set subset is an upcast.
 - A generic enum's instantiation reconstructed without its name (an empty-name copy the
   evaluator makes internally) flows into the named one when their variants agree.
@@ -82,8 +86,6 @@ agree too (`issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`).
 
 ## Open
 
-- Parameter modes and implicit parameters in function identity (Phase 3.5,
-  `issues/inout-call-through-a-fn-value-loses-the-mutation.md`).
 - Position-independent declaration ids (Phase 3.3): a declaration's id still includes its row
   and column, so a comment edit renames a C type.
 - The extern-opaque type still unifies with every `Dyn` (`issues/an-extern-opaque-type-unifies-with-every-dyn.md`).

@@ -612,6 +612,18 @@ p1 := I32Point(x : 3, y : 4);
 p2 := BoolPoint(x : true, y : false);
 ```
 
+### 参数模式是函数类型的一部分
+
+`fn(inout(x) : i32) -> unit`、`fn(own(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`own` 参数被移动进被调函数，普通参数是借用。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
+
+```rust
+bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
+(f : (fn(inout(x) : i32) -> unit)) = bump; // 可以
+(g : (fn(x : i32) -> unit)) = bump;        // 错误：Incompatible types
+```
+
+唯一的例外是 `impl` 成员的接收者：trait 中声明为 `inout(self) : Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
+
 ### 命名参数
 
 Yo 中的命名参数必须按照函数签名中定义的顺序提供：

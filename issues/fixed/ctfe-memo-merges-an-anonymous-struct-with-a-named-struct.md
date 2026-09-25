@@ -1,8 +1,7 @@
 # The CTFE instantiation memo merges types that are not equal, so `Type.eq` and instantiations depend on call order
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** FIXED 2026-09-25 (Phase 3.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for Repros 1 and 2 and the tuple
-and `Dyn` rows; Repro 3 (`fn` parameter modes) is Phase 3.5. Was: wrong answers from type
+**Status:** FIXED 2026-09-25 (Phases 3.4 and 3.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md`), all three repros. Was: wrong answers from type
 reflection, a spurious E0610, and a SIGSEGV, each depending only on which instantiation ran first. This is a live, reproduced sibling of the
 hypothesis in `issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`, through a different
 predicate.
@@ -99,5 +98,5 @@ The raw-id fast paths were hardened in the same change
 `ArrayList(Named)` pair a peer session reported on 2026-09-24 (the second push failed with
 "Cannot unify incompatible struct types").
 
-Repro 3 stays open under `issues/inout-call-through-a-fn-value-loses-the-mutation.md` until
-function identity compares parameter modes (Phase 3.5).
+Repro 3 was fixed by Phase 3.5, which made parameter modes part of function identity
+(`issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md`).

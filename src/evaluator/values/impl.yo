@@ -3146,6 +3146,40 @@ _materialize_default_body :: (
 /// the member before its position. `field_opt` is the member's pending entry
 /// (direct fields only; trait-constructor members always evaluate in place).
 /// Reads and advances the impl env through `st.env`.
+/// `actual` with its receiver's mode taken from `expected`. An impl may spell
+/// a trait method's receiver in any of the forms `docs/en-US/DYN_DESIGN.md`
+/// lists (`self : Self`, `inout(self) : Self`, ...): the call site adapts to
+/// the impl's own signature, and a Dyn vtable slot goes through a wrapper.
+/// Every OTHER parameter's mode is part of the member's type
+/// (plans/reference/TYPE_IDENTITY.md), so conformance compares those.
+_with_receiver_mode_of :: (fn(actual : TypeValue, expected : TypeValue) -> TypeValue)(
+  match(
+    actual,
+    .Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts }) => match(
+      expected,
+      .Func({ meta : emeta }) => cond(
+        ((match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) && (match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false))) => {
+          m := ameta.*.clone();
+          refs := ArrayList(bool).new();
+          owns := ArrayList(bool).new();
+          (ri : usize) = usize(0);
+          while(ri < apts.len(), {
+            src_meta := if(ri == usize(0), emeta, ameta);
+            refs.push(match(src_meta.*.param_is_ref.get(ri), .Some(b) => b, .None => false));
+            owns.push(match(src_meta.*.param_is_owning.get(ri), .Some(b) => b, .None => false));
+            ri = (ri + usize(1));
+          });
+          m.param_is_ref = refs;
+          m.param_is_owning = owns;
+          TypeValue.Func(afts, apts, aits, awts, aret, box(m), avts)
+        },
+        true => actual
+      ),
+      _ => actual
+    ),
+    _ => actual
+  )
+);
 _c3_eval_colon_pair :: (
   fn(
     meth_expr : AstExpr,
@@ -3272,7 +3306,7 @@ _c3_eval_colon_pair :: (
         .Some(conf_tt) => match(
           expected_method_ty_resolved,
           .None => (),
-          .Some(conf_exp) => if((((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0))) && !(is_type_hierarchy_type(conf_exp))) && !(are_types_compatible(fi.ty, conf_exp)), {
+          .Some(conf_exp) => if((((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0))) && !(is_type_hierarchy_type(conf_exp))) && !(are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp)), {
             exn.throw(
               dyn(
                 format_error_message(

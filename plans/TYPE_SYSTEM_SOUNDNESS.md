@@ -64,7 +64,7 @@ program that passes both `check` and `compile`:
 | --- | --- | --- |
 | `(y : Value(bool)) = Value(i32).IntVal(77)` then `eval_value(y)` | prints `77` from a `bool` | `issues/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md` |
 | move an `ArrayList` into an `own` param inside a `while` | use-after-free, prints garbage | `issues/moving-a-variable-inside-a-loop-body-is-not-rejected.md` |
-| call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/inout-call-through-a-fn-value-loses-the-mutation.md` |
+| call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md` |
 | push to a module-global `ArrayList` from two threads | data race, contract failure | `issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md` |
 | `Iso` a wrapper whose interior is aliased | data race | `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
 | `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
@@ -393,6 +393,12 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
 5. **Param modes are part of fn types.** The evaluator distinguishes `fn(inout(x) : T)`,
    `fn(own(x) : T)` and `fn(x : T)`, completing Phase 1.9's codegen half
    (`inout-call-through-a-fn-value-loses-the-mutation`).
+
+   **Landed 2026-09-25.** Both relations in `src/types/compatibility.yo` compare every parameter's
+   `inout`/`own` flag, `-> inout(T)` and the implicit parameters; `type_to_string` prints the modes,
+   which also makes them part of a fn type's codegen key. Impl conformance keeps the receiver's
+   form free (`_with_receiver_mode_of`, `src/evaluator/values/impl.yo`), because the prelude and
+   std implement `inout(self)` trait members with by-value receivers and Dyn wrappers adapt them.
 6. **A bottom type.** Add `never`, the join identity for arms. Type `return`, `unwind`,
    `__yo_panic`, `std/assert.panic` and `exit` with it
    (`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type`).
