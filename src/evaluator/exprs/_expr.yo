@@ -124,6 +124,7 @@ import("std/fmt");
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_INCR_RC_ATOMIC,
   BF_YO_ISO_EXTRACT,
+  BF_YO_ISO_UNIQUE,
   BF_YO_ISO_DISPOSE,
   BF_YO_DROP_ARRAY_ELEMENT,
   BF_YO_DUP_ARRAY_ELEMENT,
@@ -384,6 +385,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
   evaluate_yo_incr_rc_atomic,
   evaluate_yo_iso_dispose,
   evaluate_yo_iso_extract,
+  evaluate_yo_iso_unique,
   evaluate_yo_rc_own,
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup
@@ -1116,6 +1118,8 @@ _evaluate_expression :: (
           evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
         ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT, .None)) =>
           evaluate_yo_iso_extract(expr, env, ctx, exn),
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_UNIQUE, .None)) =>
+          evaluate_yo_iso_unique(expr, env, ctx, exn),
         ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE, .None)) =>
           evaluate_yo_iso_dispose(expr, env, ctx, exn),
         ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>

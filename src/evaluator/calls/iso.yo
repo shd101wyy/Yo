@@ -18,9 +18,10 @@ pragma(Pragma.AllowUnsafe);
 { Variable, Environment, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, get_all_some_types } :: import("../../types/utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { set_variable_as_consumed } :: import("../builtins/consume.yo");
@@ -149,6 +150,42 @@ evaluate_iso_type_call :: (
       )
     );
   });
+  // Rule D2 (plans/reference/PARALLELISM_RULES.md): `Iso(T)` hands a UNIQUE
+  // reference graph to another thread, so `T` must be a non-atomic
+  // reference-counted OBJECT — the Iso holds its handle and releases it with
+  // `__yo_decr_rc` (a scalar there dereferenced the integer and a value struct
+  // is not a handle at all:
+  // issues/fixed/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md).
+  // An atomic object (Iso(Arc) is rejected above) and another Iso are already
+  // sendable as they are. Only a
+  // concrete `T`: the prelude's own `impl(generic(T), Iso(T), ...)` builds
+  // `Iso(T)` over a type variable.
+  if(get_all_some_types(child_type).len() == usize(0), {
+    if(is_iso_type(child_type), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Iso(Iso(T)) is not allowed: an Iso is already a unique, sendable handle — send it directly.`
+          )
+        )
+      );
+    });
+    child_is_object := (is_reference_struct_type(child_type) || is_reference_enum_type(child_type));
+    if(!child_is_object || (is_atomic_reference_struct_type(child_type) || is_atomic_reference_enum_type(child_type)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            cond(
+              !child_is_object => `Iso(${type_to_string(child_type)}) is not allowed: Iso isolates a reference-counted OBJECT (a ref struct or ref enum — ArrayList, HashMap, Box, a user ref(struct)) so it can move to one other thread, and ${type_to_string(child_type)} is not one. A value type is copied on send — pass it directly, or put it in a Box.`,
+              true => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Send) — send it directly.`
+            )
+          )
+        )
+      );
+    });
+  });
   // Create the Iso type.
   iso_type := t_iso(child_type);
   // Phase 2bd deferred: addRcFunctionsToIsoType — generates atomic dispose/drop/dup
@@ -235,6 +272,21 @@ evaluate_iso_value_call :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
+  // Rule D2: the raw constructor checks aliasing only for a named variable and
+  // nothing inside the value, so safe code constructs an Iso with `^v`, whose
+  // runtime walk proves the whole graph unique
+  // (issues/fixed/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md).
+  // The `^` expansion itself calls this constructor from the prelude.
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `\`Iso(T)(value)\` is not available in safe code: it cannot see whether anything else still references the value's interior. Construct an Iso with \`^value\` instead — it returns .None unless the whole reference graph is uniquely owned.`
+        )
+      )
+    );
+  });
   iso_child_type := match(
     iso_type,
     .IsoT(child_box) => child_box,

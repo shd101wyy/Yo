@@ -990,7 +990,11 @@ typedef struct __yo_ref_header_t {
   // below is a strict PREFIX of this one: __yo_decr_rc reads flags and
   // dispose_fn at the same offsets for both layouts, branch-free.
   void (*dispose_fn)(void*);
-  void (*traverse_fn)(void*, void (*visit)(void*));
+  // The visitor receives each managed child AND that child's own traverse
+  // function (` void *
+        `, NULL when none was generated), so a walker that is not
+  // the collector — the Iso uniqueness walk — can descend without a header.
+  void (*traverse_fn)(void*, void (*visit)(void*, void*));
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)

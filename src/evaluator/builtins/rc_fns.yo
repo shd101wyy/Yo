@@ -4,7 +4,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_bool } :: import("../../types/creators.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set
 } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
-{ is_array_type, is_iso_type, is_tuple_type } :: import("../../types/guards.yo");
+{ is_array_type, is_iso_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -275,6 +275,40 @@ evaluate_yo_iso_extract :: (
   expr
 });
 // ---------------------------------------------------------------------------
+// iso_unique: 1-arg -> bool (rule D2's construction-time walk)
+// ---------------------------------------------------------------------------
+/// `__yo_iso_unique(v)` — true iff every non-atomic object reachable from the
+/// reference object `v` (itself included) has `ref_count == 1`. Called by the
+/// `^` macro before it wraps `v` in an `Iso`. The argument is read in place
+/// (no dup), so a uniquely held `v` reads as count 1.
+evaluate_yo_iso_unique :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  info := _eval_arg("evaluate_yo_iso_unique", expr, env, ctx, usize(0), exn);
+  arg_type := info.ty;
+  if(!(is_reference_struct_type(arg_type) || is_reference_enum_type(arg_type)), {
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `__yo_iso_unique expects a reference object, but got: ${type_to_string(arg_type)}`
+        )
+      )
+    );
+  });
+  out := new_expr_info(info.env, t_bool());
+  out.value = .None;
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr
+});
+// ---------------------------------------------------------------------------
 // 2-arg -> unit functions
 // ---------------------------------------------------------------------------
 evaluate_yo_drop_array_element :: (
@@ -408,6 +442,7 @@ export(
   evaluate_yo_incr_rc_atomic,
   evaluate_yo_iso_dispose,
   evaluate_yo_iso_extract,
+  evaluate_yo_iso_unique,
   evaluate_yo_rc_own,
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup
