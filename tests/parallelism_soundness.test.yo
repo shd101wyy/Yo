@@ -541,6 +541,23 @@ comptime_expect_error({
   });
   _d9_dyn_fn_send();
 });
+// A `Dyn(..., Send)` shares its data object across threads, so the object is
+// counted atomically: `dyn(...)` boxes a closure with `arc`, and an explicit
+// non-atomic `box(...)` payload is rejected
+// (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+comptime_expect_error({
+  _dsend_box :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ();
+      }
+    );
+    (d : Dyn(Fn() -> unit, Send)) = dyn(box(k));
+    d;
+  });
+  _dsend_box();
+}, "must be atomically reference counted");
 // Canary: function values whose code reaches only atomics cross threads by
 // every route above — a named spawn body, a capture-free closure through a
 // generic bound and an `Impl(Fn, Send)` parameter, a captured closure, a
@@ -619,6 +636,32 @@ _d9_tick :: (fn() -> unit)({
 });
 _d9_take_own :: (fn(own(cb) : Impl(Fn() -> unit)) -> unit)({
   cb();
+});
+// Canary for the atomic Dyn box: one `Dyn(Fn, Send)` held by two threads at
+// once and by the spawning thread; every copy retains and releases the same
+// box. TSan (scripts/tsan-thread-corpus.sh) reported the
+// plain-box version as a race on the box's reference count.
+(dsend_hits : AtomicI32) = AtomicI32.new(i32(0));
+test("a Dyn(Fn, Send) shared by two threads and the spawner", {
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      dsend_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  (d : Dyn(Fn() -> unit, Send)) = dyn(k);
+  ta := Thread(unit).spawn((io : Io) => {
+    d();
+    ()
+  });
+  tb := Thread(unit).spawn((io : Io) => {
+    d();
+    ()
+  });
+  d();
+  ta.join();
+  tb.join();
+  assert(dsend_hits.load(MemoryOrder.Acquire) == i32(3), "both threads and the spawner called the closure");
 });
 test("a named function passed to an own parameter stays usable", {
   _d9_take_own(_d9_tick);
