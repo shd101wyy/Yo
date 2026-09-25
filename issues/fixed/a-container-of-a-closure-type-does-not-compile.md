@@ -56,6 +56,11 @@ is:
 4. **Generic calls.** `_resolve_some_types_deep` substituted a nested `T` (`*(T)`) only with a
    non-SomeT binding, so `GcTracer.visit(slot : *(T))` kept `*(T)`. The synthesizer's
    both-SomeT case treated `T := <k1's Impl>` as unbound and rebound it to `<k2's Impl>`.
+5. **The synthesizer's env.** Unifying `value : T` with a closure's wrapper wrote the wrapper into
+   the caller's env as a type variable. The env is keyed by name, and every closure's wrapper is
+   named `Impl`. So after `l1.push(k1)`, the lookup of any later closure's wrapper found k1's
+   capture struct: `l2.push(k2)`, for a k2 with other captures, failed with "Cannot unify
+   incompatible struct types" at `k2`.
 
 ## Fix
 
@@ -74,6 +79,8 @@ because an extern future lowers to a pointer.
   the receiver is keyed by.
 - `_resolve_some_types_deep` substitutes a nested closure identity. The synthesizer treats one
   as bound and unifies two through their resolutions, so `l1.push(k2)` fails at the argument.
+  A closure identity's value is its own cell: the synthesizer neither reads it from the env nor
+  binds it there, and unifies it with the other side through its capture struct.
 - The chain walk `resolve_cell_chain` moved from `compatibility.yo` to `types/utils.yo` and is
   shared.
 
@@ -103,9 +110,10 @@ What the rule touched on the way:
   - "a container of a closure type compiles and calls the closure", an `ArrayList` of a
     capturing closure;
   - "a generic's static -> Self constructor at a closure type";
-  - "two closures' lists are two types, one per closure".
+  - "two closures' lists are two types, one per closure";
+  - "a second closure's list after the first list's push", closures of different capture shapes.
 
-  All three failed before the fix.
+  All four failed before the fix.
 - `tests/parallelism_soundness.test.yo`: the D9 canary's sixth route, an `Iso` over a list of
   clean closures run on a thread.
 - `tests/cli-cases/check-closure-pushed-into-another-closures-list`: `check` rejects

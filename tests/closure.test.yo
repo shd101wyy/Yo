@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { Channel } :: import("std/sync/channel");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 { printf } :: import("std/libc/stdio.yo");
 MyBox :: ref(
   struct(
@@ -380,4 +381,30 @@ test("two closures' lists are two types, one per closure", {
   match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
   match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
   assert(hits.load(MemoryOrder.Acquire) == i32(11), "each list called its own closure");
+});
+// Two closures of different capture shapes: the first list's push must not
+// leave a binding that types the second closure as the first's capture struct.
+test("a second closure's list after the first list's push", {
+  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  a := i32(1);
+  s := String.from("abc");
+  (k1 : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(a, MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  l1 := ArrayList(typeof(k1)).new();
+  l1.push(k1);
+  (k2 : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(i32(s.len()), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  l2 := ArrayList(typeof(k2)).new();
+  l2.push(k2);
+  match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
+  match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
+  assert(hits.load(MemoryOrder.Acquire) == i32(4), "each list called its own closure");
 });
