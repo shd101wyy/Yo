@@ -2195,4 +2195,18 @@ unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : Array
   hint := match(suggest_name(label.clone(), fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
   `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message);
+/// `Enum variant "Purple" not found in enum Color. Its variants: Red, Green.`
+/// — the E0402 message names the enum and what it has.
+unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants : ArrayList(String)) -> String)({
+  list := String.new();
+  (vi : usize) = usize(0);
+  while(vi < variants.len(), {
+    if(vi > usize(0), {
+      list.push_str(", ");
+    });
+    list.push_string(match(variants.get(vi), .Some(v) => v, .None => String.new()));
+    vi = (vi + usize(1));
+  });
+  `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
+});
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_variant_message);

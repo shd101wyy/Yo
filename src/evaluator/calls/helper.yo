@@ -179,7 +179,8 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ E_ARGUMENT_LABEL_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -680,9 +681,12 @@ strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception
   if(param_label.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(cl_label_expr),
-          String.from("Named argument call is not allowed for this parameter (it has no label).")
+        with_code(
+          format_error_message(
+            ast_expr_token(cl_label_expr),
+            `The parameter at this position has no label, so its argument cannot be labeled "${cl_label}".`
+          ),
+          E_ARGUMENT_LABEL_MISMATCH
         )
       )
     );
@@ -690,9 +694,12 @@ strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception
   if(param_label != cl_label, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(cl_label_expr),
-          `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`
+        with_code(
+          format_error_message(
+            ast_expr_token(cl_label_expr),
+            `Argument label "${cl_label}" does not match the parameter "${param_label}" at this position. Labels document a call and never reorder it: pass the arguments in declaration order.`
+          ),
+          E_ARGUMENT_LABEL_MISMATCH
         )
       )
     );

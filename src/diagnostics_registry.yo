@@ -48,6 +48,7 @@ json :: import("std/encoding/json");
   E_CONFLICTING_IMPL,
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
+  E_ARGUMENT_LABEL_MISMATCH,
   E_NEVER_FULLY_EVALUATED,
   E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
@@ -351,8 +352,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "参数数量不匹配",
       "The call passes a different number of arguments than the callee takes.",
       "调用传入的参数数量与被调用方不一致。",
-      "The message shows `expected N, got M` against the resolved callee. Optional arguments are not a Yo feature — wrap the variations in separate functions or pass an options struct. For closures note that the count includes every parameter, including the receiver for methods.",
-      "错误信息会针对解析到的被调用方显示 `expected N, got M`。Yo 没有可选参数 —— 请把变体拆成独立函数，或传入选项结构体。注意计数包括所有参数（方法的计数含接收者）。",
+      "The message shows `expected N, got M` against the resolved callee, or names the one missing field of a constructor call (`P(x : 1)` for a `P` with fields `x` and `y`). Only a parameter or field declared with a default (`(x : T) ?= v`) may be left out. For closures note that the count includes every parameter, including the receiver for methods.",
+      "错误信息会针对解析到的被调用方显示 `expected N, got M`，或指出构造器调用缺少的那个字段（`P` 有字段 `x` 和 `y` 时的 `P(x : 1)`）。只有声明了默认值的参数或字段（`(x : T) ?= v`）可以省略。注意计数包括所有参数（方法的计数含接收者）。",
       "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2), i32(3));\n",
       "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2));\n",
       "`f` takes two arguments; three were passed.",
@@ -642,6 +643,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));\nCat :: ref(struct(n : i32));\nimpl(Cat, Sp(speak : (self -> self.n), me : (self -> self)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  n := d.speak();\n});\n",
       "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
       "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_LABEL_MISMATCH,
+      "argument label does not match the parameter",
+      "实参标签与形参不符",
+      "An argument's label names a different parameter than the one at its position.",
+      "实参的标签指向的形参不是它所在位置的那个。",
+      "Arguments are positional. A label (`f(x : 1, y : 2)`) documents which parameter an argument is for and is checked against the parameter at that position; it never reorders the call. Pass the arguments in declaration order with their own labels, or drop the labels. A parameter declared without a label takes an unlabeled argument.",
+      "实参是按位置传递的。标签（`f(x : 1, y : 2)`）说明实参对应哪个形参，并与该位置上的形参核对；它从不改变参数顺序。请按声明顺序传参并写对应的标签，或者去掉标签。没有标签的形参只接受不带标签的实参。",
+      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(y : i32(2), x : i32(1));\n",
+      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(x : i32(1), y : i32(2));\n",
+      "The first parameter is `x`; the label `y` does not move the argument to `y`.",
+      "第一个形参是 `x`；标签 `y` 不会把实参挪到 `y`。"
     )
   );
   out

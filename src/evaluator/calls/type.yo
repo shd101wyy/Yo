@@ -38,6 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, copy_frames } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ same_name_note } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -46,7 +47,8 @@ pragma(Pragma.AllowUnsafe);
 { TypeField } :: import("../types/field.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, with_code } :: import("../../error.yo");
+{ E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
@@ -327,11 +329,16 @@ try_to_call_type_with_arguments :: (
           `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(member_element.ty)} got=${type_to_string(arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(av), .None => String.from("<none>"))}`
         );
       });
+      // The same mistake as an argument that does not fit its parameter,
+      // so the same code (E0601), whatever the message says.
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(actual_arg_expr),
-            `Type mismatch for type member "${member_element.label}":\nExpected: ${type_to_string(member_element.ty)}\nGot:   ${type_to_string(arg_type)}`
+          with_code(
+            format_error_message(
+              ast_expr_token(actual_arg_expr),
+              `Incompatible types for field "${member_element.label}":\n- Expected: ${type_to_string(member_element.ty)}\n- Given  : ${type_to_string(arg_type)}${same_name_note(member_element.ty, arg_type)}`
+            ),
+            E_INCOMPATIBLE_TYPES
           )
         )
       );
@@ -363,8 +370,9 @@ try_to_call_type_with_arguments :: (
               // `// Failed to transpile`. Guarded like helper.yo's overload
               // re-raise: skip during checking-phase trials and cee-propagate
               // mode, and when a flag is already pending.
-              mf_msg := `Type member "${field.label}" is not provided and has no default value or assigned value.`;
-              raise_flow_violation(format_error_message(ast_expr_token(function_callee_expr), mf_msg), ctx, exn);
+              // One argument too few: the arity family (E0603).
+              mf_msg := `Missing field "${field.label}" in the call to ${ast_expr_to_string(function_callee_expr)}: the field has no default value.`;
+              raise_flow_violation(with_code(format_error_message(ast_expr_token(function_callee_expr), mf_msg), E_ARGUMENT_COUNT_MISMATCH), ctx, exn);
             }, {
               // Use default or assigned value.
               default_val := cond(

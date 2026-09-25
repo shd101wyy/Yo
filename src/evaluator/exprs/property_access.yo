@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_variant_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -491,7 +491,7 @@ evaluate_property_access :: (
                   dyn(
                     format_error_message_with_help(
                       ast_expr_token(prop_expr_1),
-                      `Enum variant "${variant_name_1}" not found in enum`,
+                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(exp_ctx_1.ty), en_vnames_1),
                       match(
                         suggest_name(variant_name_1, en_vnames_1),
                         .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
@@ -978,7 +978,7 @@ Raw pointer operations may dereference invalid memory.`
                 dyn(
                   format_error_message_with_help(
                     ast_expr_token(property_expr),
-                    `Enum variant "${variant_name_tv}" not found in enum`,
+                    unknown_variant_message(variant_name_tv.clone(), type_val_inner, tv_en_vnames),
                     match(
                       suggest_name(variant_name_tv, tv_en_vnames),
                       .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
