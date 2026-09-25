@@ -904,8 +904,21 @@ _compat_impl :: (
               || (((ecfid.len() > usize(0)) && (acfid.len() == usize(0))) && (aname.len() > usize(0)))
             )
           ) => false,
-          (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
-          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
+          // One declaration (or an era of it): the type-argument check above
+          // already told its instantiations apart.
+          (aid == eid) => true,
+          // Two DIFFERENT declarations are one type under the lenient rule
+          // only when their shapes agree. An empty name used to be a
+          // wildcard and an equal name a pass, so an anonymous record with
+          // other fields flowed into a named struct, and two modules' `P`
+          // with different fields were interchangeable
+          // (issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md).
+          // The kind is part of the shape: a value struct, a `ref` object, an
+          // atomic object and a `newtype` are four different things. A side
+          // still carrying a SomeT is a def-time placeholder and keeps the
+          // structural comparison below.
+          ((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) && (((aref != eref) || (aatomic != eatomic)) || (anew != enew))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
+          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && ((((aname != ename) && (aname.len() > usize(0))) && (ename.len() > usize(0))) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
           (alabels.len() != elabels.len()) => false,
           true => {
             vkey_ne := ((aid + String.from("=>ne")) + eid);
@@ -1034,6 +1047,16 @@ _compat_impl :: (
         // closure's cached Box instantiation ("passing __yo_t32 to parameter
         // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
         (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid),
+        // A NAMED declaration is never the same type as a different,
+        // anonymous one, however alike their fields: `A :: struct(x : i32)`
+        // and a `struct(x : i32)` expression. Treating them as one let the
+        // CTFE memo answer `Type.eq(A, B)` from an earlier
+        // `Type.eq(struct(x : i32), struct(x : i32))`, and hand `Wrap(A)` the
+        // `Wrap(struct(x : i32))` instance
+        // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
+        // Limited to non-generic declarations: an instantiation's unstamped
+        // copy may legitimately be nameless.
+        (((((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0)))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0)))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid + String.from("=>")) + eid);
@@ -1158,7 +1181,23 @@ _compat_impl :: (
               });
               vp_differ
             }) => false,
-            true => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))
+            // One declaration, or two with the same shape: an empty name is
+            // no longer a wildcard — `enum(Blue)` is not an `E1 :: enum(Red,
+            // Green)` — so different declarations must agree on their variant
+            // names (payloads were compared just above).
+            (aid == eid) => true,
+            (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
+            true => ({
+              (vn_same : bool) = (avns.len() == evns.len());
+              (vni : usize) = usize(0);
+              while((vni < avns.len()) && vn_same, {
+                if(match(avns.get(vni), .Some(a) => a, .None => ``) != match(evns.get(vni), .Some(e) => e, .None => ``), {
+                  vn_same = false;
+                });
+                vni = (vni + usize(1));
+              });
+              vn_same
+            })
           ),
           // Nominal REJECT (exact only): two DECLARED enums with different
           // names are different types however alike their variants are. The
@@ -1220,9 +1259,30 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    .Union(aname, _, _) => match(
+    // A union's name is its id (`union_<n>`, renamed by its binding), so equal
+    // names are one declaration; they must still agree on their fields, which
+    // used to be ignored.
+    .Union(aname, alabels, atypes) => match(
       expected,
-      .Union(ename, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+      .Union(ename, elabels, etypes) => cond(
+        !((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))) => false,
+        (alabels.len() != elabels.len()) => false,
+        true => {
+          (u_ok : bool) = true;
+          (ui : usize) = usize(0);
+          while((ui < alabels.len()) && u_ok, {
+            if(match(alabels.get(ui), .Some(a) => a, .None => ``) != match(elabels.get(ui), .Some(e) => e, .None => ``), {
+              u_ok = false;
+            }, {
+              if(!(recur(match(atypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), match(etypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), require_exact, visited)), {
+                u_ok = false;
+              });
+            });
+            ui = (ui + usize(1));
+          });
+          u_ok
+        }
+      ),
       _ => false
     ),
     // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural.
@@ -1413,6 +1473,27 @@ _compat_impl :: (
               j = (j + usize(1));
             });
             i = (i + usize(1));
+          });
+          // Identity is the exact trait SET: every actual trait must be
+          // expected too, so `Dyn(A, B)` is not `Dyn(A)` to the CTFE memo or
+          // `Type.eq` (the lenient rule keeps the subset direction above).
+          if(require_exact, {
+            (xi : usize) = usize(0);
+            while(xi < artt.len(), {
+              xat := match(artt.get(xi), .Some(v) => v, .None => TypeValue.Unit);
+              (xfound : bool) = false;
+              (xj : usize) = usize(0);
+              while((xj < ertt.len()) && !(xfound), {
+                if(recur(match(ertt.get(xj), .Some(v) => v, .None => TypeValue.Unit), xat, true, visited), {
+                  xfound = true;
+                });
+                xj = (xj + usize(1));
+              });
+              if(!(xfound), {
+                return(false);
+              });
+              xi = (xi + usize(1));
+            });
           });
           true
         },
