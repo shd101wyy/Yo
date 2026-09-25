@@ -37,7 +37,7 @@ import("std/fmt");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
-{ fields_have_incompatible_contexts } :: import("../../types/utils.yo");
+{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
 { is_iso_type, register_type_decl_module } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
@@ -189,6 +189,14 @@ evaluate_struct_type :: (
           )
         )
       );
+    });
+    // A reference (or atomic) object outlives any one frame, so it cannot
+    // hold a `ctl` handler: the handler unwinds into the frame that installed
+    // it, which is gone by the time a later caller invokes it through the
+    // object (issues/fixed/ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md).
+    // A value struct holding one is itself control-bound and cannot escape.
+    if((force_reference_semantics || is_atomic_rc) && !field.is_comptime && type_is_control_bound(field.ty), {
+      exn.throw(dyn(format_error_message(ast_expr_token(arg), control_bound_field_message(field.label, field.ty))));
     });
     field_labels.push(field.label.clone());
     field_types.push(field.ty);

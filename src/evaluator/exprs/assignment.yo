@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
@@ -1120,6 +1120,30 @@ evaluate_assignment :: (
       );
     });
     register_thread_local(tl_tok.module_path.clone(), variable_name.clone());
+  });
+  // §4 escape boundary 2 for the typed form `(g : T) = init` at module level
+  // (the `:=` form is checked in initialization_assignment.yo): a module-level
+  // binding outlives every call frame, so it cannot hold a `ctl` handler —
+  // one invoked later would unwind into a frame that no longer exists
+  // (issues/fixed/module-level-control-bound-binding-not-rejected.md).
+  if(is_typed_binding_lhs, {
+    mcb_vars := get_variables_from_env(env, variable_name.clone());
+    match(
+      mcb_vars.get(mcb_vars.len() - usize(1)),
+      .Some(mcb_v) => if(mcb_v.is_module_level && type_is_control_bound(mcb_v.ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(lhs_resolved),
+              `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+
+Bound type: ${type_to_string(mcb_v.ty)}`
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
   });
   // Disallow reassignment to "_"
   if(variable_name == "_", {

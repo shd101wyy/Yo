@@ -644,6 +644,10 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
   _type_is_control_bound_inner(ty, u32(0))
 );
+/// The error for a control-bound field of a reference or atomic type.
+control_bound_field_message :: (fn(label : String, ty : TypeValue) -> String)(
+  `Field "${label}" of a reference type cannot hold ${type_to_string(ty)}: it is (or contains) a \`ctl\` handler, which unwinds into the frame that installed it. A reference object outlives that frame, so a later call through the object would unwind into a frame that no longer exists. Pass the handler as an argument instead, or keep it in a value struct.`
+);
 /// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
 _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
   (i : usize) = usize(0);
@@ -2209,4 +2213,4 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_variant_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_variant_message, control_bound_field_message);
