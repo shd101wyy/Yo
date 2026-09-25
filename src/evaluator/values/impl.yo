@@ -932,15 +932,17 @@ _bind_forall_from_type_args :: (
                   eprintln(`[cellwalk] fa=${fa_name} walked=${cw_ids} res=${cw_res}`);
                 };
               });
-              // Bind what the RECEIVER is keyed by (`_tk_resolve_arg_slot`).
-              // A dyn-coercion (nameless) wrapper on the chain is an identity
-              // of its own: `type_key` keys `G(<wrapper>)` by that SomeT, and
-              // binding `T` to the capture struct behind it would make every
-              // `G(T)` / `Self` the method re-evaluates name a SECOND instance
+              // Bind the slot itself when it is a type in its own right: a
+              // closure identity (`is_bound_closure_identity`), which keeps
+              // the closure visible to rule D9 (its capture struct alone says
+              // nothing about what its code reaches), or a SomeT `type_key`
+              // keys by its own id (a dyn-coercion wrapper), where binding the
+              // concrete behind it would make every `G(T)` / `Self` the method
+              // re-evaluates name a SECOND instance
               // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
               // A chain `type_key` hops keys as the concrete type, so binding
               // the concrete names the same instance.
-              if(is_some_type(_tk_resolve_arg_slot(ct)),
+              if(is_bound_closure_identity(ct) || is_some_type(_tk_resolve_arg_slot(ct)),
               {
                 return(Option(TypeValue).Some(ct));
               });

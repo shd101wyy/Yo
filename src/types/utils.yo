@@ -1420,6 +1420,12 @@ resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
   });
   if(is_some_type(cur), t_in, cur)
 });
+/// A closure's capture struct (`capture_<hash>`, evaluator/utils/closure.yo):
+/// the layout of one closure literal's captured state, and, through closure
+/// identity, that closure's type.
+is_closure_capture_struct :: (fn(t : TypeValue) -> bool)(
+  match(t, .Struct({ id : ccs_id }) => ccs_id.starts_with("capture_"), _ => false)
+);
 /// A closure's own type used as a type: an annotation wrapper (the reserved
 /// name "Impl", builtins/impl_constraint.yo) whose resolution chain reaches a
 /// concrete type, e.g. `(k : Impl(Fn() -> unit))` resolved to k's capture
@@ -1436,11 +1442,36 @@ is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .SomeT({ name : bci_nm, required_trait_types : bci_rtt }) => (
-      (bci_nm == "Impl") && !_any_future_trait(bci_rtt) && type_somes_all_resolve_concrete(t)
+      (bci_nm == "Impl") && !_any_future_trait(bci_rtt) && _resolves_to_concrete_type(t)
     ),
     _ => false
   )
 );
+/// The chain ends at a non-SomeT type whose own SomeTs are concrete too: each
+/// is an extern opaque type (a captured `AtomicI32`'s `atomic_int`, which has
+/// no resolution cell and needs none) or resolves to a non-SomeT type.
+_resolves_to_concrete_type :: (fn(t : TypeValue) -> bool)({
+  rtc_term := resolve_cell_chain(t);
+  if(is_some_type(rtc_term), {
+    return(false);
+  });
+  rtc_somes := get_all_some_types(rtc_term);
+  (rtc_i : usize) = usize(0);
+  while(rtc_i < rtc_somes.len(), {
+    match(
+      rtc_somes.get(rtc_i),
+      .Some(rtc_s) => {
+        rtc_extern := match(rtc_s, .SomeT({ name : rtc_nm }) => is_extern_type_name(rtc_nm), _ => false);
+        if(!rtc_extern && is_some_type(resolve_cell_chain(rtc_s)), {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    rtc_i = (rtc_i + usize(1));
+  });
+  true
+});
 _any_future_trait :: (fn(tys : ArrayList(TypeValue)) -> bool)({
   (aft_i : usize) = usize(0);
   while(aft_i < tys.len(), {
@@ -2187,6 +2218,7 @@ export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_has_no_open_some);
 export(is_bound_closure_identity);
+export(is_closure_capture_struct);
 export(resolve_cell_chain);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);

@@ -61,7 +61,7 @@
   register_struct_fields
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_type, is_closure_capture_struct } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -228,15 +228,26 @@ _declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)
 /// the only handle a type-level judgement (`Channel(typeof(k))`, a generic
 /// binder bound to `k`'s type) has on the closure behind the type.
 (g_closure_fids_by_some : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+/// The closures behind each capture struct, by the struct's id. Identity
+/// treats a closure identity as its capture struct
+/// (plans/reference/TYPE_IDENTITY.md), so a type argument can hold the bare
+/// struct (`ArrayList(T)` with `T` bound through the wrapper's resolution),
+/// and a capture-free closure's struct has no fields at all: judged as a
+/// struct, it would be `Send` whatever its code reaches.
+(g_closure_fids_by_capture : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
 _some_id_of :: (fn(ty : TypeValue) -> String)(
   match(ty, .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => sid, _ => String.new())
 );
-_note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)({
+_capture_id_of :: (fn(ty : TypeValue) -> String)(
+  if(is_closure_capture_struct(ty), match(ty, .Struct({ id : cid }) => cid, _ => String.new()), String.new())
+);
+_note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)(_note_fid_in(g_closure_fids_by_some, sid, fid));
+_note_fid_in :: (fn(registry : HashMap(String, ArrayList(String)), sid : String, fid : String) -> unit)({
   if(sid.is_empty(), {
     return(());
   });
   match(
-    g_closure_fids_by_some.get(sid.clone()),
+    registry.get(sid.clone()),
     .Some(fids) => {
       (seen : bool) = false;
       (fi : usize) = usize(0);
@@ -253,7 +264,7 @@ _note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)({
     .None => {
       fids := ArrayList(String).new();
       fids.push(fid);
-      g_closure_fids_by_some.insert(sid, fids);
+      registry.insert(sid, fids);
     }
   );
 });
@@ -275,7 +286,7 @@ alias_closure_some_id :: (fn(new_id : String, of_id : String) -> unit)({
   );
 });
 _is_function_like :: (fn(ty : TypeValue) -> bool)(
-  (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || is_function_type(ty)
+  (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || is_function_type(ty) || is_closure_capture_struct(ty)
 );
 /// Each closure's captured state judged per marker, taken where the closure is
 /// created — per captured VARIABLE, with the captured values as witnesses, so
@@ -324,8 +335,14 @@ _captures_offense :: (
 });
 /// Record closure `fid`'s capture verdicts (`Send`, `Acyclic`) at its creation.
 record_closure_capture_verdicts :: (
-  fn(fid : String, cvwv : Option(HashMap(String, FuncCapturedVarInfo)), env : Environment, ctx : EvalContext) -> unit
+  fn(fid : String, cvwv : Option(HashMap(String, FuncCapturedVarInfo)), capture_ty : Option(TypeValue), env : Environment, ctx : EvalContext) -> unit
 )({
+  // The capture struct names this closure too (`g_closure_fids_by_capture`).
+  match(
+    capture_ty,
+    .Some(rcv_ct) => _note_fid_in(g_closure_fids_by_capture, _capture_id_of(rcv_ct), fid.clone()),
+    .None => ()
+  );
   match(
     cvwv,
     .Some(cv) => {
@@ -508,6 +525,33 @@ function_value_marker :: (
       .None => ()
     );
     fi = (fi + usize(1));
+  });
+  want_cap := _capture_id_of(ty);
+  if(!want_cap.is_empty(), {
+    match(
+      g_closure_fids_by_capture.get(want_cap),
+      .Some(cfids) => {
+        (cci : usize) = usize(0);
+        while(cci < cfids.len(), {
+          match(
+            cfids.get(cci),
+            .Some(ccfid) => {
+              found = true;
+              match(
+                _function_value_offense(ccfid, Option(AstExpr).None, marker, env, ctx),
+                .Some(co) => {
+                  return(Option(Option(String)).Some(Option(String).Some(co)));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          cci = (cci + usize(1));
+        });
+      },
+      .None => ()
+    );
   });
   if(!want_id.is_empty(), {
     match(
