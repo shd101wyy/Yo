@@ -76,6 +76,7 @@ pragma(Pragma.AllowUnsafe);
   type_somes_all_resolve_concrete,
   type_requires_comptime_modifier,
   dyn_upcast_note,
+  same_name_note,
   type_contains_some_type_deep
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -811,7 +812,7 @@ check_argument_for_parameter :: (
   // (`comptime(n) : u8` given `300`); only the lowering below skips it.
   if(arg_is_comptime_lit && !(pt_is_comptime), {
     if(lit_concrete && !(are_types_compatible(arg_ty, resolved_pt)), {
-      _arg_rule_throw(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"`, ctx, exn);
+      _arg_rule_throw(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"${same_name_note(resolved_pt, arg_ty)}`, ctx, exn);
     });
     if(lit_concrete && is_comptime_int_type(arg_ty), {
       match(
@@ -1104,7 +1105,7 @@ ${ast_expr_to_string(actual_arg)}`
       dyn(
         format_error_message(
           ast_expr_token(actual_arg),
-          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}${dyn_upcast_note(final_pt, arg_type)}`
+          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}${dyn_upcast_note(final_pt, arg_type)}${same_name_note(final_pt, arg_type)}`
         )
       )
     );

@@ -51,7 +51,8 @@ import("std/fmt");
   is_reference_enum_type,
   is_dyn_type,
   is_extern_type_name,
-  is_unit_type
+  is_unit_type,
+  type_decl_module
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -2148,4 +2149,30 @@ dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
     _ => String.new()
   )
 );
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note);
+/// The declaration id of a struct / enum / union, for the note below.
+_decl_id_of :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ id : sid }) => sid.clone(),
+    .EnumT(eid, _, _, _, _, _, _, _, _) => eid.clone(),
+    .Union(uname, _, _) => uname.clone(),
+    _ => String.new()
+  )
+);
+/// The note a type mismatch appends when the two types PRINT the same but are
+/// different declarations — two modules' `P`, say: `Expected: "P"`, `Given:
+/// "P"` alone reads as a compiler bug (plans/reference/TYPE_IDENTITY.md).
+/// Names each side's declaring module; empty when the spellings differ.
+same_name_note :: (fn(expected : TypeValue, given : TypeValue) -> String)({
+  if(type_to_string(expected) != type_to_string(given), {
+    return(String.new());
+  });
+  e_mod := match(type_decl_module(_decl_id_of(expected)), .Some(m) => m, .None => String.new());
+  g_mod := match(type_decl_module(_decl_id_of(given)), .Some(m) => m, .None => String.new());
+  cond(
+    ((e_mod.len() > usize(0)) && (g_mod.len() > usize(0)) && (e_mod != g_mod)) =>
+      `\nThese are two different types with the same name: the expected one is declared in ${e_mod}, the given one in ${g_mod}.`,
+    true => String.from("\nThese are two different declarations with the same name.")
+  )
+});
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note);

@@ -566,11 +566,11 @@ _p31_enum_vs_enum :: Type.is_compatible_with(enum(Blue), _P31Colors);
 _p31_union_vs_union :: Type.is_compatible_with(union(a : i32), union(b : f64, c : u8));
 _p31_anon_same_fields :: Type.is_compatible_with(struct(x : i32), _P31Named);
 test("soundness: a name match or an anonymous side is not struct compatibility", {
-  comptime_expect_error(_p31_take(_P31b(s : true, t : f64(1.0))), "TODO");
+  comptime_expect_error(_p31_take(_P31b(s : true, t : f64(1.0))), "two different types with the same name");
   comptime_expect_error({
     r := { y : true, z : f64(2.5) };
     (a : _P31Named) = r;
-  }, "TODO");
+  }, "Incompatible types");
   assert(!_p31_anon_other_fields, "anonymous record with other fields vs a named struct");
   assert(!_p31_anon_vs_anon, "two anonymous records with different fields");
   assert(!_p31_newtype_vs_anon, "a newtype is nominal against an anonymous record");
