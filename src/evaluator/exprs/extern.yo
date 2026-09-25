@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
-{ Environment, Frame, new_frame, add_variable_to_env, invalidate_frame_index, copy_frames } :: import("../../env.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, copy_frames } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -273,10 +273,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });
-  if(scratch_frame.variables.len() > scratch_base, {
-    scratch_frame.variables.truncate(scratch_base);
-    invalidate_frame_index(scratch_frame);
-  });
+  frame_truncate_variables(scratch_frame, scratch_base);
   // The module value — see c_include.yo for the id scheme. An `extern`
   // module is not recorded as a c_include module: its globals are not
   // extern-C globals (no header, no reserved-name exemption).

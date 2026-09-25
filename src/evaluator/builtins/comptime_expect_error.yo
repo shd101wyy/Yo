@@ -21,7 +21,7 @@
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ Environment, Frame, invalidate_frame_index } :: import("../../env.yo");
+{ Environment, Frame, frame_truncate_variables } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
@@ -276,20 +276,12 @@ evaluate_comptime_expect_error :: (
       match(
         env.frames.get(rfv_i),
         .Some(rfv_f) => {
-          (rfv_popped : bool) = false;
-          while(rfv_f.variables.len() > rfv_saved, {
-            rfv_f.variables.pop();
-            rfv_popped = true;
-            ()
-          });
-          // A shrunk frame violates Frame.index_key's append-only contract —
-          // drop its name index so the next lookup rebuilds from the
-          // current list. This invalidation is what makes env.yo's
-          // g_frame_indexes size bound sound
+          // A fresh list, never an in-place pop: a closure the arg eval made may
+          // have captured a slice of this one (`CaptureSlice`, memory plan
+          // §0.14). The helper also drops the frame's name index, which is what
+          // makes env.yo's g_frame_indexes size bound sound
           // (issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md).
-          if(rfv_popped, {
-            invalidate_frame_index(rfv_f);
-          });
+          frame_truncate_variables(rfv_f, rfv_saved);
         },
         .None => ()
       );

@@ -66,7 +66,8 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   get_variables_from_env,
   mint_funcval_env_key,
-  register_funcval_cap_vars
+  register_funcval_cap_slices,
+  CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -1013,8 +1014,10 @@ evaluate_anonymous_function_implementation :: (
   cap_vals := ArrayList(EvalValue).new();
   // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md): the same walk also snapshots
   // the ORIGINAL Variable handles, so `capture_env_for` can build the call
-  // env by sharing them instead of re-minting one Variable per binding.
-  cap_vars := ArrayList(Variable).new();
+  // env by sharing them instead of re-minting one Variable per binding. They
+  // are recorded as slices of the frames' own lists (`CaptureSlice`, memory
+  // plan §0.14), not copied.
+  cap_slices := ArrayList(CaptureSlice).new();
   n_cap_fr := env.frames.len();
   (cap_fi : usize) = usize(0);
   while(cap_fi < n_cap_fr, {
@@ -1023,6 +1026,7 @@ evaluate_anonymous_function_implementation :: (
       .Some(cap_frame) => {
         n_cap_v := cap_frame.variables.len();
         (cap_vi : usize) = usize(0);
+        (cap_run_start : usize) = usize(0);
         while(cap_vi < n_cap_v, {
           match(
             cap_frame.variables.get(cap_vi),
@@ -1035,14 +1039,21 @@ evaluate_anonymous_function_implementation :: (
                     .None => EvalValue.VarRef(cv.name)
                   );
                   cap_vals.push(cap_val);
-                  cap_vars.push(cv);
                 },
-                true => ()
+                true => {
+                  if(cap_vi > cap_run_start, {
+                    cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : cap_vi));
+                  });
+                  cap_run_start = (cap_vi + usize(1));
+                }
               );
             },
             .None => ()
           );
           cap_vi = (cap_vi + usize(1));
+        });
+        if(n_cap_v > cap_run_start, {
+          cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : n_cap_v));
         });
       },
       .None => ()
@@ -1050,7 +1061,7 @@ evaluate_anonymous_function_implementation :: (
     cap_fi = (cap_fi + usize(1));
   });
   fv_env_key := mint_funcval_env_key();
-  register_funcval_cap_vars(fv_env_key, cap_vars);
+  register_funcval_cap_slices(fv_env_key, cap_slices);
   // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------

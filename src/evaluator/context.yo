@@ -1425,19 +1425,22 @@ reset_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> unit)({
   // The walk's saved module frame — the live env may already have popped it
   // (the module finished), but the re-force re-binds through this very object.
   f := walk.module_frame;
-  // Backward: drain shifts the tail, and a def binds at most a handful of
-  // names (an extern block's members).
-  (vi : usize) = f.variables.len();
-  while(vi > usize(0), {
-    vi = (vi - usize(1));
+  // A FRESH list without the def's bindings, never an in-place drain: FuncVals
+  // defined in this module captured slices of the old list (`CaptureSlice`,
+  // memory plan §0.14), and a slice must not see its tail shift.
+  kept := ArrayList(Variable).with_capacity(f.variables.len());
+  (vi : usize) = usize(0);
+  while(vi < f.variables.len(), {
     match(
       f.variables.get(vi),
-      .Some(v) => if(_def_declares(def, v.name.clone()), {
-        f.variables.drain(vi .. (vi + usize(1)));
+      .Some(v) => if(!(_def_declares(def, v.name.clone())), {
+        kept.push(v);
       }),
       .None => ()
     );
+    vi = (vi + usize(1));
   });
+  f.variables = kept;
   // The side-table index assumes frames only append — a shrink must drop the
   // frame's entry or lookups read stale positions (env.yo
   // `invalidate_frame_index`).
