@@ -27,7 +27,8 @@ pragma(Pragma.AllowUnsafe);
   synthetic_token,
   snapshot_env,
   fv_capture_names,
-  fv_capture_tys
+  fv_capture_tys,
+  fv_capture_vals
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -450,6 +451,9 @@ analyze_ctfe_capability :: (
           cap_names := match(func_value, .FuncVal(__fvd2, _) => fv_capture_names(__fvd2.*), _ => ArrayList(String).new());
           cap_tys := match(func_value, .FuncVal(__fvd3, _) => fv_capture_tys(__fvd3.*), _ => ArrayList(TypeValue).new());
           cap_vals := match(func_value, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
+          // The body sees every capture's value; the clone keeps the original's
+          // (empty when it reads its handles, §0.16).
+          cap_val_list := match(func_value, .FuncVal(__fvd4, cv4) => fv_capture_vals(__fvd4.*, cv4), _ => ArrayList(EvalValue).new());
           param_labels := match(func_type, .Func({ meta : m }) => m.*.param_labels, _ => ArrayList(String).new());
           ok := ArrayList(bool).new();
           // SAVE/RESTORE THE CTFE CONTEXT FLAGS HERE, not only inside
@@ -473,7 +477,7 @@ analyze_ctfe_capability :: (
             body_box,
             cap_names,
             cap_tys,
-            cap_vals,
+            cap_val_list,
             comptime_func_type,
             env,
             ctx,

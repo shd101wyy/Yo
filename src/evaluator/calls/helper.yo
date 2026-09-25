@@ -47,6 +47,8 @@ pragma(Pragma.AllowUnsafe);
   capture_env_for,
   get_funcval_cap_vars,
   aligned_derived_capture_handles,
+  fv_capture_count,
+  fv_capture_val,
   register_funcval_cap_slices,
   cap_slices_with_list,
   CaptureSlice,
@@ -1766,11 +1768,11 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
     fv,
     .FuncVal(__fvs1, cvs) => {
       csrc := fv_capture_source(__fvs1.*);
-      n := cvs.len();
+      n := fv_capture_count(__fvs1.*, cvs);
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          cvs.get(i),
+          fv_capture_val(__fvs1.*, cvs, i),
           .Some(cv) => match(
             cv,
             .TypeVal(tv) => {
@@ -3550,7 +3552,7 @@ create_specialized_function_inline :: (
           (new_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
           (new_env_key : usize) = usize(0);
           (have_cap_vars : bool) = false;
-          n_oc := cap_vals.len();
+          n_oc := fv_capture_count(__fvm2.*, cap_vals);
           // ALIGNED when the original's handles name its values one-to-one: take
           // exactly those, append one per binding below, and store no flat
           // names/types (`aligned_derived_capture_handles`, memory plan §0.13).
@@ -3594,11 +3596,13 @@ create_specialized_function_inline :: (
           orig_src := fv_capture_source(__fvm2.*);
           (oci : usize) = usize(0);
           while(oci < n_oc, {
+            // Aligned: names, types AND values come through the handles, so
+            // nothing is copied (memory plan §0.13/§0.16).
             if(!(spec_aligned), {
               new_cap_names.push(fv_source_name(orig_src, oci));
               new_cap_tys.push(fv_source_ty(orig_src, oci));
+              new_cap_vals.push(match(fv_capture_val(__fvm2.*, cap_vals, oci), .Some(v) => v, .None => EvalValue.UnitVal));
             });
-            new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
             oci = (oci + usize(1));
           });
           // Add compile-time args as additional captures (generic type bindings)
@@ -3626,8 +3630,8 @@ create_specialized_function_inline :: (
                       if(!(spec_aligned), {
                         new_cap_names.push(label);
                         new_cap_tys.push(ev.ty);
+                        new_cap_vals.push(v);
                       });
-                      new_cap_vals.push(v);
                       if(have_cap_vars, {
                         new_cap_vars.push(ev);
                       });
@@ -3903,7 +3907,8 @@ create_specialized_function_inline :: (
                                   cw_benv := Environment.new(callee_env.module_path);
                                   (cw_cvi : usize) = usize(0);
                                   cw_src := fv_capture_source(cc_fvd.*);
-                                  while(cw_cvi < cc_capvals.len(), {
+                                  (n_cw : usize) = fv_capture_count(cc_fvd.*, cc_capvals);
+                                  while(cw_cvi < n_cw, {
                                     cw_cn := fv_source_name(cw_src, cw_cvi);
                                     cw_ct := fv_source_ty(cw_src, cw_cvi);
                                     // TYPE captures (generic bindings) stay
@@ -3916,7 +3921,7 @@ create_specialized_function_inline :: (
                                     (cw_cv : Option(EvalValue)) = Option(EvalValue).Some(EvalValue.UnknownVal(cw_ct.clone(), true));
                                     (cw_has_cv : bool) = false;
                                     match(
-                                      cc_capvals.get(cw_cvi),
+                                      fv_capture_val(cc_fvd.*, cc_capvals, cw_cvi),
                                       .Some(x) => match(
                                         x,
                                         .TypeVal(_) => {
@@ -4537,7 +4542,7 @@ evaluate_ctl_function_body_inline :: (
   (ctl_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
   (ctl_env_key : usize) = usize(0);
   (ctl_have_vars : bool) = false;
-  n_oc := orig_cap_vals.len();
+  n_oc := match(original_func_val, .FuncVal(__ctl_cnt, _) => fv_capture_count(__ctl_cnt.*, orig_cap_vals), _ => orig_cap_vals.len());
   // Aligned or flat, as in create_specialized_function_inline.
   (ctl_aligned : bool) = false;
   (ctl_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
@@ -4572,8 +4577,8 @@ evaluate_ctl_function_body_inline :: (
     if(!(ctl_aligned), {
       ctl_cap_names.push(fv_source_name(orig_cap_src, oci));
       ctl_cap_tys.push(fv_source_ty(orig_cap_src, oci));
+      ctl_cap_vals.push(match(match(original_func_val, .FuncVal(__ctl_v, _) => fv_capture_val(__ctl_v.*, orig_cap_vals, oci), _ => orig_cap_vals.get(oci)), .Some(v) => v, .None => EvalValue.UnitVal));
     });
-    ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
   // Add generic type bindings as extra captures.
@@ -4584,8 +4589,8 @@ evaluate_ctl_function_body_inline :: (
     if(!(ctl_aligned), {
       ctl_cap_names.push(fl3.clone());
       ctl_cap_tys.push(ft3);
+      ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     });
-    ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     if(ctl_have_vars, {
       ctl_cap_vars.push(
         make_capture_variable(

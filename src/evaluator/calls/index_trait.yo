@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
@@ -1214,7 +1214,7 @@ _try_comptime_custom_type_index :: (
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound.
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
-  ct_cap_vals := match(ct_fn_value, .FuncVal(_, __cicv) => __cicv, _ => ArrayList(EvalValue).new());
+  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(__cifvd3.*, __cicv), _ => ArrayList(EvalValue).new());
   ct_module_path := ct_caller_env.module_path;
   ct_callee_env := Environment.new(ct_module_path);
   (ct_ci : usize) = usize(0);
