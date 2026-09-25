@@ -99,7 +99,7 @@
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
-{ codegen_fatal } :: import("../constants.yo");
+{ codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -1838,11 +1838,9 @@ io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext
 /// "a diagnostic the C compiler can skip is not a diagnostic" stance of
 /// `codegen_fatal_expr` (constants.yo).
 _hollow_async_body_message :: (fn(body : AstExpr, via_fsm : bool) -> String)({
-  t := ast_expr_token(body);
-  where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
   kind := if(via_fsm, String.from("state-machine"), String.from("sync-future"));
 
-  `${where}this \`io.async\` closure's body was never fully evaluated — an error inside it was deferred at definition time and never re-checked, so the emitted ${kind} future would run nothing and silently complete.
+  `This \`io.async\` closure's body was never fully evaluated — an error inside it was deferred at definition time and never re-checked, so the emitted ${kind} future would run nothing and silently complete.
 Fix the error inside the body. Common causes: a type error the deferred trial swallowed, a forward reference (move the definition above its use), or a call with the wrong argument count.`
 });
 generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
@@ -1867,7 +1865,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   if(is_io_async, {
     match(
       context.base.get_expr_info(body_expr),
-      .None => codegen_fatal(_hollow_async_body_message(body_expr, true)),
+      .None => codegen_user_error(ast_expr_token(body_expr), _hollow_async_body_message(body_expr, true)),
       .Some(_) => ()
     );
   });
@@ -2704,7 +2702,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       fv,
       .FuncVal(__fvdh, _) => match(
         context.base.get_expr_info(__fvdh.*.body),
-        .None => codegen_fatal(_hollow_async_body_message(__fvdh.*.body, false)),
+        .None => codegen_user_error(ast_expr_token(__fvdh.*.body), _hollow_async_body_message(__fvdh.*.body, false)),
         .Some(_) => ()
       ),
       _ => ()

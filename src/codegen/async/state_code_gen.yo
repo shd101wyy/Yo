@@ -6,7 +6,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ codegen_fatal } :: import("../constants.yo");
+{ codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, BF_DOT, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE } :: import("../../expr.yo");
 { lookup_match_arms } :: import("../../pattern.yo");
 { TokenKind } :: import("../../token.yo");
@@ -1055,8 +1055,6 @@ _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint)
 ///  - `if` BODY (`if(c, { await f })`): `if` is a macro over `cond`, and only
 ///    `cond` carries the branch structure the splitter needs. Fix: write `cond`.
 _unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bool) -> String)({
-  t := ast_expr_token(expr);
-  where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
   func_name := match(
     expr,
     .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, ftok) => ftok.value.clone(), _ => String.from("")),
@@ -1066,7 +1064,7 @@ _unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bo
     kw := cond((func_name.len() > usize(0)) => func_name.clone(), is_if => String.from("if"), true => String.from("cond"));
     form := cond(is_if => String.from("if(!(ready), { ... })"), true => String.from("cond(c1 => ..., !(ready) => ..., true => ...)"));
     return(
-      `${where}\`io.await\` in a \`${kw}\` condition inside an \`io.async\` block must BE the first condition — it cannot be nested inside a larger expression, and it cannot be in a later branch.
+      `\`io.await\` in a \`${kw}\` condition inside an \`io.async\` block must BE the first condition — it cannot be nested inside a larger expression, and it cannot be in a later branch.
 A later branch's condition is only evaluated if the earlier ones fail, so hoisting it would await even when an earlier branch matches.
 Bind it to a local first:
     ready := io.await(f, io);
@@ -1076,7 +1074,7 @@ Bind it to a local first:
   });
   if(is_if, {
     return(
-      `${where}\`io.await\` is not supported inside an \`if\` body within an \`io.async\` block.
+      `\`io.await\` is not supported inside an \`if\` body within an \`io.async\` block.
 \`if\` is a macro over \`cond\`, and only \`cond\` carries the branch structure the state machine splits on. Write the \`cond\` directly:
     cond(
       c => { io.await(f, io); },
@@ -1087,7 +1085,7 @@ Bind it to a local first:
   fn_note := if(func_name.len() > usize(0), `, function: \`${func_name}\``, String.from(""));
   expr_tag := match(expr, .FnCall(_, _, _, _, _) => String.from("FnCall"), .Atom(_, _) => String.from("Atom"));
 
-  `${where}\`io.await\` is not supported in this position inside an \`io.async\` block (expression: ${expr_tag}${fn_note}).
+  `\`io.await\` is not supported in this position inside an \`io.async\` block (expression: ${expr_tag}${fn_note}).
 Hoist it into a local first: \`result := io.await(f, io);\``
 });
 /// True for `x = io.await(...)` where `x` is a plain identifier — the ONE
@@ -1276,7 +1274,7 @@ generate_await_expression :: (
     ),
     true => _await_is_in_cond_position(expr, await_point)
   );
-  codegen_fatal(_unsupported_await_message(expr, is_if, in_cond_pos));
+  codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(expr, is_if, in_cond_pos));
 });
 /// Register `value` for every `io.await` node inside `expr` whose subtree holds
 /// this await point's call. One await can appear under more than one ExprId —
@@ -2774,7 +2772,7 @@ _generate_cond_with_await_impl :: (
     .None => false
   );
   if(_await_is_in_cond_position(cond_expr, await_point) && !(has_substitution), {
-    codegen_fatal(_unsupported_await_message(cond_expr, false, true));
+    codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(cond_expr, false, true));
   });
   branches_with_await := ArrayList(CondBranch).new();
   // First pass: find the first non-false branch + whether it is comptime-true.
@@ -3530,7 +3528,7 @@ _generate_match_with_await_impl :: (
                 ci = (ci + usize(1));
               });
               if(!all_classic, {
-                codegen_fatal(`match: nested, or-, guard, range, constant or binding patterns are not supported yet in a match arm that awaits (${ast_expr_to_string(match_expr)}); bind the payload and match again inside the arm, or move the await out of the arm`);
+                codegen_user_error(ast_expr_token(match_expr), `Nested, or-, guard, range, constant and binding patterns are not supported yet in a \`match\` whose arms await inside an \`io.async\` block. Bind the payload with a plain variant pattern and match again inside the arm, or move the \`io.await\` out of the match.`);
                 return();
               });
             },

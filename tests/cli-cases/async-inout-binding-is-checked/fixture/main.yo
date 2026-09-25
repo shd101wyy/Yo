@@ -1,0 +1,14 @@
+inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+outer :: (fn(io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    x := i32(1);
+    inout(y) := x;
+    z := e.await(inner(e, y), e);
+    y = z;
+    x
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  _v := io.await(outer(io), io);
+});
+export(main);

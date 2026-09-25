@@ -448,11 +448,23 @@ byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
    (the four in `user-facing-async-restrictions-reported-as-internal-compiler-error` plus the
    two added 2026-09-23) and `io-await-on-a-join-handle-…` into the evaluator's `io.async` walk.
    Fix the dead `.AsyncBlock` check in `initialization_assignment.yo`.
+
+   **Landed 2026-09-25.** The splitter's rules are user errors: `codegen_user_error`
+   (`src/codegen/constants.yo`) reports them at the user's token with a code, a caret and
+   `--error-format` support, instead of the internal-compiler-error banner. `inout(name) :=` in
+   an awaiting `io.async` body is checked by the evaluator (`first_inout_binding_in_async_body`),
+   so `check` sees it; the dead `.AsyncBlock` branch was that rule's only home. E0904 names the
+   placement family again, and a typo in an async body is E0905. `io.await` on a `JoinHandle` was
+   already rejected with E0602 before this step; its anchor is Phase 4.4's.
 2. **An FTT stub reachable from any live function is a compile error**, not only in
    `__yo_user_main`. This turns every remaining R2 hole into a loud failure while Phase 6
    removes them.
 3. **Field and member errors.** A coded "no field `xx` on P (fields: x, y)" with did-you-mean
    (`unknown-struct-field-has-no-diagnostic`).
+
+   **Landed 2026-09-25.** A field read that names no field is E0406 with the field list and a
+   did-you-mean, everywhere, including inside arithmetic (which used to pass `check`). A dot
+   expression that is a call's callee is still a method lookup (`mark_dot_callee`).
 4. **Anchoring and codes.** Report at the outermost user frame with a "required by" note into
    std; one code per mistake class; register every uncoded error; carry argument tokens into the
    call-site check; remove internal names from user text

@@ -2009,6 +2009,27 @@ register_module_anchors :: (fn(begin_exprs : ArrayList(AstExpr)) -> unit)({
   });
   register_top_level_anchors(module_path, anchors);
 });
+/// The dot expressions being evaluated right now as the CALLEE of a call
+/// (`p.m` in `p.m(x)`), by AST id. `evaluate_function_call` marks its callee
+/// around the callee's evaluation; a field miss on a marked access is a
+/// method call, anywhere else it is an error (`_unknown_field_message`).
+(g_dot_callee_ids : ArrayList(usize)) = ArrayList(usize).new();
+mark_dot_callee :: (fn(id : usize) -> unit)({
+  g_dot_callee_ids.push(id);
+});
+unmark_dot_callee :: (fn() -> unit)({
+  _ := g_dot_callee_ids.pop();
+});
+is_dot_callee :: (fn(id : usize) -> bool)({
+  (i : usize) = g_dot_callee_ids.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    if(match(g_dot_callee_ids.get(i), .Some(v) => (v == id), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
 /// Start a walk: pre-scan `begin_exprs`, push the walk record. A previous
 /// finished-walk table for this module (an LSP re-check) is dropped so stale
 /// Variables are never served during the re-evaluation.
@@ -3063,6 +3084,9 @@ export(
   copy_eval_context,
   begin_module_walk,
   register_module_anchors,
+  mark_dot_callee,
+  unmark_dot_callee,
+  is_dot_callee,
   end_module_walk,
   set_retain_walk_contexts,
   set_walk_context_retained,

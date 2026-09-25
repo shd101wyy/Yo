@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+outer :: (fn(io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => i32(1).no_such_method())
+);
+main :: (fn(io : Io) -> unit)({
+  v := io.await(outer(io), io);
+  println(v.to_string());
+});
+export(main);

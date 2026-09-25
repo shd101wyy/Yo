@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_comptime_ref
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, copy_frames } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
   EvalValue,
@@ -369,6 +369,24 @@ _try_resolve_associated_type :: (
 // ---------------------------------------------------------------------------
 // evaluate_property_access
 // ---------------------------------------------------------------------------
+/// `No field "xx" on P. Its fields: x, y.` with a did-you-mean.
+_unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : ArrayList(String)) -> String)({
+  list := String.new();
+  (fi : usize) = usize(0);
+  while(fi < fields.len(), {
+    if(fi > usize(0), {
+      list.push_str(", ");
+    });
+    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
+    fi = (fi + usize(1));
+  });
+  fields_note := cond(
+    (fields.len() == usize(0)) => String.from(" It has no fields."),
+    true => ` Its fields: ${list}.`
+  );
+  hint := match(suggest_name(label.clone(), fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
+  `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
+});
 evaluate_property_access :: (
   fn(
     expr : AstExpr,
@@ -1692,7 +1710,18 @@ Raw pointer operations may dereference invalid memory.`
               );
               return(expr);
             });
-            // Could be a method call — return without setting ExprInfo.
+            // Outside callee position a missing field is a user error:
+            // nothing else can make `p.xx` mean something, because a method
+            // is reached only through a call (`p.xx(...)`, whose callee this
+            // access then is — `mark_dot_callee`). It used to return
+            // silently, so `z := p.z` read "Failed to evaluate", an argument
+            // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
+            // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
+            if(!is_dot_callee(ast_expr_id(expr)), {
+              exn.throw(dyn(format_error_message(ast_expr_token(property_expr), _unknown_field_message(label_str, base_ty, fields_labels))));
+              return(expr);
+            });
+            // A method call — return without setting ExprInfo.
             return(expr);
           },
           .Some(fi_lbl) => {

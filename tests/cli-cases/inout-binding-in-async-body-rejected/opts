@@ -1,8 +1,8 @@
 # plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9 H5: an `inout(name) := place` local
 # binding inside an `io.async` body is REJECTED (v1). A state machine addresses
 # a local both as `sm->var_x` and as a per-state C copy, so an alias could read
-# a stale copy after a write through the reference. Closure bodies are not
-# evaluated at definition time, so `comptime_expect_error` cannot observe this
-# error inside a test file; the whole-program compile pins it instead.
-stdout_keep_match=is not supported inside an 'io.async' body yet
+# a stale copy after a write through the reference. Since Phase 4.1 the
+# evaluator rejects it (E0904), so `check` reports it too; this case pins the
+# whole-program compile.
+stdout_keep_match=error\[E0904\]|is not supported inside an 'io.async' body that awaits yet
 timeout=120

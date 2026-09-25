@@ -28,6 +28,7 @@ json :: import("std/encoding/json");
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
+  E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
@@ -48,6 +49,7 @@ json :: import("std/encoding/json");
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
+  E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
@@ -269,6 +271,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
+      E_FIELD_NOT_FOUND,
+      "no such field",
+      "没有这个字段",
+      "A field read names no field of the struct, tuple or union.",
+      "字段读取所用的名字不是该结构体、元组或联合体的字段。",
+      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses.",
+      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.xx;\n});\nexport(main);\n",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.x;\n});\nexport(main);\n",
+      "`P` has the fields `x` and `y`; `xx` is neither.",
+      "`P` 的字段是 `x` 和 `y`；`xx` 两者都不是。"
+    )
+  );
+  out.push(
+    _mk_explain(
       E_NOT_DEFINED,
       "variable used before initialization",
       "变量在初始化前被使用",
@@ -430,6 +447,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
       "Only the first arm assigns `v`. NOTE: this check does not fire today (issues/cond-arm-initialization-merge-check-never-fires.md); initialise before the branch regardless.",
       "只有第一个分支给 `v` 赋值。注意：目前该检查不会触发（issues/cond-arm-initialization-merge-check-never-fires.md）；无论如何请在分支前初始化。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_AWAIT_PLACEMENT,
+      "not supported in an io.async body that awaits",
+      "在会 await 的 io.async 函数体中不受支持",
+      "An `io.async` body that awaits is lowered to a state machine, and a few constructs cannot be placed in one yet.",
+      "会 await 的 `io.async` 函数体会被降级为状态机，有几种写法目前还不能放进状态机。",
+      "An `io.await` must stand as a statement, as the value of `x := ...` or `x = ...`, as a `cond`/`match` arm value, as the FIRST `cond` condition, or inside a `while` body; hoist any other await into a local first (`r := io.await(f, io);`). An `if` whose body awaits must be written as the `cond` it expands to. A `match` whose arms await takes only plain variant patterns: bind the payload and match again inside the arm. An `inout(name) := ...` binding cannot live in such a body, because the state machine keeps a per-state copy of each local; read the value into a local instead.",
+      "`io.await` 只能作为语句、`x := ...` 或 `x = ...` 的值、`cond`/`match` 分支的值、`cond` 的第一个条件，或出现在 `while` 循环体中；其他位置的 await 请先提取到局部变量（`r := io.await(f, io);`）。函数体会 await 的 `if` 必须写成它展开后的 `cond`。分支会 await 的 `match` 只接受普通的变体模式：先绑定载荷，再在分支内再次 match。这样的函数体中不能有 `inout(name) := ...` 绑定，因为状态机会为每个局部变量保存按状态划分的副本；请改为把值读入局部变量。",
+      "inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));\nouter :: (fn(io : Io) -> Impl(Future(i32)))(\n  io.async((e : Io) => {\n    x := i32(1);\n    inout(y) := x;\n    z := e.await(inner(e, y), e);\n    y = z;\n    x\n  })\n);\nmain :: (fn(io : Io) -> unit)({\n  _v := io.await(outer(io), io);\n});\nexport(main);\n",
+      "inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));\nouter :: (fn(io : Io) -> Impl(Future(i32)))(\n  io.async((e : Io) => {\n    x := i32(1);\n    z := e.await(inner(e, x), e);\n    (x + z)\n  })\n);\nmain :: (fn(io : Io) -> unit)({\n  _v := io.await(outer(io), io);\n});\nexport(main);\n",
+      "The await-position rules are enforced where the state machine is built, so `yo compile` reports them; the `inout` binding is reported by `yo check` too.",
+      "await 位置的规则在构建状态机时检查，由 `yo compile` 报告；`inout` 绑定的规则 `yo check` 也会报告。"
     )
   );
   out.push(

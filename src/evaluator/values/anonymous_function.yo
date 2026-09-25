@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ analyze_await_points, register_closure_await_analysis } :: import("../async/await_analysis.yo");
+{ analyze_await_points, register_closure_await_analysis, first_inout_binding_in_async_body } :: import("../async/await_analysis.yo");
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
   Environment,
@@ -1725,6 +1725,20 @@ Result type: ${type_to_string(decl_result_ty)}`
           info_tbl := ctx.expr_info_table;
           await_res := analyze_await_points(anon_eb, (e : AstExpr) => expr_info_table_get(info_tbl, ast_expr_id(e)));
           if(await_res.has_awaits, {
+            match(
+              first_inout_binding_in_async_body(anon_eb),
+              .Some(inout_lhs) => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(inout_lhs),
+                      String.from("'inout(name) := ...' is not supported inside an 'io.async' body that awaits yet: the body becomes a state machine that keeps a per-state copy of each local, so a reference could read a stale copy. Read the value into a local, or call a function that takes 'inout(name) : T'.")
+                    )
+                  )
+                );
+              },
+              .None => ()
+            );
             // Side-table by func_id (codegen reads it there — the analysis lands on
             // an inaccessible body clone, but func_id is stable for the codegen-read
             // closure). See register_closure_await_analysis.

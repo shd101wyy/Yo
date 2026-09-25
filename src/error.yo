@@ -30,6 +30,7 @@
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
+  E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
@@ -50,6 +51,7 @@
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
+  E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW
@@ -132,6 +134,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("Module field \"")), {
     return(_coded(E_MODULE_FIELD_NOT_FOUND));
+  });
+  if(msg.starts_with(String.from("No field \"")), {
+    return(_coded(E_FIELD_NOT_FOUND));
   });
   if(msg.contains(String.from("is not defined.")) || msg.contains(String.from("is not initialized")), {
     return(_coded(E_NOT_DEFINED));
@@ -235,6 +240,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("was never fully evaluated")), {
     return(_coded(E_NEVER_FULLY_EVALUATED));
+  });
+  if((((msg.contains(String.from("must BE the first condition")) || msg.contains(String.from("is not supported in this position inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an `if` body within an `io.async` block"))) || msg.contains(String.from("in a `match` whose arms await inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an 'io.async' body that awaits")), {
+    return(_coded(E_AWAIT_PLACEMENT));
   });
   if(msg.contains(String.from("forward reference")), {
     return(_coded(E_FORWARD_REFERENCE));
