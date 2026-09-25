@@ -54,6 +54,7 @@ json :: import("std/encoding/json");
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
+  E_COMPTIME_DIVISION_BY_ZERO,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -523,6 +524,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "x :: (i64(2147483647) + i64(1));\n",
       "The typed sum overflows `i32` while it is folded at compile time.",
       "带类型的和在编译期折叠时溢出了 `i32`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_DIVISION_BY_ZERO,
+      "compile-time division by zero",
+      "编译期除以零",
+      "A compile-time `/` or `%` has a zero divisor.",
+      "编译期的 `/` 或 `%` 的除数为零。",
+      "When both operands are compile-time constants, Yo evaluates the division while compiling, and a zero divisor has no result. Fix the divisor, or guard the division so it is not evaluated with zero. At runtime the same operation traps.",
+      "当两个操作数都是编译期常量时，Yo 在编译时求值该除法，而除数为零没有结果。请修正除数，或加以保护，使其不会以零求值。运行时的同一运算会触发陷阱。",
+      "x :: (i32(7) / i32(0));\n",
+      "x :: (i32(7) / i32(1));\n",
+      "The divisor is the constant `0`.",
+      "除数是常量 `0`。"
     )
   );
   out.push(

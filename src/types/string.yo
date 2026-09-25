@@ -253,7 +253,16 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
         },
         true => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`))
       ),
-      .EnumT(id, name, _, _, _, _, _, _, _) => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<enum:${id}>`)),
+      .EnumT(id, name, _, _, _, _, _, _, _) => if(
+        name.len() > usize(0),
+        name,
+        match(
+          type_display_name(id.clone()),
+          .Some(d) => d,
+          // An anonymous recursive enum's self-shell: the enum being defined.
+          .None => cond(id.ends_with(`__self_shell`) => String.from("Self"), true => `<enum:${id}>`)
+        )
+      ),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
       .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
         // Prefer the trait's NAME whenever it has one (print "Send", not the
@@ -319,7 +328,12 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           body = `${body}!(${nt})`;
           ii = (ii + usize(1));
         });
-        `${n} : (${body})`
+        // `Impl(...)` is the reserved SomeT name of an `Impl(Trait)` type:
+        // print it as written, not as a bounded type variable.
+        cond(
+          (n == "Impl") => `Impl(${body})`,
+          true => `${n} : (${body})`
+        )
       },
       .ExprT => `Expr`,
       .ComptimeListT(child) => `ComptimeList(${recur(child, _d + usize(1), visited)})`,
@@ -386,22 +400,16 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
         });
         `${bn}(${body}) -> ${recur(cr, _d + usize(1), visited)}`
       },
-      .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : _) => {
-        body := String.from("");
+      // As written: `Future(T, E)` — the output, then the effect types.
+      .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets, effect_spreads : _) => {
+        body := recur(out, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {
-          if(i > usize(0), {
-            body = `${body}, `;
-          });
-          el := match(els.get(i), .Some(s) => s, .None => ``);
           ts := match(ets.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
-          body = `${body}${el} : ${ts}`;
+          body = `${body}, ${ts}`;
           i = (i + usize(1));
         });
-        cond(
-          (body.len() > usize(0)) => `Future[${bn}](${recur(out, _d + usize(1), visited)}) ${body}`,
-          true => `Future[${bn}](${recur(out, _d + usize(1), visited)})`
-        )
+        `${bn}(${body})`
       },
       // V6 task 3: `refine(T, p)` renders with a SHORT predicate tag — the
       // func_id's tail is unique per ghost_fn declaration and keeps two

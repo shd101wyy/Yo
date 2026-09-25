@@ -31,7 +31,8 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_float_type,
   is_comptime_int_type
 } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, with_code } :: import("../../error.yo");
+{ E_COMPTIME_DIVISION_BY_ZERO } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { IntRange, get_integer_type_range, get_integer_type_bits, target_integer_type_range, get_target_pointer_size_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
@@ -591,9 +592,12 @@ evaluate_yo_comptime_numeric_functions :: (
                 if((op_s == "div") && (b == f64(0.0)), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(arg1),
-                        `Division by zero in comptime float operation: ${fn_name}`
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(arg1),
+                          `Division by zero in compile-time evaluation: ${a.to_string()} / 0.0`
+                        ),
+                        E_COMPTIME_DIVISION_BY_ZERO
                       )
                     )
                   );
@@ -743,9 +747,12 @@ evaluate_yo_comptime_numeric_functions :: (
                 if(b == i64(0), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(arg1),
-                        `Division by zero in comptime integer operation: ${fn_name}`
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(arg1),
+                          `Division by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} / 0`
+                        ),
+                        E_COMPTIME_DIVISION_BY_ZERO
                       )
                     )
                   );
@@ -777,9 +784,12 @@ evaluate_yo_comptime_numeric_functions :: (
                 if(b == i64(0), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(arg1),
-                        `Modulo by zero in comptime integer operation: ${fn_name}`
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(arg1),
+                          `Remainder by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} % 0`
+                        ),
+                        E_COMPTIME_DIVISION_BY_ZERO
                       )
                     )
                   );

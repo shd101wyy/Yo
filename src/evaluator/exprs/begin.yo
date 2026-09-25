@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
-{ throw_unwind_type_mismatch } :: import("./unwind.yo");
+{ throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -2008,7 +2008,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"unwind\" keyword can only be used inside a function that has an enclosing function.")
+                String.from(UNWIND_WITHOUT_ENCLOSING_FN)
               )
             )
           );
