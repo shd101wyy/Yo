@@ -53,7 +53,8 @@ import("std/fmt");
   type_prohibits_comptime_modifier,
   type_contains_some_type,
   type_representation_contains_raw_ptr,
-  get_all_some_types
+  get_all_some_types,
+  is_bound_closure_identity
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
@@ -5002,7 +5003,10 @@ _resolve_some_types_deep :: (
         _ => ()
       );
     });
-    if(!is_some_type(resolved), {
+    // A closure's own type is a binding, as at the top level above: `*(T)`
+    // with `T := <k's Impl>` is `*(<k's Impl>)`, not the unbound `*(T)`
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    if(!is_some_type(resolved) || is_bound_closure_identity(resolved), {
       match(
         st,
         .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
