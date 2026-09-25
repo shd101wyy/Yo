@@ -431,7 +431,9 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                       em.emit_declaration_string_line(`  (void)arg${(ai2 + usize(1)).to_string()};`);
                       ai2 = (ai2 + usize(1));
                     });
-                    if(is_void, {
+                    // A `unit` result lowers to C `void` too, and `void zero` is
+                    // not C (the stub's only job is to compile).
+                    if(is_void || (return_str == "void"), {
                       em.emit_declaration_line("  return;");
                     }, {
                       em.emit_declaration_string_line(`  ${return_str} zero = (${return_str})0;`);
