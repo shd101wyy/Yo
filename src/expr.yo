@@ -383,6 +383,10 @@ alloc_global_expr_id :: (fn() -> ExprId)({
   g_next_global_expr_id = (g_next_global_expr_id + usize(1));
   id
 });
+/// The id the next `alloc_global_expr_id` will return. `clone_expr_fresh_ids`
+/// mints one id per node, consecutively, so reading this before and after a
+/// clone brackets exactly the ids that clone made (`purge_expr_infos_in_id_range`).
+next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// Deep-clone an expression giving every node a FRESH id. The derived
 /// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
@@ -1215,7 +1219,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a

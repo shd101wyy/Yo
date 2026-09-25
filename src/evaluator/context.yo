@@ -1208,6 +1208,25 @@ finished_walk_has_context :: (fn(path : String) -> Option(bool))({
   });
   Option(bool).None
 });
+/// How many ExprInfo entries the finished walk of the module at `path` still
+/// holds; `.None` when that module has no finished walk or released its
+/// context. The CTFE-clone purge test's probe.
+finished_walk_expr_info_count :: (fn(path : String) -> Option(usize))({
+  canon := canonical_module_path(path);
+  walk_values := g_finished_walks.values();
+  wopt := walk_values.next();
+  while(wopt.is_some(), {
+    match(
+      wopt,
+      .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
+        return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.len()), .None => Option(usize).None));
+      }),
+      .None => ()
+    );
+    wopt = walk_values.next();
+  });
+  Option(usize).None
+});
 /// Whether a walk of the module at `module_path` keeps its context when it finishes.
 walk_context_retained_for :: (fn(module_path : String) -> bool)(
   g_retain_walk_contexts || ((g_retained_walk_paths.len() > usize(0)) && g_retained_walk_paths.contains(canonical_module_path(module_path)))
@@ -3092,6 +3111,7 @@ export(
   set_walk_context_retained,
   walk_context_retained_for,
   finished_walk_has_context,
+  finished_walk_expr_info_count,
   walk_pending_def_at,
   force_pending_def,
   force_pending_count,

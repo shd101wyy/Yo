@@ -126,6 +126,49 @@ only been pointed at `check`.
 Target: generation footprint under 5 GB, which leaves about 3 GB for the OS and
 the user's other programs on an 8 GB machine.
 
+**Measured (2026-09-25).** The ~4 GB is neither leaked nor made by codegen. A
+probe build logged every `expr_info_table_get` during codegen and the live
+malloc bytes (`malloc_zone_statistics`). The live heap was already 5.7 GB at
+codegen start, and codegen itself added 0.65 GB (the 146 MB C text, the
+emission state, 64 K new table entries). The difference from `check` is the
+shared `ExprInfoTable`: `check` gives each module its own table, which dies
+with the module's walk, while `compile` keeps one table for the whole run so
+codegen can read any function's metadata.
+
+| At codegen end | Table entries | Live heap |
+| --- | --- | --- |
+| As built | 2,948,949 | 6,348 MB |
+| Entries codegen never read dropped (1,031,502) | 1,917,447 | 4,230 MB |
+| Whole table dropped | 0 | 2,693 MB |
+
+Tagging every `clone_expr_fresh_ids` id with its call site split the unread
+2.1 GB. Executed CTFE body clones held 1.56 GB (119 K entries at ~13 KB each,
+because each keeps the env snapshot of a compile-time execution).
+Call-overload trial clones held 176 MB, and everything else under 60 MB.
+
+**Landed: an executed CTFE clone's metadata is dropped when the call
+returns** (`purge_executed_clone_metadata`, run at the end of
+`evaluate_comptime_fn_call`). The purge keeps any subtree that evaluated to a
+function: a method or closure defined in the executed body can outlive the
+call, and codegen emits it from that metadata. Verified on `compile
+src/main.yo`: 268 K ids purged, zero codegen reads of a purged id (detector
+build), emitted C byte-identical. **Front-half peak footprint 6.70 → 5.07
+GB**, max RSS 5.66 → 4.41 GB. On Linux the whole build (the 8 GB CI job's
+cgroup `memory.peak`, C compiler included) went **6,656,632 → 5,090,248 kB
+(6.35 → 4.85 GiB)**, now the `compile_src_main_peak_kb` baseline. Record:
+`issues/fixed/ctfe-clone-metadata-outlives-the-call.md`.
+
+Not purged: the overload-trial clones. A trial that type-checks a generic
+callee with a cloned closure argument creates and caches a specialization
+holding the clone, and codegen reads 2,848 of those entries. That 176 MB
+needs the specialization cache to stop retaining trial-born specializations,
+which is a separate change.
+
+The rest of the suspect list, checked against the probe: the emitted C is
+written once (`Emitter.print` makes one copy, and a doubling `String` dirties
+only the pages it writes), and per-function emission state is part of the
+0.65 GB codegen increment. Neither is worth a change at this size.
+
 ### Phase 3: bound the C compiler
 
 With Phase 1 done, clang's 3.15 GB is the other half of the peak. The emitted
