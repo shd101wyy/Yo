@@ -5706,9 +5706,14 @@ run_test :: (
           prog_src.push_str("; },\n");
           ti = (ti + usize(1));
         });
-        prog_src.push_str("      true => ()\n");
+        // An index this batch has no arm for, or no index at all, means the
+        // runner and the batch disagree: fail, never pass with no test run.
+        // emcc 4.0.12's node glue forwards no environment, and every emcc
+        // batch "passed" having run nothing
+        // (issues/fixed/an-emcc-test-batch-passes-without-running-a-test.md).
+        prog_src.push_str("      true => __yo_panic(\"yo test: YO_TEST_INDEX names no test in this batch\")\n");
         prog_src.push_str("    ),\n");
-        prog_src.push_str("    .None => ()\n");
+        prog_src.push_str("    .None => __yo_panic(\"yo test: YO_TEST_INDEX is not set (this runtime did not forward the environment), so no test ran\")\n");
         prog_src.push_str("  );\n");
         prog_src.push_str("});\n");
         prog_src.push_str("export(main);\n");

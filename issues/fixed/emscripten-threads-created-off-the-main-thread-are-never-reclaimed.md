@@ -52,6 +52,6 @@ configuration for a program whose `main` blocks. The WASI target is unaffected (
 
 ## Regression tests
 
-- `tests/thread.test.yo`: "Test a spawned thread joins a thread of its own, 2000 times".
+- `tests/thread.test.yo`: "Test a spawned thread joins a thread of its own, 5000 times".
 - `tests/cross_thread_wake.test.yo`: "spawn_blocking from a task on a spawned thread, 2000 times"
   on the `test-wasm32_emscripten` CI leg, which failed with `Aborted(OOM)` before the fix.
