@@ -3323,6 +3323,40 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   });
   Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
 });
+/// A call whose callee is an atom bound to a compile-time closure value (a
+/// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):
+/// walk the closure's body like any other callee's.
+_gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
+  if(!ast_expr_is_atom(f), {
+    return(Option(String).None);
+  });
+  name := ast_expr_token(f).value.clone();
+  if(name.is_empty(), {
+    return(Option(String).None);
+  });
+  env := match(_gr_env_of(f, ctx), .Some(en) => en, .None => ctx.env);
+  vars := get_variables_from_env(env, name);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(vv) => match(
+        vv,
+        .FuncVal(fvd, _) => match(
+          function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.table, env),
+          .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`),
+          .None => Option(String).None
+        ),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
   match(
@@ -3394,14 +3428,26 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
                 );
               });
             },
-            // A closure VALUE, a dyn method, an operator the evaluator did not
-            // stamp: no body to descend into. Only the arguments are walked.
-            // Following closure values needs per-closure identity on Func
-            // types, the prerequisite rule D4 is also waiting on
-            // (issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
-            _ => ()
+            // Not a FuncVal on the call node: a call through a local
+            // closure VALUE, a dyn method, an operator the evaluator did not
+            // stamp. A local closure keeps its FuncVal in the binding's value
+            // cell, so resolve an atom callee there and descend into it
+            // (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+            _ => match(
+              _gr_walk_closure_callee(f, ctx),
+              .Some(m) => {
+                return(Option(String).Some(m));
+              },
+              .None => ()
+            )
           ),
-          .None => ()
+          .None => match(
+            _gr_walk_closure_callee(f, ctx),
+            .Some(m) => {
+              return(Option(String).Some(m));
+            },
+            .None => ()
+          )
         );
       });
       // The callee expression itself (a global closure, a receiver) and the

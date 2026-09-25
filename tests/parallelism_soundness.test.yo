@@ -198,6 +198,47 @@ comptime_expect_error({
   });
   _d1_spawn_reaches_global();
 });
+// D1 (Phase 3 residual, closed with D4): the same global reached through a
+// LOCAL closure the spawn body calls — the closure captures nothing, so its
+// capture struct is trivially Send; the reach walk follows the call into it.
+comptime_expect_error({
+  _d1_spawn_calls_local_closure :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(2));
+      }
+    );
+    t := Thread(unit).spawn(io => {
+      k();
+      ()
+    });
+    t.join();
+  });
+  _d1_spawn_calls_local_closure();
+});
+// D1: ...and through a `Dyn(Trait, Send)` value whose method reaches it — the
+// vtable's methods are walked where the concrete impl is known, at `dyn(...)`.
+_GlobalPusher :: trait(
+  push_one : (fn(self : *Self) -> unit)
+);
+_PushesToGlobal :: struct(unused : i32);
+impl(
+  _PushesToGlobal,
+  _GlobalPusher(
+    push_one : (
+      self -> {
+        g_items.push(i32(3));
+      }
+    )
+  )
+);
+comptime_expect_error({
+  _d1_send_dyn_reaches_global :: (fn() -> unit)({
+    (d : Dyn(_GlobalPusher, Send)) = dyn(_PushesToGlobal(unused : i32(0)));
+    d.push_one();
+  });
+  _d1_send_dyn_reaches_global();
+});
 // Canary: a spawn closure may call a function that reads a `Send` constant
 // and an atomic global; the non-Send global above is untouched by it.
 g_hits := AtomicI32(i32(0));
