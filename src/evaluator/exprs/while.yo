@@ -26,12 +26,14 @@
   has_control_flow,
   has_any_control_flow,
   expr_info_adopt_env,
-  expr_info_set_comptime_unrolled_bodies
+  expr_info_set_comptime_unrolled_bodies,
+  branch_init_log_len
 } :: import("../../expr_info.yo");
+{ check_loop_flow } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
-{ EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
+{ EvalContext, LoopBodyCtx, LoopKind, LoopFlowSnapshot } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -440,6 +442,12 @@ evaluate_while :: (
   ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx);
   evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
+  // A RUNTIME loop's move-state rules (`check_loop_flow`, evaluator/utils.yo):
+  // a compile-time loop is unrolled, so each iteration's reads already see
+  // the previous iteration's moves. The loop can end without a `break` unless
+  // its condition is compile-time `true`.
+  is_runtime_loop := effective_condition_value.is_none();
+  loop_has_normal_exit := !match(condition_value, .Some(cv) => match(cv, .BoolVal(cb) => cb, _ => false), .None => false);
   // Require ExprInfo for the body.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
   if(body_info_opt.is_none(), {
@@ -461,6 +469,10 @@ evaluate_while :: (
   );
   // Handle control flow produced by the body.
   if(has_any_control_flow(body_info.control_flow), {
+    // The body never completes normally: its back edges are the `continue`s.
+    if(is_runtime_loop, {
+      check_loop_flow(loop_ctx, false, loop_has_normal_exit, env, exn);
+    });
     // --- return / unwind ---
     if(has_control_flow(body_info.control_flow, .Return) || has_control_flow(body_info.control_flow, .Unwind), {
       eff_cond_is_true_re := match(
@@ -595,6 +607,9 @@ evaluate_while :: (
     });
     if(!guaranteed && possible, {
       // Conditional terminator exists — emit as a runtime loop.
+      if(is_runtime_loop, {
+        check_loop_flow(loop_ctx, true, loop_has_normal_exit, env, exn);
+      });
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = Option(EvalValue).None;
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -638,6 +653,9 @@ evaluate_while :: (
       env = match(step_info_s_opt, .Some(si) => expr_info_adopt_env(si), .None => env);
     }
   );
+  if(is_runtime_loop, {
+    check_loop_flow(loop_ctx, true, loop_has_normal_exit, env, exn);
+  });
   // Comptime while loop unrolling with a RUNTIME body. When the condition is
   // compile-time TRUE but the body
   // carries runtime values, deep-clone and re-evaluate the body per
