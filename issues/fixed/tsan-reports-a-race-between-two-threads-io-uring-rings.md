@@ -45,11 +45,19 @@ write looked like a race with T3's last one.
 
 ## Fix
 
-- In a TSan build (`__has_feature(thread_sanitizer)` or `__SANITIZE_THREAD__`), `__yo_io_init`
-  marks the new ring's three mapped regions as new memory with TSan's `AnnotateNewMemory`: the SQ
-  ring, the CQ ring and the SQE array. That is what TSan's `mmap` interceptor would have done had
-  the mapping gone through libc. It resets shadow state and orders nothing, so it cannot hide a
-  real race on any other memory. Outside a TSan build the hook is an empty inline function.
+- In a TSan build (`__has_feature(thread_sanitizer)` or `__SANITIZE_THREAD__`), the ring's three
+  mapped regions (SQ ring, CQ ring, SQE array) are released to TSan at teardown
+  (`__tsan_release`, just before `io_uring_queue_exit` in `__yo_io_cleanup`) and acquired at setup
+  (`__tsan_acquire`, right after `io_uring_queue_init_params` in `__yo_io_init`). Each is keyed on
+  the region's address. This models a real order that TSan cannot see: a `munmap` and a later
+  `mmap` returning the same address both take the process's `mmap_lock`. The edge exists only when
+  an address is really reused. Outside a TSan build both hooks are empty inline functions.
+
+  The first attempt used TSan's `AnnotateNewMemory` to reset the region's shadow state, as TSan's
+  own `mmap` interceptor does. It changed nothing: in LLVM's TSan runtime `AnnotateNewMemory` is a
+  no-op (it only opens a scoped annotation), and CI reported the same race. With the full report
+  now printed, CI showed the evidence: the previous writer "T3 (finished)", and the location
+  "anon_inode:[io_uring]+0x10000000", the SQE array's mmap offset.
 - `scripts/tsan-thread-corpus.sh` lists only files that spawn threads. The three files above
   check their rules at compile time or on one thread, where TSan observes nothing. The HOLLOW
   rule still catches a listed file that stops spawning.

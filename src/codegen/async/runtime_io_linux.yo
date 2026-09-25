@@ -540,11 +540,13 @@ static _Thread_local struct io_uring __yo_io_ring;
 // ThreadSanitizer cannot see liburing's ring mappings: the library maps and
 // unmaps its rings with raw syscalls (Ubuntu's liburing 2.5 imports only
 // calloc/free from libc), so TSan's mmap/munmap interceptors never run. When
-// one thread's ring is torn down and the next thread's ring is mapped at the
-// same address, TSan still holds the dead ring's shadow state and reports the
-// new ring's first SQE write as a race with the old one. Tell it what the
-// kernel did: the pages are new. It is what TSan's own mmap interceptor does,
-// and it orders nothing, so no real race elsewhere is hidden
+// one thread's ring is torn down and a later thread's ring is mapped at the
+// same address, TSan still holds the dead ring's accesses and reports the new
+// ring's first SQE write as a race with the old one. The kernel orders the
+// two: a munmap and a later mmap that returns the same address both take the
+// process's mmap_lock. Model exactly that order on each region's address,
+// released at teardown and acquired at setup; it adds an edge only when an
+// address is really reused
 // (issues/fixed/tsan-reports-a-race-between-two-threads-io-uring-rings.md).
 #if defined(__has_feature)
 #  if __has_feature(thread_sanitizer)
@@ -555,18 +557,21 @@ static _Thread_local struct io_uring __yo_io_ring;
 #  define __YO_TSAN 1
 #endif
 #ifdef __YO_TSAN
-void AnnotateNewMemory(const char* file, int line, const volatile void* mem, long size);
-static void __yo_tsan_ring_is_new(struct io_uring* ring) {
-  size_t sqe_size = sizeof(struct io_uring_sqe);
-#ifdef IORING_SETUP_SQE128
-  if (ring->flags & IORING_SETUP_SQE128) sqe_size *= 2;
-#endif
-  AnnotateNewMemory(__FILE__, __LINE__, ring->sq.ring_ptr, (long)ring->sq.ring_sz);
-  AnnotateNewMemory(__FILE__, __LINE__, ring->cq.ring_ptr, (long)ring->cq.ring_sz);
-  AnnotateNewMemory(__FILE__, __LINE__, ring->sq.sqes, (long)(ring->sq.ring_entries * sqe_size));
+void __tsan_acquire(void* addr);
+void __tsan_release(void* addr);
+static void __yo_tsan_ring_mapped(struct io_uring* ring) {
+  __tsan_acquire(ring->sq.ring_ptr);
+  __tsan_acquire(ring->cq.ring_ptr);
+  __tsan_acquire(ring->sq.sqes);
+}
+static void __yo_tsan_ring_unmapping(struct io_uring* ring) {
+  __tsan_release(ring->sq.ring_ptr);
+  __tsan_release(ring->cq.ring_ptr);
+  __tsan_release(ring->sq.sqes);
 }
 #else
-static inline void __yo_tsan_ring_is_new(struct io_uring* ring) { (void)ring; }
+static inline void __yo_tsan_ring_mapped(struct io_uring* ring) { (void)ring; }
+static inline void __yo_tsan_ring_unmapping(struct io_uring* ring) { (void)ring; }
 #endif
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;
@@ -623,7 +628,7 @@ static void __yo_io_init(void) {
     fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
     exit(1);
   }
-  __yo_tsan_ring_is_new(&__yo_io_ring);
+  __yo_tsan_ring_mapped(&__yo_io_ring);
   __yo_io_initialized = true;
   __yo_notify_efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (__yo_notify_efd >= 0) {
@@ -666,6 +671,7 @@ static void __yo_io_cleanup(void) {
     future->state = -1;
     __yo_decr_rc((void*)future);
   }
+  __yo_tsan_ring_unmapping(&__yo_io_ring);
   io_uring_queue_exit(&__yo_io_ring);
   if (__yo_notify_efd >= 0) {
     close(__yo_notify_efd);
