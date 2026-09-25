@@ -665,11 +665,13 @@ lookup_enum_type_arguments :: (fn(enum_id : String) -> ArrayList(TypeValue))(
 // degenerates to unit); the registry lets field-read sites swap a 0-field
 // shell for its final form BY ID — the value-semantics stand-in for
 // in-place object mutation.
-StructFinalEntry :: struct(struct_id : String, ty : TypeValue);
-(g_struct_finals : ArrayList(StructFinalEntry)) = ArrayList(StructFinalEntry).new();
+/// Keyed by struct id; the FIRST registration wins (the list this replaced
+/// was scanned front to back). A map because struct compatibility now
+/// resolves shells on every comparison (plans/reference/TYPE_IDENTITY.md).
+(g_struct_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 register_struct_final :: (fn(struct_id : String, ty : TypeValue) -> unit)({
-  if(struct_id.len() > usize(0), {
-    g_struct_finals.push(StructFinalEntry(struct_id : struct_id, ty : ty));
+  if((struct_id.len() > usize(0)) && g_struct_finals.get(struct_id).is_none(), {
+    g_struct_finals.insert(struct_id, ty);
   });
 });
 /// Resolve an empty-field Struct shell to its finalized form (no-op for
@@ -677,25 +679,10 @@ register_struct_final :: (fn(struct_id : String, ty : TypeValue) -> unit)({
 resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .Struct({ id : sid, field_types : fts }) => {
-      if(fts.len() > usize(0), {
-        return(t);
-      });
-      (i : usize) = usize(0);
-      n := g_struct_finals.len();
-      (r : Option(TypeValue)) = Option(TypeValue).None;
-      while((i < n) && r.is_none(), {
-        match(
-          g_struct_finals.get(i),
-          .Some(e) => if(e.struct_id == sid, {
-            r = Option(TypeValue).Some(e.ty);
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      match(r, .Some(f) => f, .None => t)
-    },
+    .Struct({ id : sid, field_types : fts }) => cond(
+      (fts.len() > usize(0)) => t,
+      true => match(g_struct_finals.get(sid), .Some(f) => f, .None => t)
+    ),
     _ => t
   )
 );

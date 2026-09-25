@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
@@ -368,6 +368,17 @@ _pop_alpha_pairs :: (fn(n : usize) -> unit)({
     _d := g_alpha_pairs.drain((g_alpha_pairs.len() - n) .. g_alpha_pairs.len());
   });
 });
+/// `t` was an empty-field struct shell and `resolved` is its populated final.
+_is_resolved_shell :: (fn(t : TypeValue, resolved : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ field_types : tfts }) => (
+      (tfts.len() == usize(0))
+      && match(resolved, .Struct({ field_types : rfts }) => (rfts.len() > usize(0)), _ => false)
+    ),
+    _ => false
+  )
+);
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -693,6 +704,19 @@ _compat_impl :: (
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
     return(false);
+  });
+  // --- Struct self-shells ---------------------------------------------------
+  // A recursive struct's `Self` is an empty-field shell sharing its final's id
+  // (types/creators.yo). The empty-name wildcard used to let a shell match
+  // anything; without it a shell must be compared AS its final, or `Node(i32)`
+  // (a shell) would disagree with `Node(T)` on the field count
+  // (plans/reference/TYPE_IDENTITY.md). A shell whose final is not yet
+  // registered (inside its own definition) stays a shell, and the exact arm
+  // compares it by id.
+  a_final := resolve_struct_shell(actual);
+  e_final := resolve_struct_shell(expected);
+  if(_is_resolved_shell(actual, a_final) || _is_resolved_shell(expected, e_final), {
+    return(recur(a_final, e_final, require_exact, visited));
   });
   // --- Main structural match ------------------------------------------------
   match(
