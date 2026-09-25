@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
-{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
@@ -221,7 +221,31 @@ _require_dyn_traits_implemented :: (
           }
         );
         req_is_nominal := match(req, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
-        if(req_is_nominal && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
+        // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R,
+        // Send)`) holds a marker by its value — what it captures, what its
+        // code reaches — not by its type (`call_function_value_marker`).
+        (fv_judged : bool) = false;
+        if(req_is_nominal, {
+          match(
+            call_function_value_marker(check_ty.clone(), Option(EvalValue).None, req.clone(), env, ctx),
+            .Some(fvm) => {
+              fv_judged = true;
+              match(
+                fvm,
+                .Some(fvm_o) => {
+                  fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(check_ty.clone())}: ${fvm_o}.`;
+                  if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
+                    flag_flow_violation(fv_msg.clone());
+                  });
+                  exn.throw(dyn(format_error_message(token, fv_msg)));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        });
+        if(req_is_nominal && !fv_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
           // `type_to_string` renders its field dump instead.
           req_name := match(req, .TraitT(name : rn) => rn.clone(), _ => String.new());

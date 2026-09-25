@@ -150,6 +150,12 @@ the value is known:
 - **A variable captured by a `Send` closure:** the captured value.
 - **A declared `(f : Impl(Fn(...), Send)) = v` binding:** `v`. A declared marker is not
   re-judged later, so the binding is where a value takes on the promise.
+- **`dyn(v)` into `Dyn(Fn(...), Send)`:** `v`.
+- **An `Iso(T)`:** every function value `T`'s graph can hold (`_iso_function_offense`,
+  `src/evaluator/calls/iso.yo`). D2's uniqueness walk proves the graph is uniquely owned, not
+  that a function in it runs safely on the receiving thread. A bare `fn` field and a `Dyn`
+  without `Send` make the `Iso` an error
+  (`issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md`).
 
 A closure is walked when it is CREATED, with its defining env, in every slot, not only a `Send`
 one. The verdict is memoized by function id, so a later judgement that has only the closure's

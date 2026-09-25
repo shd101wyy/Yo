@@ -490,6 +490,45 @@ comptime_expect_error({
   });
   _d9_struct_with_fn_field();
 });
+// D9 inside an Iso: isolation proves the graph uniquely owned, not that the
+// code a function stored in it runs is safe on another thread.
+_D9Wrap :: ref(struct(f : (fn() -> unit)));
+comptime_expect_error({
+  _d9_iso_of_fn_field :: (fn() -> unit)({
+    w := _D9Wrap(f : _d9_push);
+    r := ^w;
+    r;
+  });
+  _d9_iso_of_fn_field();
+});
+comptime_expect_error({
+  _d9_iso_of_reaching_closures :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(9));
+      }
+    );
+    xs := ArrayList(typeof(k)).new();
+    xs.push(k);
+    r := ^xs;
+    r;
+  });
+  _d9_iso_of_reaching_closures();
+});
+// D9 at `dyn(...)`: a closure coerced to `Dyn(Fn() -> R, Send)` is judged by
+// its value.
+comptime_expect_error({
+  _d9_dyn_fn_send :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(9));
+      }
+    );
+    (d : Dyn(Fn() -> unit, Send)) = dyn(k);
+    d;
+  });
+  _d9_dyn_fn_send();
+});
 // Canary: function values whose code reaches only atomics cross threads by
 // every route above — a named spawn body, a capture-free closure through a
 // generic bound and an `Impl(Fn, Send)` parameter, a captured closure, a
@@ -518,7 +557,27 @@ test("D9 canary: function values that reach only atomics are Send by every route
     ()
   });
   t3.join();
-  assert(d9_hits.load(MemoryOrder.Acquire) == i32(4), "every route ran its function on a thread");
+  (d : Dyn(Fn() -> unit, Send)) = dyn(k);
+  t4 := Thread(unit).spawn((io : Io) => {
+    d();
+    ()
+  });
+  t4.join();
+  ks := ArrayList(typeof(k)).new();
+  ks.push(k);
+  match(
+    ^ks,
+    .Some(iso) => {
+      t5 := Thread(unit).spawn((io : Io) => {
+        got := iso.extract();
+        match(got.get(usize(0)), .Some(g0) => g0(), .None => ());
+        ()
+      });
+      t5.join();
+    },
+    .None => assert(false, "a fresh list of clean closures is uniquely owned")
+  );
+  assert(d9_hits.load(MemoryOrder.Acquire) == i32(6), "every route ran its function on a thread");
 });
 // Canary (P-26 residual): `arc` of a closure that captures NOTHING — here it
 // reaches only an atomic global — compiles and runs; its `Arc(V)` signature

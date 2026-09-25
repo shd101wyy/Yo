@@ -18,11 +18,14 @@ pragma(Pragma.AllowUnsafe);
 { Variable, Environment, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, is_reference_enum_type, is_function_type, is_some_type } :: import("../../types/guards.yo");
+{ resolve_struct_shell, resolve_enum_shell } :: import("../../types/creators.yo");
+{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { can_type_form_rc_cycle, get_all_some_types } :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { set_variable_as_consumed } :: import("../builtins/consume.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -59,6 +62,108 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
 ///
 /// Note: RC function injection (`addRcFunctionsToIsoType`) is deferred —
 /// returns env unchanged, same as dyn.yo's `addRcFunctionsToDynType`.
+/// Rule D9 inside an `Iso`: the uniqueness walk proves no other thread holds
+/// a reference into the graph, and says nothing about what a FUNCTION stored
+/// in it does when the receiving thread calls it. A struct holding a function
+/// that pushes to a non-Send global, isolated and extracted on another
+/// thread, raced on the global
+/// (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md). Every
+/// function value the graph can hold must be Send by D9; a bare `fn` field or
+/// a `Dyn` without `Send` (code unknown here) is not. `.Some(reason)` names the
+/// first offending component.
+_iso_function_offense :: (
+  fn(ty : TypeValue, send : TypeValue, seen : ArrayList(String), env : Environment, ctx : EvalContext) -> Option(String)
+)({
+  // Cycle guard on nominal identity (ArrayList(T) reaches T through its buffer).
+  nid := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  if(!nid.is_empty(), {
+    (si : usize) = usize(0);
+    while(si < seen.len(), {
+      if(match(seen.get(si), .Some(x) => (x == nid), .None => false), {
+        return(Option(String).None);
+      });
+      si = (si + usize(1));
+    });
+    seen.push(nid);
+  });
+  if(is_function_type(ty) || (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()), {
+    return(
+      match(
+        call_function_value_marker(ty, Option(EvalValue).None, send, env, ctx),
+        .Some(fvm) => match(fvm, .Some(o) => Option(String).Some(`it holds a ${type_to_string(ty)} whose value ${o}`), .None => Option(String).None),
+        .None => if(type_implements_trait_bool(ty, send, env), Option(String).None, Option(String).Some(`it holds a ${type_to_string(ty)}, a function type whose value is unknown here, and a function is Send only by what its code reaches (rule D9) — declare it \`Impl(Fn(...), Send)\``))
+      )
+    );
+  });
+  match(
+    ty,
+    .DynT(_, _, _, _) => if(!type_implements_trait_bool(ty, send, env), {
+      return(Option(String).Some(`it holds a ${type_to_string(ty)}, whose methods may run code that reaches a non-Send global — use Dyn(Trait, Send)`));
+    }),
+    _ => ()
+  );
+  children := ArrayList(TypeValue).new();
+  match(
+    ty,
+    .Struct({ id : _ }) => match(
+      resolve_struct_shell(ty),
+      .Struct({ field_types : fts }) => {
+        (fi : usize) = usize(0);
+        while(fi < fts.len(), {
+          match(fts.get(fi), .Some(ft) => children.push(ft), .None => ());
+          fi = (fi + usize(1));
+        });
+      },
+      _ => ()
+    ),
+    .EnumT(_, _, _, _, _, _, _, _, _) => match(
+      resolve_enum_shell(ty),
+      .EnumT(_, _, _, vfs, _, _, _, _, _) => {
+        (vi : usize) = usize(0);
+        while(vi < vfs.len(), {
+          match(
+            vfs.get(vi),
+            .Some(vf) => {
+              (vj : usize) = usize(0);
+              while(vj < vf.len(), {
+                match(vf.get(vj), .Some(vt) => children.push(vt), .None => ());
+                vj = (vj + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      _ => ()
+    ),
+    .Tuple({ field_types : tfts }) => {
+      (ti : usize) = usize(0);
+      while(ti < tfts.len(), {
+        match(tfts.get(ti), .Some(tt) => children.push(tt), .None => ());
+        ti = (ti + usize(1));
+      });
+    },
+    .Pointer(pointee) => children.push(pointee),
+    _ => ()
+  );
+  (ci : usize) = usize(0);
+  while(ci < children.len(), {
+    match(
+      children.get(ci),
+      .Some(ct) => match(
+        _iso_function_offense(ct, send, seen, env, ctx),
+        .Some(o) => {
+          return(Option(String).Some(o));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  Option(String).None
+});
 evaluate_iso_type_call :: (
   fn(
     expr : AstExpr,
@@ -172,6 +277,25 @@ evaluate_iso_type_call :: (
         )
       );
     });
+    // Rule D9: every function value the isolated graph can hold is Send.
+    match(
+      get_trait_type_from_env(env, String.from("Send")),
+      .Some(iso_send) => match(
+        _iso_function_offense(child_type, iso_send, ArrayList(String).new(), env, ctx),
+        .Some(iso_fo) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Iso(${type_to_string(child_type)}) is not allowed: ${iso_fo}. Isolation proves the graph is uniquely owned; it does not make the code a function in it runs safe on another thread.`
+              )
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
     child_is_object := (is_reference_struct_type(child_type) || is_reference_enum_type(child_type));
     if(!child_is_object || (is_atomic_reference_struct_type(child_type) || is_atomic_reference_enum_type(child_type)), {
       exn.throw(

@@ -57,6 +57,12 @@ The cost is one walk over the value's graph, once per hand-off, on the sending t
 copied on send, so pass it directly (or `Box` it). `Iso(Arc(T))`, `Iso(<atomic object>)` and
 `Iso(Iso(T))` are compile errors too: those are already sendable as they are.
 
+**Every function value the graph can hold must be `Send`** (rule D9). Isolation proves the graph
+is uniquely owned, not that the code a stored function runs is safe on the receiving thread. A
+closure or function field is judged by what it captures and what its code reaches. A bare
+`fn(...)` field (its function is unknown at compile time) and a `Dyn(Trait)` without `Send` make
+the `Iso` a compile error.
+
 **The raw constructor `Iso(T)(v)`** is what `^` expands to, and it is not available in safe code
 (a file without `pragma(Pragma.AllowUnsafe)`): it checks nothing inside the value. Use `^`.
 
