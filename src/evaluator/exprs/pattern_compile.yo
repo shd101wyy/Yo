@@ -54,6 +54,7 @@
 { evaluate_expression } :: import("./expr.yo");
 { Pattern, norm_position_type, variant_field_types } :: import("../../pattern.yo");
 { Exception } :: import("std/error");
+{ flow_violation_pending, clear_flow_violation } :: import("../../types/flowability.yo");
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
 /// (an or-pattern compiles every alternative but binds each name once).
@@ -271,6 +272,7 @@ _bind_subject_and_eval_test :: (
   );
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env));
+  flag_before_test := flow_violation_pending();
   _evaluated := evaluate_expression(test, env, ctx);
   ctx.expected_type = old_expected;
   match(
@@ -288,6 +290,16 @@ _bind_subject_and_eval_test :: (
       });
     },
     .None => {
+      // The failed `==` is reported right here as the pattern error. A flow
+      // violation its argument rule flagged on the way (a comptime literal
+      // that does not fit the operator's parameter, since Phase 2.5 judged on
+      // the method path too) belongs to this failure and must not re-raise
+      // later as a second, different error: `match(n, "a" => ...)` on an
+      // `i32` became E0601 instead of E0609
+      // (issues/fixed/a-failed-pattern-equality-probe-re-raised-its-argument-error.md).
+      if(!flag_before_test && flow_violation_pending(), {
+        clear_flow_violation();
+      });
       exn.throw(
         dyn(
           format_error_message(
