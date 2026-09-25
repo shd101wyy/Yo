@@ -47,17 +47,7 @@ test("an Error.source() result re-erases as AnyError, so a chain can be walked",
 });
 test("a one-link error reports no source", {
   (c : AnyError) = dyn(_Inner.Boom);
-  // Spelled as a `match` rather than `is_none()`: `Option(Dyn(Trait))` cannot
-  // take an inherent Option method at all — the specialization is called but
-  // never emitted, so the C fails to compile
-  // (issues/option-of-a-trait-object-never-emits-its-inherent-methods.md).
-  // That is a separate, pre-existing defect; it is not what this file gates.
-  (had_source : bool) = match(
-    c.source(),
-    .Some(_) => true,
-    .None => false
-  );
-  assert(had_source == false, "an error with nothing underneath has no source");
+  assert(c.source().is_none(), "an error with nothing underneath has no source");
 });
 // The defect was never std-specific: ANY user trait declaring a member that
 // returns `Dyn(SelfTrait)` hit it, because the nameless-trait capture happens
