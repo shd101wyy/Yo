@@ -1511,6 +1511,14 @@ position (labels), so they stay distinct. The compiler's emitted C is
 byte-identical to develop's (146.8 MB, `cmp`). The exclusive share drops from
 78 MB to the map storage (the Linux ratchet reading is on the PR).
 
+**The frame name index copied every name it keyed.** `_frame_index_refresh`
+inserted `v.name.clone()`, and `String.clone` copies the bytes: 723,641
+private copies (61 MB of `g_frame_indexes`' 94 MB exclusive share) of names
+every `Variable` already holds. The key now shares the binding's buffer.
+`HashMap.insert` dups a borrowed key into its `MapEntry`, so ownership is
+unchanged. `check src/main.yo` under `MallocScribble` stays clean, and the
+fixpoint holds.
+
 **Incremental compilation checked against the campaign (#901).** A per-owner
 purge must cover every cache that can hand back the ids it drops. #883's
 per-function purge left the specialization cache pointing at deleted function
@@ -1522,9 +1530,8 @@ testing instructions carry the smoke recipe).
 
 **Next levers, re-ranked on these numbers:**
 - **Derived-FuncVal capture sharing (§0.7):** `g_funcval_cap_vars`, 262 MB.
-- **The frame name index (#873):** `g_frame_indexes`, 94 MB exclusive,
-  728 K objects. It likely stores per-frame maps that could be sized to the
-  frame.
+- **The frame name index (#873):** after the key sharing, what remains is
+  the per-frame maps and `prev` lists (~33 MB).
 - **`g_macro_expansions` / `g_method_callee_values`:** these hold AST and
   FuncVal graphs keyed per call site. Measure their exclusive share with
   `HOLDER_DEEP_LAST` before choosing.
