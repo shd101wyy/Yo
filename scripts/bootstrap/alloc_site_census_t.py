@@ -168,7 +168,7 @@ __attribute__((destructor)) static void __hs_dump(void) {
     long long nrows = 0;
     for (size_t j = 0; j < __HS_CAP && nrows < 200000; j++) {
       __hs_e* e = &__hs_t[j];
-      if (e->k == NULL || e->k == __HS_TOMB || !e->marked || e->nev == 0) continue;
+      if (e->k == NULL || e->k == __HS_TOMB || !e->marked) continue;
       nrows++;
       fprintf(f, "E %%s %%u rc=%%u alloc=%%p %%p |", __hs_labels[e->ty], e->nev, (unsigned)((__yo_rc_prefix_t*)e->k)->ref_count, e->a0, e->a1);
       unsigned nf = e->nev < __HS_NEV ? e->nev : __HS_NEV;

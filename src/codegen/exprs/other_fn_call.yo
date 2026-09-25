@@ -531,6 +531,12 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
             em := context.base.emitter;
             em.emit_string_line(line);
             emitted = true;
+            // Inside a state machine the temp may own a `sm->var_<id>` slot
+            // that its deferred drop reads; without this store that drop
+            // releases calloc zero and the argument leaks once per call
+            // (read_dir's `raw.push({ name : name, ... })`, once per entry:
+            // issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md).
+            _store_temp_var_to_state_machine_if_needed(vname.clone(), indent.clone(), context);
           });
         });
         final_name := if(emitted || already_in_scope, vname, arg_code.clone());
