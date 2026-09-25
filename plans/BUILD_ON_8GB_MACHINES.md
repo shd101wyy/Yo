@@ -4,8 +4,9 @@
 evaluator heap, so a full compile of `src/main.yo` peaks at 6.35 GB instead of
 ≈ 9.7 GB (§1 Phase 1). Phase 4 items 1–2 landed as one CI job
 (`compile_memory_ratchet.sh`: the build inside an 8 GB no-swap cgroup, its
-memory.peak ratcheted). Open: Phase 2 (the codegen phase), Phase 3 (chunk
-jobs), Phase 4 items 3–4 (they wait for a seed that carries Phases 1–2).
+memory.peak ratcheted). Phase 3 measured chunking below the single unit and
+landed a memory cap on the default chunk job count. Open: Phase 2 (the codegen
+phase), Phase 4 items 3–4 (they wait for a seed that carries Phases 1–2).
 Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md).
 That campaign shrinks what `check` retains. This one covers the rest of a
 `yo build` of the compiler: the codegen phase, and the C compiler running while
@@ -24,7 +25,7 @@ at #891 (the memory the v0.2.42 seed will have), on the same tree.
 | Phase of `yo build` (the child `yo compile src/main.yo --optimize 2`) | Max RSS | Peak footprint | Wall |
 | --- | --- | --- | --- |
 | Type check only (`yo check src/main.yo`, Linux CI ratchet, authoritative) | 2.43 GB | — | 3:19 |
-| Type check + C generation (`--emit-c-to`, stops before cc) | 3.56 GB | **6.83 GB** | 5:22 |
+| Type check + C generation (the `yo` process; `--emit-c-to` did NOT stop before cc, so the wall includes clang — `issues/fixed/emit-c-to-help-says-it-stops-before-the-c-compiler.md`) | 3.56 GB | **6.83 GB** | 5:22 |
 | clang `-O2` on the emitted 145 MB C file, alone | 3.15 GB | — | 1:48 |
 | **During the cc step: `yo compile`'s heap + clang** | — | **≈ 6.6 + 3.1 ≈ 9.7 GB** | — |
 
@@ -133,6 +134,37 @@ units (`plans/reference/CHUNKED_C_EMISSION.md`), but runs up to `--jobs` clang
 processes at once, which can use more memory than one large unit. On a small
 machine the runner should cap concurrent chunk jobs by available memory. Measure
 the per-chunk peak before choosing a default.
+
+**Measured (2026-09-25, Phase 1 stage 1, Mac Mini M4, process-tree sampler
+every 2 s):** `yo compile src/main.yo --optimize 2 --emit-chunks auto` made 10
+units (the largest 21.5 MB of C plus the 3.9 MB shared header) and compiled all
+10 at once (`jobs=10`).
+
+| Step | Peak |
+| --- | --- |
+| Front half (check + C generation), then the image is replaced | 6,894 MB |
+| All 10 `clang -c` at once | 2,106 MB total; the largest single clang 345 MB |
+| ThinLTO link (`ld`) | 2,300 MB |
+| Single unit, for comparison: one `clang -O2` on the 145 MB file | 3,262 MB |
+
+So on this tree chunking uses **less** memory than one unit, even at full
+parallelism: clang's peak grows faster than its input (13.6 bytes per byte of
+C for a 25 MB unit, 22.5 for the whole file). The concern in the paragraph
+above does not bite at today's sizes; the front half, not the C compiler, is
+the peak.
+
+**Landed: a memory cap on the default job count.** An explicit `--jobs` is
+kept as given. When it is defaulted (8, or the `auto` cap), the plan runner
+lowers it to what fits in half of physical memory, with a per-job estimate of
+64 MB plus 24 bytes per byte of the largest unit's C. That estimate sits above
+both measurements: 664 MB against 345 for the 25 MB unit, 3.5 GB against 3.26
+for the whole file. Physical memory comes from `sysctlbyname("hw.memsize")` on
+macOS, `GlobalMemoryStatusEx` on Windows, and `MemTotal` on Linux, lowered to
+the process's cgroup v2 `memory.max` so a capped CI runner or container counts
+as the small machine it is. `YO_ASSUME_MEMORY_MB=<n>` overrides the figure; the
+`compile-emit-chunks-memory-cap` CLI case pins it to 100 and records `jobs=1`,
+while `--jobs 4` still records `jobs=4`. On an 8 GB machine the cap is 6 jobs
+for today's units, about 2 GB of clang at the measured peaks.
 
 ### Phase 4: ratchet and CI
 
