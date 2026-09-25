@@ -50,7 +50,8 @@ pragma(Pragma.AllowUnsafe);
   synthetic_token,
   generate_variable_id,
   mint_funcval_env_key,
-  register_funcval_cap_vars
+  register_funcval_cap_vars,
+  bind_parameter
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
@@ -815,19 +816,9 @@ _build_def_time_body_env :: (
         Option(EvalValue).None
       )
     );
-    add_parameter_to_env(
-      fresh_env,
-      pn,
-      pt,
-      pv,
-      false,
-      p_ref,
-      p_own,
-      false,
-      p_ref,
-      true,
-      synthetic_token(pn, module_path)
-    );
+    // The shared binding rule (calls/helper.yo): the declared comptime,
+    // `inout` and `own` flags.
+    bind_parameter(fresh_env, pn, pt, pv, p_ct || is_type_0(pt), p_ref, p_own, synthetic_token(pn, module_path));
     pi = (pi + usize(1));
   });
   fresh_env

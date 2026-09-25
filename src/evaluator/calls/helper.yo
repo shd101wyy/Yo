@@ -56,7 +56,8 @@ pragma(Pragma.AllowUnsafe);
   make_capture_variable,
   mint_funcval_env_key,
   register_funcval_cap_vars,
-  make_err_variable
+  make_err_variable,
+  bind_parameter
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -638,6 +639,207 @@ _refine_wrapper_fn_result :: (fn(ty : TypeValue, new_result : TypeValue) -> Type
     _ => ty
   )
 );
+// ---------------------------------------------------------------------------
+// The argument/parameter rule, shared by every binding site
+// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.5). The two call paths —
+// `check_if_function_parameter_matches_argument` below (the `try_to_call`
+// path) and the inline FuncVal arm of `calls/function.yo` — and the
+// definition-time body env (`calls/function_type.yo`) and the specialization
+// re-binds in `create_specialized_function_inline` each carried their own copy
+// of these steps, and the copies drifted: the inline arm never rejected a
+// moved argument (a second `_eat(a)` read freed memory), and the `try_to_call`
+// path rejected `h.g(100 + 50)` for a `u8` parameter that `_f(100 + 50)`
+// accepted. A fix now lands once.
+// ---------------------------------------------------------------------------
+/// Strip and validate a `label : value` argument. Labels are readability-only:
+/// a label that is written must match the declared parameter label at that
+/// position. Returns the value expression (the argument itself when unlabeled).
+strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception) -> AstExpr)({
+  if(!(ast_expr_is_fn_call_of(arg, ":", .Some(usize(2)))), {
+    return(arg);
+  });
+  cl_args := _h_get_fn_call_args(arg);
+  cl_label_expr := match(cl_args.get(usize(0)), .Some(a) => a, .None => arg);
+  if(!(ast_expr_is_atom(cl_label_expr)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(cl_label_expr),
+          `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`
+        )
+      )
+    );
+  });
+  cl_label := ast_expr_token(cl_label_expr).value;
+  if(param_label.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(cl_label_expr),
+          String.from("Named argument call is not allowed for this parameter (it has no label).")
+        )
+      )
+    );
+  });
+  if(param_label != cl_label, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(cl_label_expr),
+          `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`
+        )
+      )
+    );
+  });
+  match(cl_args.get(usize(1)), .Some(a) => a, .None => arg)
+});
+/// The argument-side ownership rule, one call per argument:
+///
+/// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
+/// - 4b: an `own(...)` parameter MOVES an owning argument (consume, no dup) and
+///   materializes an owned copy of a borrowed one (dup + consume); an `inout`
+///   argument gets a copy and stays usable. Skipped in the checking phase: a
+///   trial call runs against the REAL caller env, and a trial consumption
+///   leaked into the real pass.
+/// - 4c: an RC-typed field PROJECTION passed to a BORROWING parameter gets a
+///   caller-owned +1 for the call (Aliasing Stage 0). Returns that drop.
+consume_argument_for_parameter :: (
+  fn(
+    evaled_arg : AstExpr,
+    actual_arg : AstExpr,
+    arg_info : ExprInfo,
+    param_is_owning : bool,
+    param_is_ct : bool,
+    param_is_ref : bool,
+    callee_is_extern : bool,
+    caller_env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Option(AstExpr)
+)({
+  require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
+  if((param_is_owning && !(param_is_ct)) && !(ctx.is_in_function_call_checking_phase), {
+    match(
+      arg_info.variable_name,
+      .None => (),
+      .Some(arg_var_name) => {
+        arg_vars := get_variables_from_env(caller_env, arg_var_name);
+        if(arg_vars.len() > usize(0), {
+          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env));
+          cond(
+            // An `inout` parameter or `inout(name) := place` binding names a
+            // slot it does not own: the callee gets a COPY (+1) of the
+            // referenced handle, and the binding stays usable — nothing is
+            // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
+            arg_var.is_ref => {
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+            },
+            arg_var.is_owning_the_rc_value => {
+              set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
+            },
+            true => {
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
+            }
+          );
+        });
+      }
+    );
+  });
+  if(((((!(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env), {
+    return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn));
+  });
+  Option(AstExpr).None
+});
+/// Report `msg` at `tok`, flagging the flow-violation channel first so a
+/// definition-time swallow re-raises it at `check` time (outside trials, cee
+/// propagate mode, and when a flag is already pending).
+_arg_rule_throw :: (fn(tok : Token, msg : String, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+    flag_flow_violation(msg.clone());
+  });
+  exn.throw(dyn(format_error_message(tok, msg)));
+});
+/// The argument-side value/type rule. Returns the argument's type as this
+/// parameter's value: a comptime literal is lowered to a runtime type unless
+/// the parameter (or its type) is comptime — to the DECLARED type when the
+/// literal fits a concrete one (`h.g(100 + 50)` into `a : u8` is a `u8`, not the
+/// default `i32`, which then failed to unify), else by the default lowering.
+///
+/// - a `comptime(...)` parameter takes a compile-time argument (E1101; a
+///   definition-time trial and a CTFE-capability analysis bind the caller's
+///   own parameters to unknowns by construction, so only a real call is judged);
+/// - a comptime literal fits a CONCRETE declared type — the literal widenings
+///   `are_types_compatible` defines, never more — and a known `comptime_int`
+///   value fits a fixed-width integer (`f(200 + 100)` for an `a : u8`);
+/// - an `Impl(Fn(...))` parameter takes a callable argument (E0606);
+/// - an `Impl(Trait)` parameter takes an argument implementing the trait
+///   (judged on the lowered type: `i32` implements what `comptime_int` may not).
+check_argument_for_parameter :: (
+  fn(
+    param_label : String,
+    resolved_pt : TypeValue,
+    param_is_ct : bool,
+    arg_ty : TypeValue,
+    arg_info : ExprInfo,
+    arg_tok : Token,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> TypeValue
+)({
+  if(param_is_ct && (!(in_def_time_trial()) && !(ctx.is_analyzing_ctfe_capability)) && runtime_value_for_comptime_param(arg_ty, arg_info.value), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          arg_tok,
+          `Parameter \`${param_label}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(arg_ty)}`,
+          Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+        )
+      )
+    );
+  });
+  pt_is_comptime := ((is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt)) || is_comptime_string_type(resolved_pt));
+  arg_is_comptime_lit := ((is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) || is_comptime_string_type(arg_ty));
+  lit_concrete := (
+    (!(is_some_type(resolved_pt)) && !(type_contains_some_type_deep(resolved_pt)))
+    && ((!(is_function_type(resolved_pt)) && !(is_fn_trait_type(resolved_pt))) && !(is_type_hierarchy_type(resolved_pt)))
+  );
+  // The fit and range checks hold for a `comptime(...)` parameter too
+  // (`comptime(n) : u8` given `300`); only the lowering below skips it.
+  if(arg_is_comptime_lit && !(pt_is_comptime), {
+    if(lit_concrete && !(are_types_compatible(arg_ty, resolved_pt)), {
+      _arg_rule_throw(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"`, ctx, exn);
+    });
+    if(lit_concrete && is_comptime_int_type(arg_ty), {
+      match(
+        match(arg_info.value, .Some(ci_av) => match(ci_av, .IntLit(ci_raw) => comptime_int_value_misfit(ci_raw, resolved_pt), _ => Option(String).None), .None => Option(String).None),
+        .Some(fit_msg) => _arg_rule_throw(arg_tok, fit_msg, ctx, exn),
+        .None => ()
+      );
+    });
+  });
+  lowered := cond(
+    (param_is_ct || pt_is_comptime) => arg_ty,
+    ((lit_concrete && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) && are_types_compatible(arg_ty, resolved_pt)) => resolved_pt,
+    true => convert_comptime_type_to_runtime_type_with_expected(arg_ty, Option(TypeValue).Some(resolved_pt), env)
+  );
+  if(fn_constrained_param_requires_callable(resolved_pt), {
+    nc_callable := (
+      (type_is_callable_shaped(lowered) || expr_info_capture_type(arg_info).is_some())
+      || match(arg_info.value, .Some(nc_av) => is_func_val(nc_av), .None => false)
+    );
+    if(!(nc_callable), {
+      _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, lowered), ctx, exn);
+    });
+  });
+  match(
+    impl_param_unmet_trait(resolved_pt, lowered, env),
+    .Some(um_tr) => _arg_rule_throw(arg_tok, impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, lowered, um_tr), ctx, exn),
+    .None => ()
+  );
+  lowered
+});
 /// Check that one function parameter matches its argument expression.
 /// Evaluates the arg, synthesizes type bindings into callee_env, and adds
 /// the parameter variable to callee_env.
@@ -666,51 +868,8 @@ check_if_function_parameter_matches_argument :: (
     (callee_is_extern : bool) ?= false
   ) -> CheckParamResult
 )({
-  // Step 1: Strip "label: value" colon-label wrapper from arg if present,
-  // VALIDATING the label — labels are
-  // readability-only and must match the declared parameter label; a bare
-  // strip silently accepted wrong/reordered labels that must be rejected.
-  (actual_arg : AstExpr) = arg_expr_raw;
-  if(ast_expr_is_fn_call_of(arg_expr_raw, ":", .Some(usize(2))), {
-    colon_args := _h_get_fn_call_args(arg_expr_raw);
-    cl_label_expr := match(colon_args.get(usize(0)), .Some(a) => a, .None => arg_expr_raw);
-    if(!(ast_expr_is_atom(cl_label_expr)), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(cl_label_expr),
-            `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`
-          )
-        )
-      );
-    });
-    cl_label := ast_expr_token(cl_label_expr).value;
-    if(param_label.len() == usize(0), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(cl_label_expr),
-            String.from("Named argument call is not allowed for this parameter (it has no label).")
-          )
-        )
-      );
-    });
-    if(param_label != cl_label, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(cl_label_expr),
-            `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`
-          )
-        )
-      );
-    });
-    actual_arg = match(
-      colon_args.get(usize(1)),
-      .Some(a) => a,
-      .None => arg_expr_raw
-    );
-  });
+  // Step 1: labels are readability-only (see `strip_argument_label`).
+  (actual_arg : AstExpr) = strip_argument_label(arg_expr_raw, param_label, exn);
   // Step 2: Evaluate param type in callee_env.
   //
   // io.async's params SKIP this name-based re-evaluation
@@ -763,196 +922,24 @@ check_if_function_parameter_matches_argument :: (
     }
   );
   (caller_env_r : Environment) = expr_info_adopt_env(arg_info);
-  // Coerce a comptime arg type (comptime_int/float/string) to the
-  // parameter's concrete runtime type before synthesis/compatibility,
-  // mirroring the default-value-site coercion (types/env_lookup.yo). Only
-  // when the parameter type is CONCRETE (not a `SomeT` type variable) —
-  // generic params must bind the raw comptime type via synthesis. Without
-  // this, e.g. `comptime_str.to_string()` (the desugaring of a backtick
-  // template) matched the self arg `comptime_str` against `Self = str`
-  // and `synthesize_types` rejected the `str` vs `comptime_str` tag
-  // mismatch before any coercion could run. `convert_…` returns the type
-  // unchanged for non-comptime inputs, so this is a no-op for normal args.
-  // GUARD: coerce when the PARAMETER is a runtime param (not comptime-only) and
-  // the parameter TYPE is not itself a comptime type.
-  // `is_ct_only` (the `comptime(...)` param modifier, from the
-  // per-param comptime side-table) REPLACES the earlier `!is_some_type`
-  // PROXY, which wrongly skipped a runtime param typed as a SomeT — e.g. the
-  // operator `neg`'s `self : _Self`, leaving a `comptime_float` arg unlowered
-  // so the specialized body dispatched to the COMPTIME `__yo_comptime_float_neg`
-  // (undeclared) instead of the runtime `Negate` impl (comptime.test.yo).
-  // `convert_…` lowers comptime_int→i32 / comptime_float→f64 UNCONDITIONALLY
-  // (comptime_string honours the expected type), so the `!pt_is_comptime` half
-  // still protects the (correct) comptime-to-comptime match for a comptime
-  // parameter type (e.g. the `fn(comptime_int,comptime_int)->bool` overload).
-  (arg_type : TypeValue) = arg_info.ty;
-  pt_is_comptime := (
-    (is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt))
-    || is_comptime_string_type(resolved_pt)
-  );
-  if((!(is_ct_only)) && (!(pt_is_comptime)), {
-    arg_was_comptime := (
-      (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))
-      || is_comptime_string_type(arg_info.ty)
-    );
-    arg_type = convert_comptime_type_to_runtime_type_with_expected(
-      arg_type,
-      Option(TypeValue).Some(resolved_pt),
-      caller_env_r
-    );
-    // Record the runtime type the comptime arg coerced to, so codegen renders
-    // the right C form (e.g. comptime_str → `*(char)` emits a bare string
-    // literal, not a `__yo_str` struct). ExprInfo is an object (ref),
-    // and for a literal arg `evaled_arg` IS the original node codegen reads.
-    // Only the codegen reads this field — no evaluator logic branches on it.
-    if(arg_was_comptime, {
-      expr_info_set_converted_runtime_type(arg_info, Option(TypeValue).Some(arg_type.clone()));
-    });
+  // Steps 3a–3c and the comptime-argument gate: the shared rule
+  // (`check_argument_for_parameter`), which also lowers a comptime literal to
+  // the runtime type it takes as this parameter's value.
+  (arg_type : TypeValue) = check_argument_for_parameter(param_label.clone(), resolved_pt, is_ct_only, arg_info.ty, arg_info, ast_expr_token(actual_arg), caller_env_r, ctx, exn);
+  // Record the runtime type a comptime literal lowered to, so codegen renders
+  // the right C form (comptime_str → `*(char)` emits a bare string literal,
+  // not a `__yo_str` struct). Only the codegen reads this field.
+  if(((is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty)) || is_comptime_string_type(arg_info.ty)) && !(is_ct_only), {
+    expr_info_set_converted_runtime_type(arg_info, Option(TypeValue).Some(arg_type.clone()));
   });
   arg_value := arg_info.value;
-  // Step 3b: an `Impl(Fn(...))` parameter is a CALLABLE slot — its argument
-  // must be a function value. The constraint lives on the parameter's SomeT,
-  // and Step 6 SYNTHESIZES the argument's type into that type variable, so by
-  // Step 8 `final_pt` IS the argument type and the compatibility test is
-  // trivially satisfied: `io.async(i32(5))` traced
-  // `declared=Impl : (Fn(E) -> T) final=i32 arg=i32 compat=true`. Check the
-  // constraint HERE, before synthesis destroys the evidence
-  // (issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md). Same
-  // flow-violation flagging as Step 5b so a def-time-body swallow re-raises
-  // the error at `check` time instead of hollowing the statement.
-  if(fn_constrained_param_requires_callable(resolved_pt), {
-    nc_callable := (
-      (type_is_callable_shaped(arg_type) || expr_info_capture_type(arg_info).is_some())
-      || match(arg_value, .Some(nc_av) => is_func_val(nc_av), .None => false)
-    );
-    if(!(nc_callable), {
-      nc_msg := fn_argument_not_callable_message(param_label.clone(), resolved_pt, arg_type);
-      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
-        flag_flow_violation(nc_msg.clone());
-      });
-      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), nc_msg)));
-    });
-  });
-  // Step 3c: an `Impl(Trait)` parameter takes only an argument that
-  // implements the trait (the non-`Fn` twin of Step 3b; see
-  // trait_checking.yo `impl_param_unmet_trait`).
-  match(
-    impl_param_unmet_trait(resolved_pt, arg_type, caller_env_r),
-    .Some(um_tr) => {
-      um_msg := impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, arg_type, um_tr);
-      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
-        flag_flow_violation(um_msg.clone());
-      });
-      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), um_msg)));
-    },
-    .None => ()
-  );
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
-  // Step 4a: the argument variable must not already be CONSUMED (moved) —
-  // UNCONDITIONAL (not gated on ownership), and the checker (utils.yo
-  // require_expr_not_consumed) must actually be called from the call path,
-  // not only from assignments: calling
-  // `uninit.assume_init()` twice (own(self), consumed on the first call)
-  // otherwise passed `check`, `comptime_expect_error` saw no error, and prelude
-  // arm 3 hollowed its whole batch (handoff §3.1-§7).
-  require_expr_not_consumed(evaled_arg, caller_env_r, ctx, exn);
-  // Step 4b: Move-ownership for an OWNED parameter. If the arg already owns
-  // the RC value → MOVE it (consume, no dup). If borrowed/non-owning →
-  // materialize an owned copy via `___dup` and
-  // consume the original so it can't be used after the call. Gated on the
-  // PARAMETER taking ownership — borrow/`inout` params never consume/dup their arg.
-  // NOTE: the own(self)-captured-variable tracking (`ctx.own_consumed_captures`)
-  // is deferred until a thread-spawn capture test needs it.
-  // NOT during the CHECKING PHASE: a trial call (overload selection /
-  // _trial_call_overload_candidate) runs this helper against the REAL caller
-  // env, and set_expr_as_consumed mutates the shared Variable in place, so a
-  // trial consumption LEAKED into the real pass and Step 4a then rejected the same
-  // statement that had "moved" the value ('use of moved value: `v1_copy` /
-  // value moved here' both pointing at the SAME line — tests/imm_vec arms
-  // 14/17).
-  if((param_is_owning && (!(is_ct_only))) && !(ctx.is_in_function_call_checking_phase), {
-    match(
-      arg_info.variable_name,
-      .None => (),
-      .Some(arg_var_name) => {
-        arg_vars := get_variables_from_env(caller_env_r, arg_var_name);
-        if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env_r));
-          cond(
-            // An `inout` parameter or `inout(name) := place` binding names a
-            // slot it does not own: the callee gets a COPY (+1) of the
-            // referenced handle, and the binding stays usable — nothing is
-            // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
-            arg_var.is_ref => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
-            },
-            arg_var.is_owning_the_rc_value => {
-              set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
-            },
-            true => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
-              set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
-            }
-          );
-        });
-      }
-    );
-  });
-  // Step 4c: Aliasing Stage 0 (the borrow-projection branch;
-  // issues/borrowed-arg-invalidated-by-aliased-container-mutation.md).
-  // An RC-typed field PROJECTION passed to a BORROWING parameter hands the
-  // callee a view into storage it may reassign through an aliased handle
-  // (`f(w, w.b)` reassigning `w.b` in a loop frees the old value mid-call —
-  // the borrowed parameter dangles). Materialize a caller-owned +1 for the
-  // call; the caller's scope-end drop releases it. Plain locals and owned
-  // temps stay +0 (the marker no-ops on owning temps), `inout` (ref) params
-  // are place writes, and — like Step 4b — trial calls in the CHECKING PHASE
-  // must not mutate the real caller env.
-  (s0_drop_captured : Option(AstExpr)) = Option(AstExpr).None;
-  (s0_marked_arg_captured : Option(AstExpr)) = Option(AstExpr).None;
-  if(((((!(param_is_owning)) && !(is_ct_only)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env_r), {
-    s0_drop_captured = set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn);
-    if(s0_drop_captured.is_some(), {
-      s0_marked_arg_captured = Option(AstExpr).Some(evaled_arg);
-    });
-  });
-  // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
-  //
-  // The argument counts as runtime when it has NO value, or when it is an
-  // UnknownVal that is runtime-only. An ORDINARY
-  // `UnknownVal` is a compile-time placeholder (CTFE analysis) and
-  // must be accepted — rejecting every `UnknownVal` made a
-  // comptime-only `self` parameter unfillable; the throw was then eaten by
-  // `_evaluate_expression_wrapper` (_expr.yo:1017) and the enclosing statement
-  // emitted as `// Failed to transpile` — measured on tests/imm_vec, where the
-  // dropped statement was the whole test body (a hollow rc=0 "47 passed").
-  // `VarRef` keeps its own arm: it names a runtime variable binding, which is
-  // never a compile-time value.
-  if(is_ct_only, {
-    is_rt := match(
-      arg_value,
-      .None => true,
-      .Some(v) => match(
-        v,
-        .UnknownVal(_, ro) => ro,
-        .VarRef(_) => true,
-        _ => false
-      )
-    );
-    if(is_rt, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(actual_arg),
-            `Cannot assign runtime argument to compile-time parameter "${param_label}"`
-          )
-        )
-      );
-    });
-  });
+  // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
+  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn);
+  s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
   // resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).
@@ -1153,49 +1140,8 @@ ${ast_expr_to_string(actual_arg)}`
   // own(value) : V) -> Box(V))(Box(V)(value))`), so every boxed value and
   // every `AnyError` payload leaked
   // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
-  bound_param_opt := add_variable_to_env(
-    callee_env_r,
-    param_label,
-    bind_pt,
-    arg_value,
-    is_ct_only,
-    false,
-    // is_reassignable
-    param_is_owning,
-    // is_owning_the_rc_value
-    false,
-    // is_implicit
-    param_tok
-  );
-  // inout(name) : T parameters — propagate the flag onto the binding this
-  // call created so the callee body's codegen dereferences reads (`(*name)`)
-  // and reassignment is accepted (`is_ref` and `is_reassignable` both follow
-  // the parameter's `inout`). Marking the
-  // exact created Variable (not an env-wide name search) keeps enclosing
-  // same-named bindings (e.g. an outer method's by-value `self`) untouched.
-  // Every binding OF A PARAMETER must carry is_parameter — resolution
-  // inside the callee body must be able to tell a parameter from a
-  // same-named caller-module global, and this bind (plus the spec-time
-  // re-binds below) previously left the flag false, so codegen's
-  // module-global qualifier saw a "global" as the innermost match
-  // (issues/fixed/yo-self-specialized-body-env-param-resolution-order.md).
-  match(
-    bound_param_opt,
-    .Some(bp_flag) => {
-      bp_flag.is_parameter = true;
-    },
-    .None => ()
-  );
-  if(param_is_ref, {
-    match(
-      bound_param_opt,
-      .Some(bound_param) => {
-        bound_param.is_ref = true;
-        bound_param.is_reassignable = true;
-      },
-      .None => ()
-    );
-  });
+  bound_param_opt := bind_parameter(callee_env_r, param_label, bind_pt, arg_value, is_ct_only, param_is_ref, param_is_owning, param_tok);
+  bound_param_opt;
   CheckParamResult(
     callee_env : callee_env_r,
     caller_env : caller_env_r,
@@ -2826,6 +2772,15 @@ create_specialized_function_inline :: (
             .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
             _ => ArrayList(bool).new()
           );
+          // ...and the declared `own(p)` flags: the re-bound Variable is what
+          // the specialized body's parameters-frame pass reads, and it
+          // hardcoded a non-owning binding, so an `own` parameter re-bound
+          // here lost its scope-end release.
+          decl_param_is_owning := match(
+            func_type,
+            .Func({ meta : __fm_ro }) => __fm_ro.*.param_is_owning,
+            _ => ArrayList(bool).new()
+          );
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -3063,56 +3018,29 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
-              _rbc := add_variable_to_env(
+              _rbc := bind_parameter(
                 callee_env,
                 p_label,
                 bind_pt_cl.clone(),
                 Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
-                false,
-                false,
-                false,
+                match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
+                match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false),
                 synthetic_token(p_label, callee_env.module_path)
-              );
-              // Parameter re-bind — flag it (see above).
-              match(
-                _rbc,
-                .Some(rbc_var) => {
-                  rbc_var.is_parameter = true;
-                  if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
-                    rbc_var.is_ref = true;
-                    rbc_var.is_reassignable = true;
-                  });
-                },
-                .None => ()
               );
             }, if(cur_is_folded_const, {
               match(
                 runtime_param_tys.get(rbp_i),
                 .Some(p_ty) => {
-                  _rb := add_variable_to_env(
+                  _rb := bind_parameter(
                     callee_env,
                     p_label,
                     p_ty,
                     Option(EvalValue).Some(create_unknown_val(p_ty)),
                     false,
-                    // is_compile_time_only — runtime parameter
-                    false,
-                    false,
-                    false,
+                    match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
+                    match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false),
                     synthetic_token(p_label, callee_env.module_path)
-                  );
-                  // Parameter re-bind — flag it (see above).
-                  match(
-                    _rb,
-                    .Some(rb_var) => {
-                      rb_var.is_parameter = true;
-                      if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
-                        rb_var.is_ref = true;
-                        rb_var.is_reassignable = true;
-                      });
-                    },
-                    .None => ()
                   );
                 },
                 .None => ()
@@ -7929,7 +7857,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now);
+export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter);
 export(purge_specialization_caches_owned_by, specialization_cache_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
