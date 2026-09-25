@@ -201,9 +201,12 @@ one static that every thread shares. In safe code:
   reference-counted global (`ArrayList`, `String`, any `ref(struct)`) stays legal for the main
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
-- a `Send` value global (the kind another thread may read) may not be assigned, be the root of a
-  field or index store, or be handed to an `inout` parameter whose callee writes through it — it
-  is a shared constant, not a `static mut`.
+- a `Send` value global (a scalar or a struct with no reference inside) that is WRITTEN
+  anywhere — assigned, the root of a field or index store, or handed to an `inout` parameter
+  whose callee writes through it — is a mutable static, and a closure that runs on another
+  thread may not reach it. Written and read on one thread only, it is an ordinary global; read
+  from every thread and never written, it is a shared constant. The error lands on whichever
+  of the two sites the compiler sees second and names the other.
 
 ```rust
 LIMIT :: i32(5);                              // a constant: fine from any thread
@@ -213,12 +216,9 @@ g := ArrayList(i32).new();                    // fine on the main thread only
 fill :: (fn() -> unit)({ g.push(i32(1)); });
 Thread(unit).spawn(io => { fill(); });        // ERROR: the closure calls fill, which reaches g
 (counter : i32) = i32(0);
-bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // ERROR: assigns a module-level global
+bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // fine on its own...
+Thread(i32).spawn(io => counter);             // ERROR: ...but another thread reads counter
 ```
-
-Test files (`*.test.yo`) are exempt from the write rule, like the class-1 panic ban: they are
-single-threaded programs that keep counters in globals on purpose. The reach rule applies to
-them.
 
 ## Negative Impls — Opting Out of Send
 

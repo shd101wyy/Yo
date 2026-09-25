@@ -339,8 +339,10 @@ system audit's option (c): a `Send`-bounded closure may not REACH a non-Send glo
 through statically resolved callees (`function_reaches_non_send_global`, called from both
 closure-creation sites via `validate_send_closure_global_reach` — separate from the capture check,
 because a capture-free closure has no capture struct; pragma'd bodies trusted), plus the `static mut`
-rule for VALUE-typed globals (assignment, field/index store, writing `inout` binding) with
-`*.test.yo` exempt from that one. Pinned by three check-level cli-cases and the corpus.
+rule for VALUE-typed globals (assignment, field/index store, writing `inout` binding), in the
+same reachability form: a write is an error only when a `Send` closure also reaches that global
+(two registries, either order). The unconditional write rule was measured first and rejected
+225 sites in `src/` (six compiler flags such as `g_warnings_enabled`). Pinned by three check-level cli-cases and the corpus.
 Rejecting unresolvable callees (a MAY-analysis) was measured and dropped: it turned 8 of 22
 parallelism suites red (every spawn body calling a captured helper closure, and operators the
 evaluator does not stamp with a callee). Calls through closure values and dyn methods are the

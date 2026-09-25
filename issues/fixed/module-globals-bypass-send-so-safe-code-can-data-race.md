@@ -48,29 +48,33 @@ Pick one: (a) require every module-level runtime binding to be `Send + Sync`-saf
 
 ## Fix (2026-09-26, rule D1)
 
-Option (c) of the fix direction, plus a `static mut` rule (option (a) was tried first and
-rejected the compiler's own tree — a dozen non-pragma'd `src/` files hold `ArrayList`/`HashMap`
-state — and every single-threaded program with a global cache): in a file without the pragma that is not a test file
-(`*.test.yo` and the runner's batch files are exempt, like the class-1 panic ban), a module-level
-runtime binding
+Option (c) of the fix direction, for both halves (option (a) was tried first and rejected the
+compiler's own tree — a dozen non-pragma'd `src/` files hold `ArrayList`/`HashMap` state, and
+six hold assigned `bool`/`usize` flags — and every single-threaded program with a global cache).
+In a file without the pragma, a module-level runtime binding obeys:
 
-1. **Reachability.** At the spawn-boundary capture check (`validate_capture_trait_requirements`,
-   now handed the closure's id and evaluated body), a closure bound to a `Send` closure type is
-   walked with `function_reaches_non_send_global` (`src/evaluator/effects/mutation_summary.yo`):
-   every atom that resolves to a module-level, non-`thread_local`, non-`Send` global is a
-   violation, and every resolvable callee is walked in turn (memoized, cycle-safe; a callee that
-   cannot be resolved — a dyn method — is a violation; a body in a pragma'd file is the audited
-   base). The message names the chain: `calls 'fill', which references the module-level global
-   'g' (type ArrayList(i32)), which is not Send …`.
-2. **`static mut`.** A VALUE-typed global (the kind another thread may read) may not be
-   assigned, be the root of a field/index store, or be bound to an `inout` parameter of a callee
-   that may write through it — the same mutation-mask decision as D3
-   (`throw_if_write_through_atomic_root` / `d3_record_inout_place` grew a module-global branch,
-   `_module_global_root_type`). `*.test.yo` files are exempt from this one (dispose counters).
+1. **Reachability.** Both closure-creation sites call `validate_send_closure_global_reach`
+   (`src/evaluator/utils/closure.yo`; separate from the capture check because a capture-free
+   closure has no capture struct). A closure bound to a `Send` closure type is walked with
+   `function_reaches_non_send_global` (`src/evaluator/effects/mutation_summary.yo`): every atom
+   that resolves to a module-level, non-`thread_local`, non-`Send` global is a violation, and
+   every statically resolved callee is walked in turn (memoized, cycle-safe; a body in a
+   pragma'd file is the audited base). The message names the chain: `calls 'fill', which
+   references the module-level global 'g' (type ArrayList(i32)), which is not Send …`. Calls
+   through closure values and dyn methods are not followed — the residual
+   `issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`.
+2. **`static mut`.** A VALUE-typed (`Send`) global that is written — assigned, the root of a
+   field/index store, or bound to an `inout` parameter of a callee that may write through it
+   (the D3 mutation-mask decision) — may not also be reached by a `Send` closure. The write sites
+   (`_d1_record_write` in `src/evaluator/exprs/assignment.yo`) and the walk record into two
+   registries keyed by the global's declaration token and each consults the other, so the error
+   lands on whichever site is evaluated second and names the other.
 
 The diagnostics name the alternatives: `thread_local(name)`, an atomic object, or a constant.
 Tests: `tests/cli-cases/check-spawn-reaches-non-send-global-rejected` (this issue's repro),
 `check-global-assignment-rejected`, `check-global-inout-write-rejected`, and in
 `tests/parallelism_soundness.test.yo` a `comptime_expect_error` for the reach rule plus canaries
 (a spawned closure calling a function that reads a constant and bumps an atomic; the non-Send
-global still usable on the main thread; a `thread_local` written per thread).
+global still usable on the main thread; a `thread_local` written per thread), and a
+`comptime_expect_error` for a spawned closure reading a written value global with its canary (a
+value global written and read on the main thread only).

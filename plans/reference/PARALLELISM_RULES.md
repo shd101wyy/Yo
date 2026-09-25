@@ -16,9 +16,9 @@ These rules are what makes the user-facing guarantee in `docs/en-US/THREAD_SAFET
 
 **Status:** LANDED 2026-09-26 (Phase 3): `function_reaches_non_send_global`
 (`src/evaluator/effects/mutation_summary.yo`) called from the spawn-boundary capture check, and
-the module-global branch of the write/inout rules in `src/evaluator/exprs/assignment.yo`. The
-write rule exempts `*.test.yo` files (single-threaded programs that keep dispose counters in
-globals on purpose); the reachability rule applies to them.
+the module-global branch of the write/inout rules in `src/evaluator/exprs/assignment.yo`,
+joined by two registries (written globals, globals reached from a `Send` closure) so the error
+fires on whichever site is evaluated second.
 
 A module-level `name := value` or `(name : T) = value` binding is one static shared by every
 thread of the process. In a file without the pragma:
@@ -38,11 +38,15 @@ thread of the process. In a file without the pragma:
   READING a field through such a handle performs reference-count traffic
   (`issues/fixed/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`);
 - a VALUE-typed global (a `Send` scalar or struct — the one kind another thread may read) that
-  is ASSIGNED anywhere, or is the root of a field/index store, or is bound to an `inout`
-  parameter of a callee that may write through it (the D3 mutation-mask decision), is a
-  mutable static (`static mut`) and is a compile error. Writes to an atomic-object global are
-  governed by D3; a non-Send RC global is main-thread-only by the first rule, so its writes are
-  ordinary.
+  is WRITTEN anywhere — assigned, the root of a field/index store, or bound to an `inout`
+  parameter of a callee that may write through it (the D3 mutation-mask decision) — is a mutable
+  static (`static mut`), and a `Send`-bound closure may not reach it by the first rule's walk. A
+  write alone is a single-threaded global and a reach alone is a shared constant; the pair is
+  the race. Each side records itself in a registry keyed by the global's declaration token and
+  consults the other's, so evaluation order does not matter and the diagnostic names both
+  sites. Rejected: "a written value global is always an error" — it rejected six flags in the
+  compiler's own tree (`g_warnings_enabled`, `g_prof_enabled`, …) that no other thread touches.
+  Writes through an atomic-object global are governed by D3.
 
 The diagnostics point at the alternatives: `thread_local(name)` for per-thread state
 (`plans/reference/THREAD_LOCAL_STORAGE.md`), an atomic object (`Mutex(T)`, `Arc(T)`, `Atomic*`)
