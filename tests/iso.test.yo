@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
+{ Thread } :: import("std/thread");
 test("Test basic Iso related functions", {
   {
     x := Box(i32)(42);
@@ -55,4 +56,21 @@ test("Test ^ operator for constructing Iso value", {
       assert(false, "Expected Some, got None");
     }
   );
+});
+// P-19 (plans/PARALLELISM_SOUNDNESS.md Phase 6): `rc()` of an `Iso` handle is
+// an ATOMIC load — the wrapper's count is updated with the atomic RC ops, and
+// the spawned thread's copy is dropped on that thread
+// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md). The
+// value oracle is the join; the race itself is the TSan job's to catch.
+test("rc() of an Iso handle copied into a spawned thread reads the atomic count", {
+  x := Box(i32)(42);
+  i1 := Iso(Box(i32))(x);
+  t := Thread(unit).spawn((io : Io) => {
+    _i2 := i1;
+    ()
+  });
+  t.join();
+  assert(rc(i1) == 1, "the thread's copy was released; only i1 remains");
+  e := i1.extract();
+  assert(e.* == i32(42), "and the value is intact");
 });

@@ -39,17 +39,31 @@ generate_parallelism_runtime :: (
   pool_mutex_decl := if(
     is_windows,
     `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
-static volatile int __yo_worker_pool_mutex_initialized = 0;`,
+static volatile LONG __yo_worker_pool_mutex_init_started = 0;
+static volatile LONG __yo_worker_pool_mutex_init_done = 0;`,
     `static __YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = __YO_THREAD_SYNC_INIT;  // Pool-level mutex`
   );
   windows_init_mutex := if(
     is_windows,
     `
-// Initialize the worker pool mutex on Windows (must be called before any use)
+// Initialize the worker pool mutex on Windows (must be called before any use).
+// A CRITICAL_SECTION has no static initializer, and two threads can make their
+// first pool submission at once (a Thread.spawn'ed thread submitting into a
+// pool), so a check-then-init let both run InitializeCriticalSection and enter
+// the pool unserialized
+// (issues/fixed/windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md).
+// Exactly one caller initializes; the others wait until it has published.
 static void __yo_worker_init_mutex(void) {
-  if (!__yo_worker_pool_mutex_initialized) {
+  if (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_done, 1, 1) == 1) {
+    return;
+  }
+  if (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_started, 1, 0) == 0) {
     InitializeCriticalSection(&__yo_worker_pool_mutex);
-    __yo_worker_pool_mutex_initialized = 1;
+    InterlockedExchange(&__yo_worker_pool_mutex_init_done, 1);
+  } else {
+    while (InterlockedCompareExchange(&__yo_worker_pool_mutex_init_done, 1, 1) == 0) {
+      Sleep(0);
+    }
   }
 }
 `,
@@ -76,6 +90,9 @@ static void __yo_worker_init_mutex(void) {
   // program that spawns a few hundred threads died with
   // 'io_uring_queue_init failed: Cannot allocate memory'
   // (issues/fixed/every-spawned-thread-leaks-its-event-loop.md).
+  // First wait out any other thread still inside a notify addressed to this
+  // loop, which dies with the thread (rule D7).
+  __yo_async_loop_quiesce();
   __yo_io_cleanup();`,
     ``
   );
@@ -83,6 +100,7 @@ static void __yo_worker_init_mutex(void) {
     uses_async,
     `
   // Release this worker thread's event loop (see the Thread entry point).
+  __yo_async_loop_quiesce();
   __yo_io_cleanup();`,
     ``
   );
@@ -145,6 +163,13 @@ typedef struct __yo_thread_entry_args_t {
 
   // Free args
   __yo_free(args);
+
+  // Release this thread's GC state and its tracked-object list. POSIX also
+  // runs this from the cleanup key's destructor, but Windows' TlsAlloc key has
+  // no destructor, so every exiting thread leaked it there
+  // (issues/fixed/windows-thread-gc-state-is-never-released-at-thread-exit.md).
+  // Idempotent: the key destructor then finds nothing to do.
+  __yo_cleanup_thread_gc();
 `
   );
   emitter.emit_string_line(thread_entry_return);
@@ -321,6 +346,8 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   // tasks, and tearing the ring down after each one would rebuild it for the
   // next. The leak is per-THREAD, so the release belongs at thread teardown.
   emitter.emit_string_line(async_cleanup_worker);
+  // Release this worker's GC state last (see the Thread entry point).
+  emitter.emit_string_line(`  __yo_cleanup_thread_gc();`);
   emitter.emit_string_line(worker_entry_return);
   emitter.emit_string_line(
     `}
@@ -381,7 +408,15 @@ static void __yo_worker_pool_init(size_t num_threads) {
   PARALLELISM_DEBUG("[WORKER] Worker pool initialized\\n");
 }
 
-// Shutdown the worker pool
+// Shut the worker pool down at process exit: tell every worker to stop, and
+// RETURN. Joining here hung the process for good whenever a worker was inside
+// a task that never finishes (blocked in a recv nobody feeds), and joined the
+// calling thread itself when exit() was called from a pool task
+// (issues/fixed/worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md).
+// A worker idle in its wait sees the flag and exits; a worker mid-task is
+// reclaimed by process teardown, exactly like a detached Thread. Nothing is
+// destroyed or freed: a worker may still be running against it.
+// ThreadPool.join_all / shutdown are the explicit "wait for my work" API.
 static void __yo_worker_pool_shutdown(void) {
   if (!__yo_worker_pool_initialized) {
     return;
@@ -389,7 +424,6 @@ static void __yo_worker_pool_shutdown(void) {
 
   PARALLELISM_DEBUG("[WORKER] Shutting down worker pool\\n");
 
-  // Signal all workers to shutdown
   for (size_t i = 0; i < __yo_worker_num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
     __yo_mutex_lock(&worker->mutex);
@@ -398,33 +432,7 @@ static void __yo_worker_pool_shutdown(void) {
     __yo_mutex_unlock(&worker->mutex);
   }
 
-  // Wait for all workers to finish
-  for (size_t i = 0; i < __yo_worker_num_threads; i++) {
-    __yo_worker_thread_t* worker = &__yo_worker_threads[i];
-    if (worker->running) {
-      __yo_raw_thread_join(worker->handle);
-    }
-    __yo_mutex_destroy(&worker->mutex);
-    __yo_cond_destroy(&worker->cond);
-
-    // Free any remaining tasks in queue (shouldn't happen normally)
-    __yo_worker_task_t* task = worker->queue_head;
-    while (task != NULL) {
-      __yo_worker_task_t* next = task->next;
-      if (task->closure) {
-        __yo_free(task->closure);
-      }
-      __yo_free(task);
-      task = next;
-    }
-  }
-
-  __yo_free(__yo_worker_threads);
-  __yo_worker_threads = NULL;
-  __yo_worker_num_threads = 0;
-  __yo_worker_pool_initialized = 0;
-
-  PARALLELISM_DEBUG("[WORKER] Worker pool shutdown complete\\n");
+  PARALLELISM_DEBUG("[WORKER] Worker pool shutdown signalled\\n");
 }
 
 // __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime

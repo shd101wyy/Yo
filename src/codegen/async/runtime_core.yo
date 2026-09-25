@@ -95,6 +95,10 @@ static int __yo_io_wait(void);
 // token — not the future — is what travels, the owner allocates and frees it,
 // and a release raised on a foreign thread is deferred through the same inbox.
 typedef struct __yo_waker_token_t {
+  // OWNER-ONLY writes. Cleared by the owner loop (its drain, or a local
+  // release), and only after the waker handle has been released, so no other
+  // thread still holding the handle can race the store: a foreign
+  // __yo_waker_is_woken reads it only while it holds the handle.
   __yo_io_future_t* future;
   struct __yo_loop_t* owner;
   // Inbox link. Written only under the owner's lock.
@@ -133,6 +137,15 @@ typedef struct __yo_loop_t {
   // this is non-zero the loop keeps waiting with no I/O outstanding and never
   // reports a wake deadlock: the wake is coming from outside its world.
   _Atomic size_t blocking_inflight;
+  // Threads currently touching this loop from OUTSIDE it: a poster between
+  // taking the loop's address and its last notify, a blocking_end between
+  // its decrement and its notify. The loop is a _Thread_local, so its thread
+  // must not exit while one is still in flight; __yo_async_loop_quiesce, run
+  // before every teardown, waits for this to drain. Every visitor increments
+  // it while the loop is provably alive (it holds a waker reference, or the
+  // blocking bracket is still open), which is what makes the wait sufficient
+  // (rule D7, plans/reference/PARALLELISM_RULES.md).
+  _Atomic size_t visitors;
   // Backend wakeup channel, filled in by __yo_io_init.
   int notify_ready;
   int notify_fd;
@@ -156,6 +169,7 @@ static __yo_loop_t* __yo_loop_self(void) {
     atomic_init(&__yo_this_loop.xwake_count, 0);
     atomic_init(&__yo_this_loop.live_wakers, 0);
     atomic_init(&__yo_this_loop.blocking_inflight, 0);
+    atomic_init(&__yo_this_loop.visitors, 0);
     __yo_this_loop.notify_ready = 0;
     __yo_this_loop.notify_fd = -1;
     __yo_this_loop.notify_handle = NULL;
@@ -201,8 +215,24 @@ static void __yo_async_blocking_end(void* loop_p) {
   if (!loop) {
     return;
   }
+  // The open bracket keeps the loop alive until the decrement, so the visit
+  // is registered first; the loop's teardown then waits for the notify below
+  // instead of letting it land on a dead _Thread_local.
+  atomic_fetch_add(&loop->visitors, 1);
   atomic_fetch_sub(&loop->blocking_inflight, 1);
   __yo_io_notify(loop);
+  atomic_fetch_sub(&loop->visitors, 1);
+}
+// Wait for every outside visitor (a poster, a blocking_end) to finish with
+// this loop. Called right before the loop is torn down; by then nothing keeps
+// the loop alive, so no NEW visitor can start, and the ones in flight are a
+// few instructions from done.
+static void __yo_thread_yield(void);
+static void __yo_async_loop_quiesce(void) {
+  __yo_loop_t* loop = __yo_loop_self();
+  while (atomic_load(&loop->visitors) > 0) {
+    __yo_thread_yield();
+  }
 }
 static void* __yo_async_loop_self_ptr(void) {
   return (void*)__yo_loop_self();
@@ -268,13 +298,18 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // run of the guard aborted tests/thread_pool.test.yo exactly that way).
 static __thread int __yo_async_task_depth = 0;
 
-static int __yo_async_strict_cached = -1;
+// Read by every thread's loop: atomic, so the first reads racing to fill the
+// cache are not a data race (each computes the same value from the same
+// environment variable).
+static _Atomic int __yo_async_strict_cached = -1;
 static int __yo_async_strict_nesting(void) {
-  if (__yo_async_strict_cached < 0) {
+  int c = atomic_load_explicit(&__yo_async_strict_cached, memory_order_relaxed);
+  if (c < 0) {
     const char* v = getenv("YO_ASYNC_STRICT");
-    __yo_async_strict_cached = (v && v[0] && v[0] != '0') ? 1 : 0;
+    c = (v && v[0] && v[0] != '0') ? 1 : 0;
+    atomic_store_explicit(&__yo_async_strict_cached, c, memory_order_relaxed);
   }
-  return __yo_async_strict_cached;
+  return c;
 }
 
 // Process the tasks that are ready NOW (non-blocking). Bounded to the queue
@@ -443,6 +478,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
       }
     }
   }
+  __yo_async_loop_quiesce();
   __yo_io_cleanup();
   while (__yo_cont_free_list) {
     __yo_continuation_t* node = __yo_cont_free_list;
@@ -661,10 +697,14 @@ static void __yo_waker_token_unref(__yo_waker_token_t* t) {
 // function are deliberately outside the lock.
 static void __yo_waker_post(__yo_waker_token_t* t) {
   __yo_loop_t* owner = t->owner;
+  // The caller's token reference keeps a waker live on the owner, so the
+  // owner cannot have exited yet; register the visit before anything else.
+  atomic_fetch_add(&owner->visitors, 1);
   int expected = 0;
   if (!atomic_compare_exchange_strong(&t->queued, &expected, 1)) {
     // Already on the inbox: the owner will see the state this wake just set.
     __yo_io_notify(owner);
+    atomic_fetch_sub(&owner->visitors, 1);
     return;
   }
   // The CAS won, so this call is the one that puts the token on the inbox:
@@ -682,6 +722,21 @@ static void __yo_waker_post(__yo_waker_token_t* t) {
   atomic_fetch_add(&owner->xwake_count, 1);
   __yo_mutex_unlock(&owner->lock);
   __yo_io_notify(owner);
+  atomic_fetch_sub(&owner->visitors, 1);
+}
+
+// Consume a token's pending release exactly once (the exchange is what makes
+// the drain's two checks safe): drop the park future's reference and the
+// loop's live-waker count for that waker. Owner loop only.
+static void __yo_waker_consume_release(__yo_waker_token_t* t, __yo_loop_t* loop) {
+  if (!atomic_exchange(&t->release_pending, 0)) {
+    return;
+  }
+  if (t->future) {
+    __yo_decr_rc((void*)t->future);
+    t->future = NULL;
+  }
+  atomic_fetch_sub(&loop->live_wakers, 1);
 }
 
 // Drain the inbox onto this loop's own ready queue. Takes the whole list under
@@ -704,20 +759,27 @@ static void __yo_async_drain_xwakes(void) {
     if (t->future) {
       __yo_waker_wake_local(t->future);
     }
-    // A release raised on a foreign thread defers ONE step to here: the park
-    // future's refcount is non-atomic and belongs to this loop. The token
-    // itself is freed by whoever drops the last reference, which may be this
-    // drain or may be the releaser — see __yo_waker_token_unref.
-    if (atomic_load(&t->release_pending) && t->future) {
-      __yo_decr_rc((void*)t->future);
-      t->future = NULL;
-    }
+    // A release raised on a foreign thread (or a local one while a wake was
+    // queued) defers to here: the park future's refcount is non-atomic and
+    // belongs to this loop, and the loop's live-waker count is dropped HERE,
+    // after the release has been consumed, so the loop never sees zero live
+    // wakers while a release addressed to it is in flight (rule D7). The
+    // token itself is freed by whoever drops the last reference, which may be
+    // this drain or may be the releaser — see __yo_waker_token_unref.
+    __yo_waker_consume_release(t, loop);
     // Off the inbox: a later post may queue it again and will take its own
     // reference. Clearing this BEFORE dropping the inbox reference is safe now
     // in a way it was not before the refcount — a racing post can re-queue the
     // token, but it cannot be looking at freed memory, because it holds the
     // handle reference while it does so.
     atomic_store(&t->queued, 0);
+    // A release whose post lost the 'queued' CAS to this very entry (it set
+    // release_pending, saw queued == 1, and only notified) is visible now:
+    // it set the flag before its CAS read 1, and that read precedes the store
+    // above. Consuming it only on the first check leaked the park future and,
+    // with the count dropped here, would hang the loop
+    // (issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md).
+    __yo_waker_consume_release(t, loop);
     __yo_waker_token_unref(t);
     t = next;
   }
@@ -756,15 +818,15 @@ static void __yo_waker_release(void* p) {
   }
   __yo_waker_token_t* t = (__yo_waker_token_t*)p;
   __yo_loop_t* owner = t->owner;
-  size_t lw = atomic_load(&owner->live_wakers);
-  if (lw > 0) {
-    atomic_fetch_sub(&owner->live_wakers, 1);
-  }
   if (owner != __yo_loop_self()) {
     // The park future's refcount belongs to the owner loop, so that drop is
-    // deferred to its drain. Post so the owner actually looks at the token,
-    // then drop the HANDLE reference: this thread must not touch the token again
-    // after that, and does not.
+    // deferred to its drain — and so is the owner's live-waker decrement: done
+    // here, before the post, it let a loop on a spawned thread see zero live
+    // wakers, exit and die while this post was still on its way into it
+    // (issues/fixed/a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md).
+    // Post so the owner actually looks at the token, then drop the HANDLE
+    // reference: this thread must not touch the token again after that, and
+    // does not.
     atomic_store(&t->release_pending, 1);
     __yo_waker_post(t);
     __yo_waker_token_unref(t);
@@ -794,6 +856,7 @@ static void __yo_waker_release(void* p) {
   }
   __yo_mutex_unlock(&owner->lock);
   if (on_inbox) {
+    // The drain consumes the release, live-waker count included.
     __yo_waker_token_unref(t);
     return;
   }
@@ -801,6 +864,7 @@ static void __yo_waker_release(void* p) {
     __yo_decr_rc((void*)t->future);
     t->future = NULL;
   }
+  atomic_fetch_sub(&owner->live_wakers, 1);
   __yo_waker_token_unref(t);
 }
 

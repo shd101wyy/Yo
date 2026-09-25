@@ -262,7 +262,10 @@ impl(
   ///
   /// Idempotent. The runtime's OS worker threads are process-global and are
   /// reclaimed at process exit; `shutdown` closes *this* pool and drains the
-  /// work it submitted.
+  /// work it submitted. Exit does NOT wait for tasks: work that is still
+  /// queued or running when `main` returns is abandoned, as a detached
+  /// `Thread` is, so a program that needs its tasks' effects calls
+  /// `join_all` or `shutdown` first.
   shutdown : (fn(self : Self) -> unit)({
     // Under the submission lock, so a `spawn` that has not yet taken the lock
     // sees `_closed` once it does and cannot queue behind the drain.

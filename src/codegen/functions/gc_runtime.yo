@@ -297,6 +297,34 @@ static inline void __yo_borrow_assert_unborrowed(void* ptr) {
     fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
     abort();
   }
+}
+// The same three for an ATOMIC object (atomic(ref(...)), Arc, Mutex, ...):
+// it is shared across threads by design, so two threads taking an interior
+// reference into it at once must not race on the counter — a lost update
+// left it stuck non-zero (every later operation panicked) or wrapped it to
+// 0xFFFF (issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
+// Same uint16_t word, accessed atomically, exactly as ref_count is.
+static inline void __yo_borrow_acquire_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  _Atomic uint16_t* bc = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(bc, memory_order_relaxed);
+  do {
+    if (cur == 0xFFFF) {
+      fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+      abort();
+    }
+  } while (!atomic_compare_exchange_weak_explicit(bc, &cur, (uint16_t)(cur + 1), memory_order_acquire, memory_order_relaxed));
+}
+static inline void __yo_borrow_release_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  atomic_fetch_sub_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, 1, memory_order_release);
+}
+static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  if (atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire) != 0) {
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    abort();
+  }
 }`
   );
 });
