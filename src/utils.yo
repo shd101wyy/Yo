@@ -362,8 +362,9 @@ stable_label_id :: (
   fn(prefix : String, module_path : String, row : usize, column : usize) -> String
 )({
   // EMISSION-name namespace (reset per compile) — labels are per-artifact.
-  k := emission_occurrence_key(`${module_path}:${row.to_string()}:${column.to_string()}`);
-  `${prefix}r${row.to_string()}c${column.to_string()}_n${k.to_string()}`
+  (pos_key, pos_part) := _anchored_position(module_path, row, column);
+  k := emission_occurrence_key(`${module_path}:${pos_key}`);
+  `${prefix}${pos_part.substring(usize(1), pos_part.len())}_n${k.to_string()}`
 });
 /// Type-id mint registry: id → the canonical path of the module that minted
 /// it (`stable_type_id`). A module's two path spellings (AGENTS.md) share one
@@ -764,7 +765,10 @@ generate_new_temp_variable_name :: (
   if(mp.starts_with(String.from("file://")), {
     mp = mp.substring(usize(7), mp.len());
   });
-  key := `${mp}:${row.to_string()}:${column.to_string()}:${slot}`;
+  // Anchored to the enclosing top-level statement (`_anchored_position`), so
+  // a comment added above a function leaves its temps' names alone.
+  (pos_key, _pos_part) := _anchored_position(module_path, row, column);
+  key := `${mp}:${pos_key}:${slot}`;
   k := fnv1a64(key);
   // EMISSION-name namespace (reset per compile) — see g_emission_occurrence.
   n := emission_occurrence_hashed(k);
