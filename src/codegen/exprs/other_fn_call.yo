@@ -531,12 +531,6 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
             em := context.base.emitter;
             em.emit_string_line(line);
             emitted = true;
-            // Inside a state machine the temp may own a `sm->var_<id>` slot
-            // that its deferred drop reads; without this store that drop
-            // releases calloc zero and the argument leaks once per call
-            // (read_dir's `raw.push({ name : name, ... })`, once per entry:
-            // issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md).
-            _store_temp_var_to_state_machine_if_needed(vname.clone(), indent.clone(), context);
           });
         });
         final_name := if(emitted || already_in_scope, vname, arg_code.clone());
@@ -1111,6 +1105,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           edecl.push_str(";");
           e_em := context.base.emitter;
           e_em.emit_string_line(edecl);
+          _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
@@ -1752,6 +1747,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               decl.push_str(";");
               ctor_em := context.base.emitter;
               ctor_em.emit_string_line(decl);
+              _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               return(Option(String).Some(tv));
             },
             .None => return(Option(String).Some(ctor_call))
@@ -1793,6 +1789,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                     u_decl.push_str(";");
                     u_em := context.base.emitter;
                     u_em.emit_string_line(u_decl);
+                    _store_temp_var_to_state_machine_if_needed(u_tv.clone(), indent.clone(), context);
                     return(Option(String).Some(u_tv));
                   },
                   .None => return(Option(String).Some(u_value))
@@ -1902,6 +1899,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               vs_decl.push_str(";");
               vs_em := context.base.emitter;
               vs_em.emit_string_line(vs_decl);
+              // A constructor's result temp declared as a C local may own a
+              // `sm->var_<id>` slot inside a state machine: its deferred drop
+              // reads the slot, so store it here, as the enum, ref-struct
+              // and union constructor sites above do (a struct literal pushed
+              // in an async loop leaked once per iteration:
+              // issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md).
+              _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               return(Option(String).Some(tv));
             },
             .None => return(Option(String).Some(vs_value))

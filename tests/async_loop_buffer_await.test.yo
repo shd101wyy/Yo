@@ -192,3 +192,57 @@ test("free generic read_to_end loops a buffer-taking await", {
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(4)) == u8(5), "middle byte");
 });
+// Regression (issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md):
+// inside a state machine, a call argument materialized into a C local (the
+// struct literal passed to `push`) owns a `sm->var_<id>` slot that its
+// deferred drop reads, but nothing stored the local into it. The drop
+// released calloc zero, so the reference the literal took on each element
+// leaked, once per iteration (the compiler's own `read_dir` leaked every
+// entry's name this way). The Dispose count pins "every pushed value is
+// released exactly once when the list dies".
+(g_sm_arg_disposed : i32) = i32(0);
+SmArgProbe :: ref(struct(n : i32));
+impl(
+  SmArgProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_sm_arg_disposed = (g_sm_arg_disposed + i32(1));
+    })
+  )
+);
+sm_arg_step :: (fn(i : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    r := (i + i32(1));
+    r
+  })
+);
+sm_arg_collect :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    raw := ArrayList(struct(p : SmArgProbe, k : i32)).new();
+    (i : i32) = i32(0);
+    while(runtime(i < i32(3)), {
+      nxt := e.io.await(sm_arg_step(i, e.io), e);
+      p := SmArgProbe(n : i);
+      raw.push({ p : p, k : nxt });
+      i = nxt;
+    });
+    raw.len()
+  })
+);
+test("a struct-literal call argument in an async loop is released with its list", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  before := g_sm_arg_disposed;
+  {
+    n := io.await(sm_arg_collect(io), t_e);
+    assert(n == usize(3), "three values pushed");
+  };
+  assert(g_sm_arg_disposed == (before + i32(3)), "each pushed value is disposed exactly once");
+});
