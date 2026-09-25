@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { parse_raw_int } :: import("../utils.yo");
@@ -615,6 +615,20 @@ _resolve_one_forall_binding :: (
     .None => Option(TypeValue).None
   )
 });
+/// A SomeT that is a type in its own right, not a type variable: an annotation
+/// (`Impl`) or dyn-coercion (nameless) wrapper whose resolution chain reaches
+/// a concrete type. A closure's `(k : Impl(Fn() -> unit))` is one: it resolves
+/// to k's capture struct, and `type_key` keys `G(typeof(k))` by the wrapper
+/// itself. Binding a generic param to it is as concrete as binding it to the
+/// capture struct, and it names the SAME instance the receiver does
+/// (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+_is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ name : bci_nm }) => (((bci_nm == "Impl") || (bci_nm.len() == usize(0))) && type_somes_all_resolve_concrete(t)),
+    _ => false
+  )
+);
 /// The frame-scoped twin of `_resolve_one_forall_binding`, reading ONLY
 /// frames >= min_frame (this match's synthesis frames — see the
 /// `unify_base` anchor in try_match_generic_impl). One top-down scan for
@@ -659,6 +673,9 @@ _resolve_one_forall_binding_from :: (
                           if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
                             eprintln(`[rfb-bound] name=${fa_name} via=scoped-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
                           });
+                          return(Option(TypeValue).Some(b));
+                        });
+                        if(_is_bound_closure_identity(b), {
                           return(Option(TypeValue).Some(b));
                         });
                         nb_id2 := match(b, .SomeT({ id : __nbi2 }) => __nbi2, _ => String.from(""));

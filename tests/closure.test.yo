@@ -2,6 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { Channel } :: import("std/sync/channel");
+{ ArrayList } :: import("std/collections/array_list");
 { printf } :: import("std/libc/stdio.yo");
 MyBox :: ref(
   struct(
@@ -317,4 +318,42 @@ test("a generic impl method's capturing closure compiles and runs", {
 test("the same generic impl method at a second instantiation", {
   h := GenericHolder(bool).make(true);
   assert(h.take(false), "the bool instantiation delivered its value too");
+});
+// A generic instantiated at a closure's own type: the static constructor's
+// `-> Self` and the `Self(...)` it builds are one C type
+// (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+_ClosureSlot :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    tag : i32,
+    _f : Option(T)
+  )
+);
+impl(
+  generic(T : Type),
+  _ClosureSlot(T),
+  empty : (fn(tag : i32) -> Self)(Self(tag : tag, _f : .None)),
+  holding : (fn(tag : i32, f : T) -> Self)(Self(tag : tag, _f : .Some(f)))
+);
+test("a container of a closure type compiles and calls the closure", {
+  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  ks := ArrayList(typeof(k)).new();
+  ks.push(k);
+  match(ks.get(usize(0)), .Some(g0) => g0(), .None => assert(false, "the pushed closure is there"));
+  assert(ks.len() == usize(1), "one closure in the list");
+  assert(hits.load(MemoryOrder.Acquire) == i32(1), "the listed closure ran");
+});
+test("a generic's static -> Self constructor at a closure type", {
+  n := i32(40);
+  (k : Impl(Fn() -> i32)) = (() => (n + i32(2)));
+  e := _ClosureSlot(typeof(k)).empty(i32(3));
+  assert(e.tag == i32(3), "the empty slot");
+  s := _ClosureSlot(typeof(k)).holding(i32(4), k);
+  assert(s.tag == i32(4), "the holding slot");
+  assert(match(s._f, .Some(g) => g(), .None => i32(0)) == i32(42), "the held closure ran");
 });
