@@ -249,10 +249,7 @@ _require_dyn_traits_implemented :: (
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
     sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
-    if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-      flag_flow_violation(sd_msg.clone());
-    });
-    exn.throw(dyn(format_error_message(token, sd_msg)));
+    raise_flow_violation(format_error_message(token, sd_msg), ctx, exn);
   });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
   fv_judged_names := ArrayList(String).new();
@@ -273,10 +270,7 @@ _require_dyn_traits_implemented :: (
                   fvm,
                   .Some(fvm_o) => {
                     fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(fv_payload.clone())}: ${fvm_o}.`;
-                    if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-                      flag_flow_violation(fv_msg.clone());
-                    });
-                    exn.throw(dyn(format_error_message(token, fv_msg)));
+                    raise_flow_violation(format_error_message(token, fv_msg), ctx, exn);
                   },
                   .None => ()
                 );
