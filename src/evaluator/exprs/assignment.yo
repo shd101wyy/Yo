@@ -1459,6 +1459,50 @@ comptime(${variable_name}) : ${dgc_ty_str}
       expr_info_set_converted_runtime_type(rhs_info, Option(TypeValue).Some(rhs_type.clone()));
     });
   });
+  // Re-fetch variable after RHS evaluation (env may have been updated).
+  updated_vars := get_variables_from_env(env, variable_name);
+  updated_variable := match(
+    updated_vars.get(updated_vars.len() - usize(1)),
+    .Some(v) => v,
+    .None => make_err_variable(env)
+  );
+  // Determine whether this is initialisation (first assignment) or reassignment.
+  is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
+  // Impl(...) reassignment rule: a SomeType
+  // variable whose concrete type is already fixed (Impl uses static dispatch)
+  // cannot be reassigned. It runs BEFORE the type-compatibility check: two
+  // closures are two types (plans/reference/TYPE_IDENTITY.md, closure
+  // identity), so reassigning to another closure fails compatibility too, and
+  // this is the error that explains it. Generic type parameters WITHOUT a resolved concrete
+  // type stay reassignable. "Already assigned" must be judged on the CURRENT
+  // control-flow path: the shared mutable Variable is stamped
+  // initialized by the FIRST cond arm, so a sibling arm's own first
+  // assignment would false-positive here — has_dominating_branch_init
+  // consults cond.yo's branch-group windows to exclude sibling-arm records
+  // (sibling arms must not count).
+  if(is_mutating_defined_variable, {
+    impl_resolved := match(
+      updated_variable.ty,
+      .SomeT(id : some_id, resolved_concrete : some_cell) => ((some_cell.len() > usize(0)) || lookup_some_resolved_concrete(some_id).is_some()),
+      _ => false
+    );
+    if(impl_resolved && has_dominating_branch_init(updated_variable.id), {
+      ra_entries := ArrayList(TokenAndError).new();
+      ra_entries.push(
+        TokenAndError(
+          token : ast_expr_token(lhs_resolved),
+          error_message : `Cannot reassign variable "${variable_name}" of type Impl(...).\nImpl(...) uses static dispatch and the concrete type is fixed at first assignment.\nConsider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations.`
+        )
+      );
+      ra_entries.push(
+        TokenAndError(
+          token : match(updated_variable.initialized_at_token, .Some(t) => t, .None => updated_variable.token),
+          error_message : String.from("First assigned here:")
+        )
+      );
+      exn.throw(dyn(format_error_messages(ra_entries)));
+    });
+  });
   // Type-compatibility check.
   if(!are_types_compatible(variable.ty, rhs_type), {
     var_ty_str := type_to_string(variable.ty);
@@ -1489,15 +1533,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
     },
     .None => ()
   );
-  // Re-fetch variable after RHS evaluation (env may have been updated).
-  updated_vars := get_variables_from_env(env, variable_name);
-  updated_variable := match(
-    updated_vars.get(updated_vars.len() - usize(1)),
-    .Some(v) => v,
-    .None => make_err_variable(env)
-  );
-  // Determine whether this is initialisation (first assignment) or reassignment.
-  is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
   // First-initialisation scope gate: a declared-but-
   // uninitialised variable may only be initialised in the scope that declared
   // it — initialising one defined OUTSIDE the current function body is an
@@ -1564,38 +1599,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
       ),
       .None => ()
     );
-  });
-  // Impl(...) reassignment rule: a SomeType
-  // variable whose concrete type is already fixed (Impl uses static dispatch)
-  // cannot be reassigned. Generic type parameters WITHOUT a resolved concrete
-  // type stay reassignable. "Already assigned" must be judged on the CURRENT
-  // control-flow path: the shared mutable Variable is stamped
-  // initialized by the FIRST cond arm, so a sibling arm's own first
-  // assignment would false-positive here — has_dominating_branch_init
-  // consults cond.yo's branch-group windows to exclude sibling-arm records
-  // (sibling arms must not count).
-  if(is_mutating_defined_variable, {
-    impl_resolved := match(
-      updated_variable.ty,
-      .SomeT(id : some_id, resolved_concrete : some_cell) => ((some_cell.len() > usize(0)) || lookup_some_resolved_concrete(some_id).is_some()),
-      _ => false
-    );
-    if(impl_resolved && has_dominating_branch_init(updated_variable.id), {
-      ra_entries := ArrayList(TokenAndError).new();
-      ra_entries.push(
-        TokenAndError(
-          token : ast_expr_token(lhs_resolved),
-          error_message : `Cannot reassign variable "${variable_name}" of type Impl(...).\nImpl(...) uses static dispatch and the concrete type is fixed at first assignment.\nConsider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations.`
-        )
-      );
-      ra_entries.push(
-        TokenAndError(
-          token : match(updated_variable.initialized_at_token, .Some(t) => t, .None => updated_variable.token),
-          error_message : String.from("First assigned here:")
-        )
-      );
-      exn.throw(dyn(format_error_messages(ra_entries)));
-    });
   });
   // Record FIRST-INITIALIZATIONS into the per-branch init log — consumed by
   // merge_and_check_envs's cross-branch type checks (see expr_info.yo's

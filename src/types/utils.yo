@@ -888,7 +888,14 @@ _type_refs_back_to_cyclic :: (
     // value that holds no Yo reference at all: answering "cyclic" for it made
     // every `AtomicI32` — and so every struct holding a shared atomic counter
     // — look cycle-capable, which `^` refuses and the collector tracks.
-    .SomeT(name : st_name) => !is_extern_type_name(st_name),
+    // And a closure identity (`is_bound_closure_identity`) IS its
+    // resolution, the capture struct, so the struct is what is judged
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    .SomeT(name : st_name) => cond(
+      is_extern_type_name(st_name) => false,
+      is_bound_closure_identity(ty) => recur(resolve_cell_chain(ty), original_id, visited),
+      true => true
+    ),
     .Array({ element : el }) => recur(el, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
