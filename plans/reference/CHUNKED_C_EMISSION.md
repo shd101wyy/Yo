@@ -50,7 +50,7 @@ emits **byte-identical** C to a single-file-built one
   a ~20% shared header — N=4 there is ~155% of the single-file C work, so
   the floor keeps it N=1).
 - **Memory cap on the default `--jobs` — LANDED 2026-09-25**
-  (`plans/BUILD_ON_8GB_MACHINES.md` Phase 3): a defaulted job count is lowered
+  (`plans/archive/BUILD_ON_8GB_MACHINES.md` Phase 3): a defaulted job count is lowered
   to what fits in half of physical memory at 64 MB + 24 bytes per byte of the
   largest unit's C; an explicit `--jobs` is kept. `YO_ASSUME_MEMORY_MB`
   overrides the memory figure.

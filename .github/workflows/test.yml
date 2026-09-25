@@ -713,8 +713,8 @@ jobs:
     strategy:
       fail-fast: false
       # The two LINUX release-bundle targets (musl bundles — Linux is
-      # musl-only). These are the only runners that can host the ~15 GB
-      # stage-1 self-build (32 GB swapfile). The other four release targets —
+      # musl-only). These are the only runners that host the stage-1
+      # self-build (an 8 GB swapfile as a safety net; ~5 GB peak on the v0.2.43 seed). The other four release targets —
       # macos-arm64, macos-x64, windows-x64, windows-arm64 — run the SAME
       # suite in the `test-native` job below, under a tree-built compiler
       # delivered by cross-emit (suite-candidate -> suite-cross-emit).
@@ -742,7 +742,7 @@ jobs:
       # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -789,7 +789,7 @@ jobs:
       # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
       # own allocation failed (dmesg showed NO oom-kill), dying inside the
       # Yo->C stage before the 142 MB .c was written. Linux survives that with
-      # the 32 GB swapfile added above. macOS runners cannot: macos-latest has
+      # the swapfile added above. macOS runners cannot: macos-latest has
       # ~7 GB and offers no equivalent knob.
       #
       # Making the heavy build Linux-only is not a concession, it is this
@@ -844,8 +844,9 @@ jobs:
           # 140 MB .c successfully at 03:47 and then died at 03:50, because the
           # parent still holds its ~15 GB evaluator/codegen arena while clang
           # starts needing its own GBs. (Locally clang -O2 on this file peaks
-          # at only 3.17 GB — the problem is the sum, not clang.) Filed as
-          # issues/compiler-holds-emit-memory-during-cc.md.
+          # at only 3.17 GB — the problem is the sum, not clang.) Fixed in
+          # v0.2.43: cc runs in a fresh image
+          # (issues/fixed/compiler-holds-emit-memory-during-cc.md).
           echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
           # Resolve `yo` to an ABSOLUTE path before sudo. sudo resets PATH via
           # secure_path, so the $GITHUB_PATH entry install-seed added is gone
@@ -1068,7 +1069,7 @@ jobs:
       # seed-cross-emit for the 16 min vs 159 min zswap measurement).
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1155,7 +1156,7 @@ jobs:
       # seed-cross-emit for the 16 min vs 159 min zswap measurement).
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1239,7 +1240,7 @@ jobs:
       # memory treatment as the candidate build above.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1483,7 +1484,7 @@ jobs:
           submodules: recursive
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1551,7 +1552,7 @@ jobs:
       # "Text file busy"); use the ~60 GB /mnt resource disk instead.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1688,7 +1689,7 @@ jobs:
 
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -1719,7 +1720,9 @@ jobs:
       # stage-2 emit — see that step's comment. Extra context: the
       # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
       # is why every single-knob stage-3 attempt died — 16 GB RAM + 20 GB
-      # swap was simply less than the demand. 32 GB swap + zswap covers it.
+      # swap was simply less than the demand. That was the pre-v0.2.43 heap
+      # (plans/archive/BUILD_ON_8GB_MACHINES.md): on the v0.2.43 seed this job peaks at
+      # ~5.2 GB RAM with no swap used, so the swapfile is an 8 GB safety net.
       - name: "Stage 3: self-emit with the stage-2 binary and compare (fixpoint)"
         run: |
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
@@ -1784,7 +1787,7 @@ jobs:
 
       - name: Measure `check src/main.yo` against the ratchet
         run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
-  # The 8 GB build claim (plans/BUILD_ON_8GB_MACHINES.md Phase 4):
+  # The 8 GB build claim (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 4):
   # `compile src/main.yo`, C compiler included, by the STAGE-2 compiler inside
   # an 8 GB cgroup with swap forbidden. The cgroup's memory.peak is the whole
   # process tree together (GNU time reports only the largest single process,
@@ -1880,7 +1883,7 @@ jobs:
       # ships with one active — "Text file busy"); use the /mnt resource disk.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -2029,7 +2032,7 @@ jobs:
       # ships with one active — "Text file busy"); use the /mnt resource disk.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -2164,7 +2167,7 @@ jobs:
       # runner-VM death — "runner has received a shutdown signal").
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -2331,7 +2334,7 @@ jobs:
       # runner-VM death — "runner has received a shutdown signal").
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
@@ -2605,7 +2608,7 @@ jobs:
       # ships with one active — "Text file busy"); use the /mnt resource disk.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /mnt/swapfile
+          sudo fallocate -l 8G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile

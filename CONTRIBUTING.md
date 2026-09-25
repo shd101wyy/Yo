@@ -43,7 +43,10 @@ $ yo check ./src
 
 Build the compiler from source. Always pass `--release`: at `-O0` the big
 evaluator functions have multi-megabyte stack frames and deep compile-time
-recursion exhausts the stack.
+recursion exhausts the stack. With a v0.2.43 or later `yo` this fits on an 8 GB
+machine (about 4.3 GiB peak, C compiler included). `tests/internal` is heavier:
+each file compiles the compiler, so run it one file at a time
+(`--parallel 1`).
 
 ```bash
 $ yo compile src/main.yo --release -o /tmp/yo-self-bin

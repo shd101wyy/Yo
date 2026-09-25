@@ -54,10 +54,10 @@ authorship from day one.
   codegen leaks were most of it: `f(match(...))` arguments, 3 GB, and every
   `HashMap` rehash leaking its RC entries, 2.9 GB); a CI memory ratchet, the
   LSP per-round growth, the header diet and `Option(ref)` remain
-  ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)). Next
-  after it: building the compiler on an 8 GB machine, i.e. the codegen phase
-  and cc no longer running while `yo compile` holds its heap
-  ([`BUILD_ON_8GB_MACHINES.md`](BUILD_ON_8GB_MACHINES.md)).
+  ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)). Building
+  the compiler on an 8 GB machine is done as of v0.2.43: 4.31 GiB peak, held by
+  a CI job inside an 8 GB cgroup
+  ([`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md)).
 - **Yo verifies Yo.** The compiler as the verifier's flagship user, rung by
   rung ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).
 - **Type-system soundness.** Make `yo check` a gate, not a filter: the

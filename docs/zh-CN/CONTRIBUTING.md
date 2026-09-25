@@ -38,7 +38,7 @@ $ yo check ./src
 ```
 
 从源码构建编译器。务必加上 `--optimize 2`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
-兆字节，编译期的深度递归会耗尽栈空间。
+兆字节，编译期的深度递归会耗尽栈空间。在 v0.2.43 或更新的 `yo` 下，这一步在 8 GB 内存的机器上即可完成（峰值约 4.3 GiB，包含 C 编译器）。`tests/internal` 更重：其中每个文件都会编译一次编译器，所以请逐个文件运行（`--parallel 1`）。
 
 ```bash
 $ yo compile src/main.yo --optimize 2 -o /tmp/yo-self-bin

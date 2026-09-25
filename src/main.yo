@@ -2998,7 +2998,7 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
 /// image. `yo compile` otherwise waits on cc with the whole evaluator and
 /// codegen universe still resident: measured on `src/main.yo`, the compile
 /// process held 6.6 GB while clang took another 3.1 GB, a 9.7 GB peak
-/// (plans/BUILD_ON_8GB_MACHINES.md Phase 1).
+/// (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 1).
 CcPlan :: struct(
   /// `_CC_PLAN_EXE` (one compile + link), `_CC_PLAN_CHUNKED` (a `cc -c` per
   /// chunk behind the `.o` cache, then the link) or `_CC_PLAN_STATIC_LIB`
@@ -3278,7 +3278,7 @@ _physical_memory_mb_windows :: (fn() -> usize)({
 /// half of physical memory (the rest is the OS, the user's other programs
 /// and the link that follows) over a per-job estimate for the LARGEST unit.
 /// The estimate, 64 MB + 24 bytes per byte of C, sits above both measured
-/// clang -O2 peaks on `src/main.yo` (plans/BUILD_ON_8GB_MACHINES.md Phase 3):
+/// clang -O2 peaks on `src/main.yo` (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 3):
 /// 345 MB for a 25 MB unit (estimate 664), 3.26 GB for the whole 145 MB file
 /// (estimate 3.5 GB); clang's peak grows faster than its input, so the
 /// per-byte figure comes from the large end. Never below 1, never above
@@ -4033,18 +4033,14 @@ run_compile :: (
   //
   // ---------------------------------------------------------------------
   // EVALUATE + EMIT SCOPE. Everything the evaluator and the code generator
-  // build lives inside this block, so that all of it is DROPPED before the
-  // C compiler is spawned below.
+  // build lives inside this block; nothing after it reads any of it (`c_path`,
+  // declared outside so it survives, and `target` are all the link line needs).
   //
-  // This is not tidiness, it is the fix for a reproducing CI failure
-  // (issues/compiler-holds-emit-memory-during-cc.md). On run 31864299243
-  // the 140 MB .c was written at 04:36 and the process was STILL holding
-  // its ~12 GB evaluator arena at 04:40:59 when it died — while clang,
-  // which needs only 3.17 GB on its own, ran alongside it. Neither peak is
-  // fatal alone; the SUM on a 16 GB runner is.
-  //
-  // Nothing after the block reads any of it: `c_path` (declared outside so
-  // it survives) and `target` are the only values the link line needs.
+  // The scope does NOT release that heap before the C compiler runs: the RC
+  // graph and the allocator keep it resident (measured: `yo compile` held
+  // 6.6 GB for the whole clang run). What releases it is the exec handoff at
+  // the end of this function — `_finish_cc_plan` runs cc in a fresh image
+  // (issues/fixed/compiler-holds-emit-memory-during-cc.md, #908).
   // ---------------------------------------------------------------------
   (c_path : String) = String.new();
   // Chunked emission: every written chunk `.c` (all become cc inputs), plus a

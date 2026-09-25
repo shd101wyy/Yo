@@ -1,6 +1,6 @@
 # An executed CTFE clone's metadata outlived the call
 
-**Status: FIXED 2026-09-25** (`plans/BUILD_ON_8GB_MACHINES.md` Phase 2).
+**Status: FIXED 2026-09-25** (`plans/archive/BUILD_ON_8GB_MACHINES.md` Phase 2).
 
 ## Symptom
 
