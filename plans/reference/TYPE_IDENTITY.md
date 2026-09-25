@@ -42,7 +42,7 @@ identity plus a short, listed set of coercions.
 | array | identical element type and length (a generic `U : usize` length matches any length) |
 | pointer | identical pointee |
 | `Dyn(...)` | **the same trait set**: every trait on each side is on the other side |
-| SomeT | the same lineage: equal name and frame level, or binders that correspond inside two function types being compared |
+| SomeT | the same lineage: equal name and frame level, or binders that correspond inside two function types being compared. A **closure identity** (a resolved, non-`Future` `Impl` annotation wrapper, such as `(k : Impl(Fn() -> unit))` resolved to k's capture struct) is its resolution instead: every copy of one closure's wrapper is one type, and two closures are two types (`is_bound_closure_identity`, `issues/fixed/a-container-of-a-closure-type-does-not-compile.md`) |
 | `never` | only `never` |
 
 ## Flow: identity plus these coercions, and nothing else

@@ -115,7 +115,6 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_key } :: import("../../types/type_key.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -3789,9 +3788,6 @@ _evaluate_funcval_runtime_call :: (
             .None => ()
           );
         }));
-        if(debug_knob(`YO_DEBUG_CC`).is_some(), {
-          eprintln(`[cc-self] fid=${func_id_fv} st=${type_key(spec_st)} ret=${type_key(resolved_ret)}`);
-        });
         ctx.self_type = Option(TypeValue).Some(spec_st);
       },
       .None => match(

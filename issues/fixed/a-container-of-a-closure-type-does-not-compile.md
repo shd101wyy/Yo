@@ -1,8 +1,8 @@
 # A container of a closure type (`ArrayList(typeof(k))`) does not compile
 
 **Found:** 2026-09-25, writing the rule-D9 canary for `^` over a list of closures.
-**Status:** FIXED 2026-09-25 (pending verification). Was: OPEN. **Class:** valid code rejected (the evaluator's
-generic-impl match; clang or `E0610` downstream).
+**Status:** FIXED 2026-09-25. Was: OPEN. **Class:** valid code rejected (clang or `E0610`), and a
+type-soundness hole: `check` accepted pushing one closure into another closure's list.
 
 ## Repro
 
@@ -36,38 +36,57 @@ taking `self`. Only a method that re-evaluates `Self` (or `Holder(T)`) failed.
 ## Mechanism
 
 `typeof(k)` is k's annotation wrapper: a SomeT named `Impl` whose resolution cell holds the
-closure's capture struct. `type_key` keys `Holder(<that SomeT>)` by the wrapper itself
-(`_tk_resolve_arg_slot` deliberately does not hop `Impl`/nameless wrappers: the dyn/box
-machinery lowers them to their own C struct).
+closure's capture struct. The wrapper is copied under fresh SomeT ids as the value flows (into a
+parameter, into a specialization's environment). Four places disagreed about what such a wrapper
+is:
 
-Matching the receiver against `impl(generic(T : Type), Holder(T), ...)` bound `T` to something
-else:
-
-1. Field synthesis bound `T := <k's Impl SomeT>`. `_resolve_one_forall_binding_from`
-   (`src/evaluator/values/impl.yo`) discards every SomeT binding outside a definition-time trial
-   as "still abstract".
-2. The type-argument fallback `_bind_forall_from_type_args` then walked the SomeT's resolution
-   cell to the capture struct and bound `T := <capture struct>`.
-
-The specialization re-evaluated its `-> Self` return as `Holder(<capture struct>)`, a second
-instance with a second C type. The body built the receiver's `Holder(<k's Impl>)`. For the
-tracer, `base : *(<k's Impl>)` and the pointer impl's `*(T)` match rejected
-`T := <k's Impl>` at step 1 and had no type arguments to fall back on: `E0610`.
+1. **`type_key`** keyed it by its SomeT id: in a type-argument slot (`_tk_resolve_arg_slot`
+   hopped where-clause foralls and `__impl_fn`, but not `Impl` wrappers) and at the top level.
+   `ArrayList(<copy 1>)` and `ArrayList(<copy 2>)` of one closure were two C types
+   (`__yo_t_412997…` vs `__yo_t_12991…`, and two `Option(<k's Impl>)` with identical layouts).
+2. **Identity and flow** (`src/types/compatibility.yo`) called two SomeTs one type when name
+   and frame level agree. Every closure's wrapper is named `Impl`. So the CTFE memo handed
+   `ArrayList(typeof(k2))` the instance of `ArrayList(typeof(k1))`: valid code failed with
+   "Cannot unify incompatible struct types", and `l1.push(k2)` type-checked.
+3. **The generic-impl match** (`src/evaluator/values/impl.yo`) discarded `T := <k's Impl>` from
+   field synthesis as "still abstract", then bound `T` to the capture struct through the
+   type-argument fallback. A static method's `-> Self` then named `Holder(<capture>)`, while
+   its body built the receiver `Holder(<k's Impl>)`. For a pointer (`*(T)` in the cycle
+   tracer's `base.add(i)`) there was no fallback at all: `E0610`.
+4. **Generic calls.** `_resolve_some_types_deep` substituted a nested `T` (`*(T)`) only with a
+   non-SomeT binding, so `GcTracer.visit(slot : *(T))` kept `*(T)`. The synthesizer's
+   both-SomeT case treated `T := <k1's Impl>` as unbound and rebound it to `<k2's Impl>`.
 
 ## Fix
 
-A resolved closure identity is a binding, not a type variable:
+One rule: a **closure identity** (`is_bound_closure_identity`, `src/types/utils.yo`) is a
+resolved, non-`Future` annotation wrapper, and it *is* its resolution. Codegen already lowered it
+to the capture struct's C type. The dyn-coercion wrappers (nameless) keep their own identity,
+because the dyn/box pipeline lowers them to a fat call/data struct. So do `Future` wrappers,
+because an extern future lowers to a pointer.
 
-- `_resolve_one_forall_binding_from` accepts an `Impl` or nameless SomeT whose resolution chain
-  reaches a concrete type (`_is_bound_closure_identity`).
-- `_bind_forall_from_type_args` binds what the receiver is keyed by. That is the wrapper when
-  `type_key` keeps the slot's own identity, and the concrete type when `type_key` hops the chain
-  (where-clause foralls and `__impl_fn`, the closure-F combinators, unchanged).
+- `type_key` keys a closure identity as its resolution, in argument slots and at the top level.
+  `helper.yo`'s `_spec_resolve_slot_cell`, a line-for-line copy of `_tk_resolve_arg_slot`, now
+  delegates to it.
+- Identity and flow compare two closure identities by their resolutions
+  (`plans/reference/TYPE_IDENTITY.md` records the rule).
+- The impl match accepts a closure identity as a binding. The type-argument fallback binds what
+  the receiver is keyed by.
+- `_resolve_some_types_deep` substitutes a nested closure identity. The synthesizer treats one
+  as bound and unifies two through their resolutions, so `l1.push(k2)` fails at the argument.
+- The chain walk `resolve_cell_chain` moved from `compatibility.yo` to `types/utils.yo` and is
+  shared.
 
 ## Regression tests
 
-- `tests/closure.test.yo`: "a container of a closure type compiles and calls the closure"
-  (an `ArrayList` of a capturing closure) and "a generic's static -> Self constructor at a closure
-  type". Both batches failed to compile before the fix.
+- `tests/closure.test.yo`:
+  - "a container of a closure type compiles and calls the closure", an `ArrayList` of a
+    capturing closure;
+  - "a generic's static -> Self constructor at a closure type";
+  - "two closures' lists are two types, one per closure".
+
+  All three failed before the fix.
 - `tests/parallelism_soundness.test.yo`: the D9 canary's sixth route, an `Iso` over a list of
   clean closures run on a thread.
+- `tests/cli-cases/check-closure-pushed-into-another-closures-list`: `check` rejects
+  `l1.push(k2)` at the argument. It passed `check` before.
