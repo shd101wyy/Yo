@@ -152,7 +152,9 @@ function: a method or closure defined in the executed body can outlive the
 call, and codegen emits it from that metadata. Verified on `compile
 src/main.yo`: 268 K ids purged, zero codegen reads of a purged id (detector
 build), emitted C byte-identical. **Front-half peak footprint 6.70 → 5.07
-GB**, max RSS 5.66 → 4.41 GB. Record:
+GB**, max RSS 5.66 → 4.41 GB. On Linux the whole build (the 8 GB CI job's
+cgroup `memory.peak`, C compiler included) went **6,656,632 → 5,090,248 kB
+(6.35 → 4.85 GiB)**, now the `compile_src_main_peak_kb` baseline. Record:
 `issues/fixed/ctfe-clone-metadata-outlives-the-call.md`.
 
 Not purged: the overload-trial clones. A trial that type-checks a generic
