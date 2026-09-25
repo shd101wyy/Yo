@@ -1,6 +1,6 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Nothing landed yet. Source: a full audit of Yo's
+**Status:** ACTIVE, proposed 2026-09-25. Phase 0 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 1–8 open. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -105,6 +105,7 @@ or diagnostics only.
 | P-22 | R | macOS: `__yo_io_notify` reads `notify_ready`/`notify_handle` unsynchronized against `__yo_io_cleanup` clearing them (Linux holds `loop->lock`). | `macos-io-notify-races-io-cleanup-on-the-notify-handle` | 6 |
 | P-23 | L | The pool's `atexit` shutdown joins every worker; a task blocked forever hangs `exit()`; `exit()` from inside a task joins itself. The "free queued closures" loop is dead code that would leak captures. | `worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task` | 6 |
 | P-24 | L | Windows: `TlsAlloc` has no destructor, so a thread's GC state is never released at thread exit. | `windows-thread-gc-state-is-never-released-at-thread-exit` | 6 |
+| P-26 | C | `arc(f)` / `Channel(typeof(f))` of ANY closure, `Send` or not, emits two capture-struct typedefs for the one closure and fails in clang — the accident behind P-4's "rejected today", and a blocker for D4's legal shape. Found writing the Phase 0 corpus. | `arc-of-a-send-closure-emits-two-capture-struct-typedefs` | 4 |
 | P-25 | D | `__yo_async_strict_cached` is a plain `static int` written by whichever thread first reads the env var (idempotent; TSan will report it). | Phase 6, no issue | 6 |
 
 ## 4. What is sound today (so the plan does not re-audit it)
@@ -241,6 +242,14 @@ Each phase is one PR (or a short stack), lands with its tests, and moves its iss
    (`issues/fixed/…` / memory), the CI invocation is `yo test` on that one file.
 4. Exit: docs make no claim the code does not keep; the corpus file exists and is green.
 
+**Landed 2026-09-26** (PR: the `ps/phase0-docs-corpus` branch). `plans/reference/PARALLELISM_RULES.md`
+holds D1–D8 with per-rule status; `THREAD_SAFETY.md`, `ISOLATED.md` and `PARALLELISM.md`
+rewritten in both languages (the "Known Holes" section is the list each phase shrinks);
+`tests/parallelism_soundness.test.yo` lands with the two rejections that already hold and one
+canary per rule — no wrapped/skipped blocks: each phase ADDS its rejection blocks. One deviation
+from the plan text: the D4 canary is a `where(T <: Send)` call, not `arc(bump)`, because
+`arc` of any closure fails in clang today (P-26, filed during this phase).
+
 ### Phase 1: complete the atomic-write gate (P-1) (S–M, evaluator only)
 
 - `src/evaluator/exprs/assignment.yo`: `get_atomic_object_root_type` takes the root atom of a
@@ -309,6 +318,9 @@ Each phase is one PR (or a short stack), lands with its tests, and moves its iss
 
 ### Phase 4: closure types, second-class captures, extern calls (P-4, P-13, P-9) (M, evaluator)
 
+0. Prerequisite: fix P-26 (`arc(f)` / `Channel(typeof(f))` emit two capture-struct typedefs) so
+   the legal `arc(closure_over_atomic)` shape compiles; then switch the D4 canary in the corpus
+   to that form.
 1. `src/evaluator/trait_checking.yo` `.Func` arm: when the target came from a closure VALUE
    (the on-demand marker check receives the type; thread the value or its `func_id` through
    from the where-clause discharge in `calls/` so `get_closure_capture_info` can be consulted),

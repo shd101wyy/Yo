@@ -1,0 +1,118 @@
+{ assert } :: import("std/assert");
+{ Thread } :: import("std/thread");
+{ Mutex } :: import("std/sync/mutex");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ ArrayList } :: import("std/collections/array_list");
+/// The parallelism-soundness corpus (`plans/PARALLELISM_SOUNDNESS.md`, Phase 0).
+///
+/// One `comptime_expect_error` block per rule the plan's phases add, and one
+/// over-rejection canary per rule so a gate cannot land by rejecting the legal
+/// shape next to it. Every block names the rule (`plans/reference/PARALLELISM_RULES.md`)
+/// it pins. A phase that lands a rule ADDS its rejection blocks here; nothing
+/// in this file is wrapped or skipped, so the file is green at every commit.
+///
+/// This file has NO `pragma(Pragma.AllowUnsafe)` on purpose: every rule here
+/// is a safe-mode rule, and the pragma would switch all of them off.
+Counter :: struct(n : i32);
+impl(
+  Counter,
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+// A `Send` value-type constant at module level: legal under D1 (no reference
+// inside, never assigned).
+LIMIT :: i32(5);
+// Per-thread mutable state at module level: the D1-approved spelling.
+(thread_local(tl_hits) : i32) = i32(0);
+// ============================================================================
+// D3 — writes through an atomic object
+// ============================================================================
+// Already enforced (Phase O): field assignment through an `Arc` root.
+comptime_expect_error({
+  _d3_field_assignment :: (fn() -> unit)({
+    a := arc(Counter(n : i32(0)));
+    a.*.n = i32(1);
+  });
+  _d3_field_assignment();
+});
+// Canary: a local COPY of the value is not an atomic root.
+test("D3 canary: mutating a local copy taken out of an Arc is legal", {
+  a := arc(Counter(n : i32(0)));
+  c := a.*;
+  c.bump();
+  assert(c.n == i32(1), "the copy was bumped");
+  assert(a.*.n == i32(0), "the Arc's value is untouched");
+});
+// Canary: `with_lock`'s `inout(v)` is a parameter root, not an atomic root.
+test("D3 canary: Mutex.with_lock may mutate the protected value", {
+  m := Mutex(Counter).new(Counter(n : i32(0)));
+  m.with_lock(v => {
+    v.bump();
+  });
+  assert(m.with_lock(v => v.n) == i32(1), "with_lock body wrote through v");
+});
+// ============================================================================
+// D4 — a closure is Send iff its captures are
+// ============================================================================
+// Already enforced at the spawn boundary: a closure over an ArrayList is not Send.
+comptime_expect_error({
+  _d4_spawn_over_array_list :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    t := Thread(unit).spawn(io => {
+      items.push(i32(1));
+      ()
+    });
+    t.join();
+  });
+  _d4_spawn_over_array_list();
+});
+// Canary: a closure whose only capture is an atomic satisfies a `Send` bound.
+// (The `arc(bump)` form of this canary is blocked on
+// issues/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md.)
+_needs_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)({
+  x;
+});
+test("D4 canary: a closure over an atomic satisfies where(T <: Send)", {
+  hits := AtomicI32(i32(0));
+  (bump : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    }
+  );
+  _needs_send(bump);
+  bump();
+  assert(hits.load(MemoryOrder.Acquire) == i32(1), "the closure still runs");
+});
+// ============================================================================
+// D1 — module-level bindings
+// ============================================================================
+// Canary: a `Send` value-type constant may be read from two threads.
+test("D1 canary: a module-level value constant is readable from a spawned thread", {
+  t := Thread(i32).spawn((io : Io) => (LIMIT + i32(1)));
+  assert(t.join() == i32(6), "the thread read LIMIT");
+  assert(LIMIT == i32(5), "so did the main thread");
+});
+// Canary: a `thread_local` global is per-thread mutable state.
+test("D1 canary: a thread_local global is written independently per thread", {
+  tl_hits = i32(1);
+  t := Thread(i32).spawn((io : Io) => {
+    tl_hits = (tl_hits + i32(10));
+    tl_hits
+  });
+  assert(t.join() == i32(10), "the thread started from its own zeroed instance");
+  assert(tl_hits == i32(1), "the main thread's instance is untouched");
+});
+// ============================================================================
+// D8 — closures may not capture second-class bindings
+// ============================================================================
+// Canary: a closure inside a `with_lock` body that captures a local COPY is legal.
+test("D8 canary: a closure over a copy of the protected value is legal", {
+  m := Mutex(Counter).new(Counter(n : i32(7)));
+  seen := m.with_lock(v => {
+    c := v;
+    (k : Impl(Fn() -> i32)) = (() => c.n);
+    k()
+  });
+  assert(seen == i32(7), "the copy was readable through the closure");
+});
