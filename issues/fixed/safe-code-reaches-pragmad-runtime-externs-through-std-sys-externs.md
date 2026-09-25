@@ -57,6 +57,12 @@ Seven `std/sys` wrappers called runtime externs without the pragma (`timer`, `fc
 `seek`, `umask`, `fallocate`, `socket` — so the fix direction's "std wrappers all carry the
 pragma" was wrong); they are the audited base the rule trusts, and now declare it.
 
+Five public std APIs were the runtime extern itself, re-exported under a friendly name
+(`std/thread`'s `get_thread_id :: __yo_get_thread_id;`, `get_hardware_threads`, `get_cpu_id`;
+`std/gc`'s `collect`, `tracked_count`), so the rule saw user code calling a runtime extern by
+name (`tests/cross_thread_wake.test.yo`). They are now one-line wrapper functions defined in the
+pragma'd module, which is what every other std API already was.
+
 Tests: the repro, and its module-value form, as `comptime_expect_error` blocks in
 `tests/parallelism_soundness.test.yo` (the imports themselves stay legal); `yo check ./std` and the fast suite are the regression gate for
 std's pragma'd wrappers.

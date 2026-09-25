@@ -392,7 +392,9 @@ the same prerequisite closes D1's closure-value residual
   called BY NAME — a bare identifier or a module-value field — from a file without the pragma
   (extern "c" calls already need `unsafe(...)`). Seven `std/sys` wrappers (`timer`, `fcntl`,
   `lock`, `seek`, `umask`, `fallocate`, `socket`) called runtime externs unpragma'd and now
-  declare the pragma.
+  declare the pragma; five public APIs that were bare aliases of a runtime extern
+  (`get_thread_id`, `get_hardware_threads`, `get_cpu_id`, `gc.collect`, `gc.tracked_count`)
+  are now wrapper functions.
 
 ### Phase 5: primitives trap, never UB; pool barrier (P-5, P-6, P-7, P-8) (M, std only)
 
