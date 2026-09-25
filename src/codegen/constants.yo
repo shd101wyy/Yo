@@ -190,11 +190,15 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// outlive the frame that installed it, so a module-level binding of one is
 /// rejected (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
 (g_codegen_error : Option(AnyError)) = Option(AnyError).None;
-_record_codegen_error :: (fn(err : AnyError) -> unit)({
-  if(g_codegen_error.is_none(), {
-    g_codegen_error = Option(AnyError).Some(err);
-  });
-});
+_record_codegen_error :: (fn(err : AnyError) -> unit)(
+  match(
+    g_codegen_error,
+    .None => {
+      g_codegen_error = Option(AnyError).Some(err);
+    },
+    .Some(_) => ()
+  )
+);
 /// Forget an error a previous compile recorded but never raised (it threw
 /// before its emission phase ended).
 clear_codegen_error :: (fn() -> unit)({

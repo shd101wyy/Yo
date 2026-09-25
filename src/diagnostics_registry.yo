@@ -507,7 +507,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Yo decides every drop statically, so where the arms of a `cond`/`match` meet, or where the ways out of a loop meet, a value must be moved on all of them or on none. Move it in every arm (or `break` path), or in none and pass a clone where it is consumed. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
       "Yo 静态地决定每一次 drop，因此在 `cond`/`match` 的各分支汇合处，或循环的各个出口汇合处，一个值必须在所有路径上都被移动，或在所有路径上都不被移动。请在每个分支（或每条 `break` 路径）里都移动它，或都不移动、在消费处传入它的克隆。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
       "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => ());\n});\nexport(main);\n",
-      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => sink(Box(i32)(7)));\n});\nexport(main);\n",
+      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => sink(b));\n});\nexport(main);\n",
       "Only the first arm moves `b`; after the `cond` it would be dropped on one path only.",
       "只有第一个分支移动了 `b`；`cond` 之后它只会在一条路径上被 drop。"
     )
