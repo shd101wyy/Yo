@@ -682,3 +682,37 @@ test("soundness: ArrayList(anonymous record) and ArrayList(Named) are two instan
   assert(_p34_rows_anon() == usize(1), "anonymous");
   assert(_p34_rows_named() == usize(2), "named");
 });
+// ---------------------------------------------------------------------------
+// issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md
+// (Phase 3.6): `never` is the bottom type. A diverging arm does not
+// constrain a cond/match join, and a `-> never` function's call fits any
+// value slot.
+// ---------------------------------------------------------------------------
+_p36_die :: (fn(msg : str) -> never)(__yo_panic(msg));
+_p36_pick :: (fn(flag : bool) -> i64)({
+  x := cond(flag => i32(3), true => __yo_panic("boom"));
+  y := match(flag, false => __yo_panic("bam"), true => i32(4));
+  z := cond(flag => i32(5), true => _p36_die("die"));
+  i64(x + y + z)
+});
+_p36_tail :: (fn(flag : bool) -> i32)(cond(flag => i32(7), true => __yo_panic("tail")));
+_p36_block :: (fn(flag : bool) -> i32)({
+  if(!flag, {
+    _p36_die("block");
+  });
+  i32(8)
+});
+_p36_never_eq :: Type.eq(never, never);
+_p36_never_flows :: Type.is_compatible_with(never, i32);
+_p36_into_never :: Type.is_compatible_with(i32, never);
+test("soundness: never is the identity of an arm join", {
+  assert(_p36_pick(true) == i64(12), "a panicking arm takes the other arm's type");
+  assert(_p36_tail(true) == i32(7), "a panicking tail arm");
+  assert(_p36_block(true) == i32(8), "a never call as a statement");
+});
+test("soundness: never flows into every type and nothing flows into it", {
+  assert(_p36_never_eq, "never is never");
+  assert(_p36_never_flows, "never flows into i32");
+  assert(!_p36_into_never, "i32 does not flow into never");
+  comptime_expect_error(_p36_returns :: (fn() -> never)(()), "declared result type is `never`");
+});
