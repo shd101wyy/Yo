@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-19;
 raised by the runtime sub-audit, verified by reading).
-**Status:** OPEN. **Data race** (mixed atomic / non-atomic access to one location is UB under
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 6). Was: OPEN. **Data race** (mixed atomic / non-atomic access to one location is UB under
 C11; practically a stale read feeding a `rc(x) == 1` decision).
 **Where:** `src/codegen/exprs/rc_fns.yo` ~404-426.
 
@@ -26,3 +26,11 @@ atomic incr/decr (`Iso`, atomic struct, atomic enum) — instead of on the struc
 `ref_count == 1` check to `extract`, that check uses the same load. Test:
 `tests/iso.test.yo` asserts `rc(i1)` across a spawn (value 1 after join) and the TSan job runs
 it.
+
+## Fix (2026-09-26)
+
+`is_atomically_counted_rc_type` (`src/types/guards.yo`) names the three handles `drop_dup.yo`
+lowers to the atomic RC ops — atomic reference struct, atomic reference enum, `Iso` — and
+`generate_rc_call` (`src/codegen/exprs/rc_fns.yo`) keys its acquire-load arm on it, so `rc()` and
+the RC ops agree by construction. Test: `tests/iso.test.yo` "rc() of an Iso handle copied into a
+spawned thread reads the atomic count" (the value oracle; the race is the TSan job's).

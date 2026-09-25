@@ -31,6 +31,8 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 - Use `atomic(ref(struct(...)))` when you are defining your **own shared type**.
 - Use `Iso(T)` when ownership should be **transferred**, not shared.
 - `Arc(T)` only accepts `Send` child types. A regular `ref(struct(...))` value is not enough.
+- `arc(f)` of a function value (a closure or a named function) is judged by the value: what it
+  captures and what its code reaches must be `Send` (rules D4 and D9, `THREAD_SAFETY.md`).
 
 Many standard-library types no longer need an extra `Arc(...)` wrapper. For
 example, `std/sync` primitives and `std/imm` collections are already implemented

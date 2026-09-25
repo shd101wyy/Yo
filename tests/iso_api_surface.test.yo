@@ -22,7 +22,13 @@ test("Iso API surface — unconditionally Send even for non-Send T", {
 });
 test("Iso extract returns T directly (no Option)", {
   x := Box(i32)(42);
-  iso := Iso(Box(i32))(x);
-  e := iso.extract();
-  assert(e.* == 42, "extract returns T directly");
+  // `^x`, not `Iso(Box(i32))(x)`: the raw constructor is pragma-only (rule D2).
+  match(
+    ^x,
+    .Some(iso) => {
+      e := iso.extract();
+      assert(e.* == 42, "extract returns T directly");
+    },
+    .None => assert(false, "a uniquely owned Box isolates")
+  );
 });

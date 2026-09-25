@@ -156,7 +156,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -3904,7 +3904,41 @@ _evaluate_funcval_runtime_call :: (
     // substitution cannot re-stamp — adopt the mint's rte-re-evaluated
     // return exactly like the comptime-param family below.
     ou_ret_lenvar := _type_has_array_len_var(resolved_ret);
-    if(ou_spec_comptime_params || ou_ret_lenvar, {
+    // The mint ADOPTED its re-evaluated return because every SomeT it
+    // carries is one of this call's CLOSURE-typed forall arguments (P-26):
+    // that is the instance the body builds. This arm's `resolved_ret`
+    // substitutes the DECLARED return instead — for a capture-free closure,
+    // `Arc(V)` over the signature's `V`, a second `Arc` — and re-registering
+    // it split the prototype from the body
+    // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
+    ou_mint_closure_ret := match(
+      get_func_type(spec_fid.clone()),
+      .Func({ result : mcr }) => {
+        mcr_somes := get_all_some_types(mcr);
+        // `get_all_some_types` skips a nominal instance's type arguments by
+        // design; the instance's identity is keyed by them.
+        match(
+          mcr,
+          .Struct({ type_arguments : mcr_tas }) => {
+            (mti : usize) = usize(0);
+            while(mti < mcr_tas.len(), {
+              match(
+                mcr_tas.get(mti),
+                .Some(mta) => if(is_some_type(mta), {
+                  mcr_somes.push(mta);
+                }),
+                .None => ()
+              );
+              mti = (mti + usize(1));
+            });
+          },
+          _ => ()
+        );
+        ((mcr_somes.len() > usize(0)) && _somes_are_closure_forall_args(mcr_somes, spec_forall_args))
+      },
+      _ => false
+    );
+    if((ou_spec_comptime_params || ou_ret_lenvar) || ou_mint_closure_ret, {
       // COMPTIME-PARAM callee: this arm's `resolved_ret` came from the
       // DECLARED return (no foralls to substitute), which is the DEF-ERA
       // instantiation instance (e.g. the module-eval MapNode enum id) —
@@ -3913,11 +3947,13 @@ _evaluate_funcval_runtime_call :: (
       // site (and hence locals bound from it) with the def-era instance
       // splits the C-type identity ("__yo_t36 child = <__yo_t2 expr>" —
       // two typedefs for one MapNode(i32,i32)). Adopt the mint's registered
-      // return when it is concrete.
+      // return when it is concrete — or when it carries only this call's
+      // closure-typed binders (`ou_mint_closure_ret`): that SomeT IS the
+      // instantiation, not an unresolved type variable.
       match(
         get_func_type(spec_fid.clone()),
         .Func({ result : mint_ret_ct }) => {
-          if((get_all_some_types(mint_ret_ct).len() == usize(0)) && !(is_unit_type(mint_ret_ct)), {
+          if((ou_mint_closure_ret || (get_all_some_types(mint_ret_ct).len() == usize(0))) && !(is_unit_type(mint_ret_ct)), {
             resolved_ret = mint_ret_ct.clone();
             out_rt.ty = resolved_ret;
             out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
@@ -7236,7 +7272,7 @@ Fix: wrap the call:
         // placeholder — the method path's Step 6 does the same — and adopt
         // what the where-clause binds below.
         fv_where_placeholders := _fv_bind_unbound_forall_placeholders(fv_callee_ty, forall_names, fa_bound_names, fresh_env, env, expr);
-        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
+        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, ctx, exn);
         // Where-clause EXPR re-application. Internally
         // guarded: a spec-cache-hit reuse leaves the forall params bound to
         // non-type values in `fresh_env`, and the guard skips that state

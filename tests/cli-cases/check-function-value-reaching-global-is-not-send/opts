@@ -1,0 +1,9 @@
+# Parallelism soundness rule D9 (plans/reference/PARALLELISM_RULES.md): a
+# function VALUE is Send only when its code reaches no thread-affine global.
+# `_worker` is a NAMED function, never a closure literal, so D1's creation-time
+# walk never saw it, and before D9 `Thread.spawn(_worker)` passed check and raced
+# on `g` (issues/fixed/function-values-bypass-the-d1-reach-walk.md). A
+# check-level gate: a comptime_expect_error block observes a swallowed trial,
+# so it cannot pin "check passes wrongly".
+stdout_keep_match=its code references the module-level global 'g'
+timeout=120

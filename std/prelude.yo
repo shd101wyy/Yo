@@ -9452,20 +9452,26 @@ export(
   box
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
-// SAFETY: Iso(T) is unconditionally Send (no `T <: Send` bound) because
-// Iso's public API exposes no operation on the inner T except extract(),
-// which atomically verifies rc == 1 before returning. If you add any new
-// method to Iso(T) that touches the inner T (map, peek, read, &self
-// borrow, etc.), this Send claim becomes unsound and must be revoked.
-// See plans/archive/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
-// risks" for the full argument.
+// SAFETY (rule D2, plans/reference/PARALLELISM_RULES.md): Iso(T) is
+// unconditionally Send (no `T <: Send` bound — moving a non-Send graph to ONE
+// other thread is the feature) because
+//   * safe code constructs it only with `^v`, which proves at runtime that
+//     every non-atomic object reachable from `v` has ref_count == 1
+//     (`__yo_iso_unique`), so nothing else on the sending thread can reach the
+//     graph after the hand-off; the raw `Iso(T)(v)` constructor is pragma-only;
+//   * the public API exposes no operation on the inner T except extract(),
+//     whose atomic one-shot flag hands the value out exactly once.
+// If you add any new method to Iso(T) that touches the inner T (map, peek,
+// read, &self borrow, etc.), this Send claim becomes unsound and must be
+// revoked.
 impl(generic(T : Type), Iso(T), Send());
 impl(generic(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(
   generic(T : Type),
   Iso(T),
-  /// Extract the inner value if this `Iso` holds the only reference.
-  /// Panics if rc != 1 or if this Iso has already been extracted.
+  /// Take the isolated value out. The first `extract` on an `Iso` (any copy of
+  /// the handle) returns it; every later one panics — the atomic one-shot flag
+  /// is what makes the value have exactly one owner after a hand-off.
   extract : (fn(self : Self) -> T)(
     __yo_iso_extract(self)
   )
@@ -9505,8 +9511,13 @@ impl(
             comptime_assert(false, "Cannot isolate value of type that has other aliases");
             Option(Iso(unquote(temp_type))).None
           },
-          (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
-          Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
+          // run-time check (rule D2): every non-atomic object reachable from
+          // the value, itself included, has exactly one reference — a deep
+          // walk, not just the root's count (an aliased interior was a
+          // cross-thread data race:
+          // issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md).
+          __yo_iso_unique(unquote(temp)) =>
+            Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => {
             // run-time check
             unsafe.drop(unquote(temp));

@@ -297,6 +297,34 @@ static inline void __yo_borrow_assert_unborrowed(void* ptr) {
     fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
     abort();
   }
+}
+// The same three for an ATOMIC object (atomic(ref(...)), Arc, Mutex, ...):
+// it is shared across threads by design, so two threads taking an interior
+// reference into it at once must not race on the counter — a lost update
+// left it stuck non-zero (every later operation panicked) or wrapped it to
+// 0xFFFF (issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
+// Same uint16_t word, accessed atomically, exactly as ref_count is.
+static inline void __yo_borrow_acquire_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  _Atomic uint16_t* bc = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(bc, memory_order_relaxed);
+  do {
+    if (cur == 0xFFFF) {
+      fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+      abort();
+    }
+  } while (!atomic_compare_exchange_weak_explicit(bc, &cur, (uint16_t)(cur + 1), memory_order_acquire, memory_order_relaxed));
+}
+static inline void __yo_borrow_release_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  atomic_fetch_sub_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, 1, memory_order_release);
+}
+static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  if (atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire) != 0) {
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    abort();
+  }
 }`
   );
 });
@@ -814,7 +842,8 @@ static void __yo_gc_remove_root(void* ptr) {
 
 // MarkGray: color the subgraph gray, trial-decrementing internal (tracked) refs.
 static void __yo_gc_mark_gray(__yo_ref_header_t* s);
-static void __yo_gc_mark_gray_visitor(void* ptr) {
+static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
@@ -829,7 +858,8 @@ static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
 
 // ScanBlack: a live object — restore the trial decrements over its subgraph.
 static void __yo_gc_scan_black(__yo_ref_header_t* s);
-static void __yo_gc_scan_black_visitor(void* ptr) {
+static void __yo_gc_scan_black_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
@@ -843,7 +873,8 @@ static void __yo_gc_scan_black(__yo_ref_header_t* s) {
 
 // Scan: gray object with RC>0 is live (ScanBlack); otherwise it is white garbage.
 static void __yo_gc_scan(__yo_ref_header_t* s);
-static void __yo_gc_scan_visitor(void* ptr) {
+static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   // An untracked child is never TRIAL_DELETED (mark_gray descends only into
   // tracked objects), so __yo_gc_scan would return at once; test the flag
@@ -864,7 +895,8 @@ static void __yo_gc_scan(__yo_ref_header_t* s) {
 // GatherWhite: collect the white subgraph into the scratch array (do NOT free yet,
 // so a member's dispose never dereferences an already-freed sibling).
 static void __yo_gc_gather_white(__yo_ref_header_t* s);
-static void __yo_gc_gather_white_visitor(void* ptr) {
+static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_gc_gather_white((__yo_ref_header_t*)ptr);
@@ -938,13 +970,15 @@ static void __yo_gc_collect_incremental() {
 }
 
 // Full-heap trial-deletion visitor (for the thorough collector below).
-static void __yo_gc_trial_delete_visitor(void* ptr) {
+static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   if (header->ref_count > 0) header->ref_count--;
 }
-static void __yo_gc_scan_restore_visitor(void* ptr) {
+static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {
+  (void)child_traverse;
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;

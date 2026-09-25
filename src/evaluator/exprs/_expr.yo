@@ -124,6 +124,7 @@ import("std/fmt");
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_INCR_RC_ATOMIC,
   BF_YO_ISO_EXTRACT,
+  BF_YO_ISO_UNIQUE,
   BF_YO_ISO_DISPOSE,
   BF_YO_DROP_ARRAY_ELEMENT,
   BF_YO_DUP_ARRAY_ELEMENT,
@@ -306,6 +307,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
 { evaluate_float_literal } :: import("../values/float.yo");
 { evaluate_module_value } :: import("../values/impl.yo");
 { register_pending_definition_forcer } :: import("../values/anonymous_module.yo");
+{ register_function_value_marker } :: import("../utils/closure.yo");
 { evaluate_integer_literal } :: import("../values/integer.yo");
 { evaluate_string_literal } :: import("../values/string.yo");
 { evaluate_tuple_value } :: import("../values/tuple.yo");
@@ -384,6 +386,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
   evaluate_yo_incr_rc_atomic,
   evaluate_yo_iso_dispose,
   evaluate_yo_iso_extract,
+  evaluate_yo_iso_unique,
   evaluate_yo_rc_own,
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup
@@ -1116,6 +1119,8 @@ _evaluate_expression :: (
           evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
         ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT, .None)) =>
           evaluate_yo_iso_extract(expr, env, ctx, exn),
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_UNIQUE, .None)) =>
+          evaluate_yo_iso_unique(expr, env, ctx, exn),
         ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE, .None)) =>
           evaluate_yo_iso_dispose(expr, env, ctx, exn),
         ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>
@@ -1509,6 +1514,7 @@ register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
   register_rerun_pending_def_evals();
   register_pending_definition_forcer();
+  register_function_value_marker();
   ()
 });
 export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression, set_evaluator_deadline);

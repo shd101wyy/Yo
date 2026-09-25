@@ -15,9 +15,9 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
-{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
@@ -36,6 +36,75 @@ _has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
     i = (i + usize(1));
   });
   found
+});
+/// Does a traversal function exist for this registry type, and under what C
+/// name? ONE predicate for the prototype pass, both generators and every
+/// child reference a traversal emits, so a reference can never name a function
+/// that was not emitted: a concrete, non-atomic reference struct or enum.
+_traversal_fn_name :: (fn(ty : TypeValue, c_name : String) -> Option(String))(
+  cond(
+    (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty)) => if(_has_generic_fields(get_runtime_struct_fields(ty)), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
+    (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty)) => if(type_contains_some_type(ty), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
+    true => Option(String).None
+  )
+);
+/// Traversal functions are emitted when the cycle collector needs them OR the
+/// program uses `Iso`, whose uniqueness walk (rule D2) descends through them.
+needs_traversal_functions :: (fn(context : FunctionGenerationContext) -> bool)(
+  context.base.needs_cycle_gc || (context.base.iso_types.len() > usize(0))
+);
+/// The C expression a traversal passes to its visitor as a managed child's own
+/// traverse function: `(void*)__yo_traverse_<C>` when one exists, the
+/// `__yo_traverse_atomic_stop` sentinel for an atomic handle (shared by
+/// design — a walker does not descend), NULL otherwise (unknown: a walker that
+/// must PROVE something about the child fails on it).
+_child_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)(
+  cond(
+    (is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty)) => String.from("(void*)__yo_traverse_atomic_stop"),
+    true => match(
+      context.base.types.get(type_key(ty)),
+      .Some(entry) => match(
+        _traversal_fn_name(entry.ty, entry.c_name.clone()),
+        .Some(n) => `(void*)${n}`,
+        .None => String.from("NULL")
+      ),
+      .None => String.from("NULL")
+    )
+  )
+);
+/// The same for the handle payload of a nullable-pointer-optimized enum
+/// (`Option(handle)` lowered to a bare pointer).
+_nullable_payload_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)(
+  match(
+    can_optimize_as_nullable_pointer(ty),
+    .Some(payload) => _child_traverse_fn_expr(payload, context),
+    .None => String.from("NULL")
+  )
+);
+/// Prototypes for every traversal function (struct AND enum), plus the
+/// atomic-stop sentinel, emitted before any traversal body: bodies now name
+/// their children's traverse functions (the visitor's second argument), so
+/// emission order between types must not matter. Called once per program,
+/// from the struct constructor pass, which always runs before the enum one
+/// (functions/generation.yo).
+_emit_traversal_prototypes :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(`static void __yo_traverse_atomic_stop(void* ptr, void (*visit)(void*, void*)) { (void)ptr; (void)visit; }`);
+  vals := context.base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => match(
+        _traversal_fn_name(entry.ty, entry.c_name.clone()),
+        .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
 });
 /// Emit the constructor function for a single concrete object type.
 _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
@@ -197,7 +266,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     if(is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty), {
       return();
     });
-    em.emit_string_line(`  if (${access}) { ((void(*)(void*))${g_traverse_visit_expr})(${access}); }`);
+    em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_child_traverse_fn_expr(ty, context)}); }`);
     return();
   });
   cond(
@@ -207,7 +276,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     is_enum_type(ty) => {
       is_nullable := match(can_optimize_as_nullable_pointer(ty), .Some(_) => true, .None => false);
       if(is_nullable, {
-        em.emit_string_line(`  if (${access}) { ((void(*)(void*))${g_traverse_visit_expr})(${access}); }`);
+        em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`);
       }, {
         if(!can_optimize_as_simple_enum(ty), {
           match(
@@ -330,7 +399,7 @@ _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, con
   if(_has_generic_fields(runtime_fields), {
     return();
   });
-  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
+  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
   em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
   // A type with an explicit Trace impl (a container whose elements live in a
   // malloc'd buffer a field walk can't reach): delegate to its monomorphized
@@ -373,7 +442,7 @@ generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationConte
       .Some(entry) => {
         ty := entry.ty;
         // Atomic objects don't participate in cycle GC — no traversal needed.
-        if(is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty), {
+        if(is_reference_struct_type(ty) && _traversal_fn_name(ty, entry.c_name.clone()).is_some(), {
           _generate_one_ref_struct_traversal(ty, entry.c_name.clone(), context);
         });
       },
@@ -386,8 +455,9 @@ generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationConte
 /// Generate constructor implementations for every concrete object type: emits
 /// the cycle-GC traversal functions first (when needed), then the constructors.
 generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
-  // Only generate traversal functions when cycle GC is needed.
-  if(context.base.needs_cycle_gc, {
+  // Traversal functions: for the cycle collector, and for Iso's uniqueness walk.
+  if(needs_traversal_functions(context), {
+    _emit_traversal_prototypes(context);
     generate_ref_struct_traversal_functions(context);
   });
   vals := context.base.types.values();
@@ -410,7 +480,7 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
 /// pointer).
 _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
+  em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
   // `${c_name}` is the struct-VALUE typedef (get_type_string adds the `*`), so
   // the handle is `${c_name}*` — cast accordingly (matches the ref-struct path).
   em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
@@ -488,7 +558,7 @@ generate_ref_enum_traversal_functions :: (fn(context : FunctionGenerationContext
       .Some(entry) => {
         ty := entry.ty;
         // Atomic ref-enums never participate in cycle GC; generic enums skip.
-        if(is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty) && !type_contains_some_type(ty), {
+        if(is_reference_enum_type(ty) && _traversal_fn_name(ty, entry.c_name.clone()).is_some(), {
           _generate_one_ref_enum_traversal(ty, entry.c_name.clone(), context);
         });
       },
@@ -632,7 +702,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
 /// reference-semantics enum (`ref(enum(…))`): emits the cycle-GC traversal
 /// functions first (when needed), then the constructors.
 generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
-  if(context.base.needs_cycle_gc, {
+  if(needs_traversal_functions(context), {
     generate_ref_enum_traversal_functions(context);
   });
   vals := context.base.types.values();
@@ -655,4 +725,84 @@ generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationConte
 generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
   ()
 );
-export(generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions, _traverse_value, set_traverse_visit_expr);
+/// Rule D2 (plans/reference/PARALLELISM_RULES.md): `^v` proves the value's
+/// whole reference graph unique before it becomes an `Iso` — every reachable
+/// NON-atomic object must have `ref_count == 1` (an atomic object is shared by
+/// design and stops the walk). The walk runs on the sending thread, where
+/// every reachable non-atomic count is stable, and uses an explicit worklist
+/// (a million-node list must not recurse a million frames). It descends through
+/// the traversal functions, which hand each child's own traverse function to
+/// the visitor, so it needs no per-object header state and works in a program
+/// without the cycle collector. No visited set: reaching an object twice means
+/// its count is at least 2, which already fails.
+/// (issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md)
+generate_iso_uniqueness_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  if(context.base.iso_types.len() == usize(0), {
+    return(());
+  });
+  em := context.base.emitter;
+  em.emit_string_line(
+    `typedef struct { void* ptr; void (*traverse)(void*, void (*)(void*, void*)); } __yo_iso_uq_item_t;
+static _Thread_local __yo_iso_uq_item_t* __yo_iso_uq_items = NULL;
+static _Thread_local size_t __yo_iso_uq_len = 0;
+static _Thread_local size_t __yo_iso_uq_cap = 0;
+static _Thread_local bool __yo_iso_uq_failed = false;
+static void __yo_iso_uq_visit(void* child, void* child_traverse) {
+  if (__yo_iso_uq_failed || child == NULL) return;
+  if (child_traverse == (void*)__yo_traverse_atomic_stop) return;
+  if (child_traverse == NULL || ((__yo_rc_prefix_t*)child)->ref_count != 1) {
+    __yo_iso_uq_failed = true;
+    return;
+  }
+  if (__yo_iso_uq_len == __yo_iso_uq_cap) {
+    size_t cap = __yo_iso_uq_cap ? __yo_iso_uq_cap * 2 : 64;
+    __yo_iso_uq_item_t* grown = (__yo_iso_uq_item_t*)realloc(__yo_iso_uq_items, cap * sizeof(__yo_iso_uq_item_t));
+    if (!grown) {
+      fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
+      abort();
+    }
+    __yo_iso_uq_items = grown;
+    __yo_iso_uq_cap = cap;
+  }
+  __yo_iso_uq_items[__yo_iso_uq_len].ptr = child;
+  __yo_iso_uq_items[__yo_iso_uq_len].traverse = (void (*)(void*, void (*)(void*, void*)))child_traverse;
+  __yo_iso_uq_len++;
+}
+static bool __yo_iso_uq_run(void* root, void* root_traverse) {
+  __yo_iso_uq_failed = false;
+  __yo_iso_uq_len = 0;
+  __yo_iso_uq_visit(root, root_traverse);
+  while (__yo_iso_uq_len > 0 && !__yo_iso_uq_failed) {
+    __yo_iso_uq_item_t it = __yo_iso_uq_items[--__yo_iso_uq_len];
+    it.traverse(it.ptr, __yo_iso_uq_visit);
+  }
+  __yo_iso_uq_len = 0;
+  return !__yo_iso_uq_failed;
+}`
+  );
+  keys := context.base.iso_types.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      keys.next(),
+      .Some(iso_name) => match(
+        context.base.iso_types.get(iso_name.clone()),
+        .Some(info) => match(
+          info.iso_type,
+          .IsoT(child) => {
+            child_c := get_type_string(child, context.base);
+            em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
+            em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(child, context)});`);
+            em.emit_string_line(`}`);
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, needs_traversal_functions, generate_closure_constructor_functions, _traverse_value, set_traverse_visit_expr);

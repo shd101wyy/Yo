@@ -19,6 +19,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
@@ -240,6 +242,87 @@ _require_dyn_traits_implemented :: (
     },
     _ => ()
   );
+});
+/// Rule D1 (plans/reference/PARALLELISM_RULES.md) for trait objects: a
+/// `Dyn(..., Send)` value may be called from another thread, but a call
+/// through it is invisible to the spawn-boundary reach walk (the impl is not
+/// known there). So the walk runs HERE, where the concrete impl is: every
+/// method in the vtable must not reach a non-Send module-level global
+/// (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+_require_send_dyn_methods_reach_no_global :: (
+  fn(
+    dyn_type : TypeValue,
+    trait_vals : ArrayList(EvalValue),
+    token : Token,
+    ctx : EvalContext,
+    env : Environment,
+    exn : Exception
+  ) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.clone())), {
+    return(());
+  });
+  wants_send := match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        match(
+          rtt.get(i),
+          .Some(t) => if(match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  );
+  if(!wants_send, {
+    return(());
+  });
+  (ti : usize) = usize(0);
+  while(ti < trait_vals.len(), {
+    match(
+      trait_vals.get(ti),
+      .Some(tv) => match(
+        tv,
+        .TraitVal(_, fnames, fvals) => {
+          (fi : usize) = usize(0);
+          while(fi < fvals.len(), {
+            match(
+              fvals.get(fi),
+              .Some(fv_opt) => match(
+                fv_opt,
+                .Some(fv) => match(
+                  fv,
+                  .FuncVal(fvd, _) => match(
+                    function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env),
+                    .Some(reason) => {
+                      mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                      msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;
+                      raise_flow_violation(format_error_message(token, msg), ctx, exn);
+                    },
+                    .None => ()
+                  ),
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
 /// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
@@ -713,7 +796,9 @@ evaluate_dyn_value :: (
       if(ne_have_inner_ty, {
         _require_dyn_traits_implemented(ret_type.clone(), ne_value_type.clone(), expr_tok, ctx, env, exn);
       });
-      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
+      ne_trait_vals := _resolve_dyn_trait_values(ret_type.clone(), ne_value_type, ctx, env, exn);
+      _require_send_dyn_methods_reach_no_global(ret_type, ne_trait_vals, expr_tok, ctx, env, exn);
+      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(ne_trait_vals));
     });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
@@ -861,6 +946,7 @@ evaluate_dyn_value :: (
   // registered impl methods through the registry. Resolved on the pre-box
   // concrete type.
   trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type, ctx, cur_env, exn);
+  _require_send_dyn_methods_reach_no_global(dyn_type.clone(), trait_vals, expr_tok, ctx, cur_env, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);

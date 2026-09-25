@@ -331,8 +331,22 @@ _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool,
     )
   )
 );
+/// Is the container an interior `ref` argument points into an ATOMIC object?
+/// Its borrow counter is then touched with the atomic primitives — the object
+/// is shared across threads by design.
+_interior_ref_container_is_atomic :: (fn(arg_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    arg_expr,
+    .FnCall(_, func, _, _, _) => match(
+      context.base.get_expr_info(func),
+      .Some(cei) => is_atomic_reference_struct_type(resolve_some_type_to_concrete(cei.ty)),
+      .None => false
+    ),
+    _ => false
+  )
+);
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
-/// acquired container codes (caller emits releases).
+/// matching release CALLS (caller emits them via `_emit_borrow_releases`).
 _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_param_is_ref : ArrayList(bool), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
   containers := ArrayList(String).new();
   em := context.base.emitter;
@@ -347,12 +361,9 @@ _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_par
       .Some(arg) => match(
         _get_interior_ref_container_code(arg, is_ref, indent.clone(), context),
         .Some(cc) => {
-          containers.push(cc.clone());
-          line := indent.clone();
-          line.push_str("__yo_borrow_acquire((void*)(");
-          line.push_string(cc);
-          line.push_str("));");
-          em.emit_string_line(line);
+          sfx := if(_interior_ref_container_is_atomic(arg, context), "_atomic", "");
+          containers.push(`__yo_borrow_release${sfx}((void*)(${cc}))`);
+          em.emit_string_line(`${indent}__yo_borrow_acquire${sfx}((void*)(${cc}));`);
         },
         .None => ()
       ),
@@ -362,7 +373,7 @@ _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_par
   });
   containers
 });
-/// Emit `__yo_borrow_release` (LIFO) for acquired containers.
+/// Emit the release calls `_emit_borrow_acquires` returned (LIFO).
 _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   n := containers.len();
@@ -372,12 +383,8 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
     while(go, {
       match(
         containers.get(ai),
-        .Some(cc) => {
-          line := indent.clone();
-          line.push_str("__yo_borrow_release((void*)(");
-          line.push_string(cc);
-          line.push_str("));");
-          em.emit_string_line(line);
+        .Some(rel) => {
+          em.emit_string_line(`${indent}${rel};`);
         },
         .None => ()
       );

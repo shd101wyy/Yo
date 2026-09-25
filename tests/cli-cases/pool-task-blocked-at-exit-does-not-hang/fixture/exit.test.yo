@@ -1,0 +1,11 @@
+{ assert } :: import("std/assert");
+{ ThreadPool, spawn } :: import("std/thread");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+test("the test returns while a pool task is still blocked", {
+  pool := ThreadPool.new(usize(2));
+  spawn(pool, (io : Io) => {
+    sleep_blocking(Duration.from_millis(i64(3600000)));
+  });
+  assert(true, "returning with the task still asleep");
+});

@@ -22,7 +22,6 @@ doc.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
-- [`PARALLELISM_SOUNDNESS.md`](PARALLELISM_SOUNDNESS.md) — make Yo's parallelism sound: the 2026-09-25 audit of `Send`, `Iso`, atomic objects, `std/sync`, `std/thread` and the emitted thread runtime, with its phased fix plan.
 
 ## Reference (`reference/`)
 
@@ -51,9 +50,10 @@ starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
 [`SELF_HOSTING_COMPLETION`](archive/SELF_HOSTING_COMPLETION.md) (self-hosting,
 finished), [`BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN`](archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md),
 [`STD_API_STABILIZATION`](archive/STD_API_STABILIZATION.md),
-[`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
-and [`BUILD_ON_8GB_MACHINES`](archive/BUILD_ON_8GB_MACHINES.md) (Yo builds on an
-8 GB machine, closed 2026-09-26).
+[`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md),
+[`BUILD_ON_8GB_MACHINES`](archive/BUILD_ON_8GB_MACHINES.md) (Yo builds on an 8 GB machine, closed
+2026-09-26) and [`PARALLELISM_SOUNDNESS`](archive/PARALLELISM_SOUNDNESS.md) (data-race freedom
+for safe code; its rules live on in [`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)).
 
 ## Conventions
 

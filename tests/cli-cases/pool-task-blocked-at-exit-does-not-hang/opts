@@ -1,0 +1,8 @@
+# Parallelism soundness Phase 6 (P-23): the worker pool's atexit handler used to
+# JOIN every worker, so a task still blocked when the program ends (here: an
+# hour-long sleep) kept the process alive for good
+# (issues/fixed/worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md).
+# Exit now signals the workers and returns. The case's timeout is the oracle: on
+# the unfixed runtime the test binary never exits and the case times out.
+stdout_keep_match=1 passed
+timeout=120

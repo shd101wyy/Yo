@@ -1,10 +1,10 @@
 # Parallelism rules
 
 **Status:** DECIDED 2026-09-25 by the parallelism-soundness audit
-(`plans/PARALLELISM_SOUNDNESS.md`); each rule below says whether it has LANDED. A rule that has
-not landed is the contract the code is being brought to, not a description of the code — the
-audit measured every one of them as violated on develop `e9b159709`. When a phase lands, edit
-that rule's status line and nothing else here.
+(`plans/archive/PARALLELISM_SOUNDNESS.md`); **ALL LANDED 2026-09-26.** D9 was added while
+closing that plan. The audit measured D1–D8 as violated on develop `e9b159709`. Each rule's
+status line names where it is enforced. A change to a rule is a new decision: record it here,
+with its reason.
 
 These rules are what makes the user-facing guarantee in `docs/en-US/THREAD_SAFETY.md` true:
 
@@ -28,11 +28,12 @@ thread of the process. In a file without the pragma:
   module-level global whose type is not `Send`, directly or through any function it can call:
   a walk over the evaluated closure body and its statically resolved callees (memoized,
   cycle-safe); a body defined in a pragma'd file is the audited base and is not descended into.
-  A call through a closure VALUE or a dyn method has no body to descend into and is not
-  followed yet — that residual closes with D4
-  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`). Treating such calls
-  as violations was measured and rejected: it convicts every spawn body that calls a captured
-  helper closure. A non-atomic RC
+  A call through a local closure VALUE is followed into the closure's body (its binding keeps
+  the `FuncVal`), and a `Dyn(Trait, Send)` value's vtable methods are walked at `dyn(...)`,
+  where the concrete impl is known
+  (`issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`). Treating every
+  unresolvable call as a violation was measured and rejected: it convicts every spawn body that
+  calls a captured helper closure. A non-atomic RC
   global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) therefore stays legal in a
   single-threaded program and for the main thread, but no other thread can touch it: even
   READING a field through such a handle performs reference-count traffic
@@ -57,22 +58,31 @@ must be `Send`" — it rejects every single-threaded program with a global cache
 collection is never `Send`), the compiler's own tree included. Rationale otherwise: Rust's
 `static: Sync` rule.
 
-## D2 — `Iso(T)` is constructed only through `^`, `T` must contain a reference, uniqueness is deep
+## D2 — `Iso(T)` is constructed only through `^`, `T` is a reference object, uniqueness is deep
 
-**Status:** PLANNED (Phase 2; the deep walk is seed-gated).
+**Status:** LANDED 2026-09-26 (Phase 2): `evaluate_iso_type_call` / `evaluate_iso_value_call`
+(`src/evaluator/calls/iso.yo`), `generate_iso_uniqueness_functions`
+(`src/codegen/functions/constructors.yo`), the `__yo_iso_unique` builtin and the `^` macro in
+`std/prelude.yo`. Not seed-gated after all: the new builtin appears only inside the macro's
+`quote`, which nothing the seed compiles expands.
 
 - In a file without the pragma, `Iso(T)(v)` is not callable; `^v` is the constructor.
-- `Iso(T)` requires a `T` that contains a reference-counted type (so `Iso(i32)` is a type
-  error) and may not contain an `Arc` or another `Iso`.
-- Uniqueness is checked at CONSTRUCTION and it is DEEP: the emitted `__yo_iso_unique_<T>` walks
-  every reachable non-atomic object (the same field list the tracer functions use; an atomic
-  object, a scalar or a `str` leaf stops the walk) and fails if any has `ref_count != 1`. On
-  failure `^v` is `.None`. The walk runs on the sending thread, where every reachable non-atomic
-  refcount is stable, so the check is race-free. `Isolation.can_isolate` becomes an optional
-  fast path a type may provide, never the whole check.
-- `extract()` keeps its one-shot flag and ALSO checks the wrapper's own `ref_count == 1`
-  (acquire load), so a copied `Iso` that the sending thread still holds panics instead of
-  handing out a second owner.
+- `Iso(T)` requires `T` to be a non-atomic reference OBJECT (a `ref(struct)`/`ref(enum)`:
+  `ArrayList`, `HashMap`, `Box`, a user `ref(struct)`), because the wrapper holds and releases the
+  child's handle. `Iso(i32)`, `Iso(<value struct>)`, `Iso(Arc(T))`, `Iso(<atomic object>)` and
+  `Iso(Iso(T))` are compile errors. An atomic object DEEPER in the value is allowed: it is shared
+  by design, and the walk stops at it.
+- Uniqueness is checked at CONSTRUCTION and it is DEEP: `__yo_iso_unique_<Iso>` walks every
+  reachable non-atomic object through the per-type traversal functions (the collector's; the
+  visitor receives each child's traverse function) with an explicit worklist, and fails if any
+  has `ref_count != 1`. On failure `^v` is `.None`. The walk runs on the sending thread, where
+  every reachable non-atomic refcount is stable, so the check is race-free. `Isolation` is no
+  longer consulted by `^`.
+- `extract()` hands the value out exactly once (its atomic one-shot flag). The originally planned
+  extra wrapper `ref_count == 1` check was dropped on analysis: `extract` is the only operation on
+  the inner value, so a sending thread holding a copy of the wrapper can never obtain the value
+  once the receiver has, and dropping that copy frees nothing — the flag is what makes the owner
+  unique, and a count check would depend on how many references the call's own `self` holds.
 
 Rejected alternative: bounding `Iso(T)` on an interior-`Send` `T` — that removes the feature,
 whose whole point is moving a non-`Send` graph to one other thread.
@@ -102,12 +112,68 @@ with "the callee may write through that inout parameter" on the call forms.
 
 ## D4 — A closure type is `Send` iff its capture struct is, wherever the question is asked
 
-**Status:** PLANNED (Phase 4).
+**Status:** LANDED 2026-09-26 (Phase 4, in the Phase 6 PR): every where-clause path
+(`validate_where_constraints_for_call`, and `validate_concrete_type_constraints` /
+`apply_single_trait_constraint` / `parse_where_clause_constraints` in
+`src/evaluator/types/function.yo`) judges a closure-typed bound by its values. Its last sentence
+("a bare `fn` pointer stays `Send`") was superseded by D9.
 
 Rust's auto-trait rule, applied uniformly: at the spawn boundary (already), and when a
 `where(T <: Send)` / `where(T <: Acyclic)` is discharged with `T` instantiated from a closure
-type (`arc(f)`, `Channel(typeof(f))`, a generic `g(f)`). A bare `fn` pointer with no capture
-info stays `Send` and `Acyclic`.
+type (`arc(f)`, `Channel(typeof(f))`, a generic `g(f)`). A bare `fn` pointer is `Acyclic`;
+whether it is `Send` is D9's question.
+
+## D9 — A function value is `Send` iff what it captures is and what its code reaches is
+
+**Status:** LANDED 2026-09-26 (closing `plans/archive/PARALLELISM_SOUNDNESS.md`):
+`function_value_marker` (`src/evaluator/utils/closure.yo`), reached from `trait_checking.yo`
+and `types/function.yo` through `call_function_value_marker` (`src/evaluator/context.yo`).
+
+D1 walks the code a closure LITERAL runs when the literal is created in a `Send` slot. Nothing
+walked the code of a function that reached another thread any other way. A named function
+passed to `Thread.spawn`; a closure bound first to a plain local, then handed to `arc`, a
+`where(T <: Send)` binder or an `Impl(Fn, Send)` parameter; a function stored in a struct and
+read back on the thread: each of these ran code that raced on a non-`Send` global, with no
+diagnostic (`issues/fixed/function-values-bypass-the-d1-reach-walk.md`). A function type
+cannot answer the question, because two functions of one signature share the type and a
+closure that captures nothing still runs code.
+
+The rule: **a function value holds `Send` iff its captured state does (D4) and its code reaches
+no thread-affine module global (D1's walk). `Acyclic` is D4 alone.** The value decides wherever
+the value is known:
+
+- **An argument to an `Impl(..., Send)` parameter:** the argument's value, both call paths,
+  before the type-level check.
+- **A `where(T <: Send)` binder bound to a function type:** the callee's parameters bound to
+  that type, then the closures created against a closure's `Impl(Fn...)` SomeT (a registry
+  keyed by the SomeT's id, which a specialization's fresh binder aliases).
+- **A variable captured by a `Send` closure:** the captured value.
+- **A declared `(f : Impl(Fn(...), Send)) = v` binding:** `v`. A declared marker is not
+  re-judged later, so the binding is where a value takes on the promise.
+
+A closure is walked when it is CREATED, with its defining env, in every slot, not only a `Send`
+one. The verdict is memoized by function id, so a later judgement that has only the closure's
+type reads the verdict taken where the closure's local callees resolve.
+
+Where no value is known, the type decides: a bare `fn(...)` type is **not `Send`**. That covers
+a struct field, a collection element, a `Channel(fn() -> unit)` payload, a parameter of bare
+`fn` type forwarded on, and a plain local `f := count`, which records no value for a later
+capture to judge. Declare it `(f : Impl(Fn(...), Send)) = count` instead. This is Swift's rule for plain function types, and it is what closes
+the struct route: a function inside a struct lost its identity where it was stored. A closure
+`Impl(Fn(...))` type with no value found is judged by what it declares, as before.
+`Impl(Fn(...), Send)` is the function type that carries the obligation, discharged where the
+value was converted into it.
+
+Within a walked body, a function used as a VALUE (passed along, bound to a local, read from a
+module field) is walked as if called: whatever receives it may call it, and that call has no
+compile-time callee.
+
+Rejected:
+
+- **"Every function value must be reach-free."** It rejects every single-threaded callback over
+  a global, a compiler dispatch table included.
+- **A runtime affinity trap on thread-affine globals** (Swift's dynamic isolation checks). It
+  is sound, but the compiler would no longer be the gate.
 
 ## D5 — `std/sync` primitives trap, never UB
 
@@ -148,12 +214,18 @@ as for the `unsafe(...)` gate.
 
 ## D7 — A loop never observes `live_wakers == 0` while a post it will receive is in flight
 
-**Status:** PLANNED (Phase 6).
+**Status:** LANDED 2026-09-26 (Phase 6): `__yo_waker_consume_release`, the loop's `visitors`
+count and `__yo_async_loop_quiesce` in `src/codegen/async/runtime_core.yo`.
 
 The foreign `Waker` release decrements the owner's `live_wakers` in the OWNER's drain, after the
-post has been consumed, never on the releasing thread before the post. The same ordering applies
-to `__yo_async_blocking_end`: notify, then decrement. This is what keeps a spawned thread's loop
-alive until every cross-thread message addressed to it has been processed.
+post has been consumed, never on the releasing thread before the post; the drain checks for a
+pending release both before and after it marks the token off the inbox, so a release that lost
+the `queued` race is still consumed. And because a poster's notify necessarily happens after it
+unlocks the owner (the Linux notify takes that lock), every thread that touches a FOREIGN loop —
+a poster, a `blocking_end` — registers itself in the loop's `visitors` count while the loop is
+provably alive, and the loop's thread waits for that count to drain before tearing the loop
+down. Together this keeps a spawned thread's loop alive until every cross-thread message
+addressed to it has been processed and every foreign thread is done touching it.
 
 ## D8 — Closures may not capture second-class bindings
 

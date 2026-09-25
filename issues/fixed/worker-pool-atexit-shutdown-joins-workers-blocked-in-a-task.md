@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-23;
 raised by the runtime sub-audit, verified by reading).
-**Status:** OPEN. **Liveness at process exit; a leak in dead code.**
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 6). Was: OPEN. **Liveness at process exit; a leak in dead code.**
 **Where:** `src/codegen/parallelism/runtime.yo` ~380-410 (`__yo_worker_pool_shutdown`,
 registered with `atexit` in `__yo_worker_pool_init`).
 
@@ -28,3 +28,14 @@ promptly, a worker mid-task is reclaimed by process teardown exactly like a deta
 free loop, or make it run the wrapper (which drops and frees) if it is kept. Test: a pool task
 that blocks on a channel forever while `main` returns; the test's process must exit (today it
 hangs, which is why no such test exists).
+
+## Fix (2026-09-26)
+
+`__yo_worker_pool_shutdown` (`src/codegen/parallelism/runtime.yo`) sets every worker's
+`shutdown` flag, signals, and returns: no join, no destroy, no free (a worker may still be
+running against them), and the dead free loop is gone. Idle workers exit on the flag; a worker
+mid-task is reclaimed by process teardown like a detached `Thread`. `ThreadPool.join_all` /
+`shutdown` are the explicit wait, and the `shutdown` doc comment in `std/thread.yo` now says
+exit does not wait. Test: `tests/thread_pool.test.yo` "a pool task blocked forever does not keep
+the process alive" runs a child program whose pool task blocks on a channel nobody feeds while
+`main` returns; the child must exit.

@@ -914,44 +914,64 @@ static void __yo_wsa_init(void) {
 // leaked the fd on every close until the CRT table hit EMFILE
 // (issues/fixed/windows-file-close-leaks-fd-until-wsa-is-started.md).
 // Every socket this runtime creates is registered here; close consults the
-// registry instead of probing Winsock. The list is process-global: sockets
-// are created and closed on the event-loop thread, and __yo_sync_socketpair
-// callers run wherever std runs them — a missed unregister leaks one node,
-// never a mis-close.
+// registry instead of probing Winsock. The list is process-global and every
+// access holds __yo_win_sock_fds_lock: each Thread and pool worker runs its
+// own event loop, so two threads doing socket I/O push, walk and unlink the
+// same list at once (a lost push mis-closed a socket as a CRT fd, a concurrent
+// unlink walked a freed node:
+// issues/fixed/windows-socket-fd-registry-is-an-unlocked-process-global-list.md).
+// Process-global rather than per-loop on purpose: a socket handle is a plain
+// value that can move to another thread, and must still close as a socket
+// there. SRWLOCK_INIT is a static initializer, so there is no init race. A
+// missed unregister leaks one node, never a mis-close.
 typedef struct __yo_win_sock_fd_s {
   int32_t fd;
   struct __yo_win_sock_fd_s* next;
 } __yo_win_sock_fd_t;
 
 static __yo_win_sock_fd_t* __yo_win_sock_fds = NULL;
+static SRWLOCK __yo_win_sock_fds_lock = SRWLOCK_INIT;
 
 static void __yo_win_fd_mark_socket(int32_t fd) {
   __yo_win_sock_fd_t* node = (__yo_win_sock_fd_t*)__yo_malloc(sizeof(__yo_win_sock_fd_t));
   if (!node) return; // OOM: the fd stays untracked and _close reports EBADF at worst
   node->fd = fd;
+  AcquireSRWLockExclusive(&__yo_win_sock_fds_lock);
   node->next = __yo_win_sock_fds;
   __yo_win_sock_fds = node;
+  ReleaseSRWLockExclusive(&__yo_win_sock_fds_lock);
 }
 
 static bool __yo_win_fd_is_socket(int32_t fd) {
+  bool found = false;
+  AcquireSRWLockShared(&__yo_win_sock_fds_lock);
   __yo_win_sock_fd_t* cur = __yo_win_sock_fds;
   while (cur) {
-    if (cur->fd == fd) return true;
+    if (cur->fd == fd) {
+      found = true;
+      break;
+    }
     cur = cur->next;
   }
-  return false;
+  ReleaseSRWLockShared(&__yo_win_sock_fds_lock);
+  return found;
 }
 
 static void __yo_win_fd_unmark_socket(int32_t fd) {
+  __yo_win_sock_fd_t* removed = NULL;
+  AcquireSRWLockExclusive(&__yo_win_sock_fds_lock);
   __yo_win_sock_fd_t** link = &__yo_win_sock_fds;
   while (*link) {
     if ((*link)->fd == fd) {
-      __yo_win_sock_fd_t* node = *link;
-      *link = node->next;
-      __yo_free(node);
-      return;
+      removed = *link;
+      *link = removed->next;
+      break;
     }
     link = &(*link)->next;
+  }
+  ReleaseSRWLockExclusive(&__yo_win_sock_fds_lock);
+  if (removed) {
+    __yo_free(removed);
   }
 }
 

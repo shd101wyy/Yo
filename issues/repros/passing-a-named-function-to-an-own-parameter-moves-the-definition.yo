@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+_tick :: (fn() -> unit)({
+  println("tick");
+});
+_take_own :: (fn(own(cb) : Impl(Fn() -> unit)) -> unit)({
+  cb();
+});
+main :: (fn() -> unit)({
+  _take_own(_tick);
+  f := _tick;
+  f();
+});
+export(main);
