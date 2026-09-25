@@ -310,6 +310,19 @@ green, `check ./src` and `check ./std` clean.
    interior repro returns `.None`; the deep walk's cost is measured on a 1e6-node list and
    recorded here.
 
+**Landed 2026-09-26** (PR #903, stacked on #902). Differences from the text above, each measured:
+not seed-gated (the new `__yo_iso_unique` builtin appears only inside the `^` macro's `quote`,
+which nothing the seed compiles expands); `T` must be a non-atomic reference OBJECT, not merely
+"contain a reference" (the wrapper releases the child's handle with `__yo_decr_rc`); the
+`extract` `rc == 1` check was dropped (the atomic one-shot flag already gives one owner — see
+D2); the walk descends through the collector's traversal functions, whose visitor now receives
+each child's traverse function, instead of a separately generated field walk. Two bugs surfaced
+and were fixed on the way: the dup/drop MOVE optimizer hid a live alias from the walk
+(`issues/fixed/the-dup-drop-move-optimizer-hides-an-alias-from-iso-uniqueness.md` — the
+optimizer now skips the frames of a function that isolates), and every `AtomicI32` read as
+cycle-capable (`issues/fixed/atomic-types-read-as-cycle-capable-through-their-opaque-c-payload.md`).
+The deep walk's cost is O(reachable graph) once per hand-off on the sending thread.
+
 ### Phase 3: module-level globals (P-3, P-10) (M; evaluator + one std fix)
 
 1. **std first** (no seed dependency): `std/encoding/html.yo`'s tables become RC-free
@@ -452,6 +465,19 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
    `main` returns (the process must exit); Windows legs: the two-thread pool submission test and
    a socket-per-thread test.
 
+**Landed 2026-09-26** (PR #902). Items 1, 3 and 4 as written, with one addition the analysis
+forced: moving the live-waker decrement to the owner is not sufficient on its own, because a
+poster notifies AFTER unlocking the owner (the Linux notify takes that lock) — so every foreign
+touch of a loop registers in a `visitors` count and loop teardown waits for it
+(`__yo_async_loop_quiesce`). Item 2: P-15 no longer reproduced (two- and four-shape variants), and
+`ThreadPool.join_all` became a per-pool completion counter (a `WaitGroup`) with the task closure
+wrapped. Item 3 kept the borrow pair for atomic containers and made it atomic (D3 still allows a
+read-only `inout` into an atomic object), and fixed the `Index` self-inflicted panic by skipping
+the index method's own entry assert. Item 4's socket registry is process-wide under an
+`SRWLOCK`, not per-loop (a socket handle may move to another thread). P-11/P-12's race was never
+reproduced locally (3/3 green on the unfixed runtime); the Linux ASan leg and the TSan job are its
+oracle.
+
 ### Phase 7: the standing proof — TSan over the whole thread corpus (S–M, CI)
 
 - Today the Linux/Clang TSan job runs `tests/sync` only. Extend it to `tests/thread*.test.yo`,
@@ -463,6 +489,11 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
   a TSan run that reports nothing on a corpus that never spawns is hollow (memory:
   "hollow-green gate hygiene") — the job prints the number of threads created per test.
 - Add the job to the branch-protection required list by hand (ruleset 13548862).
+
+**Landed 2026-09-26** (PR #902): `scripts/tsan-thread-corpus.sh` over 13 thread-corpus files,
+the both-ways ratchet `scripts/bootstrap/tsan-known-failing.tsv`, and the `YO_REPORT_SPAWNS`
+runtime knob the hollowness check reads; the job keeps its name because it is a required check.
+Its first measurement is the PR's own full battery (TSan does not start on this macOS host).
 
 ### Phase 8: documentation sync and closure (S)
 
