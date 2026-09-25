@@ -37,6 +37,11 @@ fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
 pass() { echo "ok:   $*"; }
 
 rounds_before() { grep -c 'watch: revalidated' "$LOG" 2>/dev/null || true; }
+# The latest round SUMMARY line. Never `tail -1`: a round's own diagnostics
+# (a warning block, a failing file's error) can follow the summary, and the
+# checks below then read a `help:` line — the leaf-break check passed
+# vacuously on one, since it only asserts the absence of "0 failed".
+last_round() { grep 'watch: revalidated' "$LOG" | tail -1; }
 # Wait until a new round summary line appears after `$1` seen rounds.
 wait_round() {
   local before=$1 i=0
@@ -74,7 +79,7 @@ R=$(rounds_before)
 sed -i '1i // watch_verify probe comment' src/token.yo
 if wait_round "$R"; then pass "comment-only edit produced a round"; else fail "comment-only edit produced no round"; fi
 R=$(rounds_before)
-LAST=$(tail -1 "$LOG")
+LAST=$(last_round)
 echo "   round: $LAST"
 case "$LAST" in
   *"revalidated 0 definition(s), rechecked 0 file(s), 0 failed"*) pass "comment-only round was a no-op" ;;
@@ -89,7 +94,7 @@ R=$(rounds_before)
 sed -i 's/is_identifier_start(c) || c.is_digit()/is_identifier_start(c) || c.is_digit() || (c.char == u32(1))/' src/token.yo
 if wait_round "$R"; then pass "hub body edit produced a round"; else fail "hub body edit produced no round"; fi
 R=$(rounds_before)
-LAST=$(tail -1 "$LOG")
+LAST=$(last_round)
 echo "   round: $LAST"
 case "$LAST" in
   *"0 failed"*) pass "hub body edit stayed clean" ;;
@@ -103,7 +108,7 @@ R=$(rounds_before)
 sed -i 's/ok := true;/ok := 1;/' src/version.yo
 if wait_round "$R"; then pass "leaf break produced a round"; else fail "leaf break produced no round"; fi
 R=$(rounds_before)
-LAST=$(tail -1 "$LOG")
+LAST=$(last_round)
 echo "   round: $LAST"
 case "$LAST" in
   *"0 failed"*) fail "leaf break was NOT reported: $LAST" ;;
@@ -115,7 +120,7 @@ grep -q 'version.yo' "$LOG" && pass "failure names version.yo" || fail "failure 
 git checkout -- src/version.yo
 if wait_round "$R"; then pass "leaf fix produced a round"; else fail "leaf fix produced no round"; fi
 R=$(rounds_before)
-LAST=$(tail -1 "$LOG")
+LAST=$(last_round)
 case "$LAST" in
   *"0 failed"*) pass "leaf fix is clean" ;;
   *) fail "leaf fix still failing: $LAST" ;;
