@@ -167,6 +167,31 @@ bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // 单独来看没�
 Thread(i32).spawn(io => counter);             // 错误：……但另一个线程读取了 counter
 ```
 
+## 跨线程的函数与闭包
+
+一个函数值是 `Send` 的，当且仅当**它捕获的状态**是 `Send` 的，并且**它的代码触及的东西**符合上面的全局变量规则。函数类型本身回答不了这个问题：同一签名的两个函数共享同一个类型，而一个什么都不捕获的闭包照样会运行代码。所以编译器在能看到值的地方判断这个值：
+
+- **派生与任务闭包体**：直接写进 `Send` 位置的闭包字面量（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调）在书写处检查。
+- **传入的函数值**：传给 `Impl(Fn(...), Send)` 参数的具名函数或闭包在调用处判断。
+- **泛型约束**：绑定到 `where(T <: Send)` 参数的函数同样判断：`arc(f)`、`Channel(typeof(f))`、泛型的 `g(f)`。
+- **被捕获的函数**：被另一个线程的闭包捕获的闭包，按被捕获的值判断。
+
+编译器看不到值的裸 `fn(...)` 类型**不是 `Send`**：结构体字段、集合元素、`Channel(fn() -> unit)` 的载荷都属于这种情况。承载这一承诺的函数类型是 `Impl(Fn(...), Send)`，一个值只在被转换成它的地方检查一次。
+
+```rust
+g := ArrayList(i32).new();                          // 只在主线程上可用
+hits := AtomicI32(i32(0));
+fill :: (fn(io : Io) -> unit)({ g.push(i32(1)); });
+count :: (fn(io : Io) -> unit)({ hits.fetch_add(i32(1), MemoryOrder.AcqRel); ();});
+Thread(unit).spawn(count);                          // 可以：count 只触及原子对象
+Thread(unit).spawn(fill);                           // 错误：fill 的代码触及 g
+(k : Impl(Fn() -> unit)) = (() => { g.push(i32(2)); });
+a := arc(k);                                        // 错误：k 的代码触及 g
+Holder :: struct(f : (fn(io : Io) -> unit));
+h := Holder(f : count);
+Thread(unit).spawn((io : Io) => { (h.f)(io); });    // 错误：Holder 有一个裸 fn 字段
+```
+
 ## 负向实现 — 选择退出 Send
 
 可以通过 `!(Send)` 明确退出自动派生的 `Send`：
@@ -206,22 +231,27 @@ match(
 
 | 层次                         | 信任内容                       | 强制执行                            |
 | ---------------------------- | ------------------------------ | ----------------------------------- |
-| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；原子对象写入被拒绝（字段与索引赋值、`inout` 参数、`inout(self)` 接收者） |
+| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；原子对象写入被拒绝（字段与索引赋值、`inout` 参数、`inout(self)` 接收者）；跨线程的函数值按其捕获与其代码触及的东西判断（D4、D9），裸 `fn` 字段或载荷不是 Send |
 | **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 需要 `// SAFETY:` 注释    |
 | **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
 | **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
 
-## 已知缺口（2026-09-25 审计）
+## 尚未覆盖的内容
 
-本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
+- **死锁预防**：与 Rust 相同，锁的顺序由使用者负责。
+- **`Sync` 特质**：跨线程的共享引用，暂缓；跨线程共享总是经由 `Arc + Mutex / Atomic / Channel`。
+- **`AtomicPtr(T)`**：用于无锁数据结构的泛型原子指针，暂缓。安全代码不能构造或解引用裸指针，这个原语只有带 pragma 的代码才能用；等 `std/` 中出现具体的使用者时再加入。
+- **`Sender(T)` / `Receiver(T)` 拆分**：目前 `Channel(T)` 在同一个句柄上同时暴露发送端和接收端，Rust 式的拆分是之后的易用性改进。
+- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`iso*`、`cross_thread_wake`、`spawn_blocking`、`imm_threading`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
 
-- **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
-- **被派生的闭包可以通过它调用的闭包值**（捕获的辅助闭包、闭包参数）**或 `dyn` 方法触及非 Send 的模块级全局变量**：全局可达性检查只跟随编译期能解析到函数体的调用（`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`）。
+## 已知缺口
+
+目前没有已知缺口。2026-09-25 的并行性可靠性审计测得上述保证有十一处被违反，已全部关闭（`plans/archive/PARALLELISM_SOUNDNESS.md`）；收尾时发现的函数值途径也已由规则 D9 关闭。之后发现的违反会记录在 `issues/` 下，并在修复之前列在这里。
 
 ## 参见
 
 - `plans/archive/THREAD_SAFETY.md` — 完整设计文档
 - `docs/en-US/PARALLELISM.md` — Thread / ThreadPool / Channel API
-- `plans/reference/PARALLELISM_RULES.md` — 编译器强制或正在落实的规则（D1–D8）
-- `plans/PARALLELISM_SOUNDNESS.md` — 2026-09-25 的审计及其修复计划
+- `plans/reference/PARALLELISM_RULES.md` — 编译器强制执行的规则（D1–D9）
+- `plans/archive/PARALLELISM_SOUNDNESS.md` — 2026-09-25 的审计及其修复计划（已关闭）
 - `docs/zh-CN/ISOLATED.md` — Iso(T) 设计细节

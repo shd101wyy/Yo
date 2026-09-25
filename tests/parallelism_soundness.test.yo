@@ -220,7 +220,7 @@ comptime_expect_error({
 // D1: ...and through a `Dyn(Trait, Send)` value whose method reaches it — the
 // vtable's methods are walked where the concrete impl is known, at `dyn(...)`.
 _GlobalPusher :: trait(
-  push_one : (fn(self : *Self) -> unit)
+  push_one : (fn(self : Self) -> unit)
 );
 _PushesToGlobal :: struct(unused : i32);
 impl(
@@ -377,4 +377,150 @@ test("D8 canary: a closure over a copy of the protected value is legal", {
     k()
   });
   assert(seen == i32(7), "the copy was readable through the closure");
+});
+// ============================================================================
+// D9 — a function value is Send by what it captures and what its code reaches
+// ============================================================================
+d9_hits := AtomicI32(i32(0));
+_d9_fill :: (fn(io : Io) -> unit)({
+  g_items.push(i32(9));
+});
+_d9_count :: (fn(io : Io) -> unit)({
+  d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  ();
+});
+_d9_push :: (fn() -> unit)({
+  g_items.push(i32(9));
+});
+_d9_call_ptr :: (fn(cb : (fn() -> unit)) -> unit)({
+  cb();
+});
+_d9_run :: (fn(cb : Impl(Fn() -> unit, Send)) -> unit)({
+  t := Thread(unit).spawn((io : Io) => {
+    cb();
+    ()
+  });
+  t.join();
+});
+_D9Holder :: struct(f : (fn(io : Io) -> unit));
+// D9: a NAMED function whose code reaches a non-Send global is not a spawn
+// body (it is never a literal, so D1's creation-time walk never saw it).
+comptime_expect_error({
+  _d9_named_spawn :: (fn() -> unit)({
+    t := Thread(unit).spawn(_d9_fill);
+    t.join();
+  });
+  _d9_named_spawn();
+});
+// D9: a closure that captures nothing — its capture struct is trivially Send —
+// but pushes to the global, bound to a plain local and then made Send by
+// value: through `arc`, a generic `where(T <: Send)`, an `Impl(Fn, Send)`
+// parameter.
+comptime_expect_error({
+  _d9_arc_of_reaching_closure :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(9));
+      }
+    );
+    _a := arc(k);
+  });
+  _d9_arc_of_reaching_closure();
+});
+comptime_expect_error({
+  _d9_generic_of_reaching_closure :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(9));
+      }
+    );
+    _needs_send(k);
+  });
+  _d9_generic_of_reaching_closure();
+});
+comptime_expect_error({
+  _d9_send_param_of_reaching_closure :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        g_items.push(i32(9));
+      }
+    );
+    _d9_run(k);
+  });
+  _d9_send_param_of_reaching_closure();
+});
+// D9: a function used as a VALUE inside a spawn body is walked as if called —
+// whatever receives it may call it.
+comptime_expect_error({
+  _d9_value_in_spawn_body :: (fn() -> unit)({
+    t := Thread(unit).spawn((io : Io) => {
+      _d9_call_ptr(_d9_push);
+      ()
+    });
+    t.join();
+  });
+  _d9_value_in_spawn_body();
+});
+// D9: a bare `fn` field loses the function's identity, so a struct holding one
+// is not Send — even when the function stored in it is harmless.
+comptime_expect_error({
+  _d9_struct_with_fn_field :: (fn() -> unit)({
+    h := _D9Holder(f : _d9_count);
+    t := Thread(unit).spawn((io : Io) => {
+      g := h.f;
+      g(io);
+      ()
+    });
+    t.join();
+  });
+  _d9_struct_with_fn_field();
+});
+// Canary: function values whose code reaches only atomics cross threads by
+// every route above — a named spawn body, a capture-free closure through a
+// generic bound and an `Impl(Fn, Send)` parameter, a captured closure, a
+// captured named-function value.
+test("D9 canary: function values that reach only atomics are Send by every route", {
+  t1 := Thread(unit).spawn(_d9_count);
+  t1.join();
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  _needs_send(k);
+  _d9_run(k);
+  t2 := Thread(unit).spawn((io : Io) => {
+    k();
+    ()
+  });
+  t2.join();
+  f := _d9_count;
+  t3 := Thread(unit).spawn((io : Io) => {
+    f(io);
+    ()
+  });
+  t3.join();
+  assert(d9_hits.load(MemoryOrder.Acquire) == i32(4), "every route ran its function on a thread");
+});
+// Canary (P-26 residual): `arc` of a closure that captures NOTHING — here it
+// reaches only an atomic global — compiles and runs; its `Arc(V)` signature
+// and body built two Arc instances until
+// issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md.
+d9_arc_hits := AtomicI32(i32(0));
+test("D4/D9 canary: arc() of a capture-free closure runs on a thread", {
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      d9_arc_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  a := arc(k);
+  t := Thread(unit).spawn((io : Io) => {
+    f := a.*;
+    f();
+    ()
+  });
+  t.join();
+  assert(d9_arc_hits.load(MemoryOrder.Acquire) == i32(1), "the capture-free closure ran on the thread");
 });

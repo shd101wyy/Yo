@@ -220,6 +220,41 @@ bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // fine on its own.
 Thread(i32).spawn(io => counter);             // ERROR: ...but another thread reads counter
 ```
 
+## Functions and Closures Across Threads
+
+A function value is `Send` when **what it captures** is `Send` and **what its code reaches**
+obeys the global rules above. Its type cannot answer this: two functions of one signature share
+the type, and a closure that captures nothing still runs code. So the compiler judges the value
+wherever it can see it:
+
+- **Spawn and task bodies.** A closure literal written straight into a `Send` slot (a
+  `Thread.spawn` body, a pool task, a `spawn_blocking` callback) is checked where it is
+  written.
+- **Function values passed in.** A named function or a closure passed to an
+  `Impl(Fn(...), Send)` parameter is judged at the call.
+- **Generic bounds.** A function bound to a `where(T <: Send)` parameter is judged too:
+  `arc(f)`, `Channel(typeof(f))`, a generic `g(f)`.
+- **Captured functions.** A closure captured by another thread's closure is judged by the
+  captured value.
+
+A bare `fn(...)` type whose value the compiler cannot see is **not `Send`**: a struct field, a
+collection element, a `Channel(fn() -> unit)` payload. `Impl(Fn(...), Send)` is the function
+type that carries the promise; a value is checked once, where it is converted into it.
+
+```rust
+g := ArrayList(i32).new();                          // main thread only
+hits := AtomicI32(i32(0));
+fill :: (fn(io : Io) -> unit)({ g.push(i32(1)); });
+count :: (fn(io : Io) -> unit)({ hits.fetch_add(i32(1), MemoryOrder.AcqRel); ();});
+Thread(unit).spawn(count);                          // fine: count reaches only an atomic
+Thread(unit).spawn(fill);                           // ERROR: fill's code reaches g
+(k : Impl(Fn() -> unit)) = (() => { g.push(i32(2)); });
+a := arc(k);                                        // ERROR: k's code reaches g
+Holder :: struct(f : (fn(io : Io) -> unit));
+h := Holder(f : count);
+Thread(unit).spawn((io : Io) => { (h.f)(io); });    // ERROR: Holder has a bare fn field
+```
+
 ## Negative Impls — Opting Out of Send
 
 A type that would auto-derive `Send` can explicitly opt out with `!(Send)`:
@@ -284,7 +319,7 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. |
+| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
 | **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send impls require `// SAFETY:` comments. Phase F re-verifies atomic-object field Send-ness.                                                  |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |
@@ -295,28 +330,19 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 - **`Sync` trait** — cross-thread shared references. Deferred; cross-thread sharing always goes through `Arc + Mutex / Atomic / Channel`.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
-- **TSan empirical validation on CI** — `--sanitize thread` is plumbed and the Linux/Clang CI job runs `yo test ./tests/sync`. The job GATES pull requests — it is one of the required status checks (it was informational until 2026-08-06). The primary regression guard today is `tests/thread_safety.test.yo`, which pins the Send/atomic-field/negative-impl/field-visibility rules in Yo itself, plus the `tests/sync/` suite the TSan job runs; the old codegen pin tests (`src/tests/thread-safety-codegen.test.ts`) were retired with the TypeScript compiler tree and have no self-hosted successor.
+- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `cross_thread_wake`, `spawn_blocking`, `imm_threading`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
 
-## Known Holes (2026-09-25 audit)
+## Known Holes
 
-The guarantee at the top of this page is the contract; the parallelism-soundness audit
-(`plans/PARALLELISM_SOUNDNESS.md`) measured these violations of it on the current compiler, and
-each is being closed by the phase named there. Until a bullet is removed, safe code CAN write
-the race it describes.
-
-- **A closure type satisfies `where(T <: Send)`** regardless of its captures, so `arc(f)` and
-  `Channel(typeof(f))` pass `yo check` with a non-Send capture (the C compiler rejects the
-  program today by accident)
-  (`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`).
-- **A spawned closure can reach a non-Send module-level global through a closure value** it
-  calls (a captured helper closure, a closure parameter) or a `dyn` method: the global-reach
-  check follows only calls it can resolve to a function body at compile time
-  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
+None known. The 2026-09-25 parallelism-soundness audit measured eleven violations of the
+guarantee above. All of them are closed (`plans/archive/PARALLELISM_SOUNDNESS.md`), as is the
+function-value route found while closing it (rule D9). A violation found later is filed under
+`issues/` and listed here until it is fixed.
 
 ## See Also
 
-- `plans/reference/PARALLELISM_RULES.md` — the rules (D1–D8) the compiler enforces or is being brought to
-- `plans/PARALLELISM_SOUNDNESS.md` — the 2026-09-25 audit and its fix plan
+- `plans/reference/PARALLELISM_RULES.md` — the rules (D1–D9) the compiler enforces
+- `plans/archive/PARALLELISM_SOUNDNESS.md` — the 2026-09-25 audit and its fix plan (closed)
 - `plans/archive/THREAD_SAFETY.md` — the original design document with its 27-vector inventory (see its correction banner)
 - `docs/en-US/PARALLELISM.md` — Thread, ThreadPool, and Channel API
 - `docs/en-US/ISOLATED.md` — `Iso(T)` design details
