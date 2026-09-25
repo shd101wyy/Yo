@@ -71,6 +71,7 @@ pragma(Pragma.AllowUnsafe);
   enrich_captured_variables,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
+  validate_send_closure_global_reach,
   FuncCapturedVarInfo
 } :: import("../utils/closure.yo");
 /// Convert a closure body expression into a typed closure value against
@@ -317,9 +318,10 @@ try_to_implement_closure_by_fn_module_type :: (
   // of the wrapper (e.g. `Send` on a spawn closure).
   match(
     capture_ty.clone(),
-    .Some(vct) => validate_capture_trait_requirements(wrapper_type.clone(), vct, captured_vars_with_values_opt, caller_env, ctx, tok, exn, closure_id.clone(), Option(AstExpr).Some(evaluated_body)),
+    .Some(vct) => validate_capture_trait_requirements(wrapper_type.clone(), vct, captured_vars_with_values_opt, caller_env, ctx, tok, exn),
     .None => ()
   );
+  validate_send_closure_global_reach(wrapper_type.clone(), closure_id.clone(), evaluated_body, caller_env, ctx, tok, exn);
   // Record the capture struct type + defining frame level by func_id so codegen's
   // generate_function can set the closure-capture context (rewriting captured vars
   // like `k` to `((<cap>*)closure_context)->k`). Mirrors anonymous_function.yo:1068.

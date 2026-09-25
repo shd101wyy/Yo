@@ -100,6 +100,7 @@ pragma(Pragma.AllowUnsafe);
   generate_captured_variable_dup_expressions,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
+  validate_send_closure_global_reach,
   FuncCapturedVarInfo
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
@@ -1483,6 +1484,8 @@ Result type: ${type_to_string(decl_result_ty)}`
   if(ctl_force && !propagate_def_time_errors(), {
     should_defer_body = false;
   });
+  // The def-time evaluated body, kept for rule D1's reachability walk below.
+  (anon_d1_body : Option(AstExpr)) = Option(AstExpr).None;
   if(!should_defer_body, {
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
@@ -1537,6 +1540,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     anon_depths := forcing_depths();
     _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
     truncate_forcing_depths(anon_depths);
+    anon_d1_body = anon_body_out.get(usize(0));
     // Channel 0 (P0, plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
     // unbound-name that is bound LATER in this module is a forward
     // reference — error now instead of hollowing the closure body silently
@@ -1974,13 +1978,14 @@ Result type: ${type_to_string(decl_result_ty)}`
     // and for the capture struct.
     match(
       closure_capture_type,
-      // The D1 reachability walk needs the EVALUATED body; this path's body
-      // evaluation is trial/deferred (`_trial_eval_anon_body` works on a
-      // clone), so no body is handed over here. A closure bound to an
-      // `Impl(Fn(...), Send)` slot is created through
-      // `try_to_implement_closure_by_fn_module_type` (calls/closure_type.yo),
-      // which hands its evaluated body over.
-      .Some(vct) => validate_capture_trait_requirements(expected_ty, vct, cvwv, env, ctx, tok, exn, func_id.clone(), Option(AstExpr).None),
+      .Some(vct) => validate_capture_trait_requirements(expected_ty.clone(), vct, cvwv, env, ctx, tok, exn),
+      .None => ()
+    );
+    // Rule D1: the def-time evaluated body (a deferred generic body has none
+    // yet; its call-time specialization goes through closure_type.yo).
+    match(
+      anon_d1_body,
+      .Some(d1_body) => validate_send_closure_global_reach(expected_ty, func_id.clone(), d1_body, env, ctx, tok, exn),
       .None => ()
     );
     // Prefer an already-REGISTERED (larger) capture struct for this fid — see
