@@ -556,6 +556,9 @@ like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
+- **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
+- **`(a, b) := expr` bindings are immutable**: a later `a = ...` is E0902 `Cannot reassign "a"`. Bind each name with an annotation (`(a : usize) = ...;`) when it must be reassigned.
+- **A bare `import("std/fmt");` binds no names.** It evaluates the module (its impls and derive rules register), but `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401 `Variable "eprintln" not found` otherwise).
 - There is no `loop` function. Use `while(true, body)` for a runtime infinite loop.
 - **`while(cond, body)` is always a runtime loop**, regardless of whether `cond` is compile-time known.
 - **Do NOT wrap the `while` condition in `runtime(...)`** — `while(runtime(cond), body)` is redundant because the condition is already evaluated at runtime by default. Write `while(cond, body)`. (`runtime(...)` only matters in a `::`/comptime context to force runtime evaluation; a `while` condition is never that context.)

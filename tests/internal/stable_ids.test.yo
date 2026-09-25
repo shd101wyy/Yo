@@ -1,0 +1,75 @@
+/// Identity mints are keyed by the enclosing top-level statement, not the
+/// absolute line (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): a comment or a
+/// declaration added ABOVE a type leaves its id, and every C name derived from
+/// it, unchanged. The module walk registers one `TopLevelAnchor` per top-level
+/// statement (`register_module_anchors`, src/evaluator/context.yo); these
+/// tests drive the mints directly with the anchors a shifted file would get.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{
+  TopLevelAnchor,
+  register_top_level_anchors,
+  stable_type_id,
+  stable_position_id,
+  stable_func_id,
+  stable_occurrence_reset,
+  emission_occurrence_reset,
+  generate_new_temp_variable_name
+} :: import("../../src/utils.yo");
+{ assert } :: import("std/assert");
+/// The anchors of a module whose first statement `P` starts at `p_row` and
+/// whose second statement `Q` starts four lines later.
+_anchors_at :: (fn(p_row : usize) -> ArrayList(TopLevelAnchor))({
+  a := ArrayList(TopLevelAnchor).new();
+  a.push(TopLevelAnchor(row : p_row, column : usize(0), label : String.from("P")));
+  a.push(TopLevelAnchor(row : (p_row + usize(4)), column : usize(0), label : String.from("Q")));
+  a
+});
+test("stable ids: a type id does not move when lines are added above its statement", {
+  m := String.from("anchored_m.yo");
+  stable_occurrence_reset();
+  register_top_level_anchors(m.clone(), _anchors_at(usize(10)));
+  p0 := stable_type_id(String.from("struct_"), m.clone(), usize(11), usize(6));
+  q0 := stable_type_id(String.from("enum_"), m.clone(), usize(14), usize(2));
+  f0 := stable_func_id(String.from("fn_"), m.clone(), usize(12), usize(3));
+  d0 := stable_position_id(String.from("struct_decl_"), m.clone(), usize(11), usize(6));
+  // Three comment lines inserted above: every statement starts three rows lower.
+  stable_occurrence_reset();
+  register_top_level_anchors(m.clone(), _anchors_at(usize(13)));
+  p1 := stable_type_id(String.from("struct_"), m.clone(), usize(14), usize(6));
+  q1 := stable_type_id(String.from("enum_"), m.clone(), usize(17), usize(2));
+  f1 := stable_func_id(String.from("fn_"), m.clone(), usize(15), usize(3));
+  d1 := stable_position_id(String.from("struct_decl_"), m.clone(), usize(14), usize(6));
+  assert(p0 == p1, `struct id moved: ${p0} vs ${p1}`);
+  assert(q0 == q1, `enum id moved: ${q0} vs ${q1}`);
+  assert(f0 == f1, `fn id moved: ${f0} vs ${f1}`);
+  assert(d0 == d1, `decl id moved: ${d0} vs ${d1}`);
+});
+test("stable ids: different statements and offsets still get different ids", {
+  m := String.from("anchored_n.yo");
+  stable_occurrence_reset();
+  register_top_level_anchors(m.clone(), _anchors_at(usize(0)));
+  in_p := stable_type_id(String.from("struct_"), m.clone(), usize(1), usize(6));
+  in_q := stable_type_id(String.from("struct_"), m.clone(), usize(5), usize(6));
+  in_p_later := stable_type_id(String.from("struct_"), m.clone(), usize(2), usize(6));
+  assert(in_p != in_q, "two statements");
+  assert(in_p != in_p_later, "two lines of one statement");
+});
+test("stable ids: a module without anchors keeps absolute positions", {
+  m := String.from("unanchored_m.yo");
+  stable_occurrence_reset();
+  a := stable_type_id(String.from("struct_"), m.clone(), usize(3), usize(0));
+  b := stable_type_id(String.from("struct_"), m.clone(), usize(6), usize(0));
+  assert(a != b, "absolute rows");
+});
+test("stable ids: a temp name anchors on its token's module, not the env's", {
+  m := String.from("anchored_t.yo");
+  caller := String.from("caller_env.yo");
+  emission_occurrence_reset();
+  register_top_level_anchors(m.clone(), _anchors_at(usize(20)));
+  t0 := generate_new_temp_variable_name(caller.clone(), usize(21), usize(4), String.new(), m.clone());
+  emission_occurrence_reset();
+  register_top_level_anchors(m.clone(), _anchors_at(usize(25)));
+  t1 := generate_new_temp_variable_name(caller.clone(), usize(26), usize(4), String.new(), m.clone());
+  assert(t0 == t1, `temp moved: ${t0} vs ${t1}`);
+});

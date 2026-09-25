@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, inout(item) => …)` was removed and produces a compile error with this recipe.
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(coll, inout(item) => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
 
 ## What Safe Code Cannot Do
 

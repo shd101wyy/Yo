@@ -1570,7 +1570,16 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
+The borrow form `for(coll, inout(x) => body)` hands the body each element in place: assigning to `x` writes the element. The loop pins the collection and holds its runtime borrow flag, so the body cannot grow or shrink it while an element is borrowed (see [FLOWABILITY.md](./FLOWABILITY.md)).
+
+```rust
+xs := ArrayList(i32).new();
+xs.push(i32(1));
+for(xs, inout(x) => {
+  x = (x + i32(10));
+});
+// xs(usize(0)) is now 11.
+```
 
 Strings have explicit `chars()` (rune iteration), `char_indices()` (rune
 iteration carrying each rune's byte offset) and `bytes()` (byte iteration).
