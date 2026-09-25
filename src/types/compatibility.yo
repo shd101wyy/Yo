@@ -665,7 +665,41 @@ _compat_impl :: (
               return(true);
             });
           },
-          .None => ()
+          // An UNRESOLVED SomeType in the actual slot is a placeholder too
+          // (lenient only), mirroring the concrete-vs-SomeType rule above:
+          // the argument check's Step 8 passes (param, arg), so a parameter
+          // type still open after synthesis meets the concrete argument here
+          // (`List(MapEntry(K, V))` against `List(MapEntry(i32, i32))` in
+          // std/imm/sorted_map.yo's `_collect_entries` recursion). It accepts
+          // a concrete type that satisfies every bound not mentioning the
+          // SomeType itself. The empty-name struct wildcard used to accept
+          // such pairs one level up without looking inside
+          // (plans/reference/TYPE_IDENTITY.md). An extern opaque type is a
+          // concrete C type wearing a SomeType and stays itself only.
+          .None => if(!(require_exact) && !(_is_extern_some(actual)), {
+            a_reqs := match(actual, .SomeT(required_trait_types : a_rq) => a_rq, _ => ArrayList(TypeValue).new());
+            if(a_reqs.len() == usize(0), {
+              return(true);
+            });
+            match(
+              g_compat_type_implements_trait_fn,
+              .Some(a_impl_check) => {
+                (a_all_ok : bool) = true;
+                (a_ri : usize) = usize(0);
+                while((a_ri < a_reqs.len()) && a_all_ok, {
+                  a_req := match(a_reqs.get(a_ri), .Some(v) => v, .None => TypeValue.Unit);
+                  if(!(_bound_mentions_some(a_req, actual)) && !(a_impl_check(expected, a_req)), {
+                    a_all_ok = false;
+                  });
+                  a_ri = (a_ri + usize(1));
+                });
+                if(a_all_ok, {
+                  return(true);
+                });
+              },
+              .None => ()
+            );
+          })
         );
       },
       _ => ()
