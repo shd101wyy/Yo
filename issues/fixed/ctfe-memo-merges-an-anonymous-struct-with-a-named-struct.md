@@ -1,9 +1,10 @@
 # The CTFE instantiation memo merges types that are not equal, so `Type.eq` and instantiations depend on call order
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** OPEN. Wrong answers from type reflection, a spurious E0610, and a SIGSEGV, each
-depending only on which instantiation ran first. This is a live, reproduced sibling of the
-hypothesis in `issues/ctfe-memo-shared-struct-id-fast-path-smell.md`, through a different
+**Status:** FIXED 2026-09-25 (Phase 3.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for Repros 1 and 2 and the tuple
+and `Dyn` rows; Repro 3 (`fn` parameter modes) is Phase 3.5. Was: wrong answers from type
+reflection, a spurious E0610, and a SIGSEGV, each depending only on which instantiation ran first. This is a live, reproduced sibling of the
+hypothesis in `issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`, through a different
 predicate.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
@@ -80,3 +81,23 @@ instantiation.
 The memo needs a true identity predicate, not "exact compatibility". Either key it on the
 codegen type key, or make exact mode reject a named-vs-anonymous pair, compare `FuncMeta` flags,
 implicit params and tuple labels, and require equal trait sets for `Dyn`.
+
+## Fix (2026-09-25)
+
+The memo's fallback, `are_types_compatible_exact`, is now the identity relation of
+`plans/reference/TYPE_IDENTITY.md`:
+
+- a named declaration is never identical to an anonymous record (Repro 1 and 2);
+- tuple labels are part of the identity (`Tuple(a : i32, b : bool)` is not `Tuple(c : i32, d : bool)`);
+- `Dyn` identity is the exact trait set, so `Dyn(Speak, Run)` is not `Dyn(Speak)` in either order.
+
+The raw-id fast paths were hardened in the same change
+(`issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`).
+
+`tests/type_soundness.test.yo` asks `Type.eq` in both orders, builds `Wrap(struct(x : i32))` then
+`Wrap(A)` and calls `A`'s method through the second, and runs the `ArrayList(anonymous record)` /
+`ArrayList(Named)` pair a peer session reported on 2026-09-24 (the second push failed with
+"Cannot unify incompatible struct types").
+
+Repro 3 stays open under `issues/inout-call-through-a-fn-value-loses-the-mutation.md` until
+function identity compares parameter modes (Phase 3.5).

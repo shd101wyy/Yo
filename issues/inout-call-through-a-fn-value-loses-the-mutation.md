@@ -49,7 +49,7 @@ The fn-pointer call is emitted as `((void (*)(int32_t))f)((int32_t)((&(v))))`. T
 ignores `FuncMeta.param_is_ref`, so the address of `v` is truncated to `int32_t` and passed by
 value; `bump` then writes through a garbage pointer on a 64-bit target (it happens not to crash
 here). The evaluator also treats `fn(inout(x) : i32)` and `fn(x : i32)` as the same type (see
-`issues/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`), so nothing upstream
+`issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`), so nothing upstream
 disagrees.
 
 ## Fix direction

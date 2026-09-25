@@ -380,6 +380,21 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 `Type.eq` 使用精确匹配，不允许隐式转换。`Type.is_compatible_with` 允许 `comptime_int` → `i32` 等隐式转换。
 
+什么算同一个类型：
+
+- 具名的 `struct`、`enum`、`union` 或 `newtype` 只与自身相等。字段相同的两个声明是两个类型，两个模块中同名的类型也是两个类型。
+- 匿名记录（`struct(x : i32)`）与种类、字段标签和字段类型都相同的另一个匿名记录相等，但永远不等于具名结构体。它仍然与字段相同的具名结构体*兼容*，所以 `(a : A) = { x : i32(1) }` 可以通过。
+- 元组与标签和字段类型都相同的元组相等。元组字面量与元数相同的带标签元组兼容。
+- `Dyn(A, B)` 等于 `Dyn(B, A)`，不等于 `Dyn(A)`。
+
+结果与程序中此前问过哪些问题无关。
+
+```rust
+comptime_assert(Type.eq(struct(x : i32), struct(x : i32)), "two anonymous records with the same fields");
+comptime_assert(Type.neq(struct(x : i32), A), "an anonymous record is not A");
+comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into A");
+```
+
 ### Type.join_fields
 
 将结构体的每个字段映射为 `Expr`，并用二元运算符组合：

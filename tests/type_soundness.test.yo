@@ -595,6 +595,8 @@ _P34A :: struct(x : i32);
 _P34B :: struct(x : i32);
 _P34Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
 impl(_P34A, show : (fn(self : Self) -> i32)(self.x + i32(100)));
+_P34T1 :: trait(t1 : (fn(self : Self) -> i32));
+_P34T2 :: trait(t2 : (fn(self : Self) -> i32));
 test("soundness: Type.eq does not depend on the order of earlier questions", {
   // anonymous pair first, then the named pair ...
   (anon_first : bool) = Type.eq(struct(x : i32), struct(x : i32));
@@ -607,6 +609,9 @@ test("soundness: Type.eq does not depend on the order of earlier questions", {
   assert(!Type.eq(struct(x : i32), _P34A), "an anonymous record is not a named struct");
   assert(!Type.eq(Tuple(a : i32, b : bool), Tuple(c : i32, d : bool)), "tuple labels are part of the identity");
   assert(Type.eq(Tuple(a : i32, b : bool), Tuple(a : i32, b : bool)), "the same labelled tuple");
+  assert(!Type.eq(Dyn(_P34T1, _P34T2), Dyn(_P34T1)), "a Dyn with more traits is another type");
+  assert(!Type.eq(Dyn(_P34T1), Dyn(_P34T1, _P34T2)), "... in either order");
+  assert(Type.eq(Dyn(_P34T1, _P34T2), Dyn(_P34T2, _P34T1)), "the same trait set in another order");
 });
 test("soundness: an instantiation does not adopt an earlier, different one", {
   (w0 : _P34Wrap(struct(x : i32))) = _P34Wrap(struct(x : i32))(

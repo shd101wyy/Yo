@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 235 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 232 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,13 +30,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 14 | 1 |
 | Async / effects | 32 | 9 |
 | Codegen / emitted C | 21 | 3 |
-| Evaluator / types | 27 | 5 |
+| Evaluator / types | 25 | 4 |
 | Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 51 | 13 |
-| **Total** | **235** | **48** |
+| Other | 50 | 13 |
+| **Total** | **232** | **47** |
 
 ## Cross-cutting buckets
 
@@ -203,7 +203,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (27)
+### Evaluator / types (25)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -217,8 +217,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | — | — |
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | OPEN | — |
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | — | — |
-| [`ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`](./ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md) | OPEN | — |
-| [`ctfe-memo-shared-struct-id-fast-path-smell.md`](./ctfe-memo-shared-struct-id-fast-path-smell.md) | OPEN as a hardening opportunity — | yes |
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | open (found 2026-09-09 while adding `Encoding | yes |
 | [`derived-eq-ref-enum-self-payload-hollow-at-runtime.md`](./derived-eq-ref-enum-self-payload-hollow-at-runtime.md) | — | — |
 | [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | OPEN | — |
@@ -345,7 +343,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (51)
+### Other (50)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -386,7 +384,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md`](./rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md) | OPEN | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
-| [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
 | [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |

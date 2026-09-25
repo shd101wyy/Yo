@@ -69,7 +69,7 @@ program that passes both `check` and `compile`:
 | `Iso` a wrapper whose interior is aliased | data race | `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
 | `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
 | `pair_same(String, i32)` with `fn(generic(A), x : A, y : A)` | runs | `issues/fixed/generic-type-var-rebinds-per-argument.md` |
-| `Wrap(fn(x : i32))` then `Wrap(fn(inout(x) : i32))` | SIGSEGV | `issues/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md` |
+| `Wrap(fn(x : i32))` then `Wrap(fn(inout(x) : i32))` | SIGSEGV | `issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md` |
 
 ## 3. Root causes (themes)
 
@@ -364,6 +364,23 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    Leave the deliberate coercions (the comptime numeric and string family, SomeT resolution) in
    the lenient relation and list them in the reference doc.
    (`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard`)
+
+   **Steps 1, 2 and 4 landed 2026-09-25.** `plans/reference/TYPE_IDENTITY.md` is the predicate:
+   the identity relation per variant, and the closed list of coercions flow adds on top of it.
+   Four changes in `src/types/compatibility.yo`:
+   - The struct, enum and union arms stop treating an empty or equal name as proof.
+   - The exact relation rejects a named-vs-anonymous pair, compares tuple labels, and requires
+     equal `Dyn` trait sets.
+   - Two empty ids are no longer "one id".
+   - A mismatch between two types that print the same names each type's declaring module
+     (`same_name_note`).
+
+   Removing the wildcard exposed one stand-in it had been hiding: `Type.get_info` typed its
+   `ComptimeList(VariantInfo)` from a value-reconstructed struct. It now uses the declared type.
+   Step 4 needed no memo change beyond the relation itself, plus the id fast-path hardening
+   (`issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`). The exit test "`Type.eq` is
+   order-independent" is in `tests/type_soundness.test.yo`. Memo Repro 3 (fn parameter modes)
+   moved to step 5.
 3. **Module-qualified, position-independent ids.** Give `stable_type_id` and trait ids the module
    stem (`src/utils.yo` ~309). Key module-level declarations by module and name, not row/column,
    so a comment edit or file move no longer renames a C type. This is a byte-identity event:
