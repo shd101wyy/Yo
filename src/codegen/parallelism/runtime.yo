@@ -378,6 +378,13 @@ static void __yo_worker_pool_init(size_t num_threads) {
     atomic_store_explicit(&worker->started, 0, memory_order_relaxed);
 
     int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
+    if (ret == 0) {
+      // Detached at birth: the pool never joins a worker (see
+      // __yo_worker_pool_shutdown), and an unjoined, undetached thread is a
+      // leaked OS thread record — ThreadSanitizer's "thread leak"
+      // (issues/fixed/pool-workers-are-neither-joined-nor-detached.md).
+      __yo_raw_thread_detach(worker->handle);
+    }
     if (ret != 0) {
       PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
@@ -414,8 +421,9 @@ static void __yo_worker_pool_init(size_t num_threads) {
 // calling thread itself when exit() was called from a pool task
 // (issues/fixed/worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md).
 // A worker idle in its wait sees the flag and exits; a worker mid-task is
-// reclaimed by process teardown, exactly like a detached Thread. Nothing is
-// destroyed or freed: a worker may still be running against it.
+// reclaimed by process teardown — every worker IS a detached thread (see
+// __yo_worker_pool_init). Nothing is destroyed or freed: a worker may still
+// be running against it.
 // ThreadPool.join_all / shutdown are the explicit "wait for my work" API.
 static void __yo_worker_pool_shutdown(void) {
   if (!__yo_worker_pool_initialized) {
