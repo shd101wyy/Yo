@@ -1105,6 +1105,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           edecl.push_str(";");
           e_em := context.base.emitter;
           e_em.emit_string_line(edecl);
+          _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
@@ -1201,6 +1202,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           dmd.push_str(";");
           dm_em2 := context.base.emitter;
           dm_em2.emit_string_line(dmd);
+          _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
@@ -1427,6 +1429,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 cmd.push_string(cm_call);
                 cmd.push_str(";");
                 cm_em2.emit_string_line(cmd);
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(cm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
@@ -1544,6 +1547,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rmd.push_string(rm_call);
                 rmd.push_str(";");
                 rm_em2.emit_string_line(rmd);
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(rm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
@@ -1746,6 +1750,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               decl.push_str(";");
               ctor_em := context.base.emitter;
               ctor_em.emit_string_line(decl);
+              _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               return(Option(String).Some(tv));
             },
             .None => return(Option(String).Some(ctor_call))
@@ -1787,6 +1792,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                     u_decl.push_str(";");
                     u_em := context.base.emitter;
                     u_em.emit_string_line(u_decl);
+                    _store_temp_var_to_state_machine_if_needed(u_tv.clone(), indent.clone(), context);
                     return(Option(String).Some(u_tv));
                   },
                   .None => return(Option(String).Some(u_value))
@@ -1896,6 +1902,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               vs_decl.push_str(";");
               vs_em := context.base.emitter;
               vs_em.emit_string_line(vs_decl);
+              // A constructor's result temp declared as a C local may own a
+              // `sm->var_<id>` slot inside a state machine: its deferred drop
+              // reads the slot, so store it here, as the enum, ref-struct
+              // and union constructor sites above do (a struct literal pushed
+              // in an async loop leaked once per iteration:
+              // issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md).
+              _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               return(Option(String).Some(tv));
             },
             .None => return(Option(String).Some(vs_value))
@@ -2245,6 +2258,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 line.push_string(casted);
                 line.push_str(");");
                 em.emit_string_line(line);
+                // The result temp's deferred drop reads its `sm->var_<id>`
+                // slot inside a state machine (`String.from_cstr(p).unwrap()`
+                // in read_dir's loop leaked the Option once per entry).
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(ou_bc2, indent.clone(), context);
               });
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
@@ -2526,6 +2543,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         fline.push_str(";");
         em.emit_string_line(fline);
       });
+      _store_temp_var_to_state_machine_if_needed(fp_tv.clone(), indent.clone(), context);
       _emit_borrow_releases(fp_bc2, indent.clone(), context);
     });
     generate_deferred_drop_expressions(expr, indent.clone(), context, true);

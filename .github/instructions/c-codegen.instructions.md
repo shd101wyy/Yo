@@ -286,6 +286,18 @@ release, and a push at the declaration would release an unassigned temp on an
 exit inside a branch
 (`issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md`).
 
+### Inside a state machine, a temp declared as a C local must also be stored to its slot
+
+A minted temp the async capture analysis gave a `sm->var_<id>` slot has its
+deferred drop rendered against that slot. A site that declares the temp as a
+plain C local (`T tv = <ctor or call>;`) must call
+`_store_temp_var_to_state_machine_if_needed(tv, indent, context)` right after
+the declaration line. Without the store, the drop releases calloc zero and the
+value leaks on every iteration of a loop body: `read_dir` leaked every entry's
+name, 2,060 blocks per 20 calls
+(`issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md`).
+Every temp-declaring site in `other_fn_call.yo` does this; a new one must too.
+
 ### An arm emitter must emit the rendered code of a unit arm
 
 Some generators RETURN their statement instead of emitting it: `___drop`
