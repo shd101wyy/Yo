@@ -3952,11 +3952,13 @@ _evaluate_funcval_runtime_call :: (
       // site (and hence locals bound from it) with the def-era instance
       // splits the C-type identity ("__yo_t36 child = <__yo_t2 expr>" —
       // two typedefs for one MapNode(i32,i32)). Adopt the mint's registered
-      // return when it is concrete.
+      // return when it is concrete — or when it carries only this call's
+      // closure-typed binders (`ou_mint_closure_ret`): that SomeT IS the
+      // instantiation, not an unresolved type variable.
       match(
         get_func_type(spec_fid.clone()),
         .Func({ result : mint_ret_ct }) => {
-          if((get_all_some_types(mint_ret_ct).len() == usize(0)) && !(is_unit_type(mint_ret_ct)), {
+          if((ou_mint_closure_ret || (get_all_some_types(mint_ret_ct).len() == usize(0))) && !(is_unit_type(mint_ret_ct)), {
             resolved_ret = mint_ret_ct.clone();
             out_rt.ty = resolved_ret;
             out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
