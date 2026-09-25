@@ -763,8 +763,19 @@ purge_type_intern_owned_by :: (fn(owner : String) -> unit)({
   });
 });
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
+///
+/// A type containing a SomeT is NOT interned: a SomeT carries a MUTABLE
+/// resolution cell (`resolved_concrete`), so a canonical instance shared by
+/// two structurally-equal types would let resolving one resolve the other
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.7; Phase 2.4 fixed the observable
+/// leaks where they arose). Every such type keeps its own cells. The key
+/// renders a SomeT as `So:<id>` (see the SomeT arm above), and under-dedup is
+/// safe per the header doctrine.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
+  if(key.contains("So:"), {
+    return(t);
+  });
   match(
     g_type_intern.get(key),
     .Some(canon) => canon,
