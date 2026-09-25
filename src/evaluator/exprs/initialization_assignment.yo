@@ -69,7 +69,8 @@
   type_prohibits_comptime_modifier,
   type_contains_rc_type,
   type_is_control_bound,
-  get_all_some_types
+  get_all_some_types,
+  dyn_upcast_note
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -826,7 +827,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
               ast_expr_token(actual_lhs),
               `Incompatible types:
 - Defined: ${pre_ty_str}
-- Given  : ${rhs_ty_str}`
+- Given  : ${rhs_ty_str}${dyn_upcast_note(pre_type, synth.ty)}`
             )
           )
         );

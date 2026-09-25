@@ -3318,7 +3318,7 @@ test("Expected compile errors", {
   comptime_expect_error({
     arr : Array(i32, _);
     arr = [1, 2, 3];
-  }, "Cannot infer array length in binding");
+  }, "Array type with inferred length '_' is not allowed in type annotations");
 
   // Test that certain patterns are invalid
   comptime_expect_error({

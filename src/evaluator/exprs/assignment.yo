@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -563,7 +563,7 @@ evaluate_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}`
+            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}${dyn_upcast_note(expected_ty, prop_rhs_type)}`
           )
         )
       );
@@ -1132,7 +1132,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       dyn(
         format_error_message(
           ast_expr_token(lhs_resolved),
-          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`
+          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(variable.ty, rhs_type)}`
         )
       )
     );

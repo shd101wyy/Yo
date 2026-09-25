@@ -98,36 +98,46 @@ typedef struct {
 
 ## Object-Safety Constraint (Following Rust)
 
-**Constraint**: Traits used with `Dyn()` **cannot** have methods that:
+A method can be called through a `Dyn(Trait)` receiver when:
 
-1. Take `Self` by value - must use `inout(self) : Self` instead
-2. Return `Self`
-3. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
+1. its first parameter is `self` (`self : Self`, `inout(self) : Self` or `self : *(Self)`, since the
+   vtable wrapper unboxes the receiver);
+2. `Self` appears nowhere else in its signature: not as another parameter, not as the result, and
+   not inside one (`Option(Self)`, `Result(Self, E)`);
+3. it takes no `generic(...)` parameters.
 
-This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
+The reasons:
 
-- Taking `Self` by value: Different concrete types have different sizes (i32 vs MyBox*), impossible to pass through uniform `void*` parameter
-- Returning `Self`: Different concrete types produce different return types, making uniform vtable signatures impossible
+- A `Dyn` erases the concrete type, so a `Self` parameter or result has no single C type at the
+  call: two concrete types behind the same `Dyn` have different sizes and representations.
+- A generic method is a family of functions, one per instantiation, and a vtable slot holds one.
 
-**Valid** for dynamic dispatch:
+Only these methods get a vtable slot. A trait may still declare others, and a `Dyn` of it can be
+formed and its callable methods used; calling one of the others through the `Dyn` is error E0614
+(`yo explain E0614`), at the call:
 
-```typescript
-TestDyn :: trait(
-  return_i32 : (fn(inout(self) : Self) -> i32),  // Takes inout(Self), returns concrete type - OK!
-  print : (fn(inout(self) : Self) -> unit)        // Takes inout(Self), returns unit - OK!
-);
+```rust
+Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
+(d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
+d.speak();   // OK: `Self` only as the receiver
+d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
-**Invalid** for dynamic dispatch (object-safety violations):
+A blanket inherent method over a trait bound (`impl(generic(E), where(E <: Named), E, shout : ...)`)
+also accepts a `Dyn(Named)` receiver. It is not a trait member and has no vtable slot: the call is
+an ordinary call to the method, specialized for the `Dyn`, and inside it `self.name()` dispatches
+through the vtable.
 
-```typescript
-TestDyn :: trait(
-  by_value : (fn(self : Self) -> unit),        // Takes Self by value - NOT object-safe!
-  id : (fn(inout(self) : Self) -> Self)           // Returns Self - NOT object-safe!
-);
-```
+An inherent impl on a `Dyn` type itself adds methods to that `Dyn`, like Rust's `impl dyn Error`:
+`std/error.yo`'s `impl(AnyError, is : ...)` is why `err.is(NotFound)` works on an `AnyError`.
 
-The constraint is **enforced at method call time**, not at trait definition. You can define traits with non-object-safe methods, but you cannot call those methods on Dyn values.
+A trait implemented through a generic impl (`ArrayList(T)`'s `ToString` for `T <: ToString`) can be
+put behind a `Dyn`: `dyn(xs)` specializes the generic impl's methods for the concrete type.
+
+**No upcasting.** A `Dyn(Sp, Ot)` is not converted to a `Dyn(Sp)`: the two have different vtable
+layouts, and the concrete type needed to build the smaller vtable is gone. Call `dyn(...)` on the
+concrete value with the traits the destination needs. The decision is recorded in
+`plans/TYPE_SYSTEM_SOUNDNESS.md` (Phase 2.7).
 
 ## Reference-Semantics Type Requirement for dyn(...)
 
@@ -232,7 +242,7 @@ downcast(dyn_value, T) -> Option(T)
 ```
 
 It is the only safe way to recover the concrete type from a `Dyn`, and it is
-what `std/error.yo`'s `error_is(err, T)` is built out of. Both arguments are
+what `std/error.yo`'s `err.is(T)` on an `AnyError` is built out of. Both arguments are
 fixed: the first must have a `Dyn` type, the second must be a TYPE (evaluated at
 compile time, so `T` is never a runtime value).
 

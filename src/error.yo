@@ -48,6 +48,7 @@
   E_OPTIMISTIC_PANIC,
   E_CONFLICTING_IMPL,
   E_CANNOT_INFER,
+  E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -185,6 +186,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.starts_with(String.from("Cannot infer the type parameter")), {
     return(_coded(E_CANNOT_INFER));
+  });
+  if(msg.contains(String.from("cannot be called through a Dyn receiver")), {
+    return(_coded(E_DYN_UNCALLABLE));
   });
   if(msg.contains(String.from("is already implemented for type")) || msg.contains(String.from("Duplicate inherent method impls are not allowed")), {
     return(_coded(E_CONFLICTING_IMPL));
@@ -500,6 +504,33 @@ note_eval_attempt :: (fn() -> unit)({
   g_eval_attempt = (g_eval_attempt + usize(1));
 });
 /// Called by the exn-less evaluation wrapper's swallowing handler.
+/// The diagnostic messages and help text of `err`, without the source excerpt
+/// `to_string` renders: an excerpt quotes the source line, and when an error is
+/// anchored on a `comptime_expect_error(..., "text")` line the excerpt would
+/// contain the expected text itself.
+error_message_text :: (fn(err : AnyError) -> String)(
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      parts := ArrayList(String).new();
+      (i : usize) = usize(0);
+      while(i < ye.diagnostics.len(), {
+        match(
+          ye.diagnostics.get(i),
+          .Some(d) => {
+            parts.push(d.message.clone());
+            match(d.help, .Some(h) => parts.push(h), .None => ());
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      String.from("\n").join(parts)
+    },
+    .None => err.to_string()
+  )
+);
+export(error_message_text);
 note_swallowed_error :: (fn(err : AnyError) -> unit)({
   match(
     downcast(err, YoError),

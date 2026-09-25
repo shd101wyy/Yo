@@ -111,7 +111,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -328,6 +328,95 @@ _reject_private_method_call :: (
 /// net under receivers property_access's metadata gate could not see yet
 /// (fresh call results: `make(flag).unwrap()`). Static hits (no receiver)
 /// take the type from the receiver's captured VALUE (a TypeVal).
+/// A trait method a `Dyn` receiver cannot call (`dyn_member_unsafe_reason`:
+/// `Self` outside the receiver, or `generic(...)` binders) is E0614 at the
+/// call. It used to pass `check` and fail inside the C compiler: the vtable
+/// slot returned `void*` where the caller expected the erased `Self`, or named
+/// a wrapper a generic method never gets
+/// (issues/fixed/dyn-object-safety-is-not-enforced-before-codegen.md).
+_reject_dyn_uncallable_method_call :: (
+  fn(
+    method_info_opt : Option(ReceiverMethodResult),
+    callee : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  mi := match(
+    method_info_opt,
+    .Some(m) => m,
+    .None => {
+      return(());
+    }
+  );
+  if(mi.is_static, {
+    return(());
+  });
+  recv_ty := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(mi.receiver_expr)),
+    .Some(ri) => match(ri.ty, .Pointer(inner) => inner, _ => ri.ty),
+    .None => {
+      return(());
+    }
+  );
+  name_expr := match(
+    callee,
+    .FnCall(_, _, pargs, _, _) => match(
+      pargs.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(());
+      }
+    ),
+    _ => {
+      return(());
+    }
+  );
+  name_tok := ast_expr_token(name_expr);
+  match(
+    recv_ty,
+    .DynT({ required_trait_types : rtt }) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        match(
+          rtt.get(i),
+          .Some(tt) => match(
+            tt,
+            .TraitT({ name : tname, field_labels : fls, field_types : fts }) => {
+              (j : usize) = usize(0);
+              while(j < fls.len(), {
+                if(match(fls.get(j), .Some(l) => (l == name_tok.value), .None => false), {
+                  ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
+                  if(dyn_member_is_method(ft), {
+                    match(
+                      dyn_member_unsafe_reason(ft),
+                      .Some(reason) => {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              name_tok,
+                              `Method "${name_tok.value}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+                            )
+                          )
+                        );
+                      },
+                      .None => ()
+                    );
+                  });
+                });
+                j = (j + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
 _reject_class1_panic_method_call :: (
   fn(
     method_info_opt : Option(ReceiverMethodResult),
@@ -3207,7 +3296,7 @@ _evaluate_funcval_runtime_call :: (
                     // swallow re-raises it at check time instead of leaving
                     // codegen an unresolved receiver type it splices verbatim
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
-                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`;
+                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"${dyn_upcast_note(_ac_pty, _ac_aty)}`;
                     if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
                       flag_flow_violation(_ac_mmsg.clone());
                     });
@@ -7862,6 +7951,7 @@ Fix: wrap the call:
       );
       _reject_private_method_call(method_info_opt, evaluated_callee, ctx, exn);
       _reject_class1_panic_method_call(method_info_opt, evaluated_callee, ctx, exn);
+      _reject_dyn_uncallable_method_call(method_info_opt, evaluated_callee, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods

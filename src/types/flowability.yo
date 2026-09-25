@@ -39,8 +39,8 @@
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
-{ format_error_message } :: import("../error.yo");
-{ Exception } :: import("std/error");
+{ format_error_message, error_message_text } :: import("../error.yo");
+{ Exception, AnyError } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
@@ -117,13 +117,22 @@ set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
 /// this flag instead (only in propagate mode); the cee helper counts a set
 /// flag as an observed throw.
 (g_cee_observed_error_box : ArrayList(bool)) = ArrayList(bool).new();
+/// The TEXT of each error observed while a `comptime_expect_error` argument is
+/// evaluated, so its expected-text argument can be checked against what was
+/// actually raised (a case must not go green on an unrelated error).
+(g_cee_observed_messages : ArrayList(String)) = ArrayList(String).new();
 set_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_error_box.clear();
   g_cee_observed_error_box.push(true);
 });
 clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_error_box.clear();
+  g_cee_observed_messages.clear();
 });
+record_cee_error_message :: (fn(msg : String) -> unit)({
+  g_cee_observed_messages.push(msg);
+});
+cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.clone());
 cee_observed_error :: (fn() -> bool)(
   match(g_cee_observed_error_box.get(usize(0)), .Some(b) => b, .None => false)
 );
@@ -998,9 +1007,11 @@ require_valid_ref_argument_places :: (
 /// fixed 64-byte `__yo_unwind_value` buffer, so `v` must stay small. Calling a
 /// module fn from the handler — what this function exists for — is fine.
 /// Keeping the body straight-line is now style, and it costs nothing.
-note_def_time_swallow :: (fn() -> unit)({
+note_def_time_swallow :: (fn(err : AnyError) -> unit)({
   if(propagate_def_time_errors(), {
     set_cee_observed_error();
+    // Stringified only here: outside propagate mode a swallow costs nothing.
+    record_cee_error_message(error_message_text(err));
   });
 });
 export(
@@ -1018,7 +1029,9 @@ export(
   propagate_def_time_errors,
   set_cee_observed_error,
   clear_cee_observed_error,
-  cee_observed_error
+  cee_observed_error,
+  record_cee_error_message,
+  cee_observed_messages
 );
 
 export(note_def_time_swallow);

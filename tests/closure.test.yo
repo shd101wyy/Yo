@@ -94,7 +94,7 @@ test("Test multiple expected errors", {
         );
       }
     );
-  }, "no two closures, even if identical, have the same type");
+  }, "different concrete types across branches");
   comptime_expect_error(
     (closure : Impl(Fn(y : i32) -> i32)) =
       cond(
@@ -119,12 +119,12 @@ test("Test multiple expected errors", {
     closure : Impl(Fn(y : i32) -> i32);
     closure = (y => (y + a));
     closure = (y => (y + b));
-  }, "cannot reassign to variable of Impl");
+  }, "Cannot reassign variable \"closure\" of type Impl");
   comptime_expect_error({
     a := 1;
     (closure : Impl(Fn(y : i32) -> i32)) = (y => (y + a));
     closure = (y => (y + a));
-  }, "cannot reassign to variable of Impl");
+  }, "Cannot reassign variable \"closure\" of type Impl");
 });
 test("Test closure with Dyn", {
   x := 1;

@@ -46,6 +46,7 @@ json :: import("std/encoding/json");
   E_OPTIMISTIC_PANIC,
   E_CONFLICTING_IMPL,
   E_CANNOT_INFER,
+  E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -594,6 +595,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "mk :: (fn(generic(T : Type)) -> Option(T))(.None);\n(x : Option(i32)) = mk();\n",
       "Nothing says what `T` is: the result's type is the only mention of it.",
       "没有任何信息说明 `T` 是什么：它只出现在结果的类型中。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DYN_UNCALLABLE,
+      "a trait method cannot be called through a Dyn",
+      "trait 方法无法通过 Dyn 调用",
+      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine.",
+      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。",
+      "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
+      "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
+      "Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));\nCat :: ref(struct(n : i32));\nimpl(Cat, Sp(speak : (self -> self.n), me : (self -> self)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  c := d.me();\n});\n",
+      "Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));\nCat :: ref(struct(n : i32));\nimpl(Cat, Sp(speak : (self -> self.n), me : (self -> self)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  n := d.speak();\n});\n",
+      "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
+      "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
     )
   );
   out

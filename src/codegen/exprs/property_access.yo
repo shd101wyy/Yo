@@ -28,6 +28,7 @@
 { sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
+{ dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -287,7 +288,9 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   // the impl statically. The call site (other_fn_call) supplies `(obj).data` as
   // self. Without this guard the funcval branch below emits a static method
   // name that isn't collected for a dyn call → the call fails to transpile.
-  if(is_dyn_type(object_type), {
+  // Only a vtable SLOT: a blanket inherent method has none (see the call
+  // site in other_fn_call.yo) and takes the static path below.
+  if(is_dyn_type(object_type) && dyn_type_has_vtable_slot(object_type, field_name.clone()), {
     out := object_code.clone();
     out.push_str(".vtable->");
     out.push_string(sanitize_for_c_identifier(field_name, false));

@@ -20,9 +20,9 @@ pragma(Pragma.AllowUnsafe);
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
-{ EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
+{ EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
-{ create_specialized_function_inline } :: import("../calls/helper.yo");
+{ create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
@@ -36,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
+{ find_methods_from_generic_impls, MethodCandidate } :: import("./impl.yo");
 { Exception } :: import("std/error");
 /// Build the ordered TraitVal evidence for a DynType over a concrete value
 /// type, resolving each trait method to the concrete type's registered impl
@@ -280,6 +281,66 @@ _monomorphize_default_fv :: (
     true => fv
   )
 );
+/// The trait method `fname` the receiver gets from a GENERIC impl
+/// (`impl(generic(T), where(T <: ToString), ArrayList(T), ToString(...))`),
+/// specialized for the receiver. The type-trait registry is keyed by the
+/// concrete nominal id and a blanket impl registers against its pattern, so the
+/// lookup above misses while `type_implements_trait` (which consults the
+/// generic registry) says the impl exists; the vtable then named a wrapper that
+/// was never emitted
+/// (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
+/// A candidate from the Dyn's own trait is preferred.
+_generic_impl_method_for_dyn :: (
+  fn(receiver_type : TypeValue, fname : String, trait_id : String, caller_env : Environment, ctx : EvalContext, exn : Exception) -> Option(EvalValue)
+)({
+  cands := find_methods_from_generic_impls(receiver_type, fname, caller_env);
+  (picked : Option(MethodCandidate)) = Option(MethodCandidate).None;
+  (ci : usize) = usize(0);
+  while(ci < cands.len(), {
+    match(
+      cands.get(ci),
+      .Some(c) => if(c.method_value.is_some() && (picked.is_none() || (c.source_trait_id == trait_id)), {
+        picked = Option(MethodCandidate).Some(c);
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  // Specialize it exactly as a call would: the full call path binds `self`,
+  // infers the impl's binders from the receiver and records the specialization
+  // for codegen. The receiver is a synthetic runtime variable of the concrete
+  // type in a scratch frame. (`create_specialized_function_inline` alone
+  // evaluates the body without `self` bound.)
+  match(
+    picked,
+    .Some(pc) => match(
+      pc.method_value,
+      .Some(fv) => if(is_func_val(fv), {
+        recv_name := `__yo_dyn_receiver_${fname}`;
+        caller_env.push_frame(false);
+        recv_tok := synthetic_token(recv_name.clone(), caller_env.module_path);
+        _recv_var := add_variable_to_env(caller_env, recv_name.clone(), receiver_type.clone(), Option(EvalValue).Some(create_unknown_val(receiver_type.clone())), false, true, false, false, recv_tok.clone());
+        recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
+        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), caller_env.module_path));
+        call_args := ArrayList(AstExpr).new();
+        call_args.push(recv_atom);
+        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+        ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
+        // The synthetic call has no expected result: the surrounding
+        // context's (the `Dyn` a `dyn(...)` argument is checked against)
+        // must not reach it.
+        saved_expected := ctx.expected_type;
+        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), pc.method_type, call_expr, callee_atom, call_args, caller_env, ctx, true, false, true, exn);
+        ctx.expected_type = saved_expected;
+        caller_env.pop_frame();
+        res.specialized_function_value
+      }, Option(EvalValue).None),
+      .None => Option(EvalValue).None
+    ),
+    .None => Option(EvalValue).None
+  )
+});
 _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   // Resolve trait methods on the UNDERLYING type when the payload is a Box.
@@ -359,9 +420,13 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
                     by_label,
                     .Some(bv) => Option(EvalValue).Some(_monomorphize_default_fv(bv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                     .None => match(
-                      get_trait_default(trait_id.clone(), fname.clone()),
-                      .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
-                      .None => Option(EvalValue).None
+                      _generic_impl_method_for_dyn(method_lookup_type.clone(), fname.clone(), trait_id.clone(), caller_env, ctx, exn),
+                      .Some(gv) => Option(EvalValue).Some(gv),
+                      .None => match(
+                        get_trait_default(trait_id.clone(), fname.clone()),
+                        .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                        .None => Option(EvalValue).None
+                      )
                     )
                   )
                 );

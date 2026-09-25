@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
+{ type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -2025,3 +2026,126 @@ export(type_somes_all_resolve_concrete);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
+/// Does `ty` mention a trait's `Self` (a SomeT named `Self`)?
+_mentions_trait_self :: (fn(ty : TypeValue) -> bool)({
+  somes := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  while(i < somes.len(), {
+    if(match(somes.get(i), .Some(s) => match(s, .SomeT({ name : n }) => (n == "Self"), _ => false), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Is the trait member `member_ty` a METHOD: a function whose first parameter
+/// is `self`? Only methods are reached through a `Dyn` receiver.
+dyn_member_is_method :: (fn(member_ty : TypeValue) -> bool)(
+  match(
+    member_ty,
+    .Func({ meta : m }) => match(m.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false),
+    _ => false
+  )
+);
+/// Why the trait method `member_ty` cannot be called through a `Dyn` receiver,
+/// or `.None` when it can. A `Dyn` erases the concrete type, so `Self` may
+/// appear only as the receiver: a `Self` parameter or result has no single C
+/// type at the call. A method with `generic(...)` binders has no single function
+/// to put in the vtable. Codegen gives a vtable slot exactly to the methods
+/// this accepts, and the evaluator rejects a call to any other with E0614
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7, docs/en-US/DYN_DESIGN.md).
+dyn_member_unsafe_reason :: (fn(member_ty : TypeValue) -> Option(String))(
+  match(
+    member_ty,
+    .Func({ forall_types : fts, param_types : pts, result : res, meta : m }) => {
+      if(fts.len() > usize(0), {
+        return(Option(String).Some(String.from("it takes generic(...) parameters, so there is no single function to put in the vtable")));
+      });
+      labels := m.*.param_labels;
+      (i : usize) = usize(1);
+      while(i < pts.len(), {
+        pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        if(_mentions_trait_self(pt), {
+          label := match(labels.get(i), .Some(l) => l, .None => String.from("?"));
+          return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(pt)}, which the Dyn erases`));
+        });
+        i = (i + usize(1));
+      });
+      if(_mentions_trait_self(res), {
+        return(Option(String).Some(`it returns ${type_to_string(res)}, which the Dyn erases`));
+      });
+      Option(String).None
+    },
+    _ => Option(String).None
+  )
+);
+/// Does `dyn_ty` have a vtable slot named `name`: a method of one of its traits
+/// that `dyn_member_unsafe_reason` accepts, or `call` for an `Fn` trait? A
+/// method call on a `Dyn` receiver that names no slot is an ordinary call to a
+/// method the evaluator resolved elsewhere (a blanket inherent method), not a
+/// vtable dispatch.
+dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
+  match(
+    dyn_ty,
+    .DynT({ required_trait_types : rtt }) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        tt := match(rtt.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        i = (i + usize(1));
+        hit := match(
+          tt,
+          .FnTraitT(_, _, _, _, _, _, _, _) => (name == "call"),
+          .TraitT({ field_labels : fls, field_types : fts }) => {
+            (found : bool) = false;
+            (j : usize) = usize(0);
+            while((j < fls.len()) && !found, {
+              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
+                found = (dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none());
+              });
+              j = (j + usize(1));
+            });
+            found
+          },
+          _ => false
+        );
+        if(hit, {
+          return(true);
+        });
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// The note a type mismatch appends when a `Dyn` with more traits is given
+/// where one with a subset is expected (`Dyn(Sp, Ot)` for `Dyn(Sp)`): Yo does
+/// not upcast `Dyn` values (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7,
+/// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
+dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
+  match(
+    expected,
+    .DynT({ required_trait_types : ert }) => match(
+      given,
+      .DynT({ required_trait_types : grt }) => {
+        (all_in : bool) = (ert.len() < grt.len());
+        (i : usize) = usize(0);
+        while((i < ert.len()) && all_in, {
+          es := type_to_string(match(ert.get(i), .Some(t) => t, .None => TypeValue.Unit));
+          (hit : bool) = false;
+          (j : usize) = usize(0);
+          while((j < grt.len()) && !hit, {
+            hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => TypeValue.Unit)) == es);
+            j = (j + usize(1));
+          });
+          all_in = hit;
+          i = (i + usize(1));
+        });
+        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits (Yo does not upcast Dyn): call dyn(...) on the concrete value with the traits the destination needs."), String.new())
+      },
+      _ => String.new()
+    ),
+    _ => String.new()
+  )
+);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note);
