@@ -253,20 +253,16 @@ match(
 );
 ```
 
-**What is enforced today (2026-09-25).** `^v` checks at compile time that `v` owns its value,
-has no other alias and cannot form a reference cycle, and at run time calls
-`Isolation.can_isolate` (`rc == 1` on the wrapper) — which only `Box(T)` implements. The raw
-constructor `Iso(T)(v)` runs the compile-time checks for a named variable and nothing for a
-literal argument; `extract()` checks a one-shot flag and does NOT check any reference count.
-Nothing looks inside the value: an aliased interior (`Wrap(items : shared)`) crosses threads.
+**What is enforced** (`plans/reference/PARALLELISM_RULES.md` D2). `^v` is the only constructor in
+safe code (the raw `Iso(T)(v)` needs the pragma). It checks at compile time that `v` owns its
+value, has no other alias and cannot form a reference cycle, and at run time walks the value's
+whole graph: every non-atomic object reachable from it must have a reference count of exactly
+1, or `^v` answers `.None` — an aliased interior (`Wrap(items : shared)`) is refused, not moved.
+An atomic object inside the value is shared by design and stops the walk. `T` must be a
+non-atomic reference object (`Iso(i32)` is a compile error). `extract()`'s atomic one-shot flag
+hands the value out exactly once. Details: `docs/en-US/ISOLATED.md`.
 
-**What is being changed** (`plans/reference/PARALLELISM_RULES.md` D2): `^` becomes the only
-constructor in safe code, `T` must contain a reference type, uniqueness is checked DEEPLY at
-construction, and `extract()` gains the wrapper `rc == 1` check. Until that lands, treat `Iso`
-as safe only for a value you built yourself and never aliased — see
-`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`.
-
-- `Iso(Arc(T))` is rejected at compile time — redundant (send the Arc directly)
+- `Iso(Arc(T))`, `Iso(<atomic object>)` and `Iso(Iso(T))` are rejected at compile time — redundant (send the value directly)
 - `Arc(Iso(T))` is rejected at compile time — contradictory (Arc shares, Iso is unique)
 
 ## Field Visibility — `_`-Prefix Convention
@@ -308,7 +304,6 @@ The guarantee at the top of this page is the contract; the parallelism-soundness
 each is being closed by the phase named there. Until a bullet is removed, safe code CAN write
 the race it describes.
 
-- **`Iso(T)` uniqueness is shallow and the constructor is unchecked** (section above).
 - **A closure type satisfies `where(T <: Send)`** regardless of its captures, so `arc(f)` and
   `Channel(typeof(f))` pass `yo check` with a non-Send capture (the C compiler rejects the
   program today by accident)

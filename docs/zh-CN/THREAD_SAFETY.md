@@ -193,11 +193,9 @@ match(
 );
 ```
 
-**今天实际强制的内容（2026-09-25）。** `^v` 在编译期检查 `v` 拥有它的值、没有其他别名、不能形成引用环，在运行期调用 `Isolation.can_isolate`（包装器的 `rc == 1`）—— 只有 `Box(T)` 实现了它。原始构造函数 `Iso(T)(v)` 只对具名变量执行编译期检查，对字面量参数什么都不检查；`extract()` 只检查一次性标志，**不检查**任何引用计数。没有任何检查会看进值的内部：一个内部有别名的值（`Wrap(items : shared)`）会跨线程。
+**实际强制的内容**（`plans/reference/PARALLELISM_RULES.md` D2）。`^v` 是安全代码中唯一的构造方式（原始的 `Iso(T)(v)` 需要 pragma）。它在编译期检查 `v` 拥有它的值、没有其他别名、不能形成引用环，并在运行期遍历值的整张对象图：从它可达的每个非原子对象的引用计数都必须恰好为 1，否则 `^v` 返回 `.None` —— 内部有别名的值（`Wrap(items : shared)`）会被拒绝，而不是被移走。值内部的原子对象按设计就是共享的，遍历在此停止。`T` 必须是非原子的引用对象（`Iso(i32)` 是编译错误）。`extract()` 的原子一次性标志保证值只被交出一次。详见 `docs/zh-CN/ISOLATED.md`。
 
-**正在改变的内容**（`plans/reference/PARALLELISM_RULES.md` D2）：`^` 成为安全代码中唯一的构造方式，`T` 必须包含引用类型，唯一性在构造时**深度**检查，`extract()` 增加包装器 `rc == 1` 检查。在此之前，只把 `Iso` 用于你自己构建、从未起过别名的值 —— 见 `issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`。
-
-- `Iso(Arc(T))` 在编译时被拒绝 —— 冗余（直接发送 Arc）
+- `Iso(Arc(T))`、`Iso(<原子对象>)` 和 `Iso(Iso(T))` 在编译时被拒绝 —— 冗余（直接发送该值）
 - `Arc(Iso(T))` 在编译时被拒绝 —— 矛盾（Arc 共享，Iso 唯一）
 
 ## 字段可见性 — `_` 前缀约定
@@ -217,7 +215,6 @@ match(
 
 本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
 
-- **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
 - **被派生的闭包可以通过它调用的闭包值**（捕获的辅助闭包、闭包参数）**或 `dyn` 方法触及非 Send 的模块级全局变量**：全局可达性检查只跟随编译期能解析到函数体的调用（`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`）。
 
