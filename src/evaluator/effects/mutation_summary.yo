@@ -3357,6 +3357,49 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
     .None => Option(String).None
   )
 });
+/// A FUNCTION used as a value — passed as an argument, stored in a field,
+/// bound to a local: whatever receives it may call it, and the walk cannot
+/// follow the call (it has no compile-time callee), so the function is walked
+/// where it is used (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+/// Resolved from the expression's evaluated value, or — for an atom naming a
+/// local closure — from the binding's value cell.
+_gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+  (fv : Option(EvalValue)) = match(
+    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    .Some(ei) => ei.value,
+    .None => Option(EvalValue).None
+  );
+  if(fv.is_none() && ast_expr_is_atom(e), {
+    name := ast_expr_token(e).value.clone();
+    if(!name.is_empty(), {
+      env := match(_gr_env_of(e, ctx), .Some(en) => en, .None => ctx.env);
+      vars := get_variables_from_env(env, name);
+      if(vars.len() > usize(0), {
+        fv = match(vars.get(vars.len() - usize(1)), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
+      });
+    });
+  });
+  match(
+    fv,
+    .Some(v) => match(
+      v,
+      .FuncVal(fvd, _) => {
+        fid := fvd.*.func_id.clone();
+        (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : cm }) => cm.*.extern_name.is_some(), _ => false);
+        if(is_extern, {
+          return(Option(String).None);
+        });
+        match(
+          function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+          .Some(m) => Option(String).Some(`uses the function '${ast_expr_to_string(e)}' as a value (whatever receives it may call it), which ${m}`),
+          .None => Option(String).None
+        )
+      },
+      _ => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
   match(
@@ -3372,7 +3415,11 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   );
   match(
     e,
-    .Atom(_, _) => _gr_atom(e, ctx),
+    .Atom(_, _) => match(
+      _gr_atom(e, ctx),
+      .Some(m) => Option(String).Some(m),
+      .None => _gr_value_function(e, ctx)
+    ),
     .FnCall(_, f, args, _, _) => {
       (head : String) = String.new();
       match(
@@ -3390,9 +3437,16 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
       if((head == ":") && (args.len() == usize(2)), {
         return(match(args.get(usize(1)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
       });
-      // Field access: the receiver.
+      // Field access: the receiver — and the field's value when it is a
+      // function (`mod.f` passed along).
       if((head == ".") && (args.len() == usize(2)), {
-        return(match(args.get(usize(0)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+        return(
+          match(
+            match(args.get(usize(0)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None),
+            .Some(m) => Option(String).Some(m),
+            .None => _gr_value_function(e, ctx)
+          )
+        );
       });
       // Closure literals and match arms: the body (it runs on the thread).
       if(((head == "=>") || (head == "->")) && (args.len() == usize(2)), {
@@ -3510,4 +3564,11 @@ function_reaches_non_send_global :: (
   g_gr_by_fid.insert(fid.clone(), r);
   r
 });
-export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write);
+/// The memoized reach verdict of function `fid`, if one was computed: the
+/// closure's own, taken with its DEFINING env (a closure literal is walked
+/// where it is created — `validate_send_closure_global_reach`), for a later
+/// judgement that holds only the closure's type.
+d1_reach_memo :: (fn(fid : String) -> Option(Option(String)))(
+  g_gr_by_fid.get(fid)
+);
+export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo);
