@@ -970,6 +970,18 @@ _compat_impl :: (
           // One declaration (or an era of it): the type-argument check above
           // already told its instantiations apart.
           ((aid.len() > usize(0)) && (aid == eid)) => true,
+          // Two instantiations of ONE generic constructor where a side is
+          // still generic: its fields are the constructor's fields at the
+          // type arguments, and the type-argument check above already
+          // rejected every concrete disagreement, so the fields have nothing
+          // left to say. Comparing them anyway sent each open SomeT to a
+          // leaf comparison against the other side's type parameter at
+          // another frame (`MapLeaf(K, V)` from `_branch_child_at` against
+          // `_all_entries_match`'s own `MapLeaf(K, V)` in std/imm/map.yo),
+          // which a placeholder cannot answer. The empty-name wildcard this
+          // replaces accepted such pairs by accident; this accepts them
+          // because the constructor says so (plans/reference/TYPE_IDENTITY.md).
+          ((((acfid.len() > usize(0)) && (acfid == ecfid)) && (ata.len() == eta.len())) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
           // Two DIFFERENT declarations are one type under the lenient rule
           // only when their shapes agree. An empty name used to be a
           // wildcard and an equal name a pass, so an anonymous record with
