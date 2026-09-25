@@ -1,6 +1,9 @@
 # A two-line COMMENT change in `std/prelude.yo` makes `check ./std` fail
 
-**Status:** OPEN. Found 2026-09-16 while updating a stale module doc comment.
+**Status:** FIXED. The collision was the module-free trait id
+(`issues/fixed/trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`, landed 2026-09-24 with
+Phase 2.3); Phase 3.3 (2026-09-25) removed the position sensitivity itself. Found 2026-09-16 while
+updating a stale module doc comment.
 Reproduces on the **v0.2.34 seed** and on a current tree build alike, so it
 predates the change that found it.
 
@@ -191,3 +194,24 @@ The branch that found this had to reword a `std/prelude.yo` module doc from 5
 lines to 7 — exactly the failing delta. It is written at 8 lines instead. That
 is a dodge, not a fix, and it is recorded here so the next person who finds a
 prelude comment at an odd length knows why.
+
+## Resolution (2026-09-25)
+
+**The collision.** Trait ids were `trait_r<row>c<col>_n<k>` with no module in them, so `Comptime`
+at `prelude.yo:46:0` minted the same id as another module's trait declared at 46:0, and every
+id-keyed table answered for both. That is exactly "one specific declaration at one specific shift".
+Ids now carry the module stem, and the collision cannot recur
+(`issues/fixed/trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`).
+
+**The sensitivity.** Phase 3.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md` keys every identity mint (type,
+trait, declaration position, function, codegen temp and label) by the enclosing top-level statement
+and the offset within it, not by the absolute line (`_anchored_position`, `src/utils.yo`; anchors
+are registered by the module walk, `register_module_anchors`). A comment or a declaration added
+above a statement leaves every id in it, and every C name derived from them, byte-identical.
+
+**Measured** on the Phase 3.3 build: two, one and three comment lines inserted before `Comptime ::
+trait(` all give `check ./std` 0 errors. A program compiled before and after three comment lines are
+inserted at its top emits byte-identical C (68 differing lines on the pre-3.3 build).
+`tests/internal/stable_ids.test.yo` pins the mint rule.
+
+The dodge recorded above (a doc comment written at 8 lines instead of 7) is no longer needed.

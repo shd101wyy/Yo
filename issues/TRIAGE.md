@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 231 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 230 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 49 | 13 |
-| **Total** | **231** | **47** |
+| Other | 48 | 13 |
+| **Total** | **230** | **47** |
 
 ## Cross-cutting buckets
 
@@ -343,7 +343,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (49)
+### Other (48)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -352,7 +352,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md`](./a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md) | OPEN | — |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
-| [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | — | — |
 | [`an-extern-opaque-type-unifies-with-every-dyn.md`](./an-extern-opaque-type-unifies-with-every-dyn.md) | OPEN | yes |

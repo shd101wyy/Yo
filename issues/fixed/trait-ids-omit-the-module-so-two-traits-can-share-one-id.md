@@ -1,7 +1,7 @@
 # Trait ids omit the module, so two traits at the same row/column share one id
 
 **Status:** FIXED 2026-09-24 (Phase 2.3/3.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found
-2026-09-16 while investigating `a-two-line-comment-change-in-std-prelude-fails-check-std.md`.
+2026-09-16 while investigating `issues/fixed/a-two-line-comment-change-in-std-prelude-fails-check-std.md`.
 
 ## The defect
 

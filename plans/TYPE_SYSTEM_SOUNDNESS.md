@@ -387,6 +387,18 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    expect a pure renaming, re-record goldens, and run the fixpoint.
    (`trait-ids-omit-the-module-so-two-traits-can-share-one-id`,
    `a-two-line-comment-change-in-std-prelude-fails-check-std`)
+
+   **Landed 2026-09-25.** The module half landed with Phase 2.3 (`stable_type_id` carries the
+   module stem). The position half: every identity mint takes its position from
+   `_anchored_position` (`src/utils.yo`). That is the enclosing top-level statement's label (its
+   bound name, `impl_<receiver>` for an impl, or the previous label plus a count for an unnamed
+   statement), the row offset from that statement's first line, and the column. The module walk
+   registers the anchors (`register_module_anchors`, `src/evaluator/context.yo`) before anything
+   in the module mints. It covers type, trait, declaration-position and function ids, and codegen
+   temps and labels, which anchor on their token's own module. Measured: three comment lines added
+   at the top of a program leave its emitted C byte-identical (68 differing lines before). The
+   fixpoint and the full battery pass on the renamed ids. Moving a file into another directory
+   still renames: the module stem is part of the key.
 4. **The CTFE memo uses the identity predicate**, not exact compatibility
    (`ctfe-memo-merges-an-anonymous-struct-with-a-named-struct`,
    `ctfe-memo-shared-struct-id-fast-path-smell`).
