@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 243 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 242 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 58 | 15 |
-| **Total** | **243** | **50** |
+| Other | 57 | 14 |
+| **Total** | **242** | **49** |
 
 ## Cross-cutting buckets
 
@@ -346,7 +346,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (58)
+### Other (57)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -387,7 +387,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
-| [`phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`](./phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md) | OPEN | yes |
 | [`rawmutex-is-exported-with-an-unbalanced-unlock.md`](./rawmutex-is-exported-with-an-unbalanced-unlock.md) | OPEN | — |
 | [`rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md`](./rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md) | OPEN | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |

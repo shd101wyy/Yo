@@ -1,7 +1,7 @@
 # The Phase O "no writes through an atomic object" gate misses `inout(self)` receivers, `inout` arguments and index assignment
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-1).
-**Status:** OPEN. **Data race in safe code.** `docs/en-US/THREAD_SAFETY.md` §"Atomic Field
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 1, rule D3 of `plans/reference/PARALLELISM_RULES.md`). Was: **Data race in safe code.** `docs/en-US/THREAD_SAFETY.md` §"Atomic Field
 Mutation is Forbidden in Safe Code" says the write is a compile-time error; three spellings of it
 compile and write through the shared object.
 **Measured:** yo 0.2.41 seed against the develop tree's `std` (`--std-path`), macOS arm64.
@@ -77,3 +77,31 @@ three sites in safe code:
 `tests/thread_safety.test.yo` gets three `comptime_expect_error` blocks (receiver, argument,
 index) plus an over-rejection canary (`with_lock` body mutating `v.n`, an `inout` call on a
 LOCAL copy `c := a.*; c.bump()`).
+
+## Fix (2026-09-26)
+
+Two pieces in `src/evaluator/exprs/assignment.yo`, built on a new `get_root_expr_of_place` that
+walks `.` chains, index calls (`a.*(0)` is a call whose callee is the place) and `label : place`
+wrappers:
+
+1. `throw_if_write_through_atomic_root` — unconditional, for the assignment arm of
+   `evaluate_assignment` (field AND index stores are plain writes).
+2. `d3_record_inout_place` / `d3_check_pending` — for `inout` bindings. The first attempt threw
+   at the binding site for every `inout` parameter and rejected `${a.*.id}` (`ToString` takes
+   `inout(self)`), `tx.clone()` on a `Sender` and every read-only `inout(self)` method: `inout` is
+   Yo's plain by-reference receiver, not a mutation marker. So the binding is RECORDED at the two
+   argument-binding sites (`try_to_call_function_with_arguments`'s parameter loop in
+   `calls/helper.yo` and the inline `FuncVal` loop in `calls/function.yo`, which also hands the
+   list to `_evaluate_funcval_runtime_call`) and DECIDED after the (specialized) callee is known,
+   with the per-parameter mutation mask of `effects/mutation_summary.yo`: reject iff the callee
+   may write through that parameter. A callee in a pragma'd file is the audited base and is
+   trusted. The mask itself gained `_msp_inout_param_of_place`: a value-field or index store
+   through an `inout` parameter, and passing a place rooted in one to a callee that writes through
+   its parameter, now set the parameter's shallow bit even when the parameter's type roots no RC
+   storage (the aliasing analysis ignored inert types by design). The method receiver arrives as
+   the `self` argument, so `a.*.bump()` needs no separate site.
+
+Tests: `tests/parallelism_soundness.test.yo` — four `comptime_expect_error` blocks (receiver,
+argument, index, a user atomic object) and three canaries (the same shapes on a plain `ref`
+struct; a read-only `inout(self)` method and `ToString` through an `Arc`; the local copy). All
+three repros are rejected by the tree-built compiler; the seed cannot see the gate.

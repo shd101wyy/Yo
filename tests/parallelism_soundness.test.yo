@@ -36,6 +36,66 @@ comptime_expect_error({
   });
   _d3_field_assignment();
 });
+// D3 (Phase 1): an `inout(self)` method called on a place inside an `Arc`.
+comptime_expect_error({
+  _d3_inout_self_receiver :: (fn() -> unit)({
+    a := arc(Counter(n : i32(0)));
+    a.*.bump();
+  });
+  _d3_inout_self_receiver();
+});
+// D3 (Phase 1): an `inout` argument rooted in an `Arc`.
+_bump_by_ten :: (fn(inout(c) : Counter) -> unit)({
+  c.n = (c.n + i32(10));
+});
+comptime_expect_error({
+  _d3_inout_argument :: (fn() -> unit)({
+    a := arc(Counter(n : i32(0)));
+    _bump_by_ten(a.*);
+  });
+  _d3_inout_argument();
+});
+// D3 (Phase 1): index assignment through an `Arc` of a fixed array.
+comptime_expect_error({
+  _d3_index_assignment :: (fn() -> unit)({
+    a := arc(Array(i32, usize(2))(i32(0), i32(0)));
+    a.*(usize(0)) = i32(7);
+  });
+  _d3_index_assignment();
+});
+// D3 (Phase 1): the same through a user atomic object, not just `Arc`.
+Shared :: atomic(ref(struct(counter : Counter)));
+comptime_expect_error({
+  _d3_user_atomic_receiver :: (fn() -> unit)({
+    s := Shared(counter : Counter(n : i32(0)));
+    s.counter.bump();
+  });
+  _d3_user_atomic_receiver();
+});
+// Canary: the same three shapes on a NON-atomic ref struct stay legal (they
+// are the ordinary way to mutate a thread-local object).
+Cell :: ref(struct(counter : Counter, slots : Array(i32, usize(2))));
+test("D3 canary: inout receiver, inout argument and index assignment on a plain ref struct", {
+  c := Cell(counter : Counter(n : i32(0)), slots : Array(i32, usize(2))(i32(0), i32(0)));
+  c.counter.bump();
+  _bump_by_ten(c.counter);
+  c.slots(usize(1)) = i32(3);
+  assert(c.counter.n == i32(11), "both writes landed");
+  assert(c.slots(usize(1)) == i32(3), "the index write landed");
+});
+// Canary: a READ-ONLY `inout(self)` method through an `Arc` is legal — `inout`
+// is also Yo's plain by-reference receiver (`ToString`, `Hash`, ...), so the
+// gate decides by the callee's mutation mask, not by the parameter mode.
+impl(
+  Counter,
+  describe : (fn(inout(self) : Self) -> i32)(self.n)
+);
+test("D3 canary: a read-only inout(self) method and ToString through an Arc are legal", {
+  a := arc(Counter(n : i32(4)));
+  assert(a.*.describe() == i32(4), "read-only inout(self) receiver through an Arc");
+  s := `n=${a.*.n}`;
+  assert(s == `n=4`, "ToString (inout(self)) on a field through an Arc");
+});
 // Canary: a local COPY of the value is not an atomic root.
 test("D3 canary: mutating a local copy taken out of an Arc is legal", {
   a := arc(Counter(n : i32(0)));

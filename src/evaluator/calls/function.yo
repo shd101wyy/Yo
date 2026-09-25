@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_AS
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -3215,7 +3216,8 @@ _evaluate_funcval_runtime_call :: (
     param_vars : ArrayList(Variable),
     exn : Exception,
     fv_s0_drops : ArrayList(AstExpr),
-    fv_s0_marked_args : ArrayList(AstExpr)
+    fv_s0_marked_args : ArrayList(AstExpr),
+    fv_d3_pending : ArrayList(D3PendingInout)
   ) -> AstExpr
 )({
   // ARGUMENT TYPE CHECK — the step this branch never performed.
@@ -4060,6 +4062,33 @@ _evaluate_funcval_runtime_call :: (
   // target is the Gap-6 specialization when one was minted (its evaluated
   // body is walkable); a raw generic body conservatively answers
   // "may mutate".
+  // D3: decide the recorded atomic-rooted `inout` arguments against the
+  // (specialized) callee's mutation mask (same target as Stage 1 below).
+  if(fv_d3_pending.len() > usize(0), {
+    (rt_d3_fid : String) = func_id_fv.clone();
+    (rt_d3_body : Option(AstExpr)) = match(
+      cv,
+      .FuncVal(rt_d3_cvd, _) => Option(AstExpr).Some(rt_d3_cvd.*.body),
+      _ => Option(AstExpr).None
+    );
+    match(
+      rt_s1_spec_fv,
+      .Some(rt_d3_sv) => match(
+        rt_d3_sv,
+        .FuncVal(rt_d3_sfd, _) => {
+          rt_d3_fid = rt_d3_sfd.*.func_id.clone();
+          rt_d3_body = Option(AstExpr).Some(rt_d3_sfd.*.body);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    match(
+      rt_d3_body,
+      .Some(rt_d3_b) => d3_check_pending(fv_d3_pending, rt_d3_fid, rt_d3_b, ctx, exn),
+      .None => ()
+    );
+  });
   if(fv_s0_drops.len() > usize(0), {
     (rt_s1_fid : String) = func_id_fv.clone();
     (rt_s1_body : Option(AstExpr)) = match(
@@ -5810,6 +5839,8 @@ Fix: wrap the call:
         // Aliasing Stage 1: the marked argument exprs (parallel channel) —
         // unmarked below when the callee proves read-only.
         fv_s0_marked_args := ArrayList(AstExpr).new();
+        // D3: `inout` arguments rooted in an atomic object, decided post-call.
+        fv_d3_pending := ArrayList(D3PendingInout).new();
         fv_param_is_owning := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -6428,6 +6459,14 @@ Fix: wrap the call:
             // a caller-owned +1 for the call; extern/builtin callees run no
             // Yo code and are skipped.
             fv_p_is_ref := match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false);
+            // D3: an `inout` argument rooted in an atomic object — recorded
+            // here, decided after the callee body is known (twin of
+            // helper.yo's record; this inline loop bypasses
+            // try_to_call_function_with_arguments).
+            if(fv_p_is_ref && !(fv_p_is_ct), {
+              fv_p_label := match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new());
+              d3_record_inout_place(fv_d3_pending, ai, fv_p_label, arg_expr_eff, env);
+            });
             fv_callee_is_extern := match(
               callee_info_opt,
               .Some(fv_ci_ext) => match(
@@ -7645,7 +7684,8 @@ Fix: wrap the call:
               param_vars,
               exn,
               fv_s0_drops,
-              fv_s0_marked_args
+              fv_s0_marked_args,
+              fv_d3_pending
             )
           );
         });
@@ -7708,6 +7748,8 @@ Fix: wrap the call:
         // dups and discard the balancing drops (twin of the
         // try_to_call_function_with_arguments gate; the callee body was just
         // inline-evaluated, so its ExprInfo is complete for the walk).
+        // D3: the inline-evaluated callee's ExprInfo is complete for the mask.
+        d3_check_pending(fv_d3_pending, func_id_fv.clone(), body_box, ctx, exn);
         (fv_s1_elided : bool) = false;
         if(fv_s0_drops.len() > usize(0), {
           if(!(is_control_fn(func_id_fv.clone())), {

@@ -170,6 +170,7 @@ pragma(Pragma.AllowUnsafe);
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
@@ -6570,6 +6571,10 @@ try_to_call_function_with_arguments :: (
       // (CheckParamResult.s0_drop) — attached to the call node via
       // FuncCallResult.deferred_drop_expressions (post-call flush).
       s0_call_drops := ArrayList(AstExpr).new();
+      // D3 (plans/reference/PARALLELISM_RULES.md): `inout` arguments rooted in
+      // an atomic object, decided after the callee is known (see
+      // d3_check_pending below).
+      d3_pending := ArrayList(D3PendingInout).new();
       // Aliasing Stage 1: the marked argument exprs (parallel channel) —
       // unmarked below when the callee specialization proves read-only.
       s0_marked_args := ArrayList(AstExpr).new();
@@ -6693,6 +6698,9 @@ try_to_call_function_with_arguments :: (
           continue;
         });
         parg := match(adjusted_args.get(pi), .Some(a) => a, .None => make_err_expr());
+        if(match(pref.get(pi), .Some(b) => b, .None => false), {
+          d3_record_inout_place(d3_pending, pi, plabel.clone(), parg, caller_env_m);
+        });
         pr := check_if_function_parameter_matches_argument(
           plabel,
           ptype,
@@ -7800,6 +7808,24 @@ try_to_call_function_with_arguments :: (
             );
           });
         });
+      });
+      // D3: now that the (specialized) callee is known, an `inout` argument
+      // rooted in an atomic object is rejected iff the callee may write
+      // through that parameter (issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md).
+      if(d3_pending.len() > usize(0), {
+        (d3_target : Option(EvalValue)) = spec_func_val;
+        if(d3_target.is_none(), {
+          d3_target = func_val;
+        });
+        match(
+          d3_target,
+          .Some(d3_tv) => match(
+            d3_tv,
+            .FuncVal(d3_fvd, _) => d3_check_pending(d3_pending, d3_fvd.*.func_id.clone(), d3_fvd.*.body, ctx, exn),
+            _ => ()
+          ),
+          .None => ()
+        );
       });
       // Aliasing Stage 1 (mutation summaries, evaluator/effects/
       // mutation_summary.yo): a READ-ONLY callee cannot reassign the

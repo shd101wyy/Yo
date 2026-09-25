@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
   is_struct_val,
@@ -240,6 +241,139 @@ get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
   )
 );
 // ---------------------------------------------------------------------------
+// get_root_expr_of_place
+// ---------------------------------------------------------------------------
+/// The root atom of a PLACE expression: walks `x.a.b` (`.` calls, first
+/// argument) AND `x.a(i)` / `x(i)` (an index call: a non-`.` call whose callee
+/// is itself the place). Stops at the first expression that is neither.
+/// `get_root_expr_of_field_access` walks only the `.` chain, which is why an
+/// index assignment through an atomic object slipped past the Phase O gate
+/// (issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md).
+/// A plain function call `f(x)` walks to the atom `f`, whose type is never an
+/// atomic object, so the over-approximation is harmless.
+get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
+  match(
+    expr,
+    .FnCall(_, callee, args, _, _) => cond(
+      (ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (args.len() >= usize(2))) => recur(
+        match(args.get(usize(0)), .Some(a) => a, .None => expr)
+      ),
+      // A labelled argument `label : place` — the place is the second child.
+      (ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))) => recur(
+        match(args.get(usize(1)), .Some(a) => a, .None => expr)
+      ),
+      true => recur(callee)
+    ),
+    .Atom(_, _) => expr
+  )
+);
+// ---------------------------------------------------------------------------
+// D3 at a call site: record, then decide after the callee is known
+// ---------------------------------------------------------------------------
+/// One `inout` parameter of the call being evaluated whose argument is a place
+/// rooted in an atomic object, waiting for the callee's mutation mask.
+D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, root_text : String, root_type : String);
+/// Record `place` (the argument bound to `inout` parameter `param_index` of
+/// the call being matched) when it is rooted in an atomic object and the
+/// CALLER's file has no pragma. Nothing is decided here: whether the binding
+/// is a write depends on the callee's body, which `d3_check_pending` reads
+/// after the call has resolved its (specialized) callee.
+d3_record_inout_place :: (
+  fn(pending : ArrayList(D3PendingInout), param_index : usize, param_label : String, place : AstExpr, env : Environment) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
+    return(());
+  });
+  root_expr := get_root_expr_of_place(place);
+  match(
+    get_atomic_object_root_type(root_expr, env),
+    .Some(root_ty) => {
+      pending.push(
+        D3PendingInout(
+          param_index : param_index,
+          place : place,
+          how : if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+          root_text : ast_expr_to_string(root_expr),
+          root_type : type_to_string(root_ty)
+        )
+      );
+    },
+    .None => ()
+  );
+});
+/// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
+/// atomic object is a data race iff the callee may WRITE through that
+/// parameter. `inout(self)` is also Yo's plain by-reference receiver
+/// (`ToString`, `Hash`, `Sender.clone`, ...), so "every inout is a write" would
+/// reject printing an `Arc`'s value; the per-parameter mutation mask of
+/// `effects/mutation_summary.yo` (a MAY-analysis: a field/index store, an RC
+/// decrement, a mutating callee, or anything unresolvable) is what decides.
+/// A callee defined in a pragma'd file is the audited base
+/// (`std/sync`'s `inout(self)` methods write only through atomics or locks)
+/// and is trusted. The summary target is the specialization when one exists.
+d3_check_pending :: (
+  fn(pending : ArrayList(D3PendingInout), callee_fid : String, callee_body : AstExpr, ctx : EvalContext, exn : Exception) -> unit
+)({
+  if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
+    return(());
+  });
+  mask := function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table);
+  (i : usize) = usize(0);
+  while(i < pending.len(), {
+    match(
+      pending.get(i),
+      .Some(entry) => if(param_mutation_mask_hits(mask, entry.param_index), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(entry.place),
+              `Cannot ${entry.how} atomic object '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+// ---------------------------------------------------------------------------
+// throw_if_write_through_atomic_root
+// ---------------------------------------------------------------------------
+/// D3 (`plans/reference/PARALLELISM_RULES.md`): a place rooted in an atomic
+/// object may not be WRITTEN in a file without `pragma(Pragma.AllowUnsafe)` —
+/// as the target of `=` (field or index), as an `inout` argument, or as the
+/// receiver of an `inout(self)` method. `how` names the write for the message
+/// ("write to field of", "pass an inout argument rooted in", ...). The
+/// assignment arm below and the two argument-binding sites in `calls/`
+/// (helper.yo, function.yo) all go through here so the three spellings of one
+/// race get one rule.
+throw_if_write_through_atomic_root :: (
+  fn(place : AstExpr, env : Environment, how : String, exn : Exception) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
+    return(());
+  });
+  root_expr := get_root_expr_of_place(place);
+  match(
+    get_atomic_object_root_type(root_expr, env),
+    .Some(atomic_obj_type) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(place),
+            `Cannot ${how} atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
+// ---------------------------------------------------------------------------
 // get_atomic_object_root_type
 // ---------------------------------------------------------------------------
 /// Phase O (THREAD_SAFETY): if a field-access expression's root has
@@ -377,24 +511,9 @@ evaluate_assignment :: (
   // Property / index LHS: x.a = rhs, arr(0) = rhs
   // -----------------------------------------------------------------------
   if(!(is_atom_lhs || is_typed_binding_lhs), {
-    // Phase O: Forbid writing through atomic-object fields in safe code.
-    if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone())), {
-      root_expr := get_root_expr_of_field_access(lhs);
-      match(
-        get_atomic_object_root_type(root_expr, env),
-        .Some(atomic_obj_type) => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(lhs),
-                `Cannot write to field of atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
-              )
-            )
-          );
-        },
-        .None => ()
-      );
-    });
+    // Phase O / D3: forbid writing through an atomic object in safe code —
+    // a field (`a.*.n = v`) or an index (`a.*(0) = v`) place alike.
+    throw_if_write_through_atomic_root(lhs, env, String.from("write to field of"), exn);
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
     saved_expected := ctx.expected_type;
     saved_is_lhs := ctx.is_lhs_of_assignment;
@@ -1359,6 +1478,10 @@ comptime(${variable_name}) : ${dgc_ty_str}
   expr
 });
 export(
+  throw_if_write_through_atomic_root,
+  D3PendingInout,
+  d3_record_inout_place,
+  d3_check_pending,
   throw_rhs_contains_control_flow_expression_error,
   resolve_unknown_values_and_some_type_in_type,
   rebuild_list_with_index,

@@ -37,12 +37,17 @@ MyObj :: ref(struct(data : Vec(i32)));
 
 ## 安全代码中禁止原子字段修改
 
-在安全代码中直接写入 `atomic(ref(struct(...)))` 的字段是**编译时错误**：
+在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `inout` 路径（`inout` 参数，或 `self` 为 `inout(self)` 的方法）：
 
 ```rust
 a := arc(i32(0));
-a.* = i32(5); // 错误：不能写入原子对象字段
+a.* = i32(5);          // 错误：不能写入原子对象字段
+c := arc(Counter(n : i32(0)));
+c.*.bump();            // 错误：不能在原子对象 'c' 上调用 inout(self) 方法
+bump_by_ten(c.*);      // 错误：不能传递以原子对象 'c' 为根的 inout 参数
 ```
+
+局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `inout(v)` 是参数，所以闭包体可以通过 `v` 写入；只读的 `inout(self)` 方法 —— `ToString` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
 
 要修改共享状态，请组合正确的原语：
 
@@ -182,7 +187,7 @@ match(
 
 | 层次                         | 信任内容                       | 强制执行                            |
 | ---------------------------- | ------------------------------ | ----------------------------------- |
-| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；原子对象的字段赋值被拒绝（经 `inout` 和索引赋值的写入尚未被拒绝，见下文） |
+| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；原子对象写入被拒绝（字段与索引赋值、`inout` 参数、`inout(self)` 接收者） |
 | **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 需要 `// SAFETY:` 注释    |
 | **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
 | **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
@@ -191,7 +196,6 @@ match(
 
 本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
 
-- **经 `inout` 写穿 `Arc`。** 带 `inout(self)` 方法的 `a.*.bump()`、带 `inout` 参数的 `f(a.*)`、以及 `a.*(0) = v` 都会写入共享对象；只有 `a.*.field = v` 被拒绝（`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`）。
 - **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
 - **模块级全局变量是共享的静态变量**，没有 `Send` 检查（`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`）；在 std 内部，`html_decode` 的表在读取时竞争（`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
