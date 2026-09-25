@@ -73,6 +73,7 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
+{ is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
 // ---------------------------------------------------------------------------
 // Public data types
 // ---------------------------------------------------------------------------
@@ -1186,8 +1187,19 @@ _synthesize_types_impl :: (
     given_bound := get_value_of_some_type_from_env(ge, given_ty);
     exp_some_id := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     giv_some_id := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    exp_bound_is_some := is_some_type(expected_bound);
-    giv_bound_is_some := is_some_type(given_bound);
+    // A resolved closure identity (`is_bound_closure_identity`) is a
+    // binding, not a free variable: with `T := <k1's Impl>` from the
+    // receiver, `value : T` against `<k2's Impl>` must not rebind `T`
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    // Two of them unify through their resolutions, so one closure's copies
+    // unify and two closures fail here, at the argument.
+    exp_ident := is_bound_closure_identity(expected_bound);
+    giv_ident := is_bound_closure_identity(given_bound);
+    if(exp_ident && giv_ident, {
+      return(_synthesize_types_impl(resolve_cell_chain(expected_bound), ee, resolve_cell_chain(given_bound), ge, checked, opts, exn));
+    });
+    exp_bound_is_some := (is_some_type(expected_bound) && !(exp_ident));
+    giv_bound_is_some := (is_some_type(given_bound) && !(giv_ident));
     cond(
       !exp_bound_is_some => {
         // Expected is bound — use its value to bind given

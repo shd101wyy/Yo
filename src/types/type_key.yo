@@ -399,10 +399,16 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                     // Value-enum fields still expand, distinguishing generic
                     // instantiations (Option(Token) vs Option(u8)).
                     rft := resolve_enum_shell(ft);
+                    // A payload position is the instantiation's argument
+                    // position (`Option(T).Some(value : T)`), so a SomeT there
+                    // resolves the way a struct's type-argument slot does:
+                    // `Option(<k's Impl>)` is one C type across the wrapper's
+                    // copies (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
                     fk := match(
                       rft,
                       .EnumT({ id : rid, is_reference_semantics : rrs }) =>
                         if(rrs && (rid.len() > usize(0)), rid.clone(), recur(ft, depth + usize(1))),
+                      .SomeT({}) => recur(_tk_resolve_arg_slot(ft), depth + usize(1)),
                       _ => recur(ft, depth + usize(1))
                     );
                     field_part.push_string(fk);

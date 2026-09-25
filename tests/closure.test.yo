@@ -357,3 +357,27 @@ test("a generic's static -> Self constructor at a closure type", {
   assert(s.tag == i32(4), "the holding slot");
   assert(match(s._f, .Some(g) => g(), .None => i32(0)) == i32(42), "the held closure ran");
 });
+test("two closures' lists are two types, one per closure", {
+  (hits : AtomicI32) = AtomicI32.new(i32(0));
+  a := i32(1);
+  b := i32(10);
+  (k1 : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(a, MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  (k2 : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(b, MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  l1 := ArrayList(typeof(k1)).new();
+  l2 := ArrayList(typeof(k2)).new();
+  l1.push(k1);
+  l2.push(k2);
+  match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
+  match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
+  assert(hits.load(MemoryOrder.Acquire) == i32(11), "each list called its own closure");
+});
