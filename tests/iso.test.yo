@@ -113,6 +113,14 @@ test("^ isolates a uniquely owned graph and it crosses a thread", {
     .None => assert(false, "a freshly built list of fresh strings is uniquely owned")
   );
 });
+// An atomic's payload is an opaque C type (`atomic_int`), a SomeT placeholder
+// the cycle check used to answer "maybe cyclic" for — so every AtomicI32 and
+// every struct holding one read as cycle-capable, and `^` refused it
+// (issues/fixed/atomic-types-read-as-cycle-capable-through-their-opaque-c-payload.md).
+_ATOMIC_I32_CAN_CYCLE :: Type.can_form_rc_cycle(AtomicI32);
+test("an AtomicI32 cannot form a reference cycle", {
+  assert(!_ATOMIC_I32_CAN_CYCLE, "an opaque C payload holds no Yo reference");
+});
 _IsoWithCounter :: ref(struct(items : ArrayList(i32), hits : AtomicI32));
 test("^ does not descend into an atomic object: sharing one is fine", {
   hits := AtomicI32(i32(0));

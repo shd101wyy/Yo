@@ -812,8 +812,12 @@ _type_refs_back_to_cyclic :: (
       }
     ),
     // A SomeType could resolve to anything — be conservative (its
-    // resolution, if any, is not followed here).
-    .SomeT(name : _) => true,
+    // resolution, if any, is not followed here). EXCEPT an extern/`c_include`
+    // opaque type (`atomic_int : Type`), which is a SomeT placeholder for a C
+    // value that holds no Yo reference at all: answering "cyclic" for it made
+    // every `AtomicI32` — and so every struct holding a shared atomic counter
+    // — look cycle-capable, which `^` refuses and the collector tracks.
+    .SomeT(name : st_name) => !is_extern_type_name(st_name),
     .Array({ element : el }) => recur(el, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;

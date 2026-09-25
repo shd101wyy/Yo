@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_bool } :: import("../../types/creators.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, mark_function_frames_isolating } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   ExprInfo,
@@ -303,6 +303,8 @@ evaluate_yo_iso_unique :: (
       )
     );
   });
+  // Keep every count in this function accurate for the walk (env.yo).
+  mark_function_frames_isolating(env);
   out := new_expr_info(info.env, t_bool());
   out.value = .None;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
