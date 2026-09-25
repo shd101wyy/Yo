@@ -112,6 +112,11 @@ attach_temp_variable_to_expr :: (
     info_opt,
     .None => (),
     .Some(info) => {
+      // A `never` expression has no value to hold (Phase 3.6): a temp would
+      // be declared `void` in C.
+      if(is_never_type(info.ty), {
+        return(());
+      });
       // Choose effective type: capture_type for closures with RC captures.
       effective_ty := match(
         expr_info_capture_type(info),
