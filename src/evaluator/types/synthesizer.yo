@@ -1183,8 +1183,14 @@ _synthesize_types_impl :: (
   tok := opts_token(opts, ee);
   // Case: both are SomeTypes
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
-    expected_bound := get_value_of_some_type_from_env(ee, expected_ty);
-    given_bound := get_value_of_some_type_from_env(ge, given_ty);
+    // A closure identity's value is its own cell, never an env entry: the
+    // env is keyed by name, every closure's wrapper is named `Impl`, and
+    // an entry written for one closure resolved every later closure to its
+    // capture struct (`l1.push(k1); l2.push(k2)` failed at `k2`).
+    exp_self_ident := is_bound_closure_identity(expected_ty);
+    giv_self_ident := is_bound_closure_identity(given_ty);
+    expected_bound := if(exp_self_ident, expected_ty, get_value_of_some_type_from_env(ee, expected_ty));
+    given_bound := if(giv_self_ident, given_ty, get_value_of_some_type_from_env(ge, given_ty));
     exp_some_id := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     giv_some_id := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     // A resolved closure identity (`is_bound_closure_identity`) is a
@@ -1197,6 +1203,14 @@ _synthesize_types_impl :: (
     giv_ident := is_bound_closure_identity(given_bound);
     if(exp_ident && giv_ident, {
       return(_synthesize_types_impl(resolve_cell_chain(expected_bound), ee, resolve_cell_chain(given_bound), ge, checked, opts, exn));
+    });
+    // One side bound, the other a closure identity: there is no variable to
+    // bind, so the bound value must unify with the closure's capture struct.
+    if(giv_self_ident && !(is_some_type(expected_bound)), {
+      return(_synthesize_types_impl(expected_bound, ee, resolve_cell_chain(given_ty), ge, checked, opts, exn));
+    });
+    if(exp_self_ident && !(is_some_type(given_bound)), {
+      return(_synthesize_types_impl(resolve_cell_chain(expected_ty), ee, given_bound, ge, checked, opts, exn));
     });
     exp_bound_is_some := (is_some_type(expected_bound) && !(exp_ident));
     giv_bound_is_some := (is_some_type(given_bound) && !(giv_ident));
@@ -1298,6 +1312,10 @@ _synthesize_types_impl :: (
   });
   // Case: expected is SomeType (given may be concrete)
   if(is_some_type(expected_ty), {
+    // A closure identity is its capture struct (see the both-SomeT case).
+    if(is_bound_closure_identity(expected_ty), {
+      return(_synthesize_types_impl(resolve_cell_chain(expected_ty), ee, given_ty, ge, checked, opts, exn));
+    });
     bound := get_value_of_some_type_from_env(ee, expected_ty);
     exp_id2 := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     exp_name := match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
@@ -1381,6 +1399,9 @@ _synthesize_types_impl :: (
   });
   // Case: given is SomeType (expected is concrete)
   if(is_some_type(given_ty), {
+    if(is_bound_closure_identity(given_ty), {
+      return(_synthesize_types_impl(expected_ty, ee, resolve_cell_chain(given_ty), ge, checked, opts, exn));
+    });
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
     giv_id2 := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
