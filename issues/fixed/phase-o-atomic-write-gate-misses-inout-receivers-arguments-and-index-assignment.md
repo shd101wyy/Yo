@@ -1,7 +1,7 @@
 # The Phase O "no writes through an atomic object" gate misses `inout(self)` receivers, `inout` arguments and index assignment
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-1).
-**Status:** OPEN. **Data race in safe code.** `docs/en-US/THREAD_SAFETY.md` §"Atomic Field
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 1, rule D3 of `plans/reference/PARALLELISM_RULES.md`). Was: **Data race in safe code.** `docs/en-US/THREAD_SAFETY.md` §"Atomic Field
 Mutation is Forbidden in Safe Code" says the write is a compile-time error; three spellings of it
 compile and write through the shared object.
 **Measured:** yo 0.2.41 seed against the develop tree's `std` (`--std-path`), macOS arm64.
@@ -77,3 +77,24 @@ three sites in safe code:
 `tests/thread_safety.test.yo` gets three `comptime_expect_error` blocks (receiver, argument,
 index) plus an over-rejection canary (`with_lock` body mutating `v.n`, an `inout` call on a
 LOCAL copy `c := a.*; c.bump()`).
+
+## Fix (2026-09-26)
+
+One predicate, `throw_if_write_through_atomic_root(place, env, how, exn)` in
+`src/evaluator/exprs/assignment.yo`, built on a new `get_root_expr_of_place` that walks `.`
+chains AND index calls (`a.*(0)` is a call whose callee is the place), applied at three sites in
+files without the pragma:
+
+1. the property/index arm of `evaluate_assignment` (replacing the field-only walk);
+2. `check_if_function_parameter_matches_argument` (`src/evaluator/calls/helper.yo`), right
+   before its Step 4c, for every `inout` parameter — the method receiver arrives here as the
+   `self` argument, so `a.*.bump()` is caught with the message "Cannot call an inout(self)
+   method on atomic object 'a'";
+3. the inline `FuncVal` argument loop in `src/evaluator/calls/function.yo`, which bypasses (2).
+
+Both hooks skip the CHECKING PHASE (trial calls), like Steps 4b/4c; the real pass throws.
+`Mutex.with_lock`'s `inout(v)` is a parameter root, so the body still writes; a local copy
+`c := a.*` is a value. Tests: `tests/parallelism_soundness.test.yo` — four `comptime_expect_error`
+blocks (receiver, argument, index, a user atomic object) and two canaries (the same three
+shapes on a plain `ref` struct; the copy). All three repros are rejected by the tree-built
+compiler; the seed cannot see the gate (`issues/fixed/…` memory: fresh-binary check gate).

@@ -55,7 +55,9 @@ whose whole point is moving a non-`Send` graph to one other thread.
 
 ## D3 — No writes through an atomic object, at every mutation site
 
-**Status:** PLANNED (Phase 1).
+**Status:** LANDED 2026-09-26 (Phase 1): `throw_if_write_through_atomic_root` in
+`src/evaluator/exprs/assignment.yo`, called from the assignment arm and both argument-binding
+sites in `src/evaluator/calls/`.
 
 An expression whose ROOT binding is an atomic object (an `Arc`, a `Mutex`, any
 `atomic(ref(...))`) may not, in a file without the pragma, be:

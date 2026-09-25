@@ -48,12 +48,20 @@ Thread(unit).spawn(io => {
 
 ## Atomic Field Mutation is Forbidden in Safe Code
 
-Direct writes to fields of an `atomic object` are **compile-time errors** in safe code:
+Writes through an `atomic object` are **compile-time errors** in safe code — field and index
+assignment, and any `inout` route into it (an `inout` argument, or a method whose `self` is
+`inout(self)`):
 
 ```rust
 a := arc(i32(0));
-a.* = i32(5); // ERROR: cannot write to atomic object field
+a.* = i32(5);          // ERROR: cannot write to atomic object field
+c := arc(Counter(n : i32(0)));
+c.*.bump();            // ERROR: cannot call an inout(self) method on atomic object 'c'
+bump_by_ten(c.*);      // ERROR: cannot pass an inout argument rooted in atomic object 'c'
 ```
+
+A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy), and
+`Mutex.with_lock`'s `inout(v)` is a parameter, so the body may write through `v`.
 
 This prevents the most common data-race vector — two threads writing to the same memory without synchronization. To mutate shared state, compose with the right primitive:
 
@@ -240,7 +248,7 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object FIELD ASSIGNMENT rejected (writes through `inout` and index assignment are not yet — see below). Non-Send captures rejected. |
+| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. |
 | **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send impls require `// SAFETY:` comments. Phase F re-verifies atomic-object field Send-ness.                                                  |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |
@@ -260,10 +268,6 @@ The guarantee at the top of this page is the contract; the parallelism-soundness
 each is being closed by the phase named there. Until a bullet is removed, safe code CAN write
 the race it describes.
 
-- **Writes through an `Arc` via `inout`.** `a.*.bump()` with an `inout(self)` method,
-  `f(a.*)` with an `inout` parameter, and `a.*(0) = v` all write into the shared object; only
-  `a.*.field = v` is rejected
-  (`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).
 - **`Iso(T)` uniqueness is shallow and the constructor is unchecked** (section above).
 - **Module-level globals are shared statics** with no `Send` check
   (`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`); inside std,

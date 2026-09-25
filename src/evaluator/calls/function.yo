@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_AS
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
+{ throw_if_write_through_atomic_root } :: import("../exprs/assignment.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -6428,6 +6429,18 @@ Fix: wrap the call:
             // a caller-owned +1 for the call; extern/builtin callees run no
             // Yo code and are skipped.
             fv_p_is_ref := match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false);
+            // D3: an `inout` argument rooted in an atomic object is rejected
+            // in safe code (twin of helper.yo's check — this inline loop
+            // bypasses try_to_call_function_with_arguments).
+            if((fv_p_is_ref && !(fv_p_is_ct)) && !(ctx.is_in_function_call_checking_phase), {
+              fv_p_label := match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new());
+              throw_if_write_through_atomic_root(
+                arg_expr_eff,
+                env,
+                if(fv_p_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+                exn
+              );
+            });
             fv_callee_is_extern := match(
               callee_info_opt,
               .Some(fv_ci_ext) => match(

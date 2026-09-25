@@ -1,6 +1,6 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phase 0 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 1–8 open. Source: a full audit of Yo's
+**Status:** ACTIVE, proposed 2026-09-25. Phases 0 and 1 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2–8 open. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -264,6 +264,14 @@ from the plan text: the D4 canary is a `where(T <: Send)` call, not `arc(bump)`,
 - Exit: `issues/repros/phase-o-*.yo` both fail `check`; `yo check ./std` and `yo check ./src`
   unchanged (std is pragma'd; the compiler tree uses no `Arc` receivers — verify with the
   fresh binary, since the seed cannot see a new evaluator gate).
+
+**Landed 2026-09-26** (branch `ps/phase1-atomic-write-gate`, stacked on Phase 0). Exactly the
+shape above; the receiver case needed no separate site because a method's `self` reaches
+`check_if_function_parameter_matches_argument` as an ordinary argument. Verified with the
+tree-built compiler: the three repros rejected, the corpus (7 tests + 6 rejection blocks),
+`tests/thread_safety`, `arc`, `atomic_object`, `imm_threading`, `thread`, `thread_pool`,
+`sync/{mutex,rwlock,once,channel}`, `iso`, `spawn_blocking`, `cross_thread_wake`, `async_mutex`
+green, `check ./src` and `check ./std` clean.
 
 ### Phase 2: `Iso(T)` (P-2) (M; codegen + evaluator + prelude + docs; seed-gated in one place)
 

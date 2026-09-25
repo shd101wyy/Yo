@@ -22,7 +22,7 @@ Row 17: a module-level `:=` binding IS a mutable static reachable from every thr
 (`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`). Row 26: no call-site
 rule exists; `inout(self)` receivers, `inout` arguments and index assignment write through
 an atomic object in safe code
-(`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).
+(`issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).
 Row 15/16: `RawMutex` is exported and `Cond.wait_with` does not check lock ownership, so
 safe code reaches mutex/condvar UB. The rest of this document is the frozen record.
 

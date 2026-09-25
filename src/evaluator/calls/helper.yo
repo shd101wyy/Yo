@@ -170,6 +170,7 @@ pragma(Pragma.AllowUnsafe);
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ throw_if_write_through_atomic_root } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
@@ -910,6 +911,20 @@ check_if_function_parameter_matches_argument :: (
   // temps stay +0 (the marker no-ops on owning temps), `inout` (ref) params
   // are place writes, and — like Step 4b — trial calls in the CHECKING PHASE
   // must not mutate the real caller env.
+  // D3 (plans/reference/PARALLELISM_RULES.md): an `inout` parameter is a
+  // write through the ARGUMENT's place, so an argument rooted in an atomic
+  // object (`bump2(a.*)`, `a.*.bump()` with `inout(self)`) is the same race as
+  // `a.*.n = v` and gets the same rejection in safe code
+  // (issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md).
+  // Not in the CHECKING PHASE, like Steps 4b/4c: the real pass throws.
+  if((param_is_ref && !(is_ct_only)) && !(ctx.is_in_function_call_checking_phase), {
+    throw_if_write_through_atomic_root(
+      actual_arg,
+      caller_env_r,
+      if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+      exn
+    );
+  });
   (s0_drop_captured : Option(AstExpr)) = Option(AstExpr).None;
   (s0_marked_arg_captured : Option(AstExpr)) = Option(AstExpr).None;
   if(((((!(param_is_owning)) && !(is_ct_only)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env_r), {
