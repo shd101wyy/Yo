@@ -27,8 +27,8 @@
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at } :: import("../../error.yo");
-{ suggest_name, lookup_std_exporters, Span } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at, with_code } :: import("../../error.yo");
+{ suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 /// Evaluate an identifier or operator expression.
@@ -366,31 +366,34 @@ evaluate_identifier_and_operator :: (
         });
         exn.throw(
           dyn(
-            match(
-              not_found_repair,
-              .Some(fix_name) => format_error_message_with_repair(
-                token,
-                `Variable "${identifier_string}" not found.`,
-                not_found_help,
-                fix_name.clone(),
-                `rename to "${fix_name}"`
-              ),
-              .None => match(
-                import_repair,
-                .Some(line) => format_error_message_with_repair_at(
+            with_code(
+              match(
+                not_found_repair,
+                .Some(fix_name) => format_error_message_with_repair(
                   token,
                   `Variable "${identifier_string}" not found.`,
                   not_found_help,
-                  Span(path : token.module_path, row : _first_code_row(token.input), col : usize(0), len : usize(0)),
-                  `${line}\n`,
-                  `add ${line}`
+                  fix_name.clone(),
+                  `rename to "${fix_name}"`
                 ),
-                .None => format_error_message_with_help(
-                  token,
-                  `Variable "${identifier_string}" not found.`,
-                  not_found_help
+                .None => match(
+                  import_repair,
+                  .Some(line) => format_error_message_with_repair_at(
+                    token,
+                    `Variable "${identifier_string}" not found.`,
+                    not_found_help,
+                    Span(path : token.module_path, row : _first_code_row(token.input), col : usize(0), len : usize(0)),
+                    `${line}\n`,
+                    `add ${line}`
+                  ),
+                  .None => format_error_message_with_help(
+                    token,
+                    `Variable "${identifier_string}" not found.`,
+                    not_found_help
+                  )
                 )
-              )
+              ),
+              E_VARIABLE_NOT_FOUND
             )
           )
         );

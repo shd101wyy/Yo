@@ -73,7 +73,7 @@
   dyn_upcast_note
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ type_to_string, register_type_display_name } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
@@ -942,16 +942,27 @@ ${rhs_str}`
           binding_name := ast_expr_token(actual_lhs).value.clone();
           stamped_ty := match(
             tv_box,
+            // The binding name is also the id's display name, so a copy that
+            // still has no name — a recursive type's self-shell, which an
+            // enum marks with a `__self_shell` id suffix — prints as the
+            // type, not as its internal id.
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
-              (st_name.len() == usize(0)) => Option(TypeValue).Some(
-                TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
-              ),
+              (st_name.len() == usize(0)) => {
+                register_type_display_name(st_id.clone(), binding_name.clone());
+                Option(TypeValue).Some(
+                  TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
+                )
+              },
               true => Option(TypeValue).None
             ),
             .EnumT(en_id, en_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar) => cond(
-              (en_name.len() == usize(0)) => Option(TypeValue).Some(
-                TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar)
-              ),
+              (en_name.len() == usize(0)) => {
+                register_type_display_name(en_id.clone(), binding_name.clone());
+                register_type_display_name(`${en_id}__self_shell`, binding_name.clone());
+                Option(TypeValue).Some(
+                  TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar)
+                )
+              },
               true => Option(TypeValue).None
             ),
             .Union(un_name, un_fls, un_fts) => cond(

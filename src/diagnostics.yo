@@ -112,7 +112,7 @@ E_TRAIT_NOT_IMPLEMENTED :: "E0602";
 E_ARGUMENT_COUNT_MISMATCH :: "E0603";
 E_RETURN_TYPE_MISMATCH :: "E0604";
 E_TYPE_MISMATCH :: "E0605";
-E_ARGUMENT_NOT_CALLABLE :: "E0606";
+E_NOT_CALLABLE :: "E0606";
 E_MATCH_NOT_EXHAUSTIVE :: "E0607";
 E_MATCH_UNREACHABLE_ARM :: "E0608";
 E_INVALID_PATTERN :: "E0609";
@@ -131,6 +131,10 @@ E_CANNOT_INFER :: "E0613";
 /// `Self` outside the receiver, or `generic(...)` binders
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7, docs/en-US/DYN_DESIGN.md).
 E_DYN_UNCALLABLE :: "E0614";
+/// An argument label that names another parameter than the one at its
+/// position: labels document a call, they never reorder it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.4).
+E_ARGUMENT_LABEL_MISMATCH :: "E0615";
 // Ownership / moves / effects / async.
 E_USE_OF_MOVED_VALUE :: "E0901";
 E_CANNOT_REASSIGN :: "E0902";
@@ -144,6 +148,8 @@ E_FORWARD_REFERENCE :: "E0906";
 // Comptime.
 E_COMPTIME_ARGUMENT :: "E1101";
 E_COMPTIME_OVERFLOW :: "E1102";
+/// A compile-time `/` or `%` whose divisor is zero.
+E_COMPTIME_DIVISION_BY_ZERO :: "E1103";
 /// The severity of a diagnostic entry. The FIRST entry of an error group is
 /// the primary (`Error`, or `Warning` once a warnings channel exists);
 /// secondary entries ("value moved here", "Defined here:") are `Note`s.
@@ -296,6 +302,15 @@ flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
 /// extracted once at construction — the renderer never re-reads files.
 /// `help` (P3) carries an in-band repair hint ("did you mean …"); it
 /// defaults to none so P1-era construction sites stay unchanged.
+/// A span path as a person reads it: a demand-loaded module's key is a
+/// `file://` URI, which the human and short renderers print as the plain path
+/// (the JSON and SARIF renderers keep the path as recorded).
+_display_path :: (fn(p : String) -> String)(
+  cond(
+    p.starts_with(`file://`) => p.slice_copy(usize(7) .. p.len()),
+    true => p.clone()
+  )
+);
 Diagnostic :: struct(
   code : Option(String),
   severity : Severity,
@@ -471,7 +486,7 @@ _render_block :: (fn(d : Diagnostic, w : usize, color : bool, out : ArrayList(St
     row_plus1 := (d.span.row + usize(1));
     col_plus1 := (d.span.col + usize(1));
     indent := String.from(" ").repeat(w + usize(1));
-    out.push(_colorize(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
+    out.push(_colorize(`${indent}--> ${_display_path(d.span.path)}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
     if(d.source_line.len() > usize(0), {
       out.push(_colorize(`${indent}|`, _ANSI_LOCATION, color));
       padded := `${row_plus1}`;
@@ -563,10 +578,10 @@ render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
         match(
           d.code,
           .Some(c) => out.push(
-            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
+            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
           .None => out.push(
-            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
+            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
           )
         );
       },
@@ -902,12 +917,12 @@ export(E_INCOMPATIBLE_TYPES, E_TRAIT_NOT_IMPLEMENTED, E_ARGUMENT_COUNT_MISMATCH)
 export(
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
-  E_ARGUMENT_NOT_CALLABLE,
+  E_NOT_CALLABLE,
   E_MATCH_NOT_EXHAUSTIVE,
   E_MATCH_UNREACHABLE_ARM,
   E_INVALID_PATTERN
 );
 export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_NO_MATCHING_CALL);
-export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE);
+export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE, E_ARGUMENT_LABEL_MISMATCH);
 export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_AWAIT_PLACEMENT);
-export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW);
+export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO);

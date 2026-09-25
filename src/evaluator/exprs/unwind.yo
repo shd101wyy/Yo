@@ -64,6 +64,9 @@ throw_unwind_type_mismatch :: (
   });
   exn.throw(dyn(err));
 });
+/// `unwind` outside a closure or function literal nested in a function
+/// (also raised by `begin.yo` for a block-level `unwind`).
+UNWIND_WITHOUT_ENCLOSING_FN :: "`unwind` exits the function that encloses the current closure (`=>`) or function literal (`->`), such as an effect handler, so it only works inside one nested in a function. This code has no such enclosing function: use `return(...)` to leave it.";
 evaluate_unwind :: (
   fn(
     expr : AstExpr,
@@ -91,7 +94,7 @@ evaluate_unwind :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("`unwind` can only be used inside a function that has an enclosing function.")
+            String.from(UNWIND_WITHOUT_ENCLOSING_FN)
           )
         )
       );
@@ -180,4 +183,4 @@ evaluate_unwind :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_unwind, throw_unwind_type_mismatch);
+export(evaluate_unwind, throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN);

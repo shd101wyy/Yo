@@ -27,7 +27,6 @@
   E_UNKNOWN_OPERATOR,
   E_STRUCT_LITERAL_VS_BLOCK,
   E_CALL_SYNTAX,
-  E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
   E_FIELD_NOT_FOUND,
@@ -38,7 +37,7 @@
   E_ARGUMENT_COUNT_MISMATCH,
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
-  E_ARGUMENT_NOT_CALLABLE,
+  E_NOT_CALLABLE,
   E_MATCH_NOT_EXHAUSTIVE,
   E_MATCH_UNREACHABLE_ARM,
   E_INVALID_PATTERN,
@@ -144,11 +143,12 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   if(msg.contains(String.from("is private")), {
     return(_coded(E_PRIVATE_MEMBER));
   });
-  if(msg.contains(String.from("not found.")) || msg.contains(
-    String.from("not found ")
-  ) || msg.contains(String.from("\" not found")), {
-    return(_coded(E_VARIABLE_NOT_FOUND));
-  });
+  // No "not found" substring rule: E0401 is named by its raise sites
+  // (`with_code`). The substrings ("not found.", "not found ", `" not found`)
+  // coded destructuring labels, trait fields, effect-row variables and
+  // internal errors as name-not-found, and `yo explain E0401` then gave
+  // advice that could not fix them
+  // (issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md).
   // ── Types & traits (E06xx–E08xx) ───────────────────────────────────────
   // `match` (plans/MATCH_PATTERN_MATCHING.md §4.10) — before the generic
   // type rules, which would otherwise claim "Pattern type …".
@@ -184,7 +184,7 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
     return(_coded(E_OPTIMISTIC_PANIC));
   });
   if(msg.contains(String.from("is not callable")), {
-    return(_coded(E_ARGUMENT_NOT_CALLABLE));
+    return(_coded(E_NOT_CALLABLE));
   });
   if(msg.contains(String.from("Argument count mismatch")), {
     return(_coded(E_ARGUMENT_COUNT_MISMATCH));
@@ -625,6 +625,42 @@ take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
 });
+/// `err` with its primary diagnostic's code named by the raise site, not
+/// inferred from the message text: the code belongs to the mistake, and a
+/// reworded message must not move it
+/// (issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md).
+with_code :: (fn(err : YoError, code : str) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  (wi : usize) = usize(0);
+  while(wi < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get(wi),
+      .Some(d) => {
+        // A fresh primary rather than `d.code = …`: `d` borrows the element,
+        // and a field write through a borrowed value binding releases a value
+        // the binding does not own
+        // (issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md).
+        entries.push(
+          cond(
+            (wi == usize(0)) => Diagnostic(
+              code : _coded(code),
+              severity : d.severity,
+              message : d.message,
+              span : d.span,
+              source_line : d.source_line,
+              help : d.help,
+              repair : d.repair
+            ),
+            true => d
+          )
+        );
+      },
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
 /// The file of `err`'s primary diagnostic (`None` for a non-`YoError`).
 primary_diagnostic_path :: (fn(err : AnyError) -> Option(String))(
   match(
@@ -747,7 +783,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics, primary_diagnostic_path, reanchor_primary_at);
+export(yo_error_from_diagnostics, primary_diagnostic_path, reanchor_primary_at, with_code);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the

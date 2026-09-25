@@ -83,7 +83,7 @@ help: prefix the name with `_` to silence this warning
 
 ## 错误码与 `yo explain`
 
-命中已知家族的消息会在头部携带稳定的 `EXXXX` 错误码，并在 `help:` 尾行指向解释器。错误码是集中管理的：编译器将自身的消息词汇分类到各家族，因此同一个底层错误无论由哪个阶段报告，得到的错误码都相同。
+属于已知家族的错误会在头部携带稳定的 `EXXXX` 错误码，并在 `help:` 尾行指向解释器。错误码属于错误本身，而不属于措辞：报告错误的位置会指明它的家族，因此同一个底层错误无论由哪个阶段报告都得到相同的错误码（类型不对的实参无论是函数实参还是变体载荷都是 E0601），改写消息也不会改变它的错误码。没有家族的错误不带错误码。
 
 ```bash
 $ yo explain E0401
@@ -102,6 +102,20 @@ Example — this fails:
 - `yo explain E0401 --lang zh` —— 该条目的中文版本；`YO_LANG` 环境变量可为 `explain` 及默认输出选择语言。
 
 输错了码？`yo explain` 会给出最接近的已注册码 —— 与编译器为拼错的名称、枚举变体提供 "did you mean" 提示的是同一套编辑距离引擎。
+
+## 错误报告在哪里
+
+错误指向引起它的代码：与形参不符的那个实参、构造器调用缺少的那个字段。在检查你写的调用时于标准库内部引发的错误，会报告在那个调用处，并以 note 给出标准库中的位置：
+
+```
+error[E0602]: Type P does not implement required trait ToString.
+  --> main.yo:5:3
+  |
+5 |   println(p);
+  |   ^^^^^^^
+note: raised here, inside the standard library
+  --> /…/std/fmt/index.yo:63:50
+```
 
 ## 诊断出现的位置
 

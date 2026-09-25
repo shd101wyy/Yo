@@ -57,6 +57,7 @@ import("std/fmt");
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
 { format_error_message, YoError } :: import("../error.yo");
+{ suggest_name } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Target pointer size
@@ -2175,4 +2176,37 @@ same_name_note :: (fn(expected : TypeValue, given : TypeValue) -> String)({
     true => String.from("\nThese are two different declarations with the same name.")
   )
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note);
+/// `No field "xx" on P. Its fields: x, y.` with a did-you-mean: the E0406
+/// message for a field read, a destructuring label and a pattern label.
+unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : ArrayList(String)) -> String)({
+  list := String.new();
+  (fi : usize) = usize(0);
+  while(fi < fields.len(), {
+    if(fi > usize(0), {
+      list.push_str(", ");
+    });
+    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
+    fi = (fi + usize(1));
+  });
+  fields_note := cond(
+    (fields.len() == usize(0)) => String.from(" It has no fields."),
+    true => ` Its fields: ${list}.`
+  );
+  hint := match(suggest_name(label.clone(), fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
+  `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
+});
+/// `Enum variant "Purple" not found in enum Color. Its variants: Red, Green.`
+/// — the E0402 message names the enum and what it has.
+unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants : ArrayList(String)) -> String)({
+  list := String.new();
+  (vi : usize) = usize(0);
+  while(vi < variants.len(), {
+    if(vi > usize(0), {
+      list.push_str(", ");
+    });
+    list.push_string(match(variants.get(vi), .Some(v) => v, .None => String.new()));
+    vi = (vi + usize(1));
+  });
+  `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
+});
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_variant_message);

@@ -1,6 +1,6 @@
 # `io.await` on a join handle is reported as an INTERNAL COMPILER ERROR
 
-**Status: OPEN (filed 2026-09-13).** Found while promoting
+**Status: FIXED 2026-09-25 (filed 2026-09-13).** The evaluator rejects the call with E0602 at the argument, printing the parameter as `Impl(Future(T, E))` (`tests/cli-cases/io-await-on-a-join-handle-is-reported-at-the-argument`). The original report follows. Found while promoting
 `issues/repros/spawn-blocking-tests.yo` to a live test file — two of its four
 tests used this spelling, so it had been written into a test nobody could run.
 

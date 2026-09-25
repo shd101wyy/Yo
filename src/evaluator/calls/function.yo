@@ -183,7 +183,8 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
-{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -4206,6 +4207,18 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
   );
   recv_is_module
 });
+/// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
+/// neither a field nor a method `m`.
+_no_method_message :: (fn(func_expr : AstExpr, ctx : EvalContext) -> String)({
+  dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  recv_ty_str := match(
+    dot_args.get(usize(0)),
+    .Some(recv) => match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(ri.ty), .None => ast_expr_to_string(recv)),
+    .None => String.from("?")
+  );
+  method_name := match(dot_args.get(usize(1)), .Some(m) => ast_expr_to_string(m), .None => String.from("?"));
+  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.`
+});
 /// The note on the standard-library location of an error that
 /// `evaluate_function_call` reports at the user's call.
 STD_RAISE_NOTE :: "raised here, inside the standard library";
@@ -4256,7 +4269,7 @@ _evaluate_function_call_trapped :: (
 /// inside the standard library at itself (`_reported_at_user_call`):
 /// `println(p)` for a `P` without `ToString` pointed at std/fmt's where
 /// clause, and `i32.MAX + 1` at the prelude's builtin
-/// (issues/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
+/// (issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
 evaluate_function_call :: (
   fn(
     expr : AstExpr,
@@ -5675,9 +5688,12 @@ Fix: wrap the call:
             }, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    tok,
-                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)")
+                  with_code(
+                    format_error_message(
+                      tok,
+                      `Type ${type_to_string(func_type)} cannot be called: a type is callable only as a numeric conversion (\`i32(x)\`) or as a constructor (\`P(x : 1)\`).`
+                    ),
+                    E_NOT_CALLABLE
                   )
                 )
               );
@@ -8496,12 +8512,23 @@ Fix: wrap the call:
             if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[vcall-throw] callee=${ast_expr_to_string(func_expr)} ty=${type_to_string(callee_ty_none)}`);
             });
+            // A method the receiver lacks (`p.to_string()`, E0610) names the
+            // method and the receiver's type; any other valueless callee is a
+            // value that is not a function (`n(1)` for `n : i32`, E0606).
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(func_expr),
-                  `No matching call found with arguments:
-${ast_expr_to_string(expr)}`
+                cond(
+                  ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).None) => with_code(
+                    format_error_message(ast_expr_token(func_expr), _no_method_message(func_expr, ctx)),
+                    E_NO_MATCHING_CALL
+                  ),
+                  true => with_code(
+                    format_error_message(
+                      ast_expr_token(func_expr),
+                      `${ast_expr_to_string(func_expr)} is not callable: it has type ${type_to_string(callee_ty_none)}.`
+                    ),
+                    E_NOT_CALLABLE
+                  )
                 )
               )
             );

@@ -36,7 +36,7 @@ json :: import("std/encoding/json");
   E_ARGUMENT_COUNT_MISMATCH,
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
-  E_ARGUMENT_NOT_CALLABLE,
+  E_NOT_CALLABLE,
   E_MATCH_NOT_EXHAUSTIVE,
   E_MATCH_UNREACHABLE_ARM,
   E_INVALID_PATTERN,
@@ -48,11 +48,13 @@ json :: import("std/encoding/json");
   E_CONFLICTING_IMPL,
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
+  E_ARGUMENT_LABEL_MISMATCH,
   E_NEVER_FULLY_EVALUATED,
   E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
+  E_COMPTIME_DIVISION_BY_ZERO,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -351,8 +353,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "参数数量不匹配",
       "The call passes a different number of arguments than the callee takes.",
       "调用传入的参数数量与被调用方不一致。",
-      "The message shows `expected N, got M` against the resolved callee. Optional arguments are not a Yo feature — wrap the variations in separate functions or pass an options struct. For closures note that the count includes every parameter, including the receiver for methods.",
-      "错误信息会针对解析到的被调用方显示 `expected N, got M`。Yo 没有可选参数 —— 请把变体拆成独立函数，或传入选项结构体。注意计数包括所有参数（方法的计数含接收者）。",
+      "The message shows `expected N, got M` against the resolved callee, or names the one missing field of a constructor call (`P(x : 1)` for a `P` with fields `x` and `y`). Only a parameter or field declared with a default (`(x : T) ?= v`) may be left out. For closures note that the count includes every parameter, including the receiver for methods.",
+      "错误信息会针对解析到的被调用方显示 `expected N, got M`，或指出构造器调用缺少的那个字段（`P` 有字段 `x` 和 `y` 时的 `P(x : 1)`）。只有声明了默认值的参数或字段（`(x : T) ?= v`）可以省略。注意计数包括所有参数（方法的计数含接收者）。",
       "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2), i32(3));\n",
       "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2));\n",
       "`f` takes two arguments; three were passed.",
@@ -391,13 +393,13 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
-      E_ARGUMENT_NOT_CALLABLE,
-      "argument is not callable",
-      "实参不可调用",
-      "A parameter declared `Impl(Fn(...))` was given a value that cannot be called.",
-      "声明为 `Impl(Fn(...))` 的参数收到了一个无法调用的值。",
-      "An `Impl(Fn(...))` parameter is a callable slot: the callee invokes it. Only a function value fits — a closure (`x => ...`), an arrow literal (`(x) -> ...`), a named `fn` passed by name, or another `Impl(Fn(...))` / `Dyn(Fn(...))` value. An integer, string, struct or enum has no code to jump to, so it is rejected here rather than lowered into a function-pointer call. The same rule applies to `io.async(...)`, whose `action` parameter is an ordinary `Impl(Fn(e : E) -> T)` slot: pass a closure, never a bare block or a value.",
-      "`Impl(Fn(...))` 参数是可调用槽位：被调函数会调用它。只有函数值才合适 —— 闭包（`x => ...`）、箭头字面量（`(x) -> ...`）、按名字传入的具名 `fn`，或另一个 `Impl(Fn(...))` / `Dyn(Fn(...))` 值。整数、字符串、结构体或枚举没有可跳转的代码，因此在此处直接报错，而不是把它降级成函数指针调用。同样的规则适用于 `io.async(...)`：它的 `action` 参数就是普通的 `Impl(Fn(e : E) -> T)` 槽位，必须传闭包，不能传裸代码块或普通值。",
+      E_NOT_CALLABLE,
+      "value is not callable",
+      "值不可调用",
+      "A value that is not a function is called, or is passed where a function is expected.",
+      "调用了一个不是函数的值，或把它传给了期望函数的位置。",
+      "Only a function value can be called: `n(1)` where `n : i32` has nothing to call, and a type is callable only as a conversion (`i32(x)`) or a constructor (`P(x : 1)`, `Box(i32)(v)`) — `bool(true)` is neither, write `true`. An `Impl(Fn(...))` parameter is a callable slot: the callee invokes it. Only a function value fits — a closure (`x => ...`), an arrow literal (`(x) -> ...`), a named `fn` passed by name, or another `Impl(Fn(...))` / `Dyn(Fn(...))` value. An integer, string, struct or enum has no code to jump to, so it is rejected here rather than lowered into a function-pointer call. The same rule applies to `io.async(...)`, whose `action` parameter is an ordinary `Impl(Fn(e : E) -> T)` slot: pass a closure, never a bare block or a value.",
+      "只有函数值可以被调用：`n : i32` 时的 `n(1)` 没有可调用的东西；类型只能作为转换（`i32(x)`）或构造器（`P(x : 1)`、`Box(i32)(v)`）来调用 —— `bool(true)` 两者都不是，请直接写 `true`。`Impl(Fn(...))` 参数是可调用槽位：被调函数会调用它。只有函数值才合适 —— 闭包（`x => ...`）、箭头字面量（`(x) -> ...`）、按名字传入的具名 `fn`，或另一个 `Impl(Fn(...))` / `Dyn(Fn(...))` 值。整数、字符串、结构体或枚举没有可跳转的代码，因此在此处直接报错，而不是把它降级成函数指针调用。同样的规则适用于 `io.async(...)`：它的 `action` 参数就是普通的 `Impl(Fn(e : E) -> T)` 槽位，必须传闭包，不能传裸代码块或普通值。",
       "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(i32(5));",
       "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(x => (x + i32(5)));",
       "`i32(5)` is a number, not something `f(...)` can call.",
@@ -526,6 +528,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
+      E_COMPTIME_DIVISION_BY_ZERO,
+      "compile-time division by zero",
+      "编译期除以零",
+      "A compile-time `/` or `%` has a zero divisor.",
+      "编译期的 `/` 或 `%` 的除数为零。",
+      "When both operands are compile-time constants, Yo evaluates the division while compiling, and a zero divisor has no result. Fix the divisor, or guard the division so it is not evaluated with zero. At runtime the same operation traps.",
+      "当两个操作数都是编译期常量时，Yo 在编译时求值该除法，而除数为零没有结果。请修正除数，或加以保护，使其不会以零求值。运行时的同一运算会触发陷阱。",
+      "x :: (i32(7) / i32(0));\n",
+      "x :: (i32(7) / i32(1));\n",
+      "The divisor is the constant `0`.",
+      "除数是常量 `0`。"
+    )
+  );
+  out.push(
+    _mk_explain(
       E_MATCH_NOT_EXHAUSTIVE,
       "match is not exhaustive",
       "match 未覆盖所有情况",
@@ -642,6 +659,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));\nCat :: ref(struct(n : i32));\nimpl(Cat, Sp(speak : (self -> self.n), me : (self -> self)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  n := d.speak();\n});\n",
       "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
       "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_LABEL_MISMATCH,
+      "argument label does not match the parameter",
+      "实参标签与形参不符",
+      "An argument's label names a different parameter than the one at its position.",
+      "实参的标签指向的形参不是它所在位置的那个。",
+      "Arguments are positional. A label (`f(x : 1, y : 2)`) documents which parameter an argument is for and is checked against the parameter at that position; it never reorders the call. Pass the arguments in declaration order with their own labels, or drop the labels. A parameter declared without a label takes an unlabeled argument.",
+      "实参是按位置传递的。标签（`f(x : 1, y : 2)`）说明实参对应哪个形参，并与该位置上的形参核对；它从不改变参数顺序。请按声明顺序传参并写对应的标签，或者去掉标签。没有标签的形参只接受不带标签的实参。",
+      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(y : i32(2), x : i32(1));\n",
+      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(x : i32(1), y : i32(2));\n",
+      "The first parameter is `x`; the label `y` does not move the argument to `y`.",
+      "第一个形参是 `x`；标签 `y` 不会把实参挪到 `y`。"
     )
   );
   out

@@ -649,7 +649,7 @@ __yo_m17_end:;
 The arm-shape message `Expected ":" for match pattern` (`match.yo:1339`, a
 copy-paste of the cond message) becomes `Expected "=>" for match arm`.
 Diagnostic codes go through `src/diagnostics_registry.yo` (not
-message-substring matching — `issues/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`).
+message-substring matching — `issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`).
 
 ### 4.11 Where the code lives
 

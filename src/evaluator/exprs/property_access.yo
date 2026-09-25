@@ -44,6 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ unknown_field_message, unknown_variant_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -369,24 +370,6 @@ _try_resolve_associated_type :: (
 // ---------------------------------------------------------------------------
 // evaluate_property_access
 // ---------------------------------------------------------------------------
-/// `No field "xx" on P. Its fields: x, y.` with a did-you-mean.
-_unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : ArrayList(String)) -> String)({
-  list := String.new();
-  (fi : usize) = usize(0);
-  while(fi < fields.len(), {
-    if(fi > usize(0), {
-      list.push_str(", ");
-    });
-    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
-    fi = (fi + usize(1));
-  });
-  fields_note := cond(
-    (fields.len() == usize(0)) => String.from(" It has no fields."),
-    true => ` Its fields: ${list}.`
-  );
-  hint := match(suggest_name(label.clone(), fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
-  `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
-});
 evaluate_property_access :: (
   fn(
     expr : AstExpr,
@@ -508,7 +491,7 @@ evaluate_property_access :: (
                   dyn(
                     format_error_message_with_help(
                       ast_expr_token(prop_expr_1),
-                      `Enum variant "${variant_name_1}" not found in enum`,
+                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(exp_ctx_1.ty), en_vnames_1),
                       match(
                         suggest_name(variant_name_1, en_vnames_1),
                         .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
@@ -995,7 +978,7 @@ Raw pointer operations may dereference invalid memory.`
                 dyn(
                   format_error_message_with_help(
                     ast_expr_token(property_expr),
-                    `Enum variant "${variant_name_tv}" not found in enum`,
+                    unknown_variant_message(variant_name_tv.clone(), type_val_inner, tv_en_vnames),
                     match(
                       suggest_name(variant_name_tv, tv_en_vnames),
                       .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
@@ -1718,7 +1701,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!is_dot_callee(ast_expr_id(expr)), {
-              exn.throw(dyn(format_error_message(ast_expr_token(property_expr), _unknown_field_message(label_str, base_ty, fields_labels))));
+              exn.throw(dyn(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels))));
               return(expr);
             });
             // A method call — return without setting ExprInfo.

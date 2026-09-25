@@ -24,7 +24,8 @@ import("std/string");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { EvalValue } :: import("../../value.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, with_code } :: import("../../error.yo");
+{ E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 evaluate_va_start :: (
@@ -68,9 +69,12 @@ evaluate_va_start :: (
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(arg),
-                  `Variable '${var_name}' not found in the environment.`
+                with_code(
+                  format_error_message(
+                    ast_expr_token(arg),
+                    `Variable "${var_name}" not found.`
+                  ),
+                  E_VARIABLE_NOT_FOUND
                 )
               )
             );
@@ -112,9 +116,12 @@ evaluate_va_start :: (
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(arg),
-                  `Variable '${var_name}' not found in the environment.`
+                with_code(
+                  format_error_message(
+                    ast_expr_token(arg),
+                    `Variable "${var_name}" not found.`
+                  ),
+                  E_VARIABLE_NOT_FOUND
                 )
               )
             );
