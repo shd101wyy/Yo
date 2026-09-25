@@ -507,7 +507,7 @@ expect_expr_to_have_been_evaluated :: (
 /// is marked): per-path move state for `cond`/`match` joins and loops. A
 /// compiler temp's "consumed" mark is ownership bookkeeping, not a move.
 _log_user_move :: (fn(v : Variable, tok : Token, env : Environment) -> unit)({
-  if(!(is_temp_variable_name(env.module_path, v.name)), {
+  if(!is_temp_variable_name(env.module_path, v.name), {
     record_branch_consume(v.id, tok, v.initialized_at_token, match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct.*), .None => Option(Token).None));
   });
 });
@@ -815,7 +815,11 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
   fn(
     rhs : AstExpr,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// Dup even when the argument's variable OWNS its value: the same call
+    /// passes that variable `inout`, so the callee can replace the value the
+    /// argument borrows (`argument_is_aliased_by_inout`, calls/helper.yo).
+    (force : bool) ?= false
   ) -> Option(AstExpr)
 )({
   var_name_opt := match(
@@ -850,7 +854,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
         find_variable_in_env(ei.env, variable_name),
         .None => (),
         .Some(v) => {
-          if(v.is_owning_the_rc_value, {
+          if(v.is_owning_the_rc_value && !force, {
             return(Option(AstExpr).None);
           });
           // SYNTHESIZE the evaluated dup form instead of evaluating it.

@@ -166,9 +166,13 @@ never affects the result.
 argument and an `own` argument** (`use_and_sink(h.s, h)` with
 `own(victim)` is rejected) — `own` moves the caller's count into a
 callee that could release it while the borrow is still in use. Distinct
-objects are fine. By-value overlap is fine too: a borrowed handle can
-never release the caller's count (forwarding it to an `own` position
-dups first).
+objects are fine. A by-value argument that overlaps an `inout` one is
+kept alive for the call: the callee can replace the `inout` variable's
+value, which would release the value the by-value argument borrows
+(`clobber(x, x)` with `fn(inout(a) : S, b : S)`), so that argument gets a
+caller-owned `+1` until the call returns, like an overlapping field
+projection. A borrowed handle itself never releases the caller's count
+(forwarding it to an `own` position dups first).
 
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.

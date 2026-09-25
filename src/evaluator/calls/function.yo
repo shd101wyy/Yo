@@ -156,7 +156,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -6570,7 +6570,19 @@ Fix: wrap the call:
             // moved or projected by it.
             if(!(du_frame_pushed), {
               match(
-                consume_argument_for_parameter(evaled_arg, arg_expr_eff, arg_info, fv_p_owning, fv_p_is_ct, fv_p_is_ref, fv_callee_is_extern, env, ctx, exn),
+                consume_argument_for_parameter(
+                  evaled_arg,
+                  arg_expr_eff,
+                  arg_info,
+                  fv_p_owning,
+                  fv_p_is_ct,
+                  fv_p_is_ref,
+                  fv_callee_is_extern,
+                  env,
+                  ctx,
+                  exn,
+                  argument_is_aliased_by_inout(arg_expr_eff, fv_p_is_ref, inout_argument_roots(fv_args, fv_param_is_ref))
+                ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);
                   fv_s0_marked_args.push(evaled_arg);
