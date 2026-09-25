@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
@@ -364,17 +364,7 @@ try_to_call_type_with_arguments :: (
               // re-raise: skip during checking-phase trials and cee-propagate
               // mode, and when a flag is already pending.
               mf_msg := `Type member "${field.label}" is not provided and has no default value or assigned value.`;
-              if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
-                flag_flow_violation(mf_msg.clone());
-              });
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(function_callee_expr),
-                    mf_msg
-                  )
-                )
-              );
+              raise_flow_violation(format_error_message(ast_expr_token(function_callee_expr), mf_msg), ctx, exn);
             }, {
               // Use default or assigned value.
               default_val := cond(

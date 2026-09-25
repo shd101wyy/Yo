@@ -184,7 +184,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -3302,17 +3302,7 @@ _evaluate_funcval_runtime_call :: (
                     // codegen an unresolved receiver type it splices verbatim
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
                     _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"${dyn_upcast_note(_ac_pty, _ac_aty)}${same_name_note(_ac_pty, _ac_aty)}`;
-                    if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
-                      flag_flow_violation(_ac_mmsg.clone());
-                    });
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(expr),
-                          _ac_mmsg
-                        )
-                      )
-                    );
+                    raise_flow_violation(format_error_message(ast_expr_token(expr), _ac_mmsg), ctx, exn);
                   });
                 },
                 .None => ()

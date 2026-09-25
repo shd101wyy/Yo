@@ -39,7 +39,7 @@
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
-{ format_error_message, error_message_text } :: import("../error.yo");
+{ format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
@@ -48,44 +48,37 @@
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
-/// A 1-element mutable box flagging that an error thrown during a swallowed
-/// def-time body eval is a deliberate flow-soundness REJECTION (a
-/// `inout(name) := …` non-flowable RHS), not an unported-feature eval error.
+/// A 1-element mutable box holding the error thrown during a swallowed
+/// def-time body eval when it is a deliberate REJECTION (a flow-soundness
+/// `inout(name) := …` non-flowable RHS, an argument that does not fit its
+/// parameter, …), not an unported-feature eval error.
 /// `_trial_eval_fn_body`'s handler cannot capture the real outer `exn` (effect
-/// handlers are capture-free `->` functions), so instead: the binding-site
-/// flags the violation before throwing; the throw is swallowed as usual; then
-/// the def-time CALLER re-raises it via the real `exn` after the trial eval
-/// returns. An `ArrayList` mutated only inside the top-level
-/// `flag_/clear_` fns is used rather than a reassignable global, because this
-/// very source forbids reassigning a module-level global from
-/// inside a closure.
-(g_flow_violation_box : ArrayList(bool)) = ArrayList(bool).new();
-/// Parallel 1-element box holding the rejection's message, so the def-time
-/// caller re-raises the SAME diagnostic the swallowed throw would have.
-(g_flow_violation_msg : ArrayList(String)) = ArrayList(String).new();
-/// Mark that the error about to be thrown is a flow-soundness rejection,
-/// recording its message for the def-time re-raise.
-flag_flow_violation :: (fn(msg : String) -> unit)({
+/// handlers are capture-free `->` functions), so instead: the raise site flags
+/// the error before throwing it; the throw is swallowed as usual; then the
+/// def-time CALLER re-raises the SAME error via the real `exn` after the trial
+/// eval returns. The box holds the whole `YoError`, so the re-raise keeps the
+/// raise site's span, code and notes (it used to hold only the message, and
+/// the re-raise anchored every such error on the enclosing function's body).
+/// An `ArrayList` mutated only inside the top-level `flag_/clear_` fns is used
+/// rather than a reassignable global, because this very source forbids
+/// reassigning a module-level global from inside a closure.
+(g_flow_violation_box : ArrayList(YoError)) = ArrayList(YoError).new();
+/// Record `err` as a rejection for the def-time re-raise (unguarded: the
+/// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
+flag_flow_violation :: (fn(err : YoError) -> unit)({
   g_flow_violation_box.clear();
-  g_flow_violation_box.push(true);
-  g_flow_violation_msg.clear();
-  g_flow_violation_msg.push(msg);
+  g_flow_violation_box.push(err);
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
 clear_flow_violation :: (fn() -> unit)({
   g_flow_violation_box.clear();
-  g_flow_violation_msg.clear();
   ()
 });
-/// True iff a flow-soundness rejection was flagged since the last reset.
-flow_violation_pending :: (fn() -> bool)(
-  match(g_flow_violation_box.get(usize(0)), .Some(v) => v, .None => false)
-);
-/// The flagged rejection's message (empty if none).
-flow_violation_message :: (fn() -> String)(
-  match(g_flow_violation_msg.get(usize(0)), .Some(m) => m, .None => String.from(""))
-);
+/// True iff a rejection was flagged since the last reset.
+flow_violation_pending :: (fn() -> bool)(g_flow_violation_box.len() > usize(0));
+/// The flagged rejection, for the def-time caller to re-raise.
+flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.get(usize(0)));
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
 /// (the def-eval wall: it masks def-time body-eval errors so
@@ -139,6 +132,18 @@ cee_observed_error :: (fn() -> bool)(
 propagate_def_time_errors :: (fn() -> bool)(
   match(g_propagate_def_time_errors_box.get(usize(0)), .Some(v) => v, .None => false)
 );
+/// Throw `err`, a deliberate user-facing rejection, flagging it first so a
+/// definition-time swallow re-raises it at `check` time. Not flagged during
+/// an overload trial (`is_in_function_call_checking_phase`: rejection is HOW
+/// candidates are filtered), in `comptime_expect_error` propagate mode (the
+/// throw itself reaches that catch), or when an earlier rejection is pending
+/// (the first one is the one to report).
+raise_flow_violation :: (fn(err : YoError, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
+    flag_flow_violation(err);
+  });
+  exn.throw(dyn(err));
+});
 /// Options refining the base R1–R4 rule.
 FlowOptions :: ref(
   struct(
@@ -1021,7 +1026,8 @@ export(
   flag_flow_violation,
   clear_flow_violation,
   flow_violation_pending,
-  flow_violation_message,
+  flow_violation_error,
+  raise_flow_violation,
   alias_group_root,
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,
