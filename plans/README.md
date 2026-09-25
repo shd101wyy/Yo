@@ -45,6 +45,8 @@ verifier's design, V1–V7 landed),
 [`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
+[`BUILD_ON_8GB_MACHINES`](backlog/BUILD_ON_8GB_MACHINES.md) follows
+`EVALUATOR_MEMORY_REDUCTION` once that closes.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
