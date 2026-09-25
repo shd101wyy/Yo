@@ -30,6 +30,7 @@
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
+  E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
@@ -133,6 +134,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("Module field \"")), {
     return(_coded(E_MODULE_FIELD_NOT_FOUND));
+  });
+  if(msg.starts_with(String.from("No field \"")), {
+    return(_coded(E_FIELD_NOT_FOUND));
   });
   if(msg.contains(String.from("is not defined.")) || msg.contains(String.from("is not initialized")), {
     return(_coded(E_NOT_DEFINED));

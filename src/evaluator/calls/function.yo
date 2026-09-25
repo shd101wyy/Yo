@@ -106,7 +106,9 @@ pragma(Pragma.AllowUnsafe);
   force_pending_impls_for_type_name,
   type_head_name_for_impl_forcing,
   flag_pending_impl_force_error,
-  take_pending_impl_force_error
+  take_pending_impl_force_error,
+  mark_dot_callee,
+  unmark_dot_callee
 } :: import("../context.yo");
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -4734,6 +4736,13 @@ evaluate_function_call :: (
   // incr here. `___dup` (NOT `.clone()`, which mints a new node with the SAME id
   // → ExprInfo id-collision / heap corruption) keeps the id so
   // `ast_expr_id(evaluated_callee)` still resolves its ExprInfo.
+  // A dot callee (`p.m` in `p.m(x)`) that names no field is a method call;
+  // everywhere else a field miss is an error (`is_dot_callee`,
+  // evaluator/context.yo).
+  callee_is_marked_dot := (given_value.is_none() && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).None));
+  if(callee_is_marked_dot, {
+    mark_dot_callee(ast_expr_id(func_expr));
+  });
   evaluated_callee := ___dup(
     match(
       given_value,
@@ -4746,6 +4755,9 @@ evaluate_function_call :: (
       .None => evaluate_expression_raw(func_expr, env, ctx, exn)
     )
   );
+  if(callee_is_marked_dot, {
+    unmark_dot_callee();
+  });
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct
   // (an `impl({...})` operator module), select the winning `Call` candidate

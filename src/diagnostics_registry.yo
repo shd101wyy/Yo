@@ -28,6 +28,7 @@ json :: import("std/encoding/json");
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
+  E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
@@ -266,6 +267,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "fmt :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  fmt.println(\"x\");\n});\nexport(main);\n",
       "`std/fmt` exports `println`, not `printlnn`.",
       "`std/fmt` 导出的是 `println`，不是 `printlnn`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_FIELD_NOT_FOUND,
+      "no such field",
+      "没有这个字段",
+      "A field read names no field of the struct, tuple or union.",
+      "字段读取所用的名字不是该结构体、元组或联合体的字段。",
+      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses.",
+      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.xx;\n});\nexport(main);\n",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.x;\n});\nexport(main);\n",
+      "`P` has the fields `x` and `y`; `xx` is neither.",
+      "`P` 的字段是 `x` 和 `y`；`xx` 两者都不是。"
     )
   );
   out.push(

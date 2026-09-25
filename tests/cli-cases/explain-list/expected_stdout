@@ -21,6 +21,7 @@ E0606  argument is not callable
 E0901  use of moved value
 E0902  cannot reassign
 E0903  variable may be uninitialized
+E0904  not supported in an io.async body that awaits
 E0905  body was never fully evaluated
 E0906  forward reference
 E1101  comptime argument error
@@ -56,6 +57,42 @@ Example — write this instead:
 Run 'yo explain --list' for all codes.
 rc=0
 $ yo explain E0904
-yo: error: explain: unknown error code 'E0904'
-help: did you mean 'E0004'? Run 'yo explain --list' for all codes.
-rc=1
+E0904 — not supported in an io.async body that awaits
+
+An `io.async` body that awaits is lowered to a state machine, and a few constructs cannot be placed in one yet.
+
+An `io.await` must stand as a statement, as the value of `x := ...` or `x = ...`, as a `cond`/`match` arm value, as the FIRST `cond` condition, or inside a `while` body; hoist any other await into a local first (`r := io.await(f, io);`). An `if` whose body awaits must be written as the `cond` it expands to. A `match` whose arms await takes only plain variant patterns: bind the payload and match again inside the arm. An `inout(name) := ...` binding cannot live in such a body, because the state machine keeps a per-state copy of each local; read the value into a local instead.
+
+Example — this fails:
+  inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+  outer :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async((e : Io) => {
+      x := i32(1);
+      inout(y) := x;
+      z := e.await(inner(e, y), e);
+      y = z;
+      x
+    })
+  );
+  main :: (fn(io : Io) -> unit)({
+    _v := io.await(outer(io), io);
+  });
+  export(main);
+  
+Example — write this instead:
+  inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+  outer :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async((e : Io) => {
+      x := i32(1);
+      z := e.await(inner(e, x), e);
+      (x + z)
+    })
+  );
+  main :: (fn(io : Io) -> unit)({
+    _v := io.await(outer(io), io);
+  });
+  export(main);
+  
+  The await-position rules are enforced where the state machine is built, so `yo compile` reports them; the `inout` binding is reported by `yo check` too.
+Run 'yo explain --list' for all codes.
+rc=0
