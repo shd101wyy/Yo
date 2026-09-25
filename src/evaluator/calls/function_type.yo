@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
-{ type_contains_some_type_for_codegen_param, impl_param_unmet_trait } :: import("../trait_checking.yo");
+{ type_contains_some_type_for_codegen_param, impl_param_unmet_trait, judge_function_argument_markers } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
   flow_options_default,
@@ -1728,8 +1728,19 @@ Result type: ${type_to_string(result_box)}`
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
                 if(!(has_any_control_flow(ub_info.control_flow)), {
+                  // A FUNCTION result's marker traits come from the returned
+                  // value (rules D4 + D1, `judge_function_argument_markers`).
+                  ub_fam := judge_function_argument_markers(result_box, ub_ty, ub_info.value, flow_env, ctx);
                   match(
-                    impl_param_unmet_trait(result_box, ub_ty, flow_env),
+                    ub_fam.offense,
+                    .Some(ub_fo) => {
+                      mark_fn_unemittable(fn_val_id.clone());
+                      exn.throw(dyn(format_error_message(ast_expr_token(fb), `The body's value (type ${type_to_string(ub_ty)}) cannot be returned as ${type_to_string(result_box)}: ${ub_fo}.`)));
+                    },
+                    .None => ()
+                  );
+                  match(
+                    impl_param_unmet_trait(result_box, ub_ty, flow_env, ub_fam.judged),
                     .Some(ub_rt) => {
                       mark_fn_unemittable(fn_val_id.clone());
                       exn.throw(dyn(format_error_message(ast_expr_token(fb), _impl_result_unmet_message(ub_ty, ub_rt, result_box))));
@@ -2033,8 +2044,20 @@ Result type: ${type_to_string(result_box)}`
                   // `Q` without `Foo` passed `check` and reached codegen as an
                   // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
                   if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
+                    dg_fam := judge_function_argument_markers(dg_expected, dg_trial_ty, dg_info.value, dg_env, ctx);
                     match(
-                      impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env),
+                      dg_fam.offense,
+                      .Some(dg_fo) => {
+                        dg_fam_msg := `The body's value (type ${type_to_string(dg_trial_ty)}) cannot be returned as ${type_to_string(dg_expected)}: ${dg_fo}.`;
+                        if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                          flag_flow_violation(dg_fam_msg.clone());
+                        });
+                        exn.throw(dyn(format_error_message(tok, dg_fam_msg)));
+                      },
+                      .None => ()
+                    );
+                    match(
+                      impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env, dg_fam.judged),
                       .Some(dg_rt) => {
                         dg_bound_msg := _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected);
                         if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {

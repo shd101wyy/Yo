@@ -431,44 +431,6 @@ function_value_marker :: (
   });
   if(found, Option(Option(String)).Some(Option(String).None), Option(Option(String)).None)
 });
-/// The marker traits (`Send`, `Acyclic`) of an `Impl(...)` PARAMETER, judged
-/// from the argument's VALUE when it is a function (both call paths, before
-/// `impl_param_unmet_trait`, which then skips them when `judged`).
-FunctionArgMarkers :: struct(judged : bool, offense : Option(String));
-judge_function_argument_markers :: (
-  fn(param_type : TypeValue, arg_type : TypeValue, arg_value : Option(EvalValue), env : Environment, ctx : EvalContext) -> FunctionArgMarkers
-)({
-  (judged : bool) = false;
-  match(
-    param_type,
-    .SomeT({ name : pn, required_trait_types : prtts, is_effects_row : prow }) => if((pn == "Impl") && !prow, {
-      (pi : usize) = usize(0);
-      while(pi < prtts.len(), {
-        match(
-          prtts.get(pi),
-          .Some(pt) => match(
-            function_value_marker(arg_type, arg_value, pt, env, ctx),
-            .Some(v) => {
-              judged = true;
-              match(
-                v,
-                .Some(o) => {
-                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(pt)}: ${o}`)));
-                },
-                .None => ()
-              );
-            },
-            .None => ()
-          ),
-          .None => ()
-        );
-        pi = (pi + usize(1));
-      });
-    }),
-    _ => ()
-  );
-  FunctionArgMarkers(judged : judged, offense : Option(String).None)
-});
 /// Install `function_value_marker` in `context.yo`'s slot (called once from
 /// `register_evaluate_expression`).
 register_function_value_marker :: (fn() -> unit)({
@@ -1007,7 +969,7 @@ export(consume_captured_variables);
 export(build_path_collection_from_captured_variables);
 export(validate_capture_trait_requirements);
 export(validate_send_closure_global_reach);
-export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, FunctionArgMarkers, judge_function_argument_markers);
+export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id);
 export(enrich_captured_variables);
 export(create_capture_type_and_value);
 export(generate_captured_variable_dup_expressions);

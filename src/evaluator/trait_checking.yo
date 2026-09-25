@@ -39,9 +39,10 @@ pragma(Pragma.AllowUnsafe);
   get_all_some_types
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
-{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
+{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type, copy_frames } :: import("../env.yo");
 { Token } :: import("../token.yo");
+{ EvalValue } :: import("../value.yo");
 { YoError, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
@@ -1679,6 +1680,45 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
     _ => Option(TypeValue).None
   )
 );
+/// The marker traits (`Send`, `Acyclic`) of an `Impl(...)` PARAMETER, judged
+/// from the argument's VALUE when it is a function (both call paths, before
+/// `impl_param_unmet_trait`, which then skips them when `judged`), and the
+/// same for a function's `Impl(...)` RESULT and its body's value.
+FunctionArgMarkers :: struct(judged : bool, offense : Option(String));
+judge_function_argument_markers :: (
+  fn(param_type : TypeValue, arg_type : TypeValue, arg_value : Option(EvalValue), env : Environment, ctx : EvalContext) -> FunctionArgMarkers
+)({
+  (judged : bool) = false;
+  match(
+    param_type,
+    .SomeT({ name : pn, required_trait_types : prtts, is_effects_row : prow }) => if((pn == "Impl") && !prow, {
+      (pi : usize) = usize(0);
+      while(pi < prtts.len(), {
+        match(
+          prtts.get(pi),
+          .Some(pt) => match(
+            call_function_value_marker(arg_type, arg_value, pt, env, ctx),
+            .Some(v) => {
+              judged = true;
+              match(
+                v,
+                .Some(o) => {
+                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(pt)}: ${o}`)));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    }),
+    _ => ()
+  );
+  FunctionArgMarkers(judged : judged, offense : Option(String).None)
+});
 /// The shared E0602 text for an argument that misses a trait of its
 /// `Impl(...)` parameter (both call paths emit it verbatim).
 impl_argument_unmet_trait_message :: (
@@ -2176,7 +2216,7 @@ export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
-export(impl_param_unmet_trait, impl_argument_unmet_trait_message);
+export(impl_param_unmet_trait, impl_argument_unmet_trait_message, FunctionArgMarkers, judge_function_argument_markers);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);

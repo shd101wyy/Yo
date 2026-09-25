@@ -112,13 +112,65 @@ with "the callee may write through that inout parameter" on the call forms.
 
 ## D4 — A closure type is `Send` iff its capture struct is, wherever the question is asked
 
-**Status:** LANDED 2026-09-26 (Phase 4, in the Phase 6 PR): `validate_where_constraints_for_call`
-(`src/evaluator/calls/helper.yo`) judges a closure-typed bound by its capture struct.
+**Status:** LANDED 2026-09-26 (Phase 4, in the Phase 6 PR): every where-clause path
+(`validate_where_constraints_for_call`, and `validate_concrete_type_constraints` /
+`apply_single_trait_constraint` / `parse_where_clause_constraints` in
+`src/evaluator/types/function.yo`) judges a closure-typed bound by its values. Its last sentence
+("a bare `fn` pointer stays `Send`") was superseded by D9.
 
 Rust's auto-trait rule, applied uniformly: at the spawn boundary (already), and when a
 `where(T <: Send)` / `where(T <: Acyclic)` is discharged with `T` instantiated from a closure
-type (`arc(f)`, `Channel(typeof(f))`, a generic `g(f)`). A bare `fn` pointer with no capture
-info stays `Send` and `Acyclic`.
+type (`arc(f)`, `Channel(typeof(f))`, a generic `g(f)`). A bare `fn` pointer is `Acyclic`;
+whether it is `Send` is D9's question.
+
+## D9 — A function value is `Send` iff what it captures is and what its code reaches is
+
+**Status:** LANDED 2026-09-26 (closing `plans/archive/PARALLELISM_SOUNDNESS.md`):
+`function_value_marker` (`src/evaluator/utils/closure.yo`), reached from `trait_checking.yo`
+and `types/function.yo` through `call_function_value_marker` (`src/evaluator/context.yo`).
+
+D1 walks the code a closure LITERAL runs when the literal is created in a `Send` slot. Nothing
+walked the code of a function that reached another thread any other way. A named function
+passed to `Thread.spawn`; a closure bound first to a plain local, then handed to `arc`, a
+`where(T <: Send)` binder or an `Impl(Fn, Send)` parameter; a function stored in a struct and
+read back on the thread: each of these ran code that raced on a non-`Send` global, with no
+diagnostic (`issues/fixed/function-values-bypass-the-d1-reach-walk.md`). A function type
+cannot answer the question, because two functions of one signature share the type and a
+closure that captures nothing still runs code.
+
+The rule: **a function value holds `Send` iff its captured state does (D4) and its code reaches
+no thread-affine module global (D1's walk). `Acyclic` is D4 alone.** The value decides wherever
+the value is known:
+
+- **An argument to an `Impl(..., Send)` parameter:** the argument's value, both call paths,
+  before the type-level check.
+- **A `where(T <: Send)` binder bound to a function type:** the callee's parameters bound to
+  that type, then the closures created against a closure's `Impl(Fn...)` SomeT (a registry
+  keyed by the SomeT's id, which a specialization's fresh binder aliases).
+- **A variable captured by a `Send` closure:** the captured value.
+
+A closure is walked when it is CREATED, with its defining env, in every slot, not only a `Send`
+one. The verdict is memoized by function id, so a later judgement that has only the closure's
+type reads the verdict taken where the closure's local callees resolve.
+
+Where no value is known, the type decides: a bare `fn(...)` type is **not `Send`**. That covers
+a struct field, a collection element, a `Channel(fn() -> unit)` payload and a parameter of bare
+`fn` type forwarded on. This is Swift's rule for plain function types, and it is what closes
+the struct route: a function inside a struct lost its identity where it was stored. A closure
+`Impl(Fn(...))` type with no value found is judged by what it declares, as before.
+`Impl(Fn(...), Send)` is the function type that carries the obligation, discharged where the
+value was converted into it.
+
+Within a walked body, a function used as a VALUE (passed along, bound to a local, read from a
+module field) is walked as if called: whatever receives it may call it, and that call has no
+compile-time callee.
+
+Rejected:
+
+- **"Every function value must be reach-free."** It rejects every single-threaded callback over
+  a global, a compiler dispatch table included.
+- **A runtime affinity trap on thread-affine globals** (Swift's dynamic isolation checks). It
+  is sound, but the compiler would no longer be the gate.
 
 ## D5 — `std/sync` primitives trap, never UB
 
