@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.12 exclusive shares): the derived-FuncVal capture copies (~0.4 GB across `g_funcval_cap_vars` and `g_ifc_memo`, §0.7), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: re-take the exclusive shares on the §0.13 compiler (the remaining derived copies are one value list and one handle prefix each — §0.7's full prefix sharing), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1596,6 +1596,58 @@ largest exclusive holder, in two registries: `g_funcval_cap_vars` 220 MB plus
 most of `g_ifc_memo`'s 198 MB (its FuncVals' `cap_names` 91 MB,
 `cap_tys` 46 MB, `cap_vals` 46 MB). That is §0.7's prefix-sharing step,
 about 0.4 GB.
+
+### 0.13 Derived FuncVals stay aligned with their parent's handles (2026-09-25)
+
+§0.12's largest exclusive holders were the derived-FuncVal capture copies.
+Each specialization, ctl instance and impl-generic injection copied four lists
+to append one to three bindings: the original's whole handle list,
+`cap_names`, `cap_tys` and `cap_vals`. In the compiler's modules, a
+module-level function captures ~1,780 bindings.
+
+The flat names/types existed only because the inherited handle list was not
+parallel to the values (§0.7). It carried definitions `adopt_resolved_definition`
+appended to the original's capture frame after its capture, between the
+original's positions and the derived bindings. A derivation now takes only
+the parent's first `n_vals` handles, the ones naming the values it copies,
+when the parent is aligned: `cap_names` empty and at least that many handles
+(`aligned_derived_capture_handles`, `src/env.yo`). It appends one handle per
+value it appends, so it is aligned too, and reads names/types through its
+handles like a definition-site FuncVal. A definition it leaves out is
+re-resolved by a lookup miss in its capture env, as it was for the parent. A
+derivation from a flat parent keeps the flat lists.
+
+`check src/main.yo`, A/B on the same base (c0af6bb1f): **2,069 → 1,551 MB
+peak footprint (−518 MB, −25 %)**, same wall; emitted C byte-identical (149.1 MB).
+On Linux (the CI ratchets, now re-baselined): `check src/main.yo` max RSS
+**2,389,284 → 1,852,336 kB**, and the whole compiler build under the 8 GB
+cgroup **5,090,248 → 4,523,776 kB** (4.85 → 4.31 GiB).
+Test: `tests/internal/module_invalidation.test.yo` "captures: a specialization of a
+handle-backed FuncVal stores no flat capture lists" (13,594 flat names with the
+rule disabled, 0 with it).
+
+**Exclusive shares re-taken on this compiler** (`HOLDER_DEEP_LAST`, `check
+src/main.yo`): `g_macro_expansions` 218 → 3 MB (#915), `g_ifc_memo` 198 →
+77 MB, `g_specialized_fn_caches` 8 MB. `g_funcval_cap_vars` still holds
+**218 MB exclusively**, and 207 MB of that is 14,732 `ArrayList(Variable)` of
+~1,760 handles each. The `Variable`s are shared (4 MB); the cost is one private
+handle list per FuncVal, definition-site ones included.
+`try_to_implement_function_by_function_type` (and its twin in
+`anonymous_function.yo`) copies every variable of every frame of the defining
+env into `cap_vars`, beside a `cap_vals` snapshot of the same length.
+
+**Next lever: frame-slice captures.** A module-level function's capture list
+is a prefix of its defining frames' `variables` lists, and so is every other
+function's in that module. Recording `(frame list, length)` slices instead of
+copies would remove the ~0.2 GB of handle lists, and the `cap_vals` snapshots
+next to them if the value side can follow. Four constraints decide the design:
+- `cap_vals` is a snapshot. A forward-declared comptime fn filled later reads
+  `VarRef` at capture time, so values cannot simply be read from the live
+  handles.
+- The slice length is the snapshot bound that ordered runtime globals (the
+  E0906 forward-reference rule) rely on.
+- The `__recur_fn` binder is skipped, which breaks the prefix shape.
+- `adopt_resolved_definition` appends to the capture frame through the alias.
 
 ## 6. Gates (every phase)
 

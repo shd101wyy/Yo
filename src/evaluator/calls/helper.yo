@@ -46,6 +46,7 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   capture_env_for,
   get_funcval_cap_vars,
+  aligned_derived_capture_handles,
   fv_capture_names,
   fv_capture_tys,
   fv_capture_has_name,
@@ -1616,6 +1617,38 @@ specialization_cache_count :: (fn() -> usize)({
       g_specialized_fn_caches.get(ei),
       .Some(entry) => {
         n = (n + entry.caches.len());
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  n
+});
+/// Flat capture names held by cached specializations (`cap_names` entries
+/// summed). An aligned derivation stores none (`aligned_derived_capture_handles`);
+/// the capture-alignment test's probe.
+specialization_flat_capture_count :: (fn() -> usize)({
+  (n : usize) = usize(0);
+  (ei : usize) = usize(0);
+  while(ei < g_specialized_fn_caches.len(), {
+    match(
+      g_specialized_fn_caches.get(ei),
+      .Some(entry) => {
+        (ci : usize) = usize(0);
+        while(ci < entry.caches.len(), {
+          match(
+            entry.caches.get(ci),
+            .Some(c) => match(
+              c.specialized_func_value,
+              .FuncVal(__sfd, _) => {
+                n = (n + __sfd.*.cap_names.len());
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
       },
       .None => ()
     );
@@ -3322,40 +3355,54 @@ create_specialized_function_inline :: (
           // the generic-binding Variables looked up below — so its calls
           // build the capture env from handles too. If the original never
           // registered (env_key 0), stay on the flat fallback.
-          new_cap_vars := ArrayList(Variable).new();
+          (new_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
           (new_env_key : usize) = usize(0);
           (have_cap_vars : bool) = false;
+          n_oc := cap_vals.len();
+          // ALIGNED when the original's handles name its values one-to-one: take
+          // exactly those, append one per binding below, and store no flat
+          // names/types (`aligned_derived_capture_handles`, memory plan §0.13).
+          // Otherwise the inherited list may carry definitions
+          // `adopt_resolved_definition` appended to the original's capture frame
+          // between its positions and the bindings appended below, so it is not
+          // parallel to `cap_vals` and the names/types stay flat (§0.7).
+          (spec_aligned : bool) = false;
           match(
-            get_funcval_cap_vars(__fvm2.*.env_key),
-            .Some(pv) => {
+            aligned_derived_capture_handles(__fvm2.*, n_oc),
+            .Some(aligned_handles) => {
               have_cap_vars = true;
-              (pvi : usize) = usize(0);
-              while(pvi < pv.len(), {
-                match(
-                  pv.get(pvi),
-                  .Some(ph) => {
-                    new_cap_vars.push(ph);
-                  },
-                  .None => ()
-                );
-                pvi = (pvi + usize(1));
-              });
+              spec_aligned = true;
+              new_cap_vars = aligned_handles;
             },
-            .None => ()
+            .None => match(
+              get_funcval_cap_vars(__fvm2.*.env_key),
+              .Some(pv) => {
+                have_cap_vars = true;
+                (pvi : usize) = usize(0);
+                while(pvi < pv.len(), {
+                  match(
+                    pv.get(pvi),
+                    .Some(ph) => {
+                      new_cap_vars.push(ph);
+                    },
+                    .None => ()
+                  );
+                  pvi = (pvi + usize(1));
+                });
+              },
+              .None => ()
+            )
           );
-          // Re-use existing captures from original function. A derived FuncVal
-          // keeps FLAT names/types: its inherited handle list may carry
-          // definitions `adopt_resolved_definition` appended to the original's
-          // capture frame, which sit between the original's positions and the
-          // bindings appended below — so its handles are not parallel to its
-          // `cap_vals` (memory plan §0.7). The original's names/types are read
-          // through its capture source (a definition-site FuncVal stores none).
+          // Re-use existing captures from original function. The original's
+          // names/types are read through its capture source (a definition-site
+          // FuncVal stores none).
           orig_src := fv_capture_source(__fvm2.*);
           (oci : usize) = usize(0);
-          n_oc := cap_vals.len();
           while(oci < n_oc, {
-            new_cap_names.push(fv_source_name(orig_src, oci));
-            new_cap_tys.push(fv_source_ty(orig_src, oci));
+            if(!(spec_aligned), {
+              new_cap_names.push(fv_source_name(orig_src, oci));
+              new_cap_tys.push(fv_source_ty(orig_src, oci));
+            });
             new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
             oci = (oci + usize(1));
           });
@@ -3381,8 +3428,10 @@ create_specialized_function_inline :: (
                   match(
                     ev.value.get(usize(0)),
                     .Some(v) => {
-                      new_cap_names.push(label);
-                      new_cap_tys.push(ev.ty);
+                      if(!(spec_aligned), {
+                        new_cap_names.push(label);
+                        new_cap_tys.push(ev.ty);
+                      });
                       new_cap_vals.push(v);
                       if(have_cap_vars, {
                         new_cap_vars.push(ev);
@@ -4283,35 +4332,44 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_vals := ArrayList(EvalValue).new();
   // Campaign 2 step 3: inherit the shared handle list + mint one capture
   // Variable per generic binding (see plans/backlog/FUNCVAL_ENV_SHARING.md).
-  ctl_cap_vars := ArrayList(Variable).new();
+  (ctl_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
   (ctl_env_key : usize) = usize(0);
   (ctl_have_vars : bool) = false;
-  match(
-    get_funcval_cap_vars(orig_env_key),
-    .Some(pv) => {
-      ctl_have_vars = true;
-      (pvi : usize) = usize(0);
-      while(pvi < pv.len(), {
-        match(
-          pv.get(pvi),
-          .Some(ph) => {
-            ctl_cap_vars.push(ph);
-          },
-          .None => ()
-        );
-        pvi = (pvi + usize(1));
-      });
-    },
-    .None => ()
-  );
-  // Flat names/types for the derivation (see the note in
-  // create_specialized_function_inline: a derived handle list is not parallel
-  // to its values); the original's are read through its capture source.
-  (oci : usize) = usize(0);
   n_oc := orig_cap_vals.len();
+  // Aligned or flat, as in create_specialized_function_inline.
+  (ctl_aligned : bool) = false;
+  match(
+    match(original_func_val, .FuncVal(__ctl_fvd, _) => aligned_derived_capture_handles(__ctl_fvd.*, n_oc), _ => Option(ArrayList(Variable)).None),
+    .Some(aligned_handles) => {
+      ctl_have_vars = true;
+      ctl_aligned = true;
+      ctl_cap_vars = aligned_handles;
+    },
+    .None => match(
+      get_funcval_cap_vars(orig_env_key),
+      .Some(pv) => {
+        ctl_have_vars = true;
+        (pvi : usize) = usize(0);
+        while(pvi < pv.len(), {
+          match(
+            pv.get(pvi),
+            .Some(ph) => {
+              ctl_cap_vars.push(ph);
+            },
+            .None => ()
+          );
+          pvi = (pvi + usize(1));
+        });
+      },
+      .None => ()
+    )
+  );
+  (oci : usize) = usize(0);
   while(oci < n_oc, {
-    ctl_cap_names.push(fv_source_name(orig_cap_src, oci));
-    ctl_cap_tys.push(fv_source_ty(orig_cap_src, oci));
+    if(!(ctl_aligned), {
+      ctl_cap_names.push(fv_source_name(orig_cap_src, oci));
+      ctl_cap_tys.push(fv_source_ty(orig_cap_src, oci));
+    });
     ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
@@ -4320,8 +4378,10 @@ evaluate_ctl_function_body_inline :: (
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
     ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
-    ctl_cap_names.push(fl3.clone());
-    ctl_cap_tys.push(ft3);
+    if(!(ctl_aligned), {
+      ctl_cap_names.push(fl3.clone());
+      ctl_cap_tys.push(ft3);
+    });
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     if(ctl_have_vars, {
       ctl_cap_vars.push(
@@ -7868,7 +7928,7 @@ export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter);
-export(purge_specialization_caches_owned_by, specialization_cache_count);
+export(purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);

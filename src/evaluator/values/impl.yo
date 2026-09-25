@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   synthetic_token,
   get_funcval_cap_vars,
+  aligned_derived_capture_handles,
   fv_capture_source,
   fv_source_name,
   fv_source_ty,
@@ -1914,32 +1915,45 @@ _inject_forall_captures :: (
             // Campaign 2 step 3: inherit the shared handle list; the
             // per-generic bindings appended below get minted capture
             // Variables (plans/backlog/FUNCVAL_ENV_SHARING.md).
-            new_cvars := ArrayList(Variable).new();
+            (new_cvars : ArrayList(Variable)) = ArrayList(Variable).new();
             (ifc_env_key : usize) = usize(0);
             (ifc_have_vars : bool) = false;
+            // Aligned or flat, as in create_specialized_function_inline
+            // (`aligned_derived_capture_handles`, memory plan §0.13).
+            (ifc_aligned : bool) = false;
             match(
-              get_funcval_cap_vars(ifc_orig_env_key),
-              .Some(pv) => {
+              aligned_derived_capture_handles(__fvm9.*, cvs.len()),
+              .Some(aligned_handles) => {
                 ifc_have_vars = true;
-                (pvj : usize) = usize(0);
-                while(pvj < pv.len(), {
-                  match(
-                    pv.get(pvj),
-                    .Some(ph) => {
-                      new_cvars.push(ph);
-                    },
-                    .None => ()
-                  );
-                  pvj = (pvj + usize(1));
-                });
+                ifc_aligned = true;
+                new_cvars = aligned_handles;
               },
-              .None => ()
+              .None => match(
+                get_funcval_cap_vars(ifc_orig_env_key),
+                .Some(pv) => {
+                  ifc_have_vars = true;
+                  (pvj : usize) = usize(0);
+                  while(pvj < pv.len(), {
+                    match(
+                      pv.get(pvj),
+                      .Some(ph) => {
+                        new_cvars.push(ph);
+                      },
+                      .None => ()
+                    );
+                    pvj = (pvj + usize(1));
+                  });
+                },
+                .None => ()
+              )
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
             while(ci < cvs.len(), {
-              new_cns.push(fv_source_name(csrc, ci));
-              new_cts.push(fv_source_ty(csrc, ci));
+              if(!(ifc_aligned), {
+                new_cns.push(fv_source_name(csrc, ci));
+                new_cts.push(fv_source_ty(csrc, ci));
+              });
               new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
@@ -1949,7 +1963,9 @@ _inject_forall_captures :: (
             while(fi2 < n_fa, {
               fa_n := match(forall_names.get(fi2), .Some(n) => n, .None => String.from(""));
               fa_t := match(bindings.get(fi2), .Some(t) => t, .None => t_unit());
-              new_cns.push(fa_n);
+              if(!(ifc_aligned), {
+                new_cns.push(fa_n.clone());
+              });
               // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
               // at its declared type — injecting TypeVal(usize) made the body's
               // `U` a TYPE (the array-family "expected usize, got Type").
@@ -1960,7 +1976,9 @@ _inject_forall_captures :: (
                   bv,
                   .IntLit(bv_raw) => {
                     fa_is_val = true;
-                    new_cts.push(t_usize());
+                    if(!(ifc_aligned), {
+                      new_cts.push(t_usize());
+                    });
                     new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
                     if(ifc_have_vars, {
                       new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
@@ -1971,7 +1989,9 @@ _inject_forall_captures :: (
                 .None => ()
               );
               if(!fa_is_val, {
-                new_cts.push(t_type());
+                if(!(ifc_aligned), {
+                  new_cts.push(t_type());
+                });
                 new_cvs.push(EvalValue.TypeVal(fa_t));
                 if(ifc_have_vars, {
                   new_cvars.push(make_capture_variable(fa_n.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(fa_t)), String.from("")));
@@ -1995,8 +2015,10 @@ _inject_forall_captures :: (
             match(
               self_receiver,
               .Some(sr) => {
-                new_cns.push(String.from("Self"));
-                new_cts.push(t_type());
+                if(!(ifc_aligned), {
+                  new_cns.push(String.from("Self"));
+                  new_cts.push(t_type());
+                });
                 new_cvs.push(EvalValue.TypeVal(sr.clone()));
                 if(ifc_have_vars, {
                   new_cvars.push(
@@ -2015,8 +2037,7 @@ _inject_forall_captures :: (
               ifc_env_key = mint_funcval_env_key();
               register_funcval_cap_vars(ifc_env_key, new_cvars);
             });
-            // Flat names/types (a derived handle list is not parallel to its
-            // values — see create_specialized_function_inline, memory plan §0.7).
+            // Flat names/types only when not aligned (see above).
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             owned_keys_record(g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.insert(memo_key, injected);
