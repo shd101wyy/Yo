@@ -80,21 +80,28 @@ LOCAL copy `c := a.*; c.bump()`).
 
 ## Fix (2026-09-26)
 
-One predicate, `throw_if_write_through_atomic_root(place, env, how, exn)` in
-`src/evaluator/exprs/assignment.yo`, built on a new `get_root_expr_of_place` that walks `.`
-chains AND index calls (`a.*(0)` is a call whose callee is the place), applied at three sites in
-files without the pragma:
+Two pieces in `src/evaluator/exprs/assignment.yo`, built on a new `get_root_expr_of_place` that
+walks `.` chains, index calls (`a.*(0)` is a call whose callee is the place) and `label : place`
+wrappers:
 
-1. the property/index arm of `evaluate_assignment` (replacing the field-only walk);
-2. `check_if_function_parameter_matches_argument` (`src/evaluator/calls/helper.yo`), right
-   before its Step 4c, for every `inout` parameter — the method receiver arrives here as the
-   `self` argument, so `a.*.bump()` is caught with the message "Cannot call an inout(self)
-   method on atomic object 'a'";
-3. the inline `FuncVal` argument loop in `src/evaluator/calls/function.yo`, which bypasses (2).
+1. `throw_if_write_through_atomic_root` — unconditional, for the assignment arm of
+   `evaluate_assignment` (field AND index stores are plain writes).
+2. `d3_record_inout_place` / `d3_check_pending` — for `inout` bindings. The first attempt threw
+   at the binding site for every `inout` parameter and rejected `${a.*.id}` (`ToString` takes
+   `inout(self)`), `tx.clone()` on a `Sender` and every read-only `inout(self)` method: `inout` is
+   Yo's plain by-reference receiver, not a mutation marker. So the binding is RECORDED at the two
+   argument-binding sites (`try_to_call_function_with_arguments`'s parameter loop in
+   `calls/helper.yo` and the inline `FuncVal` loop in `calls/function.yo`, which also hands the
+   list to `_evaluate_funcval_runtime_call`) and DECIDED after the (specialized) callee is known,
+   with the per-parameter mutation mask of `effects/mutation_summary.yo`: reject iff the callee
+   may write through that parameter. A callee in a pragma'd file is the audited base and is
+   trusted. The mask itself gained `_msp_inout_param_of_place`: a value-field or index store
+   through an `inout` parameter, and passing a place rooted in one to a callee that writes through
+   its parameter, now set the parameter's shallow bit even when the parameter's type roots no RC
+   storage (the aliasing analysis ignored inert types by design). The method receiver arrives as
+   the `self` argument, so `a.*.bump()` needs no separate site.
 
-Both hooks skip the CHECKING PHASE (trial calls), like Steps 4b/4c; the real pass throws.
-`Mutex.with_lock`'s `inout(v)` is a parameter root, so the body still writes; a local copy
-`c := a.*` is a value. Tests: `tests/parallelism_soundness.test.yo` — four `comptime_expect_error`
-blocks (receiver, argument, index, a user atomic object) and two canaries (the same three
-shapes on a plain `ref` struct; the copy). All three repros are rejected by the tree-built
-compiler; the seed cannot see the gate (`issues/fixed/…` memory: fresh-binary check gate).
+Tests: `tests/parallelism_soundness.test.yo` — four `comptime_expect_error` blocks (receiver,
+argument, index, a user atomic object) and three canaries (the same shapes on a plain `ref`
+struct; a read-only `inout(self)` method and `ToString` through an `Arc`; the local copy). All
+three repros are rejected by the tree-built compiler; the seed cannot see the gate.

@@ -1133,6 +1133,30 @@ _msp_place_base_atom :: (fn(e : AstExpr) -> Option(AstExpr))({
   });
   if(ast_expr_is_atom(cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
+/// The `inout` parameter of the function being walked that a PLACE is rooted
+/// in, by label — `self` in `self.n = v` or `self.slots(i)`. Type-blind on
+/// purpose: `_MsP.classify` answers NONE for an inert (value-typed) parameter
+/// because the aliasing analysis only cares about RC storage, but rule D3
+/// (plans/reference/PARALLELISM_RULES.md) asks "may the callee WRITE through
+/// this parameter at all", and a value-field store through `inout(self) :
+/// Counter` is exactly the plain-memory race it exists to catch. A local that
+/// shadows a parameter's name over-approximates (an extra shallow hit), which
+/// is the safe direction.
+_msp_inout_param_of_place :: (fn(place : AstExpr, ctx : _MspCtx) -> Option(usize))(
+  match(
+    _msp_place_base_atom(place),
+    .Some(atom) => match(
+      _msp_param_index(ctx, ast_expr_token(atom).value.clone()),
+      .Some(pi) => match(
+        get_func_type(ctx.fid.clone()),
+        .Func({ meta : pm }) => if(match(pm.*.param_is_ref.get(pi), .Some(r) => r, .None => false), Option(usize).Some(pi), Option(usize).None),
+        _ => Option(usize).None
+      ),
+      .None => Option(usize).None
+    ),
+    .None => Option(usize).None
+  )
+);
 /// A cond/match arm the evaluator never evaluated (a compile-time-decided
 /// sibling was taken) has no ExprInfo on its body and is never emitted.
 _msp_arm_is_dead :: (fn(arm : AstExpr, table : ExprInfoTable) -> bool)({
@@ -2802,6 +2826,14 @@ impl(
               _msp_debug_all(String.from("store-through-rooted"), lhs);
             });
             _msp_mask_add_root(m, tr, tr.deep);
+            // A value-field / index store through an `inout` parameter is a
+            // write through it even when the parameter's type roots no RC
+            // storage (rule D3 — see _msp_inout_param_of_place).
+            match(
+              _msp_inout_param_of_place(lhs, ctx),
+              .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+              .None => ()
+            );
             // Index expressions inside the place may call.
             _msp_mask_or(m, _MsP.walk_children(lf, largs, ctx));
           });
@@ -2986,6 +3018,13 @@ impl(
                           _msp_debug_all(String.from("walk-all-arg-rooted"), a2);
                         });
                         _msp_mask_add_root(m, ra2, true);
+                        // Unknown effects reachable from a place rooted in one
+                        // of OUR `inout` parameters: a write through it (D3).
+                        match(
+                          _msp_inout_param_of_place(a2, ctx),
+                          .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+                          .None => ()
+                        );
                       },
                       .None => ()
                     );
@@ -3002,6 +3041,15 @@ impl(
                       av.get(j),
                       .Some(aj) => {
                         rj := _MsP.classify(aj, ctx);
+                        // The callee writes through its parameter j; if our
+                        // argument is a place rooted in one of OUR `inout`
+                        // parameters, that is a write through it, whatever
+                        // its type (D3).
+                        match(
+                          _msp_inout_param_of_place(aj, ctx),
+                          .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+                          .None => ()
+                        );
                         cond(
                           (rj.kind == MSP_PARAM) => if(deep_j || rj.deep, {
                             _msp_bits_set(m.deep, rj.param);

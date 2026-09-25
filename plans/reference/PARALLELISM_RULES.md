@@ -62,13 +62,19 @@ sites in `src/evaluator/calls/`.
 An expression whose ROOT binding is an atomic object (an `Arc`, a `Mutex`, any
 `atomic(ref(...))`) may not, in a file without the pragma, be:
 
-- the target of `=`, whether a field (`a.*.n = v`, already rejected) or an index (`a.*(0) = v`);
-- an argument bound to an `inout(...)` parameter (`bump2(a.*)`);
-- the receiver of a method whose `self` is `inout(self)` (`a.*.bump()`).
+- the target of `=`, whether a field (`a.*.n = v`) or an index (`a.*(0) = v`) — always;
+- an argument bound to an `inout(...)` parameter (`bump2(a.*)`), or the receiver of a method
+  whose `self` is `inout(self)` (`a.*.bump()`), **when the callee may write through that
+  parameter**. `inout` is also Yo's plain by-reference receiver (`ToString`, `Hash`,
+  `Sender.clone`), so the decision comes from the callee's per-parameter mutation mask
+  (`src/evaluator/effects/mutation_summary.yo`: a field/index store, an RC decrement, a
+  mutating callee, or anything unresolvable — a MAY-analysis), taken after the specialized
+  callee is known. A callee defined in a pragma'd file is the audited base and is trusted.
 
 `Mutex.with_lock`'s `inout(v)` is a PARAMETER root, not an atomic root, so writes through `v`
-stay legal; a local copy `c := a.*` is a value, so `c.bump()` stays legal. The diagnostic is
-the existing Phase O one.
+stay legal; a local copy `c := a.*` is a value, so `c.bump()` stays legal; `${a.*.n}` and a
+read-only `inout(self)` method through an `Arc` stay legal. The diagnostic is the Phase O one,
+with "the callee may write through that inout parameter" on the call forms.
 
 ## D4 — A closure type is `Send` iff its capture struct is, wherever the question is asked
 

@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
   is_struct_val,
@@ -257,11 +258,88 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
       (ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (args.len() >= usize(2))) => recur(
         match(args.get(usize(0)), .Some(a) => a, .None => expr)
       ),
+      // A labelled argument `label : place` — the place is the second child.
+      (ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))) => recur(
+        match(args.get(usize(1)), .Some(a) => a, .None => expr)
+      ),
       true => recur(callee)
     ),
     .Atom(_, _) => expr
   )
 );
+// ---------------------------------------------------------------------------
+// D3 at a call site: record, then decide after the callee is known
+// ---------------------------------------------------------------------------
+/// One `inout` parameter of the call being evaluated whose argument is a place
+/// rooted in an atomic object, waiting for the callee's mutation mask.
+D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, root_text : String, root_type : String);
+/// Record `place` (the argument bound to `inout` parameter `param_index` of
+/// the call being matched) when it is rooted in an atomic object and the
+/// CALLER's file has no pragma. Nothing is decided here: whether the binding
+/// is a write depends on the callee's body, which `d3_check_pending` reads
+/// after the call has resolved its (specialized) callee.
+d3_record_inout_place :: (
+  fn(pending : ArrayList(D3PendingInout), param_index : usize, param_label : String, place : AstExpr, env : Environment) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
+    return(());
+  });
+  root_expr := get_root_expr_of_place(place);
+  match(
+    get_atomic_object_root_type(root_expr, env),
+    .Some(root_ty) => {
+      pending.push(
+        D3PendingInout(
+          param_index : param_index,
+          place : place,
+          how : if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+          root_text : ast_expr_to_string(root_expr),
+          root_type : type_to_string(root_ty)
+        )
+      );
+    },
+    .None => ()
+  );
+});
+/// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
+/// atomic object is a data race iff the callee may WRITE through that
+/// parameter. `inout(self)` is also Yo's plain by-reference receiver
+/// (`ToString`, `Hash`, `Sender.clone`, ...), so "every inout is a write" would
+/// reject printing an `Arc`'s value; the per-parameter mutation mask of
+/// `effects/mutation_summary.yo` (a MAY-analysis: a field/index store, an RC
+/// decrement, a mutating callee, or anything unresolvable) is what decides.
+/// A callee defined in a pragma'd file is the audited base
+/// (`std/sync`'s `inout(self)` methods write only through atomics or locks)
+/// and is trusted. The summary target is the specialization when one exists.
+d3_check_pending :: (
+  fn(pending : ArrayList(D3PendingInout), callee_fid : String, callee_body : AstExpr, ctx : EvalContext, exn : Exception) -> unit
+)({
+  if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
+    return(());
+  });
+  mask := function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table);
+  (i : usize) = usize(0);
+  while(i < pending.len(), {
+    match(
+      pending.get(i),
+      .Some(entry) => if(param_mutation_mask_hits(mask, entry.param_index), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(entry.place),
+              `Cannot ${entry.how} atomic object '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 // ---------------------------------------------------------------------------
 // throw_if_write_through_atomic_root
 // ---------------------------------------------------------------------------
@@ -1401,6 +1479,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
 });
 export(
   throw_if_write_through_atomic_root,
+  D3PendingInout,
+  d3_record_inout_place,
+  d3_check_pending,
   throw_rhs_contains_control_flow_expression_error,
   resolve_unknown_values_and_some_type_in_type,
   rebuild_list_with_index,

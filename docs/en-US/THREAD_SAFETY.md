@@ -50,7 +50,7 @@ Thread(unit).spawn(io => {
 
 Writes through an `atomic object` are **compile-time errors** in safe code — field and index
 assignment, and any `inout` route into it (an `inout` argument, or a method whose `self` is
-`inout(self)`):
+`inout(self)`) whose callee may write through that parameter:
 
 ```rust
 a := arc(i32(0));
@@ -60,8 +60,11 @@ c.*.bump();            // ERROR: cannot call an inout(self) method on atomic obj
 bump_by_ten(c.*);      // ERROR: cannot pass an inout argument rooted in atomic object 'c'
 ```
 
-A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy), and
-`Mutex.with_lock`'s `inout(v)` is a parameter, so the body may write through `v`.
+A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy);
+`Mutex.with_lock`'s `inout(v)` is a parameter, so the body may write through `v`; and a
+read-only `inout(self)` method — `ToString`'s `${c.*.n}`, `Sender.clone` — is fine, because the
+compiler decides by what the callee's body does (`plans/reference/PARALLELISM_RULES.md` D3), not
+by the parameter mode alone.
 
 This prevents the most common data-race vector — two threads writing to the same memory without synchronization. To mutate shared state, compose with the right primitive:
 

@@ -265,9 +265,16 @@ from the plan text: the D4 canary is a `where(T <: Send)` call, not `arc(bump)`,
   unchanged (std is pragma'd; the compiler tree uses no `Arc` receivers — verify with the
   fresh binary, since the seed cannot see a new evaluator gate).
 
-**Landed 2026-09-26** (branch `ps/phase1-atomic-write-gate`, stacked on Phase 0). Exactly the
-shape above; the receiver case needed no separate site because a method's `self` reaches
-`check_if_function_parameter_matches_argument` as an ordinary argument. Verified with the
+**Landed 2026-09-26** (branch `ps/phase1-atomic-write-gate`, stacked on Phase 0). NOT the shape
+above: "every `inout` binding is a write" rejected `${a.*.id}` (`ToString` takes `inout(self)`),
+`Sender.clone` and every read-only `inout(self)` method — `inout` is Yo's by-reference receiver,
+not a mutation marker. What landed: the binding is recorded at the two argument-binding sites and
+decided after the (specialized) callee is known, against the per-parameter mutation mask of
+`effects/mutation_summary.yo` (extended so value-field stores and inout pass-through rooted in an
+`inout` parameter count); a pragma'd callee is trusted. Field/index assignment stays
+unconditional. The receiver case needed no separate site because a method's `self` reaches the
+parameter loop as an ordinary argument. D3's text in `PARALLELISM_RULES.md` was corrected to
+match. Verified with the
 tree-built compiler: the three repros rejected, the corpus (7 tests + 6 rejection blocks),
 `tests/thread_safety`, `arc`, `atomic_object`, `imm_threading`, `thread`, `thread_pool`,
 `sync/{mutex,rwlock,once,channel}`, `iso`, `spawn_blocking`, `cross_thread_wake`, `async_mutex`

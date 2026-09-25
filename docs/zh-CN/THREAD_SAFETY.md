@@ -37,7 +37,7 @@ MyObj :: ref(struct(data : Vec(i32)));
 
 ## 安全代码中禁止原子字段修改
 
-在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的 `inout` 路径（`inout` 参数，或 `self` 为 `inout(self)` 的方法）：
+在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `inout` 路径（`inout` 参数，或 `self` 为 `inout(self)` 的方法）：
 
 ```rust
 a := arc(i32(0));
@@ -47,7 +47,7 @@ c.*.bump();            // 错误：不能在原子对象 'c' 上调用 inout(sel
 bump_by_ten(c.*);      // 错误：不能传递以原子对象 'c' 为根的 inout 参数
 ```
 
-局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `inout(v)` 是参数，所以闭包体可以通过 `v` 写入。
+局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `inout(v)` 是参数，所以闭包体可以通过 `v` 写入；只读的 `inout(self)` 方法 —— `ToString` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
 
 要修改共享状态，请组合正确的原语：
 

@@ -83,6 +83,19 @@ test("D3 canary: inout receiver, inout argument and index assignment on a plain 
   assert(c.counter.n == i32(11), "both writes landed");
   assert(c.slots(usize(1)) == i32(3), "the index write landed");
 });
+// Canary: a READ-ONLY `inout(self)` method through an `Arc` is legal — `inout`
+// is also Yo's plain by-reference receiver (`ToString`, `Hash`, ...), so the
+// gate decides by the callee's mutation mask, not by the parameter mode.
+impl(
+  Counter,
+  describe : (fn(inout(self) : Self) -> i32)(self.n)
+);
+test("D3 canary: a read-only inout(self) method and ToString through an Arc are legal", {
+  a := arc(Counter(n : i32(4)));
+  assert(a.*.describe() == i32(4), "read-only inout(self) receiver through an Arc");
+  s := `n=${a.*.n}`;
+  assert(s == `n=4`, "ToString (inout(self)) on a field through an Arc");
+});
 // Canary: a local COPY of the value is not an atomic root.
 test("D3 canary: mutating a local copy taken out of an Arc is legal", {
   a := arc(Counter(n : i32(0)));
