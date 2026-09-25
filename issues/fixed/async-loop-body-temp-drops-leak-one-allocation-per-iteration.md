@@ -1,5 +1,11 @@
 # An async loop body's intermediate temps leak: their drops read a state slot that never receives the store
 
+> **FIXED 2026-09-25** on `mem/census-after-893`, by the codegen-side
+> direction recorded below. Found again by the evaluator memory campaign: the
+> compiler's own `_index_std_dir` walk leaked 748 strings and 209 paths per
+> process through `read_dir` (the zero-hit `ArrayList(u8)` / `Path` census
+> roots at the end of `check src/main.yo`).
+
 Found by running the tier-1 battery locally under the runner's default ASan
 (`yo test` builds every batch with `-fsanitize=address` on Linux):
 `tests/fs/walker.test.yo` fails all 7 I/O tests with "Memory leak detected"
@@ -78,3 +84,33 @@ becomes a borrow; capture-stores at suspends write the same value raw, so
 all writers agree). This fixes every loop-body temp at once and does not
 depend on env archaeology. Any fix here needs the dup/drop emit-diff gate
 plus an over-cancellation canary per AGENTS.md.
+
+## Fix (2026-09-25)
+
+The codegen side, as recommended above. `_store_temp_var_to_state_machine_if_needed`
+(`src/codegen/exprs/other_fn_call.yo`) already existed for this contract ("a
+local temp declared as a C local must ALSO be stored to its `sm->var_<id>`
+field"), but only one site called it. Every temp-declaring site in that file
+now calls it right after the declaration:
+- the constructor results: enum, ref struct, union, value struct (the struct
+  literal `raw.push({ name : name, ... })`);
+- the direct and indirect call results;
+- the three method-call results: dyn vtable, dot-method (`String.from_cstr(p)`,
+  `String.from(".")`), and the rewritten slice call.
+
+The helper skips `.Outer` captures and Future-typed temps, and does nothing
+outside a state machine or for a temp with no slot. The store is a raw copy,
+so the slot's single drop consumes the temp's +1.
+
+Measured:
+- `read_dir` on a 7-entry directory, 20 calls, fixed-allocator leak oracle:
+  2,060 live blocks at exit → 1,080 (constructor sites) → **0** (call and
+  method sites).
+- A struct literal carrying a Dispose-counted value, pushed in an `io.async`
+  loop after an await: 0 of 3 disposed → 3 of 3.
+
+## Tests
+
+`tests/async_loop_buffer_await.test.yo`, "a struct-literal call argument in an
+async loop is released with its list": three values pushed across awaits, each
+disposed exactly once when the list dies. Fails on develop (0 disposed).
