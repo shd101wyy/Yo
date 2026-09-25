@@ -1,7 +1,7 @@
 # `Cond.wait_with(m)` does not check that the caller holds `m`, so safe code reaches condvar UB
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-5).
-**Status:** OPEN. **Undefined behaviour reachable from safe code** (POSIX: `pthread_cond_wait`
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 5, rule D5). Was: **Undefined behaviour reachable from safe code** (POSIX: `pthread_cond_wait`
 on a mutex the caller does not own; Windows: `SleepConditionVariableCS` on a critical section
 not entered exactly once).
 **Measured:** by reading `std/sync/cond.yo` (~109, ~151), `std/sync/mutex.yo` (~242) and the C
@@ -40,6 +40,19 @@ Release store after the OS lock returns) and `_depth : AtomicI32` (Windows recur
 sets them, `_raw_unlock` clears them; `wait_with` panics unless `_owner == me && _depth == 1`
 before it parks, and the same check guards `wait_timeout_with`. One relaxed load and one
 release store per lock/unlock; the trap message names the API. `RawMutex` gets the same owner
-tracking (`issues/rawmutex-is-exported-with-an-unbalanced-unlock.md`). Tests: a
+tracking (`issues/fixed/rawmutex-is-exported-with-an-unbalanced-unlock.md`). Tests: a
 `comptime_expect_error`-free RUNTIME test that `wait_with` outside `with_lock` traps (rc 134 with
 the message), and that the in-lock path is unchanged.
+
+## Fix (2026-09-26)
+
+`Mutex(T)` records its holder (`_owner : AtomicUsize`, `__yo_thread_self()`, `0` = unheld) in
+`_raw_lock` / `_raw_unlock`; `Cond.wait_with` and `wait_timeout_with` call `m._park_begin()`,
+which panics `Cond.wait_with: the calling thread does not hold the mutex it passed` unless the
+caller holds `m`, clears the record for the OS wait, and `_park_end()` restores it. The raw
+`wait(handle)` / `wait_timeout(handle)` became `_wait_raw` / `_wait_timeout_raw` (private), and
+the seven sibling call sites in `std/sync` (`rwlock`, `semaphore`, `barrier`, `waitgroup`,
+`channel`) go through `wait_with`. The Windows double-hold case cannot arise: a second lock by
+the holder now traps in `_raw_lock`. Tests: `tests/cli-cases/cond-wait-with-without-lock-panics`
+(rc 1, the message), and "Cond.wait_with restores the holder record after the wait" in
+`tests/sync/mutex.test.yo`.

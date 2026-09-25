@@ -1,6 +1,6 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phases 0 and 1 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2–8 open. Source: a full audit of Yo's
+**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1 and 5 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2, 3, 4, 6, 7, 8 open. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -375,6 +375,14 @@ green, `check ./src` and `check ./std` clean.
    re-entrant `get_or_init` traps; `thread_pool.test.yo` — two pools, one spamming from a
    helper thread while the other drains slow tasks; `shutdown` racing `spawn`.
 6. Exit: the TSan job (`tests/sync`) green; every trap tested on the three desktop targets.
+
+**Landed 2026-09-26** (branch `ps/phase5-primitives-trap`, stacked on Phase 1). As above, with
+two details: the owner is an `AtomicUsize` field (the `atomic_size_t` C type has no typed
+load/store extern in `std/libc/stdatomic.yo`; an inline field is a later diet), and the `Once`
+re-entry check runs BEFORE the mutex so the message names `Once`, not `Mutex`. The traps are
+pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portable
+`try_with_lock`/`is_unlocked`/`RawMutex` answers and the post-wait holder record in
+`tests/sync/mutex.test.yo`, and the two-pool barrier in `tests/thread_pool.test.yo`.
 
 ### Phase 6: the runtime (P-11, P-12, P-14, and the runtime sub-audit's items) (M, codegen)
 

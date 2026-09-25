@@ -106,6 +106,13 @@ impl(
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
       (unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true) => (),
+      // Re-entry from inside `f` (rule D5): the initializer runs under
+      // `_mutex`, so "this thread holds the mutex" IS "this thread is inside
+      // f". Asked here rather than left to the mutex's own self-relock trap
+      // so the message names this API — and it needs no extra state to
+      // clear on an early exit from `f`, which the mutex guard already
+      // handles (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md).
+      self._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
       true =>
         self._mutex.with_lock(_guarded => {
           // Double-check under the lock: another thread may have finished

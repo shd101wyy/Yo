@@ -5,6 +5,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { Channel } :: import("std/sync/channel");
 { yield } :: import("std/async");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 // ============================================================================
 // Pool configuration
 // ============================================================================
@@ -259,4 +261,38 @@ test("a task may spawn on its own pool: the nested task runs and join_all return
   pool.join_all();
   assert(count.load(MemoryOrder.SeqCst) == i32(11), "count settled");
   pool.shutdown();
+});
+
+test("a second pool submitting concurrently cannot make join_all return early", {
+  // issues/fixed/threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md:
+  // the sentinel barrier relies on the runtime's process-global round-robin,
+  // so every submission in the process goes through ONE lock. A second pool
+  // spamming the runtime while the first drains must not steal a sentinel's
+  // worker slot.
+  a := ThreadPool.new(usize(2));
+  b := ThreadPool.new(usize(2));
+  hits := AtomicI32(i32(0));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(4)), {
+    spawn(a, io => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      hits.fetch_add(i32(1), MemoryOrder.SeqCst);
+      ()
+    });
+    i = (i + i32(1));
+  });
+  spammer := Thread(unit).spawn(io => {
+    (k : i32) = i32(0);
+    while(runtime(k < i32(400)), {
+      spawn(b, io => ());
+      k = (k + i32(1));
+    });
+    ()
+  });
+  a.join_all();
+  assert(hits.load(MemoryOrder.SeqCst) == i32(4), "every task submitted to a ran before join_all returned");
+  spammer.join();
+  b.join_all();
+  a.shutdown();
+  b.shutdown();
 });

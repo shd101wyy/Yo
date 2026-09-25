@@ -130,6 +130,8 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 
 ## Mutex(T) — 闭包作用域锁定
 
+`std/sync` 中的每把锁都记录持有者，因此误用在每个平台上都是带有 API 名称的 **panic**，而不是操作系统原语的未定义行为：持有线程再次加锁、其他线程解锁、未持有 `m` 时调用 `Cond.wait_with(m)`、以及 `Once` 初始化器重入自己的 `Once`，都会触发陷阱（`plans/reference/PARALLELISM_RULES.md` 规则 D5）。`try_with_lock` 对持有者在 Windows 上也返回 `.None`（底层 `CRITICAL_SECTION` 本会递归进入）。
+
 `Mutex(T)` 将受保护的数据包装在锁内部。通过闭包进行访问：
 
 ```rust
@@ -200,8 +202,6 @@ match(
 - **模块级全局变量是共享的静态变量**，没有 `Send` 检查（`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`）；在 std 内部，`html_decode` 的表在读取时竞争（`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
 - **闭包可以在 `yo check` 下捕获 `with_lock` 闭包体的 `inout(v)`**（代码生成失败）（`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`）。
-- **`Cond.wait_with(m)` 不检查你是否持有 `m`，`RawMutex.unlock` 是公开的**；二者都能从安全代码到达 pthread / `CRITICAL_SECTION` 的未定义行为（`issues/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`、`issues/rawmutex-is-exported-with-an-unbalanced-unlock.md`）。
-- **`Once` 从自己的初始化器中重入**在 POSIX 上死锁、在 Windows 上运行两次（`issues/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md`）。
 - **用户规则无法避免的运行时竞争**：派生线程事件循环上的跨线程 `Waker` 释放顺序、原子对象上的非原子 `borrow_count`、`Iso` 句柄上的 `rc()`，以及 Windows/macOS 特有的运行时状态 —— 列于 `plans/PARALLELISM_SOUNDNESS.md` §3（P-11 至 P-25）。
 - **安全文件可以调用从 `std/sys/externs.yo` 导入的原始运行时 extern**（`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`）。
 

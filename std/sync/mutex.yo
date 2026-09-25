@@ -23,9 +23,16 @@
 //! poisoned state anywhere), not an omission, and it is not what is
 //! holding the freeze.
 pragma(Pragma.AllowUnsafe);
+{ AtomicUsize, MemoryOrder } :: import("./atomic");
 
 extern(
   "Yo",
+  // The threading preamble's own thread identity (a macro over pthread_self /
+  // GetCurrentThreadId), emitted for every program. NOT `__yo_get_thread_id`:
+  // that one lives in the async runtime core, which a program without `io`
+  // never emits. Every lock below records its holder with it (rule D5,
+  // plans/reference/PARALLELISM_RULES.md).
+  __yo_thread_self : (fn() -> usize),
   __YO_THREAD_SYNC_TYPE : Type,
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
   __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
@@ -68,12 +75,21 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 ///
 /// There is no poisoning: if `body` unwinds, the lock is released and the
 /// data keeps whatever value it had at that moment.
+///
+/// **Misuse traps, on every platform** (rule D5 of
+/// `plans/reference/PARALLELISM_RULES.md`): the lock records the thread that
+/// holds it, so locking it again from that thread, unlocking it from another,
+/// or waiting on a `Cond` with a mutex the caller does not hold is a panic with
+/// a message naming the API — never the platform-dependent deadlock, silent
+/// recursion or undefined behaviour of the OS primitive underneath.
 Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
         _handle : __YO_THREAD_SYNC_TYPE,
-        _value : T
+        _value : T,
+        /// `__yo_thread_self()` of the holder; `0` = unheld.
+        _owner : AtomicUsize
       )
     )
   )
@@ -90,18 +106,55 @@ impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
 /// and released in another (the thread pool's submission lock in
 /// `std/thread.yo`). Prefer `Mutex(T)` everywhere else; `Mutex`'s own raw
 /// methods are private to `std/sync/` (member visibility).
-RawMutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE)));
+RawMutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE, _owner : AtomicUsize)));
 impl(RawMutex, Acyclic());
 impl(
   RawMutex,
-  new : (fn() -> Self)(Self(__yo_mutex_create())),
-  /// Block until the lock is taken. Re-locking from the holding thread is
-  /// platform-defined (deadlock or recursion) — never do it.
-  lock : (fn(self : Self) -> unit)(__yo_mutex_lock(&self._handle)),
-  /// Take the lock if it is free; `true` = taken (you must `unlock`).
-  try_lock : (fn(self : Self) -> bool)(__yo_mutex_trylock(&self._handle)),
-  /// Release a lock THIS thread holds.
-  unlock : (fn(self : Self) -> unit)(__yo_mutex_unlock(&self._handle))
+  new : (fn() -> Self)(Self(__yo_mutex_create(), AtomicUsize(usize(0)))),
+  /// Block until the lock is taken. Locking again from the thread that holds
+  /// it PANICS (it would deadlock on POSIX and silently recurse on Windows;
+  /// D5 makes it one behaviour).
+  lock : (fn(self : Self) -> unit)({
+    me := __yo_thread_self();
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("RawMutex.lock: locked again by the thread that already holds it"),
+      true => ()
+    );
+    __yo_mutex_lock(&self._handle);
+    self._owner.store(me, MemoryOrder.Release);
+  }),
+  /// Take the lock if it is free; `true` = taken (you must `unlock`). `false`
+  /// for the thread that already holds it, on every platform (a Windows
+  /// `CRITICAL_SECTION` would re-enter).
+  try_lock : (fn(self : Self) -> bool)({
+    me := __yo_thread_self();
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) == me) => false,
+      __yo_mutex_trylock(&self._handle) => {
+        self._owner.store(me, MemoryOrder.Release);
+        true
+      },
+      true => false
+    )
+  }),
+  /// Release the lock. PANICS unless THIS thread holds it — an unlock without
+  /// a lock, or from another thread, is undefined behaviour in the OS
+  /// primitive and is refused here instead.
+  unlock : (fn(self : Self) -> unit)({
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("RawMutex.unlock: unlocked by a thread that does not hold it"),
+      true => ()
+    );
+    self._owner.store(usize(0), MemoryOrder.Release);
+    __yo_mutex_unlock(&self._handle);
+  }),
+  /// Whether the calling thread holds this lock. Exact for the caller (only
+  /// it can change that fact); the answer about any OTHER thread is
+  /// advisory. This is what lets a lock taken in one function be released
+  /// in another without a guard — `std/thread`'s submission lock.
+  held_by_current_thread : (fn(self : Self) -> bool)(
+    self._owner.load(MemoryOrder.Acquire) == __yo_thread_self()
+  )
 );
 impl(
   RawMutex,
@@ -144,7 +197,7 @@ impl(
   /// `with_lock` / `try_with_lock`. Creating the OS primitive is the only
   /// allocation-time cost; there is no lazy initialization on first lock.
   new : (fn(value : T) -> Self)({
-    return(Self(__yo_mutex_create(), value));
+    return(Self(__yo_mutex_create(), value, AtomicUsize(usize(0))));
   }),
   /// Take the lock, run `body` on the protected value, release the lock,
   /// and return `body`'s result — Rust's `lock().unwrap()` plus the guard's
@@ -160,12 +213,11 @@ impl(
   /// `unwind` through this frame still releases the lock. Nothing marks the
   /// mutex poisoned in that case (see the type doc).
   ///
-  /// **Re-entering the same mutex from the same thread is not portable.**
-  /// The POSIX primitive is a default `pthread_mutex_t`, so a second
-  /// `with_lock` on a mutex this thread already holds deadlocks; on Windows
-  /// the primitive is a `CRITICAL_SECTION`, which is recursive and lets the
-  /// call through. Do not rely on either — nest different mutexes, not the
-  /// same one.
+  /// **Re-entering the same mutex from the same thread PANICS** — on every
+  /// platform, with a message naming this API. (The POSIX primitive would
+  /// deadlock and the Windows `CRITICAL_SECTION` would silently recurse; the
+  /// owner check in `_raw_lock` replaces both with one trap.) Nest different
+  /// mutexes, not the same one.
   with_lock : (
     fn(
       generic(R : Type),
@@ -196,24 +248,27 @@ impl(
   /// parks instead. `try_with_lock` is for the case where there is other
   /// useful work to do when the lock is busy.
   ///
-  /// One platform note: a Windows `CRITICAL_SECTION` is RECURSIVE, so a thread
-  /// that ALREADY holds this mutex gets `.Some` here, where a POSIX mutex
-  /// gives `.None`. Do not use the answer to detect self-reentrancy.
+  /// The thread that ALREADY holds this mutex gets `.None`, on every platform
+  /// (a Windows `CRITICAL_SECTION` is recursive and would have said `.Some`;
+  /// the owner check masks that so the answer is portable).
   try_with_lock : (
     fn(
       generic(R : Type),
       self : Self,
       body : Impl(Fn(inout(v) : T) -> R)
     ) -> Option(R)
-  )(
+  )({
+    me := __yo_thread_self();
     cond(
+      (self._owner.load(MemoryOrder.Acquire) == me) => Option(R).None,
       !__yo_mutex_trylock(&self._handle) => Option(R).None,
       true => {
+        self._owner.store(me, MemoryOrder.Release);
         _guard := __MutexUnlocker(T)(self);
         Option(R).Some(body(self._value))
       }
     )
-  ),
+  }),
   /// True when the mutex is NOT held right now.
   ///
   /// **Advisory only, and racy by construction:** it takes the lock to find
@@ -222,25 +277,56 @@ impl(
   /// `with_lock` will block — that is a TOCTOU bug. It exists for assertions
   /// and diagnostics, which is why it is spelled as a question about the past
   /// rather than as `can_lock`.
-  is_unlocked : (fn(self : Self) -> bool)(
+  is_unlocked : (fn(self : Self) -> bool)({
+    me := __yo_thread_self();
     cond(
+      (self._owner.load(MemoryOrder.Acquire) == me) => false,
       __yo_mutex_trylock(&self._handle) => {
+        self._owner.store(me, MemoryOrder.Release);
         self._raw_unlock();
         true
       },
       true => false
     )
-  ),
-  // Internal methods — pragma-only. These are public to the module system
-  // but the _-prefixed naming convention signals "internal API".
-  _raw_lock : (fn(self : Self) -> unit)(
-    __yo_mutex_lock(&self._handle)
-  ),
-  _raw_unlock : (fn(self : Self) -> unit)(
-    __yo_mutex_unlock(&self._handle)
-  ),
+  }),
+  // Internal methods — private to std/sync (member visibility). Every lock and
+  // unlock goes through these two, which is what keeps `_owner` exact.
+  _raw_lock : (fn(self : Self) -> unit)({
+    me := __yo_thread_self();
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("Mutex: locked again by the thread that already holds it (a with_lock inside a with_lock on the same mutex)"),
+      true => ()
+    );
+    __yo_mutex_lock(&self._handle);
+    self._owner.store(me, MemoryOrder.Release);
+  }),
+  _raw_unlock : (fn(self : Self) -> unit)({
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("Mutex: unlocked by a thread that does not hold it"),
+      true => ()
+    );
+    self._owner.store(usize(0), MemoryOrder.Release);
+    __yo_mutex_unlock(&self._handle);
+  }),
   _raw_handle_ptr : (fn(inout(self) : Self) -> *__YO_THREAD_SYNC_TYPE)(
     &self._handle
+  ),
+  /// Whether the calling thread holds this mutex (exact for the caller).
+  _held_by_current_thread : (fn(self : Self) -> bool)(
+    self._owner.load(MemoryOrder.Acquire) == __yo_thread_self()
+  ),
+  /// Bracket a condvar wait: the OS wait releases and re-takes the mutex
+  /// behind our back, so the owner record is cleared before parking and
+  /// restored after. Both panic-check that the caller holds the mutex.
+  _park_begin : (fn(self : Self) -> unit)({
+    cond(
+      (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("Cond.wait_with: the calling thread does not hold the mutex it passed"),
+      true => ()
+    );
+    self._owner.store(usize(0), MemoryOrder.Release);
+  }),
+  _park_end : (fn(self : Self) -> unit)(
+    self._owner.store(__yo_thread_self(), MemoryOrder.Release)
   )
 );
 impl(
@@ -256,6 +342,7 @@ impl(
 
 export(
   __YO_THREAD_SYNC_TYPE,
+  __yo_thread_self,
   Mutex,
   RawMutex
 );

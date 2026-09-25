@@ -78,7 +78,7 @@ impl(
   /// ```yo
   /// m._raw_lock();
   /// while(!ready(), {
-  ///   cv.wait(m._raw_handle_ptr());
+  ///   cv.wait_with(m);
   /// });
   /// m._raw_unlock();
   /// ```
@@ -87,7 +87,7 @@ impl(
   /// remembered for the next waiter — which is why the predicate must be
   /// mutated under the same mutex before signalling. Use `wait_timeout`
   /// when the wait needs a deadline.
-  wait : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
+  _wait_raw : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
     return(__yo_cond_wait(&self.cv, handle));
   }),
   /// `wait` spelled against the `Mutex` itself — the PUBLIC form. Call it
@@ -106,11 +106,17 @@ impl(
   /// The raw-handle `wait` above needs `Mutex._raw_handle_ptr`, which is
   /// private to `std/sync/` (member visibility: a `_` member is usable only
   /// from its declaring directory) — this is the door for everyone else.
+  ///
+  /// PANICS unless the calling thread holds `m` (rule D5): waiting on a mutex
+  /// you do not hold is undefined behaviour in the OS primitive, and a
+  /// Windows `CRITICAL_SECTION` held twice would be released one level only.
   wait_with : (
     fn(generic(T : Type), self : Self, m : Mutex(T), where(T <: (Send, Acyclic))) -> unit
-  )(
-    self.wait(m._raw_handle_ptr())
-  ),
+  )({
+    m._park_begin();
+    self._wait_raw(m._raw_handle_ptr());
+    m._park_end();
+  }),
   /// Wait until signalled or until `timeout` elapses. Rust's
   /// `Condvar::wait_timeout`.
   ///
@@ -123,7 +129,7 @@ impl(
   /// deadline := Duration.from_millis(i64(500));
   /// while(!ready(), {
   ///   cond(
-  ///     !cv.wait_timeout(m._raw_handle_ptr(), deadline) => {
+  ///     !cv.wait_timeout_with(m, deadline) => {
   ///       // timed out — give up, or re-arm with the remaining budget
   ///       break;
   ///     },
@@ -141,18 +147,22 @@ impl(
   /// The clock is monotonic wherever the platform allows it, so a wall-clock
   /// step cannot lengthen or cut short the wait. A negative or zero `timeout`
   /// does not block.
-  wait_timeout : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
+  _wait_timeout_raw : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
     __yo_cond_timedwait(&self.cv, handle, timeout.as_nanos())
   ),
   /// `wait_timeout` spelled against the `Mutex` itself — the PUBLIC form of
   /// the raw-handle method above, with the same `true` = woken (possibly
   /// spuriously) / `false` = timed out contract. Call it from inside
   /// `m.with_lock(...)`, exactly as `wait_with`.
+  /// PANICS unless the calling thread holds `m`, exactly as `wait_with`.
   wait_timeout_with : (
     fn(generic(T : Type), self : Self, m : Mutex(T), timeout : Duration, where(T <: (Send, Acyclic))) -> bool
-  )(
-    self.wait_timeout(m._raw_handle_ptr(), timeout)
-  ),
+  )({
+    m._park_begin();
+    woke := self._wait_timeout_raw(m._raw_handle_ptr(), timeout);
+    m._park_end();
+    woke
+  }),
   /// Wake ONE waiting thread, if any — Rust's `Condvar::notify_one`.
   ///
   /// Which one is the platform's choice, not FIFO. The call never blocks

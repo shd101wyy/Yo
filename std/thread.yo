@@ -31,8 +31,8 @@
 //! whose task type is still value-less and whose shutdown story is a separate
 //! decision.
 pragma(Pragma.AllowUnsafe);
-{ RawMutex } :: import("./sync/mutex");
-{ AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");
+{ RawMutex, __yo_thread_self } :: import("./sync/mutex");
+{ AtomicBool, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
 { assert } :: import("./assert");
 { Park } :: import("./async/waker.yo");
@@ -52,12 +52,7 @@ extern(
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
-  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit),
-  // The threading preamble's own thread identity (a macro over pthread_self /
-  // GetCurrentThreadId). NOT `__yo_get_thread_id`: that one lives in the async
-  // runtime core, which a program without `io` never emits, so using it here
-  // made every ThreadPool user without async fail to link.
-  __yo_thread_self : (fn() -> usize)
+  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
@@ -158,7 +153,9 @@ impl(
 ///     while the runtime pool has not started yet, so the first `ThreadPool`
 ///     created (before any task is spawned) fixes the count for the process;
 ///   * `join_all` and `shutdown` drain the *runtime* pool, so if a program
-///     holds two `ThreadPool` values they drain each other's work as well.
+///     holds two `ThreadPool` values they drain each other's work as well
+///     (every submission in the process goes through one lock, so a second
+///     pool submitting concurrently cannot make a drain return early).
 ///
 /// Uses atomic reference counting, so a pool may be shared across threads.
 ///
@@ -177,18 +174,21 @@ impl(
 ThreadPool :: atomic(
   ref(
     struct(
-      _mutex : RawMutex,
       _used : AtomicBool,
-      _closed : AtomicBool,
-      /// Which thread holds `_mutex`, so a submission made FROM a task that the
-      /// runtime is running inline on the submitting thread (no worker thread
-      /// could be created) re-enters instead of self-deadlocking
-      /// (issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md).
-      _held : AtomicBool,
-      _owner : AtomicUsize
+      _closed : AtomicBool
     )
   )
 );
+/// The submission lock — ONE for the process, not one per `ThreadPool` value,
+/// because the runtime's worker pool and its round-robin counter are
+/// process-global: `join_all`'s barrier (one sentinel per worker) is only
+/// sound when NO submission from any pool value interleaves with the sentinel
+/// loop (issues/fixed/threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md).
+/// `RawMutex` records its holder, which is what makes a submission from a task
+/// the runtime runs INLINE on the submitting thread (no worker thread could be
+/// created) re-enter instead of self-deadlocking
+/// (issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md).
+_submissions := RawMutex.new();
 impl(
   ThreadPool,
   /// Create a pool that requests `num_threads` worker threads.
@@ -199,11 +199,8 @@ impl(
     assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
     __yo_worker_set_num_threads(num_threads);
     Self(
-      _mutex : RawMutex.new(),
       _used : AtomicBool(false),
-      _closed : AtomicBool(false),
-      _held : AtomicBool(false),
-      _owner : AtomicUsize(usize(0))
+      _closed : AtomicBool(false)
     )
   }),
   /// Create a pool sized to the runtime pool's current thread count, which
@@ -223,9 +220,9 @@ impl(
   /// submissions to consecutive worker threads (round-robin, guarded by the
   /// runtime's pool mutex) and each worker runs its own queue in FIFO order,
   /// so once every sentinel has run, every task queued before it has run too.
-  /// `spawn` and this submission loop share the pool mutex, so tasks
-  /// submitted concurrently *through this pool* cannot break the round-robin
-  /// stride.
+  /// `spawn` and this submission loop share the process-wide submission
+  /// lock, so a task submitted concurrently through ANY pool value cannot
+  /// break the round-robin stride.
   ///
   /// Must not be called from inside a pool task: the caller's worker thread
   /// would be busy waiting for its own sentinel.
@@ -267,7 +264,11 @@ impl(
   /// reclaimed at process exit; `shutdown` closes *this* pool and drains the
   /// work it submitted.
   shutdown : (fn(self : Self) -> unit)({
+    // Under the submission lock, so a `spawn` that has not yet taken the lock
+    // sees `_closed` once it does and cannot queue behind the drain.
+    took := _lock_for_submission(self);
     self._closed.store(true, MemoryOrder.Release);
+    _unlock_after_submission(self, took);
     self.join_all();
   }),
   /// Whether `shutdown` has been called (lock-free atomic load).
@@ -295,47 +296,45 @@ impl(
 // Static impl methods (`Thread.spawn`) and free functions are unaffected.
 // See issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
 // do not "tidy" this into a method until that is fixed.
-/// Take the pool's submission lock unless THIS thread already holds it, and
-/// say whether it was taken. The runtime's inline fallback (no worker thread
-/// could be created — standalone WASI, or thread creation failing) runs a
-/// task on the submitting thread, INSIDE `spawn`'s critical section; a task
-/// that itself spawns would then block on the mutex it already holds. Owner
-/// tracking makes that submission re-entrant: `_owner` is written before
-/// `_held` (Release) and `_held` is read before `_owner` (Acquire), so a
-/// thread that sees `_held` set sees the owner who set it — a stale
-/// `_owner` value can only be observed under `_held == false`, which takes
-/// the lock as it should.
+/// Take the process-wide submission lock unless THIS thread already holds it,
+/// and say whether it was taken. The runtime's inline fallback (no worker
+/// thread could be created — standalone WASI, or thread creation failing)
+/// runs a task on the submitting thread, INSIDE `spawn`'s critical section; a
+/// task that itself spawns would then block on the lock it already holds.
+/// `RawMutex.held_by_current_thread` is exact for the caller, which is all the
+/// re-entry needs.
 _lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
-  me := __yo_thread_self();
+  pool;
   cond(
-    (pool._held.load(MemoryOrder.Acquire) && (pool._owner.load(MemoryOrder.Acquire) == me)) => false,
+    _submissions.held_by_current_thread() => false,
     true => {
-      pool._mutex.lock();
-      pool._owner.store(me, MemoryOrder.Release);
-      pool._held.store(true, MemoryOrder.Release);
+      _submissions.lock();
       true
     }
   )
 });
 _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
+  pool;
   cond(
-    took => {
-      pool._held.store(false, MemoryOrder.Release);
-      pool._mutex.unlock();
-    },
+    took => _submissions.unlock(),
     true => ()
   );
 });
 spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
-  assert(
-    !pool._closed.load(MemoryOrder.Acquire),
-    "thread.spawn: pool has been shut down"
-  );
-  // The pool mutex serializes submission so that `join_all`'s sentinel tasks
-  // land on distinct worker threads (see `ThreadPool.join_all`); it is held
-  // across `__yo_worker_spawn` because that call may run the task inline, so
-  // it must be re-entrant for the task's own spawns.
+  // The submission lock serializes every submission in the process so that
+  // `join_all`'s sentinel tasks land on distinct worker threads (see
+  // `ThreadPool.join_all`); it is held across `__yo_worker_spawn` because that
+  // call may run the task inline, so it must be re-entrant for the task's own
+  // spawns. `_closed` is read UNDER it, so `shutdown` (which sets it under the
+  // same lock) cannot race a submission that already passed the check.
   took := _lock_for_submission(pool);
+  cond(
+    pool._closed.load(MemoryOrder.Acquire) => {
+      _unlock_after_submission(pool, took);
+      __yo_panic("thread.spawn: pool has been shut down");
+    },
+    true => ()
+  );
   pool._used.store(true, MemoryOrder.Release);
   __yo_worker_spawn(cb);
   _unlock_after_submission(pool, took);

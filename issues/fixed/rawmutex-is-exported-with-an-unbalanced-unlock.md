@@ -1,7 +1,7 @@
 # `RawMutex` is exported with manually balanced `lock`/`unlock`, so safe code reaches mutex UB
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-6).
-**Status:** OPEN. **Undefined behaviour reachable from safe code.**
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 5, rule D5). Was: **Undefined behaviour reachable from safe code.**
 **Measured:** by reading `std/sync/mutex.yo` (~93-105, export at ~260) and the C macros in
 `src/codegen/types/generation.yo` (~604-678).
 
@@ -32,3 +32,14 @@ Windows' recursive `true`. `ThreadPool`'s own `_held`/`_owner` then become redun
 removed in the same change (the RawMutex answers "do I hold it"). Tests in
 `tests/sync/mutex.test.yo`: `unlock` without `lock` traps; `lock` twice traps on every platform
 (today it is a hang on POSIX, which no test can pin).
+
+## Fix (2026-09-26)
+
+`RawMutex` records its holder (`_owner : AtomicUsize`): `lock` panics on self-relock
+(`RawMutex.lock: locked again by the thread that already holds it`), `unlock` panics unless the
+caller holds it (`RawMutex.unlock: unlocked by a thread that does not hold it`), `try_lock`
+answers `false` for the holder on every platform, and the new `held_by_current_thread()` is what
+`std/thread`'s submission lock uses for re-entry — the pool's own `_held`/`_owner` protocol is
+gone. Tests: `tests/cli-cases/mutex-unlock-without-lock-panics`,
+`tests/cli-cases/mutex-self-relock-panics` (the `Mutex(T)` twin), "RawMutex records its holder"
+in `tests/sync/mutex.test.yo`.

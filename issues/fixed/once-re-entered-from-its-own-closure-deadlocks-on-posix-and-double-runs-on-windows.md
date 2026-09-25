@@ -1,7 +1,7 @@
 # `Once.call` / `OnceCell.get_or_init` re-entered from `f` deadlocks on POSIX and runs `f` twice on Windows
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-8).
-**Status:** OPEN. **Platform-divergent; a data race on Windows.**
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 5, rule D5). Was: **Platform-divergent; a data race on Windows.**
 **Measured:** by reading `std/sync/once.yo` (`call` ~105-122, `get_or_init` ~173-178) and
 `std/sync/mutex.yo` (`with_lock`); not run.
 
@@ -34,5 +34,13 @@ Detect and trap: `Once` records the initializing thread id (`_owner : AtomicUsiz
 `f` runs, cleared after the Release store); a `call` that finds `_owner == me` panics
 `"Once.call: re-entered from its own initializer"` on every platform. Falls out of the owner
 tracking added to `Mutex(T)` for
-`issues/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`, so it is the same
+`issues/fixed/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`, so it is the same
 change. Test: the repro above expects rc 134 with that message.
+
+## Fix (2026-09-26)
+
+`Once` records the initializing thread (`_owner : AtomicUsize`, set before `f` runs, cleared
+after the `_done` release store); a `call` from that thread panics
+`Once.call: re-entered from its own initializer` on every platform, before the (now also
+self-relock-trapping) mutex is touched. `OnceCell.get_or_init` inherits it. Test:
+`tests/cli-cases/once-reentrant-call-panics`.

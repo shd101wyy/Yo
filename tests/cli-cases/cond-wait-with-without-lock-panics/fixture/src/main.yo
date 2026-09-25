@@ -1,0 +1,12 @@
+{ Mutex } :: import("std/sync/mutex");
+{ Cond } :: import("std/sync/cond");
+{ Duration } :: import("std/time/duration");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  m := Mutex(i32).new(i32(0));
+  cv := Cond.new();
+  println(`about to wait without the lock`);
+  woke := cv.wait_timeout_with(m, Duration.from_millis(i64(10)));
+  println(`never ${woke}`);
+});
+export(main);

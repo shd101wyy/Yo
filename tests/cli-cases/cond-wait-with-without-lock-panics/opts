@@ -1,0 +1,8 @@
+# Parallelism soundness Phase 5 (rule D5): Cond.wait_with / wait_timeout_with
+# on a mutex the caller does not hold was pthread_cond_wait on an un-owned
+# mutex — undefined behaviour that glibc/macOS turn into a mutex left locked
+# with no owner (the next with_lock never returns). The mutex records its
+# holder; the wait refuses.
+# (issues/fixed/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md)
+stdout_keep_match=Cond.wait_with: the calling thread does not hold the mutex it passed
+timeout=300
