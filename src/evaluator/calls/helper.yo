@@ -2037,29 +2037,6 @@ _push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi
 /// (an `Impl(Fn(...))` type bound to a generic parameter)? Such a SomeT is
 /// the call's instantiation, not an unresolved type variable, so a return type
 /// re-evaluated to carry it is as settled as a concrete one.
-_p26_dbg_ty :: (fn(t : TypeValue) -> String)(
-  match(
-    t,
-    .Struct({ id : did, type_arguments : dtas }) => {
-      out := `struct ${did} args[`;
-      (di : usize) = usize(0);
-      while(di < dtas.len(), {
-        match(
-          dtas.get(di),
-          .Some(dt) => {
-            out.push_string(match(dt, .SomeT(dsid, _, _, _, _, _, _, _, _, _, _) => `SomeT#${dsid}`, _ => type_to_string(dt)));
-            out.push_str(" ");
-          },
-          .None => ()
-        );
-        di = (di + usize(1));
-      });
-      out.push_str("]");
-      out
-    },
-    _ => type_to_string(t)
-  )
-);
 _somes_are_closure_forall_args :: (fn(somes : ArrayList(TypeValue), forall_args : ArrayList(ArgEntry)) -> bool)({
   ids := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -2787,10 +2764,6 @@ create_specialized_function_inline :: (
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(rte_ty);
                     rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args));
-                    if(debug_knob(`YO_DEBUG_P26`).is_some() && type_to_string(rte_ty).starts_with("Arc"), {
-                      vv := get_variables_from_env(callee_env, String.from("V"));
-                      eprintln(`[p26-rte] ${_p26_dbg_ty(rte_ty)} only=${rte_only_closure_args} V=${match(vv.get(vv.len() - usize(1)), .Some(vx) => match(vx.value.get(usize(0)), .Some(vxv) => match(vxv, .TypeVal(vxt) => match(vxt, .SomeT(vsid, _, _, _, _, _, _, _, _, _, _) => `SomeT#${vsid}`, _ => type_to_string(vxt)), _ => String.from("nontype")), .None => String.from("novalue")), .None => String.from("unbound"))}`);
-                    });
                     if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
@@ -4237,9 +4210,6 @@ create_specialized_function_inline :: (
                 ),
                 ArrayList(TypeValue).new()
               );
-              if(debug_knob(`YO_DEBUG_P26`).is_some() && type_to_string(spec_result).starts_with("Arc"), {
-                eprintln(`[p26-reg] ${_p26_dbg_ty(spec_result)} adopted=${rte_adopted}`);
-              });
               register_func_type(specialized_func_id.clone(), spec_type);
             },
             _ => ()
@@ -7185,9 +7155,6 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
       s9_dbg := (in_def_time_trial() && debug_knob(`YO_DEBUG_RET`).is_some());
-      if(debug_knob(`YO_DEBUG_P26`).is_some() && type_to_string(return_type).starts_with("Arc"), {
-        eprintln(`[p26-s9] ${_p26_dbg_ty(return_type)}`);
-      });
       if(s9_dbg, {
         eprintln(`[s9-init] declared=${type_to_string(ret_b)} after-rte=${type_to_string(return_type)}`);
       });
