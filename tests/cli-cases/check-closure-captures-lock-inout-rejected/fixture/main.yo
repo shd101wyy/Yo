@@ -1,0 +1,19 @@
+{ Mutex } :: import("std/sync/mutex");
+{ println } :: import("std/fmt");
+Counter :: struct(n : i32);
+main :: (fn() -> unit)({
+  m := Mutex(Counter).new(Counter(n : i32(0)));
+  (keep : Option(Impl(Fn() -> unit))) = Option(Impl(Fn() -> unit)).None;
+  (_u : unit) = m.with_lock(v => {
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        v.n = (v.n + i32(1));
+      }
+    );
+    k();
+    keep = Option(Impl(Fn() -> unit)).Some(k);
+  });
+  match(keep, .Some(k2) => k2(), .None => ());
+  println(`n=${m.with_lock((v) => v.n)}`);
+});
+export(main);

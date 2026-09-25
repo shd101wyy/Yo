@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   desugar_if_calls,
   BF_YO_AS
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 {
   ExprInfo,
@@ -4837,6 +4837,29 @@ evaluate_function_call :: (
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
+  // Rule D6 (`plans/reference/PARALLELISM_RULES.md`): a runtime extern (an
+  // `extern` other than "c" — the `__yo_*` entry points `std/sys/externs.yo`
+  // exports) called BY NAME from a file without the pragma. Declaring one
+  // needs the pragma, but a pragma'd module that exports it handed it to every
+  // importer (`__yo_async_blocking_begin()` unbalanced the event loop's
+  // cross-thread bracket from safe code). A dot-access callee is a field of
+  // a std value (`io.await`, `io.async`), the sanctioned surface, and stays
+  // legal; an extern "c" callee is gated by the `unsafe(...)` rule below.
+  gate_is_extern_runtime := match(
+    callee_ty_for_gate,
+    .Func({ meta : __fm_d6 }) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
+    _ => false
+  );
+  if(((gate_is_extern_runtime && ast_expr_is_atom(func_expr)) && !(gate_in_autogen)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Calling the runtime extern '${ast_expr_to_string(func_expr)}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+        )
+      )
+    );
+  });
   if((gate_is_extern_c && !(ctx.unsafe_context)) && !(gate_in_autogen), {
     callee_name := match(
       callee_ty_for_gate,
