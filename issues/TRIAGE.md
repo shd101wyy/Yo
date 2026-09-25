@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 237 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 235 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 15 |
-| **Total** | **237** | **50** |
+| Other | 51 | 13 |
+| **Total** | **235** | **48** |
 
 ## Cross-cutting buckets
 
@@ -345,12 +345,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (53)
+### Other (51)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`](./a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md) | OPEN | yes |
-| [`a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`](./a-closure-capturing-an-inout-lock-body-parameter-passes-check.md) | OPEN | yes |
 | [`a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md`](./a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md) | OPEN | — |
 | [`a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md`](./a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md) | OPEN | — |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
@@ -387,7 +386,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md`](./rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md) | OPEN | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
-| [`safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`](./safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md) | OPEN | yes |
 | [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
