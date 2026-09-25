@@ -1,4 +1,5 @@
 /// Verifies: gensym, .car/.cdr, ExprVal Atom equality.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { Exception } :: import("std/error");
@@ -8,6 +9,11 @@ import("std/fmt");
 { has_comment_attribute, Evaluator } :: import("../../src/evaluator/index.yo");
 { MACRO_DISPATCH_ENABLED } :: import("../../src/evaluator/calls/function.yo");
 { assert, panic } :: import("std/assert");
+{ AstExpr, ast_expr_id, ast_expr_token } :: import("../../src/expr.yo");
+{ expr_info_table_get } :: import("../../src/expr_info.yo");
+{ Environment } :: import("../../src/env.yo");
+{ eval_context_new } :: import("../../src/evaluator/context.yo");
+{ evaluate_gensym } :: import("../../src/evaluator/builtins/gensym.yo");
 noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
@@ -237,4 +243,52 @@ test("macro helpers: .cdr on ComptimeListVal", {
       )
     );
   });
+});
+test("macro helpers: a gensym'd token shares its source token's input", {
+  // Synthesized tokens used to COPY the source token's `input` (the module's
+  // whole source text) with `String.clone`, which copies the bytes: every
+  // gensym, match-arm test block and numeric/pointer conversion atom kept a
+  // private copy. At `check src/main.yo` exit, 14,559 such buffers (216 MB)
+  // hung off `g_macro_expansions` alone
+  // (issues/fixed/synthetic-tokens-copy-their-source-text.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  source := String.from("gensym()\n// the rest of the module's source text\n");
+  tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from("gensym"),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from("gensym_share_test.yo"),
+    input : source
+  );
+  call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), ArrayList(AstExpr).new(), false, tok);
+  env := Environment.new(String.from("gensym_share_test.yo"));
+  ctx := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
+  _r := evaluate_gensym(call, env, ctx, exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(
+        v,
+        .ExprVal(atom) => {
+          synth := ast_expr_token(atom);
+          assert(synth.input == source, "the synthesized token carries the source text");
+          assert(unsafe(__yo_ptr_eq(synth.input.as_bytes(), source.as_bytes())), "the synthesized token SHARES the source text instead of copying it");
+          assert(unsafe(__yo_ptr_eq(synth.module_path.as_bytes(), tok.module_path.as_bytes())), "the synthesized token shares the module path");
+        },
+        _ => assert(false, "gensym did not produce an ExprVal")
+      ),
+      .None => assert(false, "gensym recorded no value")
+    ),
+    .None => assert(false, "gensym recorded no ExprInfo")
+  );
 });
