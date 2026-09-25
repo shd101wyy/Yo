@@ -911,7 +911,7 @@ _compat_impl :: (
           ) => false,
           // One declaration (or an era of it): the type-argument check above
           // already told its instantiations apart.
-          (aid == eid) => true,
+          ((aid.len() > usize(0)) && (aid == eid)) => true,
           // Two DIFFERENT declarations are one type under the lenient rule
           // only when their shapes agree. An empty name used to be a
           // wildcard and an equal name a pass, so an anonymous record with
@@ -974,7 +974,7 @@ _compat_impl :: (
           });
           ta_differ
         }) => false,
-        (aid == eid) => true,
+        ((aid.len() > usize(0)) && (aid == eid)) => true,
         // Self-SHELL identity (exact only): a struct self-shell is an
         // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
         // (struct.yo:76-95) — "distinguished from the final purely by its
@@ -1190,7 +1190,7 @@ _compat_impl :: (
             // no longer a wildcard — `enum(Blue)` is not an `E1 :: enum(Red,
             // Green)` — so different declarations must agree on their variant
             // names (payloads were compared just above).
-            (aid == eid) => true,
+            ((aid.len() > usize(0)) && (aid == eid)) => true,
             (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
             true => ({
               (vn_same : bool) = (avns.len() == evns.len());
