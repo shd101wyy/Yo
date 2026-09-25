@@ -94,8 +94,9 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
+{ parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
 {
@@ -930,7 +931,22 @@ _bind_forall_from_type_args :: (
               });
               if(debug_knob(`YO_DEBUG_CC`).is_some(),
               {
-                eprintln(`[cc-bfta] fa=${fa_name} ct=${type_key(ct)} res=${type_key(cell_cur)}`);
+                eprintln(`[cc-bfta] fa=${fa_name} ct=${type_key(ct)} res=${type_key(cell_cur)} slot_is_some=${is_some_type(_tk_resolve_arg_slot(ct)).to_string()}`);
+              });
+              // Bind what the RECEIVER is keyed by. An annotation (`Impl`) or
+              // dyn-coercion (nameless) wrapper on the chain is an identity
+              // of its own: `type_key` keys `G(<k's Impl>)` by that SomeT, not
+              // by the capture struct it resolves to. Binding `T` to the
+              // capture struct made every `G(T)` / `Self` the method
+              // re-evaluates name a SECOND instance, so a static method's
+              // `-> Self` return disagreed with the body's `Self(...)` in C
+              // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+              // A chain `type_key` hops (where-clause foralls, `__impl_fn`)
+              // keys as the concrete type, so binding the concrete names the
+              // same instance.
+              if(is_some_type(_tk_resolve_arg_slot(ct)),
+              {
+                return(Option(TypeValue).Some(ct));
               });
               return(Option(TypeValue).Some(cell_cur));
             });
