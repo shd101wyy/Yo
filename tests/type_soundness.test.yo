@@ -515,3 +515,33 @@ test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
   (inc : Dyn(Fn(y : i32) -> i32)) = dyn(y => (y + i32(1)));
   assert(_sound_apply_dyn(inc, i32(41)) == i32(42), "B inferred");
 });
+// ---------------------------------------------------------------------------
+// Phase 2.5: one argument/parameter rule for every call path
+// (issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md,
+// issues/fixed/a-folded-comptime-integer-argument-to-a-method-is-lowered-to-i32.md).
+// ---------------------------------------------------------------------------
+_p25_eat :: (fn(own(s) : String) -> usize)(s.len());
+_p25_take_u8 :: (fn(a : u8) -> u8)(a);
+_P25Holder :: struct(n : i32);
+impl(
+  _P25Holder,
+  eat : (fn(self : Self, own(s) : String) -> usize)(s.len()),
+  take_u8 : (fn(self : Self, a : u8) -> u8)(a)
+);
+test("soundness: a moved argument is rejected on both call paths", {
+  a := String.from("abc");
+  n := _p25_eat(a);
+  comptime_expect_error(_p25_eat(a), "use of moved value");
+  h := _P25Holder(n : i32(1));
+  b := String.from("wxyz");
+  m := h.eat(b);
+  comptime_expect_error(h.eat(b), "use of moved value");
+  assert((n + m) == usize(7), "each call saw its own string");
+});
+test("soundness: a folded comptime integer is judged the same on both call paths", {
+  h := _P25Holder(n : i32(1));
+  assert(_p25_take_u8(100 + 50) == u8(150), "free fn");
+  assert(h.take_u8(100 + 50) == u8(150), "method");
+  comptime_expect_error(_p25_take_u8(200 + 100), "does not fit in u8");
+  comptime_expect_error(h.take_u8(200 + 100), "does not fit in u8");
+});
