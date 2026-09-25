@@ -50,7 +50,15 @@ for f in "${FILES[@]}"; do
   echo "$verdict $f rc=$rc spawns=$spawns tsan_reports=$races${listed:+ (known-failing)}"
   case "$verdict" in
     PASS) if [ -n "$listed" ]; then echo "  -> listed in $KNOWN but now passes: remove its line"; bad=1; fi ;;
-    FAIL) if [ -z "$listed" ]; then echo "  -> new failure; log: $log"; awk '/WARNING: ThreadSanitizer/{p=1} p{print} /SUMMARY: ThreadSanitizer/{if(p && ++n==3) exit; p=0}' "$log" | head -150; bad=1; fi ;;
+    FAIL) if [ -z "$listed" ]; then
+        echo "  -> new failure; log: $log"
+        awk '/WARNING: ThreadSanitizer/{p=1} p{print} /SUMMARY: ThreadSanitizer/{if(p && ++n==3) exit; p=0}' "$log" | head -150
+        # A failure with no TSan report (a crash, an assert, a TSan fatal
+        # error) says why only in the test's own output: print each failed
+        # test with what it printed.
+        if [ "$races" -eq 0 ]; then grep -a -A12 '✗' "$log" | head -80; grep -a -m5 'ThreadSanitizer' "$log"; fi
+        bad=1
+      fi ;;
     HOLLOW) echo "  -> no thread was spawned: the run proves nothing"; bad=1 ;;
   esac
 done
