@@ -742,7 +742,10 @@ the default is never.
 `yo compile` normally emits one C file. `--emit-chunks <n|auto>` splits the
 emitted C into `n` translation units and compiles them in parallel
 (`--jobs <n>`; `auto` picks the count from the emitted size and the core
-count, `YO_JOBS` overrides). Each unit has its own object cache beside the
+count, `YO_JOBS` overrides). When `--jobs` is not given, the job count is
+also capped so the concurrent C compilers fit in half of physical memory (the
+cgroup limit on Linux when that is lower); `YO_ASSUME_MEMORY_MB=<n>` sets the
+memory figure the cap uses. Each unit has its own object cache beside the
 object file (`<obj>.inputs-sha256`), so a later compile of an edited program
 recompiles only the units whose C changed:
 

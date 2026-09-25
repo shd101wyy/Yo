@@ -49,6 +49,11 @@ emits **byte-identical** C to a single-file-built one
   `MIN_CHUNK_BYTES = 4 MiB`, measured (a 410-line program emits 168 KB with
   a ~20% shared header — N=4 there is ~155% of the single-file C work, so
   the floor keeps it N=1).
+- **Memory cap on the default `--jobs` — LANDED 2026-09-25**
+  (`plans/BUILD_ON_8GB_MACHINES.md` Phase 3): a defaulted job count is lowered
+  to what fits in half of physical memory at 64 MB + 24 bytes per byte of the
+  largest unit's C; an explicit `--jobs` is kept. `YO_ASSUME_MEMORY_MB`
+  overrides the memory figure.
 - **The behavioural fixpoint gate is now a CI job** (`chunked-gate` in
   test.yml, since the DEBUG-build default made chunking a default path) —
   two self-builds plus two self-emits against the shared suite-candidate.

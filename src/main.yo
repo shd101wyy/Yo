@@ -3277,16 +3277,18 @@ _physical_memory_mb_windows :: (fn() -> usize)({
 /// How many chunk compiles may run at once without the machine running out:
 /// half of physical memory (the rest is the OS, the user's other programs
 /// and the link that follows) over a per-job estimate for the LARGEST unit.
-/// The estimate, 64 MB + 16 bytes per byte of C, is fitted conservatively to
-/// the measured clang -O2 peaks on `src/main.yo`: 345 MB for a 25 MB unit,
-/// 3.26 GB for the whole 145 MB file (plans/BUILD_ON_8GB_MACHINES.md Phase
-/// 3). Never below 1, never above `jobs`; unknown memory keeps `jobs`.
+/// The estimate, 64 MB + 24 bytes per byte of C, sits above both measured
+/// clang -O2 peaks on `src/main.yo` (plans/BUILD_ON_8GB_MACHINES.md Phase 3):
+/// 345 MB for a 25 MB unit (estimate 664), 3.26 GB for the whole 145 MB file
+/// (estimate 3.5 GB); clang's peak grows faster than its input, so the
+/// per-byte figure comes from the large end. Never below 1, never above
+/// `jobs`; unknown memory keeps `jobs`.
 _chunk_jobs_for_memory :: (fn(jobs : usize, max_unit_bytes : usize) -> usize)({
   mem_mb := _physical_memory_mb();
   if((mem_mb == usize(0)) || (max_unit_bytes == usize(0)), {
     return(jobs);
   });
-  per_job_mb := (usize(64) + ((max_unit_bytes * usize(16)) / usize(1048576)));
+  per_job_mb := (usize(64) + ((max_unit_bytes * usize(24)) / usize(1048576)));
   fit := ((mem_mb / usize(2)) / per_job_mb);
   cond(
     (fit < usize(1)) => usize(1),
