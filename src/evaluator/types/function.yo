@@ -2688,6 +2688,27 @@ parse_where_clause_constraints :: (
           add_where_clause_constraint_for_type_application(env_mut, ta_lhs, trait_ty2, is_neg);
         },
         .None => {
+          // Rule D4: the call-time re-application binds a generic parameter
+          // instantiated with a CLOSURE to that closure's `Impl(Fn...)`
+          // SomeT, and this branch only ADDS the bound to it — the closure
+          // was never judged. A closure holds Send/Acyclic only when its
+          // captured state does (Rust's auto-trait rule).
+          if(!is_neg, {
+            match(
+              closure_bound_marker_offender(env_mut, some_ty, trait_ty2),
+              .Some(d4_cap) => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(constraint_expr),
+                      `The closure type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty2)}: its captured state (${type_to_string(d4_cap)}) does not. A closure has a marker trait only when every value it captures does — capture an atomic object (Arc(T), Mutex(T), Atomic*) instead.`
+                    )
+                  )
+                );
+              },
+              .None => ()
+            );
+          });
           _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
         }
       );
