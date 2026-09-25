@@ -2508,27 +2508,6 @@ create_specialized_function_inline :: (
                           });
                           zbp = (zbp + usize(1));
                         });
-                        // A CLOSURE argument that captures nothing has no
-                        // capture struct to stand in for `V`: bind `V` to the
-                        // closure's own `Impl(Fn...)` SomeT, the type the
-                        // body binds it to, or the return re-evaluation
-                        // below builds `Arc(V)` over the signature's `V`
-                        // while the body builds `Arc(<closure SomeT>)` — two
-                        // instances, and clang rejects the return
-                        // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-                        if(!(zb_done) && extract_fn_trait_from_type(zb_tb).is_some(), {
-                          _zb3 := add_variable_to_env(
-                            callee_env,
-                            zb_name,
-                            TypeValue.TypeUni(usize(0)),
-                            Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
-                            true,
-                            false,
-                            false,
-                            false,
-                            synthetic_token(zb_name, callee_env.module_path)
-                          );
-                        });
                       });
                     }),
                     _ => ()
@@ -4093,16 +4072,7 @@ create_specialized_function_inline :: (
                   ydb = (ydb + usize(1));
                 });
                 if(ys_any, {
-                  // An ADOPTED return (above) is already this call's
-                  // instance, the one the body was checked against; the
-                  // positional substitution of the DECLARED return would
-                  // mint a second one — for a capture-free closure argument
-                  // `Arc(V)` with `V := <param type>` is a different `Arc`
-                  // than the body's `Arc(<closure SomeT>)`
-                  // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-                  if(!(rte_adopted), {
-                    spec_result = substitute(ys_ret, sp_res_b);
-                  });
+                  spec_result = substitute(ys_ret, sp_res_b);
                   // Rebuild the param list through the same substitution
                   // (ArrayList has no indexed set).
                   y_new_params := ArrayList(TypeValue).new();
@@ -8098,6 +8068,7 @@ export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
 export(validate_where_constraints_for_call);
+export(_somes_are_closure_forall_args);
 export(reapply_where_clause_exprs_for_call);
 export(extract_function_value);
 export(validate_function_return_type);

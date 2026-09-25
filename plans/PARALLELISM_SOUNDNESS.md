@@ -321,7 +321,17 @@ and were fixed on the way: the dup/drop MOVE optimizer hid a live alias from the
 (`issues/fixed/the-dup-drop-move-optimizer-hides-an-alias-from-iso-uniqueness.md` — the
 optimizer now skips the frames of a function that isolates), and every `AtomicI32` read as
 cycle-capable (`issues/fixed/atomic-types-read-as-cycle-capable-through-their-opaque-c-payload.md`).
-The deep walk's cost is O(reachable graph) once per hand-off on the sending thread.
+The deep walk's cost is O(reachable graph) once per hand-off on the sending thread. Measured
+2026-09-25 (macOS arm64, `--optimize 2`, 3 runs each):
+
+| `^v` over | Objects walked | Time |
+| --- | --- | --- |
+| an `ArrayList(String)` of 1e6 strings | 1e6 + 1 | 6.6–7.8 ms |
+| an `ArrayList(Box(String))` of 1e6 boxes | 2e6 + 1 | 10.4–10.6 ms |
+
+That is about 5–7 ns per object. A deep linked chain cannot be measured this way: a
+self-referential node type is cycle-capable, and `^` rejects it at compile time, as D2
+requires.
 
 ### Phase 3: module-level globals (P-3, P-10) (M; evaluator + one std fix)
 
