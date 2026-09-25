@@ -42,8 +42,10 @@ typedef struct {
 
 - `Dyn` is a **value type** - copied by value like a struct
 - `data` **must** point to an reference-semantics type (always has ref_header)
-- When you copy a `Dyn`, you `___dup` the `data` pointer
-- When you drop a `Dyn`, you `___drop` the `data` pointer
+- When you copy a `Dyn`, you retain the `data` pointer; when you drop it, you release it. Both go
+  through the vtable's `__yo_retain` / `__yo_release` slots (after `__yo_type_id`), which the
+  concrete payload type fills: the atomic RC operations for an atomic reference object (`Arc`,
+  an `atomic` struct), the plain ones otherwise
 - The `Dyn` struct itself is not heap-allocated
 
 ### 2. Data Storage (Reference-Semantics Type Constraint)
@@ -157,6 +159,16 @@ dyn(point); // OK: point is an reference-semantics type
 // Direct value will be automatically boxed
 dyn(42); // 42 becomes box(42) automatically
 dyn(true); // true becomes box(true) automatically
+```
+
+**A `Send` Dyn's payload is atomic.** Every copy of a `Dyn(Trait, Send)` may live on another
+thread and retains and releases the same `data` object from there, so its count must be atomic.
+For a `Send` target, `dyn(v)` of a value type boxes it with `arc`, not `box`. A non-atomic
+reference payload is an error:
+
+```rust
+(d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK: k is boxed with arc
+(e : Dyn(Fn() -> unit, Send)) = dyn(box(k));  // error: its payload must be atomically reference counted
 ```
 
 ### 4. Static Vtables and Wrappers

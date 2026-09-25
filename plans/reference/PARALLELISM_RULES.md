@@ -150,7 +150,12 @@ the value is known:
 - **A variable captured by a `Send` closure:** the captured value.
 - **A declared `(f : Impl(Fn(...), Send)) = v` binding:** `v`. A declared marker is not
   re-judged later, so the binding is where a value takes on the promise.
-- **`dyn(v)` into `Dyn(Fn(...), Send)`:** `v`.
+- **`dyn(v)` into `Dyn(Fn(...), Send)`:** `v`. The payload the Dyn shares must also be
+  atomically counted, whatever the trait: every copy of a `Dyn(Trait, Send)` retains and
+  releases one `data` object from its own thread. `dyn(v)` of a value type boxes it with `arc`
+  for a `Send` target (`box` otherwise), a non-atomic reference payload (`dyn(box(v))`) is an
+  error, and a Dyn's dup/drop calls the retain/release slots of its vtable, which the payload
+  type fills (`issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md`).
 - **An `Iso(T)`:** every function value `T`'s graph can hold (`_iso_function_offense`,
   `src/evaluator/calls/iso.yo`). D2's uniqueness walk proves the graph is uniquely owned, not
   that a function in it runs safely on the receiving thread. A bare `fn` field and a `Dyn`

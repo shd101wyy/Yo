@@ -42,8 +42,7 @@ typedef struct {
 
 - `Dyn` 是**值类型** — 像结构体一样按值复制
 - `data` **必须**指向引用语义类型（始终具有 ref_header）
-- 复制 `Dyn` 时，对 `data` 指针执行 `___dup`
-- 销毁 `Dyn` 时，对 `data` 指针执行 `___drop`
+- 复制 `Dyn` 时 retain `data` 指针，销毁时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
 - `Dyn` 结构体本身不在堆上分配
 
 ### 2. 数据存储（引用语义类型约束）
@@ -145,6 +144,13 @@ dyn(point); // OK：point 是引用语义类型
 // 直接传值会自动装箱
 dyn(42); // 42 自动变为 box(42)
 dyn(true); // true 自动变为 box(true)
+```
+
+**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `box` 装箱值类型。非原子的引用载荷是错误：
+
+```rust
+(d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK：k 用 arc 装箱
+(e : Dyn(Fn() -> unit, Send)) = dyn(box(k));  // 错误：其载荷必须是原子引用计数的
 ```
 
 ### 4. 静态虚表和包装函数
