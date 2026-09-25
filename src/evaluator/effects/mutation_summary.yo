@@ -3234,8 +3234,10 @@ function_param_mutation_mask :: (
 // global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) is a static
 // every thread shares, and even a READ through its handle updates a refcount
 // (issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md).
-// MAY-analysis: a callee that cannot be resolved statically is a violation
-// too, named as such. Bodies defined in a pragma'd file are the audited base
+// The walk follows the STATIC call graph: a call through a closure value or a
+// dyn method has no body to descend into and is not followed
+// (issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md —
+// closed together with rule D4). Bodies defined in a pragma'd file are the audited base
 // and are not descended into (std/log's globals are under a mutex, std's
 // html tables under a lock). `thread_local` globals are per-thread and fine.
 // ===========================================================================
@@ -3274,7 +3276,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   if(send_ok, {
     return(Option(String).None);
   });
-  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()})`)
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()})`)
 });
 _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
@@ -3347,15 +3349,14 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
                 );
               });
             },
-            .TypeVal(_) => (),
-            _ => {
-              return(Option(String).Some(`calls '${ast_expr_to_string(f)}', which cannot be resolved to a function body at compile time (a dyn method or an unknown callee) — a closure that runs on another thread may only call functions whose bodies are known`));
-            }
+            // A closure VALUE, a dyn method, an operator the evaluator did not
+            // stamp: no body to descend into. Only the arguments are walked.
+            // Following closure values needs per-closure identity on Func
+            // types, the prerequisite rule D4 is also waiting on
+            // (issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+            _ => ()
           ),
-          .None => if(!ast_expr_is_atom(f) || !_ms_head_is_pure_builtin(head.clone()), {
-            // An unresolved head that is not a builtin: a callee we cannot see.
-            return(Option(String).Some(`calls '${ast_expr_to_string(f)}', which cannot be resolved to a function body at compile time (a dyn method or an unknown callee) — a closure that runs on another thread may only call functions whose bodies are known`));
-          })
+          .None => ()
         );
       });
       // The callee expression itself (a global closure, a receiver) and the

@@ -26,9 +26,13 @@ thread of the process. In a file without the pragma:
 - a closure bound to a `Send` closure type (a `Thread.spawn` body, a pool task, a
   `spawn_blocking` callback — anything coerced to `Impl(Fn(...), Send)`) may not REACH a
   module-level global whose type is not `Send`, directly or through any function it can call:
-  a walk over the evaluated closure body and its resolvable callees (memoized, cycle-safe); a
-  callee that cannot be resolved statically — a dyn method — is a violation too, and a body
-  defined in a pragma'd file is the audited base and is not descended into. A non-atomic RC
+  a walk over the evaluated closure body and its statically resolved callees (memoized,
+  cycle-safe); a body defined in a pragma'd file is the audited base and is not descended into.
+  A call through a closure VALUE or a dyn method has no body to descend into and is not
+  followed yet — that residual closes with D4
+  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`). Treating such calls
+  as violations was measured and rejected: it convicts every spawn body that calls a captured
+  helper closure. A non-atomic RC
   global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) therefore stays legal in a
   single-threaded program and for the main thread, but no other thread can touch it: even
   READING a field through such a handle performs reference-count traffic

@@ -1,0 +1,24 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+g := ArrayList(i32).new();
+main :: (fn() -> unit)({
+  (fill : Impl(Fn() -> unit)) = (
+    () => {
+      (i : i32) = i32(0);
+      while(runtime(i < i32(2000000)), {
+        g.push(i);
+        i = (i + i32(1));
+      });
+    }
+  );
+  t := Thread(unit).spawn((io : Io) => {
+    fill();
+    ()
+  });
+  fill();
+  t.join();
+  h := g;
+  println(`len=${h.len()} (expected 4000000)`);
+});
+export(main);

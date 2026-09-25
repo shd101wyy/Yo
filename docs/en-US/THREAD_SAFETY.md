@@ -313,6 +313,10 @@ the race it describes.
   `Channel(typeof(f))` pass `yo check` with a non-Send capture (the C compiler rejects the
   program today by accident)
   (`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`).
+- **A spawned closure can reach a non-Send module-level global through a closure value** it
+  calls (a captured helper closure, a closure parameter) or a `dyn` method: the global-reach
+  check follows only calls it can resolve to a function body at compile time
+  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
 - **A closure may capture a `with_lock` body's `inout(v)`** at `yo check` (codegen fails)
   (`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
 - **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a
