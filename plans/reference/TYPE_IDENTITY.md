@@ -48,7 +48,11 @@ identity plus a short, listed set of coercions.
 
 - The comptime literal family: `comptime_int` into any integer type it fits, `comptime_float`
   into a float type, `comptime_str` into `str` and `String` positions that accept it.
-- A SomeT resolves: a concrete type flows into an unresolved type parameter that it satisfies.
+- A SomeT resolves: a concrete type flows into an unresolved type parameter that it satisfies,
+  and, symmetrically, an unresolved type parameter flows into a concrete type that satisfies its
+  bounds (call sites pass `(param, arg)` as often as `(arg, param)`). A resolved SomeT stands for its
+  resolution. An extern opaque type is a concrete C type and is only itself.
+- A recursive struct's self-shell stands for its final.
 - An anonymous record flows into a named struct of the same kind with the same field labels and
   compatible field types (`r := { x : i32(7) }; (a : A) = r;` for `A :: struct(x : i32)`).
   Different labels, a different count or a different kind is a type error.

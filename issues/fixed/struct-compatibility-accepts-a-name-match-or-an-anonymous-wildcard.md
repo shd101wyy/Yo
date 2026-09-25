@@ -102,6 +102,20 @@ field VALUES (no id, `comptime_int` for a `usize` field). The prelude's own `der
 Eq(Pragma))` failed with the wildcard gone. `src/evaluator/builtins/type_fns.yo` now binds them
 with the declared type.
 
+Two more things the wildcard was quietly accepting, found by the fast suite once it was gone:
+
+- **A recursive struct's self-shell** (the empty-field, empty-name stand-in `Self` is bound to during
+  the struct's own definition, sharing its final's id) met the real `Node(T)` and failed on the
+  field count (`std/collections/linked_list.yo`: "Function body has type `LinkedListIter(i32)`, but
+  the declared result type is `LinkedListIter(T)`"). `_compat_impl` now compares a shell as its
+  final (`resolve_struct_shell`, whose registry became an id-keyed map for the purpose).
+- **An unresolved SomeT on the ACTUAL side.** The argument check passes `(param, arg)`, so an open
+  parameter type meets a concrete argument with the SomeT first
+  (`std/imm/sorted_map.yo`'s `_collect_entries` recursion: `List(MapEntry(K, V))` against
+  `List(MapEntry(i32, i32))`). Only the concrete-vs-SomeT direction had a rule; the lenient relation
+  now has its twin — an unresolved SomeT accepts a concrete type that meets its bounds. An extern
+  opaque type (a SomeT stand-in for a C type) is excluded.
+
 `tests/type_soundness.test.yo` runs both repros (the two-module one through
 `tests/fixtures/soundness_p1.yo` / `soundness_p2.yo`), every row of the measured table, and a
 canary that an anonymous record with the same fields still flows into a named struct.
