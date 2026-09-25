@@ -545,3 +545,94 @@ test("soundness: a folded comptime integer is judged the same on both call paths
   comptime_expect_error(_p25_take_u8(200 + 100), "does not fit in u8");
   comptime_expect_error(h.take_u8(200 + 100), "does not fit in u8");
 });
+// ---------------------------------------------------------------------------
+// issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md
+// (Phase 3.2): a struct is another struct only when it is the same declaration
+// or, with an anonymous side, has the same fields. A name match and an empty
+// name are not enough.
+// ---------------------------------------------------------------------------
+{ P : _P31a } :: import("./fixtures/soundness_p1.yo");
+{ P : _P31b } :: import("./fixtures/soundness_p2.yo");
+_p31_take :: (fn(p : _P31a) -> i32)(p.x);
+_P31Named :: struct(x : i32);
+_P31Newt :: newtype(v : i32);
+_P31Colors :: enum(Red, Green);
+_p31_anon_other_fields :: Type.is_compatible_with(struct(y : bool), _P31Named);
+_p31_anon_vs_anon :: Type.is_compatible_with(struct(x : i32), struct(y : bool, z : f64));
+_p31_newtype_vs_anon :: Type.is_compatible_with(_P31Newt, struct(v : i32));
+_p31_anon_vs_newtype :: Type.is_compatible_with(struct(v : i32), _P31Newt);
+_p31_ref_vs_anon :: Type.is_compatible_with(ref(struct(x : i32)), struct(x : i32));
+_p31_enum_vs_enum :: Type.is_compatible_with(enum(Blue), _P31Colors);
+_p31_union_vs_union :: Type.is_compatible_with(union(a : i32), union(b : f64, c : u8));
+_p31_anon_same_fields :: Type.is_compatible_with(struct(x : i32), _P31Named);
+test("soundness: a name match or an anonymous side is not struct compatibility", {
+  comptime_expect_error(_p31_take(_P31b(s : true, t : f64(1.0))), "TODO");
+  comptime_expect_error({
+    r := { y : true, z : f64(2.5) };
+    (a : _P31Named) = r;
+  }, "TODO");
+  assert(!_p31_anon_other_fields, "anonymous record with other fields vs a named struct");
+  assert(!_p31_anon_vs_anon, "two anonymous records with different fields");
+  assert(!_p31_newtype_vs_anon, "a newtype is nominal against an anonymous record");
+  assert(!_p31_anon_vs_newtype, "an anonymous record is not a newtype");
+  assert(!_p31_ref_vs_anon, "a ref object is not a value record");
+  assert(!_p31_enum_vs_enum, "an anonymous enum with other variants");
+  assert(!_p31_union_vs_union, "a union with other fields");
+});
+test("soundness canary: an anonymous record with the same fields flows into a named struct", {
+  assert(_p31_anon_same_fields, "same fields");
+  r := { x : i32(7) };
+  (a : _P31Named) = r;
+  assert(a.x == i32(7), "the value survives");
+  assert(_p31_take(_P31a(x : i32(4))) == i32(4), "the right P");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md
+// (Phase 3.4): the CTFE memo keys on identity, so `Type.eq` and an
+// instantiation do not depend on what ran first.
+// ---------------------------------------------------------------------------
+_P34A :: struct(x : i32);
+_P34B :: struct(x : i32);
+_P34Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+impl(_P34A, show : (fn(self : Self) -> i32)(self.x + i32(100)));
+test("soundness: Type.eq does not depend on the order of earlier questions", {
+  // anonymous pair first, then the named pair ...
+  (anon_first : bool) = Type.eq(struct(x : i32), struct(x : i32));
+  (named_second : bool) = Type.eq(_P34A, _P34B);
+  // ... and the named pair first, then the anonymous pair.
+  (named_first : bool) = Type.eq(_P34B, _P34A);
+  (anon_second : bool) = Type.eq(struct(x : i32), struct(x : i32));
+  assert(anon_first && anon_second, "two anonymous records with the same fields are one type");
+  assert(!named_second && !named_first, "two declarations are two types in either order");
+  assert(!Type.eq(struct(x : i32), _P34A), "an anonymous record is not a named struct");
+  assert(!Type.eq(Tuple(a : i32, b : bool), Tuple(c : i32, d : bool)), "tuple labels are part of the identity");
+  assert(Type.eq(Tuple(a : i32, b : bool), Tuple(a : i32, b : bool)), "the same labelled tuple");
+});
+test("soundness: an instantiation does not adopt an earlier, different one", {
+  (w0 : _P34Wrap(struct(x : i32))) = _P34Wrap(struct(x : i32))(
+    inner : { x : i32(1) }
+  );
+  (w1 : _P34Wrap(_P34A)) = _P34Wrap(_P34A)(inner : _P34A(x : i32(2)));
+  assert(w0.inner.x == i32(1), "the anonymous instance");
+  assert(w1.inner.show() == i32(102), "the named instance keeps its methods");
+});
+// A collection of an anonymous record and a collection of a named struct with
+// the same fields are two instantiations; the memo used to hand the second the
+// first's, and pushing the named value failed with "Cannot unify incompatible
+// struct types" (reported by a peer session, 2026-09-24).
+_P34Row :: struct(name : String, dt : u8);
+_p34_rows_anon :: (fn() -> usize)({
+  xs := ArrayList(struct(name : String, dt : u8)).new();
+  xs.push({ name : String.from("a"), dt : u8(1) });
+  xs.len()
+});
+_p34_rows_named :: (fn() -> usize)({
+  ys := ArrayList(_P34Row).new();
+  ys.push(_P34Row(name : String.from("b"), dt : u8(2)));
+  ys.push(_P34Row(name : String.from("c"), dt : u8(3)));
+  ys.len()
+});
+test("soundness: ArrayList(anonymous record) and ArrayList(Named) are two instantiations", {
+  assert(_p34_rows_anon() == usize(1), "anonymous");
+  assert(_p34_rows_named() == usize(2), "named");
+});
