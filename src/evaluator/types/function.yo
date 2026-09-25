@@ -2383,28 +2383,39 @@ apply_single_trait_constraint :: (
   // what its code reaches is Send, so its values decide first. (Inert at
   // definition time: the SomeT is then the generic's own type variable, with
   // no value.)
+  (fvm_judged : bool) = false;
   if(!is_negated, {
     match(
       call_function_value_marker(some_ty, Option(EvalValue).None, trait_ty, env_mut, ctx),
-      .Some(fvm) => match(
-        fvm,
-        .Some(fvm_o) => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(original_constraint_expr),
-                `The function type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty)}: ${fvm_o}.`
+      .Some(fvm) => {
+        fvm_judged = true;
+        match(
+          fvm,
+          .Some(fvm_o) => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(original_constraint_expr),
+                  `The function type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty)}: ${fvm_o}.`
+                )
               )
-            )
-          );
-        },
-        .None => ()
-      ),
+            );
+          },
+          .None => ()
+        );
+      },
       .None => ()
     );
   });
-  // Add the constraint directly to the SomeT's ArrayLists
-  _add_where_clause_constraint(some_ty, trait_ty, is_negated);
+  // Add the constraint directly to the SomeT's ArrayLists — unless the bound
+  // was just DISCHARGED by the type's values: then the SomeT is the caller's
+  // own closure type, not a type variable to propagate the bound to, and
+  // pushing `Send` onto it changed its identity mid-call (a second `Arc`
+  // instance, issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md)
+  // and made it DECLARE a marker nothing proved.
+  if(!fvm_judged, {
+    _add_where_clause_constraint(some_ty, trait_ty, is_negated);
+  });
   true
 });
 // ---------------------------------------------------------------------------
@@ -2710,27 +2721,35 @@ parse_where_clause_constraints :: (
           // `Impl(Fn...)` SomeT, and this branch only ADDS the bound to it —
           // the value was never judged. A function value holds Send/Acyclic
           // only when what it captures and what its code reaches allow it.
+          (fvm_judged2 : bool) = false;
           if(!is_neg, {
             match(
               call_function_value_marker(some_ty, Option(EvalValue).None, trait_ty2, env_mut, ctx),
-              .Some(fvm) => match(
-                fvm,
-                .Some(fvm_o) => {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(constraint_expr),
-                        `The function type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty2)}: ${fvm_o}.`
+              .Some(fvm) => {
+                fvm_judged2 = true;
+                match(
+                  fvm,
+                  .Some(fvm_o) => {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(constraint_expr),
+                          `The function type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty2)}: ${fvm_o}.`
+                        )
                       )
-                    )
-                  );
-                },
-                .None => ()
-              ),
+                    );
+                  },
+                  .None => ()
+                );
+              },
               .None => ()
             );
           });
-          _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
+          // A bound its values just discharged is not pushed onto the
+          // caller's closure type (apply_single_trait_constraint says why).
+          if(!fvm_judged2, {
+            _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
+          });
         }
       );
     });
