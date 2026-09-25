@@ -4898,7 +4898,7 @@ evaluate_function_call :: (
       dyn(
         format_error_message(
           tok,
-          `Calling the runtime extern '${ast_expr_to_string(func_expr)}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Calling the runtime extern '${match(callee_ty_for_gate, .Func({ meta : __fm_d6n }) => match(__fm_d6n.*.extern_name, .Some(n) => n, .None => ast_expr_to_string(func_expr)), _ => ast_expr_to_string(func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );

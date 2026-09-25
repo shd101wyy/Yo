@@ -33,8 +33,8 @@ extern(
   __yo_gc_tracked_count : (fn() -> u64)
 );
 /// Trigger the cycle collector to reclaim reference cycles.
-collect :: __yo_gc_collect;
+collect :: (fn() -> unit)(__yo_gc_collect());
 /// Get the number of objects currently tracked by the cycle collector.
-tracked_count :: __yo_gc_tracked_count;
+tracked_count :: (fn() -> u64)(__yo_gc_tracked_count());
 export(collect);
 export(tracked_count);
