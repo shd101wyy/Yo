@@ -1,6 +1,6 @@
 # Module-level binding of a control-bound STRUCT value is not rejected
 
-**Status: OPEN.** Split from
+**Status: FIXED 2026-09-25** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Split from
 issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md
 (2026-08-30) while implementing the result-type escape rule.
 
@@ -42,3 +42,11 @@ make the boundary-2 check see the resolved type in both, and add both shapes
 to the rule-8 family in `tests/algebraic_effects.test.yo` as
 `comptime_expect_error` pins PLUS a `yo check`-visible repro (the propagate-
 mode-only enforcement is what hid this).
+
+## Resolution (2026-09-25, Phase 5.5)
+
+The typed form `(g : T) = init` never reached boundary 2, which lives in
+`initialization_assignment.yo` (the `:=` path). `assignment.yo` now checks the declared type of a
+module-level typed binding for control-boundness after the binding resolves it.
+
+Test: `tests/cli-cases/module-level-ctl-binding-is-rejected`.

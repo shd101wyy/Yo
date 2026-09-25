@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 222 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 217 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,13 +30,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 13 | 1 |
 | Async / effects | 30 | 8 |
 | Codegen / emitted C | 21 | 3 |
-| Evaluator / types | 25 | 4 |
+| Evaluator / types | 23 | 4 |
 | Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 46 | 13 |
-| **Total** | **222** | **46** |
+| Other | 43 | 12 |
+| **Total** | **217** | **45** |
 
 ## Cross-cutting buckets
 
@@ -108,13 +108,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ### Largest docs (usually clusters, not single defects)
 
 - [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) — 40 KB
-- [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) — 28 KB
 - [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
 - [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) — 14 KB
 - [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
+- [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
 
 ---
 
@@ -200,7 +200,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (25)
+### Evaluator / types (23)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -208,7 +208,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`anonymous-module-trial-swallows-a-top-level-derive.md`](./anonymous-module-trial-swallows-a-top-level-derive.md) | — | yes |
 | [`arraylist-private-ptr-read-across-module-boundaries.md`](./arraylist-private-ptr-read-across-module-boundaries.md) | OPEN | — |
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | OPEN | — |
-| [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) | — | — |
 | [`builtin-name-shadows-user-definition.md`](./builtin-name-shadows-user-definition.md) | — | yes |
 | [`comments-preceding-definitions-can-hollow-the-definition.md`](./comments-preceding-definitions-can-hollow-the-definition.md) | — | — |
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | — | — |
@@ -224,7 +223,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | OPEN | — |
 | [`method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md`](./method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md) | OPEN | — |
-| [`module-level-control-bound-binding-not-rejected.md`](./module-level-control-bound-binding-not-rejected.md) | — | — |
 | [`mutual-recursion-between-a-fn-and-a-trait-impl-body.md`](./mutual-recursion-between-a-fn-and-a-trait-impl-body.md) | — | yes |
 | [`same-operator-chain-of-four-or-more-is-not-left-associative.md`](./same-operator-chain-of-four-or-more-is-not-left-associative.md) | — | — |
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | OPEN (deliberate scope boundary, not regressi | — |
@@ -337,7 +335,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (46)
+### Other (43)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -356,8 +354,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
 | [`borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md`](./borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md) | OPEN | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
-| [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
-| [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
 | [`d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`](./d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md) | OPEN — closes together with rule D4 (a closur | yes |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
@@ -367,7 +363,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`macos-io-notify-races-io-cleanup-on-the-notify-handle.md`](./macos-io-notify-races-io-cleanup-on-the-notify-handle.md) | OPEN | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
-| [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |

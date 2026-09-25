@@ -239,7 +239,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
     not a hazard — they only ever target variables that own their value, and
     a borrow is non-owning by definition.
 
-  See `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md` for the
+  See `issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md` for the
   reproducer, the staged design, and the landing logs.
 
 ## When to call `___dup` to increase the reference count?

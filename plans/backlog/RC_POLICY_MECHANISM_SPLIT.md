@@ -5,7 +5,7 @@ deferred until PR 76 (`feat/bootstrap-codegen`) merges, because every
 migration below touches the dup/drop seam that PR stabilized and each
 one needs its own fixpoint + differential validation. Candidate
 follow-on campaign alongside the borrowed-arg Stage 0 work
-(`issues/borrowed-arg-invalidated-by-aliased-container-mutation.md`).
+(`issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`).
 
 ## The question this answers
 

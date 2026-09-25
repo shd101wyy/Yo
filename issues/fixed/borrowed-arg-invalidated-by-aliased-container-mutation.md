@@ -1,4 +1,4 @@
-# Borrowed argument invalidated by aliased container mutation (design gap, OPEN)
+# Borrowed argument invalidated by aliased container mutation (design gap, FIXED 2026-09-25)
 
 **Found 2026-08-06** while auditing `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`
 for soundness. This is a **calling-convention design gap**, not a localized codegen bug —
@@ -510,3 +510,22 @@ and `docs/en-US/FLOWABILITY.md` ("By-value overlap is fine too") state the oppos
 
 Fix direction: extend `require_ref_own_argument_exclusivity` to reject `inout` against any other
 argument with the same root, or dup the by-value argument as Stage 0 does for projections.
+
+## Resolution of the addendum (2026-09-25, `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.2)
+
+A by-value argument that is the whole variable another argument of the same call passes `inout`
+(`clobber(x, x)`), or the root of an `inout` projection (`f(inout(h.a), h)`), gets a caller-owned
+`+1` for the call, like an aliased projection under Stage 0. The callee can replace the `inout`
+variable's value, which releases the value the by-value argument borrows.
+
+- `inout_argument_roots` and `argument_is_aliased_by_inout` (`src/evaluator/calls/helper.yo`)
+  decide it, on both call paths.
+- `set_expr_as_needs_to_call_dup_for_borrowed_projection(..., force : true)` dups even though the
+  variable owns its value.
+- `flowability.yo` and `docs/*/FLOWABILITY.md` no longer say by-value overlap is safe.
+
+Stage 2 (escape summaries) stays optional performance work: every measured aliasing shape is
+protected (projections by Stages 0/1, the whole variable by this change).
+
+Test: `tests/type_soundness.test.yo`, "a by-value argument outlives the inout argument it overlaps"
+(the addendum's repro).

@@ -1,7 +1,7 @@
 # A `ctl` handler stored in a `ref(struct)` field escapes its frame; a later call exits `main` with rc=0
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
-**Status:** OPEN. Effects-typing hole: control flow silently skips the rest of `main`.
+**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Was an effects-typing hole: control flow silently skipped the rest of `main`.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
@@ -44,3 +44,12 @@ At type definition, run `type_is_control_bound` on every field type of a `ref(..
 struct or enum and reject control-bound fields, instead of relying on the pointer check as a side
 effect. The e4 message also renders the ctl type as `fn(msg : String) -> i32`; print it as `ctl`.
 Related: `issues/module-level-control-bound-binding-not-rejected.md`.
+
+## Resolution (2026-09-25, Phase 5.5)
+
+A `ref(...)`/`atomic(...)` struct or enum rejects a control-bound field at its definition:
+`type_is_control_bound` on each field type, in `src/evaluator/types/struct.yo` and `enum.yo`,
+with the message from `control_bound_field_message`. The type printer now renders a `ctl`
+function type as `ctl(...)`.
+
+Test: `tests/cli-cases/ctl-handler-in-a-ref-struct-field-is-rejected`.
