@@ -54,6 +54,40 @@
 /// types/utils.yo) so it's reachable from `impl.yo` registration
 /// callers and from `env.yo` lookup callers without re-creating
 /// the env ↔ impl cycle.
+/// The registry id of a `Dyn` type: its required (and negative) traits'
+/// identities, sorted, so `Dyn(A, B)` and `Dyn(B, A)` share one. A nominal trait
+/// contributes its id; an `Fn`/`Future` trait its structural key.
+_dyn_type_id :: (fn(rtt : ArrayList(TypeValue), ntt : ArrayList(TypeValue)) -> String)({
+  keys := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < rtt.len(), {
+    match(rtt.get(i), .Some(t) => keys.push(_dyn_member_key(t)), .None => ());
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < ntt.len(), {
+    match(ntt.get(j), .Some(t) => keys.push(`!${_dyn_member_key(t)}`), .None => ());
+    j = (j + usize(1));
+  });
+  // Insertion sort: trait sets are a handful of entries.
+  (a : usize) = usize(1);
+  while(a < keys.len(), {
+    (b : usize) = a;
+    while((b > usize(0)) && (match(keys.get(b), .Some(y) => y, .None => String.new()) < match(keys.get(b - usize(1)), .Some(x) => x, .None => String.new())), {
+      keys.swap(b - usize(1), b);
+      b = (b - usize(1));
+    });
+    a = (a + usize(1));
+  });
+  `__yo_dyn(${String.from("+").join(keys)})`
+});
+_dyn_member_key :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
+    _ => type_key(t)
+  )
+);
 type_id_or_empty :: (fn(t : TypeValue) -> String)(
   match(
     t,
@@ -110,6 +144,10 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     // `impl(Type, ...)` registration was silently skipped and every
     // `Type.*` reflection method soft-fell to `unit` under check.
     .TypeUni(level) => (String.from("Type(") + level.to_string() + String.from(")")),
+    // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
+    // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
+    // registration was silently skipped and the method was unreachable.
+    .DynT({ required_trait_types : rtt, negative_trait_types : ntt }) => _dyn_type_id(rtt, ntt),
     _ => String.from("")
   )
 );

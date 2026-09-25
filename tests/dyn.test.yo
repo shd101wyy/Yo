@@ -2,6 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf, FILE } :: import("std/libc/stdio.yo");
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
   print : (fn(self : *Self) -> unit),
@@ -508,4 +509,60 @@ test("Test an Option of a pointer-to-trait-object keeps its payload type", {
     )
   );
   assert(true, "the payload is *(Dyn(ToString)), not *(FILE) and not a wildcard");
+});
+// ---------------------------------------------------------------------------
+// Object safety (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7): a method whose
+// signature mentions `Self` outside the receiver, or that takes `generic(...)`
+// parameters, has no vtable slot, and calling it through a Dyn is E0614
+// (issues/fixed/dyn-object-safety-is-not-enforced-before-codegen.md). The
+// trait's other methods stay callable through the same Dyn.
+// ---------------------------------------------------------------------------
+_OsSp :: trait(speak : (fn(self : Self) -> i32), me : (fn(inout(self) : Self) -> Self), same : (fn(self : Self, other : Self) -> bool));
+_OsGen :: trait(conv : (fn(generic(B : Type), inout(self) : Self, b : B) -> i32));
+_OsCat :: ref(struct(n : i32));
+impl(_OsCat, _OsSp(speak : (self -> self.n), me : (self -> self), same : ((self, other) -> (self.n == other.n))));
+impl(_OsCat, _OsGen(conv : (fn(generic(B : Type), inout(self) : Self, b : B) -> i32)(self.n)));
+test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
+  (d : Dyn(_OsSp)) = dyn(_OsCat(n : i32(3)));
+  assert(d.speak() == i32(3), "a Self-only-as-receiver method dispatches");
+  comptime_expect_error(d.me(), "cannot be called through a Dyn receiver");
+  comptime_expect_error(d.same(d), "has type Self, which the Dyn erases");
+  (g : Dyn(_OsGen)) = dyn(_OsCat(n : i32(4)));
+  comptime_expect_error(g.conv(i32(1)), "takes generic(...) parameters");
+});
+// A blanket INHERENT method over a trait bound resolves for a Dyn receiver; it
+// is not a trait member and has no vtable slot, so it is an ordinary call
+// (issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md).
+_OsNamed :: trait(name : (fn(self : Self) -> String));
+impl(
+  generic(E : Type),
+  where(E <: _OsNamed),
+  E,
+  _os_shout : (fn(self : Self) -> String)(self.name().concat(String.from("!")))
+);
+impl(_OsCat, _OsNamed(name : (self -> String.from("cat"))));
+test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
+  (d : Dyn(_OsNamed)) = dyn(_OsCat(n : i32(1)));
+  assert(d._os_shout() == String.from("cat!"), "the blanket method, whose self.name() goes through the vtable");
+});
+// A trait implemented through a GENERIC impl can be put behind a Dyn: the
+// vtable gets the generic impl's methods specialized for the concrete type
+// (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
+_os_show :: (fn(v : Dyn(ToString)) -> String)(v.to_string());
+test("Dyn: a trait from a generic impl builds its vtable", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  assert(_os_show(dyn(xs)) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");
+  assert(_os_show(dyn(Option(i32).Some(i32(5)))) == String.from("Some(5)"), "Option(T)'s blanket ToString");
+});
+// No upcasting: a Dyn with more traits is not a Dyn with fewer
+// (docs/en-US/DYN_DESIGN.md, Phase 2.7 decision).
+_OsOt :: trait(other_n : (fn(self : Self) -> i32));
+impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
+_os_takes_sp :: (fn(s : Dyn(_OsSp)) -> i32)(s.speak());
+test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
+  (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
+  comptime_expect_error(_os_takes_sp(both), "Yo does not upcast Dyn");
+  assert(both.speak() == i32(3), "the value itself is fine");
 });

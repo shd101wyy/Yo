@@ -1151,14 +1151,16 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // trait member: it has no slot, so it is an ordinary call to the method the
     // evaluator specialized, with the Dyn as its receiver
     // (issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md).
-    dm_has_slot := (dot_recv_is_dyn && method_atom_ok) && match(
-      dmethod_args.get(usize(0)),
-      .Some(dr) => match(
-        context.base.get_expr_info(dr),
-        .Some(dri) => dyn_type_has_vtable_slot(dri.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+    dm_has_slot := (
+      (dot_recv_is_dyn && method_atom_ok) && match(
+        dmethod_args.get(usize(0)),
+        .Some(dr) => match(
+          context.base.get_expr_info(dr),
+          .Some(dri) => dyn_type_has_vtable_slot(dri.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+          .None => false
+        ),
         .None => false
-      ),
-      .None => false
+      )
     );
     if(dm_has_slot, {
       recv_expr := match(dmethod_args.get(usize(0)), .Some(rv) => rv, .None => make_err_expr());
@@ -1213,7 +1215,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // args...)`. The recorded runtime args lead with the receiver (pre-wrapped
     // `&(..)` by the evaluator when self is by-pointer). Falls through if
     // unresolved/uncollected.
-    if(method_atom_ok && !(recv_is_dyn), {
+    // `recv_is_dyn` without a Dyn DOT-receiver is the `ctl`-field shape
+    // (`exn.throw(dyn(err))`, receiver not prepended) and stays excluded; a Dyn
+    // dot-receiver reaching here named no vtable slot, so its method is a
+    // blanket inherent one and dispatches concretely.
+    if(method_atom_ok && !(recv_is_dyn && !(dot_recv_is_dyn)), {
       mname := ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value;
       // Receiver type id for the registry FALLBACK. Use the DOT-RECEIVER
       // (`dmethod_args[0]`, e.g. `Environment` in `Environment.new(mp)`), NOT the

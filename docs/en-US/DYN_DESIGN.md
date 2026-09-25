@@ -120,13 +120,16 @@ formed and its callable methods used; calling one of the others through the `Dyn
 Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
 (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
 d.speak();   // OK: `Self` only as the receiver
-d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through Dyn(Sp): it returns Self, which the Dyn erases.
+d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 A blanket inherent method over a trait bound (`impl(generic(E), where(E <: Named), E, shout : ...)`)
 also accepts a `Dyn(Named)` receiver. It is not a trait member and has no vtable slot: the call is
 an ordinary call to the method, specialized for the `Dyn`, and inside it `self.name()` dispatches
 through the vtable.
+
+An inherent impl on a `Dyn` type itself adds methods to that `Dyn`, like Rust's `impl dyn Error`:
+`std/error.yo`'s `impl(AnyError, is : ...)` is why `err.is(NotFound)` works on an `AnyError`.
 
 A trait implemented through a generic impl (`ArrayList(T)`'s `ToString` for `T <: ToString`) can be
 put behind a `Dyn`: `dyn(xs)` specializes the generic impl's methods for the concrete type.
@@ -239,7 +242,7 @@ downcast(dyn_value, T) -> Option(T)
 ```
 
 It is the only safe way to recover the concrete type from a `Dyn`, and it is
-what `std/error.yo`'s `error_is(err, T)` is built out of. Both arguments are
+what `std/error.yo`'s `err.is(T)` on an `AnyError` is built out of. Both arguments are
 fixed: the first must have a `Dyn` type, the second must be a TYPE (evaluated at
 compile time, so `T` is never a runtime value).
 

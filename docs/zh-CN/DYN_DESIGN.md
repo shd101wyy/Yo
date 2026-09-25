@@ -115,10 +115,13 @@ typedef struct {
 Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
 (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
 d.speak();   // OK：`Self` 只作为接收者
-d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through Dyn(Sp): it returns Self, which the Dyn erases.
+d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有 vtable 槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过 vtable 分派。
+
+直接写在 `Dyn` 类型上的固有 impl 会为这个 `Dyn` 添加方法，就像 Rust 的 `impl dyn Error`：
+`std/error.yo` 的 `impl(AnyError, is : ...)` 让 `err.is(NotFound)` 可以用在 `AnyError` 上。
 
 通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放进 `Dyn`：`dyn(xs)` 会针对具体类型特化泛型 impl 的方法。
 
@@ -226,7 +229,7 @@ value.vtable->print(value.data);
 downcast(dyn_value, T) -> Option(T)
 ```
 
-这是从 `Dyn` 安全恢复具体类型的唯一途径，`std/error.yo` 里的 `error_is(err, T)`
+这是从 `Dyn` 安全恢复具体类型的唯一途径，`std/error.yo` 里 `AnyError` 的 `err.is(T)`
 就是用它实现的。两个参数的形式是固定的：第一个必须是 `Dyn` 类型，第二个必须是一个
 **类型**（在编译期求值，所以 `T` 永远不是运行时值）。
 

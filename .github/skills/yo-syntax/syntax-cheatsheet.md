@@ -612,7 +612,7 @@ test("Async test", {
   (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md). The
   guard against a regression is the cli-case
   `tests/cli-cases/compile-comptime-assert-in-fn-body`.
-- `comptime_expect_error(expr)` — verify code produces a compile error
+- `comptime_expect_error(expr)` — verify code produces a compile error; `comptime_expect_error(expr, "text")` also requires `text` in the error's message or help
 
 ## Design-by-contract clauses
 

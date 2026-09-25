@@ -20,9 +20,9 @@ pragma(Pragma.AllowUnsafe);
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
-{ EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
+{ EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
-{ create_specialized_function_inline } :: import("../calls/helper.yo");
+{ create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
@@ -306,24 +306,35 @@ _generic_impl_method_for_dyn :: (
     );
     ci = (ci + usize(1));
   });
+  // Specialize it exactly as a call would: the full call path binds `self`,
+  // infers the impl's binders from the receiver and records the specialization
+  // for codegen. The receiver is a synthetic runtime variable of the concrete
+  // type in a scratch frame. (`create_specialized_function_inline` alone
+  // evaluates the body without `self` bound.)
   match(
     picked,
     .Some(pc) => match(
       pc.method_value,
       .Some(fv) => if(is_func_val(fv), {
-        self_args := ArrayList(ArgEntry).new();
-        self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : receiver_type.clone(), arg_type : receiver_type.clone()));
-        spec_argvals := ArgValues(
-          forall_args : ArrayList(ArgEntry).new(),
-          args : self_args,
-          implicit_args : Option(ArrayList(ArgEntry)).None,
-          variadic_args : ArrayList(VarArgEntry).new()
-        );
-        saved_self_ty := ctx.self_type;
-        ctx.self_type = Option(TypeValue).Some(receiver_type.clone());
-        spec_fv := create_specialized_function_inline(fv, pc.method_type, spec_argvals, caller_env, caller_env, ctx, exn);
-        ctx.self_type = saved_self_ty;
-        Option(EvalValue).Some(spec_fv)
+        recv_name := `__yo_dyn_receiver_${fname}`;
+        caller_env.push_frame(false);
+        recv_tok := synthetic_token(recv_name.clone(), caller_env.module_path);
+        _recv_var := add_variable_to_env(caller_env, recv_name.clone(), receiver_type.clone(), Option(EvalValue).Some(create_unknown_val(receiver_type.clone())), false, true, false, false, recv_tok.clone());
+        recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
+        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), caller_env.module_path));
+        call_args := ArrayList(AstExpr).new();
+        call_args.push(recv_atom);
+        call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+        ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
+        // The synthetic call has no expected result: the surrounding
+        // context's (the `Dyn` a `dyn(...)` argument is checked against)
+        // must not reach it.
+        saved_expected := ctx.expected_type;
+        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), pc.method_type, call_expr, callee_atom, call_args, caller_env, ctx, true, false, true, exn);
+        ctx.expected_type = saved_expected;
+        caller_env.pop_frame();
+        res.specialized_function_value
       }, Option(EvalValue).None),
       .None => Option(EvalValue).None
     ),

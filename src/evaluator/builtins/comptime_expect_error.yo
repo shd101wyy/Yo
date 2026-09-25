@@ -11,6 +11,7 @@
 //! therefore currently panics when the inner expression evaluates without error.
 //! Restoring full semantics requires a codegen fix for closure capture of outer params.
 { String } :: import("std/string");
+{ str_lit_unquote_bytes } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 {
   AstExpr,
@@ -22,7 +23,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { Environment, Frame, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, error_message_text } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 {
   expr_info_table_get,
@@ -34,7 +35,7 @@
   rollback_module_level_globals_to
 } :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error } :: import("../../types/flowability.yo");
+{ set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
@@ -50,17 +51,21 @@ _comptime_expect_error_arg_threw :: (
 )({
   local_exn := Exception(
     throw : (
-      _err -> unwind(true)
+      _err -> {
+        // The text too, for the expected-text check (a module fn call is fine
+        // in a capture-free handler; see flowability.yo).
+        record_cee_error_message(error_message_text(_err));
+        unwind(true);
+      }
     )
   );
   clear_cee_observed_error();
   _r := evaluate_expression_raw(arg_expr, env, ctx, local_exn);
   // The non-raw wrapper swallows throws raised beneath it (it has no outer
   // exn); in propagate mode it records them on the observation channel —
-  // count that as an observed compile error (see flowability.yo).
-  observed := cee_observed_error();
-  clear_cee_observed_error();
-  observed
+  // count that as an observed compile error (see flowability.yo). The caller
+  // reads the recorded messages, then clears the channel.
+  cee_observed_error()
 });
 evaluate_comptime_expect_error :: (
   fn(
@@ -209,6 +214,8 @@ evaluate_comptime_expect_error :: (
   // abandoned impl (issues/fixed/abandoned-impl-members-survive-the-error.md).
   saved_depths := forcing_depths();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  observed_msgs := cee_observed_messages();
+  clear_cee_observed_error();
   truncate_forcing_depths(saved_depths);
   env.frames = saved_frames_list;
   set_propagate_def_time_errors(false);
@@ -292,6 +299,40 @@ evaluate_comptime_expect_error :: (
   truncate_branch_group_stack(saved_branch_groups);
   rollback_module_level_globals_to(saved_mg_mark);
   if(arg_threw, {
+    // The optional second argument is the text the error must contain: an
+    // error is expected, and it must be THIS error. Without the check a case
+    // went green on whatever unrelated error its snippet happened to hit.
+    match(
+      args.get(usize(1)),
+      .Some(want_expr) => {
+        want_eval := evaluate_expression(want_expr, env, ctx);
+        want_text := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(want_eval)),
+          .Some(wi) => match(wi.value, .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(raw), _ => value_to_string(wv)), .None => String.new()),
+          .None => String.new()
+        );
+        (matched : bool) = (want_text.len() == usize(0));
+        (mi : usize) = usize(0);
+        while((mi < observed_msgs.len()) && !matched, {
+          if(match(observed_msgs.get(mi), .Some(m) => m.contains(want_text.clone()), .None => false), {
+            matched = true;
+          });
+          mi = (mi + usize(1));
+        });
+        if(!matched, {
+          got := match(observed_msgs.get(usize(0)), .Some(m) => m, .None => String.from("(an error whose text was not recorded)"));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `comptime_expect_error: the expression raised an error, but not the expected one.\n- Expected text: ${want_text}\n- Raised: ${got}`
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    );
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unit);

@@ -1,6 +1,6 @@
 # `dyn(x)` cannot build a vtable when `x`'s impl comes from a GENERIC impl — the undeclared-wrapper crash, again
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-05, extending the canary set for
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md` (C69)
 onto the generic-impl path that PR #429 had just touched.
@@ -82,3 +82,19 @@ in the evaluator so non-`self` members are not over-rejected.
 
 `tests/dyn.test.yo`: `dyn(ArrayList(i32))` and `dyn(Option(i32))` into a
 `Dyn(ToString)`, asserting the rendered text — verified RED first.
+
+## Fix
+
+`_resolve_dyn_trait_values` (`src/evaluator/values/dyn.yo`) now falls back, before the trait's
+default, to the generic impl registry (`find_methods_from_generic_impls`), preferring a candidate
+from the `Dyn`'s own trait. It specializes that method for the concrete receiver through the
+ordinary call path, `try_to_call_function_with_arguments`, with a synthetic receiver variable in
+a scratch frame and no expected result type. That path binds `self`, infers the impl's binders
+from the receiver, and records the specialization for codegen.
+`create_specialized_function_inline` alone evaluates the body without `self` bound. That was
+the first cut, and it failed on `self.len()` in `ArrayList(T)`'s `to_string`.
+
+## Verification
+
+`tests/dyn.test.yo`, "a trait from a generic impl builds its vtable": `dyn(ArrayList(i32))`
+renders `[1, 2]` and `dyn(Option(i32).Some(5))` renders `Some(5)` through a `Dyn(ToString)`.

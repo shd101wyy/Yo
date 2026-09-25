@@ -172,30 +172,29 @@ __derive_error :: (
 derive_rule(Error, __derive_error);
 /// True when the type-erased `err` is really a `T` — Rust's `dyn Error::is`.
 ///
-/// A FREE function rather than a method because a blanket inherent method over
-/// `E <: Error` resolves on a `Dyn(Error)` receiver and then miscompiles: codegen
-/// treats every method call on a `Dyn` value as a trait method and emits a
-/// vtable indirection for a slot that does not exist. See
-/// issues/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md;
-/// when that is fixed this becomes `err.is(T)`.
+/// An inherent method on `AnyError` itself, like Rust's `impl dyn Error`: it
+/// reads the concrete type the `Dyn` erased, so it has no meaning on a concrete
+/// error type and is not offered there.
 ///
 /// ```yo
 /// cond(
-///   error_is(err, NotFound) => recover(),
+///   err.is(NotFound) => recover(),
 ///   true => rethrow(err)
 /// );
 /// ```
 ///
 /// To use the value and not just test for it, reach for the `downcast(err, T)`
 /// builtin this is written over — it returns `Option(T)`.
-error_is :: (fn(err : AnyError, comptime(T) : Type) -> bool)(
-  match(
-    downcast(err, T),
-    .Some(_) => true,
-    .None => false
+impl(
+  AnyError,
+  is : (fn(self : Self, comptime(T) : Type) -> bool)(
+    match(
+      downcast(self, T),
+      .Some(_) => true,
+      .None => false
+    )
   )
 );
-export(error_is);
 /// An error that adds a message to the one underneath it — Rust's
 /// `anyhow::Context` / `.context(...)`.
 ///

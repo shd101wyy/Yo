@@ -94,7 +94,7 @@ test("Test simple functions", {
     // inner scope implicit add
     add2 :: (fn(x : i32, y : i32) -> i32)({
       (z : MyI32) = 13; // Can use the comptime variables from the outer scope
-      comptime_expect_error(x + a, "Cannot use `a` from outer scope");
+      comptime_expect_error(x + a, "Variable \"a\" not found"); // a `fn` literal does not capture
       // To capture the outer scope variable, we need to use closure.
       x + z
     });

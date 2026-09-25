@@ -1,4 +1,4 @@
-//! `std/error`'s §4 Core ergonomics: `error_is` and `Context`.
+//! `std/error`'s §4 Core ergonomics: `AnyError.is` and `Context`.
 //!
 //! `ErrorChain`/`root_cause` are absent from `std/error` for a MECHANICAL
 //! reason, not a design one: the compiler defect that blocked them is fixed
@@ -7,7 +7,7 @@
 //! the SEED during bootstrap and the seed predates the fix. They land one
 //! release after a seed carries it.
 { assert } :: import("std/assert");
-{ Error, AnyError, error_is, Context } :: import("std/error");
+{ Error, AnyError, Context } :: import("std/error");
 { ToString } :: import("std/fmt/to_string");
 { String } :: import("std/string");
 NotFound :: struct(path : String);
@@ -22,17 +22,17 @@ impl(
   ToString(to_string : (fn(inout(self) : Self) -> String)(`denied for ${self.who}`))
 );
 impl(Denied, Error());
-test("error_is identifies the concrete type behind an AnyError", {
+test("AnyError.is identifies the concrete type behind an AnyError", {
   (e : AnyError) = dyn(NotFound(path : `/tmp/x`));
-  assert(error_is(e, NotFound), "the type it really is");
-  assert(!error_is(e, Denied), "and not another error type");
+  assert(e.is(NotFound), "the type it really is");
+  assert(!e.is(Denied), "and not another error type");
 });
-test("error_is over a second error type", {
+test("AnyError.is over a second error type", {
   (e : AnyError) = dyn(Denied(who : `nobody`));
-  assert(error_is(e, Denied), "identified");
-  assert(!error_is(e, NotFound), "not confused with the first");
+  assert(e.is(Denied), "identified");
+  assert(!e.is(NotFound), "not confused with the first");
 });
-test("downcast recovers the value, which is what error_is tests for", {
+test("downcast recovers the value, which is what is(T) tests for", {
   (e : AnyError) = dyn(NotFound(path : `/etc/hosts`));
   assert(match(downcast(e, NotFound), .Some(nf) => (nf.path == `/etc/hosts`), .None => false), "the payload survives");
   assert(match(downcast(e, Denied), .Some(_) => false, .None => true), "and the wrong type gives None");
@@ -59,9 +59,9 @@ test("an error that does NOT override source reports none", {
   (e : AnyError) = dyn(NotFound(path : `x`));
   assert(match(e.source(), .Some(_) => false, .None => true), "the trait default is .None");
 });
-test("error_is sees Context itself, not its cause", {
+test("AnyError.is sees Context itself, not its cause", {
   (inner : AnyError) = dyn(NotFound(path : `x`));
   (c : AnyError) = dyn(Context.new(`ctx`, inner));
-  assert(error_is(c, Context), "the outer type");
-  assert(!error_is(c, NotFound), "error_is does NOT look through the chain, as in Rust");
+  assert(c.is(Context), "the outer type");
+  assert(!c.is(NotFound), "is(T) does NOT look through the chain, as in Rust");
 });

@@ -193,7 +193,7 @@ test("Async test", {
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — always include a message string
 - `comptime_assert(expr)` — verified at compile time
-- `comptime_expect_error(expr)` — verify code produces a compile error
+- `comptime_expect_error(expr)` — verify code produces a compile error; `comptime_expect_error(expr, "text")` also requires `text` in the error's message or help
 - Test files use `.test.yo` extension
 
 ## Targets and compilers

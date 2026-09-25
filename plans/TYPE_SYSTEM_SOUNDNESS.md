@@ -1,7 +1,7 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4 and 2.6 LANDED 2026-09-24/25
-(the per-phase "Landed" notes below); 2.5, 2.7 and 3–7 open. Source: a six-part audit of the type system on
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4, 2.6 and 2.7 LANDED 2026-09-24/25
+(the per-phase "Landed" notes below); 2.5 and 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
@@ -290,6 +290,25 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    (`dyn-object-safety-is-not-enforced-before-codegen`,
    `blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable`)
 
+   **Landed 2026-09-25:**
+   - one predicate (`dyn_member_unsafe_reason`, `src/types/utils.yo`) decides which trait methods
+     get a vtable slot: `self` first, `Self` only as the receiver, no `generic(...)`. Calling any
+     other method through a `Dyn` is the new E0614, at the call. Forming the `Dyn` stays legal
+     (`issues/fixed/dyn-object-safety-is-not-enforced-before-codegen.md`);
+   - codegen dispatches through the vtable only for a slot, so a blanket inherent method on a
+     `Dyn` receiver is a direct call
+     (`issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`);
+   - `dyn(x)` over a trait `x` gets from a generic impl specializes that impl's methods for the
+     vtable (`issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`);
+   - an inherent impl on a `Dyn` type registers, so `std/error.yo`'s `error_is(err, T)` became
+     `err.is(T)` (`issues/fixed/an-inherent-impl-on-a-dyn-type-registers-nothing.md`);
+   - **upcasting is not supported**: `Dyn(A, B)` and `Dyn(A)` have different vtable layouts, and
+     the concrete type is erased. The mismatch carries a note saying so. DYN_DESIGN.md en/zh
+     records the rules;
+   - found on the way: `comptime_expect_error`'s expected-text argument had never been checked
+     (`issues/fixed/comptime-expect-error-never-checked-its-expected-text.md`). It is now, and 14
+     cases in 6 files that had been matching a different error were corrected.
+
 Exit: each issue's test flips; `check ./std` and `check ./src` are green with coherence enabled.
 
 **Landed 2026-09-24: steps 1–3.** Conformance (E0602 "does not implement required trait … as
@@ -423,7 +442,8 @@ stubs are gone from the emitted C of the whole fast suite.
 Correct the docs the audit found stale, in `docs/en-US/` and `docs/zh-CN/` both:
 
 - `DYN_DESIGN.md`: object safety "enforced at method call time" is false until Phase 2.7 lands;
-  its examples use `inout(self)` while `tests/dyn.test.yo` uses `self : *Self`.
+  its examples use `inout(self)` while `tests/dyn.test.yo` uses `self : *Self`. (Done with 2.7:
+  the rules section is rewritten and names every receiver form.)
 - `DESIGN.md` §Pattern Matching ("an arm no value can reach is an error") and §GADT
   (refinement and index filtering).
 - `GADTS.md`: "No nested destructuring" is stale since match P1–P3; the refinement description

@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 245 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 242 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,13 +30,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 14 | 1 |
 | Async / effects | 32 | 9 |
 | Codegen / emitted C | 21 | 3 |
-| Evaluator / types | 30 | 5 |
+| Evaluator / types | 27 | 5 |
 | Std library | 56 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 57 | 14 |
-| **Total** | **245** | **49** |
+| **Total** | **242** | **49** |
 
 ## Cross-cutting buckets
 
@@ -203,14 +203,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (30)
+### Evaluator / types (27)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`annotated-local-from-a-trait-constrained-receiver-loses-every-method.md`](./annotated-local-from-a-trait-constrained-receiver-loses-every-method.md) | — | — |
 | [`anonymous-module-trial-swallows-a-top-level-derive.md`](./anonymous-module-trial-swallows-a-top-level-derive.md) | — | yes |
 | [`arraylist-private-ptr-read-across-module-boundaries.md`](./arraylist-private-ptr-read-across-module-boundaries.md) | OPEN | — |
-| [`blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`](./blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md) | OPEN | — |
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | OPEN | — |
 | [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) | — | — |
 | [`builtin-name-shadows-user-definition.md`](./builtin-name-shadows-user-definition.md) | — | yes |
@@ -223,8 +222,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | open (found 2026-09-09 while adding `Encoding | yes |
 | [`derived-eq-ref-enum-self-payload-hollow-at-runtime.md`](./derived-eq-ref-enum-self-payload-hollow-at-runtime.md) | — | — |
 | [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | OPEN | — |
-| [`dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`](./dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md) | OPEN | — |
-| [`dyn-object-safety-is-not-enforced-before-codegen.md`](./dyn-object-safety-is-not-enforced-before-codegen.md) | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | OPEN | — |
 | [`dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`](./dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md) | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | OPEN — found during the env-sharing implement | — |

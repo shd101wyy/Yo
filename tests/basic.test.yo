@@ -50,30 +50,36 @@ test("Test assignments", {
   };
   {
     x : i32;
-    // Initialize a variable defined outside the function body is not allowed
-    test1 :: (fn() -> unit)({
-      comptime_expect_error(
-        x = 12,
-        "Cannot initialize a variable that is defined outside the function body."
-      );
-    });
-    // Initialize a variable defined outside the while loop is not allowed
-    test2 :: (fn(flag : bool) -> unit)({
-      y : i32;
-      while(flag, {
+    // Initialize a variable defined outside the function body is not allowed.
+    // A closure, not a `fn` literal: a `fn` literal cannot see `x` at all (it
+    // does not capture), so there `x = 12` is plain E0401 "not found".
+    (test1 : Impl(Fn() -> unit)) = (
+      () => {
         comptime_expect_error(
           x = 12,
-          "Cannot initialize a variable that is defined outside the while loop."
+          "Cannot initialize a variable that is defined outside the function body."
         );
-        comptime_expect_error(
-          y = 12,
-          "Cannot initialize a variable that is defined outside the while loop."
-        );
-        z : i32;
-        z = 12;
-      });
-      y = 12;
-    });
+      }
+    );
+    // Initialize a variable defined outside the while loop is not allowed
+    (test2 : Impl(Fn(flag : bool) -> unit)) = (
+      flag => {
+        y : i32;
+        while(flag, {
+          comptime_expect_error(
+            x = 12,
+            "Cannot initialize a variable that is defined outside the while loop."
+          );
+          comptime_expect_error(
+            y = 12,
+            "Cannot initialize a variable that is defined outside the while loop."
+          );
+          z : i32;
+          z = 12;
+        });
+        y = 12;
+      }
+    );
     x = 13;
   };
 });
@@ -756,15 +762,15 @@ test("Test 'struct'", {
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
     comptime_expect_error(
-      (z : Point1) := (3, 4),
-      "error: type Mismatch"
+      (z : Point1) = (3, 4),
+      "Given   : a tuple literal"
     );
     Point3 :: Point1;
     (z : Point2) = y;
     (z2 : Point3) = x;
     comptime_expect_error(
       (z3 : Point2) = x,
-      "error: type Mismatch"
+      "Incompatible types"
     );
     assert(x.x == 3);
     assert(x.y == 4);
@@ -1199,7 +1205,7 @@ test("Test raw pointer", {
     use_void_ptr :: (fn(ptr : *void) -> unit)({
       comptime_expect_error(
         x := ptr.*,
-        "Cannot use DST directly"
+        "Void type is not allowed here"
       );
       // Dereference a void pointer is prohibited.
       // We need to cast it to a specific type first.
@@ -1208,7 +1214,7 @@ test("Test raw pointer", {
     mutate_void_ptr :: (fn(ptr : *void) -> unit)({
       comptime_expect_error(
         x := ptr.*,
-        "Cannot use DST directly"
+        "Void type is not allowed here"
       );
       i32_ptr := (*i32)(ptr);
       i32_ptr.* = 16;
