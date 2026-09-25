@@ -148,14 +148,17 @@ the value is known:
   that type, then the closures created against a closure's `Impl(Fn...)` SomeT (a registry
   keyed by the SomeT's id, which a specialization's fresh binder aliases).
 - **A variable captured by a `Send` closure:** the captured value.
+- **A declared `(f : Impl(Fn(...), Send)) = v` binding:** `v`. A declared marker is not
+  re-judged later, so the binding is where a value takes on the promise.
 
 A closure is walked when it is CREATED, with its defining env, in every slot, not only a `Send`
 one. The verdict is memoized by function id, so a later judgement that has only the closure's
 type reads the verdict taken where the closure's local callees resolve.
 
 Where no value is known, the type decides: a bare `fn(...)` type is **not `Send`**. That covers
-a struct field, a collection element, a `Channel(fn() -> unit)` payload and a parameter of bare
-`fn` type forwarded on. This is Swift's rule for plain function types, and it is what closes
+a struct field, a collection element, a `Channel(fn() -> unit)` payload, a parameter of bare
+`fn` type forwarded on, and a plain local `f := count`, which records no value for a later
+capture to judge. Declare it `(f : Impl(Fn(...), Send)) = count` instead. This is Swift's rule for plain function types, and it is what closes
 the struct route: a function inside a struct lost its identity where it was stored. A closure
 `Impl(Fn(...))` type with no value found is judged by what it declares, as before.
 `Impl(Fn(...), Send)` is the function type that carries the obligation, discharged where the

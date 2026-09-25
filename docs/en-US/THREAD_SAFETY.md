@@ -238,8 +238,10 @@ wherever it can see it:
   captured value.
 
 A bare `fn(...)` type whose value the compiler cannot see is **not `Send`**: a struct field, a
-collection element, a `Channel(fn() -> unit)` payload. `Impl(Fn(...), Send)` is the function
-type that carries the promise; a value is checked once, where it is converted into it.
+collection element, a `Channel(fn() -> unit)` payload, or a plain local `f := count` captured by
+another thread's closure. `Impl(Fn(...), Send)` is the function type that carries the promise:
+write `(f : Impl(Fn(Io) -> unit, Send)) = count`. A value is checked once, where it is
+converted into that type (an argument, a return, a declared binding).
 
 ```rust
 g := ArrayList(i32).new();                          // main thread only

@@ -2132,8 +2132,7 @@ create_specialized_function_inline :: (
 )({
   result := match(
     original_func_val,
-    .FuncVal(__fvm2,
-    cap_vals) => {
+    .FuncVal(__fvm2, cap_vals) => {
       forall_names := __fvm2.*.forall_names;
       params := __fvm2.*.params;
       param_type_names := __fvm2.*.param_type_names;
@@ -2780,457 +2779,428 @@ create_specialized_function_inline :: (
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(rte_ty);
                     rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args, forall_names, callee_env));
-                  }
+                    if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
+                      spec_ret_ty = rte_ty;
+                      rte_adopted = true;
+                    });
+                  },
+                  .None => ()
                 );
-                if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
-                  spec_ret_ty = rte_ty;
-                  rte_adopted = true;
-                });
               },
               .None => ()
             );
-          }, .None => ());
-        }
-      );
-      prev_spec := ctx.currently_specializing_function;
-      // Push onto the FULL specializing stack BEFORE moving the originals into
-      // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
-      // single slot — overwritten by the inner sibling g — cannot; without it the
-      // unified stage-2 self-compile re-specializes the compiler's own mutually
-      // recursive call graph forever and overflows the stack. Stack
-      // entries need only the id/return-type fields (EvalValue has no clone, and
-      // `original_func_value` is never read off the stack); popped below.
-      spec_stack := match(
-        ctx.currently_specializing_function_stack,
-        .Some(s) => s,
-        .None => ArrayList(SpecializingFunctionInfo).new()
-      );
-      // The impl-binding signature travels on BOTH the stack entry and the
-      // top slot so the recursion guards can tell "same trait method, same
-      // instantiation" (true recursion) from "same trait method, DIFFERENT
-      // instantiation" (a nested call that must mint its own spec) — see
-      // _impl_type_captures_sig.
-      push_bindings_sig := _impl_type_captures_sig(original_func_val);
-      spec_stack.push(
-        SpecializingFunctionInfo(
-          original_func_id : func_id.clone(),
-          specialized_func_id : specialized_func_id.clone(),
-          specialized_return_type : spec_ret_ty.clone(),
-          original_func_value : EvalValue.UnitVal,
-          impl_bindings_sig : push_bindings_sig.clone()
-        )
-      );
-      ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack);
-      ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
-        SpecializingFunctionInfo(
-          original_func_id : func_id,
-          specialized_func_id : specialized_func_id,
-          specialized_return_type : spec_ret_ty.clone(),
-          original_func_value : original_func_val,
-          impl_bindings_sig : push_bindings_sig
-        )
-      );
-      // Build a function-body evaluation context so explicit `return(...)`
-      // statements inside the specialized body are legal — begin.yo gates
-      // `return` on `is_evaluating_function_body_or_async_block` and throws
-      // "return can only be used inside a function body" otherwise (which
-      // would propagate out and leave the call site without ExprInfo). The
-      // func_type carries the SPECIALIZED return type so a generic `-> T` /
-      // `-> Self` return argument is checked against the concrete type, not
-      // the original SomeType-bearing one.
-      fb_func_type := match(
-        func_type,
-        .Func({
-          forall_types : ft_ft,
-          param_types : ft_pt,
-          implicit_types : ft_it,
-          where_types : ft_wt,
-          meta : ft_meta
-        }) => TypeValue.Func(
-          ft_ft,
-          ft_pt,
-          ft_it,
-          ft_wt,
-          spec_ret_ty.clone(),
-          ft_meta,
-          ArrayList(TypeValue).new()
-        ),
-        _ => func_type
-      );
-      // Override the evaluation context for the body. The
-      // specialized body is a FRESH function scope, so we must:
-      //   * mark it a function body (legalizes explicit `return(...)`),
-      //   * CLEAR captured_variables —
-      //     otherwise a nested regular `->` function in the body inherits
-      //     the caller's capture map and wrongly reports "a regular
-      //     function cannot capture outer runtime variables" (e.g. std/path),
-      //   * CLEAR is_evaluating_loop_body,
-      //   * set expected_type to the specialized return type,
-      //   * give it a fresh function_return_impl_concrete_type array.
-      // All saved and restored around the body eval.
-      prev_fb := ctx.is_evaluating_function_body_or_async_block;
-      prev_caps := ctx.captured_variables;
-      prev_loop := ctx.is_evaluating_loop_body;
-      prev_expected := ctx.expected_type;
-      prev_fri := ctx.function_return_impl_concrete_type;
-      ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
-        FuncOrAsyncBlockCtx(
-          kind : FuncOrAsyncBlockKind.FunctionBody,
-          func_type : Option(TypeValue).Some(fb_func_type),
-          func_value : Option(EvalValue).Some(original_func_val),
-          // SNAPSHOT the entry env (frames-list copy, shared Frame refs):
-          // the live env grows when evaluate_begin pushes the body's OWN
-          // begin frame, so without the snapshot body locals (frame_level
-          // == entry count) look "outer" to trackVariableUsage's
-          // outer-scope gate and pollute captured_variables
-          // (killing the dup/drop pair optimizer's captured gate — the
-          // cycle_collector mid-scope collect failure).
-          eval_env : snapshot_env(callee_env)
-        )
-      );
-      // For a CLOSURE being specialized, record captures with a FRESH map
-      // instead of clearing: a DEFERRED-generic closure (an Impl(Fn)
-      // capture flips it onto this path) skipped its definition-time
-      // capture collection entirely, so THIS body eval is the only
-      // chance to learn what it closes over — clearing left the emitted
-      // body with bare undeclared identifiers
-      // (issues/repros/dyn-closure-implfn-capture-loss.yo). Regular fns
-      // keep the clearing (nested `->` fns must not inherit the caller's
-      // map — the std/path regression its comment documents).
-      spec_is_closure := is_closure_fn(func_id.clone());
-      if(spec_is_closure, {
-        ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(HashMap(String, CapturedVarInfo).new());
-      }, {
-        ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
-      });
-      ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
-      ctx.expected_type = Option(ExpectedTypeCtx).Some(
-        ExpectedTypeCtx(ty : spec_ret_ty.clone(), env : callee_env)
-      );
-      ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
-        ArrayList(ImplConcreteTypeInfo).new()
-      );
-      // Re-bind a regular parameter to a RUNTIME placeholder (`UnknownVal`
-      // of its specialized type) ONLY when try_to_call left it bound to a
-      // FOLDED COMPTIME CONSTANT (e.g. `println(i32(7))` binds `v` to the
-      // IntLit `7`). A specialized function is reused across every call of
-      // the same type signature, so a baked-in constant is wrong: the body
-      // emitted `to_string(&(int32_t){7})`, and `println(i32(9))` reused it
-      // and printed `7`. GUARD: only rebind params whose current value is a
-      // KNOWN constant — params already bound to an `UnknownVal` (the normal
-      // runtime case, e.g. a `comptime_str` arg coerced to runtime `str`) are
-      // LEFT UNTOUCHED, since blindly re-binding them perturbs the
-      // specialization identity (a str `println` regressed to an undeclared
-      // specialized callee). Value params are bound as runtime
-      // placeholders.
-      // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
-      // used below to keep a closure param CALLABLE during body eval.
-      decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
-      // The declared `inout(p)` flags. The runtime-placeholder re-bind below
-      // MUST carry them onto the new binding: `add_variable_to_env`
-      // hardcodes `is_ref : false`, and the re-bound Variable SHADOWS the
-      // correct parameter binding made by `check_param` (this file, ~1129)
-      // for the whole specialized body eval — so codegen's `_var_read_code`
-      // (codegen/exprs/atom.yo) rendered a by-`ref` param as a bare value
-      // while the C prototype (from the spec Func meta's `param_is_ref`,
-      // still true) kept it a pointer. Same defect, same fix as
-      // calls/function.yo:5265.
-      decl_param_is_ref := match(
-        func_type,
-        .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
-        _ => ArrayList(bool).new()
-      );
-      (rbp_i : usize) = usize(0);
-      n_rbp := params.len();
-      while(rbp_i < n_rbp, {
-        p_label := match(params.get(rbp_i), .Some(l) => l, .None => String.from(""));
-        // Explicit `comptime(K) : Type` param: already bound COMPILE-TIME
-        // to the arg's value by the early-binding loop above (before the
-        // return-type re-eval) — skip the runtime-placeholder machinery.
-        sp_rbp_ct := match(spec_param_ct_flags.get(rbp_i), .Some(f) => f, .None => false);
-        if(sp_rbp_ct, {
-          rbp_i = (rbp_i + usize(1));
-          continue;
-        });
-        cur_is_folded_const := {
-          pvars := get_variables_from_env(callee_env, p_label);
-          npv := pvars.len();
-          cond(
-            (npv == usize(0)) => false,
-            true => match(
-              pvars.get(npv - usize(1)),
-              .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !(is_unknown_val(vv)), .None => false),
-              .None => false
+          });
+          prev_spec := ctx.currently_specializing_function;
+          // Push onto the FULL specializing stack BEFORE moving the originals into
+          // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
+          // single slot — overwritten by the inner sibling g — cannot; without it the
+          // unified stage-2 self-compile re-specializes the compiler's own mutually
+          // recursive call graph forever and overflows the stack. Stack
+          // entries need only the id/return-type fields (EvalValue has no clone, and
+          // `original_func_value` is never read off the stack); popped below.
+          spec_stack := match(
+            ctx.currently_specializing_function_stack,
+            .Some(s) => s,
+            .None => ArrayList(SpecializingFunctionInfo).new()
+          );
+          // The impl-binding signature travels on BOTH the stack entry and the
+          // top slot so the recursion guards can tell "same trait method, same
+          // instantiation" (true recursion) from "same trait method, DIFFERENT
+          // instantiation" (a nested call that must mint its own spec) — see
+          // _impl_type_captures_sig.
+          push_bindings_sig := _impl_type_captures_sig(original_func_val);
+          spec_stack.push(
+            SpecializingFunctionInfo(
+              original_func_id : func_id.clone(),
+              specialized_func_id : specialized_func_id.clone(),
+              specialized_return_type : spec_ret_ty.clone(),
+              original_func_value : EvalValue.UnitVal,
+              impl_bindings_sig : push_bindings_sig.clone()
             )
-          )
-        };
-        // For a CLOSURE param (declared `Impl(Fn(...))`, a SomeT), the runtime
-        // placeholder MUST be bound to that SomeT — NOT to runtime_param_tys[i]
-        // (the concrete capture struct) — so the body's `cb(x)` stays a
-        // CALLABLE closure call (a bare capture-struct value is not callable,
-        // so `cb(x)` would fail to evaluate and codegen would see no ExprInfo).
-        // This rebind is UNCONDITIONAL for closure params (try_to_call already
-        // binds them to UnknownVal(captureStruct), so the folded-const gate
-        // below would otherwise skip them). Register the capture struct as the
-        // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
-        // (utils/index.yo:760).
-        decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
-        // Prefer the CALL's resolved parameter type over the pristine
-        // declared one. The declared type stays def-era (there is no
-        // shared parameter object for the closure's return rewrite to
-        // mutate in place), and rebuilding the closure param from it
-        // re-installs `-> Option(B)`: the spec body then typed `f(value)`
-        // with the def-era instance and codegen had no C type for it (the
-        // Option/Result-combinator family's last layer). Only taken when the
-        // resolved type still carries an Fn-trait carrier, so the
-        // capture-struct rebuild below is unaffected.
-        match(
-          arg_values.args.get(rbp_i),
-          .Some(rp_ae) => if(match(rp_ae.parameter_type, .SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
-            decl_pt = rp_ae.parameter_type;
-          }),
-          .None => ()
-        );
-        closure_some_id := match(
-          decl_pt,
-          .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt), .Some(_) => sid, .None => String.from("")),
-          _ => String.from("")
-        );
-        is_closure_param := (closure_some_id.len() > usize(0));
-        // FUTURE-wrapper param (`task : Impl(Future(T, E))`): register
-        // the DECLARED wrapper's id → the ARG's wrapper type, so
-        // get_type_string on the spec's param chains through the arg
-        // wrapper's async-block registration to the concrete sm struct
-        // (the closure capbind's analog for futures). Without this the
-        // spec's param stays an unresolvable SomeT, the emission gate
-        // skips the fn, and every call site degrades to the statement
-        // FTT (async_await arm 72: `test_unwind(task, io)`).
-        if(!(is_closure_param), {
-          match(
-            decl_pt,
-            .SomeT({ id : fw_id }) => if(extract_future_trait_from_type(decl_pt).is_some(), {
+          );
+          ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack);
+          ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
+            SpecializingFunctionInfo(
+              original_func_id : func_id,
+              specialized_func_id : specialized_func_id,
+              specialized_return_type : spec_ret_ty.clone(),
+              original_func_value : original_func_val,
+              impl_bindings_sig : push_bindings_sig
+            )
+          );
+          // Build a function-body evaluation context so explicit `return(...)`
+          // statements inside the specialized body are legal — begin.yo gates
+          // `return` on `is_evaluating_function_body_or_async_block` and throws
+          // "return can only be used inside a function body" otherwise (which
+          // would propagate out and leave the call site without ExprInfo). The
+          // func_type carries the SPECIALIZED return type so a generic `-> T` /
+          // `-> Self` return argument is checked against the concrete type, not
+          // the original SomeType-bearing one.
+          fb_func_type := match(
+            func_type,
+            .Func({
+              forall_types : ft_ft,
+              param_types : ft_pt,
+              implicit_types : ft_it,
+              where_types : ft_wt,
+              meta : ft_meta
+            }) => TypeValue.Func(
+              ft_ft,
+              ft_pt,
+              ft_it,
+              ft_wt,
+              spec_ret_ty.clone(),
+              ft_meta,
+              ArrayList(TypeValue).new()
+            ),
+            _ => func_type
+          );
+          // Override the evaluation context for the body. The
+          // specialized body is a FRESH function scope, so we must:
+          //   * mark it a function body (legalizes explicit `return(...)`),
+          //   * CLEAR captured_variables —
+          //     otherwise a nested regular `->` function in the body inherits
+          //     the caller's capture map and wrongly reports "a regular
+          //     function cannot capture outer runtime variables" (e.g. std/path),
+          //   * CLEAR is_evaluating_loop_body,
+          //   * set expected_type to the specialized return type,
+          //   * give it a fresh function_return_impl_concrete_type array.
+          // All saved and restored around the body eval.
+          prev_fb := ctx.is_evaluating_function_body_or_async_block;
+          prev_caps := ctx.captured_variables;
+          prev_loop := ctx.is_evaluating_loop_body;
+          prev_expected := ctx.expected_type;
+          prev_fri := ctx.function_return_impl_concrete_type;
+          ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
+            FuncOrAsyncBlockCtx(
+              kind : FuncOrAsyncBlockKind.FunctionBody,
+              func_type : Option(TypeValue).Some(fb_func_type),
+              func_value : Option(EvalValue).Some(original_func_val),
+              // SNAPSHOT the entry env (frames-list copy, shared Frame refs):
+              // the live env grows when evaluate_begin pushes the body's OWN
+              // begin frame, so without the snapshot body locals (frame_level
+              // == entry count) look "outer" to trackVariableUsage's
+              // outer-scope gate and pollute captured_variables
+              // (killing the dup/drop pair optimizer's captured gate — the
+              // cycle_collector mid-scope collect failure).
+              eval_env : snapshot_env(callee_env)
+            )
+          );
+          // For a CLOSURE being specialized, record captures with a FRESH map
+          // instead of clearing: a DEFERRED-generic closure (an Impl(Fn)
+          // capture flips it onto this path) skipped its definition-time
+          // capture collection entirely, so THIS body eval is the only
+          // chance to learn what it closes over — clearing left the emitted
+          // body with bare undeclared identifiers
+          // (issues/repros/dyn-closure-implfn-capture-loss.yo). Regular fns
+          // keep the clearing (nested `->` fns must not inherit the caller's
+          // map — the std/path regression its comment documents).
+          spec_is_closure := is_closure_fn(func_id.clone());
+          if(spec_is_closure, {
+            ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(HashMap(String, CapturedVarInfo).new());
+          }, {
+            ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
+          });
+          ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : spec_ret_ty.clone(), env : callee_env)
+          );
+          ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
+            ArrayList(ImplConcreteTypeInfo).new()
+          );
+          // Re-bind a regular parameter to a RUNTIME placeholder (`UnknownVal`
+          // of its specialized type) ONLY when try_to_call left it bound to a
+          // FOLDED COMPTIME CONSTANT (e.g. `println(i32(7))` binds `v` to the
+          // IntLit `7`). A specialized function is reused across every call of
+          // the same type signature, so a baked-in constant is wrong: the body
+          // emitted `to_string(&(int32_t){7})`, and `println(i32(9))` reused it
+          // and printed `7`. GUARD: only rebind params whose current value is a
+          // KNOWN constant — params already bound to an `UnknownVal` (the normal
+          // runtime case, e.g. a `comptime_str` arg coerced to runtime `str`) are
+          // LEFT UNTOUCHED, since blindly re-binding them perturbs the
+          // specialization identity (a str `println` regressed to an undeclared
+          // specialized callee). Value params are bound as runtime
+          // placeholders.
+          // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
+          // used below to keep a closure param CALLABLE during body eval.
+          decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
+          // The declared `inout(p)` flags. The runtime-placeholder re-bind below
+          // MUST carry them onto the new binding: `add_variable_to_env`
+          // hardcodes `is_ref : false`, and the re-bound Variable SHADOWS the
+          // correct parameter binding made by `check_param` (this file, ~1129)
+          // for the whole specialized body eval — so codegen's `_var_read_code`
+          // (codegen/exprs/atom.yo) rendered a by-`ref` param as a bare value
+          // while the C prototype (from the spec Func meta's `param_is_ref`,
+          // still true) kept it a pointer. Same defect, same fix as
+          // calls/function.yo:5265.
+          decl_param_is_ref := match(
+            func_type,
+            .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
+            _ => ArrayList(bool).new()
+          );
+          (rbp_i : usize) = usize(0);
+          n_rbp := params.len();
+          while(rbp_i < n_rbp, {
+            p_label := match(params.get(rbp_i), .Some(l) => l, .None => String.from(""));
+            // Explicit `comptime(K) : Type` param: already bound COMPILE-TIME
+            // to the arg's value by the early-binding loop above (before the
+            // return-type re-eval) — skip the runtime-placeholder machinery.
+            sp_rbp_ct := match(spec_param_ct_flags.get(rbp_i), .Some(f) => f, .None => false);
+            if(sp_rbp_ct, {
+              rbp_i = (rbp_i + usize(1));
+              continue;
+            });
+            cur_is_folded_const := {
+              pvars := get_variables_from_env(callee_env, p_label);
+              npv := pvars.len();
+              cond(
+                (npv == usize(0)) => false,
+                true => match(
+                  pvars.get(npv - usize(1)),
+                  .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !(is_unknown_val(vv)), .None => false),
+                  .None => false
+                )
+              )
+            };
+            // For a CLOSURE param (declared `Impl(Fn(...))`, a SomeT), the runtime
+            // placeholder MUST be bound to that SomeT — NOT to runtime_param_tys[i]
+            // (the concrete capture struct) — so the body's `cb(x)` stays a
+            // CALLABLE closure call (a bare capture-struct value is not callable,
+            // so `cb(x)` would fail to evaluate and codegen would see no ExprInfo).
+            // This rebind is UNCONDITIONAL for closure params (try_to_call already
+            // binds them to UnknownVal(captureStruct), so the folded-const gate
+            // below would otherwise skip them). Register the capture struct as the
+            // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
+            // (utils/index.yo:760).
+            decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
+            // Prefer the CALL's resolved parameter type over the pristine
+            // declared one. The declared type stays def-era (there is no
+            // shared parameter object for the closure's return rewrite to
+            // mutate in place), and rebuilding the closure param from it
+            // re-installs `-> Option(B)`: the spec body then typed `f(value)`
+            // with the def-era instance and codegen had no C type for it (the
+            // Option/Result-combinator family's last layer). Only taken when the
+            // resolved type still carries an Fn-trait carrier, so the
+            // capture-struct rebuild below is unaffected.
+            match(
+              arg_values.args.get(rbp_i),
+              .Some(rp_ae) => if(match(rp_ae.parameter_type, .SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
+                decl_pt = rp_ae.parameter_type;
+              }),
+              .None => ()
+            );
+            closure_some_id := match(
+              decl_pt,
+              .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt), .Some(_) => sid, .None => String.from("")),
+              _ => String.from("")
+            );
+            is_closure_param := (closure_some_id.len() > usize(0));
+            // FUTURE-wrapper param (`task : Impl(Future(T, E))`): register
+            // the DECLARED wrapper's id → the ARG's wrapper type, so
+            // get_type_string on the spec's param chains through the arg
+            // wrapper's async-block registration to the concrete sm struct
+            // (the closure capbind's analog for futures). Without this the
+            // spec's param stays an unresolvable SomeT, the emission gate
+            // skips the fn, and every call site degrades to the statement
+            // FTT (async_await arm 72: `test_unwind(task, io)`).
+            if(!(is_closure_param), {
               match(
-                runtime_param_tys.get(rbp_i),
-                .Some(fw_arg) => if(is_some_type(fw_arg) && (
-                  match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
+                decl_pt,
+                .SomeT({ id : fw_id }) => if(extract_future_trait_from_type(decl_pt).is_some(), {
+                  match(
+                    runtime_param_tys.get(rbp_i),
+                    .Some(fw_arg) => if(is_some_type(fw_arg) && (
+                      match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
+                    ), {
+                      register_some_resolved_concrete(fw_id.clone(), fw_arg);
+                    }),
+                    .None => ()
+                  );
+                }),
+                _ => ()
+              );
+            });
+            if(is_closure_param, {
+              // Bind the param to a PER-SPEC REBUILD of the declared SomeT
+              // (fresh id + own resolved cell seeded with THIS spec's capture
+              // struct) — never the shared declared SomeT. The declared SomeT
+              // is ONE lineage across every specialization of this function
+              // (the HAZARD note on SomeT.resolved_concrete): registering the
+              // capture on the SHARED id let the LAST specialization win
+              // globally, so an EARLIER spec's emitted body resolved `cb` to
+              // the wrong capture — spec-1 of Thread.spawn malloc'd closure-2's
+              // capture struct and its spawn wrapper called closure-2 (the
+              // arc/prelude capture-split repro,
+              // issues/repros/arc-spawn-capture-split.yo). The rebuild keeps
+              // the fn-trait constraints so the body's `cb(x)` stays CALLABLE.
+              // The shared-id registration is kept too (last-write, as before)
+              // for consumers that resolve the DECLARED param type rather than
+              // the bound variable's.
+              (bind_pt_cl : TypeValue) = decl_pt.clone();
+              // cap_ty must be the CAPTURE STRUCT. On the try_to_call path the
+              // arg_type already IS it (the closure eval recorded capture_type
+              // on the arg's ExprInfo); on the FuncVal-arm path the arg_type is
+              // the plain `fn(...) -> U` Func — fall back to the closure's
+              // registered capture info (keyed by the arg FuncVal's fid), else
+              // the body's `cb(x)` resolves to a Func and the closure-call map
+              // misses (the fn-pointer-cast fallback, red cluster 3).
+              (cap_ty_fixed : Option(TypeValue)) = runtime_param_tys.get(rbp_i);
+              match(
+                cap_ty_fixed,
+                .Some(ct_probe) => if(!(
+                  match(ct_probe, .Struct({ id : _ }) => true, _ => false)
                 ), {
-                  register_some_resolved_concrete(fw_id.clone(), fw_arg);
+                  match(
+                    arg_values.args.get(rbp_i),
+                    .Some(cb_ae2) => match(
+                      cb_ae2.value,
+                      .Some(cb_v2) => match(
+                        cb_v2,
+                        .FuncVal(cb_fvd2, _) => match(
+                          get_closure_capture_info(cb_fvd2.*.func_id.clone()),
+                          .Some(cb_ci2) => {
+                            cap_ty_fixed = Option(TypeValue).Some(cb_ci2.capture_type);
+                          },
+                          .None => ()
+                        ),
+                        _ => ()
+                      ),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
                 }),
                 .None => ()
               );
-            }),
-            _ => ()
-          );
-        });
-        if(is_closure_param, {
-          // Bind the param to a PER-SPEC REBUILD of the declared SomeT
-          // (fresh id + own resolved cell seeded with THIS spec's capture
-          // struct) — never the shared declared SomeT. The declared SomeT
-          // is ONE lineage across every specialization of this function
-          // (the HAZARD note on SomeT.resolved_concrete): registering the
-          // capture on the SHARED id let the LAST specialization win
-          // globally, so an EARLIER spec's emitted body resolved `cb` to
-          // the wrong capture — spec-1 of Thread.spawn malloc'd closure-2's
-          // capture struct and its spawn wrapper called closure-2 (the
-          // arc/prelude capture-split repro,
-          // issues/repros/arc-spawn-capture-split.yo). The rebuild keeps
-          // the fn-trait constraints so the body's `cb(x)` stays CALLABLE.
-          // The shared-id registration is kept too (last-write, as before)
-          // for consumers that resolve the DECLARED param type rather than
-          // the bound variable's.
-          (bind_pt_cl : TypeValue) = decl_pt.clone();
-          // cap_ty must be the CAPTURE STRUCT. On the try_to_call path the
-          // arg_type already IS it (the closure eval recorded capture_type
-          // on the arg's ExprInfo); on the FuncVal-arm path the arg_type is
-          // the plain `fn(...) -> U` Func — fall back to the closure's
-          // registered capture info (keyed by the arg FuncVal's fid), else
-          // the body's `cb(x)` resolves to a Func and the closure-call map
-          // misses (the fn-pointer-cast fallback, red cluster 3).
-          (cap_ty_fixed : Option(TypeValue)) = runtime_param_tys.get(rbp_i);
-          match(
-            cap_ty_fixed,
-            .Some(ct_probe) => if(!(
-              match(ct_probe, .Struct({ id : _ }) => true, _ => false)
-            ), {
               match(
-                arg_values.args.get(rbp_i),
-                .Some(cb_ae2) => match(
-                  cb_ae2.value,
-                  .Some(cb_v2) => match(
-                    cb_v2,
-                    .FuncVal(cb_fvd2, _) => match(
-                      get_closure_capture_info(cb_fvd2.*.func_id.clone()),
-                      .Some(cb_ci2) => {
-                        cap_ty_fixed = Option(TypeValue).Some(cb_ci2.capture_type);
-                      },
-                      .None => ()
-                    ),
+                cap_ty_fixed,
+                // A still-ABSTRACT cap_ty (a SomeT — the forwarded-param
+                // mint where no concrete capture is determinable) must NOT
+                // rebuild or register: `register_some_resolved_concrete(id,
+                // SomeT(id))` created a SELF-LOOP entry, and SomeT→SomeT
+                // chains poisoned every later render of the shared declared
+                // id (the def-era spec's param flipping void*→concrete
+                // depending on registration order — the stage-2 dyn-capture
+                // cluster). Bind the declared type instead; the resolved-era
+                // mints (arg resolves to the concrete capture via
+                // _spec_resolve_arg_ty) rebuild as before.
+                .Some(cap_ty) => if(!(is_some_type(cap_ty)), {
+                  fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
+                  match(
+                    decl_pt,
+                    .SomeT(
+                      _,
+                      sp_nm_c,
+                      sp_fl_c,
+                      sp_pt_c,
+                      sp_rtt_c,
+                      sp_rtl_c,
+                      sp_ntt_c,
+                      sp_ntl_c,
+                      sp_ier_c,
+                      sp_kft_c,
+                      _
+                    ) => {
+                      bind_pt_cl = TypeValue.SomeT(
+                        fresh_some_id.clone(),
+                        sp_nm_c,
+                        sp_fl_c,
+                        sp_pt_c,
+                        sp_rtt_c,
+                        sp_rtl_c,
+                        sp_ntt_c,
+                        sp_ntl_c,
+                        sp_ier_c,
+                        sp_kft_c,
+                        t_resolved_cell(cap_ty)
+                      );
+                    },
                     _ => ()
-                  ),
-                  .None => ()
-                ),
-                .None => ()
-              );
-            }),
-            .None => ()
-          );
-          match(
-            cap_ty_fixed,
-            // A still-ABSTRACT cap_ty (a SomeT — the forwarded-param
-            // mint where no concrete capture is determinable) must NOT
-            // rebuild or register: `register_some_resolved_concrete(id,
-            // SomeT(id))` created a SELF-LOOP entry, and SomeT→SomeT
-            // chains poisoned every later render of the shared declared
-            // id (the def-era spec's param flipping void*→concrete
-            // depending on registration order — the stage-2 dyn-capture
-            // cluster). Bind the declared type instead; the resolved-era
-            // mints (arg resolves to the concrete capture via
-            // _spec_resolve_arg_ty) rebuild as before.
-            .Some(cap_ty) => if(!(is_some_type(cap_ty)), {
-              fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
-              match(
-                decl_pt,
-                .SomeT(
-                  _,
-                  sp_nm_c,
-                  sp_fl_c,
-                  sp_pt_c,
-                  sp_rtt_c,
-                  sp_rtl_c,
-                  sp_ntt_c,
-                  sp_ntl_c,
-                  sp_ier_c,
-                  sp_kft_c,
-                  _
-                ) => {
-                  bind_pt_cl = TypeValue.SomeT(
-                    fresh_some_id.clone(),
-                    sp_nm_c,
-                    sp_fl_c,
-                    sp_pt_c,
-                    sp_rtt_c,
-                    sp_rtl_c,
-                    sp_ntt_c,
-                    sp_ntl_c,
-                    sp_ier_c,
-                    sp_kft_c,
-                    t_resolved_cell(cap_ty)
                   );
-                },
-                _ => ()
-              );
-              register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
-              register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
-              // Rules D1 + D4: the fresh binder names the ARGUMENT's
-              // closure, for a marker judgement of the parameter's type
-              // inside the body (`function_value_marker`).
-              match(
-                arg_values.args.get(rbp_i),
-                .Some(cb_ae3) => match(
-                  cb_ae3.value,
-                  .Some(cb_v3) => match(
-                    cb_v3,
-                    .FuncVal(cb_fvd3, _) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
-                    _ => ()
-                  ),
-                  .None => match(
-                    cb_ae3.arg_type,
-                    .SomeT({ id : cb_sid3 }) => alias_closure_some_id(fresh_some_id.clone(), cb_sid3),
-                    _ => ()
-                  )
-                ),
-                .None => ()
-              );
-              // The declared Fn bound's RESULT is the enclosing function's
-              // own generic (`cb : Impl(Fn(io : Io) -> T)`), and nothing
-              // else here resolves it: `cb` is bound VALUELESS, so the
-              // body's `cb(x)` reaches `evaluate_function_call`'s
-              // no-callee-value arm and its result type can only come from
-              // that declared `T`. At `T = unit` the call's type stays the
-              // binder, the specialisation it feeds keys on that abstract
-              // type, and the key names the def-era ORIGINAL — which the
-              // emission loop deliberately skips, so the C calls a symbol
-              // nothing declares
-              // (issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md).
-              //
-              // Register the argument closure's own concrete result
-              // against it. TYPE ONLY — binding the FuncVal itself was
-              // measured and is wrong: the evaluator then CALLS the
-              // closure at compile time and 20 `check ./src` sites fail
-              // with "Expected enum type ... got unit". Same shared-id
-              // last-write shape as the capture registration above.
-              match(
-                extract_fn_trait_from_type(decl_pt),
-                .Some(fn_tr) => match(
-                  fn_tr,
-                  .FnTraitT(_, _, _, fn_res, _, _, _, _) => if(is_some_type(fn_res), {
-                    match(
-                      arg_values.args.get(rbp_i),
-                      .Some(cl_ae3) => match(
-                        cl_ae3.value,
-                        .Some(cl_v3) => match(
-                          cl_v3,
-                          .FuncVal(cl_fvd3, _) => match(
-                            get_func_type(cl_fvd3.*.func_id.clone()),
-                            .Func({ result : cl_res3 }) => if(!(is_some_type(cl_res3)), {
-                              match(
-                                fn_res,
-                                .SomeT({ id : fn_res_id }) => {
-                                  register_some_resolved_concrete(fn_res_id.clone(), cl_res3.clone());
-                                },
-                                _ => ()
-                              );
-                            }),
-                            _ => ()
-                          ),
-                          _ => ()
-                        ),
-                        .None => ()
+                  register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
+                  register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
+                  // Rules D1 + D4: the fresh binder names the ARGUMENT's
+                  // closure, for a marker judgement of the parameter's type
+                  // inside the body (`function_value_marker`).
+                  match(
+                    arg_values.args.get(rbp_i),
+                    .Some(cb_ae3) => match(
+                      cb_ae3.value,
+                      .Some(cb_v3) => match(
+                        cb_v3,
+                        .FuncVal(cb_fvd3, _) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
+                        _ => ()
                       ),
-                      .None => ()
-                    );
-                  }),
-                  _ => ()
-                ),
+                      .None => match(
+                        cb_ae3.arg_type,
+                        .SomeT({ id : cb_sid3 }) => alias_closure_some_id(fresh_some_id.clone(), cb_sid3),
+                        _ => ()
+                      )
+                    ),
+                    .None => ()
+                  );
+                  // The declared Fn bound's RESULT is the enclosing function's
+                  // own generic (`cb : Impl(Fn(io : Io) -> T)`), and nothing
+                  // else here resolves it: `cb` is bound VALUELESS, so the
+                  // body's `cb(x)` reaches `evaluate_function_call`'s
+                  // no-callee-value arm and its result type can only come from
+                  // that declared `T`. At `T = unit` the call's type stays the
+                  // binder, the specialisation it feeds keys on that abstract
+                  // type, and the key names the def-era ORIGINAL — which the
+                  // emission loop deliberately skips, so the C calls a symbol
+                  // nothing declares
+                  // (issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md).
+                  //
+                  // Register the argument closure's own concrete result
+                  // against it. TYPE ONLY — binding the FuncVal itself was
+                  // measured and is wrong: the evaluator then CALLS the
+                  // closure at compile time and 20 `check ./src` sites fail
+                  // with "Expected enum type ... got unit". Same shared-id
+                  // last-write shape as the capture registration above.
+                  match(
+                    extract_fn_trait_from_type(decl_pt),
+                    .Some(fn_tr) => match(
+                      fn_tr,
+                      .FnTraitT(_, _, _, fn_res, _, _, _, _) => if(is_some_type(fn_res), {
+                        match(
+                          arg_values.args.get(rbp_i),
+                          .Some(cl_ae3) => match(
+                            cl_ae3.value,
+                            .Some(cl_v3) => match(
+                              cl_v3,
+                              .FuncVal(cl_fvd3, _) => match(
+                                get_func_type(cl_fvd3.*.func_id.clone()),
+                                .Func({ result : cl_res3 }) => if(!(is_some_type(cl_res3)), {
+                                  match(
+                                    fn_res,
+                                    .SomeT({ id : fn_res_id }) => {
+                                      register_some_resolved_concrete(fn_res_id.clone(), cl_res3.clone());
+                                    },
+                                    _ => ()
+                                  );
+                                }),
+                                _ => ()
+                              ),
+                              _ => ()
+                            ),
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                      }),
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                }),
                 .None => ()
               );
-            }),
-            .None => ()
-          );
-          _rbc := add_variable_to_env(
-            callee_env,
-            p_label,
-            bind_pt_cl.clone(),
-            Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
-            false,
-            false,
-            false,
-            false,
-            synthetic_token(p_label, callee_env.module_path)
-          );
-          // Parameter re-bind — flag it (see above).
-          match(
-            _rbc,
-            .Some(rbc_var) => {
-              rbc_var.is_parameter = true;
-              if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
-                rbc_var.is_ref = true;
-                rbc_var.is_reassignable = true;
-              });
-            },
-            .None => ()
-          );
-        }, if(cur_is_folded_const, {
-          match(
-            runtime_param_tys.get(rbp_i),
-            .Some(p_ty) => {
-              _rb := add_variable_to_env(
+              _rbc := add_variable_to_env(
                 callee_env,
                 p_label,
-                p_ty,
-                Option(EvalValue).Some(create_unknown_val(p_ty)),
+                bind_pt_cl.clone(),
+                Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
-                // is_compile_time_only — runtime parameter
                 false,
                 false,
                 false,
@@ -3238,1019 +3208,1049 @@ create_specialized_function_inline :: (
               );
               // Parameter re-bind — flag it (see above).
               match(
-                _rb,
-                .Some(rb_var) => {
-                  rb_var.is_parameter = true;
+                _rbc,
+                .Some(rbc_var) => {
+                  rbc_var.is_parameter = true;
                   if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
-                    rb_var.is_ref = true;
-                    rb_var.is_reassignable = true;
+                    rbc_var.is_ref = true;
+                    rbc_var.is_reassignable = true;
                   });
                 },
                 .None => ()
               );
-            },
-            .None => ()
-          );
-        }));
-        rbp_i = (rbp_i + usize(1));
-      });
-      // CLONE the body with FRESH ids for this specialization. Each
-      // specialization of a generic function must own its body AST: codegen
-      // walks the body per-node and reads per-node ExprInfo / side-tables
-      // (e.g. `g_method_callee_values` for a `v.to_string()` method
-      // dispatch). If every specialization shared the ORIGINAL body nodes,
-      // the LAST specialization's body eval would overwrite each node's
-      // entry — so `println<str>` and `println<i32>`, sharing one body, both
-      // emitted a call to the i32 `to_string` (the str call printed garbage).
-      // A fresh-id clone gives each specialization independent nodes. The
-      // specialized FuncVal below carries this clone so codegen walks the
-      // right nodes.
-      cloned_body := clone_expr_fresh_ids(body);
-      // Set `ctx.self_type` to the concrete receiver so `Self` — and
-      // especially `Self.static_method` like HashMap's
-      // `Self._find_bucket(self, ...)` — resolves inside the specialized
-      // method body. `Func` carries no SelfType field and dispatch does
-      // not thread self_type to this point, so reconstruct it from the
-      // bound `self`
-      // parameter — its type IS the concrete receiver. Scoped: saved here and
-      // restored in the context-restore block below (handles nested
-      // specializations, where each method's body must see its own receiver).
-      prev_self_type_spec := ctx.self_type;
-      (spec_self_set : bool) = false;
-      (spec_self_src : String) = String.from("c-inherited");
-      // Prefer the actual RECEIVER ARGUMENT's type over the `self` param's
-      // DECLARED type. During def-time signature eval the declared `Self` can
-      // be a freshly-MINTED shell instance of the generic (e.g. a SECOND
-      // `ArrayList(String)` struct id distinct from the call-site's), whose
-      // nested specializations (`Self.with_capacity` → `(*(T))(_ptr)`) fail —
-      // see issues/fixed/yo-self-p1-transpile-tail.md. The call argument carries the
-      // real, complete receiver struct, so resolve `Self` to it.
-      if(params.len() > usize(0), {
-        is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
-        if(is_self_first, {
-          match(
-            arg_values.args.get(usize(0)),
-            .Some(rcv_ae) => {
-              ctx.self_type = Option(TypeValue).Some(rcv_ae.arg_type);
-              spec_self_set = true;
-              spec_self_src = String.from("a-recv-arg");
-            },
-            .None => ()
-          );
-        });
-      });
-      if(!(spec_self_set), {
-        // (b1) An impl member's FuncVal carries the matched CONCRETE
-        // receiver as a "Self" capture (impl.yo's
-        // _inject_forall_captures).
-        // A STATIC member (no `self` parameter) has no receiver argument,
-        // so its body's `Self` must resolve through that capture: CLEAR
-        // the ambient ctx.self_type — inherited from whatever evaluation
-        // forced this specialization, which is an UNRELATED receiver
-        // whenever the forcing nests inside another type's impl eval (a
-        // String impl field binding Self=String while
-        // ArrayList(String).new specializes from inside it: "Cannot
-        // construct String outside its declaring module",
-        // issues/warm-compile-selfcheck.md) — so the identifier
-        // env-lookup resolves the capture instead. Clearing is safe ONLY
-        // with the capture present: the def-time env of a plain generic
-        // has no `Self` variable, and an unconditional clear made every
-        // such body fail with E0401 "Variable Self not found" (same
-        // issue doc, the 2026-09-17 first attempt).
-        spec_has_self_cap := fv_capture_has_name(__fvm2.*, String.from("Self"));
-        if(spec_has_self_cap, {
-          ctx.self_type = Option(TypeValue).None;
-          spec_self_set = true;
-          spec_self_src = String.from("b1-self-capture");
-        });
-      });
-      if(!(spec_self_set), {
-        spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
-        if(spec_self_vars.len() > usize(0), {
-          match(
-            spec_self_vars.get(spec_self_vars.len() - usize(1)),
-            .Some(spec_self_v) => {
-              ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
-              spec_self_src = String.from("b-env-self");
-            },
-            .None => ()
-          );
-        });
-      });
-      if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-        st_dbg := match(ctx.self_type, .Some(t) => type_key(t), .None => String.from("<none>"));
-        st_prev := match(prev_self_type_spec, .Some(t) => type_key(t), .None => String.from("<none>"));
-        eprintln(`[specself] fid=${func_id.clone()} src=${spec_self_src} self=${st_dbg} prev=${st_prev}`);
-      });
-      // Evaluate the function body in the specialized environment.
-      // Uses the already-built callee_env (which has all type params and
-      // regular params bound from try_to_call_function_with_arguments steps 4–11).
-      // Thread the fn's where-constraint trait ids to the overload
-      // selector for the duration of the spec body eval (see
-      // expr_info.yo g_active_where_trait_ids — the use_trait_b
-      // disambiguation).
-      spec_where_ids := ArrayList(String).new();
-      {
-        spec_wes := get_func_where_constraints(func_id.clone());
-        (swi : usize) = usize(0);
-        while(swi < spec_wes.len(), {
-          match(
-            spec_wes.get(swi),
-            .Some(swe) => {
-              swe_id := match(swe.trait_ty, .TraitT(_, _, _, _, swe_tid, _, _, _, _, _) => swe_tid, _ => String.from(""));
-              if(swe_id != "", {
-                spec_where_ids.push(swe_id);
-              });
-            },
-            .None => ()
-          );
-          swi = (swi + usize(1));
-        });
-        // `where(T <: Trait)` constraints usually live on the forall
-        // SomeT's required_trait_types (not the side table) — collect
-        // those too, from the fn type's forall + param SomeTs.
-        spec_all_sts := get_all_some_types(func_type);
-        (sws_i : usize) = usize(0);
-        while(sws_i < spec_all_sts.len(), {
-          match(
-            spec_all_sts.get(sws_i),
-            .Some(sws_t) => match(
-              sws_t,
-              .SomeT({ required_trait_types : sws_rtt }) => {
-                (sws_ri : usize) = usize(0);
-                while(sws_ri < sws_rtt.len(), {
+            }, if(cur_is_folded_const, {
+              match(
+                runtime_param_tys.get(rbp_i),
+                .Some(p_ty) => {
+                  _rb := add_variable_to_env(
+                    callee_env,
+                    p_label,
+                    p_ty,
+                    Option(EvalValue).Some(create_unknown_val(p_ty)),
+                    false,
+                    // is_compile_time_only — runtime parameter
+                    false,
+                    false,
+                    false,
+                    synthetic_token(p_label, callee_env.module_path)
+                  );
+                  // Parameter re-bind — flag it (see above).
                   match(
-                    sws_rtt.get(sws_ri),
-                    .Some(sws_tr) => {
-                      sws_tid := match(sws_tr, .TraitT(_, _, _, _, sws_tid0, _, _, _, _, _) => sws_tid0, _ => String.from(""));
-                      if(sws_tid != "", {
-                        spec_where_ids.push(sws_tid);
+                    _rb,
+                    .Some(rb_var) => {
+                      rb_var.is_parameter = true;
+                      if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
+                        rb_var.is_ref = true;
+                        rb_var.is_reassignable = true;
                       });
                     },
                     .None => ()
                   );
-                  sws_ri = (sws_ri + usize(1));
-                });
-              },
-              _ => ()
-            ),
-            .None => ()
-          );
-          sws_i = (sws_i + usize(1));
-        });
-      };
-      push_active_where_trait_ids(spec_where_ids);
-      specialized_body := evaluate_begin_expression(
-        cloned_body,
-        callee_env,
-        ctx,
-        ArrayList(Variable).new(),
-        true,
-        exn
-      );
-      pop_active_where_trait_ids();
-      // Result-type check for a SPECIALIZED body (E0604): the concrete
-      // path's check in calls/function_type.yo skips any signature that
-      // mentions a SomeT, deferring to this point, where both sides are
-      // concrete. Nothing compared them here, so `(fn(comptime(T) :
-      // Type, x : T) -> i32)(true)` and `(fn(generic(T : Type), x : T) ->
-      // i32)(true)` compiled and returned a reinterpreted `bool`
-      // (issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md).
-      // Same guards as the concrete path: a control-flow tail never
-      // falls through; `void`, `Type`-kinded and `ref` results are judged
-      // elsewhere; a SomeT that is still open after specialization (an
-      // impl-level binder the call does not bind) resolves further out.
-      match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(specialized_body)),
-        .Some(sb_info) => {
-          sb_ty := sb_info.ty;
-          sb_ret_is_ref := match(func_type, .Func({ meta : sb_m }) => sb_m.*.result_is_ref, _ => false);
-          sb_skip := (((((has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty)) || is_type_hierarchy_type(spec_ret_ty)) || (get_all_some_types(spec_ret_ty).len() > usize(0))) || (get_all_some_types(sb_ty).len() > usize(0))) || sb_ret_is_ref);
-          if(!(sb_skip) && !(are_types_compatible(sb_ty, spec_ret_ty)), {
-            sb_inst := String.new();
-            (sbi : usize) = usize(0);
-            while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
-              match(
-                arg_values.forall_args.get(sbi),
-                .Some(sb_fa) => match(
-                  sb_fa.value,
-                  .Some(sb_fv) => {
-                    sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
-                    sb_inst.push_string(match(forall_names.get(sbi), .Some(n) => n, .None => String.new()));
-                    sb_inst.push_str(" = ");
-                    sb_inst.push_string(value_to_string(sb_fv));
-                  },
-                  .None => ()
-                ),
+                },
                 .None => ()
               );
-              sbi = (sbi + usize(1));
-            });
-            if(sb_inst.len() > usize(0), {
-              sb_inst.push_str(")");
-            });
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(cloned_body),
-                  `Function body has type \`${type_to_string(sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`${sb_inst}.`
-                )
-              )
-            );
+            }));
+            rbp_i = (rbp_i + usize(1));
           });
-        },
-        .None => ()
-      );
-      // Snapshot the closure-spec capture recording BEFORE restoring.
-      spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
-      // Restore context
-      ctx.self_type = prev_self_type_spec;
-      ctx.function_return_impl_concrete_type = prev_fri;
-      ctx.expected_type = prev_expected;
-      ctx.is_evaluating_loop_body = prev_loop;
-      ctx.captured_variables = prev_caps;
-      ctx.is_evaluating_function_body_or_async_block = prev_fb;
-      ctx.currently_specializing_function = prev_spec;
-      // Pop this specialization off the full stack (pushed at the set site above).
-      spec_stack_r := match(
-        ctx.currently_specializing_function_stack,
-        .Some(s) => s,
-        .None => ArrayList(SpecializingFunctionInfo).new()
-      );
-      spec_stack_r.pop();
-      ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack_r);
-      // CLOSURE spec: build + register the capture struct from what THIS
-      // body eval recorded — the deferred-generic closure skipped its
-      // definition-time collection, so this is its only capture source
-      // (mirrors anonymous_function.yo:1140-1162's post-eval sequence).
-      match(
-        spec_recorded_caps,
-        .Some(rec_caps) => if(spec_is_closure && (rec_caps.len() > usize(0)), {
-          enr_caps := enrich_captured_variables(rec_caps, callee_env);
-          if(enr_caps.len() > usize(0), {
-            spec_cap_res := create_capture_type_and_value(
-              Option(TypeValue).None,
-              Option(HashMap(String, FuncCapturedVarInfo)).Some(enr_caps),
-              callee_env,
-              synthetic_token(specialized_func_id.clone(), callee_env.module_path)
-            );
-            match(
-              spec_cap_res.capture_type,
-              .Some(spec_ct) => register_closure_capture_info(
-                specialized_func_id.clone(),
-                ClosureCaptureInfo(capture_type : spec_ct, frame_level : callee_env.frames.len())
-              ),
-              .None => ()
-            );
-          });
-        }),
-        .None => ()
-      );
-      // Build updated captures from the specialized callee_env.
-      // This ensures the specialized function "closes over" the bound
-      // compile-time values (generic type params, given handlers, etc.)
-      // so codegen can inline them without extra lookups.
-      new_cap_names := ArrayList(String).new();
-      new_cap_tys := ArrayList(TypeValue).new();
-      new_cap_vals := ArrayList(EvalValue).new();
-      // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md step 3): the derived
-      // FuncVal inherits the original's SHARED handle list and appends
-      // the generic-binding Variables looked up below — so its calls
-      // build the capture env from handles too. If the original never
-      // registered (env_key 0), stay on the flat fallback.
-      new_cap_vars := ArrayList(Variable).new();
-      (new_env_key : usize) = usize(0);
-      (have_cap_vars : bool) = false;
-      match(
-        get_funcval_cap_vars(__fvm2.*.env_key),
-        .Some(pv) => {
-          have_cap_vars = true;
-          (pvi : usize) = usize(0);
-          while(pvi < pv.len(), {
-            match(
-              pv.get(pvi),
-              .Some(ph) => {
-                new_cap_vars.push(ph);
-              },
-              .None => ()
-            );
-            pvi = (pvi + usize(1));
-          });
-        },
-        .None => ()
-      );
-      // Re-use existing captures from original function. A derived FuncVal
-      // keeps FLAT names/types: its inherited handle list may carry
-      // definitions `adopt_resolved_definition` appended to the original's
-      // capture frame, which sit between the original's positions and the
-      // bindings appended below — so its handles are not parallel to its
-      // `cap_vals` (memory plan §0.7). The original's names/types are read
-      // through its capture source (a definition-site FuncVal stores none).
-      orig_src := fv_capture_source(__fvm2.*);
-      (oci : usize) = usize(0);
-      n_oc := cap_vals.len();
-      while(oci < n_oc, {
-        new_cap_names.push(fv_source_name(orig_src, oci));
-        new_cap_tys.push(fv_source_ty(orig_src, oci));
-        new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
-        oci = (oci + usize(1));
-      });
-      // Add compile-time args as additional captures (generic type bindings)
-      (fai2 : usize) = usize(0);
-      n_fl := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
-      while(fai2 < n_fl, {
-        label := match(
-          func_type,
-          .Func({ meta : __fm4 }) => {
-            fl := __fm4.*.forall_labels;
-            r := match(fl.get(fai2), .Some(s) => s, .None => String.new());
-            r
-          },
-          _ => String.new()
-        );
-        env_vars := get_variables_from_env(callee_env, label);
-        n_ev := env_vars.len();
-        if(n_ev > usize(0), {
-          match(
-            env_vars.get(n_ev - usize(1)),
-            .Some(ev) => {
+          // CLONE the body with FRESH ids for this specialization. Each
+          // specialization of a generic function must own its body AST: codegen
+          // walks the body per-node and reads per-node ExprInfo / side-tables
+          // (e.g. `g_method_callee_values` for a `v.to_string()` method
+          // dispatch). If every specialization shared the ORIGINAL body nodes,
+          // the LAST specialization's body eval would overwrite each node's
+          // entry — so `println<str>` and `println<i32>`, sharing one body, both
+          // emitted a call to the i32 `to_string` (the str call printed garbage).
+          // A fresh-id clone gives each specialization independent nodes. The
+          // specialized FuncVal below carries this clone so codegen walks the
+          // right nodes.
+          cloned_body := clone_expr_fresh_ids(body);
+          // Set `ctx.self_type` to the concrete receiver so `Self` — and
+          // especially `Self.static_method` like HashMap's
+          // `Self._find_bucket(self, ...)` — resolves inside the specialized
+          // method body. `Func` carries no SelfType field and dispatch does
+          // not thread self_type to this point, so reconstruct it from the
+          // bound `self`
+          // parameter — its type IS the concrete receiver. Scoped: saved here and
+          // restored in the context-restore block below (handles nested
+          // specializations, where each method's body must see its own receiver).
+          prev_self_type_spec := ctx.self_type;
+          (spec_self_set : bool) = false;
+          (spec_self_src : String) = String.from("c-inherited");
+          // Prefer the actual RECEIVER ARGUMENT's type over the `self` param's
+          // DECLARED type. During def-time signature eval the declared `Self` can
+          // be a freshly-MINTED shell instance of the generic (e.g. a SECOND
+          // `ArrayList(String)` struct id distinct from the call-site's), whose
+          // nested specializations (`Self.with_capacity` → `(*(T))(_ptr)`) fail —
+          // see issues/fixed/yo-self-p1-transpile-tail.md. The call argument carries the
+          // real, complete receiver struct, so resolve `Self` to it.
+          if(params.len() > usize(0), {
+            is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+            if(is_self_first, {
               match(
-                ev.value.get(usize(0)),
-                .Some(v) => {
-                  new_cap_names.push(label);
-                  new_cap_tys.push(ev.ty);
-                  new_cap_vals.push(v);
-                  if(have_cap_vars, {
-                    new_cap_vars.push(ev);
+                arg_values.args.get(usize(0)),
+                .Some(rcv_ae) => {
+                  ctx.self_type = Option(TypeValue).Some(rcv_ae.arg_type);
+                  spec_self_set = true;
+                  spec_self_src = String.from("a-recv-arg");
+                },
+                .None => ()
+              );
+            });
+          });
+          if(!(spec_self_set), {
+            // (b1) An impl member's FuncVal carries the matched CONCRETE
+            // receiver as a "Self" capture (impl.yo's
+            // _inject_forall_captures).
+            // A STATIC member (no `self` parameter) has no receiver argument,
+            // so its body's `Self` must resolve through that capture: CLEAR
+            // the ambient ctx.self_type — inherited from whatever evaluation
+            // forced this specialization, which is an UNRELATED receiver
+            // whenever the forcing nests inside another type's impl eval (a
+            // String impl field binding Self=String while
+            // ArrayList(String).new specializes from inside it: "Cannot
+            // construct String outside its declaring module",
+            // issues/warm-compile-selfcheck.md) — so the identifier
+            // env-lookup resolves the capture instead. Clearing is safe ONLY
+            // with the capture present: the def-time env of a plain generic
+            // has no `Self` variable, and an unconditional clear made every
+            // such body fail with E0401 "Variable Self not found" (same
+            // issue doc, the 2026-09-17 first attempt).
+            spec_has_self_cap := fv_capture_has_name(__fvm2.*, String.from("Self"));
+            if(spec_has_self_cap, {
+              ctx.self_type = Option(TypeValue).None;
+              spec_self_set = true;
+              spec_self_src = String.from("b1-self-capture");
+            });
+          });
+          if(!(spec_self_set), {
+            spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
+            if(spec_self_vars.len() > usize(0), {
+              match(
+                spec_self_vars.get(spec_self_vars.len() - usize(1)),
+                .Some(spec_self_v) => {
+                  ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
+                  spec_self_src = String.from("b-env-self");
+                },
+                .None => ()
+              );
+            });
+          });
+          if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
+            st_dbg := match(ctx.self_type, .Some(t) => type_key(t), .None => String.from("<none>"));
+            st_prev := match(prev_self_type_spec, .Some(t) => type_key(t), .None => String.from("<none>"));
+            eprintln(`[specself] fid=${func_id.clone()} src=${spec_self_src} self=${st_dbg} prev=${st_prev}`);
+          });
+          // Evaluate the function body in the specialized environment.
+          // Uses the already-built callee_env (which has all type params and
+          // regular params bound from try_to_call_function_with_arguments steps 4–11).
+          // Thread the fn's where-constraint trait ids to the overload
+          // selector for the duration of the spec body eval (see
+          // expr_info.yo g_active_where_trait_ids — the use_trait_b
+          // disambiguation).
+          spec_where_ids := ArrayList(String).new();
+          {
+            spec_wes := get_func_where_constraints(func_id.clone());
+            (swi : usize) = usize(0);
+            while(swi < spec_wes.len(), {
+              match(
+                spec_wes.get(swi),
+                .Some(swe) => {
+                  swe_id := match(swe.trait_ty, .TraitT(_, _, _, _, swe_tid, _, _, _, _, _) => swe_tid, _ => String.from(""));
+                  if(swe_id != "", {
+                    spec_where_ids.push(swe_id);
                   });
                 },
                 .None => ()
               );
-            },
-            .None => ()
-          );
-        });
-        fai2 = (fai2 + usize(1));
-      });
-      // Evaluate the specialized body to get its return type
-      specialized_body;
-      // Create the specialized function value — carries the fresh-id CLONE
-      // (not the shared original body) so codegen walks this specialization's
-      // own nodes and reads its own per-node ExprInfo / method-callee entries.
-      if(have_cap_vars, {
-        new_env_key = mint_funcval_env_key();
-        register_funcval_cap_vars(new_env_key, new_cap_vars);
-      });
-      specialized_func_val := EvalValue.FuncVal(
-        box(
-          FuncValData(
-            forall_names : forall_names,
-            params : params,
-            param_type_names : param_type_names,
-            evidence_params : evidence_params,
-            body : cloned_body,
-            cap_names : new_cap_names,
-            cap_tys : new_cap_tys,
-            func_id : specialized_func_id,
-            env_key : new_env_key
-          )
-        ),
-        new_cap_vals
-      );
-      // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
-      // FuncVal's contract tables onto the specialized id — the
-      // specialized FuncVal is what a caller's callee atom carries,
-      // and both the verifier's `_callee_call_term` and the runtime
-      // splice read the contracts by THAT id. Without this, a
-      // contracted generic function's contracts are invisible at
-      // every monomorphized call site ("call to a callee without
-      // contracts") even though its own definition re-keyed them
-      // onto the unspecialized id. The predicate ASTs are the
-      // signature's own nodes (param labels unchanged by
-      // specialization), so the walker's param rebinding applies
-      // unchanged.
-      copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
-      register_specialized_base(specialized_func_id.clone(), func_id.clone());
-      // Register the SPECIALIZED Func TYPE under the specialized func_id so
-      // codegen's get_func_type(specialized_func_id) returns concrete
-      // param/return types (generic dropped) instead of the generic
-      // `generic(T) …` whose SomeT crashes get_type_string (Gap 6).
-      match(
-        func_type,
-        .Func({
-          param_types : sp_pt,
-          implicit_types : sp_it,
-          where_types : sp_wt,
-          result : sp_res_b,
-          meta : __fm5
-        }) => {
-          (sp_pl : ArrayList(String)) = __fm5.*.param_labels;
-          // The spec's C params must be named after the FuncVal's OWN
-          // (source) labels — the body references those. `func_type` here
-          // can be the DECLARED variable's type whose labels differ:
-          // `comptime(id) : (fn(comptime(T) : Type, x : T) -> T)` assigned
-          // `id = ((T, a) -> a)` emitted `bool ...(bool x) { return a; }`
-          // (clang: undeclared identifier) — the anon fn's original
-          // parameter names must be kept (the function body uses them).
-          if(params.len() == sp_pl.len(), {
-            sp_pl = params.clone();
-          });
-          sp_il := __fm5.*.implicit_labels;
-          sp_isp := __fm5.*.implicit_spreads;
-          sp_rico := __fm5.*.result_is_comptime_only;
-          sp_pir := __fm5.*.param_is_ref;
-          sp_pio := __fm5.*.param_is_owning;
-          sp_rir := __fm5.*.result_is_ref;
-          sp_hv := __fm5.*.has_variadic;
-          sp_ie := __fm5.*.is_extern;
-          sp_en := __fm5.*.extern_name;
-          sp_ic := __fm5.*.is_control;
-          (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-          (spi : usize) = usize(0);
-          while(spi < runtime_param_tys.len(), {
-            // Explicit `comptime(K) : Type` params are NOT C parameters.
-            // Skip them here — and filter the
-            // per-param meta arrays identically below — so the registered
-            // spec type's C signature carries runtime params only. The
-            // call site drops the matching args (function.yo's
-            // runtime_arg_exprs gate), keeping arity in agreement.
-            sp_spi_ct := match(spec_param_ct_flags.get(spi), .Some(f) => f, .None => false);
-            if(sp_spi_ct, {
-              spi = (spi + usize(1));
-              continue;
+              swi = (swi + usize(1));
             });
-            rpt := match(runtime_param_tys.get(spi), .Some(t) => t, .None => t_unit());
-            // Prefer the RESOLVED DECLARED param type when it is concrete
-            // and the ARG type degenerated to unit: the arg type is the
-            // general source (it carries the call-site concretization for
-            // generic params), but a degenerate analysis-pass arg
-            // (module-member soft-fail → UnknownVal → unit) must not
-            // poison the registered spec type, so fall back to the
-            // declared type ONLY for that poisoned shape — a
-            // unit-typed arg against a concrete non-unit declared param
-            // (`assert(flag : bool, ...)` emitted `void flag`;
-            // issues/repros/void-param-assert-open-env.yo).
-            declared_pt := match(sp_pt.get(spi), .Some(t) => t, .None => t_unit());
-            // CLOSURE param: type the spec's param as the closure's
-            // CAPTURE STRUCT (get_closure_capture_info is the registry
-            // lookup for the wrapper SomeT's resolved concrete type —
-            // the capture struct). A plain
-            // Func type here emits an `int32_t (*)(int32_t)` C param that
-            // the call site's capture-struct argument cannot satisfy
-            // (red cluster 3 / the closure-forall emission residual).
-            (closure_cap_ty : Option(TypeValue)) = Option(TypeValue).None;
-            match(
-              arg_values.args.get(spi),
-              .Some(cc_ae) => match(
-                cc_ae.value,
-                .Some(cc_v) => match(
-                  cc_v,
-                  .FuncVal(cc_fvd, cc_capvals) => {
-                    match(
-                      get_closure_capture_info(cc_fvd.*.func_id.clone()),
-                      .Some(cc_info) => {
-                        closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
-                      },
-                      .None => ()
-                    );
-                    // MINT-SIDE closure-type re-registration (the eval-order
-                    // wall workaround; issues/yo-self-closure-void-param-
-                    // where-clause.md): a closure passed to a where-clause-
-                    // constrained `f : F` param is CREATED before the
-                    // foralls bind (all args are evaluated first), so
-                    // its registered type keeps the no-expected placeholder
-                    // params (`fn(x : x) -> _ret`) and the C signature
-                    // emits `void*`. HERE the mint env has
-                    // the bindings: when the current registration still
-                    // carries SomeT params, pull the declared param F's Fn
-                    // trait (its own required traits, then the callee-env
-                    // where-clause), resolve each trait param/result
-                    // through callee_env, and re-register the closure's
-                    // type with the concrete signature — REBUILDING from
-                    // the existing registration's meta (t_func_simple
-                    // would drop the flags).
-                    cw_fid := cc_fvd.*.func_id.clone();
-                    cw_cur := get_func_type(cw_fid.clone());
-                    (cw_cur_generic : bool) = false;
-                    match(
-                      cw_cur,
-                      .Func({ param_types : cw_cur_pt, result : cw_cur_ret }) => {
-                        if(get_all_some_types(cw_cur_ret).len() > usize(0), {
-                          cw_cur_generic = true;
-                        });
-                        (cw_gi : usize) = usize(0);
-                        while(cw_gi < cw_cur_pt.len(), {
-                          match(
-                            cw_cur_pt.get(cw_gi),
-                            .Some(cw_gt) => if(get_all_some_types(cw_gt).len() > usize(0), {
-                              cw_cur_generic = true;
-                            }),
-                            .None => ()
-                          );
-                          cw_gi = (cw_gi + usize(1));
-                        });
-                      },
-                      _ => ()
-                    );
-                    if(cw_cur_generic && is_some_type(declared_pt), {
-                      match(
-                        extract_fn_trait_from_type(declared_pt),
-                        .Some(cw_ftt) => match(
-                          cw_ftt,
-                          .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _, _) => {
-                            // Resolve the trait's generic occurrences by
-                            // NAME + OCCURRENCE-LEVEL from the inferred
-                            // forall_args (the ys_ret-bridge pattern):
-                            // env NAME resolution cannot see the trait's
-                            // own `A` copy (Gap-6 lineage split — measured
-                            // `A := i32` present in forall_args while
-                            // evaluate_..._again left `A` unresolved).
-                            cw_s := subst_new();
-                            (cw_oi : usize) = usize(0);
-                            while(cw_oi < cw_cpt.len(), {
-                              cw_ot := match(cw_cpt.get(cw_oi), .Some(x) => x, .None => t_unit());
-                              cw_occ := get_all_some_types(cw_ot);
-                              (cw_oj : usize) = usize(0);
-                              while(cw_oj < cw_occ.len(), {
-                                match(
-                                  cw_occ.get(cw_oj),
-                                  .Some(cw_st) => match(
-                                    cw_st,
-                                    .SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _, _, _, _, _) => {
-                                      (cw_bi : usize) = usize(0);
-                                      while(cw_bi < forall_names.len(), {
-                                        cw_bn := match(forall_names.get(cw_bi), .Some(n) => n, .None => String.new());
-                                        if((cw_bn == cw_st_nm) && (cw_bi < arg_values.forall_args.len()), {
-                                          match(
-                                            arg_values.forall_args.get(cw_bi),
-                                            .Some(cw_fae) => match(
-                                              cw_fae.value,
-                                              .Some(cw_fav) => match(
-                                                cw_fav,
-                                                .TypeVal(cw_fat) => if((!(is_some_type(cw_fat))) && (get_all_some_types(cw_fat).len() == usize(0)), {
-                                                  subst_add(cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
-                                                }),
-                                                _ => ()
-                                              ),
-                                              .None => ()
-                                            ),
-                                            .None => ()
-                                          );
-                                        });
-                                        cw_bi = (cw_bi + usize(1));
-                                      });
-                                    },
-                                    _ => ()
-                                  ),
-                                  .None => ()
-                                );
-                                cw_oj = (cw_oj + usize(1));
-                              });
-                              cw_oi = (cw_oi + usize(1));
-                            });
-                            cw_new_pts := ArrayList(TypeValue).new();
-                            (cw_all_conc : bool) = true;
-                            (cw_pi : usize) = usize(0);
-                            while(cw_pi < cw_cpt.len(), {
-                              cw_pt0 := match(cw_cpt.get(cw_pi), .Some(x) => x, .None => t_unit());
-                              cw_pt_res := substitute(cw_s, cw_pt0);
-                              if(get_all_some_types(cw_pt_res).len() > usize(0), {
-                                cw_all_conc = false;
-                              });
-                              cw_new_pts.push(cw_pt_res);
-                              cw_pi = (cw_pi + usize(1));
-                            });
-                            cw_ret_res := substitute(cw_s, cw_cres);
-                            if(get_all_some_types(cw_ret_res).len() > usize(0), {
-                              cw_all_conc = false;
-                            });
-                            if(cw_all_conc, {
-                              match(
-                                cw_cur,
-                                .Func({
-                                  forall_types : cw_fts,
-                                  implicit_types : cw_its,
-                                  where_types : cw_wts,
-                                  meta : cw_fm
-                                }) => {
-                                  register_func_type(
-                                    cw_fid.clone(),
-                                    TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new())
-                                  );
-                                },
-                                _ => ()
-                              );
-                              // RE-EVALUATE the closure body under the now-
-                              // concrete parameter types: the creation-time
-                              // eval ran with the placeholder params (the
-                              // mark_closure_for_codegen carve-out forces
-                              // body eval even for SomeT params), so the
-                              // body's ExprInfos reference placeholder-era
-                              // specs (`out.push(x)` keyed on the
-                              // unresolved copy — the undeclared-function
-                              // residual). Same trial-eval swallow shape as
-                              // _trial_eval_fn_body; the body nodes are the
-                              // ORIGINAL ones codegen walks, so the fresh
-                              // infos overwrite the stale ones in place.
-                              cw_benv := Environment.new(callee_env.module_path);
-                              (cw_cvi : usize) = usize(0);
-                              cw_src := fv_capture_source(cc_fvd.*);
-                              while(cw_cvi < cc_capvals.len(), {
-                                cw_cn := fv_source_name(cw_src, cw_cvi);
-                                cw_ct := fv_source_ty(cw_src, cw_cvi);
-                                // TYPE captures (generic bindings) stay
-                                // comptime; VALUE captures bind as RUNTIME
-                                // UnknownVals — binding their comptime
-                                // values made the re-evaluated body's
-                                // reads comptime and codegen emitted
-                                // `/* skip generating value */` for the
-                                // receiver argument.
-                                (cw_cv : Option(EvalValue)) = Option(EvalValue).Some(EvalValue.UnknownVal(cw_ct.clone(), true));
-                                (cw_has_cv : bool) = false;
-                                match(
-                                  cc_capvals.get(cw_cvi),
-                                  .Some(x) => match(
-                                    x,
-                                    .TypeVal(_) => {
-                                      cw_cv = Option(EvalValue).Some(x);
-                                      cw_has_cv = true;
-                                    },
-                                    _ => ()
-                                  ),
-                                  .None => ()
-                                );
-                                _cwa := add_variable_to_env(
-                                  cw_benv,
-                                  cw_cn,
-                                  cw_ct,
-                                  cw_cv,
-                                  cw_has_cv,
-                                  false,
-                                  false,
-                                  false,
-                                  synthetic_token(cw_cn, callee_env.module_path)
-                                );
-                                cw_cvi = (cw_cvi + usize(1));
-                              });
-                              _cwf := cw_benv.push_frame(false);
-                              (cw_pvi : usize) = usize(0);
-                              while(cw_pvi < cc_fvd.*.params.len(), {
-                                cw_pn := match(cc_fvd.*.params.get(cw_pvi), .Some(x) => x, .None => String.new());
-                                cw_pt2 := match(cw_new_pts.get(cw_pvi), .Some(x) => x, .None => t_unit());
-                                _cwp := add_variable_to_env(
-                                  cw_benv,
-                                  cw_pn,
-                                  cw_pt2,
-                                  Option(EvalValue).Some(EvalValue.UnknownVal(cw_pt2.clone(), true)),
-                                  false,
-                                  false,
-                                  false,
-                                  false,
-                                  synthetic_token(cw_pn, callee_env.module_path)
-                                );
-                                // Parameter bind — flag it (see the
-                                // check_if_function_parameter_matches_argument bind).
-                                match(
-                                  _cwp,
-                                  .Some(cwp_var) => {
-                                    cwp_var.is_parameter = true;
-                                  },
-                                  .None => ()
-                                );
-                                cw_pvi = (cw_pvi + usize(1));
-                              });
-                              _reeval_closure_body_swallow(cc_fvd.*.body, cw_benv, ctx);
-                            });
-                          },
-                          _ => ()
-                        ),
-                        .None => ()
-                      );
-                    });
-                  },
-                  _ => ()
-                ),
-                .None => ()
-              ),
-              .None => ()
-            );
-            use_ty := match(
-              closure_cap_ty,
-              .Some(cc_t) => cc_t,
-              .None => if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
-                resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
-                if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
-              }, rpt)
-            );
-            spec_param_types.push(
-              convert_comptime_type_to_runtime_type_with_expected(_bake_record_slots(use_ty), Option(TypeValue).None, callee_env)
-            );
-            spi = (spi + usize(1));
-          });
-          (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
-          // Keep the REGISTERED return in the same lineage as the
-          // pre-body-eval adoption above — the expected type the body was
-          // checked against and the registered C return type must agree.
-          if(rte_adopted, {
-            spec_result = spec_ret_ty.clone();
-          });
-          // Same subst-by-occurrence as spec_ret_ty above: the env NAME
-          // binding cannot resolve the SomeT copy inside `List(U)`.
-          // Collect occurrences from the RETURN and every PARAM type —
-          // the closure param's `fn(a : i32) -> U` carries its own `U`
-          // copy at its own level, and an unsubstituted param trips
-          // emission's _func_has_generic_params gate just like the
-          // return trips has_generic_return.
-          if((get_all_some_types(spec_result).len() > usize(0)) || {
-            (yp_probe : bool) = false;
-            (ypi0 : usize) = usize(0);
-            while((ypi0 < spec_param_types.len()) && !(yp_probe), {
+            // `where(T <: Trait)` constraints usually live on the forall
+            // SomeT's required_trait_types (not the side table) — collect
+            // those too, from the fn type's forall + param SomeTs.
+            spec_all_sts := get_all_some_types(func_type);
+            (sws_i : usize) = usize(0);
+            while(sws_i < spec_all_sts.len(), {
               match(
-                spec_param_types.get(ypi0),
-                .Some(ypt0) => if(get_all_some_types(ypt0).len() > usize(0), {
-                  yp_probe = true;
-                }),
-                .None => ()
-              );
-              ypi0 = (ypi0 + usize(1));
-            });
-            yp_probe
-          }, {
-            y_somes := get_all_some_types(sp_res_b);
-            {
-              (ypc : usize) = usize(0);
-              while(ypc < spec_param_types.len(), {
-                match(
-                  spec_param_types.get(ypc),
-                  .Some(ypt) => {
-                    yp_found := get_all_some_types(ypt);
-                    (ypf : usize) = usize(0);
-                    while(ypf < yp_found.len(), {
+                spec_all_sts.get(sws_i),
+                .Some(sws_t) => match(
+                  sws_t,
+                  .SomeT({ required_trait_types : sws_rtt }) => {
+                    (sws_ri : usize) = usize(0);
+                    while(sws_ri < sws_rtt.len(), {
                       match(
-                        yp_found.get(ypf),
-                        .Some(yps) => {
-                          y_somes.push(yps);
-                        },
-                        .None => ()
-                      );
-                      ypf = (ypf + usize(1));
-                    });
-                  },
-                  .None => ()
-                );
-                ypc = (ypc + usize(1));
-              });
-            };
-            ys_ret := subst_new();
-            (ys_any : bool) = false;
-            ys_added_names := ArrayList(String).new();
-            (yrsi : usize) = usize(0);
-            while(yrsi < y_somes.len(), {
-              yrst := match(y_somes.get(yrsi), .Some(t) => t, .None => t_unit());
-              match(
-                yrst,
-                .SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _, _) => {
-                  (ybni : usize) = usize(0);
-                  while(ybni < forall_names.len(), {
-                    ybn := match(forall_names.get(ybni), .Some(n) => n, .None => String.from(""));
-                    if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
-                      match(
-                        arg_values.forall_args.get(ybni),
-                        .Some(yae) => match(
-                          yae.value,
-                          .Some(yv) => match(
-                            yv,
-                            .TypeVal(ytb) => if(!(is_some_type(ytb)), {
-                              subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
-                              ys_added_names.push(yrst_name.clone());
-                              ys_any = true;
-                            }),
-                            _ => ()
-                          ),
-                          .None => ()
-                        ),
-                        .None => ()
-                      );
-                    });
-                    ybni = (ybni + usize(1));
-                  });
-                },
-                _ => ()
-              );
-              yrsi = (yrsi + usize(1));
-            });
-            // Declared-param bridge. When the forall
-            // binding itself is an unresolved SomeT (e.g. box's V bound
-            // to the Impl-Fn wrapper), the loop above harvests nothing,
-            // but a declared param that IS that bare SomeT (`own(value)
-            // V`) pairs positionally with the spec's CONCRETE param
-            // type (the closure capture struct resolved above), so the
-            // same information the wrapper SomeT's resolved concrete type
-            // carries reaches the specialized return through the
-            // positional pairing.
-            (ydb : usize) = usize(0);
-            while(ydb < sp_pt.len(), {
-              match(
-                sp_pt.get(ydb),
-                .Some(ydb_dt) => match(
-                  ydb_dt,
-                  .SomeT(_, ydb_nm, ydb_lvl, _, _, _, _, _, _, _, _) => {
-                    // ONLY true forall binders: the declared SomeT's name
-                    // must be one of this function's generic names. A
-                    // WRAPPER param like io.async's `action : Impl(Fn(e :
-                    // E) -> T)` is a SomeT NAMED "" — pairing it would
-                    // substitute the equally-""-named `Impl(Future(T,E))`
-                    // RETURN wrapper with the capture struct, corrupting
-                    // the async spec type (walker async-emitter SIGSEGV,
-                    // pointer = ASCII "esac    ").
-                    (ydb_is_forall : bool) = false;
-                    if(ydb_nm.len() > usize(0), {
-                      (ydb_f : usize) = usize(0);
-                      while((ydb_f < forall_names.len()) && !(ydb_is_forall), {
-                        match(
-                          forall_names.get(ydb_f),
-                          .Some(fnm) => if(fnm == ydb_nm, {
-                            ydb_is_forall = true;
-                          }),
-                          .None => ()
-                        );
-                        ydb_f = (ydb_f + usize(1));
-                      });
-                    });
-                    (ydb_seen : bool) = !(ydb_is_forall);
-                    (ydb_k : usize) = usize(0);
-                    while(ydb_k < ys_added_names.len(), {
-                      match(
-                        ys_added_names.get(ydb_k),
-                        .Some(an) => if(an == ydb_nm, {
-                          ydb_seen = true;
-                        }),
-                        .None => ()
-                      );
-                      ydb_k = (ydb_k + usize(1));
-                    });
-                    if((!(ydb_seen)) && (ydb < spec_param_types.len()), {
-                      match(
-                        spec_param_types.get(ydb),
-                        .Some(ydb_ct) => {
-                          if((get_all_some_types(ydb_ct).len() == usize(0)) && !(is_unit_type(ydb_ct)), {
-                            subst_add(ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
-                            ys_added_names.push(ydb_nm.clone());
-                            ys_any = true;
+                        sws_rtt.get(sws_ri),
+                        .Some(sws_tr) => {
+                          sws_tid := match(sws_tr, .TraitT(_, _, _, _, sws_tid0, _, _, _, _, _) => sws_tid0, _ => String.from(""));
+                          if(sws_tid != "", {
+                            spec_where_ids.push(sws_tid);
                           });
                         },
                         .None => ()
                       );
+                      sws_ri = (sws_ri + usize(1));
                     });
                   },
                   _ => ()
                 ),
                 .None => ()
               );
-              ydb = (ydb + usize(1));
-            });
-            if(ys_any, {
-              // An ADOPTED return (above) is already this call's
-              // instance, the one the body was checked against; the
-              // positional substitution of the DECLARED return would
-              // mint a second one — for a capture-free closure argument
-              // `Arc(V)` with `V := <param type>` is a different `Arc`
-              // than the body's `Arc(<closure SomeT>)`
-              // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-              if(!(rte_adopted), {
-                spec_result = substitute(ys_ret, sp_res_b);
-              });
-              // Rebuild the param list through the same substitution
-              // (ArrayList has no indexed set).
-              y_new_params := ArrayList(TypeValue).new();
-              (ypr : usize) = usize(0);
-              while(ypr < spec_param_types.len(), {
-                match(
-                  spec_param_types.get(ypr),
-                  .Some(ypt2) => if(get_all_some_types(ypt2).len() > usize(0), {
-                    y_new_params.push(substitute(ys_ret, ypt2));
-                  }, {
-                    y_new_params.push(ypt2);
-                  }),
-                  .None => ()
-                );
-                ypr = (ypr + usize(1));
-              });
-              spec_param_types = y_new_params;
-            });
-          });
-          // Gap-6 attempt #8(a): a declared-`Self` return resolves through
-          // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
-          // only in type_arguments — no resolution path concretizes it,
-          // issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md).
-          // The RECEIVER ARGUMENT of an instance method carries the
-          // call's real concrete instance — adopt it when the ctor
-          // matches, making the signature receiver-canonical.
-          (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
-          sr_is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
-          if(sr_is_self_first, {
-            match(
-              arg_values.args.get(usize(0)),
-              .Some(sr_rcv) => {
-                sr_recv_ty = Option(TypeValue).Some(sr_rcv.arg_type);
-              },
-              .None => ()
-            );
-          }, {
-            // Static method (no `self` param): the dispatcher set
-            // ctx.self_type to the concrete static-dot receiver before
-            // this specialization (function.yo) — that IS the receiver
-            // instance (restored above, so read it directly).
-            match(
-              ctx.self_type,
-              .Some(sr_ctx_st) => {
-                sr_recv_ty = Option(TypeValue).Some(sr_ctx_st);
-              },
-              .None => ()
-            );
-          });
-          match(
-            sr_recv_ty,
-            .Some(sr_rty) => match(
-              adopt_receiver_struct_instance(spec_result, sr_rty),
-              .Some(sr_adopted) => {
-                if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
-                  eprintln(`[sr-adopt] spec_result=${type_to_string(spec_result)} recv=${type_to_string(sr_rty)} adopted=${type_to_string(sr_adopted)}`);
-                });
-                spec_result = sr_adopted;
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
-          // Filter the per-param meta arrays by the same comptime flags as
-          // the spec_param_types loop above — labels/is_ref/is_owning must
-          // stay index-aligned with the (comptime-filtered) param types.
-          (sp_pl_f : ArrayList(String)) = ArrayList(String).new();
-          (sp_pir_f : ArrayList(bool)) = ArrayList(bool).new();
-          (sp_pio_f : ArrayList(bool)) = ArrayList(bool).new();
-          {
-            (sp_mi : usize) = usize(0);
-            while(sp_mi < sp_pl.len(), {
-              sp_mi_ct := match(spec_param_ct_flags.get(sp_mi), .Some(f) => f, .None => false);
-              if(!(sp_mi_ct), {
-                sp_pl_f.push(match(sp_pl.get(sp_mi), .Some(l) => l, .None => String.new()));
-                sp_pir_f.push(match(sp_pir.get(sp_mi), .Some(b) => b, .None => false));
-                sp_pio_f.push(match(sp_pio.get(sp_mi), .Some(b) => b, .None => false));
-              });
-              sp_mi = (sp_mi + usize(1));
+              sws_i = (sws_i + usize(1));
             });
           };
-          spec_type := TypeValue.Func(
-            ArrayList(TypeValue).new(),
-            spec_param_types,
-            sp_it,
-            sp_wt,
-            spec_result,
+          push_active_where_trait_ids(spec_where_ids);
+          specialized_body := evaluate_begin_expression(
+            cloned_body,
+            callee_env,
+            ctx,
+            ArrayList(Variable).new(),
+            true,
+            exn
+          );
+          pop_active_where_trait_ids();
+          // Result-type check for a SPECIALIZED body (E0604): the concrete
+          // path's check in calls/function_type.yo skips any signature that
+          // mentions a SomeT, deferring to this point, where both sides are
+          // concrete. Nothing compared them here, so `(fn(comptime(T) :
+          // Type, x : T) -> i32)(true)` and `(fn(generic(T : Type), x : T) ->
+          // i32)(true)` compiled and returned a reinterpreted `bool`
+          // (issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md).
+          // Same guards as the concrete path: a control-flow tail never
+          // falls through; `void`, `Type`-kinded and `ref` results are judged
+          // elsewhere; a SomeT that is still open after specialization (an
+          // impl-level binder the call does not bind) resolves further out.
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(specialized_body)),
+            .Some(sb_info) => {
+              sb_ty := sb_info.ty;
+              sb_ret_is_ref := match(func_type, .Func({ meta : sb_m }) => sb_m.*.result_is_ref, _ => false);
+              sb_skip := (((((has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty)) || is_type_hierarchy_type(spec_ret_ty)) || (get_all_some_types(spec_ret_ty).len() > usize(0))) || (get_all_some_types(sb_ty).len() > usize(0))) || sb_ret_is_ref);
+              if(!(sb_skip) && !(are_types_compatible(sb_ty, spec_ret_ty)), {
+                sb_inst := String.new();
+                (sbi : usize) = usize(0);
+                while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
+                  match(
+                    arg_values.forall_args.get(sbi),
+                    .Some(sb_fa) => match(
+                      sb_fa.value,
+                      .Some(sb_fv) => {
+                        sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
+                        sb_inst.push_string(match(forall_names.get(sbi), .Some(n) => n, .None => String.new()));
+                        sb_inst.push_str(" = ");
+                        sb_inst.push_string(value_to_string(sb_fv));
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                  sbi = (sbi + usize(1));
+                });
+                if(sb_inst.len() > usize(0), {
+                  sb_inst.push_str(")");
+                });
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cloned_body),
+                      `Function body has type \`${type_to_string(sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`${sb_inst}.`
+                    )
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
+          // Snapshot the closure-spec capture recording BEFORE restoring.
+          spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
+          // Restore context
+          ctx.self_type = prev_self_type_spec;
+          ctx.function_return_impl_concrete_type = prev_fri;
+          ctx.expected_type = prev_expected;
+          ctx.is_evaluating_loop_body = prev_loop;
+          ctx.captured_variables = prev_caps;
+          ctx.is_evaluating_function_body_or_async_block = prev_fb;
+          ctx.currently_specializing_function = prev_spec;
+          // Pop this specialization off the full stack (pushed at the set site above).
+          spec_stack_r := match(
+            ctx.currently_specializing_function_stack,
+            .Some(s) => s,
+            .None => ArrayList(SpecializingFunctionInfo).new()
+          );
+          spec_stack_r.pop();
+          ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack_r);
+          // CLOSURE spec: build + register the capture struct from what THIS
+          // body eval recorded — the deferred-generic closure skipped its
+          // definition-time collection, so this is its only capture source
+          // (mirrors anonymous_function.yo:1140-1162's post-eval sequence).
+          match(
+            spec_recorded_caps,
+            .Some(rec_caps) => if(spec_is_closure && (rec_caps.len() > usize(0)), {
+              enr_caps := enrich_captured_variables(rec_caps, callee_env);
+              if(enr_caps.len() > usize(0), {
+                spec_cap_res := create_capture_type_and_value(
+                  Option(TypeValue).None,
+                  Option(HashMap(String, FuncCapturedVarInfo)).Some(enr_caps),
+                  callee_env,
+                  synthetic_token(specialized_func_id.clone(), callee_env.module_path)
+                );
+                match(
+                  spec_cap_res.capture_type,
+                  .Some(spec_ct) => register_closure_capture_info(
+                    specialized_func_id.clone(),
+                    ClosureCaptureInfo(capture_type : spec_ct, frame_level : callee_env.frames.len())
+                  ),
+                  .None => ()
+                );
+              });
+            }),
+            .None => ()
+          );
+          // Build updated captures from the specialized callee_env.
+          // This ensures the specialized function "closes over" the bound
+          // compile-time values (generic type params, given handlers, etc.)
+          // so codegen can inline them without extra lookups.
+          new_cap_names := ArrayList(String).new();
+          new_cap_tys := ArrayList(TypeValue).new();
+          new_cap_vals := ArrayList(EvalValue).new();
+          // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md step 3): the derived
+          // FuncVal inherits the original's SHARED handle list and appends
+          // the generic-binding Variables looked up below — so its calls
+          // build the capture env from handles too. If the original never
+          // registered (env_key 0), stay on the flat fallback.
+          new_cap_vars := ArrayList(Variable).new();
+          (new_env_key : usize) = usize(0);
+          (have_cap_vars : bool) = false;
+          match(
+            get_funcval_cap_vars(__fvm2.*.env_key),
+            .Some(pv) => {
+              have_cap_vars = true;
+              (pvi : usize) = usize(0);
+              while(pvi < pv.len(), {
+                match(
+                  pv.get(pvi),
+                  .Some(ph) => {
+                    new_cap_vars.push(ph);
+                  },
+                  .None => ()
+                );
+                pvi = (pvi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          // Re-use existing captures from original function. A derived FuncVal
+          // keeps FLAT names/types: its inherited handle list may carry
+          // definitions `adopt_resolved_definition` appended to the original's
+          // capture frame, which sit between the original's positions and the
+          // bindings appended below — so its handles are not parallel to its
+          // `cap_vals` (memory plan §0.7). The original's names/types are read
+          // through its capture source (a definition-site FuncVal stores none).
+          orig_src := fv_capture_source(__fvm2.*);
+          (oci : usize) = usize(0);
+          n_oc := cap_vals.len();
+          while(oci < n_oc, {
+            new_cap_names.push(fv_source_name(orig_src, oci));
+            new_cap_tys.push(fv_source_ty(orig_src, oci));
+            new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
+            oci = (oci + usize(1));
+          });
+          // Add compile-time args as additional captures (generic type bindings)
+          (fai2 : usize) = usize(0);
+          n_fl := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
+          while(fai2 < n_fl, {
+            label := match(
+              func_type,
+              .Func({ meta : __fm4 }) => {
+                fl := __fm4.*.forall_labels;
+                r := match(fl.get(fai2), .Some(s) => s, .None => String.new());
+                r
+              },
+              _ => String.new()
+            );
+            env_vars := get_variables_from_env(callee_env, label);
+            n_ev := env_vars.len();
+            if(n_ev > usize(0), {
+              match(
+                env_vars.get(n_ev - usize(1)),
+                .Some(ev) => {
+                  match(
+                    ev.value.get(usize(0)),
+                    .Some(v) => {
+                      new_cap_names.push(label);
+                      new_cap_tys.push(ev.ty);
+                      new_cap_vals.push(v);
+                      if(have_cap_vars, {
+                        new_cap_vars.push(ev);
+                      });
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              );
+            });
+            fai2 = (fai2 + usize(1));
+          });
+          // Evaluate the specialized body to get its return type
+          specialized_body;
+          // Create the specialized function value — carries the fresh-id CLONE
+          // (not the shared original body) so codegen walks this specialization's
+          // own nodes and reads its own per-node ExprInfo / method-callee entries.
+          if(have_cap_vars, {
+            new_env_key = mint_funcval_env_key();
+            register_funcval_cap_vars(new_env_key, new_cap_vars);
+          });
+          specialized_func_val := EvalValue.FuncVal(
             box(
-              FuncMeta(
-                forall_labels : ArrayList(String).new(),
-                param_labels : sp_pl_f,
-                implicit_labels : sp_il,
-                implicit_spreads : sp_isp,
-                result_is_comptime_only : sp_rico,
-                param_is_ref : sp_pir_f,
-                param_is_owning : sp_pio_f,
-                result_is_ref : sp_rir,
-                has_variadic : sp_hv,
-                is_extern : sp_ie,
-                extern_name : sp_en,
-                is_control : sp_ic,
-                variadic_label : Option(String).None,
-                variadic_comptime : false
+              FuncValData(
+                forall_names : forall_names,
+                params : params,
+                param_type_names : param_type_names,
+                evidence_params : evidence_params,
+                body : cloned_body,
+                cap_names : new_cap_names,
+                cap_tys : new_cap_tys,
+                func_id : specialized_func_id,
+                env_key : new_env_key
               )
             ),
-            ArrayList(TypeValue).new()
+            new_cap_vals
           );
-          register_func_type(specialized_func_id.clone(), spec_type);
-        },
-        _ => ()
-      );
-      // Detect control functions: set if the original was already a control
-      // function OR if the specialized body contains unwind.
-      parent_is_ctl := is_control_fn(func_id.clone());
-      body_has_unwind := evaluated_body_contains_unwind(specialized_body);
-      if(parent_is_ctl || body_has_unwind, {
-        mark_as_control_fn(specialized_func_id.clone());
-      });
-      // Store in cache
-      _store_specialization_cache(
-        ctx,
-        func_id,
-        compile_time_args,
-        runtime_param_tys,
-        specialized_func_val
-      );
-      specialized_func_val
-    }
-  )
-}, _ => original_func_val);
-result
+          // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
+          // FuncVal's contract tables onto the specialized id — the
+          // specialized FuncVal is what a caller's callee atom carries,
+          // and both the verifier's `_callee_call_term` and the runtime
+          // splice read the contracts by THAT id. Without this, a
+          // contracted generic function's contracts are invisible at
+          // every monomorphized call site ("call to a callee without
+          // contracts") even though its own definition re-keyed them
+          // onto the unspecialized id. The predicate ASTs are the
+          // signature's own nodes (param labels unchanged by
+          // specialization), so the walker's param rebinding applies
+          // unchanged.
+          copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
+          register_specialized_base(specialized_func_id.clone(), func_id.clone());
+          // Register the SPECIALIZED Func TYPE under the specialized func_id so
+          // codegen's get_func_type(specialized_func_id) returns concrete
+          // param/return types (generic dropped) instead of the generic
+          // `generic(T) …` whose SomeT crashes get_type_string (Gap 6).
+          match(
+            func_type,
+            .Func({
+              param_types : sp_pt,
+              implicit_types : sp_it,
+              where_types : sp_wt,
+              result : sp_res_b,
+              meta : __fm5
+            }) => {
+              (sp_pl : ArrayList(String)) = __fm5.*.param_labels;
+              // The spec's C params must be named after the FuncVal's OWN
+              // (source) labels — the body references those. `func_type` here
+              // can be the DECLARED variable's type whose labels differ:
+              // `comptime(id) : (fn(comptime(T) : Type, x : T) -> T)` assigned
+              // `id = ((T, a) -> a)` emitted `bool ...(bool x) { return a; }`
+              // (clang: undeclared identifier) — the anon fn's original
+              // parameter names must be kept (the function body uses them).
+              if(params.len() == sp_pl.len(), {
+                sp_pl = params.clone();
+              });
+              sp_il := __fm5.*.implicit_labels;
+              sp_isp := __fm5.*.implicit_spreads;
+              sp_rico := __fm5.*.result_is_comptime_only;
+              sp_pir := __fm5.*.param_is_ref;
+              sp_pio := __fm5.*.param_is_owning;
+              sp_rir := __fm5.*.result_is_ref;
+              sp_hv := __fm5.*.has_variadic;
+              sp_ie := __fm5.*.is_extern;
+              sp_en := __fm5.*.extern_name;
+              sp_ic := __fm5.*.is_control;
+              (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+              (spi : usize) = usize(0);
+              while(spi < runtime_param_tys.len(), {
+                // Explicit `comptime(K) : Type` params are NOT C parameters.
+                // Skip them here — and filter the
+                // per-param meta arrays identically below — so the registered
+                // spec type's C signature carries runtime params only. The
+                // call site drops the matching args (function.yo's
+                // runtime_arg_exprs gate), keeping arity in agreement.
+                sp_spi_ct := match(spec_param_ct_flags.get(spi), .Some(f) => f, .None => false);
+                if(sp_spi_ct, {
+                  spi = (spi + usize(1));
+                  continue;
+                });
+                rpt := match(runtime_param_tys.get(spi), .Some(t) => t, .None => t_unit());
+                // Prefer the RESOLVED DECLARED param type when it is concrete
+                // and the ARG type degenerated to unit: the arg type is the
+                // general source (it carries the call-site concretization for
+                // generic params), but a degenerate analysis-pass arg
+                // (module-member soft-fail → UnknownVal → unit) must not
+                // poison the registered spec type, so fall back to the
+                // declared type ONLY for that poisoned shape — a
+                // unit-typed arg against a concrete non-unit declared param
+                // (`assert(flag : bool, ...)` emitted `void flag`;
+                // issues/repros/void-param-assert-open-env.yo).
+                declared_pt := match(sp_pt.get(spi), .Some(t) => t, .None => t_unit());
+                // CLOSURE param: type the spec's param as the closure's
+                // CAPTURE STRUCT (get_closure_capture_info is the registry
+                // lookup for the wrapper SomeT's resolved concrete type —
+                // the capture struct). A plain
+                // Func type here emits an `int32_t (*)(int32_t)` C param that
+                // the call site's capture-struct argument cannot satisfy
+                // (red cluster 3 / the closure-forall emission residual).
+                (closure_cap_ty : Option(TypeValue)) = Option(TypeValue).None;
+                match(
+                  arg_values.args.get(spi),
+                  .Some(cc_ae) => match(
+                    cc_ae.value,
+                    .Some(cc_v) => match(
+                      cc_v,
+                      .FuncVal(cc_fvd, cc_capvals) => {
+                        match(
+                          get_closure_capture_info(cc_fvd.*.func_id.clone()),
+                          .Some(cc_info) => {
+                            closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
+                          },
+                          .None => ()
+                        );
+                        // MINT-SIDE closure-type re-registration (the eval-order
+                        // wall workaround; issues/yo-self-closure-void-param-
+                        // where-clause.md): a closure passed to a where-clause-
+                        // constrained `f : F` param is CREATED before the
+                        // foralls bind (all args are evaluated first), so
+                        // its registered type keeps the no-expected placeholder
+                        // params (`fn(x : x) -> _ret`) and the C signature
+                        // emits `void*`. HERE the mint env has
+                        // the bindings: when the current registration still
+                        // carries SomeT params, pull the declared param F's Fn
+                        // trait (its own required traits, then the callee-env
+                        // where-clause), resolve each trait param/result
+                        // through callee_env, and re-register the closure's
+                        // type with the concrete signature — REBUILDING from
+                        // the existing registration's meta (t_func_simple
+                        // would drop the flags).
+                        cw_fid := cc_fvd.*.func_id.clone();
+                        cw_cur := get_func_type(cw_fid.clone());
+                        (cw_cur_generic : bool) = false;
+                        match(
+                          cw_cur,
+                          .Func({ param_types : cw_cur_pt, result : cw_cur_ret }) => {
+                            if(get_all_some_types(cw_cur_ret).len() > usize(0), {
+                              cw_cur_generic = true;
+                            });
+                            (cw_gi : usize) = usize(0);
+                            while(cw_gi < cw_cur_pt.len(), {
+                              match(
+                                cw_cur_pt.get(cw_gi),
+                                .Some(cw_gt) => if(get_all_some_types(cw_gt).len() > usize(0), {
+                                  cw_cur_generic = true;
+                                }),
+                                .None => ()
+                              );
+                              cw_gi = (cw_gi + usize(1));
+                            });
+                          },
+                          _ => ()
+                        );
+                        if(cw_cur_generic && is_some_type(declared_pt), {
+                          match(
+                            extract_fn_trait_from_type(declared_pt),
+                            .Some(cw_ftt) => match(
+                              cw_ftt,
+                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _, _) => {
+                                // Resolve the trait's generic occurrences by
+                                // NAME + OCCURRENCE-LEVEL from the inferred
+                                // forall_args (the ys_ret-bridge pattern):
+                                // env NAME resolution cannot see the trait's
+                                // own `A` copy (Gap-6 lineage split — measured
+                                // `A := i32` present in forall_args while
+                                // evaluate_..._again left `A` unresolved).
+                                cw_s := subst_new();
+                                (cw_oi : usize) = usize(0);
+                                while(cw_oi < cw_cpt.len(), {
+                                  cw_ot := match(cw_cpt.get(cw_oi), .Some(x) => x, .None => t_unit());
+                                  cw_occ := get_all_some_types(cw_ot);
+                                  (cw_oj : usize) = usize(0);
+                                  while(cw_oj < cw_occ.len(), {
+                                    match(
+                                      cw_occ.get(cw_oj),
+                                      .Some(cw_st) => match(
+                                        cw_st,
+                                        .SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _, _, _, _, _) => {
+                                          (cw_bi : usize) = usize(0);
+                                          while(cw_bi < forall_names.len(), {
+                                            cw_bn := match(forall_names.get(cw_bi), .Some(n) => n, .None => String.new());
+                                            if((cw_bn == cw_st_nm) && (cw_bi < arg_values.forall_args.len()), {
+                                              match(
+                                                arg_values.forall_args.get(cw_bi),
+                                                .Some(cw_fae) => match(
+                                                  cw_fae.value,
+                                                  .Some(cw_fav) => match(
+                                                    cw_fav,
+                                                    .TypeVal(cw_fat) => if((!(is_some_type(cw_fat))) && (get_all_some_types(cw_fat).len() == usize(0)), {
+                                                      subst_add(cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
+                                                    }),
+                                                    _ => ()
+                                                  ),
+                                                  .None => ()
+                                                ),
+                                                .None => ()
+                                              );
+                                            });
+                                            cw_bi = (cw_bi + usize(1));
+                                          });
+                                        },
+                                        _ => ()
+                                      ),
+                                      .None => ()
+                                    );
+                                    cw_oj = (cw_oj + usize(1));
+                                  });
+                                  cw_oi = (cw_oi + usize(1));
+                                });
+                                cw_new_pts := ArrayList(TypeValue).new();
+                                (cw_all_conc : bool) = true;
+                                (cw_pi : usize) = usize(0);
+                                while(cw_pi < cw_cpt.len(), {
+                                  cw_pt0 := match(cw_cpt.get(cw_pi), .Some(x) => x, .None => t_unit());
+                                  cw_pt_res := substitute(cw_s, cw_pt0);
+                                  if(get_all_some_types(cw_pt_res).len() > usize(0), {
+                                    cw_all_conc = false;
+                                  });
+                                  cw_new_pts.push(cw_pt_res);
+                                  cw_pi = (cw_pi + usize(1));
+                                });
+                                cw_ret_res := substitute(cw_s, cw_cres);
+                                if(get_all_some_types(cw_ret_res).len() > usize(0), {
+                                  cw_all_conc = false;
+                                });
+                                if(cw_all_conc, {
+                                  match(
+                                    cw_cur,
+                                    .Func({
+                                      forall_types : cw_fts,
+                                      implicit_types : cw_its,
+                                      where_types : cw_wts,
+                                      meta : cw_fm
+                                    }) => {
+                                      register_func_type(
+                                        cw_fid.clone(),
+                                        TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new())
+                                      );
+                                    },
+                                    _ => ()
+                                  );
+                                  // RE-EVALUATE the closure body under the now-
+                                  // concrete parameter types: the creation-time
+                                  // eval ran with the placeholder params (the
+                                  // mark_closure_for_codegen carve-out forces
+                                  // body eval even for SomeT params), so the
+                                  // body's ExprInfos reference placeholder-era
+                                  // specs (`out.push(x)` keyed on the
+                                  // unresolved copy — the undeclared-function
+                                  // residual). Same trial-eval swallow shape as
+                                  // _trial_eval_fn_body; the body nodes are the
+                                  // ORIGINAL ones codegen walks, so the fresh
+                                  // infos overwrite the stale ones in place.
+                                  cw_benv := Environment.new(callee_env.module_path);
+                                  (cw_cvi : usize) = usize(0);
+                                  cw_src := fv_capture_source(cc_fvd.*);
+                                  while(cw_cvi < cc_capvals.len(), {
+                                    cw_cn := fv_source_name(cw_src, cw_cvi);
+                                    cw_ct := fv_source_ty(cw_src, cw_cvi);
+                                    // TYPE captures (generic bindings) stay
+                                    // comptime; VALUE captures bind as RUNTIME
+                                    // UnknownVals — binding their comptime
+                                    // values made the re-evaluated body's
+                                    // reads comptime and codegen emitted
+                                    // `/* skip generating value */` for the
+                                    // receiver argument.
+                                    (cw_cv : Option(EvalValue)) = Option(EvalValue).Some(EvalValue.UnknownVal(cw_ct.clone(), true));
+                                    (cw_has_cv : bool) = false;
+                                    match(
+                                      cc_capvals.get(cw_cvi),
+                                      .Some(x) => match(
+                                        x,
+                                        .TypeVal(_) => {
+                                          cw_cv = Option(EvalValue).Some(x);
+                                          cw_has_cv = true;
+                                        },
+                                        _ => ()
+                                      ),
+                                      .None => ()
+                                    );
+                                    _cwa := add_variable_to_env(
+                                      cw_benv,
+                                      cw_cn,
+                                      cw_ct,
+                                      cw_cv,
+                                      cw_has_cv,
+                                      false,
+                                      false,
+                                      false,
+                                      synthetic_token(cw_cn, callee_env.module_path)
+                                    );
+                                    cw_cvi = (cw_cvi + usize(1));
+                                  });
+                                  _cwf := cw_benv.push_frame(false);
+                                  (cw_pvi : usize) = usize(0);
+                                  while(cw_pvi < cc_fvd.*.params.len(), {
+                                    cw_pn := match(cc_fvd.*.params.get(cw_pvi), .Some(x) => x, .None => String.new());
+                                    cw_pt2 := match(cw_new_pts.get(cw_pvi), .Some(x) => x, .None => t_unit());
+                                    _cwp := add_variable_to_env(
+                                      cw_benv,
+                                      cw_pn,
+                                      cw_pt2,
+                                      Option(EvalValue).Some(EvalValue.UnknownVal(cw_pt2.clone(), true)),
+                                      false,
+                                      false,
+                                      false,
+                                      false,
+                                      synthetic_token(cw_pn, callee_env.module_path)
+                                    );
+                                    // Parameter bind — flag it (see the
+                                    // check_if_function_parameter_matches_argument bind).
+                                    match(
+                                      _cwp,
+                                      .Some(cwp_var) => {
+                                        cwp_var.is_parameter = true;
+                                      },
+                                      .None => ()
+                                    );
+                                    cw_pvi = (cw_pvi + usize(1));
+                                  });
+                                  _reeval_closure_body_swallow(cc_fvd.*.body, cw_benv, ctx);
+                                });
+                              },
+                              _ => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                      },
+                      _ => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                use_ty := match(
+                  closure_cap_ty,
+                  .Some(cc_t) => cc_t,
+                  .None => if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+                    resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
+                    if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
+                  }, rpt)
+                );
+                spec_param_types.push(
+                  convert_comptime_type_to_runtime_type_with_expected(_bake_record_slots(use_ty), Option(TypeValue).None, callee_env)
+                );
+                spi = (spi + usize(1));
+              });
+              (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
+              // Keep the REGISTERED return in the same lineage as the
+              // pre-body-eval adoption above — the expected type the body was
+              // checked against and the registered C return type must agree.
+              if(rte_adopted, {
+                spec_result = spec_ret_ty.clone();
+              });
+              // Same subst-by-occurrence as spec_ret_ty above: the env NAME
+              // binding cannot resolve the SomeT copy inside `List(U)`.
+              // Collect occurrences from the RETURN and every PARAM type —
+              // the closure param's `fn(a : i32) -> U` carries its own `U`
+              // copy at its own level, and an unsubstituted param trips
+              // emission's _func_has_generic_params gate just like the
+              // return trips has_generic_return.
+              if((get_all_some_types(spec_result).len() > usize(0)) || {
+                (yp_probe : bool) = false;
+                (ypi0 : usize) = usize(0);
+                while((ypi0 < spec_param_types.len()) && !(yp_probe), {
+                  match(
+                    spec_param_types.get(ypi0),
+                    .Some(ypt0) => if(get_all_some_types(ypt0).len() > usize(0), {
+                      yp_probe = true;
+                    }),
+                    .None => ()
+                  );
+                  ypi0 = (ypi0 + usize(1));
+                });
+                yp_probe
+              }, {
+                y_somes := get_all_some_types(sp_res_b);
+                {
+                  (ypc : usize) = usize(0);
+                  while(ypc < spec_param_types.len(), {
+                    match(
+                      spec_param_types.get(ypc),
+                      .Some(ypt) => {
+                        yp_found := get_all_some_types(ypt);
+                        (ypf : usize) = usize(0);
+                        while(ypf < yp_found.len(), {
+                          match(
+                            yp_found.get(ypf),
+                            .Some(yps) => {
+                              y_somes.push(yps);
+                            },
+                            .None => ()
+                          );
+                          ypf = (ypf + usize(1));
+                        });
+                      },
+                      .None => ()
+                    );
+                    ypc = (ypc + usize(1));
+                  });
+                };
+                ys_ret := subst_new();
+                (ys_any : bool) = false;
+                ys_added_names := ArrayList(String).new();
+                (yrsi : usize) = usize(0);
+                while(yrsi < y_somes.len(), {
+                  yrst := match(y_somes.get(yrsi), .Some(t) => t, .None => t_unit());
+                  match(
+                    yrst,
+                    .SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _, _) => {
+                      (ybni : usize) = usize(0);
+                      while(ybni < forall_names.len(), {
+                        ybn := match(forall_names.get(ybni), .Some(n) => n, .None => String.from(""));
+                        if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
+                          match(
+                            arg_values.forall_args.get(ybni),
+                            .Some(yae) => match(
+                              yae.value,
+                              .Some(yv) => match(
+                                yv,
+                                .TypeVal(ytb) => if(!(is_some_type(ytb)), {
+                                  subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                  ys_added_names.push(yrst_name.clone());
+                                  ys_any = true;
+                                }),
+                                _ => ()
+                              ),
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                        ybni = (ybni + usize(1));
+                      });
+                    },
+                    _ => ()
+                  );
+                  yrsi = (yrsi + usize(1));
+                });
+                // Declared-param bridge. When the forall
+                // binding itself is an unresolved SomeT (e.g. box's V bound
+                // to the Impl-Fn wrapper), the loop above harvests nothing,
+                // but a declared param that IS that bare SomeT (`own(value)
+                // V`) pairs positionally with the spec's CONCRETE param
+                // type (the closure capture struct resolved above), so the
+                // same information the wrapper SomeT's resolved concrete type
+                // carries reaches the specialized return through the
+                // positional pairing.
+                (ydb : usize) = usize(0);
+                while(ydb < sp_pt.len(), {
+                  match(
+                    sp_pt.get(ydb),
+                    .Some(ydb_dt) => match(
+                      ydb_dt,
+                      .SomeT(_, ydb_nm, ydb_lvl, _, _, _, _, _, _, _, _) => {
+                        // ONLY true forall binders: the declared SomeT's name
+                        // must be one of this function's generic names. A
+                        // WRAPPER param like io.async's `action : Impl(Fn(e :
+                        // E) -> T)` is a SomeT NAMED "" — pairing it would
+                        // substitute the equally-""-named `Impl(Future(T,E))`
+                        // RETURN wrapper with the capture struct, corrupting
+                        // the async spec type (walker async-emitter SIGSEGV,
+                        // pointer = ASCII "esac    ").
+                        (ydb_is_forall : bool) = false;
+                        if(ydb_nm.len() > usize(0), {
+                          (ydb_f : usize) = usize(0);
+                          while((ydb_f < forall_names.len()) && !(ydb_is_forall), {
+                            match(
+                              forall_names.get(ydb_f),
+                              .Some(fnm) => if(fnm == ydb_nm, {
+                                ydb_is_forall = true;
+                              }),
+                              .None => ()
+                            );
+                            ydb_f = (ydb_f + usize(1));
+                          });
+                        });
+                        (ydb_seen : bool) = !(ydb_is_forall);
+                        (ydb_k : usize) = usize(0);
+                        while(ydb_k < ys_added_names.len(), {
+                          match(
+                            ys_added_names.get(ydb_k),
+                            .Some(an) => if(an == ydb_nm, {
+                              ydb_seen = true;
+                            }),
+                            .None => ()
+                          );
+                          ydb_k = (ydb_k + usize(1));
+                        });
+                        if((!(ydb_seen)) && (ydb < spec_param_types.len()), {
+                          match(
+                            spec_param_types.get(ydb),
+                            .Some(ydb_ct) => {
+                              if((get_all_some_types(ydb_ct).len() == usize(0)) && !(is_unit_type(ydb_ct)), {
+                                subst_add(ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
+                                ys_added_names.push(ydb_nm.clone());
+                                ys_any = true;
+                              });
+                            },
+                            .None => ()
+                          );
+                        });
+                      },
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                  ydb = (ydb + usize(1));
+                });
+                if(ys_any, {
+                  // An ADOPTED return (above) is already this call's
+                  // instance, the one the body was checked against; the
+                  // positional substitution of the DECLARED return would
+                  // mint a second one — for a capture-free closure argument
+                  // `Arc(V)` with `V := <param type>` is a different `Arc`
+                  // than the body's `Arc(<closure SomeT>)`
+                  // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
+                  if(!(rte_adopted), {
+                    spec_result = substitute(ys_ret, sp_res_b);
+                  });
+                  // Rebuild the param list through the same substitution
+                  // (ArrayList has no indexed set).
+                  y_new_params := ArrayList(TypeValue).new();
+                  (ypr : usize) = usize(0);
+                  while(ypr < spec_param_types.len(), {
+                    match(
+                      spec_param_types.get(ypr),
+                      .Some(ypt2) => if(get_all_some_types(ypt2).len() > usize(0), {
+                        y_new_params.push(substitute(ys_ret, ypt2));
+                      }, {
+                        y_new_params.push(ypt2);
+                      }),
+                      .None => ()
+                    );
+                    ypr = (ypr + usize(1));
+                  });
+                  spec_param_types = y_new_params;
+                });
+              });
+              // Gap-6 attempt #8(a): a declared-`Self` return resolves through
+              // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
+              // only in type_arguments — no resolution path concretizes it,
+              // issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md).
+              // The RECEIVER ARGUMENT of an instance method carries the
+              // call's real concrete instance — adopt it when the ctor
+              // matches, making the signature receiver-canonical.
+              (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
+              sr_is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+              if(sr_is_self_first, {
+                match(
+                  arg_values.args.get(usize(0)),
+                  .Some(sr_rcv) => {
+                    sr_recv_ty = Option(TypeValue).Some(sr_rcv.arg_type);
+                  },
+                  .None => ()
+                );
+              }, {
+                // Static method (no `self` param): the dispatcher set
+                // ctx.self_type to the concrete static-dot receiver before
+                // this specialization (function.yo) — that IS the receiver
+                // instance (restored above, so read it directly).
+                match(
+                  ctx.self_type,
+                  .Some(sr_ctx_st) => {
+                    sr_recv_ty = Option(TypeValue).Some(sr_ctx_st);
+                  },
+                  .None => ()
+                );
+              });
+              match(
+                sr_recv_ty,
+                .Some(sr_rty) => match(
+                  adopt_receiver_struct_instance(spec_result, sr_rty),
+                  .Some(sr_adopted) => {
+                    if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
+                      eprintln(`[sr-adopt] spec_result=${type_to_string(spec_result)} recv=${type_to_string(sr_rty)} adopted=${type_to_string(sr_adopted)}`);
+                    });
+                    spec_result = sr_adopted;
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              // Filter the per-param meta arrays by the same comptime flags as
+              // the spec_param_types loop above — labels/is_ref/is_owning must
+              // stay index-aligned with the (comptime-filtered) param types.
+              (sp_pl_f : ArrayList(String)) = ArrayList(String).new();
+              (sp_pir_f : ArrayList(bool)) = ArrayList(bool).new();
+              (sp_pio_f : ArrayList(bool)) = ArrayList(bool).new();
+              {
+                (sp_mi : usize) = usize(0);
+                while(sp_mi < sp_pl.len(), {
+                  sp_mi_ct := match(spec_param_ct_flags.get(sp_mi), .Some(f) => f, .None => false);
+                  if(!(sp_mi_ct), {
+                    sp_pl_f.push(match(sp_pl.get(sp_mi), .Some(l) => l, .None => String.new()));
+                    sp_pir_f.push(match(sp_pir.get(sp_mi), .Some(b) => b, .None => false));
+                    sp_pio_f.push(match(sp_pio.get(sp_mi), .Some(b) => b, .None => false));
+                  });
+                  sp_mi = (sp_mi + usize(1));
+                });
+              };
+              spec_type := TypeValue.Func(
+                ArrayList(TypeValue).new(),
+                spec_param_types,
+                sp_it,
+                sp_wt,
+                spec_result,
+                box(
+                  FuncMeta(
+                    forall_labels : ArrayList(String).new(),
+                    param_labels : sp_pl_f,
+                    implicit_labels : sp_il,
+                    implicit_spreads : sp_isp,
+                    result_is_comptime_only : sp_rico,
+                    param_is_ref : sp_pir_f,
+                    param_is_owning : sp_pio_f,
+                    result_is_ref : sp_rir,
+                    has_variadic : sp_hv,
+                    is_extern : sp_ie,
+                    extern_name : sp_en,
+                    is_control : sp_ic,
+                    variadic_label : Option(String).None,
+                    variadic_comptime : false
+                  )
+                ),
+                ArrayList(TypeValue).new()
+              );
+              register_func_type(specialized_func_id.clone(), spec_type);
+            },
+            _ => ()
+          );
+          // Detect control functions: set if the original was already a control
+          // function OR if the specialized body contains unwind.
+          parent_is_ctl := is_control_fn(func_id.clone());
+          body_has_unwind := evaluated_body_contains_unwind(specialized_body);
+          if(parent_is_ctl || body_has_unwind, {
+            mark_as_control_fn(specialized_func_id.clone());
+          });
+          // Store in cache
+          _store_specialization_cache(
+            ctx,
+            func_id,
+            compile_time_args,
+            runtime_param_tys,
+            specialized_func_val
+          );
+          specialized_func_val
+        }
+      )
+    },
+    _ => original_func_val
+  );
+  result
 });
 // ---------------------------------------------------------------------------
 // evaluate_ctl_function_body_inline
