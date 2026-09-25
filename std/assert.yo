@@ -29,7 +29,7 @@
 /// Terminate the program with a message.
 ///
 /// `msg` must implement `ToString`.
-panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)({
+panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> never)({
   // __yo_panic comptime-evaluates its message argument, so the pointer has
   // to arrive as a plain *(u8)-typed binding — an Option .unwrap() chain
   // leaves the argument without an ExprInfo and the builtin rejects it.
@@ -38,8 +38,7 @@ panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)({
     buf.ptr(),
     .Some(p) => __yo_panic(p),
     .None => __yo_panic("panic: <empty message>")
-  );
-  ()
+  )
 });
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
 ///

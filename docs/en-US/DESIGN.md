@@ -667,6 +667,8 @@ pick :: (fn(flag : bool) -> i64)({
 
 A `-> never` function whose body can complete is rejected (`Function body has type unit, but the declared result type is never`).
 
+The standard library's terminators are `-> never`: `std/assert`'s `panic`, `std/process`'s `exit`, and libc's `exit`, `_Exit`, `quick_exit` and `abort`. So `.None => panic("no value")` fits an arm that must produce a value.
+
 ### Default parameter values
 
 Default parameter values can be defined using `?=` syntax:
