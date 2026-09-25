@@ -53,6 +53,7 @@ json :: import("std/encoding/json");
   E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
+  E_WRITE_THROUGH_BORROW,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -510,6 +511,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => sink(b));\n});\nexport(main);\n",
       "Only the first arm moves `b`; after the `cond` it would be dropped on one path only.",
       "只有第一个分支移动了 `b`；`cond` 之后它只会在一条路径上被 drop。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_WRITE_THROUGH_BORROW,
+      "write through a borrowed value",
+      "通过借用的值写入",
+      "A field or element write would release a value that the binding it goes through does not own.",
+      "对字段或元素的写入会释放一个其所经由的绑定并不拥有的值。",
+      "A by-value parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, a `Box`, …) would release that data while its owner still holds it, so it is rejected. Fields without RC data can still be written; the write changes only the local copy. Take the parameter as `own(p) : T` (the function owns it) or `inout(p) : T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy.",
+      "按值参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Box` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。不含 RC 数据的字段仍可写入；写入只改变本地副本。请把参数声明为 `own(p) : T`（函数拥有它）或 `inout(p) : T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。",
+      "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> unit)({\n  p.s = String.from(\"new\");\n});\nexport(rename);\n",
+      "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> P)({\n  q := p;\n  q.s = String.from(\"new\");\n  q\n});\nexport(rename);\n",
+      "`p` borrows the caller's `P`; releasing its old `s` would free a string the caller still holds.",
+      "`p` 借用了调用方的 `P`；释放它旧的 `s` 会释放调用方仍持有的字符串。"
     )
   );
   out.push(

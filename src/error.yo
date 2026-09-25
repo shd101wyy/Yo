@@ -429,7 +429,12 @@ format_error_messages_with_help :: (
   match(
     err.diagnostics.get(usize(0)),
     .Some(first) => {
-      first.help = help;
+      // `first` borrows a copy of the element: write an owned copy back, or
+      // the help never reaches the diagnostic (and the old help would be
+      // released twice).
+      primary := first;
+      primary.help = help;
+      err.diagnostics(usize(0)) = primary;
     },
     .None => ()
   );

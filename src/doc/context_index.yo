@@ -793,8 +793,10 @@ _mark_barrel_origins :: (
             entries.get(ei),
             .Some(e) => {
               if((e.origin.len() == usize(0)) && defined.contains(e.name), {
-                e.origin = origin.clone();
-                entries(ei) = e;
+                // `e` borrows the element: write an owned copy back.
+                updated := e;
+                updated.origin = origin.clone();
+                entries(ei) = updated;
               });
             },
             .None => ()

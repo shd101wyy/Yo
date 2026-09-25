@@ -68,6 +68,23 @@ broken :: (fn(p : Point) -> unit)({
 
 **Rule:** Parameters are **not reassignable** to prevent ownership state changes.
 
+A by-value parameter borrows its value: its storage is a copy of the caller's, and a field
+write changes only that copy. A field whose old value holds RC data (a `String`, a
+collection, a `Box`, …) cannot be written through it, because the write would release data
+the caller still holds (E0908). The same holds for a `match` or `for` binding. Take the
+parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
+
+```rust
+Named :: struct(s : String, n : i32);
+rename :: (fn(p : Named) -> Named)({
+  p.n = (p.n + i32(1)); // ✅ OK: no RC data in the old value
+  // p.s = String.from("x"); // ❌ E0908: the caller still holds the old string
+  q := p; // an owned copy
+  q.s = String.from("x"); // ✅ OK
+  q
+});
+```
+
 ### 4. Explicit Ownership Transfer: `own()` keyword
 
 Use `own()` to transfer ownership to a function parameter.
