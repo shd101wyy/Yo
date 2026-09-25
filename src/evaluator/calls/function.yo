@@ -153,6 +153,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
+{ judge_function_argument_markers } :: import("../utils/closure.yo");
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -7131,8 +7132,22 @@ Fix: wrap the call:
           // ...and an `Impl(Trait)` parameter takes only an argument that
           // implements the trait (trait_checking.yo `impl_param_unmet_trait`).
           if(pi < n_supplied_reg, {
+            // A FUNCTION argument's marker traits come from its value (rules
+            // D4 + D1; helper.yo Step 3c is the other call path).
+            fam := judge_function_argument_markers(resolved_decl_pt, arg_info.ty, arg_info.value, env, ctx);
             match(
-              impl_param_unmet_trait(resolved_decl_pt, arg_info.ty, env),
+              fam.offense,
+              .Some(fam_o) => {
+                fam_msg := `Argument for parameter "${pname}" (type ${type_to_string(arg_info.ty)}) cannot be passed as ${type_to_string(resolved_decl_pt)}: ${fam_o}.`;
+                if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                  flag_flow_violation(fam_msg.clone());
+                });
+                exn.throw(dyn(format_error_message(ast_expr_token(match(fv_args.get(pi), .Some(fam_ae) => fam_ae, .None => expr)), fam_msg)));
+              },
+              .None => ()
+            );
+            match(
+              impl_param_unmet_trait(resolved_decl_pt, arg_info.ty, env, fam.judged),
               .Some(um_tr) => {
                 um_msg := impl_argument_unmet_trait_message(pname.clone(), resolved_decl_pt, arg_info.ty, um_tr);
                 if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
@@ -7305,7 +7320,7 @@ Fix: wrap the call:
         // placeholder — the method path's Step 6 does the same — and adopt
         // what the where-clause binds below.
         fv_where_placeholders := _fv_bind_unbound_forall_placeholders(fv_callee_ty, forall_names, fa_bound_names, fresh_env, env, expr);
-        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
+        validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, ctx, exn);
         // Where-clause EXPR re-application. Internally
         // guarded: a spec-cache-hit reuse leaves the forall params bound to
         // non-type values in `fresh_env`, and the guard skips that state

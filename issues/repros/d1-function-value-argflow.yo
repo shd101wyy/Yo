@@ -1,0 +1,20 @@
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+g := ArrayList(i32).new();
+_call_it :: (fn(cb : Impl(Fn() -> unit)) -> unit)({
+  cb();
+});
+main :: (fn() -> unit)({
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      g.push(i32(1));
+    }
+  );
+  t := Thread(unit).spawn((io : Io) => {
+    _call_it(k);
+    ()
+  });
+  g.push(i32(2));
+  t.join();
+});
+export(main);

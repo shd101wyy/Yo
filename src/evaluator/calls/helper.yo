@@ -81,7 +81,6 @@ pragma(Pragma.AllowUnsafe);
   type_implements_future,
   type_implements_fn,
   type_implements_trait_bool,
-  closure_bound_marker_offender,
   resolve_assoc_type_for_target,
   extract_fn_trait_from_type,
   extract_future_trait_from_type,
@@ -120,7 +119,8 @@ pragma(Pragma.AllowUnsafe);
   SpecializedFunctionCacheEntry,
   in_def_time_trial,
   force_pending_impls_for_type_name,
-  type_head_name_for_impl_forcing
+  type_head_name_for_impl_forcing,
+  call_function_value_marker
 } :: import("../context.yo");
 {
   PathCollection,
@@ -189,7 +189,7 @@ pragma(Pragma.AllowUnsafe);
   find_closure_fid_by_capture_struct_id,
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
-{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
+{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, judge_function_argument_markers, alias_closure_some_id, note_closure_for_some_id } :: import("../utils/closure.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
@@ -836,9 +836,23 @@ check_if_function_parameter_matches_argument :: (
   });
   // Step 3c: an `Impl(Trait)` parameter takes only an argument that
   // implements the trait (the non-`Fn` twin of Step 3b; see
-  // trait_checking.yo `impl_param_unmet_trait`).
+  // trait_checking.yo `impl_param_unmet_trait`). A FUNCTION argument's
+  // marker traits are judged from the value first — what it captures and
+  // what its code reaches (rules D4 + D1, `judge_function_argument_markers`).
+  fam := judge_function_argument_markers(resolved_pt, arg_type, arg_value, caller_env_r, ctx);
   match(
-    impl_param_unmet_trait(resolved_pt, arg_type, caller_env_r),
+    fam.offense,
+    .Some(fam_o) => {
+      fam_msg := `Argument for parameter "${param_label}" (type ${type_to_string(arg_type)}) cannot be passed as ${type_to_string(resolved_pt)}: ${fam_o}.`;
+      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+        flag_flow_violation(fam_msg.clone());
+      });
+      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), fam_msg)));
+    },
+    .None => ()
+  );
+  match(
+    impl_param_unmet_trait(resolved_pt, arg_type, caller_env_r, fam.judged),
     .Some(um_tr) => {
       um_msg := impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, arg_type, um_tr);
       if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
@@ -3068,6 +3082,26 @@ create_specialized_function_inline :: (
                   );
                   register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
                   register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
+                  // Rules D1 + D4: the fresh binder names the ARGUMENT's
+                  // closure, for a marker judgement of the parameter's type
+                  // inside the body (`function_value_marker`).
+                  match(
+                    arg_values.args.get(rbp_i),
+                    .Some(cb_ae3) => match(
+                      cb_ae3.value,
+                      .Some(cb_v3) => match(
+                        cb_v3,
+                        .FuncVal(cb_fvd3, _) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
+                        _ => ()
+                      ),
+                      .None => match(
+                        cb_ae3.arg_type,
+                        .SomeT({ id : cb_sid3 }) => alias_closure_some_id(fresh_some_id.clone(), cb_sid3),
+                        _ => ()
+                      )
+                    ),
+                    .None => ()
+                  );
                   // The declared Fn bound's RESULT is the enclosing function's
                   // own generic (`cb : Impl(Fn(io : Io) -> T)`), and nothing
                   // else here resolves it: `cb` is bound VALUELESS, so the
@@ -4527,6 +4561,7 @@ validate_where_constraints_for_call :: (
     func_id : String,
     callee_env : Environment,
     tok : Token,
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -4575,28 +4610,37 @@ validate_where_constraints_for_call :: (
             lv,
             .TypeVal(bound_tb) => {
               bound_ty := bound_tb;
-              // Rule D4 (plans/reference/PARALLELISM_RULES.md): a CLOSURE type
-              // is an `Impl(Fn(...))` SomeT, so the concrete-only gate below
-              // never saw one and `arc(f)` / `Channel(typeof(f))` accepted a
-              // closure over an `ArrayList` against `where(V <: Send)`
-              // (issues/fixed/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md).
-              // A closure holds a marker iff its captured state does — Rust's
-              // auto-trait rule — so judge its capture struct, resolved the
-              // way the spawn-boundary check resolves a captured closure. No
-              // capture struct: it captures nothing and trivially holds.
-              // `closure_bound_marker_offender` (trait_checking.yo) judges the
-              // closure's capture struct; it is a no-op for other types.
+              // Rules D4 + D1 (plans/reference/PARALLELISM_RULES.md): a
+              // FUNCTION type holds `Send`/`Acyclic` only through its values —
+              // what a closure captures and what its code reaches — so the
+              // bound's values decide (`call_function_value_marker`: the callee's
+              // parameters bound to this type, the closures created against a
+              // closure SomeT). A closure type is an `Impl(Fn(...))` SomeT, so
+              // the concrete-only gate below never saw one and `arc(f)` accepted
+              // a closure over an `ArrayList`
+              // (issues/fixed/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md),
+              // and a closure that captures nothing but pushes to a non-Send
+              // global passed every such bound
+              // (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+              (value_judged : bool) = false;
               if(!(wce.is_negated), {
                 match(
-                  closure_bound_marker_offender(callee_env, bound_ty, wce.trait_ty),
-                  .Some(d4_cap) => {
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          tok,
-                          `The closure type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}: its captured state (${type_to_string(d4_cap)}) does not. A closure has a marker trait only when every value it captures does — capture an atomic object (Arc(T), Mutex(T), Atomic*) instead of the non-${type_to_string(wce.trait_ty)} value.`
-                        )
-                      )
+                  call_function_value_marker(bound_ty, Option(EvalValue).None, wce.trait_ty, callee_env, ctx),
+                  .Some(fvm) => {
+                    value_judged = true;
+                    match(
+                      fvm,
+                      .Some(fvm_o) => {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              tok,
+                              `The function type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}: ${fvm_o}.`
+                            )
+                          )
+                        );
+                      },
+                      .None => ()
                     );
                   },
                   .None => ()
@@ -4606,7 +4650,7 @@ validate_where_constraints_for_call :: (
               // generic instantiation inside an impl body) defers to
               // constraint propagation, which the marker derivation
               // can't see through yet.
-              if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
+              if(((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0))) && !(value_judged), {
                 (wc_implemented : bool) = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
                 // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
                 // bound may be satisfied by an impl placed later in its
@@ -7068,7 +7112,7 @@ try_to_call_function_with_arguments :: (
         .Some(wfv) => match(
           wfv,
           .FuncVal(__fvd12, _) => {
-            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, exn);
+            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, ctx, exn);
             reapply_where_clause_exprs_for_call(__fvd12.*.func_id.clone(), callee_env_m, ctx, exn);
           },
           _ => ()

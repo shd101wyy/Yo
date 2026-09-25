@@ -1594,6 +1594,38 @@ set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
   g_force_pending_def_fn = Option(ForcePendingDefFn).Some(f);
   ()
 });
+// --- Rules D1 + D4 for function VALUES (plans/reference/PARALLELISM_RULES.md) ---
+// Whether a function-like type (`fn(...)`, a closure's `Impl(Fn...)`) holds a
+// marker trait depends on the VALUE: a function value is `Send` iff its
+// captured state is AND its code reaches no thread-affine module global
+// (issues/fixed/function-values-bypass-the-d1-reach-walk.md). The judgement lives
+// in `utils/closure.yo` (it needs the D1 reach walk, which imports
+// `trait_checking.yo`); `trait_checking.yo` and `types/function.yo` reach it
+// through this slot, registered by `register_evaluate_expression`.
+//
+// `witness` is the value when the caller has it (an argument, a captured
+// variable); with `.None` the judgement looks for the values of `ty` itself —
+// the callee's parameters bound to it, and the closures created against a
+// closure's `Impl` SomeT. Returns `.None` when no value of `ty` was found (the
+// caller falls back to the type-level rule), `.Some(.None)` when every value
+// found holds `marker`, `.Some(.Some(reason))` when one does not.
+FunctionValueMarkerFn :: (
+  fn(ty : TypeValue, witness : Option(EvalValue), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(Option(String))
+);
+(g_function_value_marker_fn : Option(FunctionValueMarkerFn)) = Option(FunctionValueMarkerFn).None;
+set_function_value_marker_fn :: (fn(f : FunctionValueMarkerFn) -> unit)({
+  g_function_value_marker_fn = Option(FunctionValueMarkerFn).Some(f);
+  ()
+});
+call_function_value_marker :: (
+  fn(ty : TypeValue, witness : Option(EvalValue), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(Option(String))
+)(
+  match(
+    g_function_value_marker_fn,
+    .Some(f) => f(ty, witness, marker, env, ctx),
+    .None => Option(Option(String)).None
+  )
+);
 /// Is the innermost function body one whose declared return is
 /// `comptime(...)` — a body that only ever runs by CTFE?
 fn_ctx_returns_comptime :: (fn(ctx : EvalContext) -> bool)(
@@ -2958,6 +2990,8 @@ export(
   PendingResolution,
   PendingImplOutcome,
   set_force_pending_def_fn,
+  set_function_value_marker_fn,
+  call_function_value_marker,
   copy_eval_context,
   begin_module_walk,
   end_module_walk,
