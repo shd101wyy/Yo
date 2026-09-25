@@ -1,0 +1,6 @@
+# Parallelism soundness Phase 5 (rule D5): a with_lock inside a with_lock on
+# the SAME mutex used to deadlock forever on POSIX (default pthread_mutex_t)
+# and silently recurse on Windows (CRITICAL_SECTION). One behaviour now: the
+# owner check in Mutex._raw_lock traps with a message naming the API.
+stdout_keep_match=Mutex: locked again by the thread that already holds it
+timeout=300

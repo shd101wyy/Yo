@@ -87,7 +87,8 @@ info stays `Send` and `Acyclic`.
 
 ## D5 — `std/sync` primitives trap, never UB
 
-**Status:** PLANNED (Phase 5).
+**Status:** LANDED 2026-09-26 (Phase 5): owner records in `Mutex(T)`, `RawMutex` and `Once`
+(`std/sync/{mutex,cond,once}.yo`); the pool's submission lock is process-wide (`std/thread.yo`).
 
 Every lock records its owner thread (`__yo_thread_self()`). In every primitive, on every
 platform, the following are a panic with a message naming the API, never undefined behaviour

@@ -1,0 +1,8 @@
+# Parallelism soundness Phase 5 (rule D5, plans/reference/PARALLELISM_RULES.md):
+# RawMutex.unlock without holding the lock used to be pthread_mutex_unlock on
+# a mutex nobody holds — undefined behaviour (glibc: silently "works", then a
+# later unlock steals the lock from a real owner; Windows: corrupts the
+# CRITICAL_SECTION). The lock now records its holder and refuses.
+# (issues/fixed/rawmutex-is-exported-with-an-unbalanced-unlock.md)
+stdout_keep_match=RawMutex.unlock: unlocked by a thread that does not hold it
+timeout=300

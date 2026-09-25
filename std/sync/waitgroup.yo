@@ -114,7 +114,7 @@ impl(
   wait : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._count.load(MemoryOrder.Acquire) > i32(0)), {
-      self._cv.wait(self._mutex._raw_handle_ptr());
+      self._cv.wait_with(self._mutex);
     });
     self._mutex._raw_unlock();
   }),

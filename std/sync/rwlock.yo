@@ -231,7 +231,7 @@ impl(
   _raw_read_lock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer), {
-      self._read_cv.wait(self._mutex._raw_handle_ptr());
+      self._read_cv.wait_with(self._mutex);
     });
     self._readers = (self._readers + i32(1));
     self._mutex._raw_unlock();
@@ -280,7 +280,7 @@ impl(
   _raw_write_lock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer || (self._readers > i32(0))), {
-      self._write_cv.wait(self._mutex._raw_handle_ptr());
+      self._write_cv.wait_with(self._mutex);
     });
     self._writer = true;
     self._mutex._raw_unlock();

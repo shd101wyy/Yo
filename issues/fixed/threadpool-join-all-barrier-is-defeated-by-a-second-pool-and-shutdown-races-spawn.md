@@ -1,7 +1,7 @@
 # `ThreadPool.join_all`'s sentinel barrier is defeated by a second pool, and `shutdown` can return with a task queued
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-7).
-**Status:** OPEN. **Liveness/correctness** (no memory unsafety): `join_all` / `shutdown` return
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 5). Was: **Liveness/correctness** (no memory unsafety): `join_all` / `shutdown` return
 while work submitted through the same pool is still queued.
 **Measured:** by reading `std/thread.yo` (`join_all` ~236-263, `spawn` ~329-342, `shutdown`
 ~269-272) and the emitted runtime (`src/codegen/parallelism/runtime.yo` ~465-520). The
@@ -37,3 +37,15 @@ argument then holds for every pool value. The real fix — a completion counter 
 task closure); the plan's Phase 5 schedules it behind that codegen fix. Tests: two pools in one
 test, one spamming `spawn` from a helper thread while the other calls `join_all` on slow tasks
 and asserts its counter; `shutdown` racing a `spawn` on a helper thread.
+
+## Fix (2026-09-26)
+
+One process-wide submission lock (`_submissions := RawMutex.new()` in `std/thread.yo`) replaces
+the per-pool `_mutex`, so the sentinel loop is serialized against EVERY submission in the
+process; re-entry from an inline-run task uses `RawMutex.held_by_current_thread()`. `spawn`
+reads `_closed` under the lock and `shutdown` sets it under the lock, which closes the second
+window. The per-pool completion counter (the fix that removes the round-robin dependency
+altogether) stays scheduled behind
+`issues/spawn-wrapper-forwarded-io-crosses-specializations.md` in the plan's Phase 6. Test: "a
+second pool submitting concurrently cannot make join_all return early" in
+`tests/thread_pool.test.yo`.

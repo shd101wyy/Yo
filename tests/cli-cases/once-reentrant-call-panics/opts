@@ -1,0 +1,8 @@
+# Parallelism soundness Phase 5 (rule D5): Once.call / OnceCell.get_or_init
+# re-entered from its own initializer used to deadlock on POSIX and, on
+# Windows (recursive CRITICAL_SECTION), run the initializer TWICE and
+# overwrite the published value. The Once records the initializing thread and
+# traps on re-entry, on every platform.
+# (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md)
+stdout_keep_match=Once.call: re-entered from its own initializer
+timeout=300

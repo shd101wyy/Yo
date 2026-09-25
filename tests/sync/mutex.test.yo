@@ -1,7 +1,8 @@
 /// Phase D (THREAD_SAFETY): Mutex(T) with_lock closure-scoped API tests.
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
-{ Mutex } :: import("std/sync/mutex");
+{ Mutex, RawMutex } :: import("std/sync/mutex");
+{ Cond } :: import("std/sync/cond");
 { Thread } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 { Channel } :: import("std/sync/channel");
@@ -242,4 +243,58 @@ test("is_unlocked answers about the past, and says so", {
   assert(!m.is_unlocked(), "a held mutex reports locked");
   release.send(i32(1));
   holder.join();
+});
+
+// ============================================================================
+// Parallelism soundness Phase 5 (rule D5): the lock knows its holder
+// ============================================================================
+test("try_with_lock from the holding thread is None on every platform", {
+  m := Mutex(i32).new(i32(3));
+  // A Windows CRITICAL_SECTION is recursive and used to answer .Some here;
+  // the owner check makes the answer portable.
+  inner := m.with_lock(v => {
+    v;
+    m.try_with_lock(w => w)
+  });
+  assert(inner.is_none(), "the holder cannot take the lock a second time");
+  assert(m.try_with_lock(v => v) == Option(i32).Some(i32(3)), "released afterwards");
+});
+test("is_unlocked from the holding thread reports locked", {
+  m := Mutex(i32).new(i32(0));
+  held := m.with_lock(v => !m.is_unlocked());
+  assert(held, "the holder sees its own lock as held");
+  assert(m.is_unlocked(), "and released after with_lock");
+});
+test("RawMutex records its holder", {
+  r := RawMutex.new();
+  assert(!r.held_by_current_thread(), "fresh lock is unheld");
+  r.lock();
+  assert(r.held_by_current_thread(), "held after lock");
+  assert(!r.try_lock(), "the holder's try_lock is false on every platform");
+  other := Thread(bool).spawn(io => r.held_by_current_thread());
+  assert(!other.join(), "another thread does not hold it");
+  r.unlock();
+  assert(!r.held_by_current_thread(), "unheld after unlock");
+  assert(r.try_lock(), "free again");
+  r.unlock();
+});
+test("Cond.wait_with restores the holder record after the wait", {
+  m := Mutex(i32).new(i32(0));
+  cv := Cond.new();
+  waiter := Thread(bool).spawn(io => {
+    io;
+    m.with_lock(v => {
+      while(runtime(v == i32(0)), {
+        cv.wait_with(m);
+      });
+      // Back from the OS wait holding the mutex: the owner record must say so,
+      // or the guard's unlock at the end of this closure would trap.
+      !m.is_unlocked()
+    })
+  });
+  m.with_lock(v => {
+    v = i32(1);
+    cv.broadcast();
+  });
+  assert(waiter.join(), "the waiter holds the mutex after wait_with returns");
 });

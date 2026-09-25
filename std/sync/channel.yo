@@ -216,7 +216,7 @@ impl(
       && !self._closed.load(MemoryOrder.Relaxed)
       && !self._recv_dropped.load(MemoryOrder.Relaxed)
     ), {
-      self._not_full.wait(self._mutex._raw_handle_ptr());
+      self._not_full.wait_with(self._mutex);
     });
     cond(
       (
@@ -247,7 +247,7 @@ impl(
       (self._len.load(MemoryOrder.Relaxed) == usize(0))
       && !self._closed.load(MemoryOrder.Relaxed)
     ), {
-      self._not_empty.wait(self._mutex._raw_handle_ptr());
+      self._not_empty.wait_with(self._mutex);
     });
     cond(
       (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {

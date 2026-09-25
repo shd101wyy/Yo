@@ -1,0 +1,12 @@
+{ OnceCell } :: import("std/sync/once");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  cell := OnceCell(i32).new();
+  v := cell.get_or_init(() => {
+    println(`outer initializer running`);
+    inner := cell.get_or_init(() => i32(1));
+    inner + i32(1)
+  });
+  println(`never ${v}`);
+});
+export(main);

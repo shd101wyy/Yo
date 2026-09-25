@@ -154,6 +154,13 @@ contention.
 
 ## Mutex(T) — Closure-Scoped Locking
 
+Every lock in `std/sync` records its holder, so misuse is a **panic** with a message naming the
+API, on every platform, never the OS primitive's undefined behaviour: locking a mutex again from
+the thread that holds it, unlocking from another thread, `Cond.wait_with(m)` without holding `m`,
+and a `Once` initializer that re-enters its own `Once` all trap (rule D5 of
+`plans/reference/PARALLELISM_RULES.md`). `try_with_lock` answers `.None` for the holder on
+Windows too, where the underlying `CRITICAL_SECTION` would have recursed.
+
 `Mutex(T)` wraps protected data inside the lock. Access is granted through a closure:
 
 ```rust
@@ -282,12 +289,6 @@ the race it describes.
   (`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`).
 - **A closure may capture a `with_lock` body's `inout(v)`** at `yo check` (codegen fails)
   (`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
-- **`Cond.wait_with(m)` does not check that you hold `m`, and `RawMutex.unlock` is public**;
-  both reach pthread / `CRITICAL_SECTION` undefined behaviour from safe code
-  (`issues/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`,
-  `issues/rawmutex-is-exported-with-an-unbalanced-unlock.md`).
-- **`Once` re-entered from its own initializer** deadlocks on POSIX and runs twice on Windows
-  (`issues/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md`).
 - **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a
   spawned thread's loop, the non-atomic `borrow_count` on atomic objects, `rc()` on an `Iso`
   handle, and Windows/macOS-specific runtime state — listed in `plans/PARALLELISM_SOUNDNESS.md`
