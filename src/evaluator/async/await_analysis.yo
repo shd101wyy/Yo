@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
-{ ExprInfo, lookup_io_builtin_call } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_io_builtin_call, lookup_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -673,29 +673,35 @@ first_inout_binding_in_async_body :: (fn(e : AstExpr) -> Option(AstExpr))(
   match(
     e,
     .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, callee, args, _, _) => cond(
-      (ast_expr_is_fn_call_of(e, "=>", Option(usize).None) || ast_expr_is_fn_call_of(e, "->", Option(usize).None)) => Option(AstExpr).None,
-      ast_expr_is_fn_call_of(callee, "fn", Option(usize).None) => Option(AstExpr).None,
-      (ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(lhs) => ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), .None => false)) =>
-        args.get(usize(0)),
-      true => {
-        (ai : usize) = usize(0);
-        while(ai < args.len(), {
-          match(
-            args.get(ai),
-            .Some(a) => match(
-              recur(a),
-              .Some(found) => {
-                return(Option(AstExpr).Some(found));
-              },
+    // A macro call is judged by what it expands to: the borrowed
+    // `for(xs, inout(x) => ...)` binds each element with `inout(x) := ...`.
+    .FnCall(_, callee, args, _, _) => match(
+      lookup_macro_expansion(ast_expr_id(e)),
+      .Some(expanded) => recur(expanded),
+      .None => cond(
+        (ast_expr_is_fn_call_of(e, "=>", Option(usize).None) || ast_expr_is_fn_call_of(e, "->", Option(usize).None)) => Option(AstExpr).None,
+        ast_expr_is_fn_call_of(callee, "fn", Option(usize).None) => Option(AstExpr).None,
+        (ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(lhs) => ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), .None => false)) =>
+          args.get(usize(0)),
+        true => {
+          (ai : usize) = usize(0);
+          while(ai < args.len(), {
+            match(
+              args.get(ai),
+              .Some(a) => match(
+                recur(a),
+                .Some(found) => {
+                  return(Option(AstExpr).Some(found));
+                },
+                .None => ()
+              ),
               .None => ()
-            ),
-            .None => ()
-          );
-          ai = (ai + usize(1));
-        });
-        Option(AstExpr).None
-      }
+            );
+            ai = (ai + usize(1));
+          });
+          Option(AstExpr).None
+        }
+      )
     )
   )
 );
