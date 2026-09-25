@@ -1619,6 +1619,9 @@ derivation from a flat parent keeps the flat lists.
 
 `check src/main.yo`, A/B on the same base (c0af6bb1f): **2,069 → 1,551 MB
 peak footprint (−518 MB, −25 %)**, same wall; emitted C byte-identical (149.1 MB).
+On Linux (the CI ratchets, now re-baselined): `check src/main.yo` max RSS
+**2,389,284 → 1,852,336 kB**, and the whole compiler build under the 8 GB
+cgroup **5,090,248 → 4,523,776 kB** (4.85 → 4.31 GiB).
 Test: `tests/internal/module_invalidation.test.yo` "captures: a specialization of a
 handle-backed FuncVal stores no flat capture lists" (13,594 flat names with the
 rule disabled, 0 with it).
