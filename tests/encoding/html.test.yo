@@ -2,6 +2,7 @@
 { rune, String } :: import("std/string");
 html :: import("std/encoding/html");
 { from_code_point, is_valid_entity_code } :: import("std/encoding/html");
+{ Thread } :: import("std/thread");
 test("named entities decode", {
   assert(html.decode(String.from("a &amp; b")) == `a & b`, "amp");
   assert(html.decode(String.from("&lt;p&gt;")) == `<p>`, "lt/gt");
@@ -152,4 +153,34 @@ test("html.decode is a single pass: a 20k-entity document decodes promptly and i
   assert(out.len() == (usize(20000) * unit_len), "every entity decoded, nothing dropped");
   assert(out.starts_with(`x&y<>é x&y<>é `), "decoded in order");
   assert(out.ends_with(`x&y<>é `), "to the end");
+});
+// P-10 (plans/PARALLELISM_SOUNDNESS.md Phase 3): the entity tables are
+// module-level state every decoding thread reads. They used to be non-atomic
+// RC globals — even a lookup dup'd and dropped the bucket key's refcount, a
+// race between two decoding threads
+// (issues/fixed/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md).
+// They are now read under a lock with copy-out lookups; this is the shape the
+// ThreadSanitizer job runs (plans/PARALLELISM_SOUNDNESS.md Phase 7).
+test("two threads decode entities at once", {
+  t := Thread(i32).spawn((io : Io) => {
+    (n : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(runtime(i < i32(2000)), {
+      if(html.decode(String.from("&forall;&amp;&AElig;")) == `∀&Æ`, {
+        n = (n + i32(1));
+      });
+      i = (i + i32(1));
+    });
+    n
+  });
+  (m : i32) = i32(0);
+  (j : i32) = i32(0);
+  while(runtime(j < i32(2000)), {
+    if(html.decode(String.from("&lt;&copy;&gt")) == `<©>`, {
+      m = (m + i32(1));
+    });
+    j = (j + i32(1));
+  });
+  assert(t.join() == i32(2000), "every decode on the spawned thread was right");
+  assert(m == i32(2000), "every decode on the main thread was right");
 });

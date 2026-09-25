@@ -2348,6 +2348,18 @@ jobs:
           # self-hosted jobs.
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
+      # The standing proof of plans/PARALLELISM_SOUNDNESS.md (Phase 7): the
+      # whole thread corpus under TSan, ratcheted against
+      # scripts/bootstrap/tsan-known-failing.tsv (fails both ways), and each
+      # file must actually spawn a thread (YO_REPORT_SPAWNS) — a TSan run over
+      # a single-threaded program is silent and proves nothing. The job name
+      # above is kept as-is: it is a required check in branch protection.
+      - name: Run the thread corpus under ThreadSanitizer (ratcheted, spawn-count checked)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+          BIN: /tmp/yo-stage1
+          CC: clang
+        run: bash scripts/tsan-thread-corpus.sh
 
   test-wasm32_emscripten:
     needs: changes

@@ -779,6 +779,21 @@ static __YO_COND_TYPE __yo_cond_create(void);
 // the parallelism runtime are emitted independently and either can be present
 // without the other.
 static _Atomic size_t __yo_threads_ever_spawned = 0;
+// YO_REPORT_SPAWNS=1 prints, at exit, how many threads and pool tasks the
+// process spawned. The ThreadSanitizer gate uses it to reject a HOLLOW run —
+// TSan reports nothing on a program that never spawned a second thread
+// (plans/PARALLELISM_SOUNDNESS.md Phase 7).
+static void __yo_report_spawns_at_exit(void) {
+  fprintf(stderr, "yo: spawns=%zu\\n", (size_t)atomic_load(&__yo_threads_ever_spawned));
+}
+static inline void __yo_note_spawn(void) {
+  if (atomic_fetch_add(&__yo_threads_ever_spawned, 1) == 0) {
+    const char* v = getenv("YO_REPORT_SPAWNS");
+    if (v && v[0] && v[0] != '0') {
+      atexit(__yo_report_spawns_at_exit);
+    }
+  }
+}
 static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
   return atomic_load_explicit(obj, order);
 }
