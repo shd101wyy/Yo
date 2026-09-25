@@ -414,6 +414,16 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
 6. **A bottom type.** Add `never`, the join identity for arms. Type `return`, `unwind`,
    `__yo_panic`, `std/assert.panic` and `exit` with it
    (`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type`).
+
+   **Compiler half landed 2026-09-25.** `never` is a type; it flows into every type and is the
+   identity of a `cond`/`match` join. A diverging arm, or a body's diverging tail, adopts the type
+   of its context (`adopt_never_type`), so codegen keeps a typed unreachable placeholder. A call to
+   a `-> never` function runs as a statement. `__yo_panic` is `never` when nothing is expected of
+   it. The std half (`panic`, `exit` and libc's terminators declared `-> never`) is ready but waits
+   for a seed that carries `never`, because `yo build` compiles `std/` with the seed. It is spelled
+   out in the issue. `return`/`unwind` keep their control-flow typing; they were already the join
+   identity through the arm-join's control-flow rule, and retyping them bought nothing that was
+   measured.
 7. **Interning without the mutable cell.** Never intern a SomeT node, or leave its resolution
    cell out of the intern key and give each interned SomeT a fresh cell (`src/types/intern.yo`
    ~459). Phase 2.4 fixed every observable leak of the shared `resolved_concrete` cell where it

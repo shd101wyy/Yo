@@ -637,6 +637,21 @@ add(3, y : 4); // OK：混合使用（先位置后命名）
 add(y : 4, x : 3); // 错误：命名参数必须按顺序（x 在 y 之前）
 ```
 
+### `never` 类型
+
+`never` 是不会正常结束的表达式的类型：`__yo_panic(...)`，或调用一个声明为 `-> never` 的函数。它可以流入任何类型，因此一个发散的分支适配其他分支产生的任何类型；除 `never` 本身外，没有类型能流入 `never`：
+
+```rust
+die :: (fn(msg : str) -> never)(__yo_panic(msg));
+
+pick :: (fn(flag : bool) -> i64)({
+  x := cond(flag => i32(3), true => die("unreachable"));  // x : i32
+  i64(x)
+});
+```
+
+函数体可能正常结束的 `-> never` 函数会被拒绝（`Function body has type unit, but the declared result type is never`）。
+
 ### 默认参数值
 
 默认参数值可以使用 `?=` 语法定义：

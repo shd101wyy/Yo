@@ -1,6 +1,6 @@
 # Type identity: when two types are the same type
 
-**Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phases 3.1, 3.2, 3.4 and 3.5 of
+**Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phases 3.1, 3.2, 3.4, 3.5 and 3.6 of
 `plans/TYPE_SYSTEM_SOUNDNESS.md`). The code is `src/types/compatibility.yo`
 (`are_types_compatible_exact` and `are_types_compatible`) and the CTFE memo in
 `src/evaluator/calls/comptime_fn.yo` (`_ctfe_args_equal`, `_ctfe_types_era_equal`).
@@ -43,6 +43,7 @@ identity plus a short, listed set of coercions.
 | pointer | identical pointee |
 | `Dyn(...)` | **the same trait set**: every trait on each side is on the other side |
 | SomeT | the same lineage: equal name and frame level, or binders that correspond inside two function types being compared |
+| `never` | only `never` |
 
 ## Flow: identity plus these coercions, and nothing else
 
@@ -63,6 +64,8 @@ identity plus a short, listed set of coercions.
   implicit parameters must agree. The one exception is an impl member's receiver, whose form is
   free (`self : Self` implements a trait's `inout(self) : Self`); see `_with_receiver_mode_of`.
 - `Dyn(A, B)` flows into `Dyn(A)`: a trait-set subset is an upcast.
+- `never` flows into every type (Phase 3.6): a diverging expression fits any slot, and a `cond`/
+  `match` arm of type `never` does not constrain the join. Nothing but `never` flows into `never`.
 - A generic enum's instantiation reconstructed without its name (an empty-name copy the
   evaluator makes internally) flows into the named one when their variants agree.
 
