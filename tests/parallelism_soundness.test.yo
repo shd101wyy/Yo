@@ -3,6 +3,7 @@
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ platform, Platform } :: import("std/process");
 { __yo_async_blocking_begin } :: import("std/sys/externs.yo");
 /// The parallelism-soundness corpus (`plans/PARALLELISM_SOUNDNESS.md`, Phase 0).
 ///
@@ -260,14 +261,27 @@ test("D1 canary: a module-level value constant is readable from a spawned thread
   assert(LIMIT == i32(5), "so did the main thread");
 });
 // Canary: a `thread_local` global is per-thread mutable state.
+//
+// The oracle differs by platform because the contract does. Standalone WASI
+// has no threads: `pthread_create` fails and `__yo_thread_spawn` runs the
+// closure INLINE on the spawning thread (issues/fixed/wasi-thread-pool-submit-deadlock.md),
+// so the "thread" IS the main thread and reads and writes the main thread's
+// instance. Still race-free — one OS thread — but not a fresh instance, so
+// the degraded contract is pinned there instead of skipped.
 test("D1 canary: a thread_local global is written independently per thread", {
   tl_hits = i32(1);
   t := Thread(i32).spawn((io : Io) => {
     tl_hits = (tl_hits + i32(10));
     tl_hits
   });
-  assert(t.join() == i32(10), "the thread started from its own zeroed instance");
-  assert(tl_hits == i32(1), "the main thread's instance is untouched");
+  joined := t.join();
+  if(platform == Platform.Wasi, {
+    assert(joined == i32(11), "on standalone wasi the closure ran inline, on the main thread's instance");
+    assert(tl_hits == i32(11), "so the main thread sees the write");
+  }, {
+    assert(joined == i32(10), "the thread started from its own zeroed instance");
+    assert(tl_hits == i32(1), "the main thread's instance is untouched");
+  });
 });
 // D1 (Phase 3): a Send VALUE global is a mutable static once it is assigned,
 // so a spawned closure may not read one that is written anywhere.
