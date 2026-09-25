@@ -12,6 +12,7 @@
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
+{ is_bound_closure_identity, resolve_cell_chain } :: import("./utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -84,18 +85,14 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
         // their OWN identity: the dyn/box closure machinery lowers them to a
         // distinct fat call/data C struct, and hopping to the capture struct
         // merged the two ("no member named 'call'" across the dyn corpus).
-        //
-        // An annotation wrapper (reserved name "Impl",
-        // builtins/impl_constraint.yo) hops like a where-clause forall: its
-        // C type IS its resolution (codegen lowers a resolved SomeT to the
-        // concrete type), and a closure's `Impl(Fn(...))` wrapper is copied
-        // under fresh SomeT ids as the value flows. Keying by the id gave one
-        // closure's `ArrayList(typeof(k))` a C type per copy, and every
-        // closure's wrapper shares the name "Impl", so identity's name+level
-        // rule merged two closures' lists into one
+        // An annotation wrapper (reserved name "Impl") hops only when it is
+        // a closure identity (`is_bound_closure_identity`): its C type IS its
+        // resolution. A closure's wrapper is copied under fresh SomeT ids as
+        // the value flows, so keying it by id gave one closure's
+        // `ArrayList(typeof(k))` a C type per copy
         // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-        // An UNRESOLVED wrapper still keys by its id (the final line below).
-        if(ras_nm.len() == usize(0), {
+        // A `Future` or unresolved annotation wrapper keeps its id.
+        if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(cur)), {
           return(t_in);
         });
         (revisit : bool) = false;
@@ -399,16 +396,10 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                     // Value-enum fields still expand, distinguishing generic
                     // instantiations (Option(Token) vs Option(u8)).
                     rft := resolve_enum_shell(ft);
-                    // A payload position is the instantiation's argument
-                    // position (`Option(T).Some(value : T)`), so a SomeT there
-                    // resolves the way a struct's type-argument slot does:
-                    // `Option(<k's Impl>)` is one C type across the wrapper's
-                    // copies (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
                     fk := match(
                       rft,
                       .EnumT({ id : rid, is_reference_semantics : rrs }) =>
                         if(rrs && (rid.len() > usize(0)), rid.clone(), recur(ft, depth + usize(1))),
-                      .SomeT({}) => recur(_tk_resolve_arg_slot(ft), depth + usize(1)),
                       _ => recur(ft, depth + usize(1))
                     );
                     field_part.push_string(fk);
@@ -464,7 +455,18 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     // The closure-F identity split is instead repaired where it actually
     // occurs: the Struct arm resolves SomeT TYPE-ARGUMENT slots through
     // their cells (see _tk_resolve_arg_slot below).
-    .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    //
+    // A closure identity (`is_bound_closure_identity`: a resolved, non-Future
+    // `Impl` annotation wrapper — never a dyn wrapper) is the exception: it is
+    // its resolution wherever it appears, so `Option(*(<k's Impl>))` in a
+    // payload, or a comptime `sizeof(T)`, names the C type of k's capture
+    // struct whichever copy of the wrapper it holds
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    .SomeT({ id }) => cond(
+      is_bound_closure_identity(t) => recur(resolve_cell_chain(t), depth + usize(1)),
+      (id.len() > usize(0)) => id.clone(),
+      true => type_to_string(t)
+    ),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
     // above, which uses the id WITHOUT recursing into method signatures), NOT

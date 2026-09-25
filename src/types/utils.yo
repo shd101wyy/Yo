@@ -53,7 +53,8 @@ import("std/fmt");
   is_extern_type_name,
   is_unit_type,
   type_decl_module,
-  is_module_type
+  is_module_type,
+  is_future_trait_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -1412,20 +1413,37 @@ resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
   });
   if(is_some_type(cur), t_in, cur)
 });
-/// A SomeT that is a type in its own right, not a type variable: an annotation
-/// (`Impl`) or dyn-coercion (nameless) wrapper whose resolution chain reaches
-/// a concrete type. A closure's `(k : Impl(Fn() -> unit))` is one: it resolves
-/// to k's capture struct, and `type_key` keys `G(typeof(k))` by the wrapper
-/// itself. Binding a generic param to it is as concrete as binding it to the
-/// capture struct, and it names the SAME instance the argument does
+/// A closure's own type used as a type: an annotation wrapper (the reserved
+/// name "Impl", builtins/impl_constraint.yo) whose resolution chain reaches a
+/// concrete type, e.g. `(k : Impl(Fn() -> unit))` resolved to k's capture
+/// struct. It is a type in its own right, not a type variable: codegen lowers
+/// it to its resolution, so it is keyed (`type_key`), compared (identity and
+/// flow) and bound as that resolution — every copy of one closure's wrapper is
+/// one type, two closures are two
 /// (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+///
+/// Not a dyn-coercion wrapper (NAMELESS, values/dyn.yo): the dyn/box pipeline
+/// lowers that to its own fat call/data struct. Not a `Future` wrapper: an
+/// extern future lowers to a pointer, so its C type is not its resolution's.
 is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .SomeT({ name : bci_nm }) => (((bci_nm == "Impl") || (bci_nm.len() == usize(0))) && type_somes_all_resolve_concrete(t)),
+    .SomeT({ name : bci_nm, required_trait_types : bci_rtt }) => (
+      (bci_nm == "Impl") && !_any_future_trait(bci_rtt) && type_somes_all_resolve_concrete(t)
+    ),
     _ => false
   )
 );
+_any_future_trait :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  (aft_i : usize) = usize(0);
+  while(aft_i < tys.len(), {
+    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(aft_t), .None => false), {
+      return(true);
+    });
+    aft_i = (aft_i + usize(1));
+  });
+  false
+});
 /// STRUCTURALLY RECURSIVE "contains a codegen SomeType" test.
 ///
 /// `type_contains_some_type` above is TOP-LEVEL ONLY (see this module's header):

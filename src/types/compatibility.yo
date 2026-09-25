@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name, is_never_type } :: import("./guards.yo");
-{ type_contains_some_type, get_all_some_types, resolve_cell_chain } :: import("./utils.yo");
+{ type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -58,16 +58,6 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
 /// use.
 _is_extern_some :: (fn(t : TypeValue) -> bool)(
   match(t, .SomeT({ name : ies_nm }) => is_extern_type_name(ies_nm), _ => false)
-);
-/// A resolved annotation wrapper: a SomeT with the reserved name "Impl" whose
-/// resolution chain reaches a concrete type, e.g. a closure's
-/// `(k : Impl(Fn() -> unit))`, resolved to k's capture struct.
-_is_resolved_impl_wrapper :: (fn(t : TypeValue) -> bool)(
-  match(
-    t,
-    .SomeT({ name : riw_nm }) => ((riw_nm == "Impl") && !(is_some_type(resolve_cell_chain(t)))),
-    _ => false
-  )
 );
 // Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
 // ArrayList is RC-shared — mutations to out_* are visible to the caller.
@@ -1415,7 +1405,7 @@ _compat_impl :: (
         // issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
         // It is the rule a resolved SomeT meets against a concrete type above,
         // and the key `type_key` gives such a wrapper in an argument slot.
-        (_is_resolved_impl_wrapper(actual) && _is_resolved_impl_wrapper(expected)) =>
+        (is_bound_closure_identity(actual) && is_bound_closure_identity(expected)) =>
           recur(resolve_cell_chain(actual), resolve_cell_chain(expected), require_exact, visited),
         ((aname == ename) && (alvl == elvl)) => true,
         // Corresponding binders of the two `Func` types being compared.
