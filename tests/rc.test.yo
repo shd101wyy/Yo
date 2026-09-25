@@ -1454,3 +1454,36 @@ test("a match or cond call argument is released on an explicit return", {
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
 });
+// issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md:
+// a borrowed value is changed through an owned copy; a field without RC data
+// may still be written in the borrowed copy itself.
+FwbNamed :: struct(s : String, n : i32);
+fwb_rename :: (fn(p : FwbNamed) -> FwbNamed)({
+  q := p;
+  q.s = String.from("renamed-string-long-enough-for-the-heap");
+  q
+});
+fwb_scratch :: (fn(p : FwbNamed) -> i32)({
+  p.n = (p.n + i32(1));
+  p.n
+});
+test("a borrowed value is changed through an owned copy", {
+  orig := FwbNamed(s : String.from("original-string-long-enough-for-the-heap"), n : i32(1));
+  renamed := fwb_rename(orig);
+  assert(renamed.s == "renamed-string-long-enough-for-the-heap", "the copy has the new string");
+  assert(orig.s == "original-string-long-enough-for-the-heap", "the caller's string is untouched");
+  assert(fwb_scratch(orig) == i32(2), "a non-RC field of a by-value parameter can be written");
+  assert(orig.n == i32(1), "the write changes only the local copy");
+  o := Option(FwbNamed).Some(orig);
+  from_arm := match(
+    o,
+    .Some(d) => {
+      q := d;
+      q.s = String.from("from-an-arm-long-enough-for-the-heap");
+      q.s
+    },
+    .None => String.from("")
+  );
+  assert(from_arm == "from-an-arm-long-enough-for-the-heap", "the arm's copy has the new string");
+  match(o, .Some(d) => assert(d.s == "original-string-long-enough-for-the-heap", "the matched value is untouched"), .None => assert(false, "unreachable"));
+});

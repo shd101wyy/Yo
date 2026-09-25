@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
 { Exception } :: import("std/error");
@@ -59,12 +59,18 @@ pragma(Pragma.AllowUnsafe);
 // anonymous_function.yo's `g_anon_swallow_msg`. Single-threaded evaluator.
 // ---------------------------------------------------------------------------
 (g_derive_impl_err : ArrayList(String)) = ArrayList(String).new();
-_flag_derive_impl_err :: (fn(msg : String) -> unit)({
+/// The generated body's error code, carried onto the "derive on … failed"
+/// re-raise.
+(g_derive_impl_code : ArrayList(String)) = ArrayList(String).new();
+_flag_derive_impl_err :: (fn(msg : String, code : Option(String)) -> unit)({
   g_derive_impl_err.clear();
   g_derive_impl_err.push(msg);
+  g_derive_impl_code.clear();
+  match(code, .Some(c) => g_derive_impl_code.push(c), .None => ());
 });
 _clear_derive_impl_err :: (fn() -> unit)({
   g_derive_impl_err.clear();
+  g_derive_impl_code.clear();
 });
 _derive_impl_err_message :: (fn() -> String)(
   match(
@@ -93,7 +99,7 @@ _derive_eval_guarded :: (
   inner_exn := Exception(
     throw : (
       _err -> {
-        _flag_derive_impl_err(_err.to_string());
+        _flag_derive_impl_err(_err.to_string(), primary_diagnostic_code(_err));
         unwind(());
       }
     )
@@ -380,13 +386,17 @@ call_registered_derive_rule :: (
   _derive_eval_guarded(desugar_if_calls(result_expr), caller_env, ctx, impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
+    impl_code := g_derive_impl_code.get(usize(0));
     _clear_derive_impl_err();
     msg := _derive_strip_error_prefix(raw_msg);
     exn.throw(
       dyn(
-        format_error_message(
-          tok,
-          `derive on "${type_to_string(target_type)}" failed: ${msg}`
+        with_code_carried(
+          format_error_message(
+            tok,
+            `derive on "${type_to_string(target_type)}" failed: ${msg}`
+          ),
+          impl_code
         )
       )
     );

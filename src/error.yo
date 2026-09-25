@@ -429,7 +429,12 @@ format_error_messages_with_help :: (
   match(
     err.diagnostics.get(usize(0)),
     .Some(first) => {
-      first.help = help;
+      // `first` borrows a copy of the element: write an owned copy back, or
+      // the help never reaches the diagnostic (and the old help would be
+      // released twice).
+      primary := first;
+      primary.help = help;
+      err.diagnostics(usize(0)) = primary;
     },
     .None => ()
   );
@@ -629,7 +634,15 @@ take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
 /// inferred from the message text: the code belongs to the mistake, and a
 /// reworded message must not move it
 /// (issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md).
-with_code :: (fn(err : YoError, code : str) -> YoError)({
+with_code :: (fn(err : YoError, code : str) -> YoError)(_with_primary_code(err, _coded(code)));
+/// `err` with `code` on its primary diagnostic. A re-raise that rebuilds an
+/// error from another one's rendered text (a swallowed trial, a derive's
+/// generated body) carries that error's code over with this; `.None` leaves
+/// `err` as it is.
+with_code_carried :: (fn(err : YoError, code : Option(String)) -> YoError)(
+  match(code, .Some(_) => _with_primary_code(err, code), .None => err)
+);
+_with_primary_code :: (fn(err : YoError, code : Option(String)) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   (wi : usize) = usize(0);
   while(wi < err.diagnostics.len(), {
@@ -643,7 +656,7 @@ with_code :: (fn(err : YoError, code : str) -> YoError)({
         entries.push(
           cond(
             (wi == usize(0)) => Diagnostic(
-              code : _coded(code),
+              code : code.clone(),
               severity : d.severity,
               message : d.message,
               span : d.span,
@@ -661,6 +674,19 @@ with_code :: (fn(err : YoError, code : str) -> YoError)({
   });
   YoError(diagnostics : entries)
 });
+/// The code of `err`'s primary diagnostic (`None` for a non-`YoError` or an
+/// uncoded one).
+primary_diagnostic_code :: (fn(err : AnyError) -> Option(String))(
+  match(
+    downcast(err, YoError),
+    .Some(ye) => match(
+      ye.diagnostics.get(usize(0)),
+      .Some(d) => d.code,
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
 /// The file of `err`'s primary diagnostic (`None` for a non-`YoError`).
 primary_diagnostic_path :: (fn(err : AnyError) -> Option(String))(
   match(
@@ -792,7 +818,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
-export(yo_error_from_diagnostics, primary_diagnostic_path, reanchor_primary_at, with_code);
+export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the

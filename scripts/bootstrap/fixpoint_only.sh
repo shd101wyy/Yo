@@ -9,8 +9,13 @@ S1=${S1:?}; P=${P:?}
 # of __yo_tN churn (issues/fixed/fixpoint-gate-std-path-spelling-changes-type-keys.md).
 # resolve_std_path canonicalizes since 2026-09-10; the explicit flag keeps
 # the gate self-describing and independent of the resolution route.
+# The exit status is the verdict (0 = holds), so a caller cannot read a broken
+# fixpoint as a pass; the printed markers stay for humans and logs.
+rc=0
 YO_MAIN_STACK_MB=4096 "$S1" compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --std-path ./std -o /tmp/${P}_stage2 &> /tmp/${P}_stage2_emit.log
-echo "STAGE2_RC=$?"
+stage2_rc=$?
+echo "STAGE2_RC=$stage2_rc"
+[ "$stage2_rc" -eq 0 ] || rc=1
 # GATE, not a readout: a stage-2 C carrying an untranspiled body is a broken
 # compiler even when stage2 == stage3 byte-for-byte (both stages would emit the
 # same hole). The count comes from scripts/count-transpile-failures.sh so the
@@ -21,6 +26,7 @@ if bash scripts/count-transpile-failures.sh /tmp/${P}_stage2.c; then
   echo "stage2 hollow=0"
 else
   echo "stage2 hollow>0 STAGE2_HOLLOW_GATE_FAILED"
+  rc=1
 fi
 # std/http in the compiler closure puts OpenSSL headers into stage2.c —
 # resolve them via pkg-config (brew fallback for the non-pkgconfig keg-only
@@ -35,7 +41,12 @@ if [ -z "$SSL_FLAGS" ] && command -v brew >/dev/null 2>&1; then
   fi
 fi
 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 $SSL_FLAGS /tmp/${P}_stage2.c -o /tmp/${P}_s2 2> /tmp/${P}_clang.log
-echo "CLANG_RC=$?"
+clang_rc=$?
+echo "CLANG_RC=$clang_rc"
+[ "$clang_rc" -eq 0 ] || rc=1
 YO_MAIN_STACK_MB=4096 /tmp/${P}_s2 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --std-path ./std -o /tmp/${P}_stage3 &> /tmp/${P}_stage3_emit.log
-echo "STAGE3_RC=$?"
-if cmp -s /tmp/${P}_stage2.c /tmp/${P}_stage3.c; then echo "FIXPOINT_HOLDS"; else echo "FIXPOINT_BROKEN"; cmp /tmp/${P}_stage2.c /tmp/${P}_stage3.c | head -2; fi
+stage3_rc=$?
+echo "STAGE3_RC=$stage3_rc"
+[ "$stage3_rc" -eq 0 ] || rc=1
+if cmp -s /tmp/${P}_stage2.c /tmp/${P}_stage3.c; then echo "FIXPOINT_HOLDS"; else echo "FIXPOINT_BROKEN"; cmp /tmp/${P}_stage2.c /tmp/${P}_stage3.c | head -2; rc=1; fi
+exit $rc

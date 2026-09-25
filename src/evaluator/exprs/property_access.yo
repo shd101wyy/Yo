@@ -44,8 +44,8 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_variant_message } :: import("../../types/utils.yo");
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message } :: import("../../types/utils.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -1701,7 +1701,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!is_dot_callee(ast_expr_id(expr)), {
-              exn.throw(dyn(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels))));
+              exn.throw(dyn(with_code(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels)), unknown_field_code(base_ty))));
               return(expr);
             });
             // A method call — return without setting ExprInfo.

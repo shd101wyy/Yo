@@ -100,7 +100,7 @@ pragma(Pragma.AllowUnsafe);
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ format_error_message, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
+{ format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
 { Exception, AnyError } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
@@ -252,6 +252,10 @@ _clear_trial_swallow :: (fn() -> unit)({
   g_trial_swallow_diags.clear();
 });
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
+/// The swallowed error's code, carried onto a re-raise built from its text.
+_trial_swallow_code :: (fn() -> Option(String))(
+  match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.code, .None => Option(String).None)
+);
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
 );
@@ -1979,8 +1983,9 @@ Result type: ${type_to_string(result_box)}`
               match(
                 hard_swallow_diagnostic(_trial_swallow_message()),
                 .Some(fwd_msg) => {
+                  fwd_code := _trial_swallow_code();
                   _clear_trial_swallow();
-                  exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg)));
+                  exn.throw(dyn(with_code_carried(format_error_message(ast_expr_token(body_expr), fwd_msg), fwd_code)));
                 },
                 .None => ()
               );

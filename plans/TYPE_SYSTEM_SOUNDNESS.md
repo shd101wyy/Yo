@@ -490,6 +490,21 @@ byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
    (`match-redundancy-and-range-exhaustiveness-gaps`). Coordinate with the P4 step of
    `plans/MATCH_PATTERN_MATCHING.md`.
 
+   **Landed 2026-09-26.** `src/pattern.yo`, reported from `evaluator/exprs/match.yo`:
+   - **Integer intervals.** At a fixed-width integer position, constants and ranges are intervals
+     of 64-bit keys, with the sign bit flipped for signed types. Constructor splitting decides
+     exhaustiveness, so `(0..=255)` covers `u8` and a gap is the witness (`(101 ..= 149)`).
+     `usize`/`isize` differ per target and still need a catch-all.
+   - **Per-arm verdicts (`arm_reachability`).** An arm no value matches (an empty range, a
+     GADT-excluded variant) and an arm one earlier arm or or-alternative covers are errors (E0608).
+     An arm the earlier arms cover only together is a warning. A trailing catch-all is always
+     accepted.
+   - **Witnesses.** A missing variant renders its payload (`.Circle(_)`), and the E0607 help says
+     when a guard leaves the value unmatched.
+
+   Found and fixed on the way: a repeated or-alternative was accepted; a GADT-excluded variant's
+   partial arm made E0607 demand an impossible case.
+
 Exit: `grep -c codegen_fatal` over paths reachable from user source is tracked and falling; no
 Phase 0 corpus program produces "internal compiler error".
 
@@ -520,7 +535,21 @@ Items 1, 2, 5 and 6 stay here.
    `module-level-control-bound-binding-not-rejected`).
 6. **Definite initialization.** Make E0903 fire (`cond-arm-initialization-merge-check-never-fires`).
 
-**Items 1, 2, 5, 6 landed 2026-09-25.**
+**Items 1, 2, 5, 6 landed 2026-09-25**; the first full battery (2026-09-26) found and fixed four
+things:
+- The compiler kept `Exception` handlers in two typed module globals, which item 5 now rejects.
+  The loader and codegen return errors as values instead
+  (`issues/fixed/the-compiler-keeps-exception-handlers-in-module-globals.md`).
+- The loop ways-out check (E0907) is limited to values with a drop.
+- A returning arm's move, undone for the code after the branch, was released again at the
+  arm's own `return`. Undone moves are now kept per arm for codegen's cleanup points
+  (`issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md`, caught by
+  running the Phase 5 test binaries under `libgmalloc`).
+- The E0907 registry example was fixed.
+
+Also found in the Phase 4/5 battery: a field write through a borrowed value binding released
+data its owner still held. It is E0908
+(`issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md`).
 
 - **The flow log (1, 6).** Every assignment and every move of a user-named variable is logged with
   its init and move state before and after. A `cond`/`match` arm starts from the state before the

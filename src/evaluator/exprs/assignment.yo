@@ -77,6 +77,9 @@ pragma(Pragma.AllowUnsafe);
   is_atomic_reference_struct_type,
   is_some_type,
   is_tuple_type,
+  is_array_type,
+  is_struct_type,
+  is_reference_struct_type,
   is_function_type,
   is_function_type_generic
 } :: import("../../types/guards.yo");
@@ -87,11 +90,11 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../types/env_lookup.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_flowable_expr, FlowOptions, flag_flow_violation }
+{ is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
+{ E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
@@ -242,6 +245,62 @@ get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
     expr
   )
 );
+// ---------------------------------------------------------------------------
+// borrowed_value_root_of_place
+// ---------------------------------------------------------------------------
+/// The binding whose OWN storage the place `lhs` (evaluated) writes into, when
+/// that binding borrows its value: a by-value parameter or a `match`/`for`
+/// binding, whose storage is a copy of the owner's. Every step from the root
+/// must stay inside the copy: a field of a value struct or tuple, an element
+/// of a fixed array. A step through a `ref` object, a pointer, a `Box` or a
+/// collection writes into heap storage its object owns, which is fine.
+/// `.None` when the write is not into a borrowed copy
+/// (issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md).
+borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext) -> Option(Variable))({
+  (cur : AstExpr) = lhs;
+  (done : bool) = false;
+  while(!done, {
+    (next : Option(AstExpr)) = match(
+      cur,
+      .FnCall(_, callee, args, _, _) => cond(
+        (ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2)))) => args.get(usize(0)),
+        // An index write `a(i)`: the callee is the place.
+        true => Option(AstExpr).Some(callee)
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      next,
+      .Some(obj) => {
+        obj_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(obj)), .Some(oi) => oi.ty, .None => t_unit());
+        is_dot := ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2)));
+        in_copy := cond(
+          is_dot => ((is_struct_type(obj_ty) && !is_reference_struct_type(obj_ty)) || is_tuple_type(obj_ty)),
+          true => is_array_type(obj_ty)
+        );
+        if(!in_copy, {
+          return(Option(Variable).None);
+        });
+        cur = obj;
+      },
+      .None => {
+        done = true;
+      }
+    );
+  });
+  if(!ast_expr_is_atom(cur), {
+    return(Option(Variable).None);
+  });
+  vars := get_variables_from_env(env, ast_expr_token(cur).value.clone());
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => cond(
+      (((v.is_owning_the_rc_value || v.is_ref) || v.is_compile_time_only) || v.is_module_level) => Option(Variable).None,
+      true => Option(Variable).Some(v)
+    ),
+    .None => Option(Variable).None
+  )
+});
 // ---------------------------------------------------------------------------
 // get_root_expr_of_place
 // ---------------------------------------------------------------------------
@@ -732,6 +791,37 @@ evaluate_assignment :: (
         flag_flow_violation(prop_viol_err);
         exn.throw(dyn(prop_viol_err));
       });
+    });
+    // Step 3c — A write into a borrowed copy must not release RC data the
+    // copy's owner still holds (E0908).
+    if(type_contains_rc_type(expected_ty), {
+      match(
+        borrowed_value_root_of_place(evaluated_lhs, env, ctx),
+        .Some(bv) => {
+          what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+          // The place as written: `p.s`, not the printer's `(p.s)`.
+          place_text := ast_expr_to_string(lhs);
+          if((place_text.starts_with("(") && place_text.ends_with(")")), {
+            place_text = place_text.substring(usize(1), (place_text.len() - usize(1)));
+          });
+          fix := cond(
+            bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+            true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy`
+          );
+          raise_flow_violation(
+            with_code(
+              format_error_message(
+                ast_expr_token(lhs),
+                `Cannot write \`${place_text}\`: \`${bv.name}\` is ${what}, which borrows its value, and the old value holds data (${type_to_string(expected_ty)}) that its owner still holds. Writing it would release that data. To change it, ${fix}.`
+              ),
+              E_WRITE_THROUGH_BORROW
+            ),
+            ctx,
+            exn
+          );
+        },
+        .None => ()
+      );
     });
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;

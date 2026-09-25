@@ -19,7 +19,7 @@ The straightforward "always own" model is now fully implemented:
 
 ```rust
 fn process(p : Point) -> unit {
-  p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
+  p.x = 10;        // ✅ OK: Mutate field (no RC data in the old value; an RC field is E0908)
   p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
 }
 
