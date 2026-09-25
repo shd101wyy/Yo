@@ -39,6 +39,13 @@ called from both paths. The arm's copy also used `is_type_hierarchy_type` where 
 the declared `comptime` flag, and it lacked the checking-phase gate on the move. Both now follow
 the one rule.
 
+## Found by the fix
+
+The compiler's own `codegen_fatal` (`src/codegen/constants.yo`) had this bug. It called
+`exn.throw(dyn(wrapped))` in one arm and `eprintln(wrapped)` after the match. `throw` is a `ctl`
+operation, and a handler that resumes returns to the `eprintln`, which then reads the String that
+was moved into the `Dyn`. The throw now takes a clone.
+
 ## Verification
 
 `tests/type_soundness.test.yo`, "a moved argument is rejected on both call paths".

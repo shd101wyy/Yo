@@ -208,7 +208,10 @@ codegen_fatal :: (fn(message : String) -> unit)({
   match(
     g_codegen_fatal_exn,
     .Some(exn) => {
-      exn.throw(dyn(wrapped));
+      // A clone: `throw` is a `ctl` operation, and a handler that resumes
+      // returns here, where `wrapped` is printed below. Moving it into the
+      // `Dyn` made that a use after move.
+      exn.throw(dyn(wrapped.clone()));
       ()
     },
     .None => ()
