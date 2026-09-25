@@ -1,7 +1,7 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4, 2.6 and 2.7 LANDED 2026-09-24/25
-(the per-phase "Landed" notes below); 2.5 and 3–7 open. Source: a six-part audit of the type system on
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
+"Landed" notes below); 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
@@ -267,6 +267,31 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    `check_if_function_parameter_matches_argument` and `_evaluate_funcval_runtime_call` each
    implement a subset of the arg/param rule (self-documented in `src/evaluator/calls/function.yo`).
    Factor the rule into one helper that all three call, so a fix made at one site applies to all.
+
+   **Landed 2026-09-25.** The rule is now shared helpers:
+   - `strip_argument_label`;
+   - `consume_argument_for_parameter` (4a: no use of a moved argument; 4b: `own` moves; 4c: the
+     borrowed-projection dup);
+   - `check_argument_for_parameter` (the comptime-argument gate, literal fit and range, `Impl(Fn)`
+     callability, `Impl(Trait)` satisfaction, and the comptime lowering);
+   - `bind_parameter` (`env.yo`).
+
+   Both call paths call the argument helpers. The definition-time body env and the
+   specialization re-binds call `bind_parameter`. Every binding takes its flags from the
+   DECLARATION: compile-time-only iff declared `comptime(...)`, `inout` → a reassignable
+   reference, `own` → an owning binding. The inline arm used to guess compile-time-only from
+   whether the argument had a value, and the specialization re-binds hardcoded a non-owning `own`
+   binding. Two user-visible bugs were copies of the rule drifting apart:
+   `issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md` (a use-after-move;
+   the inline arm had no 4a) and
+   `issues/fixed/a-folded-comptime-integer-argument-to-a-method-is-lowered-to-i32.md` (`h.g(100 +
+   50)` rejected for a `u8` parameter).
+
+   What stays site-specific, and why: the definition-time env binds with no argument at all.
+   The `try_to_call` path binds the declared type after synthesis, and the inline arm binds the
+   argument's type. The explicit `generic(...)` application check exists only on the inline arm,
+   which is the only path that accepts one. An `undefined` argument's substituted default is not
+   a caller expression and skips the ownership rule.
 6. **Associated types in free-fn `where`.** Execute `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
    on top of step 4, because both are about binding a variable from a bound.
 

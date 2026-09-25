@@ -6468,14 +6468,20 @@ Fix: wrap the call:
               ),
               .None => false
             );
-            match(
-              consume_argument_for_parameter(evaled_arg, arg_expr_eff, arg_info, fv_p_owning, fv_p_is_ct, fv_p_is_ref, fv_callee_is_extern, env, ctx, exn),
-              .Some(fv_s0d) => {
-                fv_s0_drops.push(fv_s0d);
-                fv_s0_marked_args.push(evaled_arg);
-              },
-              .None => ()
-            );
+            // An `undefined` argument was replaced by the parameter's default,
+            // evaluated in a frame binding the earlier arguments (popped
+            // above): it is not a caller expression, so no caller variable is
+            // moved or projected by it.
+            if(!(du_frame_pushed), {
+              match(
+                consume_argument_for_parameter(evaled_arg, arg_expr_eff, arg_info, fv_p_owning, fv_p_is_ct, fv_p_is_ref, fv_callee_is_extern, env, ctx, exn),
+                .Some(fv_s0d) => {
+                  fv_s0_drops.push(fv_s0d);
+                  fv_s0_marked_args.push(evaled_arg);
+                },
+                .None => ()
+              );
+            });
           };
           ai = (ai + usize(1));
         });
