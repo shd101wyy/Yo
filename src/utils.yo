@@ -320,7 +320,7 @@ register_top_level_anchors :: (fn(module_path : String, anchors : ArrayList(TopL
 /// exactly one enclosing anchor (the last one starting at or before it), labels
 /// are unique within a module, and `(row offset, column)` is unique within one
 /// anchor.
-_anchored_position :: (fn(module_path : String, row : usize, column : usize) -> (String, String))({
+_anchored_position :: (fn(module_path : String, row : usize, column : usize) -> Tuple(String, String))(
   match(
     g_top_level_anchors.get(module_path),
     .Some(list) => {
@@ -353,7 +353,7 @@ _anchored_position :: (fn(module_path : String, row : usize, column : usize) -> 
       `_r${row.to_string()}c${column.to_string()}`
     )
   )
-});
+);
 /// A stable, unique-per-emission label for `prefix` at a source position:
 /// `<prefix>r<row>c<col>_n<k>`, where k is that position's occurrence index.
 /// The codegen label/temp mints that used to embed the global `random_id`

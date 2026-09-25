@@ -1925,9 +1925,10 @@ _anchor_label_chars :: (fn(raw : String) -> String)({
 });
 /// Where a top-level statement starts: the earlier of its head token and its
 /// first argument's (`P :: ...` is headed by `::`, after `P`).
-_statement_start :: (fn(e : AstExpr) -> (usize, usize))({
+_statement_start :: (fn(e : AstExpr) -> Tuple(usize, usize))({
   ht := ast_expr_token(e);
-  (row, column) := (ht.row, ht.column);
+  (row : usize) = ht.row;
+  (column : usize) = ht.column;
   match(
     e,
     .FnCall(_, _, sargs, _, _) => match(
