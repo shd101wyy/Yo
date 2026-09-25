@@ -148,6 +148,19 @@ the per-chunk peak before choosing a default.
 4. State the requirement in the install docs, `docs/en-US/` and `docs/zh-CN/`:
    8 GB RAM, with a seed at or after the release that lands this.
 
+**Items 1–2 landed (2026-09-25) as one job**, "Compiler build inside 8 GB"
+(`scripts/bootstrap/compile_memory_ratchet.sh`, in `test.yml` after the
+bootstrap fixpoint). It compiles `src/main.yo` at `--optimize 2`, C compiler
+included, with the stage-2 binary inside a `systemd-run --scope` capped at
+`MemoryMax=8G` with `MemorySwapMax=0`, and reads the scope's cgroup
+`memory.peak`. That figure covers every process in the tree. GNU time's max
+RSS does not: Linux `wait4` reports the largest single process, which would
+have measured the old layout as 6.6 GB when the machine needed 9.7. The job
+fails on an OOM kill or a non-zero exit whatever the baseline says, and
+otherwise compares the peak with `compile_src_main_peak_kb` at ±10% both
+ways. First recording, ubuntu-latest: **6,656,632 kB (6.35 GiB), rc 0,
+`oom_kill` 0, 680 s.**
+
 ## 2. Out of scope
 
 - The evaluator's retained memory: that is `EVALUATOR_MEMORY_REDUCTION.md`.
