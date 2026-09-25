@@ -151,7 +151,7 @@ json :: import("std/encoding/json");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
-{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
+{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check_watch.yo");
 {
   lookup_explain,
   registry_entries,
@@ -6628,7 +6628,6 @@ run_update_cmd :: (
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
 _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
-  eprintln(String.from("[watchdbg] round begins"));
   // §7 step 2: this round's artifact compiles run IN PROCESS against the
   // warm universe (the flag rides on opts into run_build's context).
   opts.watch_in_process = true;
@@ -6647,7 +6646,6 @@ _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
     .None => mm_set_shared_expr_info_table(expr_info_table_new()),
     .Some(_) => ()
   );
-  eprintln(String.from("[watchdbg] flag set"));
   swallow := Exception(
     throw : (
       (err) -> {
@@ -6919,6 +6917,10 @@ run_build_cmd :: (
   while(true, {
     changed := wait_for_change(watch_files, stats, poll_ms, io);
     println(`build: ${changed.len().to_string()} file(s) changed — rebuilding`);
+    // The round compiles in process against the warm module cache; evict the
+    // changed files and their importers first, or an edited import is served
+    // from the cache and the rebuilt binary keeps the old code.
+    _dropped := invalidate_changed_files(changed, resolve_std_path());
     round_t0 := Instant.now();
     _ok := _build_round_watch(opts, io);
     round_no = (round_no + usize(1));
