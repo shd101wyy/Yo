@@ -2,9 +2,9 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-10;
 measured by the std-primitives sub-audit).
-**Status:** OPEN. **Data race inside std**, reachable from safe code that only calls
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 3). Was: **Data race inside std**, reachable from safe code that only calls
 `html_decode` from two threads. The std instance of the module-global class
-(`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`): the rule that closes the
+(`issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md`): the rule that closes the
 user-code hole has to cover std's own globals too.
 **Measured:** mechanism verified in emitted C (the `HashMap(String, i32).get` specialization
 contains `__yo_incr_rc(<key>)` … `__yo_decr_rc(<key>)` on the bucket key, and the global handle
@@ -44,3 +44,11 @@ sweep in the plan's Phase 3 greps every `^name := ` / `^(name : T) = ` at module
 (the complete inventory today: `std/rand.yo` thread-locals — fine; `std/log.yo` five globals
 under `_log_mutex` — fine; these two) and the same rule then becomes the evaluator's for user
 code.
+
+## Fix (2026-09-26)
+
+The second option: both lookups run under a module `RawMutex` (`_tables_lock`) and return a deep
+COPY made inside the lock (`_lookup_entity` clones the value `String`; `_is_legacy_entity`
+answers a `bool`), so no non-atomic handle of the tables ever reaches the caller's thread. A
+SAFETY comment on the tables records why the pragma'd module keeps a shape rule D1 forbids in
+safe code. The RC-free static table stays a possible later diet.

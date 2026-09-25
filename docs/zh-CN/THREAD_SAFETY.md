@@ -148,6 +148,25 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
 
+## 模块级全局变量
+
+模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。在安全代码中：
+
+- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(Fn(...), Send)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Send` 的全局变量。非原子引用计数的全局变量（`ArrayList`、`String`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
+- 在任何地方被**写入**的 `Send` 值类型全局变量（标量或内部不含引用的结构体）—— 被赋值、以它为根做字段或索引写入、或交给被调用者会通过其写入的 `inout` 参数 —— 是可变静态变量，在另一个线程上运行的闭包不能触及它。只在一个线程上读写时，它是普通的全局变量；被所有线程读取但从不写入时，它是共享常量。错误报在编译器第二个看到的那个位置上，并指出另一个位置。
+
+```rust
+LIMIT :: i32(5);                              // 常量：任何线程都可读
+hits := AtomicI32(i32(0));                    // 原子对象：共享状态，可以
+(thread_local(scratch) : i32) = i32(0);       // 每线程可变状态：可以
+g := ArrayList(i32).new();                    // 只在主线程上可用
+fill :: (fn() -> unit)({ g.push(i32(1)); });
+Thread(unit).spawn(io => { fill(); });        // 错误：闭包调用了触及 g 的 fill
+(counter : i32) = i32(0);
+bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // 单独来看没问题……
+Thread(i32).spawn(io => counter);             // 错误：……但另一个线程读取了 counter
+```
+
 ## 负向实现 — 选择退出 Send
 
 可以通过 `!(Send)` 明确退出自动派生的 `Send`：
@@ -199,8 +218,8 @@ match(
 本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
 
 - **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
-- **模块级全局变量是共享的静态变量**，没有 `Send` 检查（`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`）；在 std 内部，`html_decode` 的表在读取时竞争（`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
+- **被派生的闭包可以通过它调用的闭包值**（捕获的辅助闭包、闭包参数）**或 `dyn` 方法触及非 Send 的模块级全局变量**：全局可达性检查只跟随编译期能解析到函数体的调用（`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`）。
 - **闭包可以在 `yo check` 下捕获 `with_lock` 闭包体的 `inout(v)`**（代码生成失败）（`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`）。
 - **用户规则无法避免的运行时竞争**：派生线程事件循环上的跨线程 `Waker` 释放顺序、原子对象上的非原子 `borrow_count`、`Iso` 句柄上的 `rc()`，以及 Windows/macOS 特有的运行时状态 —— 列于 `plans/PARALLELISM_SOUNDNESS.md` §3（P-11 至 P-25）。
 - **安全文件可以调用从 `std/sys/externs.yo` 导入的原始运行时 extern**（`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`）。

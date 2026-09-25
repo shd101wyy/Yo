@@ -39,6 +39,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_paths_for_write,
   expr_info_set_converted_runtime_type,
   register_thread_local,
+  is_thread_local,
   expr_info_capture_type,
   expr_info_comptime_ref,
   expr_info_index_trait_ptr_type,
@@ -56,7 +57,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits } :: import("../effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits, d1_record_global_write } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
   is_struct_val,
@@ -272,7 +273,58 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
 // ---------------------------------------------------------------------------
 /// One `inout` parameter of the call being evaluated whose argument is a place
 /// rooted in an atomic object, waiting for the callee's mutation mask.
-D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, root_text : String, root_type : String);
+/// `global` is the module-level global the place is rooted in (the D1 form:
+/// a write is an error only when a closure that runs on another thread
+/// reaches that global too); `.None` for an atomic-object root (always an error).
+D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, noun : String, root_text : String, root_type : String, global : Option(Variable));
+/// The module-level (non-thread-local, runtime) global a place is rooted in,
+/// if any — the D1 write rule's counterpart of `get_atomic_object_root_type`.
+_module_global_root_var :: (
+  fn(root_expr : AstExpr, env : Environment) -> Option(Variable)
+)({
+  if(!ast_expr_is_atom(root_expr), {
+    return(Option(Variable).None);
+  });
+  tok := ast_expr_token(root_expr);
+  var_name := tok.value;
+  if(var_name.is_empty(), {
+    return(Option(Variable).None);
+  });
+  variables := get_variables_from_env(env, var_name.clone());
+  if(variables.len() == usize(0), {
+    return(Option(Variable).None);
+  });
+  match(
+    variables.get(variables.len() - usize(1)),
+    .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
+    .None => Option(Variable).None
+  )
+});
+/// D1's mutable-static rule: record a write to module-level global `gv` at
+/// `write_tok` (safe files only); an error iff a closure that runs on another
+/// thread reaches the same global (`d1_record_global_write` consults the
+/// reachability walk's registry, and the walk consults this one).
+_d1_record_write :: (
+  fn(gv : Variable, write_tok : Token, how : String, note : String, exn : Exception) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.module_path.clone())), {
+    return(());
+  });
+  match(
+    d1_record_global_write(gv.token, gv.name.clone(), write_tok),
+    .Some(reach_loc) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            write_tok,
+            `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(gv.ty)})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
 /// Record `place` (the argument bound to `inout` parameter `param_index` of
 /// the call being matched) when it is rooted in an atomic object and the
 /// CALLER's file has no pragma. Nothing is decided here: whether the binding
@@ -285,6 +337,7 @@ d3_record_inout_place :: (
     return(());
   });
   root_expr := get_root_expr_of_place(place);
+  how := if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in"));
   match(
     get_atomic_object_root_type(root_expr, env),
     .Some(root_ty) => {
@@ -292,9 +345,29 @@ d3_record_inout_place :: (
         D3PendingInout(
           param_index : param_index,
           place : place,
-          how : if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+          how : how,
+          noun : String.from("atomic object"),
           root_text : ast_expr_to_string(root_expr),
-          root_type : type_to_string(root_ty)
+          root_type : type_to_string(root_ty),
+          global : Option(Variable).None
+        )
+      );
+    },
+    .None => ()
+  );
+  // D1: the same question for a place rooted in a module-level global.
+  match(
+    _module_global_root_var(root_expr, env),
+    .Some(gv) => {
+      pending.push(
+        D3PendingInout(
+          param_index : param_index,
+          place : place,
+          how : how,
+          noun : String.from("module-level global"),
+          root_text : ast_expr_to_string(root_expr),
+          root_type : type_to_string(gv.ty),
+          global : Option(Variable).Some(gv)
         )
       );
     },
@@ -326,13 +399,19 @@ d3_check_pending :: (
     match(
       pending.get(i),
       .Some(entry) => if(param_mutation_mask_hits(mask, entry.param_index), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(entry.place),
-              `Cannot ${entry.how} atomic object '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
-            )
-          )
+        match(
+          entry.global,
+          .Some(gv) => _d1_record_write(gv, ast_expr_token(entry.place), entry.how.clone(), String.from(", which the callee may write through"), exn),
+          .None => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(entry.place),
+                  `Cannot ${entry.how} ${entry.noun} '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+                )
+              )
+            );
+          }
         );
       }),
       .None => ()
@@ -370,6 +449,13 @@ throw_if_write_through_atomic_root :: (
         )
       );
     },
+    .None => ()
+  );
+  // D1: a write rooted in a module-level global (not a thread-local) is a
+  // write to a static every thread shares.
+  match(
+    _module_global_root_var(root_expr, env),
+    .Some(gv) => _d1_record_write(gv, ast_expr_token(place), how, String.new(), exn),
     .None => ()
   );
 });
@@ -1084,6 +1170,15 @@ evaluate_assignment :: (
         )
       )
     );
+  });
+  // D1: reassigning a module-level global (not a thread-local) is a write to
+  // a static every thread shares. A typed module-level declaration
+  // `(g : T) = init` reaches this arm too, as the initialization of the
+  // binding at its own declaration token — that is not a write.
+  d1_lhs_tok := ast_expr_token(lhs_resolved);
+  d1_is_decl_init := (((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column)) && (d1_lhs_tok.module_path == variable.token.module_path));
+  if(((variable.is_module_level && !variable.is_compile_time_only) && !d1_is_decl_init) && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
+    _d1_record_write(variable, ast_expr_token(lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.

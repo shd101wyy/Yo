@@ -147,6 +147,36 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send)", {
 // ============================================================================
 // D1 — module-level bindings
 // ============================================================================
+// D1 (Phase 3): a spawn closure may not reach a non-Send global, even
+// through a called function.
+g_items := ArrayList(i32).new();
+_fill_global :: (fn() -> unit)({
+  g_items.push(i32(1));
+});
+comptime_expect_error({
+  _d1_spawn_reaches_global :: (fn() -> unit)({
+    t := Thread(unit).spawn(io => {
+      _fill_global();
+      ()
+    });
+    t.join();
+  });
+  _d1_spawn_reaches_global();
+});
+// Canary: a spawn closure may call a function that reads a `Send` constant
+// and an atomic global; the non-Send global above is untouched by it.
+g_hits := AtomicI32(i32(0));
+_count_hit :: (fn() -> i32)({
+  g_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  LIMIT
+});
+test("D1 canary: a spawned closure may call a function that reaches Send globals", {
+  t := Thread(i32).spawn((io : Io) => _count_hit());
+  assert(t.join() == i32(5), "the callee read LIMIT on the thread");
+  assert(g_hits.load(MemoryOrder.Acquire) == i32(1), "and bumped the atomic");
+  g_items.push(i32(7));
+  assert(g_items.len() == usize(1), "the non-Send global is still usable on the main thread");
+});
 // Canary: a `Send` value-type constant may be read from two threads.
 test("D1 canary: a module-level value constant is readable from a spawned thread", {
   t := Thread(i32).spawn((io : Io) => (LIMIT + i32(1)));
@@ -162,6 +192,27 @@ test("D1 canary: a thread_local global is written independently per thread", {
   });
   assert(t.join() == i32(10), "the thread started from its own zeroed instance");
   assert(tl_hits == i32(1), "the main thread's instance is untouched");
+});
+// D1 (Phase 3): a Send VALUE global is a mutable static once it is assigned,
+// so a spawned closure may not read one that is written anywhere.
+(g_level : i32) = i32(0);
+_raise_level :: (fn() -> unit)({
+  g_level = (g_level + i32(1));
+});
+comptime_expect_error({
+  _d1_spawn_reads_written_global :: (fn() -> i32)({
+    _raise_level();
+    t := Thread(i32).spawn((io : Io) => g_level);
+    t.join()
+  });
+  _d1_spawn_reads_written_global();
+});
+// Canary: a written value global that no other thread reaches is an ordinary
+// single-threaded mutable static.
+(g_main_only : i32) = i32(0);
+test("D1 canary: a value global written and read only on the main thread is legal", {
+  g_main_only = (g_main_only + i32(2));
+  assert(g_main_only == i32(2), "the write landed");
 });
 // ============================================================================
 // D8 — closures may not capture second-class bindings

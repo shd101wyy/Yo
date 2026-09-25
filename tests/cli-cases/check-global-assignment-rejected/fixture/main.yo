@@ -1,0 +1,12 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+(counter : i32) = i32(0);
+main :: (fn() -> unit)({
+  t := Thread(i32).spawn((io : Io) => counter);
+  bump();
+  println(`counter=${counter} seen=${t.join()}`);
+});
+bump :: (fn() -> unit)({
+  counter = (counter + i32(1));
+});
+export(main);

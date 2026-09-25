@@ -36,6 +36,7 @@
   BK_COLON
 } :: import("../../expr.yo");
 { get_variables_from_env, Environment, Variable } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 {
   ExprInfoTable,
   expr_info_table_get,
@@ -55,7 +56,11 @@
 { is_function_type, is_pointer_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ file_has_pragma } :: import("../memory_safety.yo");
+{ file_has_pragma, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ is_thread_local } :: import("../../expr_info.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { TokenAndError } :: import("../../error.yo");
 { ast_expr_to_string } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
@@ -3221,4 +3226,242 @@ function_param_mutation_mask :: (
   touched := ArrayList(String).new();
   _MsP.analyze(fid, body, table, touched).mask
 });
-export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations);
+// ===========================================================================
+// GLOBAL-REACH mode — rule D1 (plans/reference/PARALLELISM_RULES.md)
+//
+// Answers, for a closure that will run on another thread (one coerced to an
+// `Impl(Fn(...), Send)` slot): does its body, or any function it can call,
+// reference a module-level runtime global that is not `Send`? A non-atomic RC
+// global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) is a static
+// every thread shares, and even a READ through its handle updates a refcount
+// (issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md).
+// The walk follows the STATIC call graph: a call through a closure value or a
+// dyn method has no body to descend into and is not followed
+// (issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md —
+// closed together with rule D4). Bodies defined in a pragma'd file are the audited base
+// and are not descended into (std/log's globals are under a mutex, std's
+// html tables under a lock). `thread_local` globals are per-thread and fine.
+// ===========================================================================
+(g_gr_by_fid : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+(g_gr_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+// The mutable-static half of D1. A VALUE-typed global (a `Send` scalar or
+// struct) that is WRITTEN is fine on one thread, and one that is only READ is
+// a constant another thread may share; both at once is a data race. The
+// write sites (`src/evaluator/exprs/assignment.yo`) record into
+// `g_d1_written`, the reachability walk into `g_d1_reached`, each keyed by the
+// global's declaration token, and each side consults the other as it records,
+// so the order the evaluator reaches the two sites in does not matter. The
+// value is the site's location, for the diagnostic.
+(g_d1_written : HashMap(String, String)) = HashMap(String, String).new();
+(g_d1_reached : HashMap(String, String)) = HashMap(String, String).new();
+_d1_global_key :: (fn(decl : Token, name : String) -> String)(
+  `${decl.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
+);
+_d1_location :: (fn(t : Token) -> String)(
+  `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}`
+);
+/// Record a write to the module-level global declared at `decl`; returns where
+/// a closure that runs on another thread reaches it, if one does.
+d1_record_global_write :: (fn(decl : Token, name : String, write_tok : Token) -> Option(String))({
+  key := _d1_global_key(decl, name);
+  match(
+    g_d1_written.get(key.clone()),
+    .Some(_) => (),
+    .None => {
+      g_d1_written.insert(key.clone(), _d1_location(write_tok));
+    }
+  );
+  g_d1_reached.get(key)
+});
+_GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(TypeValue)));
+_gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    .Some(i) => Option(Environment).Some(i.env),
+    .None => Option(Environment).None
+  )
+);
+/// The violation an ATOM introduces, if it names a non-Send, non-thread-local
+/// module-level runtime global.
+_gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+  tok := ast_expr_token(e);
+  name := tok.value.clone();
+  if(name.is_empty(), {
+    return(Option(String).None);
+  });
+  env := match(_gr_env_of(e, ctx), .Some(en) => en, .None => ctx.env);
+  vars := get_variables_from_env(env, name.clone());
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  v := match(vars.get(vars.len() - usize(1)), .Some(v0) => v0, .None => return(Option(String).None));
+  if((!v.is_module_level || v.is_compile_time_only) || is_thread_local(tok.module_path.clone(), name.clone()), {
+    return(Option(String).None);
+  });
+  send_ok := match(
+    ctx.send,
+    .Some(st) => type_implements_trait_bool(v.ty, st, env),
+    .None => true
+  );
+  if(send_ok, {
+    // A Send global another thread reads: a violation iff it is also written.
+    key := _d1_global_key(v.token, name.clone());
+    match(
+      g_d1_reached.get(key.clone()),
+      .Some(_) => (),
+      .None => {
+        g_d1_reached.insert(key.clone(), _d1_location(tok));
+      }
+    );
+    return(
+      match(
+        g_d1_written.get(key),
+        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(tok)})`),
+        .None => Option(String).None
+      )
+    );
+  });
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
+});
+_gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+  // A macro call: the expansion is what runs.
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    .Some(ei) => match(
+      expr_info_macro_expansion(ei),
+      .Some(exp) => {
+        return(_gr_walk(exp, ctx));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    e,
+    .Atom(_, _) => _gr_atom(e, ctx),
+    .FnCall(_, f, args, _, _) => {
+      (head : String) = String.new();
+      match(
+        f,
+        .Atom(_, ht) => {
+          head = ht.value.clone();
+        },
+        _ => ()
+      );
+      // Definitions and arms: the value expression / the arm body runs.
+      if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
+        return(match(args.get(usize(1)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+      });
+      // Labels: the value.
+      if((head == ":") && (args.len() == usize(2)), {
+        return(match(args.get(usize(1)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+      });
+      // Field access: the receiver.
+      if((head == ".") && (args.len() == usize(2)), {
+        return(match(args.get(usize(0)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+      });
+      // Closure literals and match arms: the body (it runs on the thread).
+      if(((head == "=>") || (head == "->")) && (args.len() == usize(2)), {
+        return(match(args.get(usize(1)), .Some(b) => _gr_walk(b, ctx), .None => Option(String).None));
+      });
+      // Structural / control builtins, RC primitives, pure builtins, statements:
+      // walk the children, the head itself reaches nothing.
+      (children_only : bool) = (((_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone())) || _ms_head_is_pure_builtin(head.clone())) || (_msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone())));
+      if(!children_only, {
+        // A call: resolve the callee. Extern → runs no Yo code. A body in a
+        // pragma'd file → trusted. Otherwise descend (memoized, cycle-safe).
+        match(
+          _MsP.callee(e, f, ctx.table),
+          .Some(cv) => match(
+            cv,
+            .FuncVal(fvd, _) => {
+              fid := fvd.*.func_id.clone();
+              (is_extern : bool) = false;
+              match(
+                get_func_type(fid.clone()),
+                .Func({ meta : cm }) => {
+                  is_extern = cm.*.extern_name.is_some();
+                },
+                _ => ()
+              );
+              if(!is_extern, {
+                match(
+                  function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+                  .Some(m) => {
+                    return(Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`));
+                  },
+                  .None => ()
+                );
+              });
+            },
+            // A closure VALUE, a dyn method, an operator the evaluator did not
+            // stamp: no body to descend into. Only the arguments are walked.
+            // Following closure values needs per-closure identity on Func
+            // types, the prerequisite rule D4 is also waiting on
+            // (issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      // The callee expression itself (a global closure, a receiver) and the
+      // arguments.
+      if(!ast_expr_is_atom(f) || !children_only, {
+        match(
+          _gr_walk(f, ctx),
+          .Some(m) => {
+            return(Option(String).Some(m));
+          },
+          .None => ()
+        );
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => match(
+            _gr_walk(a, ctx),
+            .Some(m) => {
+              return(Option(String).Some(m));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Option(String).None
+    }
+  )
+});
+/// Does function `fid` (body `body`), or anything it can call, reach a
+/// non-Send module-level global? `.Some(reason)` names the first one.
+function_reaches_non_send_global :: (
+  fn(fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String)
+)({
+  match(
+    g_gr_by_fid.get(fid.clone()),
+    .Some(r) => {
+      return(r);
+    },
+    .None => ()
+  );
+  if(g_gr_in_progress.get(fid.clone()).is_some(), {
+    return(Option(String).None);
+  });
+  // A body defined in a pragma'd file is the audited base.
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
+    g_gr_by_fid.insert(fid.clone(), Option(String).None);
+    return(Option(String).None);
+  });
+  if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
+    return(Option(String).Some(String.from("has a body that was never evaluated (a forward reference?) — a closure that runs on another thread may only call functions whose bodies are known")));
+  });
+  g_gr_in_progress.insert(fid.clone(), true);
+  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")));
+  r := _gr_walk(body, ctx);
+  g_gr_in_progress.remove(fid.clone());
+  g_gr_by_fid.insert(fid.clone(), r);
+  r
+});
+export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write);

@@ -1,6 +1,6 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1 and 5 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2, 3, 4, 6, 7, 8 open. Source: a full audit of Yo's
+**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1, 3 and 5 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2, 4, 6, 7, 8 open. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -330,6 +330,27 @@ green, `check ./src` and `check ./std` clean.
    read from two threads).
 5. Exit: the type-system audit's `module-globals-…` repro is rejected; `yo check ./src`,
    `./std`, the docs corpus and the full fast suite stay green with the fresh binary.
+
+**Landed 2026-09-26** (branch `ps/phase3-globals`, stacked on Phase 5). NOT the rule as
+written above: "every module-level global must be `Send`" rejected the compiler's own tree (a
+dozen non-pragma'd `src/` files hold `ArrayList`/`HashMap` state) and every single-threaded
+program with a global cache, since an Rc collection is never `Send`. What landed is the type-
+system audit's option (c): a `Send`-bounded closure may not REACH a non-Send global, directly or
+through statically resolved callees (`function_reaches_non_send_global`, called from both
+closure-creation sites via `validate_send_closure_global_reach` — separate from the capture check,
+because a capture-free closure has no capture struct; pragma'd bodies trusted), plus the `static mut`
+rule for VALUE-typed globals (assignment, field/index store, writing `inout` binding), in the
+same reachability form: a write is an error only when a `Send` closure also reaches that global
+(two registries, either order). The unconditional write rule was measured first and rejected
+225 sites in `src/` (six compiler flags such as `g_warnings_enabled`). Pinned by three check-level cli-cases and the corpus.
+Rejecting unresolvable callees (a MAY-analysis) was measured and dropped: it turned 8 of 22
+parallelism suites red (every spawn body calling a captured helper closure, and operators the
+evaluator does not stamp with a callee). Calls through closure values and dyn methods are the
+residual, `issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`, closed with D4
+in Phase 4 once closures carry identity on `Func` types.
+`std/encoding/html` keeps its `HashMap` tables under a `RawMutex` with copy-out lookups. The
+docs corpus gate is parse-only (`scripts/check-doc-blocks.py`), so fragment examples are
+unaffected.
 
 ### Phase 4: closure types, second-class captures, extern calls (P-4, P-13, P-9) (M, evaluator)
 

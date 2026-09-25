@@ -190,6 +190,36 @@ Unlock is automatic — a private unlocker object calls `_raw_unlock()` on both 
 
 **Re-entrant locking deadlocks.** Calling `with_lock` from inside another `with_lock` on the same mutex will deadlock (matching Rust's `std::sync::Mutex`). Yo does not provide a reentrant mutex.
 
+## Module-Level Globals
+
+A module-level runtime binding (`name := init` or `(name : T) = init` outside any function) is
+one static that every thread shares. In safe code:
+
+- a closure that runs on another thread (a `Thread.spawn` body, a pool task, a
+  `spawn_blocking` callback — anything bound to `Impl(Fn(...), Send)`) may not reach a global
+  whose type is not `Send`, directly or through any function it calls. A non-atomic
+  reference-counted global (`ArrayList`, `String`, any `ref(struct)`) stays legal for the main
+  thread, but reading a field through such a handle updates a reference count, so no other
+  thread may touch it;
+- a `Send` value global (a scalar or a struct with no reference inside) that is WRITTEN
+  anywhere — assigned, the root of a field or index store, or handed to an `inout` parameter
+  whose callee writes through it — is a mutable static, and a closure that runs on another
+  thread may not reach it. Written and read on one thread only, it is an ordinary global; read
+  from every thread and never written, it is a shared constant. The error lands on whichever
+  of the two sites the compiler sees second and names the other.
+
+```rust
+LIMIT :: i32(5);                              // a constant: fine from any thread
+hits := AtomicI32(i32(0));                    // an atomic object: shared state, fine
+(thread_local(scratch) : i32) = i32(0);       // per-thread mutable state: fine
+g := ArrayList(i32).new();                    // fine on the main thread only
+fill :: (fn() -> unit)({ g.push(i32(1)); });
+Thread(unit).spawn(io => { fill(); });        // ERROR: the closure calls fill, which reaches g
+(counter : i32) = i32(0);
+bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // fine on its own...
+Thread(i32).spawn(io => counter);             // ERROR: ...but another thread reads counter
+```
+
 ## Negative Impls — Opting Out of Send
 
 A type that would auto-derive `Send` can explicitly opt out with `!(Send)`:
@@ -279,14 +309,14 @@ each is being closed by the phase named there. Until a bullet is removed, safe c
 the race it describes.
 
 - **`Iso(T)` uniqueness is shallow and the constructor is unchecked** (section above).
-- **Module-level globals are shared statics** with no `Send` check
-  (`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`); inside std,
-  `html_decode`'s tables race on read
-  (`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`).
 - **A closure type satisfies `where(T <: Send)`** regardless of its captures, so `arc(f)` and
   `Channel(typeof(f))` pass `yo check` with a non-Send capture (the C compiler rejects the
   program today by accident)
   (`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`).
+- **A spawned closure can reach a non-Send module-level global through a closure value** it
+  calls (a captured helper closure, a closure parameter) or a `dyn` method: the global-reach
+  check follows only calls it can resolve to a function body at compile time
+  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
 - **A closure may capture a `with_lock` body's `inout(v)`** at `yo check` (codegen fails)
   (`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
 - **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a

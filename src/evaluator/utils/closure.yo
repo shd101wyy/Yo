@@ -9,6 +9,8 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
+{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -210,6 +212,47 @@ _declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)
     _ => false
   )
 );
+// Rule D1 (plans/reference/PARALLELISM_RULES.md): a closure bound to a `Send`
+// wrapper runs on another thread, so it may not reach a non-Send module-level
+// global, directly or through the functions it calls
+// (`function_reaches_non_send_global`). Separate from the capture check
+// because a closure with NO captures has no capture struct and still reaches
+// globals. A pragma'd file (std's relay closures included) is the audited
+// base and is skipped.
+validate_send_closure_global_reach :: (
+  fn(
+    wrapper_type : TypeValue,
+    closure_fid : String,
+    closure_body : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    error_token : Token,
+    exn : Exception
+  ) -> unit
+)({
+  wants_send := match(
+    wrapper_type,
+    .SomeT({ required_trait_types : rtts }) => {
+      (found : bool) = false;
+      (ti : usize) = usize(0);
+      while(ti < rtts.len(), ti = (ti + usize(1)), {
+        trait_type := rtts(ti);
+        if(!is_fn_trait_type(trait_type) && (type_to_string(trait_type) == "Send"), {
+          found = true;
+        });
+      });
+      found
+    },
+    _ => false
+  );
+  if(wants_send && !is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+    match(
+      function_reaches_non_send_global(closure_fid, closure_body, ctx.expr_info_table, env),
+      .Some(reason) => _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`),
+      .None => ()
+    );
+  });
+});
 /// Validate that a closure created for an `Impl(Fn(...), Send, …)` wrapper
 /// satisfies every NON-Fn trait the wrapper requires — the check that makes
 /// the `Send` on `Thread.spawn` / `spawn(pool, …)` mean something. Each
@@ -679,6 +722,7 @@ export(CapturedVarDupResult);
 export(consume_captured_variables);
 export(build_path_collection_from_captured_variables);
 export(validate_capture_trait_requirements);
+export(validate_send_closure_global_reach);
 export(enrich_captured_variables);
 export(create_capture_type_and_value);
 export(generate_captured_variable_dup_expressions);
