@@ -182,8 +182,19 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           });
           label := match(plabels.get(i), .Some(s) => s, .None => `""`);
           ts := match(ptypes.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          // The parameter mode is part of the type
+          // (plans/reference/TYPE_IDENTITY.md), and this rendering is also
+          // the codegen key of a fn type (`type_key`'s fallback), so an
+          // `inout` and a by-value fn type must never print alike.
+          p_is_ref := match(__fm1.*.param_is_ref.get(i), .Some(b) => b, .None => false);
+          p_is_own := match(__fm1.*.param_is_owning.get(i), .Some(b) => b, .None => false);
           if(label.len() > usize(0), {
-            body = `${body}${label} : ${ts}`;
+            moded := cond(
+              p_is_ref => `inout(${label})`,
+              p_is_own => `own(${label})`,
+              true => label
+            );
+            body = `${body}${moded} : ${ts}`;
           }, {
             body = `${body}${ts}`;
           });
@@ -207,7 +218,8 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        `fn(${forall_prefix}${body}) -> ${recur(ret, _d + usize(1), visited)}${using_suffix}`
+        ret_s := recur(ret, _d + usize(1), visited);
+        `fn(${forall_prefix}${body}) -> ${if(__fm1.*.result_is_ref, `inout(${ret_s})`, ret_s)}${using_suffix}`
       },
       .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
