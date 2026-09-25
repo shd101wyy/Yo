@@ -52,12 +52,13 @@ import("std/fmt");
   is_dyn_type,
   is_extern_type_name,
   is_unit_type,
-  type_decl_module
+  type_decl_module,
+  is_module_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
 { format_error_message, YoError } :: import("../error.yo");
-{ suggest_name } :: import("../diagnostics.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Target pointer size
@@ -2192,13 +2193,26 @@ unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : Array
     list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
     fi = (fi + usize(1));
   });
+  // A module is a source-namespace struct: name what it exports, not its
+  // whole struct type.
+  is_module := is_module_type(base_ty);
   fields_note := cond(
+    ((fields.len() == usize(0)) && is_module) => String.from(" It exports nothing."),
     (fields.len() == usize(0)) => String.from(" It has no fields."),
+    is_module => ` Its members: ${list}.`,
     true => ` Its fields: ${list}.`
   );
   hint := match(suggest_name(label.clone(), fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
-  `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
+  cond(
+    is_module => `No member "${label}" in the module.${fields_note}${hint}`,
+    true => `No field "${label}" on ${type_to_string(base_ty)}.${fields_note}${hint}`
+  )
 });
+/// The code of `unknown_field_message`'s error: E0403 when the base is a
+/// module (it does not export the name), E0406 otherwise.
+unknown_field_code :: (fn(base_ty : TypeValue) -> str)(
+  cond(is_module_type(base_ty) => E_MODULE_FIELD_NOT_FOUND, true => E_FIELD_NOT_FOUND)
+);
 /// `Enum variant "Purple" not found in enum Color. Its variants: Red, Green.`
 /// — the E0402 message names the enum and what it has.
 unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants : ArrayList(String)) -> String)({
@@ -2213,4 +2227,4 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);

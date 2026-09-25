@@ -38,8 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
-{ unknown_field_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
@@ -429,7 +428,7 @@ handle_member_destructuring :: (
         match(
           fi_opt,
           .None => {
-            exn.throw(dyn(with_code(format_error_message(ast_expr_token(lhs_field), unknown_field_message(label, rhs_type, rhs_field_labels)), E_FIELD_NOT_FOUND)));
+            exn.throw(dyn(with_code(format_error_message(ast_expr_token(lhs_field), unknown_field_message(label, rhs_type, rhs_field_labels)), unknown_field_code(rhs_type))));
           },
           .Some(fi) => {
             field_index = fi;

@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
   register_definition_site_return,
@@ -375,14 +375,20 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
 // propagate, so the P0 forward-reference check at the CALLER reads the
 // message from here (flag/clear/pending/message, same shape).
 (g_anon_swallow_msg : ArrayList(String)) = ArrayList(String).new();
-_flag_anon_swallow :: (fn(msg : String) -> unit)({
+/// The swallowed error's code (a re-raise built from its text carries it).
+(g_anon_swallow_code : ArrayList(String)) = ArrayList(String).new();
+_flag_anon_swallow :: (fn(msg : String, code : Option(String)) -> unit)({
   g_anon_swallow_msg.clear();
   g_anon_swallow_msg.push(msg);
+  g_anon_swallow_code.clear();
+  match(code, .Some(c) => g_anon_swallow_code.push(c), .None => ());
 });
 _clear_anon_swallow :: (fn() -> unit)({
   g_anon_swallow_msg.clear();
+  g_anon_swallow_code.clear();
 });
 _anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.len() > usize(0));
+_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.get(usize(0)));
 _anon_swallow_message :: (fn() -> String)(
   match(g_anon_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
 );
@@ -423,7 +429,7 @@ _trial_eval_anon_body :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
-        _flag_anon_swallow(_err.to_string());
+        _flag_anon_swallow(_err.to_string(), primary_diagnostic_code(_err));
         unwind(())
       }
     )
@@ -1567,8 +1573,10 @@ Result type: ${type_to_string(decl_result_ty)}`
       match(
         hard_swallow_diagnostic(_anon_swallow_message()),
         .Some(anon_fwd_msg) => {
+          // Read the code BEFORE the clear, which empties it.
+          anon_fwd_code := _anon_swallow_code();
           _clear_anon_swallow();
-          exn.throw(dyn(format_error_message(tok, anon_fwd_msg)));
+          exn.throw(dyn(with_code_carried(format_error_message(tok, anon_fwd_msg), anon_fwd_code)));
         },
         .None => ()
       );
@@ -1910,8 +1918,9 @@ Result type: ${type_to_string(decl_result_ty)}`
         match(
           hard_swallow_diagnostic(_anon_swallow_message()),
           .Some(dgc_fwd_msg) => {
+            dgc_fwd_code := _anon_swallow_code();
             _clear_anon_swallow();
-            exn.throw(dyn(format_error_message(tok, dgc_fwd_msg)));
+            exn.throw(dyn(with_code_carried(format_error_message(tok, dgc_fwd_msg), dgc_fwd_code)));
           },
           .None => ()
         );
