@@ -50,7 +50,12 @@
 { is_enum_type, is_pointer_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ suggest_name, E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
+/// The `did you mean` help for a label among `labels`.
+_did_you_mean :: (fn(lbl : String, labels : ArrayList(String)) -> Option(String))(
+  match(suggest_name(lbl, labels), .Some(near) => Option(String).Some(`did you mean "${near}"?`), .None => Option(String).None)
+);
 { evaluate_expression } :: import("./expr.yo");
 { Pattern, norm_position_type, variant_field_types } :: import("../../pattern.yo");
 { Exception } :: import("std/error");
@@ -808,9 +813,13 @@ _compile_variant :: (
           });
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(label_expr),
-                `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(label_expr),
+                  `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`,
+                  _did_you_mean(lbl.clone(), labels)
+                ),
+                E_FIELD_NOT_FOUND
               )
             )
           );
@@ -869,9 +878,13 @@ _compile_variant :: (
             .None => {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(param),
-                    `Label "${lbl}" not found in variant "${vname}"`
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(param),
+                      `Label "${lbl}" not found in variant "${vname}"`,
+                      _did_you_mean(lbl.clone(), labels)
+                    ),
+                    E_FIELD_NOT_FOUND
                   )
                 )
               );

@@ -26,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
 { set_variable_as_consumed } :: import("../builtins/consume.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 /// True if struct type `t` has a dereference field labeled `*` (the
 /// pointed-to-value field of a Box/Arc wrapper).
@@ -294,9 +295,12 @@ evaluate_iso_value_call :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(arg_expr),
-                  `Variable ${var_name} not found in env.`
+                with_code(
+                  format_error_message(
+                    ast_expr_token(arg_expr),
+                    `Variable "${var_name}" not found.`
+                  ),
+                  E_VARIABLE_NOT_FOUND
                 )
               )
             );
@@ -344,9 +348,12 @@ evaluate_iso_value_call :: (
       }, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(arg_expr),
-              `Variable ${var_name} not found in the environment.`
+            with_code(
+              format_error_message(
+                ast_expr_token(arg_expr),
+                `Variable "${var_name}" not found.`
+              ),
+              E_VARIABLE_NOT_FOUND
             )
           )
         );

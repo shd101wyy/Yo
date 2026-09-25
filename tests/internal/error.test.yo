@@ -30,7 +30,8 @@ json :: import("std/encoding/json");
   _classify_message,
   format_error_message_with_help,
   format_error_message_with_repair,
-  reanchor_primary_at
+  reanchor_primary_at,
+  with_code
 } :: import("../../src/error.yo");
 {
   Severity,
@@ -229,11 +230,6 @@ test("YoError.diagnostics render the shared human form", {
 // ─── P2: the classifier maps messages to code families ──────────────────────
 test("classifier: representative messages map to their families", {
   match(
-    _classify_message(`Variable "x" not found.`),
-    .Some(c) => assert(c == "E0401", `E0401, got ${c}`),
-    .None => assert(false, "variable-not-found must classify")
-  );
-  match(
     _classify_message(`Enum variant "Reed" not found in enum`),
     .Some(c) => assert(c == "E0402", `E0402, got ${c}`),
     .None => assert(false, "enum variant must classify")
@@ -280,9 +276,19 @@ test("classifier: representative messages map to their families", {
   );
   assert(_classify_message(`something entirely novel`).is_none(), "unfamiliar text stays uncoded");
 });
+// A message from one family must not collect another family's code: the
+// E0401 raise sites name their code, and no "not found" substring codes
+// anything.
+test("classifier: no \"not found\" message is coded as E0401 by its text", {
+  assert(_classify_message(`Variable "x" not found.`).is_none(), "E0401 is named by the raise site, not the text");
+  assert(_classify_message(`Label "zzz" being destructured not found.`).is_none(), "destructuring label");
+  assert(_classify_message(`Field "x" not found in trait "T".`).is_none(), "trait field");
+  assert(_classify_message(`Effect row variable "e" not found in scope.`).is_none(), "effect row variable");
+  assert(_classify_message(`Io module not found in environment.`).is_none(), "internal error");
+});
 test("coded diagnostics render the explain tail (P2)", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
-  s := render_diagnostics_human(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  s := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
   assert(s.starts_with(`error[E0401]: Variable "x" not found.`), `coded header, got:\n${s}`);
   assert(
     s.contains(`help: run \`yo explain E0401\` for more information`),

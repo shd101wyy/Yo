@@ -183,7 +183,8 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
-{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
+{ E_NOT_CALLABLE } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -5675,9 +5676,12 @@ Fix: wrap the call:
             }, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    tok,
-                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)")
+                  with_code(
+                    format_error_message(
+                      tok,
+                      `Type ${type_to_string(func_type)} cannot be called: a type is callable only as a numeric conversion (\`i32(x)\`) or as a constructor (\`P(x : 1)\`).`
+                    ),
+                    E_NOT_CALLABLE
                   )
                 )
               );

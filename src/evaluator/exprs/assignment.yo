@@ -90,7 +90,8 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note } :: import("../../types/utils.yo");
-{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
@@ -1136,9 +1137,12 @@ evaluate_assignment :: (
   if(vars.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs_resolved),
-          `Variable ${variable_name} not found in the environment`
+        with_code(
+          format_error_message(
+            ast_expr_token(lhs_resolved),
+            `Variable "${variable_name}" not found.`
+          ),
+          E_VARIABLE_NOT_FOUND
         )
       )
     );

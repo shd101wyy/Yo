@@ -76,7 +76,8 @@ pragma(Pragma.AllowUnsafe);
 { loading_key_for_module } :: import("../module_loader.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ format_error_message, render_any_error, stash_error_diagnostics } :: import("../../error.yo");
+{ format_error_message, render_any_error, stash_error_diagnostics, with_code } :: import("../../error.yo");
+{ E_MODULE_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
 { is_overload_set_capable_file } :: import("../memory_safety.yo");
 { Exception, AnyError } :: import("std/error");
 { panic, assert } :: import("std/assert");
@@ -433,9 +434,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                   if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                     exn.throw(
                                       dyn(
-                                        format_error_message(
-                                          ast_expr_token(exclude_expr),
-                                          `Label "${lbl}" is not found in the extended module type.`
+                                        with_code(
+                                          format_error_message(
+                                            ast_expr_token(exclude_expr),
+                                            `Label "${lbl}" is not found in the extended module type.`
+                                          ),
+                                          E_MODULE_FIELD_NOT_FOUND
                                         )
                                       )
                                     );
@@ -477,9 +481,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                         if(_find_field_label_index(efls, lbl.clone()).is_none(), {
                                           exn.throw(
                                             dyn(
-                                              format_error_message(
-                                                ast_expr_token(member_expr),
-                                                `Label "${lbl}" is not found in the extended module type.`
+                                              with_code(
+                                                format_error_message(
+                                                  ast_expr_token(member_expr),
+                                                  `Label "${lbl}" is not found in the extended module type.`
+                                                ),
+                                                E_MODULE_FIELD_NOT_FOUND
                                               )
                                             )
                                           );
