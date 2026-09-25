@@ -251,6 +251,47 @@ test("soundness: an inout call through a fn value mutates the argument", {
   w.inner(v);
   assert(v == i32(8), "fn-typed struct field mutates");
 });
+// Phase 3.5: the parameter modes are part of the fn type, so a by-reference
+// function is not a by-value one, and the CTFE memo keeps
+// `_Wrap(fn(x : i32) -> unit)` and `_Wrap(fn(inout(x) : i32) -> unit)` apart.
+_p35_by_val :: (fn(x : i32) -> unit)({
+  x;
+  ()
+});
+_p35_eat :: (fn(own(s) : String) -> usize)(s.len());
+_p35_len :: (fn(s : String) -> usize)(s.len());
+_p35_inout_is_by_val :: Type.eq((fn(inout(x) : i32) -> unit), (fn(x : i32) -> unit));
+_p35_own_is_borrow :: Type.eq((fn(own(s) : String) -> usize), (fn(s : String) -> usize));
+_p35_inout_flows_by_val :: Type.is_compatible_with((fn(inout(x) : i32) -> unit), (fn(x : i32) -> unit));
+test("soundness: parameter modes are part of a fn type", {
+  comptime_expect_error({
+    (g : (fn(x : i32) -> unit)) = _bump;
+  }, "Incompatible types");
+  comptime_expect_error({
+    (h : (fn(s : String) -> usize)) = _p35_eat;
+  }, "Incompatible types");
+  assert(!_p35_inout_is_by_val, "inout is not by-value");
+  assert(!_p35_own_is_borrow, "own is not a borrow");
+  assert(!_p35_inout_flows_by_val, "inout does not flow into a by-value slot");
+});
+test("soundness: the memo keeps a by-value and an inout instantiation apart", {
+  (w0 : _Wrap((fn(x : i32) -> unit))) = _Wrap((fn(x : i32) -> unit))(inner : _p35_by_val);
+  (w1 : _Wrap((fn(inout(x) : i32) -> unit))) = _Wrap((fn(inout(x) : i32) -> unit))(inner : _bump);
+  (v : i32) = i32(5);
+  w0.inner(v);
+  w1.inner(v);
+  assert(v == i32(6), "the inout instance mutates");
+});
+test("soundness canary: a fn value flows into a slot of the same modes", {
+  (g : (fn(inout(x) : i32) -> unit)) = _bump;
+  (h : (fn(own(s) : String) -> usize)) = _p35_eat;
+  (k : (fn(s : String) -> usize)) = _p35_len;
+  (v : i32) = i32(1);
+  g(v);
+  assert(v == i32(2), "inout slot");
+  assert(h(String.from("abc")) == usize(3), "own slot");
+  assert(k(String.from("ab")) == usize(2), "borrow slot");
+});
 // ---------------------------------------------------------------------------
 // issues/fixed/impl-is-not-checked-against-the-trait-members.md (Phase 2.1):
 // an `impl(T, Trait(...))` is checked against the trait's members.

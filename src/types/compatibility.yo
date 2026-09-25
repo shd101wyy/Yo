@@ -830,14 +830,49 @@ _compat_impl :: (
     // Function types: compare generic count, param count, types, return —
     // with the two functions' binders corresponding by position
     // (`_push_alpha_pairs`).
-    .Func({ forall_types : afts, param_types : apts, result : aret, meta : ameta }) => match(
+    .Func({ forall_types : afts, param_types : apts, implicit_types : aits, result : aret, meta : ameta }) => match(
       expected,
-      .Func({ forall_types : efts, param_types : epts, result : eret, meta : emeta }) => {
+      .Func({ forall_types : efts, param_types : epts, implicit_types : eits, result : eret, meta : emeta }) => {
         if(afts.len() != efts.len(), {
           return(false);
         });
         if(apts.len() != epts.len(), {
           return(false);
+        });
+        // Parameter modes and implicit parameters are part of a fn type
+        // (plans/reference/TYPE_IDENTITY.md): `fn(inout(x) : i32)` takes an
+        // `int32_t*` and `fn(x : i32)` an `int32_t`, `own(x)` moves where a
+        // plain parameter borrows, and a `using(...)` parameter is one more C
+        // argument. Treating them as one type let a by-reference function
+        // stand where a by-value one was expected, and let the CTFE memo hand
+        // `Wrap(fn(inout(x) : i32) -> unit)` the by-value instance (a SIGSEGV,
+        // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
+        if(ameta.*.result_is_ref != emeta.*.result_is_ref, {
+          return(false);
+        });
+        (mi : usize) = usize(0);
+        while(mi < apts.len(), {
+          a_ref := match(ameta.*.param_is_ref.get(mi), .Some(b) => b, .None => false);
+          e_ref := match(emeta.*.param_is_ref.get(mi), .Some(b) => b, .None => false);
+          a_own := match(ameta.*.param_is_owning.get(mi), .Some(b) => b, .None => false);
+          e_own := match(emeta.*.param_is_owning.get(mi), .Some(b) => b, .None => false);
+          if((a_ref != e_ref) || (a_own != e_own), {
+            return(false);
+          });
+          mi = (mi + usize(1));
+        });
+        if(aits.len() != eits.len(), {
+          return(false);
+        });
+        (ii : usize) = usize(0);
+        while(ii < aits.len(), {
+          if(require_exact && (match(ameta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``) != match(emeta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``)), {
+            return(false);
+          });
+          if(!(recur(match(aits.get(ii), .Some(v) => v, .None => TypeValue.Unit), match(eits.get(ii), .Some(v) => v, .None => TypeValue.Unit), require_exact, visited)), {
+            return(false);
+          });
+          ii = (ii + usize(1));
         });
         i := usize(0);
         while(i < afts.len(), {
