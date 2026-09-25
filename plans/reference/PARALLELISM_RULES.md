@@ -1,10 +1,10 @@
 # Parallelism rules
 
 **Status:** DECIDED 2026-09-25 by the parallelism-soundness audit
-(`plans/PARALLELISM_SOUNDNESS.md`); each rule below says whether it has LANDED. A rule that has
-not landed is the contract the code is being brought to, not a description of the code — the
-audit measured every one of them as violated on develop `e9b159709`. When a phase lands, edit
-that rule's status line and nothing else here.
+(`plans/archive/PARALLELISM_SOUNDNESS.md`); **ALL LANDED 2026-09-26.** D9 was added while
+closing that plan. The audit measured D1–D8 as violated on develop `e9b159709`. Each rule's
+status line names where it is enforced. A change to a rule is a new decision: record it here,
+with its reason.
 
 These rules are what makes the user-facing guarantee in `docs/en-US/THREAD_SAFETY.md` true:
 

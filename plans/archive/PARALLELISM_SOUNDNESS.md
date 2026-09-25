@@ -1,6 +1,25 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1, 3 and 5 LANDED 2026-09-26 and Phase 4 in part (the per-phase "Landed" notes below); Phases 2, 6, 7, 8 and Phase 4's D4 items open. Source: a full audit of Yo's
+**ARCHIVED 2026-09-26 — COMPLETE.** Every phase landed, and the guarantee in
+`docs/en-US/THREAD_SAFETY.md` holds with an empty Known Holes list.
+
+- **What landed, and where:**
+  - Phases 0, 1, 3 and 5: PRs #894–#900.
+  - Phases 6 and 7 (the runtime, the TSan corpus): PR #902.
+  - Phase 2 (`Iso`) and the rest of Phase 4 (D4, P-26): PR #903.
+  - Rule **D9** (function values), found while closing this plan: the `ps/d1-function-values`
+    branch.
+  - One test hotfix to develop: #907.
+- **Decisions:** `plans/reference/PARALLELISM_RULES.md` (D1–D9, all LANDED).
+- **Bugs:** each is in `issues/fixed/`.
+- **Measured numbers:** the per-phase "Landed" notes below. They include the `^` walk's cost
+  (Phase 2) and the TSan corpus (Phase 7).
+- **Proven by:**
+  - the local gates on the combined tip (seed check, build, fresh-binary check of `src` and
+    `std`, the thread corpus, the fast suite, the CLI corpus, `yo fmt --check`);
+  - PR #902's full CI battery, whose ThreadSanitizer job is the standing proof.
+
+The rest of this document is the frozen record. It was proposed 2026-09-25 as ACTIVE. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -528,6 +547,16 @@ Its first measurement is the PR's own full battery (TSan does not start on this 
   "Parallelism rules" paragraph (D1, D3, D8 are the ones a std author hits).
 - `plans/archive/THREAD_SAFETY.md` correction banner updated to "closed by
   PARALLELISM_SOUNDNESS"; this document moves to `plans/archive/` with the measured numbers.
+
+**Landed 2026-09-26.**
+
+- The Known Holes list is empty in both languages; `THREAD_SAFETY.md` gained a "Functions and
+  Closures Across Threads" section (D4 + D9).
+- `PARALLELISM.md`'s Sendable list and `ARC.md` state the function-value rule; `ISOLATED.md`
+  was rewritten in Phase 2.
+- The design instructions carry the D4 + D9 paragraph.
+- The archived `THREAD_SAFETY.md` banner says CLOSED.
+- This document moved here, and `plans/README.md` and `plans/ROADMAP.md` list it as done.
 
 ## 7. Order and sizing
 

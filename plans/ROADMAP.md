@@ -44,6 +44,13 @@ authorship from day one.
   index
   ([`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md),
   [`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md)).
+- **Parallelism soundness.** Data-race freedom for safe code. The rules D1–D9
+  cover module globals, `Iso`, writes through atomic objects, closure and
+  function values, trapping lock primitives, runtime externs, the runtime's
+  wake path and second-class captures. They are enforced at `check`, with a
+  ThreadSanitizer run over the whole thread corpus as the standing proof
+  ([`archive/PARALLELISM_SOUNDNESS.md`](archive/PARALLELISM_SOUNDNESS.md),
+  [`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)).
 
 ## Now
 
@@ -65,11 +72,6 @@ authorship from day one.
   coherence, swallowed closure-body errors) and one authoritative identity for
   resolved type variables
   ([`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md)).
-- **Parallelism soundness.** Data-race freedom for safe code, for real: close
-  the audit's holes (writes through `Arc` via `inout`, the unchecked `Iso`
-  constructor, module globals, closure types, `RawMutex`/`Cond` UB, the
-  spawned-loop waker race), then a TSan-clean gate over the whole thread
-  corpus ([`PARALLELISM_SOUNDNESS.md`](PARALLELISM_SOUNDNESS.md)).
 - **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
   loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
   overflow traps with `wrapping_*` as the escape hatch, saturating casts, the

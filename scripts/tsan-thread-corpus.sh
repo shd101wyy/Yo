@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The standing proof of plans/PARALLELISM_SOUNDNESS.md (Phase 7): every file of
+# The standing proof of plans/archive/PARALLELISM_SOUNDNESS.md (Phase 7): every file of
 # the thread corpus under ThreadSanitizer, ratcheted against
 # scripts/bootstrap/tsan-known-failing.tsv so the gate fails BOTH ways — a new
 # report fails it, and so does a listed file that now runs clean (remove its

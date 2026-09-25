@@ -154,13 +154,13 @@ test("html.decode is a single pass: a 20k-entity document decodes promptly and i
   assert(out.starts_with(`x&y<>é x&y<>é `), "decoded in order");
   assert(out.ends_with(`x&y<>é `), "to the end");
 });
-// P-10 (plans/PARALLELISM_SOUNDNESS.md Phase 3): the entity tables are
+// P-10 (plans/archive/PARALLELISM_SOUNDNESS.md Phase 3): the entity tables are
 // module-level state every decoding thread reads. They used to be non-atomic
 // RC globals — even a lookup dup'd and dropped the bucket key's refcount, a
 // race between two decoding threads
 // (issues/fixed/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md).
 // They are now read under a lock with copy-out lookups; this is the shape the
-// ThreadSanitizer job runs (plans/PARALLELISM_SOUNDNESS.md Phase 7).
+// ThreadSanitizer job runs (plans/archive/PARALLELISM_SOUNDNESS.md Phase 7).
 test("two threads decode entities at once", {
   t := Thread(i32).spawn((io : Io) => {
     (n : i32) = i32(0);

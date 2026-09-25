@@ -25,7 +25,7 @@ resolved. Every row it names is closed by a rule in `plans/reference/PARALLELISM
 The corrected claims are the ones in `docs/en-US/THREAD_SAFETY.md`, whose Known Holes list is
 empty.
 
-**CORRECTION 2026-09-25 (`plans/PARALLELISM_SOUNDNESS.md`, the parallelism-soundness
+**CORRECTION 2026-09-25 (`plans/archive/PARALLELISM_SOUNDNESS.md`, the parallelism-soundness
 audit): four rows of the vector table below are NOT closed as written, and one Phase H
 claim never landed.** Row 6 / Phase H: the emitted `extract()` checks only a one-shot
 flag, never `rc == 1`, and the raw `Iso(T)(v)` constructor runs none of the `^` macro's
