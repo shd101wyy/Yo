@@ -898,11 +898,17 @@ Every infix pattern needs its own parentheses (no operator precedence):
 Rules that follow:
 
 - **Exhaustiveness is structural** (usefulness check): `.Some(true), .None`
-  is rejected with `Missing case: .Some(false)`; integers, floats and strings
-  need a `_` or binding arm; a guarded arm never counts as covering.
-- **An unreachable arm is an error** (`E0608`): a duplicate variant or
-  literal, or any arm after a catch-all. A trailing `_` after complete
-  coverage is tolerated.
+  is rejected with `Missing case: .Some(false)`; a guarded arm never counts as
+  covering. Integer constants and ranges are INTERVALS of the scrutinee's
+  fixed-width type: `(0..=255)` alone covers `u8`, and a gap is reported as a
+  range (`Missing case: (101 ..= 149)`). `usize`/`isize` (target-dependent
+  range), floats and strings need a `_` or binding arm.
+- **An arm that can never run is an error** (`E0608`): a duplicate variant or
+  literal, any arm after a catch-all, a range inside an earlier range, an
+  or-alternative repeating an earlier one (`(1 | 1)`), an empty range
+  (`(5..5)`), a GADT variant the scrutinee's type excludes. An arm that the
+  earlier arms cover only TOGETHER (`.Some(_)` after `.Some(true)` and
+  `.Some(false)`) is a WARNING. A trailing `_`/binding arm is always accepted.
 - **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
   `E0609` invalid pattern (`yo explain E0607`).
 - **Inside an `io.async` arm that awaits**, only the classic shapes (`_`,

@@ -716,6 +716,15 @@ reanchor_primary_at :: (fn(err : YoError, tok : Token, note : String) -> YoError
   });
   YoError(diagnostics : entries)
 });
+/// A Warning-severity diagnostic anchored at a token, with an optional help
+/// line, for `emit_warning`. Warnings carry no code: the classifier's codes
+/// name errors.
+warning_diagnostic_of_token :: (fn(token : Token, message : String, help : Option(String)) -> Diagnostic)({
+  d := _diagnostic_of_token(token, Severity.Warning, message);
+  d.code = Option(String).None;
+  d.help = help;
+  d
+});
 /// A Note-severity diagnostic anchored at a token (the import-chain note).
 note_diagnostic_of_token :: (fn(token : Token, message : String) -> Diagnostic)(
   _diagnostic_of_token(token, Severity.Note, message)
@@ -814,5 +823,6 @@ export(
   render_any_error,
   stash_error_diagnostics,
   take_error_diagnostics,
-  note_diagnostic_of_token
+  note_diagnostic_of_token,
+  warning_diagnostic_of_token
 );

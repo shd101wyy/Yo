@@ -495,6 +495,7 @@ _compile_range :: (
   lo := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   hi := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Both bounds must be compile-time values of the position's type.
+  (bound_vals : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (bi : usize) = usize(0);
   while(bi < usize(2), {
     b := cond((bi == usize(0)) => lo, true => hi);
@@ -518,6 +519,7 @@ _compile_range :: (
       );
       return(Pattern.Wildcard);
     });
+    bound_vals.push(match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev)), .Some(bv_info) => bv_info.value, .None => Option(EvalValue).None));
     bi = (bi + usize(1));
   });
   subject := _next_subject(pc);
@@ -534,7 +536,15 @@ _compile_range :: (
   );
   test := _synth_infix(tok, "&&", lower, upper);
   _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, test, e, pc, env, ctx, exn);
-  Pattern.Range(src : e, subject : subject, test : test, ty : position_ty)
+  Pattern.Range(
+    src : e,
+    subject : subject,
+    test : test,
+    ty : position_ty,
+    lo : match(bound_vals.get(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
+    hi : match(bound_vals.get(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
+    inclusive : inclusive
+  )
 });
 /// The or-pattern `(a | b | c)` as a flat list of alternatives.
 _flatten_or :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
@@ -1083,7 +1093,7 @@ match_value :: (fn(p : Pattern, value_opt : Option(EvalValue), ctx : EvalContext
       ),
       .None => Option(bool).None
     ),
-    .Range(_, _, test, _) => match(
+    .Range(_, _, test, _, _, _, _) => match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(test)),
       .Some(ti) => match(
         ti.value,

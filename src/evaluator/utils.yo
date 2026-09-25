@@ -2119,111 +2119,8 @@ are_values_equal :: (
   )
 );
 // ---------------------------------------------------------------------------
-// Integer and float literal parsing (shared by evaluate_integer_literal
-// and evaluate_float_literal; also used by eval.yo Phase 1 evaluator)
+// Float literal parsing (integer literals: `parse_raw_int` in src/utils.yo)
 // ---------------------------------------------------------------------------
-// Convert a single byte to its digit value in the given base.
-// Returns None for invalid digits.
-_digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
-  cond(
-    ((b >= u8(48)) && (b <= u8(57))) => {
-      // '0'-'9'
-      d := (i64(b) - i64(48));
-      cond((d < base) => .Some(d), true => .None)
-    },
-    ((b >= u8(97)) && (b <= u8(102))) => {
-      // 'a'-'f'
-      d := ((i64(b) - i64(97)) + i64(10));
-      cond((d < base) => .Some(d), true => .None)
-    },
-    ((b >= u8(65)) && (b <= u8(70))) => {
-      // 'A'-'F'
-      d := ((i64(b) - i64(65)) + i64(10));
-      cond((d < base) => .Some(d), true => .None)
-    },
-    true => .None
-  )
-);
-// Parse `bytes[start..]` as a non-negative integer in the given base.
-// Returns None if the slice is empty or contains an invalid digit.
-_parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> Option(i64))({
-  n := bytes.len();
-  cond(
-    (start >= n) => .None,
-    true => {
-      (result : i64) = i64(0);
-      (i : usize) = start;
-      (ok : bool) = true;
-      while((i < n) && ok, {
-        match(
-          bytes.get(i),
-          .Some(b) =>
-            match(
-              _digit_value(b, base),
-              .Some(d) => {
-                // The accumulator wraps through i64's boundary on purpose:
-                // u64-range literals (2^63 and above) are legal and are
-                // carried as the i64 MIN-side bit pattern, exactly like the
-                // comptime integer domain.
-                result = (result.wrapping_mul(base)).wrapping_add(d);
-              },
-              .None => {
-                ok = false;
-              }
-            ),
-          .None => {
-            ok = false;
-          }
-        );
-        i = (i + usize(1));
-      });
-      cond(ok => .Some(result), true => .None)
-    }
-  )
-});
-/// Parse a raw integer token string to `i64`.
-///
-/// Handles:
-/// - Decimal integers (default)
-/// - Hex integers with `0x` / `0X` prefix
-/// - Binary integers with `0b` / `0B` prefix
-/// - Octal integers with `0o` / `0O` prefix
-/// - Underscore separators (e.g. `1_000_000`)
-///
-/// Returns `None` if the raw string cannot be parsed.
-///
-/// **This is a BIT-PATTERN parser, deliberately not a range-checked one.**
-/// Comptime integers are carried as `i64`, so a `u64`/`usize` literal above
-/// `i64.MAX` is represented by its NEGATIVE two's-complement pattern —
-/// `18446744073709551615` must come back as `i64(-1)`, and `_int_raw_in_range`
-/// below relies on exactly that ("parse_raw_int wraps on overflow … and would
-/// falsely report out-of-range"). The prefixed forms have always wrapped.
-///
-/// It therefore must NOT use `String.parse_i64`, which is the public std API
-/// and follows Rust: it REJECTS anything outside `i64`. The decimal path parses
-/// the magnitude as a `u64` and reinterprets it, which is the same answer the
-/// old wrapping `parse_i64` gave for everything up to `u64.MAX` and `.None`
-/// beyond it (no integer type can hold that, and every caller treats `.None`
-/// as "not representable").
-parse_raw_int :: (fn(raw : String) -> Option(i64))({
-  stripped := raw.replace_all(`_`, ``);
-  cond(
-    (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
-    (stripped.starts_with(`0b`) || stripped.starts_with(`0B`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
-    (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
-    // A signed literal is in i64's own range by construction.
-    stripped.starts_with(`-`) => stripped.parse_i64(),
-    // Unsigned magnitude, reinterpreted as the i64 bit pattern.
-    true => match(
-      stripped.parse_u64(),
-      .Some(mag) => .Some(i64(mag)),
-      .None => Option(i64).None
-    )
-  )
-});
 /// Parse a raw float token string (e.g. `"3.14"`, `"1e-5"`) to `f64`.
 /// Uses `atof` from the C standard library.
 /// Returns `None` if the string has no valid C-string representation.
@@ -2309,4 +2206,4 @@ f64_raw_roundtrip :: (fn(v : f64) -> String)({
   _n := unsafe(snprintf((*char)(buffer_ptr), usize(40), "%.17g", v));
   String.from_cstr(buffer_ptr).unwrap()
 });
-export(parse_raw_int, parse_raw_float, f64_raw_roundtrip);
+export(parse_raw_float, f64_raw_roundtrip);

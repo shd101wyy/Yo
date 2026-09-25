@@ -1783,6 +1783,10 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+An arm for an excluded variant is an error (E0608): no `Value(i32)` holds a
+`.BoolVal`. In a generic function over `Value(T)` every variant's arm is
+needed, because each instantiation excludes different ones.
+
 #### GADT indices are part of the type
 
 `Value(i32)` and `Value(bool)` are different types even though their payloads have the same
@@ -2119,10 +2123,22 @@ command :: (fn(s : String) -> i32)(
 
 Arms are tried in source order and the first match wins. Exhaustiveness is
 checked structurally: `.Some(true), .None` is rejected with
-`Missing case: .Some(false)`; integers, floats and strings need a wildcard or
-binding arm; a guarded arm never counts as covering its pattern. An arm no
-value can reach is an error (`Unreachable match arm`), except a trailing `_`
-after complete coverage. Bindings borrow the matched value for the arm.
+`Missing case: .Some(false)`, and a missing variant is named with its payload
+(`Missing case: .Circle(_)`). Integer constants and
+ranges are intervals of the scrutinee's type: `(0..=255)` alone covers a `u8`,
+and a gap is reported as a range (`Missing case: (101 ..= 149)`). `usize` and
+`isize`, whose range differs between targets, floats and strings need a
+wildcard or binding arm. A guarded arm never counts as covering its pattern;
+when a guard is what leaves a value unmatched, the error's help line says so.
+
+An arm that can never run is an error (`Unreachable match arm`, E0608) when one
+earlier arm alone matches everything it matches (a second `.Red`, anything
+after `_`, `(5..=7)` after `(0..10)`), when an earlier alternative of its own
+or-pattern does (`(1 | 1)`), or when no value of the scrutinee's type matches
+it (the empty range `(5..5)`, a GADT variant the type excludes). An arm that
+the earlier arms match only together, such as `.Some(_)` after `.Some(true)`
+and `.Some(false)`, is a warning. A trailing `_` or binding arm is always
+accepted. Bindings borrow the matched value for the arm.
 
 Not yet supported: struct and tuple scrutinees, patterns through a `Box(...)`
 payload, and the new forms inside an `io.async` arm that awaits (those fail

@@ -79,7 +79,8 @@ pragma(Pragma.AllowUnsafe);
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
+{ emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -88,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
   Arm,
   register_match_arms,
   match_missing_witness,
-  arm_is_unreachable,
+  arm_reachability,
   pattern_test_exprs,
   pattern_to_string,
   gadt_branch_reachable,
@@ -251,6 +252,9 @@ _adopt_env :: (fn(env : Environment, src : Environment) -> unit)({
 // ---------------------------------------------------------------------------
 // evaluate_match
 // ---------------------------------------------------------------------------
+/// The help line of a non-exhaustive `match` whose missing value a guarded
+/// arm would match.
+_GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhaustiveness, because the guard can fail; add an arm without a guard for these values";
 /// Evaluate a `match(...)` expression.
 evaluate_match :: (
   fn(
@@ -886,39 +890,78 @@ evaluate_match :: (
   // Exhaustiveness and unreachability (usefulness over the compiled arms)
   // ---------------------------------------------------------------------------
   match(
-    match_missing_witness(arms, position_type),
+    match_missing_witness(arms, position_type, false),
     .Some(witness) => {
       msg := cond(
-        (scrutinee_is_enum || is_bool_type(matched_type)) =>
-          `Match expression is not exhaustive. Missing case: ${witness}`,
-        true =>
-          `Match expression on ${type_to_string(matched_type)} requires a wildcard "_" or a binding arm for exhaustiveness.`
+        (witness == "_") =>
+          `Match expression on ${type_to_string(matched_type)} requires a wildcard "_" or a binding arm for exhaustiveness.`,
+        true => `Match expression is not exhaustive. Missing case: ${witness}`
       );
-      exn.throw(dyn(format_error_message(ast_expr_token(expr), msg)));
+      // Say so when a guard is what leaves the value unmatched: counted as if
+      // every guard held, the arms match it.
+      guard_help := match(
+        match_missing_witness(arms, position_type, true),
+        .Some(w_all) => cond(
+          (w_all == witness) => Option(String).None,
+          true => Option(String).Some(String.from(_GUARD_HELP))
+        ),
+        .None => Option(String).Some(String.from(_GUARD_HELP))
+      );
+      exn.throw(dyn(format_error_message_with_help(ast_expr_token(expr), msg, guard_help)));
       return(expr);
     },
     .None => ()
   );
+  // An arm for a variant the GADT index excludes is dead in the source only
+  // when the index is the source's, not a generic specialization's.
+  gadt_exact := (ctx.currently_specializing_function.is_none() && !(ctx.is_evaluating_generic_impl_specialization));
   (ui : usize) = usize(0);
   while(ui < arms.len(), {
-    if(arm_is_unreachable(arms, ui, position_type), {
-      ua := match(
-        arms.get(ui),
-        .Some(a) => a,
-        .None => {
-          return(expr);
-        }
-      );
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(ua.pattern_expr),
-            `Unreachable match arm: ${pattern_to_string(ua.pattern)} — every value it matches is already matched by an earlier arm`
+    ua := match(
+      arms.get(ui),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    ua_tok := ast_expr_token(ua.pattern_expr);
+    match(
+      arm_reachability(arms, ui, position_type, gadt_exact),
+      .MatchesNothing(part, _) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ua_tok,
+              `Unreachable match arm: ${pattern_to_string(part)} — no value of type ${type_to_string(matched_type)} matches it`
+            )
           )
-        )
-      );
-      return(expr);
-    });
+        );
+        return(expr);
+      },
+      .Subsumed(part, whole) => {
+        by := cond(whole => "an earlier arm", true => "an earlier arm or an earlier alternative of its or-pattern");
+        exn.throw(
+          dyn(
+            format_error_message(
+              ua_tok,
+              `Unreachable match arm: ${pattern_to_string(part)} — every value it matches is already matched by ${by}`
+            )
+          )
+        );
+        return(expr);
+      },
+      .Covered(part, whole) => {
+        what := cond(whole => "match arm", true => "or-pattern alternative");
+        emit_warning(
+          warning_diagnostic_of_token(
+            ua_tok,
+            `unreachable ${what}: ${pattern_to_string(part)} — the patterns before it together match every value it matches`,
+            Option(String).Some(`delete it, or move it above the patterns that cover it`)
+          )
+        );
+      },
+      .Reachable => ()
+    );
     ui = (ui + usize(1));
   });
   // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 //! Range patterns (plans/MATCH_PATTERN_MATCHING.md P3): `(lo..hi)` is
-//! half-open, `(lo..=hi)` inclusive, bounds are compile-time constants, and
-//! an integer scrutinee still needs a wildcard or binding arm.
+//! half-open, `(lo..=hi)` inclusive, bounds are compile-time constants.
+//! Ranges and constants are intervals (plans/TYPE_SYSTEM_SOUNDNESS.md Phase
+//! 4.5): arms covering a fixed-width integer type are exhaustive without `_`.
 { assert } :: import("std/assert");
 import("std/fmt");
 test("half-open and inclusive ranges", {
@@ -68,4 +69,42 @@ test("ranges on a compile-time scrutinee", {
     _ => i32(3)
   );
   assert(r == i32(2));
+});
+test("ranges covering a fixed-width type need no catch-all", {
+  whole :: (fn(m : u8) -> i32)(match(m, (0 ..= 255) => i32(1)));
+  assert(whole(u8(0)) == i32(1));
+  assert(whole(u8(255)) == i32(1));
+  pieces :: (fn(m : i8) -> i32)(
+    match(
+      m,
+      (-128 .. 0) => i32(-1),
+      0 => i32(0),
+      (1 ..= 127) => i32(1)
+    )
+  );
+  assert(pieces(i8(-128)) == i32(-1));
+  assert(pieces(i8(-1)) == i32(-1));
+  assert(pieces(i8(0)) == i32(0));
+  assert(pieces(i8(127)) == i32(1));
+  wide :: (fn(m : u64) -> i32)(
+    match(
+      m,
+      (0 .. 9223372036854775808) => i32(1),
+      (9223372036854775808 ..= 18446744073709551615) => i32(2)
+    )
+  );
+  assert(wide(u64(5)) == i32(1));
+  assert(wide(u64(18446744073709551615)) == i32(2));
+});
+test("the constants of a fixed-width type need no catch-all", {
+  bit :: (fn(b : u8) -> i32)(
+    match(
+      b & u8(1),
+      0 => i32(0),
+      1 => i32(1),
+      (2 ..= 255) => i32(2)
+    )
+  );
+  assert(bit(u8(4)) == i32(0));
+  assert(bit(u8(5)) == i32(1));
 });
