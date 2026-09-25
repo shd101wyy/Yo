@@ -1,6 +1,19 @@
 # `tests/http/http_limits.test.yo` depends on httpbin.org — inside a required ratchet gate
 
-**Status: OPEN** (filed 2026-09-06). Not a compiler bug; a CI-determinism bug.
+**Status: FIXED 2026-09-26.** Not a compiler bug; a CI-determinism bug. The
+redirect tests moved to a loopback `HttpServer` first
+(`issues/fixed/http-redirect-tests-depended-on-httpbin.md`). The last two
+egress tests (`with_timeout`, `with_max_response_bytes`, which fetched
+`https://example.com`) failed the same way on 2026-09-26, 2 of 4,446 in a
+local fast suite and passing 6/6 on re-run with two different compilers. They
+now use loopback too:
+- the timeout test fetches from a `TcpListener` that is bound but never
+  accepts, so no response can arrive and the 1 ms deadline is the only way out;
+- the size test fetches a 64-byte body against a 16-byte cap. Raising the cap
+  makes it fail, so the test has teeth.
+
+The file reaches no host but 127.0.0.1. `Pragma.SkipWindows` stays: `std/http`
+still links OpenSSL, which the Windows runners lack.
 
 ## Symptom
 
