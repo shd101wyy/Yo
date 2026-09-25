@@ -4533,6 +4533,11 @@ _d4_closure_bound_offender :: (fn(env : Environment, ty : TypeValue, trait_ty : 
   want_id := match(ty, .SomeT(wid, _, _, _, _, _, _, _, _, _, _) => wid, _ => String.new());
   want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
   start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
+  // YO_DEBUG_D4=1: trace what the closure-bound judgement sees.
+  d4_debug := match(debug_knob(`YO_DEBUG_D4`), .Some(d) => (d.len() > usize(0)), .None => false);
+  if(d4_debug, {
+    eprintln(`[d4] bound ${type_to_string(ty)} some=${is_some_type(ty)} func=${is_function_type(ty)} frames ${start}..${env.frames.len()}`);
+  });
   (found_value : bool) = false;
   (fi : usize) = start;
   while(fi < env.frames.len(), {
@@ -4555,18 +4560,27 @@ _d4_closure_bound_offender :: (fn(env : Environment, ty : TypeValue, trait_ty : 
                   .Some(vv) => match(
                     vv,
                     .FuncVal(fvd, _) => {
-                      found_value = true;
+                      if(d4_debug, {
+                        eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} fid=${fvd.*.func_id} cci=${get_closure_capture_info(fvd.*.func_id.clone()).is_some()}`);
+                      });
                       match(
                         get_closure_capture_info(fvd.*.func_id.clone()),
-                        .Some(cci) => if(!(type_implements_trait_bool(cci.capture_type, trait_ty, env)), {
-                          return(Option(TypeValue).Some(cci.capture_type));
-                        }),
+                        .Some(cci) => {
+                          found_value = true;
+                          if(!(type_implements_trait_bool(cci.capture_type, trait_ty, env)), {
+                            return(Option(TypeValue).Some(cci.capture_type));
+                          });
+                        },
                         .None => ()
                       );
                     },
-                    _ => ()
+                    _ => if(d4_debug, {
+                      eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} value is not a FuncVal`);
+                    }),
                   ),
-                  .None => ()
+                  .None => if(d4_debug, {
+                    eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} has no compile-time value`);
+                  })
                 );
               });
             },
@@ -4582,6 +4596,13 @@ _d4_closure_bound_offender :: (fn(env : Environment, ty : TypeValue, trait_ty : 
   if(found_value || !(is_some_type(ty)), {
     return(Option(TypeValue).None);
   });
+  match(
+    _capture_judgement_type(ty, Option(EvalValue).None),
+    .Some(ct) => if(d4_debug, {
+      eprintln(`[d4] SomeT resolves to ${type_to_string(ct)}`);
+    }),
+    .None => ()
+  );
   match(
     _capture_judgement_type(ty, Option(EvalValue).None),
     .Some(ct) => if(
@@ -4661,6 +4682,9 @@ validate_where_constraints_for_call :: (
               // a SomeT that already DECLARES the trait (`cb : Impl(Fn, Send)`
               // forwarded) was proven by its own caller.
               d4_is_closure_ty := ((is_some_type(bound_ty) && extract_fn_trait_from_type(bound_ty).is_some()) || is_function_type(bound_ty));
+              if(match(debug_knob(`YO_DEBUG_D4`), .Some(d4d) => (d4d.len() > usize(0)), .None => false), {
+                eprintln(`[d4] where ${wce.lhs_label} <: ${type_to_string(wce.trait_ty)} bound=${type_to_string(bound_ty)} closure_ty=${d4_is_closure_ty} fid=${func_id}`);
+              });
               if((d4_is_closure_ty && !(wce.is_negated)) && !(_declared_bound_requires(bound_ty, wce.trait_ty)), {
                 match(
                   _d4_closure_bound_offender(callee_env, bound_ty, wce.trait_ty),
