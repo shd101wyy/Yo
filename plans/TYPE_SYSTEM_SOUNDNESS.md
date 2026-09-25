@@ -419,9 +419,9 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    identity of a `cond`/`match` join. A diverging arm, or a body's diverging tail, adopts the type
    of its context (`adopt_never_type`), so codegen keeps a typed unreachable placeholder. A call to
    a `-> never` function runs as a statement. `__yo_panic` is `never` when nothing is expected of
-   it. The std half (`panic`, `exit` and libc's terminators declared `-> never`) is ready but waits
-   for a seed that carries `never`, because `yo build` compiles `std/` with the seed. It is spelled
-   out in the issue. `return`/`unwind` keep their control-flow typing; they were already the join
+   it. **The std half landed 2026-09-26**, once v0.2.43 put `never` in the seed (`yo build` compiles
+   `std/` with the seed): `std/assert`'s `panic`, `std/process`'s `exit` and libc's `exit`, `_Exit`,
+   `quick_exit` and `abort` are `-> never`. `return`/`unwind` keep their control-flow typing; they were already the join
    identity through the arm-join's control-flow rule, and retyping them bought nothing that was
    measured.
 7. **Interning without the mutable cell.** Never intern a SomeT node, or leave its resolution

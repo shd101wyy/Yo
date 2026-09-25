@@ -19,14 +19,16 @@ c_include(
   lldiv_t : Type,
   wchar_t : Type,
   // Program termination
+  // These four do not return: `never` lets a call stand in any value slot
+  // (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
   exit :
-    (fn(status : int) -> unit),
+    (fn(status : int) -> never),
   quick_exit :
-    (fn(status : int) -> unit),
+    (fn(status : int) -> never),
   _Exit :
-    (fn(status : int) -> unit),
+    (fn(status : int) -> never),
   abort :
-    (fn() -> unit),
+    (fn() -> never),
   atexit :
     (fn(func : (fn() -> unit)) -> int),
   at_quick_exit :

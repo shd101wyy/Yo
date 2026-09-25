@@ -1,10 +1,8 @@
 # `std/assert`'s `panic` cannot be used in a value arm because Yo has no bottom type
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** PARTIALLY FIXED 2026-09-25. The compiler half (Phase 3.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`)
-landed: `never` exists, `__yo_panic` and any `-> never` function type a value arm. OPEN for the std half:
-`std/assert`'s `panic`, `std/process`'s `exit` and libc's `exit`/`_Exit`/`quick_exit`/`abort` become
-`-> never` once `SEED_VERSION` carries the `never` type (see "Remaining"). Completeness/design gap.
+**Status:** FIXED 2026-09-26. The compiler half (Phase 3.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`,
+#916) landed 2026-09-25; the std half followed once v0.2.43 put `never` in the seed.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
@@ -73,3 +71,10 @@ change is small and ready:
 
 Land it in the first PR after a release whose seed carries Phase 3.6, together with the original
 repro above as a test.
+
+## Fix (2026-09-26, std)
+
+`std/assert`'s `panic`, `std/process`'s `exit` and libc's `exit`, `_Exit`, `quick_exit` and `abort`
+are declared `-> never` (`std/assert.yo`, `std/process/index.yo`, `std/libc/stdlib.yo`). The repro
+compiles; `tests/type_soundness.test.yo` "soundness: std panic types a value arm" runs it in a
+`cond` and a `match`.

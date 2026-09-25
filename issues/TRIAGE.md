@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 216 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 215 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 30 | 8 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 23 | 4 |
-| Std library | 55 | 14 |
+| Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 42 | 12 |
-| **Total** | **216** | **45** |
+| **Total** | **215** | **45** |
 
 ## Cross-cutting buckets
 
@@ -228,7 +228,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | OPEN (deliberate scope boundary, not regressi | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (55)
+### Std library (54)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -256,7 +256,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
-| [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | PARTIALLY FIXED 2026-09-25 | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN — | yes |

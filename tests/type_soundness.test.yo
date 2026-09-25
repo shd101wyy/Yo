@@ -12,7 +12,7 @@
 // runtime-only effect — are gated by `tests/cli-cases/` cases instead, and
 // listed at the bottom so the ratchet stays one place to read.
 { String } :: import("std/string");
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
 // issues/fixed/comptime-str-passed-where-string-is-declared-emits-invalid-c.md
 // (landed in #856): a comptime literal argument is checked against a concrete
@@ -800,4 +800,14 @@ test("soundness: a by-value argument outlives the inout argument it overlaps", {
   n := _p5_clobber(x, x);
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");
-});
+  // issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md:
+  // std/assert's `panic` is `-> never`, so it fits an arm that must produce a value.
+  test("soundness: std panic types a value arm", {
+    pick :: (fn(flag : bool) -> i64)({
+      x := cond(flag => i32(3), true => panic("boom"));
+      i64(x)
+    });
+    assert(pick(true) == i64(3), "the value arm is taken");
+    first :: (fn(o : Option(i32)) -> i32)(match(o, .Some(v) => v, .None => panic("no value")));
+    assert(first(Option(i32).Some(i32(4))) == i32(4), "the match value arm is taken");
+  });

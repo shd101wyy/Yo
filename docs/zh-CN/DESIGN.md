@@ -652,6 +652,8 @@ pick :: (fn(flag : bool) -> i64)({
 
 函数体可能正常结束的 `-> never` 函数会被拒绝（`Function body has type unit, but the declared result type is never`）。
 
+标准库的终止函数都是 `-> never`：`std/assert` 的 `panic`、`std/process` 的 `exit`，以及 libc 的 `exit`、`_Exit`、`quick_exit` 和 `abort`。因此 `.None => panic("no value")` 可以放在必须产生值的分支里。
+
 ### 默认参数值
 
 默认参数值可以使用 `?=` 语法定义：
