@@ -117,6 +117,12 @@ NixOS, where the prebuilt binary's hardcoded ELF interpreter
 > option only works on releases made after it. The installer says so explicitly
 > rather than failing obscurely.
 
+> **Memory:** building Yo itself, whether `--from-source` or `yo build` in a
+> checkout, fits on an **8 GB** machine with a v0.2.43 or later compiler. A full
+> build of the compiler peaks at about 4.3 GiB (measured on Linux, C compiler
+> included), and CI builds it inside an 8 GB no-swap limit on every change.
+> Older releases needed about 10 GB. Compiling your own programs needs far less.
+
 The installer puts the `yo` command on your `PATH`. Run `yo --help` to see the
 available commands.
 

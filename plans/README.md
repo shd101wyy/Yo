@@ -19,7 +19,6 @@ doc.
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) — the `match` redesign (pattern IR, exhaustiveness, general lowering).
 - [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) — cutting the evaluator's retained memory, measured per phase.
-- [`BUILD_ON_8GB_MACHINES.md`](BUILD_ON_8GB_MACHINES.md) — `yo build` of the compiler inside 8 GB without swap: cc no longer beside the evaluator heap, the codegen phase, a cgroup-measured CI ratchet.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
@@ -51,8 +50,10 @@ and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
 [`SELF_HOSTING_COMPLETION`](archive/SELF_HOSTING_COMPLETION.md) (self-hosting,
 finished), [`BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN`](archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md),
-[`STD_API_STABILIZATION`](archive/STD_API_STABILIZATION.md) and
-[`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md).
+[`STD_API_STABILIZATION`](archive/STD_API_STABILIZATION.md),
+[`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
+and [`BUILD_ON_8GB_MACHINES`](archive/BUILD_ON_8GB_MACHINES.md) (Yo builds on an
+8 GB machine, closed 2026-09-26).
 
 ## Conventions
 

@@ -1,16 +1,21 @@
 # Building Yo on an 8 GB machine — plan
 
-**Status: ACTIVE 2026-09-25.** Phase 1 landed: cc no longer runs beside the
-evaluator heap, so a full compile of `src/main.yo` peaks at 6.35 GB instead of
-≈ 9.7 GB (§1 Phase 1). Phase 4 items 1–2 landed as one CI job
-(`compile_memory_ratchet.sh`: the build inside an 8 GB no-swap cgroup, its
-memory.peak ratcheted). Phase 3 measured chunking below the single unit and
-landed a memory cap on the default chunk job count. Phase 2 found the codegen
-phase's extra memory was the shared ExprInfo table keeping every executed CTFE
-clone, and drops it (#913): the whole build now peaks at 4.85 GiB on Linux
-(6.35 before), with #915's token fix on top. Open: Phase 4 items 3–4 (they
-wait for a seed that carries Phases 1–2).
-Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md).
+**Status: CLOSED 2026-09-26: every phase landed.** Yo builds on an 8 GB
+machine with a v0.2.43 or later compiler, and CI holds the claim.
+- Phase 1: cc runs in a fresh image, so the build peaks at 6.35 GB instead of
+  ≈ 9.7 GB (#908).
+- Phase 2: the shared ExprInfo table no longer keeps executed CTFE clones
+  (#913). With the evaluator fixes that followed (#915, #920), the whole build
+  peaks at 4.31 GiB on Linux.
+- Phase 3: chunked emission measured below the single unit, and the default
+  chunk job count is capped by memory (#912).
+- Phase 4: the build runs inside an 8 GB no-swap cgroup with its peak
+  ratcheted (#908). The CI swapfiles are shrunk from 32 GB to 8 GB, and the
+  README / CONTRIBUTING state the requirement (en + zh-CN).
+
+Residual, out of scope for the claim: the call-overload trial clones'
+176 MB (§1 Phase 2).
+Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md).
 That campaign shrinks what `check` retains. This one covers the rest of a
 `yo build` of the compiler: the codegen phase, and the C compiler running while
 `yo compile` still holds its heap.
@@ -225,6 +230,15 @@ for today's units, about 2 GB of clang at the measured peaks.
    without these fixes.
 4. State the requirement in the install docs, `docs/en-US/` and `docs/zh-CN/`:
    8 GB RAM, with a seed at or after the release that lands this.
+
+**Items 3–4 landed (2026-09-26), once v0.2.43 (Phases 1–2) was the seed.**
+On that seed the two fixpoint jobs, the heaviest self-emits in CI, peak at
+5.2 GB RAM and use no swap (`MEMSAMPLE`, develop run 36148919130). Every 32 GB
+swapfile is now 8 GB, 15 sites across `test.yml`, `release.yml` and
+`fixpoint-arm64.yml`, kept as a safety net. `README.md` and `CONTRIBUTING.md`
+(and their zh-CN twins) state the 8 GB requirement for building Yo itself.
+`issues/compiler-holds-emit-memory-during-cc.md`, the August report of the
+Phase 1 bug, moved to `issues/fixed/`.
 
 **Items 1–2 landed (2026-09-25) as one job**, "Compiler build inside 8 GB"
 (`scripts/bootstrap/compile_memory_ratchet.sh`, in `test.yml` after the

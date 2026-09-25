@@ -1,6 +1,6 @@
 #!/bin/bash
 # compile_memory_ratchet.sh — the "builds on an 8 GB machine" claim, tested and
-# ratcheted (plans/BUILD_ON_8GB_MACHINES.md Phase 4).
+# ratcheted (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 4).
 #
 #   bash scripts/bootstrap/compile_memory_ratchet.sh <yo binary>
 #

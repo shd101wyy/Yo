@@ -33,7 +33,7 @@ Three things are worth knowing before trusting any row.
 | Evaluator / types | 25 | 4 |
 | Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 14 | 1 |
-| Self-hosting legacy | 17 | 2 |
+| Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 47 | 13 |
 | **Total** | **226** | **47** |
@@ -310,11 +310,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
 
-### Self-hosting legacy (17)
+### Self-hosting legacy (16)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`compiler-holds-emit-memory-during-cc.md`](./compiler-holds-emit-memory-during-cc.md) | — | — |
 | [`desugar-token-clones-evaluator-regression.md`](./desugar-token-clones-evaluator-regression.md) | — | — |
 | [`self-hosted-emit-leaks-remaining-classes.md`](./self-hosted-emit-leaks-remaining-classes.md) | — | — |
 | [`yo-self-async-await-argcount-overpermissive.md`](./yo-self-async-await-argcount-overpermissive.md) | — | — |

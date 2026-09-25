@@ -1,8 +1,17 @@
 # The compiler holds its whole evaluator arena while the C compiler runs
 
-**Status: OPEN — CONFIRMED TWICE, and now the sole cause of a red required
-check.** (First measured 2026-08-15 from CI run 31862196401; re-confirmed the
-same day on run 31864299243 under the memory cap.)
+**Status: FIXED 2026-09-25 (#908, released in v0.2.43).** The C-compiler
+step now runs in a fresh process image: `run_compile` records a `CcPlan`,
+writes it next to the output and `execve`s `yo __cc-plan <file>`, so nothing
+of the evaluator or codegen heap survives into the cc step. The block-scope
+drop described below never released the heap: the 8 GB plan's sampler
+(`plans/archive/BUILD_ON_8GB_MACHINES.md` §0) still saw `yo compile` at 6.6 GB for
+the whole ~100 s clang ran. Peak for a full build of the compiler: 9.7 GB →
+6.35 GB with #908, 4.31 GiB on Linux with the later evaluator fixes; CI builds
+it inside an 8 GB no-swap cgroup (`scripts/bootstrap/compile_memory_ratchet.sh`).
+
+(Original report, first measured 2026-08-15 from CI run 31862196401 and
+re-confirmed the same day on run 31864299243 under the memory cap:)
 
 ## Re-confirmation under the cgroup cap (run 31864299243) — the decisive trace
 

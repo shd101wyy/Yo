@@ -1,6 +1,6 @@
 # `yo compile --help` said `--emit-c-to` stops before the C compiler; it does not
 
-**Status: FIXED 2026-09-25** (`plans/BUILD_ON_8GB_MACHINES.md` Phase 2 work).
+**Status: FIXED 2026-09-25** (`plans/archive/BUILD_ON_8GB_MACHINES.md` Phase 2 work).
 
 ## Symptom
 
@@ -25,7 +25,7 @@ warm self-check (`_warm_selfcheck`) and `scripts/make-portable-c.sh` rely on
 that, passing both flags together. Only the one-line help entry, written with
 the per-subcommand help in #239, claimed the flag stopped.
 
-It misled a measurement: `plans/BUILD_ON_8GB_MACHINES.md` §0 labelled its
+It misled a measurement: `plans/archive/BUILD_ON_8GB_MACHINES.md` §0 labelled its
 `--emit-c-to` row "stops before cc". The footprint figure there is the `yo`
 process alone and stands; its wall time includes clang.
 
