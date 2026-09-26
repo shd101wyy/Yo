@@ -54,3 +54,33 @@ everywhere; a directional relation called both ways is not one relation. Each
 directional rule then needs an over-acceptance canary in
 `tests/type_soundness.test.yo` in the flipped direction (the `Dyn` downcast,
 an extern into a scalar parameter).
+
+## Resolution
+
+**Fixed 2026-09-26** (branch `tss/flow-orientation`, Type-system soundness Phase 3 step 8).
+
+- All thirteen reversed sites flipped to `(actual, expected)`: the argument
+  check and its debug line plus the explicit-`using` and implicit-param checks
+  (`calls/helper.yo`), the C19 concrete/concrete check and the etc-argument
+  check (`calls/function.yo`), a parameter's default value
+  (`types/function.yo`), a trait field's value and default (`types/trait.yo`),
+  property assignment and reassignment (`exprs/assignment.yo`), the typed
+  binding (`exprs/initialization_assignment.yo`), `as` (`builtins/as.yo`) and
+  the Fn-trait check (`trait_checking.yo`). The other ~68 sites were
+  classified as correctly oriented or symmetric (joins, cross-case merges,
+  value equality); the classification is in the commit message.
+- `Dyn` flow is now the exact trait set in every mode (`compatibility.yo`'s
+  DynT arm), per Phase 2.7's recorded decision: no upcast, no downcast. The
+  element comparison inside the set-equality loop keeps the ambient relation
+  (flow in flow), so a generic `Dyn(Fn(A) -> B)` parameter still accepts
+  `Dyn(Fn(i32) -> i32)` — Invariant there broke `_sound_apply_dyn`
+  (`tests/type_soundness.test.yo`) and was the branch's one build fix.
+- Canaries in `tests/type_soundness.test.yo`: the extern-into-scalar
+  parameter, the `Dyn` downcast by call and by reassignment, the upcast
+  (rejected, with the "Yo does not upcast Dyn" note), and the relation itself
+  in both directions.
+- The flip exposed that the extern-opaque C-scalar coercion composed into
+  compound types (`Option(u64)` flowed into `Option(FILE)`), which the
+  reversed argument check had been masking; that is
+  `issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md`,
+  fixed in the same branch.

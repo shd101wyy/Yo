@@ -72,8 +72,10 @@ every coercion below around (`issues/fixed/the-flow-relation-is-called-with-its-
   bounds (call sites pass `(param, arg)` as often as `(arg, param)`). A resolved SomeT stands for its
   resolution. An extern opaque type is not a SomeT: no type-parameter rule reaches it.
 - A C scalar (a `bool`, a number, a C integer type) flows into an extern opaque type by value, as
-  C value-initialization does (`atomic_bool`'s cell is built as `Self(false)`). Pointers to an
-  extern opaque stay exact.
+  C value-initialization does (`atomic_bool`'s cell is built as `Self(false)`). The coercion is an
+  initialization rule for the slot the caller named and does not compose into a compound type:
+  `Option(u64)` is not `Option(FILE)`, and `G(u64)` not `G(FILE)`; pointers to an extern opaque
+  were always exact.
 - A recursive struct's self-shell stands for its final.
 - An anonymous record flows into a named struct of the same kind with the same field labels and
   compatible field types (`r := { x : i32(7) }; (a : A) = r;` for `A :: struct(x : i32)`).
