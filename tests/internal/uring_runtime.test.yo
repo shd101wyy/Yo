@@ -87,3 +87,27 @@ test("macos runtime: the vendored ring layer is not emitted", {
   c := emit_macos_runtime();
   assert(!c.contains(String.from("__yo_uring_queue_init")), String.from("ring layer leaked into the macOS runtime"));
 });
+test("linux runtime: the epoll fallback backend and the selection ladder are emitted", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("epoll_create1(EPOLL_CLOEXEC)")), String.from("epoll init missing"));
+  assert(c.contains(String.from("__YO_BACKEND_EPOLL")), String.from("backend enum missing"));
+  assert(c.contains(String.from("__yo_epoll_park")), String.from("pending-op machine missing"));
+  assert(c.contains(String.from("YO_IO_BACKEND")), String.from("env override missing"));
+  assert(c.contains(String.from("async I/O running on the epoll fallback")), String.from("fallback log line missing"));
+  assert(c.contains(String.from("__YO_BACKEND_DEGRADED")), String.from("degraded rung missing"));
+});
+test("linux runtime: every ring op start carries the backend dispatch", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("return __yo_epoll_read_start(fd, buffer, size, offset);")), String.from("read dispatch missing"));
+  assert(c.contains(String.from("return __yo_epoll_accept_start(sockfd, addr, addrlen);")), String.from("accept dispatch missing"));
+  assert(c.contains(String.from("return __yo_epoll_sendto_park(sockfd, buf, len, flags, dest_addr, addrlen, future);")), String.from("sendto dispatch missing"));
+  assert(c.contains(String.from("return __yo_epoll_done_future(-__yo_backend_errno);")), String.from("degraded dispatch missing"));
+});
+test("common runtime: the Linux timer arms through epoll when selected", {
+  c := emit_linux_common();
+  assert(c.contains(String.from("__yo_epoll_sleep_arm(future, tfd, buf);")), String.from("timer epoll arm missing"));
+});
+test("macos runtime: the epoll backend is not emitted", {
+  c := emit_macos_runtime();
+  assert(!c.contains(String.from("__yo_epoll")), String.from("epoll backend leaked into the macOS runtime"));
+});

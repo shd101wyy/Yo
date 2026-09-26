@@ -1,7 +1,12 @@
 # io_uring ring creation failure exits the process — ENOSYS under Docker's default seccomp, EPERM on hardened kernels, ENOMEM under RLIMIT_MEMLOCK
 
-**Status: OPEN** — filed 2026-09-26, out of the liburing audit
-(`plans/DROP_LIBURING.md`, fixed as its Phase 5).
+**Status: FIXED** 2026-09-26 by `plans/DROP_LIBURING.md` Phase 5 (the backend
+ladder): ring creation failure selects the epoll fallback instead of exiting,
+and only if `epoll_create1` also fails does the loop run degraded. The ENOMEM
+leg was reproduced in CI (#934); the seccomp leg was verified end-to-end in a
+default-seccomp Docker container — the reproducer below now COMPLETES on the
+fallback (rc=0, one fallback line on stderr), and the same leg runs as the
+`docker-seccomp-epoll` CI job.
 
 ## Symptom
 
@@ -65,7 +70,34 @@ Ring-creation failure has exactly one handling path: print and `exit(1)`. There 
 recorded "ring unavailable" state for the op starts to consult, so degradation cannot
 even be expressed today except per-op in stub arms.
 
-## Fix direction (plans/DROP_LIBURING.md Phase 5 — the backend ladder)
+## Fix (plans/DROP_LIBURING.md Phase 5) and verification
+
+`__yo_io_init` selects a backend ONCE per thread, never re-deciding: the ring
+first; on ANY init failure one diagnostic line
+(`[Yo] io_uring unavailable (...); async I/O running on the epoll fallback`)
+and the epoll fallback — a port of the macOS backend's shape (readiness
+pending-ops for sockets/pipes/ttys, timerfd timers, the same eventfd wake
+channel; regular files and the no-readiness ops complete synchronously in the
+future, exactly macOS today). Only if `epoll_create1` also fails does the
+ladder reach DEGRADED: every `__yo_async_*_start` completes its future with
+`-__yo_backend_errno` — the sleep-stub degrade shape, generalized to the whole
+op set. No `exit(1)` remains on the init path. `YO_IO_BACKEND=uring|epoll`
+pins a backend for tests and benchmarks; pinned-and-failing is a loud error.
+
+Verified:
+- Standalone gcc harness against the live kernel: park/deliver with
+  registration release, cancel (waiter and timer), `drop_fd` (-EBADF),
+  timer fire (result 8) and timer cancel (-ECANCELED), notify drain,
+  datagram recvfrom park, TCP accept/connect — all green.
+- Docker default-seccomp container (ubuntu:24.04): the fallback line
+  (`io_uring unavailable (Operation not permitted)`) and the program
+  COMPLETED, rc=0; the same leg is the `docker-seccomp-epoll` CI job.
+- The async corpus (async_await, io/bufio, net/{tcp,udp,unix}) green under
+  `YO_IO_BACKEND=epoll` and under `auto` (the ring path).
+- `tests/internal/uring_runtime.test.yo` pins the ladder and every op-start
+  dispatch in the emitted C.
+
+## Original fix direction (kept for the record; implemented as above)
 
 Ring creation failure stops being fatal and stops being the whole story. The first
 `__yo_io_init` failure selects the **epoll fallback backend** — a port of the macOS
