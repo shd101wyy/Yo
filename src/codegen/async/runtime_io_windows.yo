@@ -2185,6 +2185,12 @@ static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
 static __declspec(thread) __yo_win_overlapped_t* __yo_win_ov_free_list = NULL;
 
 
+static void __yo_io_init(void);
+// This backend sets up before its loop can wait: initialize at loop start.
+static void __yo_io_loop_start(void) {
+  __yo_io_init();
+}
+
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
   InitializeCriticalSection(&__yo_dir_state_mutex);

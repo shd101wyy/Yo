@@ -807,6 +807,12 @@ static void __yo_kq_drop_fd(int fd) {
 }
 
 // Initialize kqueue subsystem
+static void __yo_io_init(void);
+// This backend sets up before its loop can wait: initialize at loop start.
+static void __yo_io_loop_start(void) {
+  __yo_io_init();
+}
+
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
   

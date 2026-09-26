@@ -461,6 +461,12 @@ static int __yo_wasm_timer_process_due(uint64_t now_ms) {
 }
 
 // I/O init — no-op for WASM (no kernel resources to initialize)
+static void __yo_io_init(void);
+// This backend sets up before its loop can wait: initialize at loop start.
+static void __yo_io_loop_start(void) {
+  __yo_io_init();
+}
+
 static void __yo_io_init(void) {
   __yo_io_initialized = true;
 }
