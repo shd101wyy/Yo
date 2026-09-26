@@ -138,6 +138,10 @@ _typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : Str
                 vnames.get(vi),
                 .Some(vn) => if(vn == field_name, {
                   fields_empty := match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true);
+                  // A nullable-pointer enum's fieldless variant is NULL.
+                  if(fields_empty && can_optimize_as_nullable_pointer(et).is_some(), {
+                    return(String.from("NULL"));
+                  });
                   if(
                     fields_empty,
                     match(

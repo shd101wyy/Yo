@@ -1039,6 +1039,11 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
+  // The match's own deferred drops (its scrutinee temp first) run after it,
+  // as in every other match lowering. Raw-pointer payloads never needed one;
+  // a reference-handle payload (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3)
+  // leaked the `.get()` result of every `match(xs.get(i), .Some(v) => …)`.
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Simple (fieldless) enum match → C switch on the tag.
@@ -1101,6 +1106,7 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Remove the shadows a tagged-union arm's destructuring added, mirroring the

@@ -3,6 +3,7 @@
 //! scrutinee unless it names a compile-time constant in scope, in which case
 //! it compares; enum constants (`RED`, `Color.Red`) lower to tag tests.
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 import("std/fmt");
 Color :: enum(Red, Green, Blue);
 TEN :: i32(10);
@@ -86,4 +87,50 @@ test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
   pick :: (fn(o : Option(Crate)) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
   assert(pick(Option(Crate).Some(Crate(v : i32(7)))) == i32(7), ".Some takes its own arm");
   assert(pick(Option(Crate).None) == i32(-1), ".None takes the wildcard");
+});
+// A match on an owned nullable-pointer Option (a reference-handle payload,
+// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3) must release its scrutinee: the
+// nullable-pointer lowering skipped the match's deferred drops, so every
+// `match(xs.get(i), .Some(t) => …)` leaked the reference `.get()` returned
+// (1.26 M objects in `check src/main.yo`).
+(g_tracked_disposed : i32) = i32(0);
+Tracked :: ref(struct(v : i32));
+impl(
+  Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_tracked_disposed = (g_tracked_disposed + i32(1));
+    })
+  )
+);
+test("a match on an owned nullable-pointer Option releases its scrutinee", {
+  before := g_tracked_disposed;
+  {
+    xs := ArrayList(Tracked).new();
+    xs.push(Tracked(v : i32(1)));
+    xs.push(Tracked(v : i32(2)));
+    (sum : i32) = i32(0);
+    (i : usize) = usize(0);
+    positions := ArrayList(usize).new();
+    positions.push(usize(0));
+    positions.push(usize(1));
+    while(i < positions.len(), {
+      // The shape of the compiler's `get_variables_from_env`: the Option(ref)
+      // match sits inside another match's arm.
+      match(
+        positions.get(i),
+        .Some(pos) => match(
+          xs.get(pos),
+          .Some(t) => {
+            sum = (sum + t.v);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    assert(sum == i32(3), "both payloads were read");
+  };
+  assert((g_tracked_disposed - before) == i32(2), "each element is disposed once the list is gone");
 });
