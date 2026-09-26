@@ -657,6 +657,22 @@ type_implements_trait :: (
       return(type_implements_trait(resolve_cell_chain(target), trait_type, env));
     });
   });
+  // An extern opaque type (`ExternOpaqueT`: `atomic_bool`, `FILE`) is a C
+  // value that holds no Yo-managed reference: it is a runtime type, `Send`
+  // (its thread-safety is the C library's contract, as for the C11 atomics
+  // that bound atomic structs' fields), `Acyclic`, not reference-counted and
+  // not a compile-time value. std cannot state these as impls: the seed that
+  // compiles std reads an extern `X : Type` as a SomeT, so `impl(X, Send())`
+  // would be a blanket impl. Any other trait needs a real impl.
+  if(match(target, .ExternOpaqueT(_, _) => true, _ => false), {
+    eom := _marker_name_of(trait_type, env);
+    if(((eom == "Runtime") || (eom == "Send")) || (eom == "Acyclic"), {
+      return(TraitCheckResult(implemented : true, env : env));
+    });
+    if((eom == "Comptime") || (eom == "Rc"), {
+      return(TraitCheckResult(implemented : false, env : env));
+    });
+  });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
   // trait regardless of auto-derive.
