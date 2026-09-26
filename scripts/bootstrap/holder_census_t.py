@@ -67,13 +67,33 @@ if sys.platform == "linux":
    __yo_* allocator macros at the top of the file; these wrappers replace them
    and record every live block with its exact size. */
 #include <stddef.h>
-#define __HO_TCAP (1u << 25)
+#define __HO_TCAP (1u << 27)
 #define __HO_TRK_TOMB ((void*)1)
-static void** __ho_trk_k; static size_t* __ho_trk_v;
-static size_t __ho_trk_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (size_t)(x >> 40) & (__HO_TCAP - 1); }
+static void** __ho_trk_k; static size_t* __ho_trk_v; static size_t __ho_trk_n, __ho_trk_t;
+static size_t __ho_trk_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (size_t)(x >> 37) & (__HO_TCAP - 1); }
 static void __ho_trk_init(void) { if (!__ho_trk_k) { __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t)); } }
-static void __ho_trk_put(void* p, size_t sz) { if (!p) return; __ho_trk_init(); size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_v[i] = sz; return; } i = (i + 1) & (__HO_TCAP - 1); } __ho_trk_k[i] = p; __ho_trk_v[i] = sz; }
-static void __ho_trk_del(void* p) { if (!p || !__ho_trk_k) return; size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_k[i] = __HO_TRK_TOMB; __ho_trk_v[i] = 0; return; } i = (i + 1) & (__HO_TCAP - 1); } }
+static void __ho_trk_put(void* p, size_t sz);
+/* Deletion leaves tombstones (linear probing), so a long alloc/free churn
+   fills the table with them even at a small live count; rebuild from the
+   live entries then. An unbounded probe on a full table is how the first
+   Linux census run spun for 40 CPU-minutes. */
+static void __ho_trk_rehash(void) {
+  void** ok = __ho_trk_k; size_t* ov = __ho_trk_v;
+  __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t));
+  __ho_trk_n = 0; __ho_trk_t = 0;
+  if (ok) {
+    for (size_t j = 0; j < (size_t)__HO_TCAP; j++) { void* k = ok[j]; if (k && k != __HO_TRK_TOMB) __ho_trk_put(k, ov[j]); }
+    free(ok); free(ov);
+  }
+}
+static void __ho_trk_put(void* p, size_t sz) {
+  if (!p) return; __ho_trk_init();
+  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) __ho_trk_rehash();
+  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) return;
+  size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_v[i] = sz; return; } i = (i + 1) & (__HO_TCAP - 1); }
+  __ho_trk_k[i] = p; __ho_trk_v[i] = sz; __ho_trk_n++;
+}
+static void __ho_trk_del(void* p) { if (!p || !__ho_trk_k) return; size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_k[i] = __HO_TRK_TOMB; __ho_trk_v[i] = 0; __ho_trk_n--; __ho_trk_t++; return; } i = (i + 1) & (__HO_TCAP - 1); } }
 #undef __yo_malloc
 #undef __yo_calloc
 #undef __yo_realloc
@@ -250,7 +270,7 @@ static void __ho_rec_block(char* b, size_t sz) {
     /* the census's own tables and the GC scratch buffer list every object */
     if (b == (char*)__ho_seen || b == (char*)__ho_un_k || b == (char*)__ho_stack || b == (char*)__ho_raw_k || b == (char*)__ho_scan_skip) return;
 #ifdef __HS_PRESENT
-    if (b == (char*)__hs_t) continue; /* alloc_site_census_t.py's table lists every instrumented object */
+    if (b == (char*)__hs_t) return; /* alloc_site_census_t.py's table lists every instrumented object */
 #endif
     void** w = (void**)b; size_t nw = sz / sizeof(void*);
     if (__ho_pass == 0) {
@@ -276,7 +296,6 @@ static void __ho_rec_block(char* b, size_t sz) {
         if (ht >= 0) __ho_raw_by[ht]++; else if (__ho_raw_has(b)) __ho_raw_raw++; else __ho_raw_unk++;
       }
     }
-  }
   }
 }
 #if defined(__APPLE__)
