@@ -390,13 +390,12 @@ jobs:
         with:
           submodules: recursive
 
-      # The seed links liburing dynamically and cannot start without it.
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
       # v0.2.14 while v0.2.15 was the seed: that seed's evaluator deep-cloned
@@ -496,13 +495,12 @@ jobs:
           sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
           z3 --version
 
-      # The seed links liburing dynamically and cannot start without it.
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler
         uses: ./.github/actions/install-seed
@@ -658,11 +656,11 @@ jobs:
           sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
           z3 --version
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler
         uses: ./.github/actions/install-seed
@@ -748,12 +746,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
       # release (the bootstrap seed) builds stage-1 from THIS checkout, and
@@ -912,11 +910,11 @@ jobs:
 
           # Phase 2 — fresh process, so the emit arena is already gone.
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
-          # into stage1.c — libssl-dev is installed with liburing above, and
+          # into stage1.c — libssl-dev is installed above, and
           # the flags resolve via pkg-config (the -luring line's precedent).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage1.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -I vendor/mimalloc/include -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage1
 
@@ -948,10 +946,10 @@ jobs:
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
           # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with liburing above).
+          # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -I vendor/mimalloc/include -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
@@ -1080,12 +1078,12 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
-      - name: Install liburing (needed to run the seed's compiled children; + OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1117,10 +1115,10 @@ jobs:
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
           # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with liburing above).
+          # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -I vendor/mimalloc/include -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o yo-candidate
 
@@ -1167,12 +1165,12 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Download the candidate
         uses: actions/download-artifact@v4
@@ -1250,13 +1248,6 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
-
-      - name: Install liburing (needed to run the candidate)
-        run: |
-          # Drop the runner image's third-party apt sources first — see APT_OPTS.
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Download the candidate
         uses: actions/download-artifact@v4
@@ -1489,11 +1480,11 @@ jobs:
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -1544,16 +1535,6 @@ jobs:
           name: yo-stage1
       - name: Make the candidate executable
         run: chmod +x yo-stage1
-      # The stage-1 binary was emitted by the SEED, whose runtime still links
-      # liburing.so.2 (the seed-lag table, plans/DROP_LIBURING.md 5). This
-      # job only RUNS it, so the runtime package is enough — and this whole
-      # step disappears with Phase 4 once SEED_VERSION passes the first
-      # Phase-1-built release.
-      - name: Install liburing runtime (for the seed-built stage 1)
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing2
       - name: Run the I/O budgets (uring + epoll)
         run: |
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/io-budget-check.sh
@@ -1581,16 +1562,6 @@ jobs:
           name: yo-stage1
       - name: Make the candidate executable
         run: chmod +x yo-stage1
-      # The stage-1 binary was emitted by the SEED, whose runtime still links
-      # liburing.so.2 (the seed-lag table, plans/DROP_LIBURING.md 5). This
-      # job only RUNS it, so the runtime package is enough — and this whole
-      # step disappears with Phase 4 once SEED_VERSION passes the first
-      # Phase-1-built release.
-      - name: Install liburing runtime (for the seed-built stage 1)
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing2
       - name: Compile the probe on the host (io_uring present)
         run: |
           cat > /tmp/probe.yo <<'EOF'
@@ -1650,14 +1621,14 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing and GNU time
+      - name: Install GNU time
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
           # compiler closure puts OpenSSL headers into the emitted C).
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -1752,7 +1723,7 @@ jobs:
 
       - name: "Stage 2: compile the emitted C with clang"
         # $(pkg-config ... openssl): std/http in the compiler closure puts OpenSSL
-        # headers into the emitted C (libssl-dev installed with liburing above).
+        # headers into the emitted C (libssl-dev installed alongside thering above).
         run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin -luring
 
       - name: Upload stage-2 artifacts for the stage-3 job
@@ -1787,12 +1758,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing and GNU time
+      - name: Install GNU time
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -1857,11 +1828,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing and GNU time
+      - name: Install GNU time
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -1898,11 +1869,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing and OpenSSL headers
+      - name: Install OpenSSL headers
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev
+          sudo apt-get $APT_OPTS install -y libssl-dev
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -1981,12 +1952,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -2130,12 +2101,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -2269,22 +2240,7 @@ jobs:
         with:
           submodules: recursive
 
-      # The SEED needs liburing to RUN, even though this job only uses it to
-      # emit C. The published Linux bundle is dynamically linked against
-      # liburing.so.2, so without this the seed dies before doing any work:
-      #   yo: error while loading shared libraries: liburing.so.2:
-      #       cannot open shared object file: No such file or directory
-      # (exit 127 — the loader failing, which reads like "yo: command not
-      # found" and sent the first investigation looking for a PATH bug).
-      # This is the HOST's liburing, and is unrelated to the STATIC liburing
-      # the Alpine stage links into the artifact below.
-      - name: Install liburing (needed to run the seed)
-        run: |
-          # Drop the runner image's third-party apt sources first — see APT_OPTS.
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
+          
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -2316,26 +2272,15 @@ jobs:
             --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
-      - name: "C -> static binary, inside Alpine (musl + static liburing)"
+      - name: "C -> static binary, inside Alpine (musl)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            # NOT liburing-static: Alpine has no such package ("liburing-static
-            # (no such package): required by: world[liburing-static]", run
-            # 31855893056). Debian splits static libs into a -static package;
-            # Alpine ships liburing.a inside liburing-dev. Assert it is really
-            # there rather than discovering its absence as a link error.
-            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
-            test -f /usr/lib/liburing.a || {
-              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
-              find / -name "liburing.a" 2>/dev/null | head
-              exit 1
-            }
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
             # emitted C. Alpine splits the archives out of openssl-dev (headers +
             # .so) into openssl-libs-static — without it the assert below fires
             # (the PR 364 first run hit this). Static here means the artifact
-            # needs NO openssl on the host. Same assert-the-.a stance as
-            # liburing. NOTE: no apostrophes in here — the whole script is
+            # needs NO openssl on the host. Same assert-the-.a stance.
+            # NOTE: no apostrophes in here — the whole script is
             # single-quoted for docker sh -euc, and one in the PR 364 comment
             # broke the quoting (the musl leg died on "syntax error near
             # unexpected token )" before reaching apk).
@@ -2350,35 +2295,31 @@ jobs:
               -o yo-musl
           '
 
-      # A static binary that merely LINKS is not the deliverable. Without a musl
-      # liburing the emitter silently swaps the whole async runtime for stubs
-      # (src/codegen/async/runtime_io_linux.yo:1465) whose init prints
-      # "liburing not available, async I/O disabled" — and since the compiler
-      # reads every source file through io.await(read(...)), such a binary
-      # links, ships, and then compiles NOTHING. So io_uring presence is
-      # asserted explicitly, not assumed.
+      # A static binary that merely LINKS is not the deliverable; it must
+      # COMPILE. Since plans/DROP_LIBURING.md the async runtime is always
+      # compiled in (ring -> epoll -> degraded ladder), so the old
+      # "liburing not available, async I/O disabled" failure class cannot
+      # occur — what remains worth asserting is that the binary completes a
+      # real compile.
       - name: Assert the bundle is static AND has working async I/O
         run: |
           file yo-musl | tee file.txt
           grep -q "statically linked" file.txt || {
             echo "::error::musl bundle is not statically linked"; exit 1; }
 
-          # --security-opt seccomp=unconfined is REQUIRED to run the binary,
-          # not a convenience. Docker's default seccomp profile blocks
-          # io_uring_setup, so a binary with io_uring correctly compiled IN
-          # dies with "io_uring_queue_init failed: Operation not permitted"
-          # (run 31862196401) — i.e. the default profile fails exactly the
-          # binaries this assertion exists to bless, and would pass a
-          # stubbed-out one. Relaxing it here is safe: this container runs our
-          # own freshly built artifact, nothing else.
-          docker run --rm --security-opt seccomp=unconfined \
+          # No seccomp relaxation: Docker's DEFAULT profile blocks
+          # io_uring_setup, and since plans/DROP_LIBURING.md Phase 5 the
+          # runtime's ladder answers that by selecting the epoll fallback and
+          # completing normally — so running this leg under the default
+          # profile is itself part of the assertion (the binary works in a
+          # stock container; one fallback line on stderr is expected and
+          # fine). The old unconfined relaxation existed only because the
+          # pre-ladder runtime died with "Operation not permitted"
+          # (run 31862196401).
+          docker run --rm \
             -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
             ./yo-musl check std/assert.yo 2>run.err || { echo "check FAILED"; cat run.err; exit 1; }
             cat run.err
-            if grep -q "liburing not available" run.err; then
-              echo "::error::async I/O was compiled OUT — the binary would fail to read sources"
-              exit 1
-            fi
           '
           echo "static + io_uring confirmed."
 
@@ -2395,7 +2336,7 @@ jobs:
         run: |
           docker run --rm --security-opt seccomp=unconfined \
             -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-              apk add --no-cache build-base liburing-dev bash
+              apk add --no-cache build-base bash
               export YO_STD=/w/std
               bash scripts/bootstrap/probe-stack-sizing.sh /w/yo-musl
             '
@@ -2436,12 +2377,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -2569,10 +2510,10 @@ jobs:
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
           # into the emitted C — flags via pkg-config (libssl-dev installed
-          # with liburing above).
+          # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -I vendor/mimalloc/include -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
 
@@ -2725,12 +2666,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.
