@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
-{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -382,6 +382,9 @@ _compat_impl :: (
             .CULong => true,
             .CLongLong => true,
             .CULongLong => true,
+            // A C scalar initializes an extern opaque type (see the rule
+            // below the comptime blocks).
+            .ExternOpaqueT(_, _) => true,
             _ => false
           )
         )
@@ -399,6 +402,7 @@ _compat_impl :: (
           true => match(
             expected,
             .Float(_) => true,
+            .ExternOpaqueT(_, _) => true,
             _ => false
           )
         )
@@ -426,6 +430,16 @@ _compat_impl :: (
         )
       )
     );
+  });
+  // --- C scalar into an extern opaque type -----------------------------------
+  // An extern opaque type (`ExternOpaqueT`) is a C type Yo cannot see into; a
+  // C scalar (bool, integer, float, a C integer type) initializes it by value
+  // exactly as C would: `atomic(ref(struct((*) : atomic_bool)))(false)` is
+  // C's `_Atomic bool` initialized from a `bool`. Flow only, never identity
+  // or a pointee: `*(i32)` is not a `*(FILE)`, and no struct, `Dyn` or
+  // String flows into one (plans/reference/TYPE_IDENTITY.md).
+  if((!(require_exact) && match(expected, .ExternOpaqueT(_, _) => true, _ => false)) && ((is_numeric_type(actual) || is_bool_type(actual)) || is_c_compatible_type(actual)), {
+    return(true);
   });
   // --- C-compatible types ---------------------------------------------------
   if(is_c_compatible_type(actual), {
