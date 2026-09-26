@@ -36,7 +36,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -4946,25 +4946,18 @@ _resolve_some_types_deep :: (
       nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
       if(is_some_type(nres), {
-        // Only fall back to the global table when the env lookup
-        // returned a FRESH SomeType (from get_value_of_some_type_from_env's
-        // self-bound/def-frame gating). Skip the fallback for "E" (effect
-        // param) — the global table is poisoned by prior IoExn registrations
-        // and would resolve E to IoExn even for single-effect io.async calls.
-        _skip_fallback := match(
-          nst,
-          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == "E"),
-          _ => false
+        // The env lookup returned a FRESH SomeType (its self-bound/def-frame
+        // gating kept the slot abstract): read the resolution the VALUE
+        // carries. The old "skip E" guard existed only because the id-keyed
+        // registry was poisoned by prior IoExn registrations; a value's own
+        // resolution cannot be.
+        match(
+          some_resolution(nres),
+          .Some(c) => {
+            nres = c;
+          },
+          .None => ()
         );
-        if(!_skip_fallback, {
-          match(
-            some_resolution(nres),
-            .Some(c) => {
-              nres = c;
-            },
-            .None => ()
-          );
-        });
       });
       if(!is_some_type(nres), {
         match(
@@ -5152,13 +5145,11 @@ _collect_type_arg_somes :: (
     _ => ()
   )
 );
-/// Resolve those type-argument SomeTs through the SAME three channels
-/// `_resolve_some_types_deep` already uses at this very site (env by name →
-/// the SomeT's own `resolution` → the id-keyed
-/// `lookup_some_resolved_concrete` registry). The registry channel is REQUIRED:
-/// the measured record for this call (issues/retired/yo-self-hollow-root-cause-map.md
-/// "A resolved via the registry, B needed the env fallback") says `A` is
-/// reachable only there. It is a RESOLUTION channel, exactly as
+/// Resolve those type-argument SomeTs through the SAME two channels
+/// `_resolve_some_types_deep` uses at this very site (env by name → the
+/// SomeT's own `resolution`; the retired id-keyed registry's channel is now
+/// the value's resolution, since Phase 3 step 7 part 2 moved every writer
+/// onto the value). It is a RESOLUTION channel, exactly as
 /// `_resolve_some_types_deep` uses it — NOT a memo-COMPARISON channel, which is
 /// what F-era attempt 4 did inside `_ctfe_args_equal` and what the recorded
 /// verdict forbids.

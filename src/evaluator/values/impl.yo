@@ -946,9 +946,10 @@ _bind_forall_from_type_args :: (
           // Channel 2 — the codegen registry. For an async future's output
           // type, the output is KEPT unresolved through eval (the
           // FSM/future machinery keys on that SomeType identity), and the
-          // concrete type lands in the `g_some_resolved_concrete` registry
-          // (set at the io.async call site). Resolve via that registry — the
-          // same resolvedConcreteType bridge the io.await refinement uses —
+          // concrete type is carried as the output SomeT's own `resolution`
+          // (built at the io.async call site, Phase 3 step 7 part 2). Resolve
+          // through `some_resolution` — the same value-resolution bridge the
+          // io.await refinement uses —
           // so e.g. `JoinHandle(T)`'s generic-impl `await` match binds `T`
           // to the concrete spawned output instead of skipping the SomeType
           // arg. See issues/fixed/yo-self-async-await-struct-result-eval.md.
