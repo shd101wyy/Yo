@@ -59,6 +59,10 @@ static ${thread_local} size_t __yo_active_watch_count = 0;
 // I/O subsystem init flag + forward declarations (per-thread)
 static ${thread_local} bool __yo_io_initialized = false;
 static void __yo_io_init(void);
+// Called when an event loop starts. A backend that must set up before the
+// loop can wait (kqueue, IOCP, wasm) initializes here; the io_uring backend
+// creates its ring on the loop's first kernel entry instead.
+static void __yo_io_loop_start(void);
 static void __yo_io_cleanup(void);
 static bool __yo_has_pending_io(void);
 static int __yo_io_poll(void);
@@ -425,7 +429,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
   if (!__yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
   }
-  __yo_io_init();
+  __yo_io_loop_start();
   ASYNC_DEBUG("[ASYNC] Starting event loop for future=%p\\n", future_ptr);
   typedef struct { int state; } generic_future_t;
   generic_future_t* future = (generic_future_t*)future_ptr;
@@ -497,7 +501,7 @@ static void __yo_async_wait_all(void) {
   if (!__yo_async_scheduler_initialized) {
     return;
   }
-  __yo_io_init();
+  __yo_io_loop_start();
   while (true) {
     bool tasks_processed = false;
     __yo_async_drain_xwakes();

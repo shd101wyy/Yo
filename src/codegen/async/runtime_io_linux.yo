@@ -642,6 +642,15 @@ static void __yo_io_init(void) {
   ASYNC_DEBUG("[Io] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
 }
 
+// A loop creates its ring on its first kernel entry: an I/O submission (every
+// __yo_async_*_start calls __yo_io_init), or a wait (__yo_io_wait). A thread
+// whose loop never enters the kernel creates no ring. Creating one per thread
+// at loop start made thread churn a stream of ring setups and deferred kernel
+// teardowns, and io_uring_queue_init failed with ENOMEM after a few thousand
+// short-lived threads
+// (issues/fixed/every-thread-creates-an-io-uring-ring-and-thread-churn-runs-out-of-memory.md).
+static void __yo_io_loop_start(void) {}
+
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
@@ -883,6 +892,10 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
 
 // Poll for I/O completions (non-blocking)
 static int __yo_io_poll(void) {
+  // No ring yet: nothing was submitted, so nothing can complete.
+  if (!__yo_io_initialized) {
+    return __yo_poll_and_fs_event_tick();
+  }
   // Flush any queued SQEs so their completions can be reaped.
   __yo_io_flush_sq();
 
@@ -928,6 +941,17 @@ static int __yo_io_wait(void) {
     struct timespec ts = {0, 10 * 1000 * 1000}; // 10ms
     nanosleep(&ts, NULL);
     return __yo_poll_and_fs_event_tick();
+  }
+
+  // The loop's first wait creates the ring and arms the wakeup channel, then
+  // returns so the loop re-checks before blocking. A wake posted before the
+  // channel was armed found notify_ready == 0 and wrote nothing, but it had
+  // already queued its token and bumped xwake_count under the loop's lock,
+  // which __yo_io_init takes to set notify_ready: the re-check sees it. A wake
+  // posted after lands on the armed eventfd.
+  if (!__yo_io_initialized) {
+    __yo_io_init();
+    return 0;
   }
 
   // With no I/O outstanding but a blocking call running on another thread, the
@@ -1789,6 +1813,10 @@ static inline void __yo_io_init(void) {
 }
 
 static inline void __yo_io_cleanup(void) {}
+
+static void __yo_io_loop_start(void) {
+  __yo_io_init();
+}
 
 // No ring to interrupt: without liburing this target has no blocking I/O wait
 // to be woken out of.
