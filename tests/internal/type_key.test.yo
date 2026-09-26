@@ -8,6 +8,7 @@ import("std/fmt");
 {
   t_func_simple,
   t_some_t,
+  t_with_resolution,
   t_ptr,
   t_i32,
   t_bool,
@@ -67,22 +68,22 @@ _capture_struct :: (fn(sid : String, label : String, field : TypeValue) -> TypeV
   TypeValue.Struct(sid, String.from(""), labels, fields, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
 });
 // A closure inside a generic function captures the function's `Impl(Fn...)`
-// parameter: one SomeT lineage whose cell each call site rewrites. The
-// capture struct's key must not follow the rewrite, or codegen looks it up
-// under a key it was never registered with
+// parameter: one SomeT lineage that each call site resolves to its own
+// capture struct. Since Phase 3.7 a resolution is an immutable value
+// (`t_with_resolution` builds a new node), so two resolutions are two nodes of
+// one lineage. The capture struct's key must not follow them, or codegen
+// looks it up under a key it was never registered with
 // (issues/fixed/a-capture-struct-changes-type-key-when-a-captured-closure-param-is-re-resolved.md).
-test("type_key: a capture struct's key survives a rewrite of its captured closure's cell", {
+test("type_key: a capture struct's key survives a re-resolution of its captured closure", {
   wrapper := t_some_t(`Impl`, usize(0));
-  cell := match(wrapper, .SomeT({ resolved_concrete : rc }) => rc, _ => panic("t_some_t built no SomeT"));
   first := _capture_struct(`capture_tk_first`, `n`, t_i32());
   second := _capture_struct(`capture_tk_second`, `b`, t_bool());
-  cell.push(first);
-  outer := _capture_struct(`capture_tk_outer`, `cb`, wrapper);
-  before := type_key(outer);
+  as_first := t_with_resolution(wrapper, first);
+  as_second := t_with_resolution(wrapper, second);
+  outer_first := _capture_struct(`capture_tk_outer`, `cb`, as_first);
+  outer_second := _capture_struct(`capture_tk_outer`, `cb`, as_second);
   // The bare identity is its resolution (the closure-container rule).
-  assert(type_key(wrapper) == type_key(first), "a resolved closure identity keys as its capture struct");
-  cell.clear();
-  cell.push(second);
-  assert(type_key(outer) == before, "the capture struct's key did not change with the cell");
-  assert(type_key(wrapper) == type_key(second), "the bare identity follows its cell");
+  assert(type_key(as_first) == type_key(first), "a resolved closure identity keys as its capture struct");
+  assert(type_key(as_second) == type_key(second), "each resolution keys as its own capture struct");
+  assert(type_key(outer_first) == type_key(outer_second), "the capture struct's key does not follow the resolution");
 });

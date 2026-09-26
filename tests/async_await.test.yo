@@ -5695,3 +5695,16 @@ test("nested bare block with an await as a top-level statement of the body compi
   got := io.await(_nb_top_nested(usize(5), io), b);
   assert(got == usize(12), `7 + 5 (got ${got.to_string()})`);
 });
+// issues/fixed/io-await-of-a-string-literal-task-rejects-its-str-destination.md:
+// the task's output is the literal's `comptime_str`, and a `str` destination
+// lowers it. `io.await` as a fn's tail and in a typed binding both have one.
+_await_literal_tail :: (fn(io : Io) -> str)({
+  task := io.async((io : Io) => "hello async");
+  io.await(task, io)
+});
+test("Test io.await of a string-literal task into a str destination", {
+  assert(_await_literal_tail(io) == "hello async", "tail position");
+  task := io.async((io : Io) => "bound");
+  (s : str) = io.await(task, io);
+  assert(s == "bound", "typed binding");
+});
