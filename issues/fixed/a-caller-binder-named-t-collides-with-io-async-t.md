@@ -72,4 +72,10 @@ Two more defects surfaced once the false E0601 was gone, both fixed here:
   instantiation read the first one's `U := i32` back. The resolver already returns its answer as a
   value; the global write is gone (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.7).
 
+- With that write gone, an unannotated `io.async(e => ...)` lowered `e` to `void*`: the closure's
+  result re-registration (`evaluate_anonymous_function_implementation`) rebuilt its type from the
+  parameter list captured BEFORE the expected-env substitution, putting `e : E` back, and only the
+  registry had been resolving that `E`. It re-registers the substituted parameter types now
+  (caught by `tests/impl_fn_field_rejection.test.yo`'s io.async canary).
+
 Regression test: "a future result containing a binder named T" (`tests/async_generic_future_return.test.yo`).
