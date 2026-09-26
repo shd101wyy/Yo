@@ -134,27 +134,22 @@ _binding_may_be_for :: (fn(var : Variable, some_id : String) -> bool)({
   bound := variable_bound_some_id(var);
   (bound.len() == usize(0)) || (bound == some_id)
 });
-/// The most recent of `variables` that recorded it resolves the SomeT
-/// `some_id` (`variable_bound_some_id`), as its type; `unbound` when none did.
-_binding_recorded_for :: (fn(variables : ArrayList(Variable), some_id : String, unbound : TypeValue) -> TypeValue)({
-  (i : usize) = variables.len();
-  while(i > usize(0), {
-    i = (i - usize(1));
+/// The bindings in `variables` that may be for the SomeT `some_id`
+/// (`_binding_may_be_for`), in their original order.
+_bindings_that_may_be_for :: (fn(variables : ArrayList(Variable), some_id : String) -> ArrayList(Variable))({
+  out := ArrayList(Variable).new();
+  (i : usize) = usize(0);
+  while(i < variables.len(), {
     match(
       variables.get(i),
-      .Some(v) => if(variable_bound_some_id(v) == some_id, {
-        match(
-          v.value.get(usize(0)),
-          .Some(val) => if(_is_type_eval_value(val), {
-            return(_unwrap_type_eval_value(val));
-          }),
-          .None => ()
-        );
+      .Some(v) => if(_binding_may_be_for(v, some_id), {
+        out.push(v);
       }),
       .None => ()
     );
+    i = (i + usize(1));
   });
-  unbound
+  out
 });
 /// Look up a variable by (frame_level, name) and return its TypeValue if it
 /// holds a TypeVal and may be a binding for the SomeT `some_id`. Returns None
@@ -320,7 +315,11 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
       },
       true => {
         visited_ids.push(cur_id);
-        variables := get_variables_from_env(env, cur_name);
+        // Only the bindings that may be for THIS binder: an unrecorded one,
+        // or one recorded for `cur_id`. A binding recorded for another binder
+        // of the same name is that binder's alone, and it must not bury an
+        // older binding that is ours (`_binding_may_be_for`).
+        variables := _bindings_that_may_be_for(get_variables_from_env(env, cur_name), cur_id);
         n := variables.len();
         cond(
           (n == usize(0)) => {
@@ -373,13 +372,10 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           is_some_type(resolved_tv) => {
                             current = resolved_tv;
                           },
-                          // A binding that recorded the SomeT it resolves
-                          // answers for that SomeT and no other.
+                          // A binding that recorded the SomeT it resolves is
+                          // this SomeT's (the others were filtered above).
                           (variable_bound_some_id(last_var).len() > usize(0)) => {
-                            result = cond(
-                              (variable_bound_some_id(last_var) == cur_id) => resolved_tv,
-                              true => _binding_recorded_for(variables, cur_id, current)
-                            );
+                            result = resolved_tv;
                             done = true;
                           },
                           // Concrete type
