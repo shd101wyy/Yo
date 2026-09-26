@@ -169,6 +169,17 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     if(context.base.get_type_c_name(type_key(capture_ty)).is_none(), {
       dbg_sid := match(capture_ty, .Struct({ id : dsid }) => dsid, _ => String.from(""));
       eprintln(`[CAPDBG] want=${type_key(capture_ty)}`);
+      match(
+        capture_ty,
+        .Struct({ field_labels : wl, field_types : wt }) => {
+          (wi : usize) = usize(0);
+          while(wi < wl.len(), {
+            eprintln(`[CAPDBG] want field ${match(wl.get(wi), .Some(x) => x, .None => String.from(""))}: ${type_to_string(match(wt.get(wi), .Some(x) => x, .None => TypeValue.Unit))} key=${type_key(match(wt.get(wi), .Some(x) => x, .None => TypeValue.Unit))}`);
+            wi = (wi + usize(1));
+          });
+        },
+        _ => ()
+      );
       dbg_it := context.base.types.keys();
       (dbg_more : bool) = true;
       while(dbg_more, {
@@ -176,6 +187,21 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
           dbg_it.next(),
           .Some(dk) => if(dk.starts_with(dbg_sid), {
             eprintln(`[CAPDBG] have=${dk}`);
+            match(
+              context.base.types.get(dk.clone()),
+              .Some(de) => match(
+                de.ty,
+                .Struct({ field_labels : hl, field_types : ht }) => {
+                  (hi : usize) = usize(0);
+                  while(hi < hl.len(), {
+                    eprintln(`[CAPDBG] have field ${match(hl.get(hi), .Some(x) => x, .None => String.from(""))}: ${type_to_string(match(ht.get(hi), .Some(x) => x, .None => TypeValue.Unit))} key=${type_key(match(ht.get(hi), .Some(x) => x, .None => TypeValue.Unit))}`);
+                    hi = (hi + usize(1));
+                  });
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
           }),
           .None => {
             dbg_more = false;
