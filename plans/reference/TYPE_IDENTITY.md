@@ -55,6 +55,7 @@ identity plus a short, listed set of coercions.
 | pointer | identical pointee |
 | `Dyn(...)` | **the same trait set**: every trait on each side is on the other side |
 | SomeT | the same lineage: equal name and frame level, or binders that correspond inside two function types being compared. A **closure identity** (a resolved, non-`Future` `Impl` annotation wrapper, such as `(k : Impl(Fn() -> unit))` resolved to k's capture struct) is its resolution instead: every copy of one closure's wrapper is one type, and two closures are two types (`is_bound_closure_identity`, `issues/fixed/a-container-of-a-closure-type-does-not-compile.md`) |
+| extern opaque (`ExternOpaqueT`) | the same C spelling: two bindings of `FILE` (an `extern("Yo", FILE : Type)` and a `c_include` member) are one type; `FILE` is not `fpos_t`, and no `Dyn` or type parameter is either |
 | `never` | only `never` |
 
 ## Flow: identity plus these coercions, and nothing else
@@ -64,7 +65,10 @@ identity plus a short, listed set of coercions.
 - A SomeT resolves: a concrete type flows into an unresolved type parameter that it satisfies,
   and, symmetrically, an unresolved type parameter flows into a concrete type that satisfies its
   bounds (call sites pass `(param, arg)` as often as `(arg, param)`). A resolved SomeT stands for its
-  resolution. An extern opaque type is a concrete C type and is only itself.
+  resolution. An extern opaque type is not a SomeT: no type-parameter rule reaches it.
+- A C scalar (a `bool`, a number, a C integer type) flows into an extern opaque type by value, as
+  C value-initialization does (`atomic_bool`'s cell is built as `Self(false)`). Pointers to an
+  extern opaque stay exact.
 - A recursive struct's self-shell stands for its final.
 - An anonymous record flows into a named struct of the same kind with the same field labels and
   compatible field types (`r := { x : i32(7) }; (a : A) = r;` for `A :: struct(x : i32)`).
@@ -101,6 +105,6 @@ agree too (`issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`).
 
 ## Open
 
-- Position-independent declaration ids (Phase 3.3): a declaration's id still includes its row
-  and column, so a comment edit renames a C type.
-- The extern-opaque type still unifies with every `Dyn` (`issues/an-extern-opaque-type-unifies-with-every-dyn.md`).
+- A declaration's id no longer depends on its row and column (Phase 3.3: `_anchored_position`
+  keys it by the enclosing top-level statement's label), but it still carries the module stem,
+  so moving a file into another directory renames its C types.

@@ -490,6 +490,14 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
      - a wrapper's deep resolution replaced the wrapper node through a same-keyed carrier;
      - it wrote a shared-id global registry entry that a second specialization read back. That is
        step 7's hazard, removed at this site.
+   - The exit criterion's extern opaque is a nominal variant: `TypeValue.ExternOpaqueT(name,
+     c_name)`, whose identity is the C spelling
+     (`issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md`). It had been a `SomeT` with
+     no bounds, so every generic-parameter rule applied to it unless the predicate at hand
+     remembered to consult the `g_extern_type_names` side table; the table and every
+     carve-out that read it are deleted. The variant implements `Runtime`, `Send` and `Acyclic` and not
+     `Comptime` or `Rc`, and takes one coercion: a C scalar initializes it by value in flow, as C
+     does (`atomic_bool` is built as `Self(false)`).
 
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule

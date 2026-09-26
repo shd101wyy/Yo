@@ -294,14 +294,14 @@ _ctfe_args_equal :: (
           // and `are_types_compatible_exact` is a SUBTYPING predicate that
           // answers TRUE for an unconstrained `SomeT` against anything. With
           // neither able to tell them apart, a concrete `Option(*(Dyn(Trait)))`
-          // request memo-hit the abstract `Option(*(T))` shell (and, before the
-          // extern carve-out in types/compatibility.yo, the `Option(*(FILE))`
-          // entry `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
+          // request memo-hit the abstract `Option(*(T))` shell (and, while an
+          // extern opaque was a bound-less SomeT, the `Option(*(FILE))` entry
+          // `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
           // at `T = Dyn(Trait)` bound to a payload that was not `*(Dyn(Trait))`,
           // and `_ptr.add(self._length)` in `push` had no `.add` to resolve.
           // `_has_abstract_some` is the DEEP walk, and a `DynT` contributes no
           // SomeTs at all — which is the whole distinction.
-          // issues/an-extern-opaque-type-unifies-with-every-dyn.md
+          // issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
           (_has_abstract_some(aty) != _has_abstract_some(bty)) => false,
           // Either side contains a SomeT inside: require exact structural match
           (type_contains_some_type(aty) || type_contains_some_type(bty)) =>

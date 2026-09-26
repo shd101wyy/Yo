@@ -32,6 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
 { type_key } :: import("../../types/type_key.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -2173,6 +2174,13 @@ _synthesize_types_impl :: (
       && _is_runtime_numeric(expected_ty)
     );
     if(ct_rt_pair || rt_ct_pair, {
+      return(SynthesizeResult(expected_env : ee, given_env : ge));
+    });
+    // An extern opaque type takes a C scalar by value (`AtomicU64(n)` builds
+    // its `atomic_ullong` cell from a runtime `u64`). That is a flow rule of
+    // `are_types_compatible`, and an `ExternOpaqueT` carries no SomeTs to
+    // bind, so there is nothing to synthesize: defer to the relation.
+    if(((exp_tag == TypeTag.TExternOpaque) && (exp_tag != giv_tag)) && are_types_compatible(expected_ty, given_ty), {
       return(SynthesizeResult(expected_env : ee, given_env : ge));
     });
     if(exp_tag != giv_tag, {
