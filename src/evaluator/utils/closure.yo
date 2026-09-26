@@ -31,7 +31,7 @@
 { format_error_message } :: import("../../error.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr_info.yo");
 { get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
@@ -141,25 +141,21 @@ _raise_capture_trait_violation :: (
 _capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Option(TypeValue))(
   match(
     ty,
-    .SomeT({ id : sid, resolution : rc }) => match(
-      rc,
+    .SomeT({ id : _ }) => match(
+      some_resolution(ty),
       .Some(c) => Option(TypeValue).Some(c),
       .None => match(
-        lookup_some_resolved_concrete(sid),
-        .Some(c2) => Option(TypeValue).Some(c2),
-        .None => match(
-          value,
-          .Some(v) => match(
-            v,
-            .FuncVal(fvd, _) => match(
-              get_closure_capture_info(fvd.*.func_id.clone()),
-              .Some(cci) => Option(TypeValue).Some(cci.capture_type),
-              .None => Option(TypeValue).None
-            ),
-            _ => Option(TypeValue).Some(ty)
+        value,
+        .Some(v) => match(
+          v,
+          .FuncVal(fvd, _) => match(
+            get_closure_capture_info(fvd.*.func_id.clone()),
+            .Some(cci) => Option(TypeValue).Some(cci.capture_type),
+            .None => Option(TypeValue).None
           ),
-          .None => Option(TypeValue).Some(ty)
-        )
+          _ => Option(TypeValue).Some(ty)
+        ),
+        .None => Option(TypeValue).Some(ty)
       )
     ),
     _ => Option(TypeValue).Some(ty)

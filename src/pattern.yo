@@ -23,7 +23,7 @@
 { resolve_enum_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
-{ lookup_some_resolved_concrete } :: import("./expr_info.yo");
+{ some_resolution } :: import("./expr_info.yo");
 { parse_raw_int } :: import("./utils.yo");
 { get_integer_type_range } :: import("./types/utils.yo");
 /// A compiled match pattern. Positions are typed top-down from the scrutinee;
@@ -100,19 +100,7 @@ lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_ar
 /// Resolve a GADT type-constructor arg through the SomeT resolution channel
 /// (the SomeT's own resolution first, then the id-keyed registry).
 gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
-  match(
-    t,
-    .SomeT({ id : rt_id, resolution : rt_cell }) => match(
-      rt_cell,
-      .Some(rt_c) => rt_c,
-      .None => match(
-        lookup_some_resolved_concrete(rt_id),
-        .Some(rt_g) => rt_g,
-        .None => t
-      )
-    ),
-    _ => t
-  )
+  match(some_resolution(t), .Some(rt_r) => rt_r, .None => t)
 );
 /// A variant is UNREACHABLE when the enum is instantiated with concrete type
 /// args that do not match the variant's `-> recur(...)` return-type args.

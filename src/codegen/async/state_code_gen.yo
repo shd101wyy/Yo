@@ -16,7 +16,7 @@
 { is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete, some_resolution } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, some_resolution } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { arm_value_with_dups } :: import("../exprs/drop_dup.yo");
@@ -49,12 +49,7 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
   // such member (the fs/gc batch C errors).
   some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
-  rc_cell := match(ty, .SomeT({ resolution : io_src }) => io_src, _ => Option(TypeValue).None);
-  rc_final := match(
-    rc_cell,
-    .Some(io_r) => Option(TypeValue).Some(io_r),
-    .None => lookup_some_resolved_concrete(some_id)
-  );
+  rc_final := some_resolution(ty);
   match(
     rc_final,
     .Some(io_rcv) => match(
