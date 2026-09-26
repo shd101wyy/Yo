@@ -1252,9 +1252,6 @@ evaluate_anonymous_function_implementation :: (
       );
       rpr_i = (rpr_i + usize(1));
     });
-    if(debug_knob(`YO_DBG_RP`).is_some(), {
-      eprintln(`[__DBG_RP] ft=${type_to_string(function_type)} names=${rp_resolved_names.len().to_string()} env_frames=${expected_type_env.frames.len().to_string()} nE=${get_variables_from_env(expected_type_env, String.from("E")).len().to_string()}`);
-    });
     if(rp_resolved_names.len() > usize(0), {
       function_type = _subst_some_types_from_env(function_type, expected_type_env, rp_resolved_names);
     });
@@ -1815,7 +1812,14 @@ Result type: ${type_to_string(decl_result_ty)}`
                   .Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _) => {
                     _l4nm := _l4m.*.clone();
                     _l4nm.param_labels = actual_param_labels.clone();
-                    TypeValue.Func(_l4ft.clone(), param_types.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm), ArrayList(TypeValue).new())
+                    // The parameter types are the SUBSTITUTED ones (`_l4pt`, from
+                    // `corrected_func_type`): the local `param_types` predate the
+                    // expected-env substitution above, and re-registering them
+                    // put an io.async bundle param back to its unresolved `E`,
+                    // which codegen then lowered to `void*` once the id-keyed
+                    // registry stopped carrying binder resolutions
+                    // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
+                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm), ArrayList(TypeValue).new())
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );
