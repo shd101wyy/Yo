@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
 | Async / effects | 29 | 7 |
-| Codegen / emitted C | 21 | 3 |
+| Codegen / emitted C | 20 | 3 |
 | Evaluator / types | 23 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 28 | 6 |
-| **Total** | **200** | **38** |
+| Other | 29 | 7 |
+| **Total** | **200** | **39** |
 
 ## Cross-cutting buckets
 
@@ -173,11 +173,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (21)
+### Codegen / emitted C (20)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md`](./a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md) | OPEN | — |
 | [`address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`](./address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md) | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | — | yes |
@@ -333,10 +332,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (28)
+### Other (29)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
+| [`a-caller-binder-named-t-collides-with-io-async-t.md`](./a-caller-binder-named-t-collides-with-io-async-t.md) | OPEN | yes |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
