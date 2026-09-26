@@ -26,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
   update_existing_variable,
   synthetic_token,
   copy_frames,
-  variable_set_bound_some_id
+  variable_set_bound_some_id,
+  variable_bound_some_id
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
@@ -272,9 +273,13 @@ _bind_some_type :: (
       // frame) — never update it; shadow call-locally instead. Resolved slots
       // (non-SomeT values) carry no id, so they fall through to the frame
       // check below.
+      // A resolved slot has no SomeT in its value, but a slot that recorded
+      // the binder it resolves (`variable_bound_some_id`) keeps that identity:
+      // another lineage's `T` shadows it rather than overwriting it
+      // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value.get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, .SomeT({ id : ovid }) => ovid, _ => String.from("")), _ => String.from("")),
+        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, .SomeT({ id : ovid }) => ovid, _ => variable_bound_some_id(old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && ((found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id)));
