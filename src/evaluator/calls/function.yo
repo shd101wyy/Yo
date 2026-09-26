@@ -28,40 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_get,
-  expr_info_table_set,
-  record_method_callee_type,
-  record_method_callee_value,
-  record_io_builtin_struct_field,
-  lookup_io_builtin_struct_field,
-  record_io_builtin_call,
-  register_some_resolved_concrete,
-  lookup_some_resolved_concrete,
-  record_macro_expansion,
-  record_fid_rtcall,
-  active_where_trait_ids,
-  record_fid_spec,
-  lookup_struct_ctor_fid,
-  struct_effective_ctor_fid,
-  struct_fully_concrete_instance,
-  adopt_receiver_struct_instance,
-  mark_node_preevaluated,
-  unmark_node_preevaluated,
-  expr_info_adopt_env,
-  expr_info_capture_type,
-  expr_info_comptime_ref,
-  expr_info_index_method_type,
-  expr_info_index_method_value,
-  expr_info_set_comptime_ref,
-  expr_info_set_deferred_dup_expressions,
-  expr_info_set_index_method_type,
-  expr_info_set_index_method_value,
-  expr_info_set_index_trait_ptr_type,
-  expr_info_set_macro_expansion
-} :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, register_some_resolved_concrete, lookup_some_resolved_concrete, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -3568,21 +3535,11 @@ _evaluate_funcval_runtime_call :: (
         .Some(rc_binfo) => {
           (rc_conc : TypeValue) = rc_binfo.ty;
           match(
-            rc_conc,
-            .SomeT({ id : rc_bid, resolution : rc_bcell }) => match(
-              rc_bcell,
-              .Some(rc_inner) => {
-                rc_conc = rc_inner;
-              },
-              .None => match(
-                lookup_some_resolved_concrete(rc_bid),
-                .Some(rc_g) => {
-                  rc_conc = rc_g;
-                },
-                .None => ()
-              )
-            ),
-            _ => ()
+            some_resolution(rc_conc),
+            .Some(rc_inner) => {
+              rc_conc = rc_inner;
+            },
+            .None => ()
           );
           resolved_ret = t_with_resolution(resolved_ret, rc_conc);
         },
@@ -4029,21 +3986,11 @@ _evaluate_funcval_runtime_call :: (
           .Some(rb_binfo) => {
             (rb_conc : TypeValue) = rb_binfo.ty;
             match(
-              rb_conc,
-              .SomeT({ id : rb_bid, resolution : rb_bcell }) => match(
-                rb_bcell,
-                .Some(rb_inner) => {
-                  rb_conc = rb_inner;
-                },
-                .None => match(
-                  lookup_some_resolved_concrete(rb_bid),
-                  .Some(rb_g) => {
-                    rb_conc = rb_g;
-                  },
-                  .None => ()
-                )
-              ),
-              _ => ()
+              some_resolution(rb_conc),
+              .Some(rb_inner) => {
+                rb_conc = rb_inner;
+              },
+              .None => ()
             );
             if(!(is_unit_type(rb_conc)), {
               resolved_ret = t_with_resolution(resolved_ret, rb_conc);
@@ -8182,15 +8129,7 @@ Fix: wrap the call:
                   .Pointer(rm_ptr_inner) => rm_ptr_inner,
                   _ => rm_recv_ty0
                 );
-                rm_res := match(
-                  rm_recv_ty,
-                  .SomeT({ id : rm_sid, resolution : rm_cell }) => match(
-                    rm_cell,
-                    .Some(rm_rt) => Option(TypeValue).Some(rm_rt),
-                    .None => lookup_some_resolved_concrete(rm_sid)
-                  ),
-                  _ => Option(TypeValue).None
-                );
+                rm_res := some_resolution(rm_recv_ty);
                 match(
                   rm_res,
                   .Some(rm_conc) => {
@@ -8387,21 +8326,11 @@ Fix: wrap the call:
                   .Some(m_binfo) => {
                     (m_conc : TypeValue) = m_binfo.ty;
                     match(
-                      m_conc,
-                      .SomeT({ id : m_bid, resolution : m_bcell }) => match(
-                        m_bcell,
-                        .Some(m_inner) => {
-                          m_conc = m_inner;
-                        },
-                        .None => match(
-                          lookup_some_resolved_concrete(m_bid),
-                          .Some(m_g) => {
-                            m_conc = m_g;
-                          },
-                          .None => ()
-                        )
-                      ),
-                      _ => ()
+                      some_resolution(m_conc),
+                      .Some(m_inner) => {
+                        m_conc = m_inner;
+                      },
+                      .None => ()
                     );
                     if(!(is_unit_type(m_conc)), {
                       m_out_ty = t_with_resolution(m_out_ty, m_conc);

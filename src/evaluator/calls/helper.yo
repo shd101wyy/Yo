@@ -134,24 +134,7 @@ pragma(Pragma.AllowUnsafe);
   type_head_name_for_impl_forcing,
   call_function_value_marker
 } :: import("../context.yo");
-{
-  PathCollection,
-  path_collection_new,
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_get,
-  expr_info_set_converted_runtime_type,
-  register_some_resolved_concrete,
-  lookup_some_resolved_concrete,
-  unregister_some_resolved_concrete,
-  adopt_receiver_struct_instance,
-  push_active_where_trait_ids,
-  pop_active_where_trait_ids,
-  expr_info_adopt_env,
-  expr_info_capture_type,
-  expr_info_set_deferred_dup_expressions,
-  has_any_control_flow
-} :: import("../../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfo, new_expr_info, expr_info_table_get, expr_info_set_converted_runtime_type, register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete, adopt_receiver_struct_instance, push_active_where_trait_ids, pop_active_where_trait_ids, expr_info_adopt_env, expr_info_capture_type, expr_info_set_deferred_dup_expressions, has_any_control_flow, some_resolution } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
   SynthesizeResult,
@@ -2109,19 +2092,13 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
         }, {
           seen.push(sr_id.clone());
           match(
-            sr_rc,
+            some_resolution(cur),
             .Some(nx) => {
               cur = nx;
             },
-            .None => match(
-              lookup_some_resolved_concrete(sr_id),
-              .Some(gx) => {
-                cur = gx;
-              },
-              .None => {
-                walk = false;
-              }
-            )
+            .None => {
+              walk = false;
+            }
           );
         });
       },
@@ -5450,7 +5427,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
       somes.get(si),
       .Some(st) => match(
         st,
-        .SomeT({ id : ub_id, name : ubn_label, resolution : ub_cell }) => {
+        .SomeT({ id : ub_id, name : ubn_label }) => {
           (own : bool) = false;
           (bi : usize) = usize(0);
           while((bi < binder_ids.len()) && !(own), {
@@ -5467,7 +5444,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
             });
             ni = (ni + usize(1));
           });
-          if(((own && !(bound)) && ub_cell.is_none()) && lookup_some_resolved_concrete(ub_id).is_none(), {
+          if((own && !(bound)) && some_resolution(st).is_none(), {
             return(Option(String).Some(ubn_label));
           });
         },
@@ -5496,10 +5473,7 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
         ev,
         .TypeVal(t) => match(
           t,
-          .SomeT({ id : fb_id, resolution : fb_cell }) => cond(
-            fb_cell.is_some() => fb_cell,
-            true => lookup_some_resolved_concrete(fb_id)
-          ),
+          .SomeT({ id : _ }) => some_resolution(t),
           _ => Option(TypeValue).Some(t)
         ),
         _ => Option(TypeValue).None
@@ -5533,7 +5507,7 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
         ev,
         .TypeVal(t) => match(
           t,
-          .SomeT({ id : ub_id, resolution : ub_cell }) => (((ub_id == sig_id) && ub_cell.is_none()) && lookup_some_resolved_concrete(ub_id).is_none()),
+          .SomeT({ id : ub_id }) => ((ub_id == sig_id) && some_resolution(t).is_none()),
           _ => false
         ),
         _ => false
