@@ -54,7 +54,8 @@ import("std/fmt");
   is_unit_type,
   type_decl_module,
   is_module_type,
-  is_future_trait_type
+  is_future_trait_type,
+  can_optimize_as_nullable_pointer
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -1688,6 +1689,8 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     // walk of a recursive ref-enum whose variant field is typed `Self`.
     .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
+      // Lowered to the bare pointer (NULL = the empty variant), as codegen emits it.
+      can_optimize_as_nullable_pointer(ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bytes())),
       true => {
         (acc : usize) = usize(1);
         (unknown : bool) = false;
@@ -1928,6 +1931,9 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     // recurses forever on a recursive ref-enum (variant field typed `Self`).
     .EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      // Lowered to the bare pointer (NULL = the empty variant), as codegen emits
+      // it: `sizeof(Option(*(i32)))` is a pointer, not a tag plus a pointer.
+      can_optimize_as_nullable_pointer(ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bits())),
       // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
       // a VALUE enum re-entered on the walk stack is an infinite-size type the
       // definition-time check should have rejected — yield unknown rather than

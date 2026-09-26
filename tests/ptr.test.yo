@@ -50,3 +50,10 @@ test("Test pointer to object type value and `consume` builtin function", {
   );
   free(p);
 });
+test("sizeof of a nullable-pointer Option is the pointer's", {
+  // Codegen lowers `Option(*(T))` to the bare pointer (NULL = `.None`), so the
+  // size/alignment model must say the same: it said a tag plus a pointer (16 B
+  // on a 64-bit target) for an 8-byte C type.
+  assert(sizeof(Option(*i32)) == sizeof(*i32), "sizeof(Option(*(i32))) is a pointer's size");
+  assert(alignof(Option(*i32)) == alignof(*i32), "alignof(Option(*(i32))) is a pointer's alignment");
+});
