@@ -1746,7 +1746,10 @@ forward-declaration detection at the definition sites is unchanged.
 `check src/main.yo`, interleaved A/B on the same base (7ef0e3af0), three pairs:
 **1,514 → 1,285, 1,562 → 1,276, 1,542 → 1,120 MB (≈ −310 MB, −20 %)**, wall
 +3 % (≈ 3 s of the handle lookups). Emitted C byte-identical (same tree, both
-compilers).
+compilers). On Linux (the CI ratchets, re-baselined; the figures include §0.15,
+which landed just before): `check src/main.yo` max RSS **1,664,136 → 1,381,732
+kB (−17 %)**, and the whole compiler build under the 8 GB cgroup **4,523,776 →
+4,062,412 kB** (4.31 → 3.87 GiB).
 Test: `tests/internal/module_invalidation.test.yo` "captures: a handle-backed
 FuncVal keeps no capture value snapshot" (the new specializations hold 13,594
 capture values on the base, 0 now).
