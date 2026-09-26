@@ -6495,7 +6495,7 @@ try_to_call_function_with_arguments :: (
                         .Some(ne_val) => if(is_type_val(ne_val), {
                           match(
                             ne_val,
-                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)), {
+                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)) && _binding_is_for_call_binder(ne_var, callee_env, ne_label.clone()), {
                               ne_already = true;
                             }),
                             _ => ()
@@ -6507,16 +6507,19 @@ try_to_call_function_with_arguments :: (
                     );
                   });
                   if(!(ne_already), {
-                    add_variable_to_env(
-                      callee_env,
-                      ne_label.clone(),
-                      t_type(),
-                      Option(EvalValue).Some(create_type_value(ne_bty.clone())),
-                      true,
-                      false,
-                      false,
-                      false,
-                      synthetic_token(ne_label.clone(), callee_env.module_path)
+                    _record_prebound_binder(
+                      add_variable_to_env(
+                        callee_env,
+                        ne_label.clone(),
+                        t_type(),
+                        Option(EvalValue).Some(create_type_value(ne_bty.clone())),
+                        true,
+                        false,
+                        false,
+                        false,
+                        synthetic_token(ne_label.clone(), callee_env.module_path)
+                      ),
+                      _self_marker_id(callee_env, ne_label.clone())
                     );
                   });
                 });
