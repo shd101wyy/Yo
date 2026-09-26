@@ -93,3 +93,37 @@ test("positional twin of the labeled case still works", {
   io.await(task, io);
   assert(result.* == i32(20), "positional binds unchanged");
 });
+// The await-carrying twin of the synchronous nullable-pointer match: a `_` arm
+// on an `Option(<ref>)` was a pattern atom the classifier skipped, so the
+// `.None` path ran no arm at all.
+Parcel :: ref(struct(v : i32));
+test("a wildcard arm on a nullable-pointer Option with awaits", {
+  n := runtime_int();
+  empty := cond((n == i32(-1)) => Option(Parcel).Some(Parcel(v : i32(1))), true => Option(Parcel).None);
+  full := Option(Parcel).Some(Parcel(v : n));
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    a := match(
+      full,
+      .Some(p) => {
+        io.await(yield(io), io);
+        p.v
+      },
+      _ => i32(-5)
+    );
+    b := match(
+      empty,
+      .Some(p) => {
+        io.await(yield(io), io);
+        p.v
+      },
+      _ => {
+        io.await(yield(io), io);
+        i32(-5)
+      }
+    );
+    result.* = (a + b);
+  });
+  io.await(task, io);
+  assert(result.* == (n - i32(5)), ".Some binds the payload and .None takes the wildcard, inside async");
+});

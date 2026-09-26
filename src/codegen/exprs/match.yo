@@ -772,13 +772,29 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
           .Some(cv) => match(
             cargs.get(usize(1)),
             .Some(cb) => if(_case_executed(cv, context), {
-              // `.None` (caseValue itself is a `.` call) → null case; `.Some(v)` → pointer case.
-              if(ast_expr_is_fn_call_of(cv, BF_DOT, Option(usize).None), {
-                null_body = Option(AstExpr).Some(cb);
-              }, {
-                ptr_body = Option(AstExpr).Some(cb);
-                ptr_pattern = Option(AstExpr).Some(cv);
-              });
+              // First match wins, as in the tagged lowering: `.None` (the case
+              // value is itself a `.` call) takes the null case, `.Some(v)` the
+              // pointer case, and a `_` wildcard whichever of the two is still
+              // unclaimed (with no binding). Letting a later arm overwrite an
+              // earlier one turned `.Some(fs) => fs, _ => fallback` into
+              // "always the fallback".
+              cond(
+                (ast_expr_is_atom(cv) && (ast_expr_token(cv).value == "_")) => {
+                  if(null_body.is_none(), {
+                    null_body = Option(AstExpr).Some(cb);
+                  });
+                  if(ptr_body.is_none(), {
+                    ptr_body = Option(AstExpr).Some(cb);
+                  });
+                },
+                ast_expr_is_fn_call_of(cv, BF_DOT, Option(usize).None) => if(null_body.is_none(), {
+                  null_body = Option(AstExpr).Some(cb);
+                }),
+                true => if(ptr_body.is_none(), {
+                  ptr_body = Option(AstExpr).Some(cb);
+                  ptr_pattern = Option(AstExpr).Some(cv);
+                })
+              );
             }),
             .None => ()
           ),
@@ -805,7 +821,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
         pat,
         .FnCall(_, _, pargs, _, _) => match(
           pargs.get(usize(0)),
-          .Some(dvar) => if(ast_expr_is_atom(dvar), {
+          .Some(dvar) => if(ast_expr_is_atom(dvar) && !(ast_expr_token(dvar).value == "_"), {
             dvn := sanitize_for_c_identifier(ast_expr_token(dvar).value, false);
             _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
             // Shadow-register the binding like _emit_destructure_binds does

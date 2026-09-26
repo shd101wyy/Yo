@@ -77,3 +77,13 @@ test("catch-all on a compile-time scrutinee", {
   );
   assert(r == i32(8));
 });
+// `Option` of a reference handle lowers to the nullable pointer
+// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3), whose match path classified a
+// `_` arm as the pointer case and let it OVERWRITE the earlier `.Some` arm:
+// `.Some(c) => c.v, _ => fallback` always took the fallback.
+Crate :: ref(struct(v : i32));
+test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
+  pick :: (fn(o : Option(Crate)) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
+  assert(pick(Option(Crate).Some(Crate(v : i32(7)))) == i32(7), ".Some takes its own arm");
+  assert(pick(Option(Crate).None) == i32(-1), ".None takes the wildcard");
+});

@@ -3574,17 +3574,29 @@ _generate_match_with_await_impl :: (
                     match(
                       pat,
                       .Some(pattern) => {
-                        if(ast_expr_is_fn_call(pattern) && ast_expr_is_fn_call_of(pattern, ".", Option(usize).None), {
-                          null_case = Option(usize).Some(ni);
+                        // First match wins; a `_` wildcard claims whichever of
+                        // the null / pointer cases is still unclaimed, with no
+                        // binding (the synchronous twin in exprs/match.yo).
+                        if(ast_expr_is_atom(pattern) && (ast_expr_token(pattern).value == "_"), {
+                          if(null_case.is_none(), {
+                            null_case = Option(usize).Some(ni);
+                          });
+                          if(ptr_case.is_none(), {
+                            ptr_case = Option(usize).Some(ni);
+                          });
+                        }, if(ast_expr_is_fn_call(pattern) && ast_expr_is_fn_call_of(pattern, ".", Option(usize).None), {
+                          if(null_case.is_none(), {
+                            null_case = Option(usize).Some(ni);
+                          });
                         }, {
-                          if(ast_expr_is_fn_call(pattern), {
+                          if(ast_expr_is_fn_call(pattern) && ptr_case.is_none(), {
                             pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
                             if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
                               ptr_case = Option(usize).Some(ni);
                               pargs := match(pattern, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                               match(
                                 pargs.get(usize(0)),
-                                .Some(pv) => if(ast_expr_is_atom(pv), {
+                                .Some(pv) => if(ast_expr_is_atom(pv) && !(ast_expr_token(pv).value == "_"), {
                                   ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
                                   ptr_var_expr = Option(AstExpr).Some(pv);
                                 }),
@@ -3592,7 +3604,7 @@ _generate_match_with_await_impl :: (
                               );
                             });
                           });
-                        });
+                        }));
                       },
                       .None => ()
                     );
