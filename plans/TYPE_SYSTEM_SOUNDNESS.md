@@ -1,6 +1,6 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
+**Status:** ACTIVE, proposed 2026-09-23. **Handover 2026-09-26:** [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) says where each phase stands and what is on which branch. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
 "Landed" notes below); 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
