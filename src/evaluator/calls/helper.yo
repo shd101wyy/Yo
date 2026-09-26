@@ -1183,7 +1183,7 @@ ${ast_expr_to_string(actual_arg)}`
   // synthetic row 0 / column 0
   // (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
   (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
-    SynthesizeOptions(token : Option(Token).Some(ast_expr_token(arg_expr_raw)))
+    SynthesizeOptions(token : Option(Token).Some(ast_expr_token(arg_expr_raw)), expected_is_source : false)
   );
   synth := synthesize_types(
     resolved_pt,
@@ -5016,7 +5016,8 @@ resolve_param_types_from_expected :: (
   });
   temp_ret := evaluate_function_return_type_again(ret_b, synth_env, ctx);
   rps_checked := ArrayList(TypePair).new();
-  (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  // Return type against the expected type: (source, destination).
+  (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(SynthesizeOptions(token : Option(Token).None, expected_is_source : true));
   rps_synth := synthesize_types(temp_ret, synth_env, expected_ty, expected_env, rps_checked, rps_opts, rps_exn);
   resolved_env := rps_synth.expected_env;
   (fo_i : usize) = usize(0);
@@ -7542,7 +7543,7 @@ try_to_call_function_with_arguments :: (
             // The CALL's token anchors a return-type-vs-expected unification
             // failure at the call expression (see Step 6's note).
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
-              SynthesizeOptions(token : Option(Token).Some(ast_expr_token(expr)))
+              SynthesizeOptions(token : Option(Token).Some(ast_expr_token(expr)), expected_is_source : true)
             );
             synth_ret := cond(
               st10_skip => Option(SynthesizeResult).None,

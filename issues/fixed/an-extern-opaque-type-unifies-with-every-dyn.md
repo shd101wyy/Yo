@@ -3,13 +3,13 @@
 **Status:** FIXED (2026-09-26, Type-system soundness Phase 3.8)
 **Found:** 2026-09-16
 **Repro:** `issues/repros/an-extern-opaque-type-unifies-with-every-dyn.yo`
-**Supersedes:** `issues/arraylist-of-a-trait-object-cannot-be-indexed.md` (which
+**Supersedes:** `issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md` (which
 PR #706 renames to `a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`).
 Same defect, same `_ptr.add` error, both found while writing `error_chain`. Both
 of those titles are wrong: the failure is not about indexing, and not about
 module boundaries — it is about whether some other module has already
-instantiated `Option(*(<an extern opaque>))`. Retire that doc in favour of this
-one once #706 and this change have both landed.
+instantiated `Option(*(<an extern opaque>))`. That doc is now
+`issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md`.
 
 ## Symptom
 

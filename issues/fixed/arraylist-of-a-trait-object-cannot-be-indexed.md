@@ -1,6 +1,6 @@
 # `ArrayList(Dyn(Trait)).get()` fails to specialize — a list of trait objects cannot be read back
 
-**Status:** open
+**Status:** fixed (2026-09-26)
 **Found:** 2026-09-15, writing `error_chain` for `std/error` (plans/archive/STD_API_STABILIZATION.md)
 
 ## Symptom
@@ -65,3 +65,16 @@ whose element type is a `Dyn`"**. `ArrayList(Dyn).get` and
 `Option(Dyn).is_some` are the same operation from the compiler's point of
 view — a method on a generic whose type argument is a fat pointer — which is
 why both are invisible to `yo check` and appear only at codegen.
+
+## Resolution
+
+Not a stride problem. It was `issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md`:
+the CTFE memo handed `Option(*(Dyn(Trait)))` the `Option(*(FILE))` instance
+`std/libc/stdio` had created, so `_ptr` bound as an opaque `*(FILE)` with no
+`.add`. The memo fix exposed a drop-path helper specialized at an unresolved
+SomeT, closed by the identity mode of #938, and the extern opaque is now the
+nominal `ExternOpaqueT`, so no generic-parameter rule can reach it.
+
+`error_chain` shipped meanwhile as an `Iterator` (`std/error.yo`). Gate:
+`tests/dyn.test.yo`, "Test an ArrayList of trait objects reads its elements
+back", pushes two `Dyn(ToString)` values and reads index 1 back as `"9"`.
