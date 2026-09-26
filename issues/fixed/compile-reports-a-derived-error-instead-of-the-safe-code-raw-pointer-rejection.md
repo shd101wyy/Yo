@@ -1,7 +1,7 @@
 # `compile` reports a derived error instead of the safe-code raw-pointer rejection
 
-**Status: OPEN** (found 2026-09-26, while measuring `sizeof(Option(*T))` for
-`plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
+**Status: FIXED** (found and fixed 2026-09-26, while measuring `sizeof(Option(*T))`
+for `plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
 
 ## Symptom
 
@@ -59,18 +59,41 @@ Found with a probe build (traces at the top of `_evaluate_expression` and in
   prelude's (`[var-miss] name=println env_module=…/std/prelude.yo`), because
   `evaluate_size_of` adopts the env of the argument's `ExprInfo`.
 
-So some handler between the `Option(...)` comptime call and its argument's
-evaluation catches the throw in `compile` without recording it, and falls back
-to a placeholder. The evaluator has no compile-mode flag. One known structural
-difference is that `run_compile` shares one `ExprInfoTable` across the prelude
-and every module (`g_shared_expr_info_table`), while `check` does not. The
-catching handler is not yet identified.
+## Root cause
 
-## Next step
+A second probe build traced every exception handler in the evaluator that
+caught the rejection. In both commands the throw goes to the call trap in
+`evaluate_function_call`, which rethrows it, and then to the swallowing
+`_evaluate_expression_wrapper`, which returns `make_err_expr()`. The caller
+(the binding's rhs, the `sizeof` argument) tests for failure by that node
+having no ExprInfo, and reports the recorded cause through
+`format_eval_failure` when it has none.
 
-Identify the handler that catches the argument's throw in `compile` (the
-comptime-fn call path for `Option`, `src/evaluator/calls/`), and make it
-propagate the error or record it the way the swallowing wrapper does. Then
-add a CLI case that compiles the reproducer and pins the safe-code
-diagnostic, since `comptime_expect_error` observes the swallowed throw either
-way.
+`make_err_expr()` is an `Atom` with id **0**, and `g_next_global_expr_id`
+also started at 0, so the first node ever parsed (the prelude's) shared the
+sentinel's id:
+- `check` keeps a table per module, so the user module's table has nothing at
+  id 0, the test works, and the cause is reported.
+- `compile` shares one table across the prelude and every module, so id 0
+  holds the prelude node's info. The failed rhs "evaluated" to it (a type bound
+  by `Comptime`), and `sizeof` adopted its env, the prelude's.
+
+A probe on the fixed tree also found a write to id 0: compiling
+`tests/closure.test.yo` stores a `fn(...) -> Box(V)` type through a fallback
+`make_err_expr()` node. With a shared table, such a write makes the next
+failure test in any module pass.
+
+## Fix
+
+- `src/expr.yo`: `g_next_global_expr_id` starts at 1, so no node shares the
+  sentinel's id.
+- `src/expr_info.yo`: `expr_info_table_set` ignores id 0, so no write can give
+  the sentinel an ExprInfo.
+
+## Verification
+
+Two CLI cases compile the reproducers and pin the safe-code diagnostic:
+`tests/cli-cases/ptr-type-in-body-safe-code` (the binding shape) and
+`tests/cli-cases/sizeof-ptr-type-in-body-safe-code` (the `sizeof` + `println`
+shape). With a pre-fix compiler, both score "stdout_keep_match matched nothing".
+The ICE shape (`a := sizeof(*(i32));` alone) reports the rejection too.
