@@ -1184,7 +1184,7 @@ ${ast_expr_to_string(actual_arg)}`
   // synthetic row 0 / column 0
   // (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
   (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
-    SynthesizeOptions(set_resolved_concrete_type : false, token : Option(Token).Some(ast_expr_token(arg_expr_raw)))
+    SynthesizeOptions(token : Option(Token).Some(ast_expr_token(arg_expr_raw)))
   );
   synth := synthesize_types(
     resolved_pt,
@@ -7544,7 +7544,7 @@ try_to_call_function_with_arguments :: (
             // The CALL's token anchors a return-type-vs-expected unification
             // failure at the call expression (see Step 6's note).
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
-              SynthesizeOptions(set_resolved_concrete_type : false, token : Option(Token).Some(ast_expr_token(expr)))
+              SynthesizeOptions(token : Option(Token).Some(ast_expr_token(expr)))
             );
             synth_ret := cond(
               st10_skip => Option(SynthesizeResult).None,
