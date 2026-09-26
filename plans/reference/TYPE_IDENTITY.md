@@ -19,7 +19,8 @@ answered both with rules that were looser than either question:
 
 Invariant flow differs from identity in exactly two rules, both about SomeTs: a SomeT with a
 resolution stands for its resolution, and a `Dyn` satisfies a SomeT whose bounds its traits cover
-(and the reverse). Neither is identity. Until 2026-09-26 the pointee position and the identity
+(and the reverse). Neither is identity, with one exception: a closure identity (the SomeT row
+below) is its resolution under identity too. Until 2026-09-26 the pointee position and the identity
 callers shared one "exact" mode, so the identity relation inherited both rules: an unconstrained
 `T` was "exactly" `Dyn(ToString)`, and the specialization cache handed `Option(Dyn(ToString)).is_none()`
 the prelude's hard-generic `Option(T)` spec, which codegen never emits
