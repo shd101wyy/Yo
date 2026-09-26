@@ -1754,6 +1754,28 @@ Test: `tests/internal/module_invalidation.test.yo` "captures: a handle-backed
 FuncVal keeps no capture value snapshot" (the new specializations hold 13,594
 capture values on the base, 0 now).
 
+### 0.17 `Option` of a reference handle is one pointer (2026-09-26, Phase 3)
+
+Phase 3's layout change. `can_optimize_as_nullable_pointer` (`src/types/guards.yo`,
+shared by codegen and the size model since #937) accepts a non-atomic
+reference handle as the payload. `Option(Ref)`, every `String`
+(`newtype(_bytes : Option(ArrayList(u8)))`) and any two-variant enum with a
+fieldless variant and one handle payload therefore lower to the bare pointer,
+with NULL for the fieldless variant. `Token` 107 → 76 B and `ExprInfo` 214 → 153 B.
+
+The niche paths had only ever lowered raw pointers, and five bugs surfaced,
+each with an `issues/fixed/` doc and a test that fails first:
+- an arm binding stored into a same-named hoisted slot;
+- a `_` arm overwrote `.Some` (sync and async);
+- labeled/curly payloads bound nothing, and bare `.Variant` arms took the wrong case;
+- the match never released its scrutinee: 1.26 M leaked objects, found with the
+  rc-event log and the new `YO_DEBUG_FN_ORIGIN=1` frame names;
+- `JoinHandle.await` and `Type.Variant` built tagged literals.
+
+Stage-2 A/B on the same base (3eec8bd22), three interleaved pairs:
+`check src/main.yo` **1,228 → 1,086 MB peak footprint (≈ −142 MB, −11.5 %)** and
+**108.3 → 102.5 s wall (−5.4 %)**. Census retained 1,086 → 970 MB.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.

@@ -91,12 +91,27 @@ test that fails first):
 `compile-allocator-fixed-oom` was re-recorded: the fixed-heap OOM now requests
 72 B instead of 80, because an object shrank.
 
-**Results of the final battery:** see §2.1.1. If it is incomplete, the next
-agent re-runs it (commands in §0) before merging.
+**Results:** §2.1.1.
 
 #### 2.1.1 Final battery (fill in when it completes)
 
-RESULTS_PLACEHOLDER
+Measured on the branch (4de9111bc, base 3eec8bd22). Both are stage-2 compilers
+built by their own tree (`fixpoint_only.sh`), measured with three interleaved
+`check src/main.yo` pairs:
+
+| | base | Phase 3 |
+| --- | --- | --- |
+| peak footprint | 1,228 / 1,223 / 1,238 MB | **1,086 / 1,086 / 1,092 MB** (≈ −142 MB, −11.5 %) |
+| wall | 108.3 / 108.4 / 108.2 s | **102.5 / 102.4 / 102.5 s** (−5.4 %) |
+| census retained at exit | 1,086 MB | 970 MB |
+| `LEAK` group | 2.24 M objects / 249 MB | 2.24 M objects / 209 MB (the same population, smaller objects) |
+
+Also on the branch: `FIXPOINT_HOLDS`, and the targeted tests pass
+(`match_catch_all` 8/8, `match_async_arms` 6/6, `match_curly` 11/11). The rest of
+the battery is re-run on the tree rebased onto develop before merge; that run
+goes in the PR description. Earlier full runs of this branch (before the last
+fix): fast suite 4,479 passed, std 3/3, internal 63/63, and the CLI corpus clean
+apart from the seven environmental cases.
 
 **If the A/B still shows no footprint win after the leak fix,** re-take the
 holder census on the new stage-2 C (recipe in §4.1) and compare the `LEAK`
