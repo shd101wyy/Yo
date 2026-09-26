@@ -38,7 +38,7 @@
 { ifc_memo_entry_count } :: import("../../src/evaluator/values/impl.yo");
 { trait_default_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { type_intern_entry_count } :: import("../../src/types/intern.yo");
-{ specialization_cache_count, specialization_flat_capture_count } :: import("../../src/evaluator/calls/helper.yo");
+{ specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count } :: import("../../src/evaluator/calls/helper.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
 _LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
@@ -323,6 +323,33 @@ test("captures: a specialization of a handle-backed FuncVal stores no flat captu
   assert(specialization_cache_count() > specs_before, "the document specialized `pick`");
   added_flat := (specialization_flat_capture_count() - flat_before);
   assert(added_flat == usize(0), `the new specializations hold ${added_flat.to_string()} flat capture names; expected 0`);
+});
+test("captures: a handle-backed FuncVal keeps no capture value snapshot", {
+  // Every definition-site FuncVal used to carry a snapshot of its captures'
+  // values (`cap_vals`, one entry per visible binding) beside the registered
+  // handles, and each derivation (specialization, ctl instance, impl-generic
+  // injection) copied it: ~190 MB of `check src/main.yo`. The values are now
+  // read from the handles' cells (plans/EVALUATOR_MEMORY_REDUCTION.md §0.16).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_spec_capval_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/spec.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_SPEC_CAPTURE_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  specs_before := specialization_cache_count();
+  vals_before := specialization_capture_value_count();
+  assert(_doc_round(doc_path.clone(), String.from(_SPEC_CAPTURE_DOC), std_path, io), "the document analyzes clean");
+  mm_forget_open_document(doc_path);
+  assert(specialization_cache_count() > specs_before, "the document specialized `pick`");
+  added_vals := (specialization_capture_value_count() - vals_before);
+  assert(added_vals == usize(0), `the new specializations hold ${added_vals.to_string()} capture values; expected 0`);
 });
 test("captures: a captured frame slice survives the frame shrinking", {
   // FuncVals record their capture handles as slices of the defining frames'

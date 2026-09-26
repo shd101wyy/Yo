@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `cap_vals` value snapshots (~190 MB, §0.14 — they are snapshots, not live cells, so they need their own design), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB. Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1712,6 +1712,47 @@ the ~180 MB footprint noise, so the Linux ratchet is the measure. Emitted C
 byte-identical. Test: `tests/internal/module_invalidation.test.yo` "owner logs: a
 one-shot command records none, an invalidating one does" (red with the three
 guards removed).
+
+### 0.16 Capture values are read from the handles (2026-09-26)
+
+§0.14 left one per-FuncVal copy: `cap_vals`, a snapshot of every captured
+binding's value (~1,760 entries for a module-level function) taken beside the
+slices, and copied again by every derivation (specialization, ctl instance,
+impl-generic injection). The call path had already stopped reading it:
+`capture_env_for`'s shared path builds the body env from the handles' live
+cells and ignores the list. Only a handful of readers still walked the
+snapshot:
+- codegen's trace-method specialization (TypeVal captures);
+- `_impl_type_captures_sig` and the closure re-evaluation in `helper.yo`;
+- the forall-by-capture binder;
+- the three CTFE env builders (operator, method, `[]`);
+- the CTFE capability analysis.
+
+A FuncVal with registered handles now keeps no snapshot. Those readers go
+through `fv_capture_count` / `fv_capture_val` / `fv_capture_vals` (`src/env.yo`).
+These read the snapshot when a FuncVal has one: a flat FuncVal, an injected
+impl-generic binding list, or a partial application. Otherwise they read the
+handle's current value, and `VarRef(name)` for a valueless binding, the same
+placeholder the snapshot recorded. An aligned derivation copies no values;
+it appends handles only.
+
+§0.14's caveat was that a snapshot is not the live cell. A forward-declared
+comptime fn is a `VarRef` at capture time and its FuncVal after the fill. The
+readers above now see the filled value, which is what the body env has always
+seen. None of them matches on `VarRef`: they bind TypeVal / IntLit captures,
+or hand the value to a CTFE env that resolves a `VarRef` by lookup anyway. The
+forward-declaration detection at the definition sites is unchanged.
+
+`check src/main.yo`, interleaved A/B on the same base (7ef0e3af0), three pairs:
+**1,514 → 1,285, 1,562 → 1,276, 1,542 → 1,120 MB (≈ −310 MB, −20 %)**, wall
++3 % (≈ 3 s of the handle lookups). Emitted C byte-identical (same tree, both
+compilers). On Linux (the CI ratchets, re-baselined; the figures include §0.15,
+which landed just before): `check src/main.yo` max RSS **1,664,136 → 1,381,732
+kB (−17 %)**, and the whole compiler build under the 8 GB cgroup **4,523,776 →
+4,062,412 kB** (4.31 → 3.87 GiB).
+Test: `tests/internal/module_invalidation.test.yo` "captures: a handle-backed
+FuncVal keeps no capture value snapshot" (the new specializations hold 13,594
+capture values on the base, 0 now).
 
 ## 6. Gates (every phase)
 

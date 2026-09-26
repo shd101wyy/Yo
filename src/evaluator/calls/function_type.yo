@@ -1032,6 +1032,8 @@ Result type: ${type_to_string(result_box)}`
       // `evaluator/values/anonymous_function.yo`.
       // Names and types come from `cap_vars` (registered below); only the
       // value snapshot is kept flat (`fv_capture_names`, §0.7 of the memory plan).
+      // No value snapshot: the values are read from the handles' cells
+      // (`fv_capture_val`, memory plan §0.16).
       cap_vals := ArrayList(EvalValue).new();
       // Campaign 2: parallel snapshot of the ORIGINAL Variable handles, as
       // slices of the frames' own lists (`CaptureSlice`, memory plan §0.14;
@@ -1058,11 +1060,6 @@ Result type: ${type_to_string(result_box)}`
                     cap_run_start = (cap_vi + usize(1));
                   });
                   if(!(cv.name == "__recur_fn"), {
-                    cap_val := match(
-                      cv.value.get(usize(0)),
-                      .Some(actual) => actual,
-                      .None => EvalValue.VarRef(cv.name)
-                    );
                     // A VALUELESS comptime fn-typed capture is a FORWARD
                     // DECLARATION (`comptime(is_odd) : (fn ...)` before its
                     // fill) — this fn's def-time body eval will record its
@@ -1101,7 +1098,6 @@ Result type: ${type_to_string(result_box)}`
                       });
                       has_fwd_comptime_fn_cap = true;
                     });
-                    cap_vals.push(cap_val);
                   });
                 },
                 .None => ()

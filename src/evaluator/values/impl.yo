@@ -57,6 +57,8 @@ pragma(Pragma.AllowUnsafe);
   synthetic_token,
   get_funcval_cap_vars,
   aligned_derived_capture_handles,
+  fv_capture_count,
+  fv_capture_val,
   register_funcval_cap_slices,
   cap_slices_with_list,
   CaptureSlice,
@@ -1944,7 +1946,7 @@ _inject_forall_captures :: (
             (ifc_aligned : bool) = false;
             (ifc_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
             match(
-              aligned_derived_capture_handles(__fvm9.*, cvs.len()),
+              aligned_derived_capture_handles(__fvm9.*, fv_capture_count(__fvm9.*, cvs)),
               .Some(aligned_slices) => {
                 ifc_have_vars = true;
                 ifc_aligned = true;
@@ -1971,12 +1973,10 @@ _inject_forall_captures :: (
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
-            while(ci < cvs.len(), {
-              if(!(ifc_aligned), {
-                new_cns.push(fv_source_name(csrc, ci));
-                new_cts.push(fv_source_ty(csrc, ci));
-              });
-              new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
+            while((!(ifc_aligned)) && (ci < fv_capture_count(__fvm9.*, cvs)), {
+              new_cns.push(fv_source_name(csrc, ci));
+              new_cts.push(fv_source_ty(csrc, ci));
+              new_cvs.push(match(fv_capture_val(__fvm9.*, cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
             // Append one capture per impl generic param (bound to its concrete type).
@@ -2000,8 +2000,8 @@ _inject_forall_captures :: (
                     fa_is_val = true;
                     if(!(ifc_aligned), {
                       new_cts.push(t_usize());
+                      new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
                     });
-                    new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
                     if(ifc_have_vars, {
                       new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
                     });
@@ -2013,8 +2013,8 @@ _inject_forall_captures :: (
               if(!fa_is_val, {
                 if(!(ifc_aligned), {
                   new_cts.push(t_type());
+                  new_cvs.push(EvalValue.TypeVal(fa_t));
                 });
-                new_cvs.push(EvalValue.TypeVal(fa_t));
                 if(ifc_have_vars, {
                   new_cvars.push(make_capture_variable(fa_n.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(fa_t)), String.from("")));
                 });
@@ -2040,8 +2040,8 @@ _inject_forall_captures :: (
                 if(!(ifc_aligned), {
                   new_cns.push(String.from("Self"));
                   new_cts.push(t_type());
+                  new_cvs.push(EvalValue.TypeVal(sr.clone()));
                 });
-                new_cvs.push(EvalValue.TypeVal(sr.clone()));
                 if(ifc_have_vars, {
                   new_cvars.push(
                     make_capture_variable(

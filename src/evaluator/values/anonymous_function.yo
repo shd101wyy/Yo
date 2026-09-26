@@ -1011,13 +1011,13 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Snapshot outer env for closure/function capture.
   // Same walk as eval.yo lines 1696-1730: iterate all outer frames and collect
-  // all visible variable bindings. Runtime variables (no comptime value) are
-  // stored as VarRef(name) in cap_vals so they can be found at call time.
-  // This must happen BEFORE pushing the parameter frame so we only capture
-  // the outer lexical scope (params are bound fresh at each call site).
+  // all visible variable bindings, as slices of the frames' own lists. This
+  // must happen BEFORE pushing the parameter frame so we only capture the
+  // outer lexical scope (params are bound fresh at each call site).
   // -------------------------------------------------------------------------
-  // Names and types come from `cap_vars` (registered below); only the value
-  // snapshot is kept flat (`fv_capture_names`, §0.7 of the memory plan).
+  // Names, types and values are all read through the registered handles
+  // (`fv_capture_source`, `fv_capture_val`, memory plan §0.7/§0.16); a
+  // valueless binding reads as `VarRef(name)`. No value snapshot is kept.
   cap_vals := ArrayList(EvalValue).new();
   // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md): the same walk also snapshots
   // the ORIGINAL Variable handles, so `capture_env_for` can build the call
@@ -1039,14 +1039,7 @@ evaluate_anonymous_function_implementation :: (
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
               cond(
-                !(cv.name == "__recur_fn") => {
-                  cap_val := match(
-                    cv.value.get(usize(0)),
-                    .Some(actual) => actual,
-                    .None => EvalValue.VarRef(cv.name)
-                  );
-                  cap_vals.push(cap_val);
-                },
+                !(cv.name == "__recur_fn") => (),
                 true => {
                   if(cap_vi > cap_run_start, {
                     cap_slices.push(CaptureSlice(vars : cap_frame.variables, start : cap_run_start, end : cap_vi));
