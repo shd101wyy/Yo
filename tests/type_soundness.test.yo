@@ -721,6 +721,26 @@ test("soundness: never flows into every type and nothing flows into it", {
   comptime_expect_error(_p36_returns :: (fn() -> never)(()), "declared result type is `never`");
 });
 // ---------------------------------------------------------------------------
+// issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md
+// (Phase 3.8): the specialization cache keys by identity. The prelude calls
+// `is_none` on an `Option(A)` whose `A` is unresolved; that spec's `Option(T)`
+// used to be "exactly" an `Option(Dyn(ToString))`, so this call reused it and
+// named a C function nobody emits.
+// ---------------------------------------------------------------------------
+{ ToString : _P38ToString } :: import("std/fmt");
+_p38_none :: (fn() -> bool)({
+  (o : Option(Dyn(_P38ToString))) = Option(Dyn(_P38ToString)).None;
+  o.is_none()
+});
+_p38_some :: (fn() -> bool)({
+  (o : Option(Dyn(_P38ToString))) = Option(Dyn(_P38ToString)).Some(dyn(i32(3)));
+  o.is_none()
+});
+test("soundness: an inherent Option method over a trait object is emitted", {
+  assert(_p38_none(), "None is none");
+  assert(!_p38_some(), "Some is not none");
+});
+// ---------------------------------------------------------------------------
 // Phase 5.1/5.2/5.6: per-path move and initialization state
 // (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,
 // issues/fixed/cond-arm-initialization-merge-check-never-fires.md,

@@ -1,8 +1,9 @@
 # Type identity: when two types are the same type
 
 **Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phases 3.1, 3.2, 3.4, 3.5 and 3.6 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md`). The code is `src/types/compatibility.yo`
-(`are_types_compatible_exact` and `are_types_compatible`) and the CTFE memo in
+`plans/TYPE_SYSTEM_SOUNDNESS.md`; the invariant relation split out 2026-09-26, Phase 3.8). The
+code is `src/types/compatibility.yo` (`are_types_compatible_exact`, `are_types_compatible_invariant`
+and `are_types_compatible`) and the CTFE memo in
 `src/evaluator/calls/comptime_fn.yo` (`_ctfe_args_equal`, `_ctfe_types_era_equal`).
 
 ## Two relations, two jobs
@@ -14,6 +15,17 @@ answered both with rules that were looser than either question:
 | --- | --- | --- |
 | **identity** (`are_types_compatible_exact`) | `Type.eq`, the CTFE instantiation memo, the specialization cache | Are these one type? Would codegen give them one C type? |
 | **flow** (`are_types_compatible`) | argument checks, annotations, assignment, returns | May a value of the first type be used where the second is expected? |
+| **invariant flow** (`are_types_compatible_invariant`) | a pointee inside flow, a receiver against a method's `*(Self)`, a closure body against its declared result | Flow with no coercion that changes a representation |
+
+Invariant flow differs from identity in one rule: a `Dyn` satisfies a SomeT whose bounds its
+traits cover (and the reverse). That is flow, not identity. Until 2026-09-26 the pointee position
+and the identity callers shared one "exact" mode, so identity inherited it: an unconstrained `T`
+was "exactly" `Dyn(ToString)`, and the specialization cache handed `Option(Dyn(ToString)).is_none()`
+the prelude's hard-generic `Option(T)` spec, which codegen never emits
+(`issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`). A resolved SomeT
+still stands for its resolution under both relations, because codegen's `type_key` keys a resolved
+SomeT in an argument slot by its resolution (`_tk_resolve_arg_slot`), and identity must agree with
+it. The resolution itself is Phase 3.7's to retire.
 
 Identity must be an equivalence relation that agrees with codegen's type key
 (`src/types/type_key.yo`): when identity says two types are one, the memo hands the second

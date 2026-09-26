@@ -1,6 +1,6 @@
 # `Option(Dyn(Trait)).is_none()` emits a call to a function codegen never defines — the type key is computed two different ways
 
-**Status:** OPEN.
+**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-14, writing the regression test for
 `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
 The two are unrelated defects — this one reproduces identically on the
@@ -156,3 +156,29 @@ Phase 5's replacement for the stored codegen handler) wrote `g_codegen_error.is_
 compiling itself) called the undeclared `…_value_2015_ret_bool` and failed the fixpoint gate. The
 site uses a `match` over the slot. The key bug itself is the Phase 3.8 double-emission family's
 (`plans/TYPE_SYSTEM_SOUNDNESS.md`), and remains open here until fixed there.
+
+## Root cause and fix (2026-09-26)
+
+The specialization cache (`_find_specialization_cache`, `src/evaluator/calls/helper.yo`) reuses a
+spec when the runtime parameter types are `are_types_compatible_exact`. The prelude itself calls
+`is_none` inside generic impls (`IterChain.next`, `IterPeekable.peek`) on an `Option(A)` whose
+`A` is unresolved, so the cache holds a hard-generic spec keyed on `Option(T)`. The "exact"
+relation compared the payloads `T` and `Dyn(ToString)` with the SomeT↔`Dyn` rule, which accepts a
+`Dyn` whose traits cover the SomeT's bounds, and an unconstrained `T` has none. So the concrete call
+reused the generic spec and named a function `should_skip_function_codegen` rightly never emits.
+`Option(i32)` was safe because no rule makes `T` "exactly" `i32`; `is_some` was safe because
+nothing in the prelude calls it in a generic context first. That is why the user replicas never
+reproduced.
+
+"Exact" was doing two jobs. Identity (caches, the CTFE memo, `Type.eq`) and flow under a pointer
+(`*(Self)` against a `Dyn` receiver) shared one mode. `_compat_impl` now takes a `_CompatMode`:
+`Identity` drops the SomeT↔`Dyn` rules, and `Invariant` keeps them for pointees, the
+receiver/`*(Self)` match (`env.yo`) and the closure-result checks
+(`plans/reference/TYPE_IDENTITY.md`, "Two relations, two jobs"). The resolved-SomeT unwrap stays in
+both, because codegen's `type_key` keys a resolved SomeT in an argument slot by its resolution
+(Phase 3.7 retires the resolution itself).
+
+Regression test: "soundness: an inherent Option method over a trait object is emitted"
+(`tests/type_soundness.test.yo`); `tests/error_source_chain.test.yo` uses `is_none()` again.
+`_record_codegen_error` (`src/codegen/constants.yo`) keeps its `match` until the seed carries this
+fix, since the seed compiles the compiler.

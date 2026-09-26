@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   expr_info_set_is_anonymous_function_definition
 } :: import("../../expr_info.yo");
-{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 {
   copy_func_param_defaults,
   copy_func_param_default_exprs,
@@ -1959,7 +1959,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
             // -> T` used to slip through.
             dgc_expected_is_some := is_some_type(dgc_expected);
-            if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
+            if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_invariant(dgc_trial_ty, dgc_expected)), {
               dgc_exp_str := type_to_string(dgc_expected);
               dgc_got_str := type_to_string(dgc_trial_ty);
               // A deliberate user-facing rejection: outside a dry-run, flag

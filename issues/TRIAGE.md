@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 200 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 199 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
 | Async / effects | 29 | 7 |
-| Codegen / emitted C | 21 | 3 |
+| Codegen / emitted C | 20 | 3 |
 | Evaluator / types | 23 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 28 | 6 |
-| **Total** | **200** | **38** |
+| **Total** | **199** | **38** |
 
 ## Cross-cutting buckets
 
@@ -173,11 +173,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (21)
+### Codegen / emitted C (20)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md`](./a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md) | OPEN | — |
 | [`address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`](./address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md) | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | — | yes |
@@ -337,6 +336,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
+| [`a-caller-binder-named-t-collides-with-io-async-t.md`](./a-caller-binder-named-t-collides-with-io-async-t.md) | OPEN | yes |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
@@ -351,7 +351,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
-| [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
