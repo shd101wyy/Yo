@@ -62,7 +62,9 @@ pragma(Pragma.AllowUnsafe);
   make_capture_variable,
   mint_funcval_env_key,
   make_err_variable,
-  bind_parameter
+  bind_parameter,
+  variable_bound_some_id,
+  variable_set_bound_some_id
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -1498,6 +1500,58 @@ compute_compile_time_signature :: (
 ///
 /// Returns `Some(specialized_func_val)` if a matching cache entry is found,
 /// or `None` if no entry exists.
+/// Whether `var`, a concrete binding of `label`, belongs to THIS call's binder:
+/// recorded for the binder's self-marker id, or unrecorded and in the call's
+/// own top frame. A caller's same-named binder bound in an outer frame is not.
+_binding_is_for_call_binder :: (fn(var : Variable, env : Environment, label : String) -> bool)({
+  recorded := variable_bound_some_id(var);
+  cond(
+    (recorded.len() > usize(0)) => (recorded == _self_marker_id(env, label)),
+    true => ((env.frames.len() > usize(0)) && (var.frame_level == (env.frames.len() - usize(1))))
+  )
+});
+/// The id of the SomeT a type binder's self-marker (`T := SomeT(T)`, the
+/// placeholder a call installs for its own binder) holds in `env`, or "".
+_self_marker_id :: (fn(env : Environment, label : String) -> String)({
+  vars := get_variables_from_env(env, label);
+  (i : usize) = vars.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      vars.get(i),
+      .Some(v) => match(
+        v.value.get(usize(0)),
+        .Some(vv) => match(
+          vv,
+          .TypeVal(vt) => match(
+            vt,
+            .SomeT({ id : mid }) => {
+              return(mid);
+            },
+            _ => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  String.new()
+});
+/// Record on a Step-6b pre-binding which binder it resolves, so a same-named
+/// binder of another lineage (the caller's own `T`) neither reads it nor
+/// overwrites it (`variable_bound_some_id`,
+/// issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
+_record_prebound_binder :: (fn(bound : Option(Variable), some_id : String) -> unit)(
+  match(
+    bound,
+    .Some(bv) => if(some_id.len() > usize(0), {
+      variable_set_bound_some_id(bv, some_id);
+    }),
+    .None => ()
+  )
+);
 _find_specialization_cache :: (
   fn(
     ctx : EvalContext,
@@ -6316,7 +6370,7 @@ try_to_call_function_with_arguments :: (
                             .Some(tb_val) => if(is_type_val(tb_val), {
                               match(
                                 tb_val,
-                                .TypeVal(tb_tv) => if(!(is_some_type(tb_tv)), {
+                                .TypeVal(tb_tv) => if(!(is_some_type(tb_tv)) && _binding_is_for_call_binder(tb_var, callee_env, tb_label.clone()), {
                                   tb_already = true;
                                 }),
                                 _ => ()
@@ -6328,16 +6382,19 @@ try_to_call_function_with_arguments :: (
                         );
                       });
                       if(!(tb_already), {
-                        add_variable_to_env(
-                          callee_env,
-                          tb_label.clone(),
-                          t_type(),
-                          Option(EvalValue).Some(create_type_value(io_t_out.clone())),
-                          true,
-                          false,
-                          false,
-                          false,
-                          synthetic_token(tb_label.clone(), callee_env.module_path)
+                        _record_prebound_binder(
+                          add_variable_to_env(
+                            callee_env,
+                            tb_label.clone(),
+                            t_type(),
+                            Option(EvalValue).Some(create_type_value(io_t_out.clone())),
+                            true,
+                            false,
+                            false,
+                            false,
+                            synthetic_token(tb_label.clone(), callee_env.module_path)
+                          ),
+                          _self_marker_id(callee_env, tb_label.clone())
                         );
                       });
                     });
@@ -6362,7 +6419,7 @@ try_to_call_function_with_arguments :: (
                               .Some(eb_val) => if(is_type_val(eb_val), {
                                 match(
                                   eb_val,
-                                  .TypeVal(eb_tv) => if(!(is_some_type(eb_tv)), {
+                                  .TypeVal(eb_tv) => if(!(is_some_type(eb_tv)) && _binding_is_for_call_binder(eb_var, callee_env, eb_label.clone()), {
                                     eb_already = true;
                                   }),
                                   _ => ()
@@ -6374,16 +6431,19 @@ try_to_call_function_with_arguments :: (
                           );
                         });
                         if(!(eb_already), {
-                          add_variable_to_env(
-                            callee_env,
-                            eb_label.clone(),
-                            t_type(),
-                            Option(EvalValue).Some(create_type_value(io_e_conc.clone())),
-                            true,
-                            false,
-                            false,
-                            false,
-                            synthetic_token(eb_label.clone(), callee_env.module_path)
+                          _record_prebound_binder(
+                            add_variable_to_env(
+                              callee_env,
+                              eb_label.clone(),
+                              t_type(),
+                              Option(EvalValue).Some(create_type_value(io_e_conc.clone())),
+                              true,
+                              false,
+                              false,
+                              false,
+                              synthetic_token(eb_label.clone(), callee_env.module_path)
+                            ),
+                            _self_marker_id(callee_env, eb_label.clone())
                           );
                         });
                       });
@@ -6435,7 +6495,7 @@ try_to_call_function_with_arguments :: (
                         .Some(ne_val) => if(is_type_val(ne_val), {
                           match(
                             ne_val,
-                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)), {
+                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)) && _binding_is_for_call_binder(ne_var, callee_env, ne_label.clone()), {
                               ne_already = true;
                             }),
                             _ => ()
@@ -6447,16 +6507,19 @@ try_to_call_function_with_arguments :: (
                     );
                   });
                   if(!(ne_already), {
-                    add_variable_to_env(
-                      callee_env,
-                      ne_label.clone(),
-                      t_type(),
-                      Option(EvalValue).Some(create_type_value(ne_bty.clone())),
-                      true,
-                      false,
-                      false,
-                      false,
-                      synthetic_token(ne_label.clone(), callee_env.module_path)
+                    _record_prebound_binder(
+                      add_variable_to_env(
+                        callee_env,
+                        ne_label.clone(),
+                        t_type(),
+                        Option(EvalValue).Some(create_type_value(ne_bty.clone())),
+                        true,
+                        false,
+                        false,
+                        false,
+                        synthetic_token(ne_label.clone(), callee_env.module_path)
+                      ),
+                      _self_marker_id(callee_env, ne_label.clone())
                     );
                   });
                 });

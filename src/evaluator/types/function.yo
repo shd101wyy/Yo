@@ -36,7 +36,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -59,7 +59,7 @@ import("std/fmt");
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
@@ -4853,6 +4853,35 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
   });
   acc
 });
+/// `wrapper` (a SomeT) with `ns` applied to its trait carriers only. The
+/// substitution is keyed by (name, frame level), and a carrier may hold a
+/// SomeT with the wrapper's own key: `io.async`'s `Impl(Future(T, Io))` and
+/// the `Impl(Fn(...))` wrappers inside `Io`'s fields are all `Impl` at one
+/// level. `substitute(ns, wrapper)` then replaced the wrapper node itself,
+/// turning a Future result into the action closure's `fn` type
+/// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md). The
+/// wrapper keeps its identity; only its carriers resolve.
+_substitute_wrapper_carriers :: (fn(ns : Substitution, wrapper : TypeValue) -> TypeValue)(
+  match(
+    wrapper,
+    .SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_ier, sw_kft, sw_rc) => {
+      new_rtt := ArrayList(TypeValue).new();
+      (i : usize) = usize(0);
+      while(i < sw_rtt.len(), {
+        match(sw_rtt.get(i), .Some(t) => new_rtt.push(substitute(ns, t)), .None => ());
+        i = (i + usize(1));
+      });
+      new_ntt := ArrayList(TypeValue).new();
+      (j : usize) = usize(0);
+      while(j < sw_ntt.len(), {
+        match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, t)), .None => ());
+        j = (j + usize(1));
+      });
+      TypeValue.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_ier, sw_kft, sw_rc)
+    },
+    _ => substitute(ns, wrapper)
+  )
+);
 _resolve_some_types_deep :: (
   fn(ty : TypeValue, env : Environment) -> TypeValue
 )({
@@ -4916,10 +4945,6 @@ _resolve_some_types_deep :: (
     while(nti < nested.len(), {
       nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
-      // Track whether the resolution came from the env (true) or from
-      // the global lookup_some_resolved_concrete fallback (false).
-      // Only register when sourced from env to avoid re-caching IoExn.
-      (nres_from_env : bool) = !is_some_type(nres);
       if(is_some_type(nres), {
         // Only fall back to the global table when the env lookup
         // returned a FRESH SomeType (from get_value_of_some_type_from_env's
@@ -4948,23 +4973,8 @@ _resolve_some_types_deep :: (
       if(!is_some_type(nres), {
         match(
           nst,
-          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
+          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
             subst_add(ns, nst_name, nst_lvl, nres);
-            // Register the concrete type in the global table when
-            // resolved from the env (not from the stale fallback).
-            // Skip registering IoExn — it's a compound effect that
-            // would overwrite single-effect Io and poison subsequent
-            // io.async calls that only need Io.
-            if(nres_from_env, {
-              _is_ioexn := match(
-                nres,
-                .Struct({ id : _reg_sid }) => (_reg_sid == "IoExn"),
-                _ => false
-              );
-              if(!_is_ioexn, {
-                register_some_resolved_concrete(nst_id, nres);
-              });
-            });
             nbound = true;
           },
           _ => ()
@@ -4972,7 +4982,7 @@ _resolve_some_types_deep :: (
       });
       nti = (nti + usize(1));
     });
-    return(cond(nbound => substitute(ns, r), true => r));
+    return(cond(nbound => _substitute_wrapper_carriers(ns, r), true => r));
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {

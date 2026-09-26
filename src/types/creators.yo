@@ -28,6 +28,17 @@ generate_some_type_id :: (fn() -> String)({
   g_some_type_id_counter = (g_some_type_id_counter + usize(1));
   s
 });
+/// The frame level of a binder that has no frame on the environment stack
+/// resolving it: a builtin callee's per-call binder (`io.async`'s `T` and
+/// `E`, `_freshen_io_builtin_callee`). A SomeT's frame level names a frame of
+/// the environment it was declared in, and the resolver confirms a same-named
+/// binding at that level as its own. `io.async` is declared in the prelude,
+/// so its `T` at the prelude's level aliased the caller's own `T` at the same
+/// depth and resolved to the caller's type
+/// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md). No
+/// environment reaches this depth, so such a binder resolves only through the
+/// binding that recorded its id (`variable_bound_some_id`).
+UNFRAMED_BINDER_LEVEL :: usize(1000000000);
 // ---------------------------------------------------------------------------
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
@@ -753,6 +764,7 @@ resolve_some_binder_kind :: (fn(name : String, lvl : usize) -> Option(TypeValue)
   )
 );
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
+export(UNFRAMED_BINDER_LEVEL);
 export(register_enum_type_arguments, lookup_enum_type_arguments);
 export(register_struct_final, resolve_struct_shell);
 export(

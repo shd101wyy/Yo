@@ -1,6 +1,6 @@
 # A generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted type beside the substituted one
 
-**Status:** OPEN.
+**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-14, writing `with_deadline` for `std/async` — the last
 actionable row of `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`. It is the third
 defect standing between that plan and a working combinator, after the two fixed
@@ -312,3 +312,32 @@ with_deadline :: (
   })
 );
 ```
+
+## Root cause and fix (2026-09-26)
+
+Minimal program: `issues/repros/generic-async-fn-option-t-result-two-c-types.yo` —
+`_wrap :: (fn(generic(U : Type), v : U, io : Io) -> Impl(Future(Option(U), Io)))(io.async((io : Io)
+=> Option(U).Some(v)))`, one call at `U = i32`.
+
+The specialization's body evaluates `io.async(...)` on the VALUELESS-callee arm of
+`evaluate_function_call` (`io` is a parameter bound without a value), not on the FuncVal arm the
+earlier hypotheses instrumented. After the call, every arm resolves the result through the call's
+env (`_resolve_some_types_deep`, the C54 "body half"), where the specialization binds `U := i32`.
+That resolution rebuilt the wrapper to `Impl(Future(Option(i32), Io))`, but the three arms kept it
+only when it was no longer a SomeT (`!is_some_type(resolved)`). A wrapper stays a SomeT when only
+its carriers resolve, so the result was thrown away: the call's ExprInfo kept `Option(U)`, and the
+sync-future struct's `result` field keyed a second C type beside the caller's `Option(i32)`. A bare
+`T` result was unaffected because its resolution is concrete.
+
+`_adopt_deep_resolution` (`src/evaluator/calls/function.yo`) is the rule all three arms now share:
+a concrete resolution is adopted as before, and so is a wrapper whose rebuild resolved at least
+one of its carriers' binders (fewer `collect_wrapper_trait_somes`); a bare binder that resolves
+only to another SomeT keeps the original.
+
+A second instantiation (`U = _Pair` after `U = i32`) then failed the closure's E0604 check,
+because `_resolve_some_types_deep` had registered `U := i32` in the global registry under `U`'s
+declaration id; that write is removed (see
+`issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md`).
+
+Regression tests: "a future result containing the binder, at two different U" and "a future result
+containing a binder named T" (`tests/async_generic_future_return.test.yo`).

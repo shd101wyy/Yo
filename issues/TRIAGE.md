@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 199 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 197 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 28 | 6 |
-| **Total** | **199** | **38** |
+| Other | 26 | 5 |
+| **Total** | **197** | **37** |
 
 ## Cross-cutting buckets
 
@@ -112,9 +112,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
-- [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) — 14 KB
 - [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
+- [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
 
 ---
 
@@ -332,12 +332,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (28)
+### Other (26)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`a-caller-binder-named-t-collides-with-io-async-t.md`](./a-caller-binder-named-t-collides-with-io-async-t.md) | OPEN | yes |
-| [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | — | — |

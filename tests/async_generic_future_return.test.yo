@@ -105,3 +105,31 @@ test("an explicit receiver on the method form, at two different R", {
   b := io.await(_Box3.run_self(bx, () => _Pair(lo : i32(3), hi : i32(5)), io), io);
   assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
 });
+
+// A result that CONTAINS the binder: `Impl(Future(Option(U), Io))`. The
+// specialization's `io.async` result kept `Option(U)` and keyed a second C
+// type beside the caller's `Option(i32)`
+// (issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md).
+// Named `T`, the binder also collided with `io.async`'s own `T`: a false
+// E0601, "Cannot unify i32 and Option(T)"
+// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
+_wrap_opt_u :: (fn(generic(U : Type), v : U, io : Io) -> Impl(Future(Option(U), Io)))(
+  io.async((io : Io) => Option(U).Some(v))
+);
+_wrap_opt_t :: (fn(generic(T : Type), v : T, io : Io) -> Impl(Future(Option(T), Io)))(
+  io.async((io : Io) => Option(T).Some(v))
+);
+
+test("a future result containing the binder, at two different U", {
+  a := io.await(_wrap_opt_u(i32(5), io), io);
+  assert(match(a, .Some(x) => (x == i32(5)), .None => false), "i32 instantiation");
+  b := io.await(_wrap_opt_u(_Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert(match(b, .Some(p) => ((p.lo + p.hi) == i32(8)), .None => false), "value-struct instantiation");
+});
+
+test("a future result containing a binder named T", {
+  a := io.await(_wrap_opt_t(i32(5), io), io);
+  assert(match(a, .Some(x) => (x == i32(5)), .None => false), "i32 instantiation");
+  b := io.await(_wrap_opt_t(_Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert(match(b, .Some(p) => ((p.lo + p.hi) == i32(8)), .None => false), "value-struct instantiation");
+});

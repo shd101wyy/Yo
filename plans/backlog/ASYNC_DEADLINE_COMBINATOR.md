@@ -127,7 +127,7 @@ signature, and three separate compiler defects stand in the way:
 | --- | --- | --- |
 | 1 | a fn taking an `Impl(Future(T, E))` PARAMETER emitted the Future's on-demand `typedef` INSIDE the capture struct's open body | **FIXED** 2026-09-14 |
 | 2 | `get_future_field_name` returned a bare name for an `.Outer` capture, so an awaited captured future emitted `sm->fut` for a field that only exists as `sm->__capture.fut` | **FIXED** 2026-09-14 |
-| 3 | a generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted `Result(T, TimeoutError)` beside the caller's `Result(i32, TimeoutError)` | **OPEN** — `issues/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` |
+| 3 | a generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted `Result(T, TimeoutError)` beside the caller's `Result(i32, TimeoutError)` | **FIXED** 2026-09-26 — `issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` |
 
 Both fixed defects are recorded in
 `issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md`
