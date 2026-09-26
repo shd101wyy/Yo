@@ -932,8 +932,11 @@ static inline void __yo_uring_prep_mkdirat(struct __yo_uring_sqe* sqe,
 static inline void __yo_uring_prep_unlinkat(struct __yo_uring_sqe* sqe,
                                             int32_t dirfd, const char* path,
                                             int32_t flags) {
-  __yo_uring_prep_rw(__YO_IORING_OP_UNLINKAT, sqe, dirfd, path,
-                     (uint32_t)flags, 0);
+  // liburing's shape: len stays 0 and the flags travel in the rw_flags
+  // union slot (unlink_flags). Encoding them in len made every
+  // remove_dir (AT_REMOVEDIR) fail with EINVAL (see the Phase 1 branch).
+  __yo_uring_prep_rw(__YO_IORING_OP_UNLINKAT, sqe, dirfd, path, 0, 0);
+  sqe->rw_flags = (uint32_t)flags;
 }
 
 static inline void __yo_uring_prep_renameat(struct __yo_uring_sqe* sqe,
