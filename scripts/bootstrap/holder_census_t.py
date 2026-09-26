@@ -39,6 +39,57 @@ from pathlib import Path
 src_path, out_path, dump_path = sys.argv[1], sys.argv[2], sys.argv[3]
 src = Path(src_path).read_text()
 
+# Linux has no malloc-zone introspection (the mach block below is #if'd out
+# there), so the heap scan enumerates a registry maintained by wrappers the
+# transform injects in place of the emitted C's six allocator macros — every
+# Yo allocation (RC objects via __yo_rc_alloc -> __yo_malloc, buffers,
+# aligned) goes through them, and census-side tables use libc calloc directly
+# so they never enter the registry.
+if sys.platform == "linux":
+    # Only the FIRST allocator block counts: the emitted C also carries the
+    # other allocators' runtime sources as embedded string literals, whose
+    # in-text #define lines must not be captured (they name functions this
+    # emission never defines).
+    blk = re.search(r"// Using \w+ allocator\n(#define __yo_\w+ \w+\n)+", src)
+    defs = dict(re.findall(r"#define (__yo_(?:malloc|calloc|realloc|free|aligned_alloc|aligned_free)) (\w+)", blk.group(0))) if blk else {}
+    want = {"__yo_malloc", "__yo_calloc", "__yo_realloc", "__yo_free", "__yo_aligned_alloc", "__yo_aligned_free"}
+    if set(defs) != want:
+        raise SystemExit("holder census on Linux needs the emitted C's allocator #define block "
+                         "(system or mimalloc spelling); found: %r" % sorted(defs))
+    rhs_m, rhs_c = defs["__yo_malloc"], defs["__yo_calloc"]
+    rhs_r, rhs_f = defs["__yo_realloc"], defs["__yo_free"]
+    rhs_aa, rhs_af = defs["__yo_aligned_alloc"], defs["__yo_aligned_free"]
+    blk_end = blk.end()
+    assert re.search(r"#define __yo_aligned_free \w+\n$", src[:blk_end]), "allocator block must end on the __yo_aligned_free define"
+    trk = """
+#if !defined(__APPLE__)
+/* Linux heap enumeration for the holder census: the emitted C defines the six
+   __yo_* allocator macros at the top of the file; these wrappers replace them
+   and record every live block with its exact size. */
+#include <stddef.h>
+#define __HO_TCAP (1u << 25)
+#define __HO_TRK_TOMB ((void*)1)
+static void** __ho_trk_k; static size_t* __ho_trk_v;
+static size_t __ho_trk_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (size_t)(x >> 40) & (__HO_TCAP - 1); }
+static void __ho_trk_init(void) { if (!__ho_trk_k) { __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t)); } }
+static void __ho_trk_put(void* p, size_t sz) { if (!p) return; __ho_trk_init(); size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_v[i] = sz; return; } i = (i + 1) & (__HO_TCAP - 1); } __ho_trk_k[i] = p; __ho_trk_v[i] = sz; }
+static void __ho_trk_del(void* p) { if (!p || !__ho_trk_k) return; size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_k[i] = __HO_TRK_TOMB; __ho_trk_v[i] = 0; return; } i = (i + 1) & (__HO_TCAP - 1); } }
+#undef __yo_malloc
+#undef __yo_calloc
+#undef __yo_realloc
+#undef __yo_free
+#undef __yo_aligned_alloc
+#undef __yo_aligned_free
+static void* __yo_malloc(size_t n) { void* p = %s(n); __ho_trk_put(p, n); return p; }
+static void* __yo_calloc(size_t a, size_t b) { void* p = %s(a, b); __ho_trk_put(p, a * b); return p; }
+static void* __yo_realloc(void* q, size_t n) { void* p = %s(q, n); if (p) { if (p != q) __ho_trk_del(q); __ho_trk_put(p, n); } else if (n == 0) __ho_trk_del(q); return p; }
+static void __yo_free(void* q) { __ho_trk_del(q); %s(q); }
+static void* __yo_aligned_alloc(size_t a, size_t n) { void* p = %s(a, n); __ho_trk_put(p, n); return p; }
+static void __yo_aligned_free(void* q) { __ho_trk_del(q); %s(q); }
+#endif
+""" % (rhs_m, rhs_c, rhs_r, rhs_f, rhs_aa, rhs_af)
+    src = src[:blk_end] + trk + src[blk_end:]
+
 tyname = {}
 for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // ([^\n]*)", src):
     tyname[m.group(1)] = m.group(2).replace("(reference counted)", "").strip()
@@ -161,10 +212,12 @@ static void __ho_walk_from(int r, void* p) {
    traverse functions do not see. Holders are classified by the RC header's
    dispose_fn at +8 (an RC object of a known type), else as a raw block
    (an ArrayList/HashMap buffer), whose own holders a second pass names. */
+#if defined(__APPLE__)
 #include <malloc/malloc.h>
 #include <mach/mach.h>
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
+#endif
 #include <pthread.h>
 static void* __ho_scan_skip;
 static long long* __ho_hold_by; static long long* __ho_hist_t;   /* [type] words in RC objects of that type */
@@ -192,11 +245,10 @@ static int __ho_block_type(char* b, size_t sz) {
   if (sz < 16) return -1;
   return __ho_slot_peek(*(void**)(b + 8));
 }
-static void __ho_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
-  for (unsigned k = 0; k < n; k++) {
-    char* b = (char*)r[k].address; size_t sz = r[k].size;
+static void __ho_rec_block(char* b, size_t sz) {
+  {
     /* the census's own tables and the GC scratch buffer list every object */
-    if (b == (char*)__ho_seen || b == (char*)__ho_un_k || b == (char*)__ho_stack || b == (char*)__ho_raw_k || b == (char*)__ho_scan_skip) continue;
+    if (b == (char*)__ho_seen || b == (char*)__ho_un_k || b == (char*)__ho_stack || b == (char*)__ho_raw_k || b == (char*)__ho_scan_skip) return;
 #ifdef __HS_PRESENT
     if (b == (char*)__hs_t) continue; /* alloc_site_census_t.py's table lists every instrumented object */
 #endif
@@ -225,8 +277,14 @@ static void __ho_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned
       }
     }
   }
+  }
+}
+#if defined(__APPLE__)
+static void __ho_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
+  for (unsigned k = 0; k < n; k++) __ho_rec_block((char*)r[k].address, r[k].size);
 }
 static kern_return_t __ho_reader(task_t t, vm_address_t a, vm_size_t s, void** out) { *out = (void*)a; return KERN_SUCCESS; }
+#endif
 static void __ho_scan_heap(FILE* f) {
   __ho_hold_by = (long long*)calloc((size_t)%(nb)d * %(nb)d, sizeof(long long));
   __ho_hist_t = (long long*)calloc((size_t)%(nb)d * 4, sizeof(long long));
@@ -234,6 +292,7 @@ static void __ho_scan_heap(FILE* f) {
   __ho_hits = (unsigned*)calloc(__HO_UCAP, sizeof(unsigned));
   __ho_raw_k = (void**)calloc(__HO_RCAP, sizeof(void*));
   for (size_t d = 0; d < sizeof(__ho_disp_fns) / sizeof(__ho_disp_fns[0]); d++) (void)__ho_slot(__ho_disp_fns[d]);
+#if defined(__APPLE__)
   vm_address_t* zones = NULL; unsigned nz = 0;
   malloc_get_all_zones(mach_task_self(), __ho_reader, &zones, &nz);
   for (__ho_pass = 0; __ho_pass < 2; __ho_pass++)
@@ -242,20 +301,48 @@ static void __ho_scan_heap(FILE* f) {
       if (zone && zone->introspect && zone->introspect->enumerator)
         zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __ho_rec);
     }
+#else
+  /* Linux: no malloc-zone introspection. The registry the tracking wrappers
+     injected at the top of this file IS the in-use block list, with exact
+     sizes; census-side tables use libc calloc directly and never enter it. */
+  for (__ho_pass = 0; __ho_pass < 2; __ho_pass++)
+    for (size_t ti = 0; __ho_trk_k && ti < __HO_TCAP; ti++) {
+      void* k = __ho_trk_k[ti];
+      if (!k || k == __HO_TRK_TOMB) continue;
+      __ho_rec_block((char*)k, __ho_trk_v[ti]);
+    }
+#endif
   /* Non-heap holders: the exiting thread's live stack (exit() runs deep inside
      the program, so its frames' locals still own references) and the main
      image's writable data (value-typed globals). A hit here is NOT a leak. */
   {
     long long stack_hits = 0, data_hits = 0;
     void** lo = (void**)__builtin_frame_address(0);
+#if defined(__APPLE__)
     void** hi = (void**)pthread_get_stackaddr_np(pthread_self());
+#else
+    pthread_attr_t __ho_pa; void* __ho_sb; size_t __ho_ss;
+    extern int pthread_getattr_np(unsigned long, pthread_attr_t*); /* needs _GNU_SOURCE under -std=c11 */
+    pthread_getattr_np(pthread_self(), &__ho_pa);
+    pthread_attr_getstack(&__ho_pa, &__ho_sb, &__ho_ss);
+    void** hi = (void**)((char*)__ho_sb + __ho_ss);
+#endif
     for (void** w = lo; w < hi; w++) { long us = ((size_t)*w & 7) ? -1 : __ho_un_slot(*w); if (us >= 0) { __ho_hits[us]++; stack_hits++; } }
+#if defined(__APPLE__)
     const struct mach_header_64* mh = (const struct mach_header_64*)_dyld_get_image_header(0);
     const char* sects[] = {"__data", "__bss", "__common"};
     for (int k = 0; k < 3; k++) {
       unsigned long sz = 0; uint8_t* d = getsectiondata(mh, "__DATA", sects[k], &sz);
       for (size_t j = 0; d && j + sizeof(void*) <= sz; j += sizeof(void*)) { void* v = *(void**)(d + j); long us = ((size_t)v & 7) ? -1 : __ho_un_slot(v); if (us >= 0) { __ho_hits[us]++; data_hits++; } }
     }
+#else
+    /* the whole writable image: __data_start.._end covers data+bss+common */
+    {
+      extern char __data_start[]; extern char _end[];
+      size_t sz = (size_t)((char*)&_end - (char*)__data_start);
+      for (size_t j = 0; j + sizeof(void*) <= sz; j += sizeof(void*)) { void* v = *(void**)((char*)__data_start + j); long us = ((size_t)v & 7) ? -1 : __ho_un_slot(v); if (us >= 0) { __ho_hits[us]++; data_hits++; } }
+    }
+#endif
     fprintf(f, "S non-heap-holder-words stack:%%lld data:%%lld\n", stack_hits, data_hits);
   }
   long long hist[4] = {0, 0, 0, 0};
@@ -301,18 +388,22 @@ static void** __hd_st; static size_t __hd_sp, __hd_head, __hd_scap;
 static long long* __hd_cnt; static long long* __hd_bytes;
 static size_t __hd_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (x >> 25) & (__HD_BCAP - 1); }
 static long __hd_find(void* p) { size_t i = __hd_h(p); while (__hd_bk[i]) { if (__hd_bk[i] == p) return (long)i; i = (i + 1) & (__HD_BCAP - 1); } return -1; }
-static void __hd_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
-  for (unsigned k = 0; k < n; k++) {
-    void* b = (void*)r[k].address;
-    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hd_bk || b == (void*)__hd_bs || b == (void*)__hd_br || b == (void*)__hd_st || b == (void*)__hd_par) continue;
+static void __hd_rec_block(void* b, size_t bsz) {
+  {
+    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hd_bk || b == (void*)__hd_bs || b == (void*)__hd_br || b == (void*)__hd_st || b == (void*)__hd_par) return;
 #ifdef __HS_PRESENT
-    if (b == (void*)__hs_t) continue; /* alloc_site_census_t.py's table lists every instrumented object */
+    if (b == (void*)__hs_t) return; /* alloc_site_census_t.py's table lists every instrumented object */
 #endif
     if (__hd_bn * 4 >= (size_t)__HD_BCAP * 3) return;
     size_t i = __hd_h(b); while (__hd_bk[i]) i = (i + 1) & (__HD_BCAP - 1);
-    __hd_bk[i] = b; __hd_bs[i] = r[k].size; __hd_br[i] = -1; __hd_bn++;
+    __hd_bk[i] = b; __hd_bs[i] = bsz; __hd_br[i] = -1; __hd_bn++;
   }
 }
+#if defined(__APPLE__)
+static void __hd_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
+  for (unsigned k = 0; k < n; k++) __hd_rec_block((void*)r[k].address, r[k].size);
+}
+#endif
 static int __hd_rc_slot(long bi) { if (bi < 0 || __hd_bs[bi] < 16) return -1; return __ho_slot_peek(*(void**)((char*)__hd_bk[bi] + 8)); }
 static void __hd_push(void* v, int root) {
   if (((size_t)v & 7) || (size_t)v < 4096) return;
@@ -370,6 +461,7 @@ static void __hd_drain(int root) {
 static void __ho_deep(FILE* f) {
   __hd_bk = (void**)calloc(__HD_BCAP, sizeof(void*)); __hd_bs = (size_t*)calloc(__HD_BCAP, sizeof(size_t)); __hd_br = (int*)calloc(__HD_BCAP, sizeof(int)); __hd_par = (long*)calloc(__HD_BCAP, sizeof(long));
   __hd_cnt = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long)); __hd_bytes = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long));
+#if defined(__APPLE__)
   vm_address_t* zones = NULL; unsigned nz = 0;
   malloc_get_all_zones(mach_task_self(), __ho_reader, &zones, &nz);
   for (unsigned z = 0; z < nz; z++) {
@@ -377,6 +469,13 @@ static void __ho_deep(FILE* f) {
     if (zone && zone->introspect && zone->introspect->enumerator)
       zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __hd_rec);
   }
+#else
+  for (size_t ti = 0; __ho_trk_k && ti < __HO_TCAP; ti++) {
+    void* k = __ho_trk_k[ti];
+    if (!k || k == __HO_TRK_TOMB) continue;
+    __hd_rec_block(k, __ho_trk_v[ti]);
+  }
+#endif
   /* HOLDER_DEEP_LAST=<substring>: walk the matching roots LAST, so what they
      reach is what ONLY they retain (their exclusive share). */
   const char* last = getenv("HOLDER_DEEP_LAST");
@@ -387,12 +486,20 @@ static void __ho_deep(FILE* f) {
       if (is_last != pass) continue;
       __hd_cur = -1; __hd_push(*(void* const*)__ho_root_addrs[r], r); __hd_drain(r);
     }
+#if defined(__APPLE__)
   const struct mach_header_64* mh = (const struct mach_header_64*)_dyld_get_image_header(0);
   const char* sects[] = {"__data", "__bss", "__common"};
   for (int k = 0; k < 3; k++) {
     unsigned long sz = 0; uint8_t* d = getsectiondata(mh, "__DATA", sects[k], &sz);
     for (size_t j = 0; d && j + sizeof(void*) <= sz; j += sizeof(void*)) __hd_push(*(void**)(d + j), %(nr)d);
   }
+#else
+  {
+    extern char __data_start[]; extern char _end[];
+    size_t sz = (size_t)((char*)&_end - (char*)__data_start);
+    for (size_t j = 0; j + sizeof(void*) <= sz; j += sizeof(void*)) __hd_push(*(void**)((char*)__data_start + j), %(nr)d);
+  }
+#endif
   __hd_drain(%(nr)d);
   for (size_t i = 0; i < __HD_BCAP; i++) if (__hd_bk[i] && __hd_br[i] < 0) {
     int s = __hd_rc_slot((long)i); if (s < 0) continue;
