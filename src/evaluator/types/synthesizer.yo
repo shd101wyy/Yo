@@ -2179,9 +2179,20 @@ _synthesize_types_impl :: (
     // An extern opaque type takes a C scalar by value (`AtomicU64(n)` builds
     // its `atomic_ullong` cell from a runtime `u64`). That is a flow rule of
     // `are_types_compatible`, and an `ExternOpaqueT` carries no SomeTs to
-    // bind, so there is nothing to synthesize: defer to the relation.
-    if(((exp_tag == TypeTag.TExternOpaque) && (exp_tag != giv_tag)) && are_types_compatible(expected_ty, given_ty), {
-      return(SynthesizeResult(expected_env : ee, given_env : ge));
+    // bind, so there is nothing to synthesize: defer to the relation, always
+    // in its own direction (scalar into extern). Both argument orders reach
+    // here, like the comptime pairs above: `AtomicU64(n * u64(4))` unifies
+    // the `*` call's `u64` result (expected) with the field's
+    // `atomic_ullong` (given).
+    if(exp_tag != giv_tag, {
+      extern_takes_scalar := cond(
+        (exp_tag == TypeTag.TExternOpaque) => are_types_compatible(expected_ty, given_ty),
+        (giv_tag == TypeTag.TExternOpaque) => are_types_compatible(given_ty, expected_ty),
+        true => false
+      );
+      if(extern_takes_scalar, {
+        return(SynthesizeResult(expected_env : ee, given_env : ge));
+      });
     });
     if(exp_tag != giv_tag, {
       // A RESOLVED SomeT stands for its concrete on either side — an
