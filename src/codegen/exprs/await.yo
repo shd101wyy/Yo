@@ -28,7 +28,7 @@
 } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ lookup_some_resolved_concrete, some_resolution } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
   extract_future_trait_from_type,
@@ -492,10 +492,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   effect_opt := _first_future_effect(future_trait_type);
   effect_type_resolved := match(
     effect_opt,
-    .Some(eff) => if(is_some_type(eff.ty), {
-      esid := match(eff.ty, .SomeT({ id : i }) => i, _ => String.from(""));
-      match(lookup_some_resolved_concrete(esid), .Some(r) => Option(TypeValue).Some(r), .None => Option(TypeValue).Some(eff.ty))
-    }, Option(TypeValue).Some(eff.ty)),
+    .Some(eff) => match(some_resolution(eff.ty), .Some(r) => Option(TypeValue).Some(r), .None => Option(TypeValue).Some(eff.ty)),
     .None => Option(TypeValue).None
   );
   has_algebraic_effects := match(

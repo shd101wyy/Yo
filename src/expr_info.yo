@@ -1300,6 +1300,18 @@ register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit
 lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
   g_some_resolved_concrete.get(some_id)
 );
+/// A SomeT's resolution: the one it carries (`SomeT.resolution`), else the
+/// registry entry under its id. Every reader goes through here, so a writer
+/// that moves its resolution onto the value is seen at once, and the
+/// registry can be retired writer by writer
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md, Phase 3 step 7 part 2).
+some_resolution :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .SomeT({ id : sr_id, resolution : sr_r }) => match(sr_r, .Some(r) => Option(TypeValue).Some(r), .None => lookup_some_resolved_concrete(sr_id)),
+    _ => Option(TypeValue).None
+  )
+);
 /// Drop any recorded resolution for `some_id`.
 ///
 /// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
@@ -1918,7 +1930,7 @@ export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
 export(register_thread_local, is_thread_local);
 export(module_global_recording_mark, rollback_module_level_globals_to);
-export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
+export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete, some_resolution);
 export(
   register_struct_ctor_fid,
   record_branch_init,

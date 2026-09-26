@@ -10,7 +10,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len } :: import("./state_code_gen.yo");
@@ -938,7 +938,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
     return(false);
   });
   match(
-    lookup_some_resolved_concrete(fid),
+    some_resolution(future_type),
     .Some(rc) => {
       if(is_some_type(rc), {
         rcid := match(rc, .SomeT({ id }) => id, _ => String.from(""));
@@ -956,9 +956,8 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
             .Some(bucket) => {
               ety := bucket.value.ty;
               if(is_some_type(ety) && type_implements_future(ety), {
-                esid := match(ety, .SomeT({ id }) => id, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(esid),
+                  some_resolution(ety),
                   .Some(erc) => if(is_struct_type(erc), {
                     ercid := match(erc, .Struct({ id }) => id, _ => String.from(""));
                     if(ercid == capture_id, {
@@ -2251,7 +2250,7 @@ _emit_dispatch_extraction_case :: (
           rt_opt,
           .Some(rt) => (
             is_unit_type(rt) || (
-              is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+              is_some_type(rt) && some_resolution(rt).is_none()
             )
           ),
           .None => true
@@ -2382,7 +2381,7 @@ _emit_prev_await_result_extraction :: (
   // Result is unit when the type is unit, or an unresolved Future SomeType.
   is_prev_unit := (
     is_unit_type(prev_await.result_type) || (
-      is_some_type(prev_await.result_type) && match(prev_await.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+      is_some_type(prev_await.result_type) && some_resolution(prev_await.result_type).is_none()
     )
   );
   if(!(is_prev_unit), {
