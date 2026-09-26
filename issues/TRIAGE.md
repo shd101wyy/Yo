@@ -351,7 +351,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
-| [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
