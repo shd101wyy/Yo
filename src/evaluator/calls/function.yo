@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL } :: import("../../types/creators.yo");
@@ -1577,6 +1577,21 @@ _with_resolved_concrete :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue
 /// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
 /// shared declaration ids (the `Output*`-prototype class,
 /// issues/yo-self-async-emission-cluster.md item 7 layer 2).
+/// Whether a call's result, resolved through the call's env
+/// (`_resolve_some_types_deep`), replaces the result the call computed. A
+/// concrete resolution always does. A wrapper (`Impl(Future(Option(U), Io))`)
+/// stays a SomeT when only its carriers resolve; it does too when the rebuild
+/// resolved one of the carriers' binders, since a result that still mentions
+/// the enclosing specialization's own binder keys a second C type
+/// (issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md).
+/// A bare binder that resolves only to another SomeT keeps the original.
+_adopt_deep_resolution :: (fn(original : TypeValue, resolved : TypeValue) -> bool)(
+  cond(
+    is_unit_type(resolved) => false,
+    !(is_some_type(resolved)) => true,
+    true => (collect_wrapper_trait_somes(resolved).len() < collect_wrapper_trait_somes(original).len())
+  )
+);
 _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
   match(
     ft,
@@ -7987,7 +8002,7 @@ Fix: wrap the call:
         if(debug_knob(`YO_DBG_ASYNC`).is_some() && is_io_async_call(expr), {
           eprintln(`[__DBG_ASYNC] eval io.async id=${ast_expr_id(expr).to_string()} ret=${type_to_string(ret_type_rt)} deep=${type_to_string(rt_rt_resolved)} module=${env.module_path}`);
         });
-        if(!(is_some_type(rt_rt_resolved)) && !(is_unit_type(rt_rt_resolved)), {
+        if(_adopt_deep_resolution(ret_type_rt, rt_rt_resolved), {
           ret_type_rt = rt_rt_resolved;
         });
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
@@ -8438,7 +8453,10 @@ Fix: wrap the call:
           // through the CALL's env, where the enclosing specialization binds
           // R concretely; a legitimately-unbound R keeps the original type.
           m_rt_resolved := _resolve_some_types_deep(m_out_ty, call_result_m.caller_env);
-          if(!(is_some_type(m_rt_resolved)) && !(is_unit_type(m_rt_resolved)), {
+          if(debug_knob(`YO_DBG_ASYNC`).is_some(), {
+            eprintln(`[__DBG_ASYNC] eval method id=${ast_expr_id(expr).to_string()} ret=${type_to_string(m_out_ty)} deep=${type_to_string(m_rt_resolved)} wr=${collect_wrapper_trait_somes(m_out_ty).len().to_string()}/${collect_wrapper_trait_somes(m_rt_resolved).len().to_string()}`);
+          });
+          if(_adopt_deep_resolution(m_out_ty, m_rt_resolved), {
             m_out_ty = m_rt_resolved;
           });
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
