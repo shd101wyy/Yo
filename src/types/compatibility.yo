@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name, is_never_type } :: import("./guards.yo");
-{ type_contains_some_type, get_all_some_types } :: import("./utils.yo");
+{ type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -59,55 +59,6 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
 _is_extern_some :: (fn(t : TypeValue) -> bool)(
   match(t, .SomeT({ name : ies_nm }) => is_extern_type_name(ies_nm), _ => false)
 );
-/// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
-/// Returns the input unchanged when the chain doesn't terminate concrete.
-/// Used by the Future-effect comparison + the wrapper-carrier concreteness
-/// gate: io.async's returned `Impl(Future(i32, E))` carries the effect slot
-/// as the `E` SomeT whose CELL resolves to the concrete bundle — comparing
-/// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
-/// (the async_await arm-65 family).
-_resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t_in;
-  (seen : ArrayList(String)) = ArrayList(String).new();
-  (walk : bool) = true;
-  while(walk, {
-    match(
-      cur,
-      .SomeT(id : rcc_id, resolved_concrete : rcc_rc) => {
-        (revisit : bool) = false;
-        (ri : usize) = usize(0);
-        while(ri < seen.len(), {
-          match(
-            seen.get(ri),
-            .Some(rs) => if(rs == rcc_id, {
-              revisit = true;
-            }),
-            .None => ()
-          );
-          ri = (ri + usize(1));
-        });
-        if(revisit, {
-          walk = false;
-        }, {
-          seen.push(rcc_id.clone());
-          match(
-            rcc_rc.get(usize(0)),
-            .Some(nx) => {
-              cur = nx;
-            },
-            .None => {
-              walk = false;
-            }
-          );
-        });
-      },
-      _ => {
-        walk = false;
-      }
-    );
-  });
-  if(is_some_type(cur), t_in, cur)
-});
 // Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
 // ArrayList is RC-shared — mutations to out_* are visible to the caller.
 _flatten_effects :: (
@@ -264,14 +215,14 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
         // SomeTs by construction — a deep SomeT-freeness test rejected
         // every annotated `Impl(Future(_, Ctx))` binding, the async_await
         // arm-65 family).
-        if(is_some_type(_resolve_cell_chain(cc_fo)), {
+        if(is_some_type(resolve_cell_chain(cc_fo)), {
           ok = false;
         });
         (k : usize) = usize(0);
         while((k < cc_fets.len()) && ok, {
           match(
             cc_fets.get(k),
-            .Some(ft) => if(is_some_type(_resolve_cell_chain(ft)), {
+            .Some(ft) => if(is_some_type(resolve_cell_chain(ft)), {
               ok = false;
             }),
             .None => ()
@@ -1446,6 +1397,16 @@ _compat_impl :: (
     .SomeT(name : aname, frame_level : alvl, required_trait_types : artt) => match(
       expected,
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
+        // Two resolved annotation wrappers are one type exactly when their
+        // resolutions are: every closure's `Impl(Fn(...))` wrapper carries
+        // the reserved name "Impl", so name + level alone made two different
+        // closures one type (their lists shared one instance, and pushing one
+        // closure into the other's list type-checked;
+        // issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+        // It is the rule a resolved SomeT meets against a concrete type above,
+        // and the key `type_key` gives such a wrapper in an argument slot.
+        (is_bound_closure_identity(actual) && is_bound_closure_identity(expected)) =>
+          recur(resolve_cell_chain(actual), resolve_cell_chain(expected), require_exact, visited),
         ((aname == ename) && (alvl == elvl)) => true,
         // Corresponding binders of the two `Func` types being compared.
         _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,
@@ -1680,7 +1641,7 @@ _compat_impl :: (
             while(ai < flat_a_types.len(), {
               if(!(_is_in_used(used, ai)), {
                 at := match(flat_a_types.get(ai), .Some(v) => v, .None => TypeValue.Unit);
-                if(recur(_resolve_cell_chain(et), _resolve_cell_chain(at), require_exact, visited), {
+                if(recur(resolve_cell_chain(et), resolve_cell_chain(at), require_exact, visited), {
                   used.push(ai);
                   found = true;
                 });

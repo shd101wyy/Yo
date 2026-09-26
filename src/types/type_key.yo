@@ -12,6 +12,7 @@
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
+{ is_bound_closure_identity, resolve_cell_chain } :: import("./utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -80,14 +81,18 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
     match(
       cur,
       .SomeT({ id : ras_id, name : ras_nm, resolved_concrete : ras_rc }) => {
-        // Annotation-era wrappers (reserved name "Impl" —
-        // builtins/impl_constraint.yo) and the dyn-coercion wrappers (minted
-        // NAMELESS, values/dyn.yo:336) keep their OWN identity: the dyn/box
-        // closure machinery lowers them to a distinct fat call/data C struct,
-        // and hopping to the capture struct merged the two ("no member named
-        // 'call'" across the dyn corpus). Only where-clause foralls and the
-        // synthetic `__impl_fn` hop.
-        if((ras_nm == "Impl") || (ras_nm.len() == usize(0)), {
+        // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
+        // their OWN identity: the dyn/box closure machinery lowers them to a
+        // distinct fat call/data C struct, and hopping to the capture struct
+        // merged the two ("no member named 'call'" across the dyn corpus).
+        // An annotation wrapper (reserved name "Impl") hops only when it is
+        // a closure identity (`is_bound_closure_identity`): its C type IS its
+        // resolution. A closure's wrapper is copied under fresh SomeT ids as
+        // the value flows, so keying it by id gave one closure's
+        // `ArrayList(typeof(k))` a C type per copy
+        // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+        // A `Future` or unresolved annotation wrapper keeps its id.
+        if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(cur)), {
           return(t_in);
         });
         (revisit : bool) = false;
@@ -450,7 +455,18 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     // The closure-F identity split is instead repaired where it actually
     // occurs: the Struct arm resolves SomeT TYPE-ARGUMENT slots through
     // their cells (see _tk_resolve_arg_slot below).
-    .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    //
+    // A closure identity (`is_bound_closure_identity`: a resolved, non-Future
+    // `Impl` annotation wrapper — never a dyn wrapper) is the exception: it is
+    // its resolution wherever it appears, so `Option(*(<k's Impl>))` in a
+    // payload, or a comptime `sizeof(T)`, names the C type of k's capture
+    // struct whichever copy of the wrapper it holds
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    .SomeT({ id }) => cond(
+      is_bound_closure_identity(t) => recur(resolve_cell_chain(t), depth + usize(1)),
+      (id.len() > usize(0)) => id.clone(),
+      true => type_to_string(t)
+    ),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
     // above, which uses the id WITHOUT recursing into method signatures), NOT
@@ -710,4 +726,4 @@ stable_type_identity :: (fn(t : TypeValue) -> String)({
   g_sti_visited = ArrayList(String).new();
   _stable_identity_at(t, usize(0))
 });
-export(type_key, stable_type_identity);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot);

@@ -93,8 +93,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types } :: import("../../types/utils.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
+{ type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -660,6 +660,14 @@ _resolve_one_forall_binding_from :: (
                           });
                           return(Option(TypeValue).Some(b));
                         });
+                        // A closure identity is a binding: it IS its capture
+                        // struct (plans/reference/TYPE_IDENTITY.md). Bind the
+                        // struct, so the marker rules judge `T` as a concrete
+                        // type; what the closure's code reaches was judged by
+                        // value where it flowed (rule D9).
+                        if(is_bound_closure_identity(b), {
+                          return(Option(TypeValue).Some(resolve_cell_chain(b)));
+                        });
                         nb_id2 := match(b, .SomeT({ id : __nbi2 }) => __nbi2, _ => String.from(""));
                         if(in_def_time_trial() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
                           return(Option(TypeValue).Some(b));
@@ -927,6 +935,18 @@ _bind_forall_from_type_args :: (
                   });
                   eprintln(`[cellwalk] fa=${fa_name} walked=${cw_ids} res=${cw_res}`);
                 };
+              });
+              // Bind the slot itself when `type_key` keys it by its own id (a
+              // dyn-coercion wrapper): binding the concrete behind it would
+              // make every `G(T)` / `Self` the method re-evaluates name a
+              // SECOND instance
+              // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+              // A chain `type_key` hops, a closure identity included, keys as
+              // the concrete type, so binding the concrete names the same
+              // instance.
+              if(is_some_type(_tk_resolve_arg_slot(ct)),
+              {
+                return(Option(TypeValue).Some(ct));
               });
               return(Option(TypeValue).Some(cell_cur));
             });

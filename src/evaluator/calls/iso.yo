@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ can_type_form_rc_cycle, type_has_no_open_some } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, type_has_no_open_some, is_closure_capture_struct } :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { EvalContext, ExpectedTypeCtx, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
@@ -86,12 +86,17 @@ _iso_function_offense :: (
     });
     seen.push(nid);
   });
-  if(is_function_type(ty) || (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()), {
+  // A closure's capture struct is that closure's type (closure identity,
+  // plans/reference/TYPE_IDENTITY.md) and is judged as the closure: its fields
+  // say nothing about what its code reaches, and a capture-free closure's
+  // struct has none.
+  ccs := is_closure_capture_struct(ty);
+  if(is_function_type(ty) || (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || ccs, {
     return(
       match(
         call_function_value_marker(ty, Option(EvalValue).None, send, env, ctx),
         .Some(fvm) => match(fvm, .Some(o) => Option(String).Some(`it holds a ${type_to_string(ty)} whose value ${o}`), .None => Option(String).None),
-        .None => if(type_implements_trait_bool(ty, send, env), Option(String).None, Option(String).Some(`it holds a ${type_to_string(ty)}, a function type whose value is unknown here, and a function is Send only by what its code reaches (rule D9) — declare it \`Impl(Fn(...), Send)\``))
+        .None => if(!ccs && type_implements_trait_bool(ty, send, env), Option(String).None, Option(String).Some(`it holds a ${type_to_string(ty)}, a function type whose value is unknown here, and a function is Send only by what its code reaches (rule D9) — declare it \`Impl(Fn(...), Send)\``))
       )
     );
   });

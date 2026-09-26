@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  a := i32(7);
+  b := i32(1000);
+  (k1 : Impl(Fn() -> unit)) = (
+    () => {
+      println(a);
+    }
+  );
+  (k2 : Impl(Fn() -> unit)) = (
+    () => {
+      println(b);
+    }
+  );
+  l1 := ArrayList(typeof(k1)).new();
+  l1.push(k2);
+  k1();
+});
+export(main);

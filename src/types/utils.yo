@@ -53,7 +53,8 @@ import("std/fmt");
   is_extern_type_name,
   is_unit_type,
   type_decl_module,
-  is_module_type
+  is_module_type,
+  is_future_trait_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -545,7 +546,7 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
       hno_somes.get(hno_i),
       .Some(hno_s) => {
         hno_extern := match(hno_s, .SomeT({ name : hno_nm }) => is_extern_type_name(hno_nm), _ => false);
-        if(!hno_extern && is_some_type(_hno_chain_end(hno_s)), {
+        if(!hno_extern && is_some_type(resolve_cell_chain(hno_s)), {
           return(false);
         });
       },
@@ -554,46 +555,6 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
     hno_i = (hno_i + usize(1));
   });
   true
-});
-/// The end of a SomeT's resolution-cell chain (cycle-guarded); the SomeT
-/// itself when the chain ends unresolved.
-_hno_chain_end :: (fn(t_in : TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t_in;
-  (seen : ArrayList(String)) = ArrayList(String).new();
-  (walk : bool) = true;
-  while(walk, {
-    match(
-      cur,
-      .SomeT({ id : hce_id, resolved_concrete : hce_rc }) => {
-        (revisit : bool) = false;
-        (hi : usize) = usize(0);
-        while(hi < seen.len(), {
-          if(match(seen.get(hi), .Some(x) => (x == hce_id), .None => false), {
-            revisit = true;
-          });
-          hi = (hi + usize(1));
-        });
-        if(revisit, {
-          walk = false;
-        }, {
-          seen.push(hce_id.clone());
-          match(
-            hce_rc.get(usize(0)),
-            .Some(nx) => {
-              cur = nx;
-            },
-            .None => {
-              walk = false;
-            }
-          );
-        });
-      },
-      _ => {
-        walk = false;
-      }
-    );
-  });
-  cur
 });
 /// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
 ///
@@ -887,7 +848,14 @@ _type_refs_back_to_cyclic :: (
     // value that holds no Yo reference at all: answering "cyclic" for it made
     // every `AtomicI32` — and so every struct holding a shared atomic counter
     // — look cycle-capable, which `^` refuses and the collector tracks.
-    .SomeT(name : st_name) => !is_extern_type_name(st_name),
+    // And a closure identity (`is_bound_closure_identity`) IS its
+    // resolution, the capture struct, so the struct is what is judged
+    // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+    .SomeT(name : st_name) => cond(
+      is_extern_type_name(st_name) => false,
+      is_bound_closure_identity(ty) => recur(resolve_cell_chain(ty), original_id, visited),
+      true => true
+    ),
     .Array({ element : el }) => recur(el, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
@@ -1362,6 +1330,99 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
     i = (i + usize(1));
   });
   ok
+});
+/// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
+/// Returns the input unchanged when the chain doesn't terminate concrete.
+/// Used by the Future-effect comparison + the wrapper-carrier concreteness
+/// gate: io.async's returned `Impl(Future(i32, E))` carries the effect slot
+/// as the `E` SomeT whose CELL resolves to the concrete bundle — comparing
+/// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
+/// (the async_await arm-65 family).
+resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT(id : rcc_id, resolved_concrete : rcc_rc) => {
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get(ri),
+            .Some(rs) => if(rs == rcc_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(rcc_id.clone());
+          match(
+            rcc_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  if(is_some_type(cur), t_in, cur)
+});
+/// A closure's capture struct (`capture_<hash>`, evaluator/utils/closure.yo):
+/// the layout of one closure literal's captured state, and, through closure
+/// identity, that closure's type.
+is_closure_capture_struct :: (fn(t : TypeValue) -> bool)(
+  match(t, .Struct({ id : ccs_id }) => ccs_id.starts_with("capture_"), _ => false)
+);
+/// A closure's own type used as a type: an annotation wrapper (the reserved
+/// name "Impl", builtins/impl_constraint.yo) whose resolution chain reaches a
+/// concrete type, e.g. `(k : Impl(Fn() -> unit))` resolved to k's capture
+/// struct. It is a type in its own right, not a type variable: codegen lowers
+/// it to its resolution, so it is keyed (`type_key`), compared (identity and
+/// flow) and bound as that resolution — every copy of one closure's wrapper is
+/// one type, two closures are two
+/// (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+///
+/// Not a dyn-coercion wrapper (NAMELESS, values/dyn.yo): the dyn/box pipeline
+/// lowers that to its own fat call/data struct. Not a `Future` wrapper: an
+/// extern future lowers to a pointer, so its C type is not its resolution's.
+is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ name : bci_nm, required_trait_types : bci_rtt }) => (
+      (bci_nm == "Impl") && !_any_future_trait(bci_rtt) && _resolves_to_concrete_type(t)
+    ),
+    _ => false
+  )
+);
+/// The chain ends at a non-SomeT type with no open type variable inside
+/// (`type_has_no_open_some`): a captured `AtomicI32`'s extern `atomic_int`
+/// needs no resolution.
+_resolves_to_concrete_type :: (fn(t : TypeValue) -> bool)({
+  rtc_term := resolve_cell_chain(t);
+  !is_some_type(rtc_term) && type_has_no_open_some(rtc_term)
+});
+_any_future_trait :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  (aft_i : usize) = usize(0);
+  while(aft_i < tys.len(), {
+    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(aft_t), .None => false), {
+      return(true);
+    });
+    aft_i = (aft_i + usize(1));
+  });
+  false
 });
 /// STRUCTURALLY RECURSIVE "contains a codegen SomeType" test.
 ///
@@ -2098,6 +2159,9 @@ export(func_params_have_raw_some_type);
 export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_has_no_open_some);
+export(is_bound_closure_identity);
+export(is_closure_capture_struct);
+export(resolve_cell_chain);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

@@ -36,7 +36,9 @@ pragma(Pragma.AllowUnsafe);
 {
   type_contains_some_type,
   type_implements_runtime_builtin,
-  get_all_some_types
+  get_all_some_types,
+  is_bound_closure_identity,
+  resolve_cell_chain
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
@@ -641,6 +643,20 @@ type_implements_trait :: (
   // `// Failed to transpile` for it and voided all 23 tests in the batch.
   // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
   target = resolve_enum_shell(target);
+  // A closure identity IS its capture struct (plans/reference/TYPE_IDENTITY.md),
+  // so its representation markers (Runtime, Comptime, Acyclic) are the
+  // struct's: `Option(typeof(k))` is a runtime type because k's capture struct
+  // is. `Send` is not a representation property. Whether a function may run on
+  // another thread depends on what its code reaches (rule D9), which only the
+  // value knows (`function_value_marker`); as a type, the wrapper keeps the
+  // SomeT rule below
+  // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+  if(is_bound_closure_identity(target), {
+    cim := _marker_name_of(trait_type, env);
+    if(((cim == "Runtime") || (cim == "Comptime")) || (cim == "Acyclic"), {
+      return(type_implements_trait(resolve_cell_chain(target), trait_type, env));
+    });
+  });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
   // trait regardless of auto-derive.

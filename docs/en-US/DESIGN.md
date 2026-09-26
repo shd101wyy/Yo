@@ -2611,6 +2611,19 @@ takes_fn((y) => (y + k), 5);     // OK
 The closure's body is checked against the result of the `Fn(...) -> R` it is passed as:
 `takes_fn(x => true, 5)` is an E0604.
 
+A closure's type can instantiate a container. `ArrayList(typeof(k))` holds copies of `k`, and
+two closures' lists are two types, so a closure cannot go into another closure's list:
+
+```rust
+(k1 : Impl(Fn() -> unit)) = (() => println(a));
+(k2 : Impl(Fn() -> unit)) = (() => println(s));
+l1 := ArrayList(typeof(k1)).new();
+l1.push(k1);    // OK
+l1.push(k2);    // error: k2 is a different closure type
+```
+
+To keep different closures in one collection, store them as `Dyn(Fn(...))`.
+
 ### Closures with Reference-Semantics Types
 
 Closures work seamlessly with reference-semantics types:

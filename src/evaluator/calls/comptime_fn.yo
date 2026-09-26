@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_extern_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -270,6 +270,15 @@ _ctfe_args_equal :: (
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(aty, bty, usize(0)),
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
+          // Two closure identities are one type exactly when their
+          // resolutions are (plans/reference/TYPE_IDENTITY.md). The id says
+          // nothing: every `(k : Impl(Fn() -> unit))` annotation evaluates to
+          // one memoized wrapper id, and each closure's COPY carries its own
+          // capture struct in the cell, so `ArrayList(typeof(k2))` memo-hit
+          // `ArrayList(typeof(k1))`
+          // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+          (is_bound_closure_identity(aty) && is_bound_closure_identity(bty)) => are_types_compatible_exact(aty, bty),
+          (a_is_some && b_is_some && (is_bound_closure_identity(aty) || is_bound_closure_identity(bty))) => false,
           // Both bare SomeT: must be the exact same id
           (a_is_some && b_is_some) => (
             match(aty, .SomeT(id : aid) => aid, _ => String.from("")) ==
