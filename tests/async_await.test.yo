@@ -3685,6 +3685,29 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
     "second arm's binding must be stored in ITS OWN slot, not the first arm's"
   );
 });
+// A NON-await arm binding an `Option(<ref>)` payload (`.Some(parsed)`), in an
+// async body that also hoists an OUTER `parsed` across an await. `Option` of a
+// reference handle lowers to the nullable pointer (plans/EVALUATOR_MEMORY_REDUCTION.md
+// Phase 3), and that match path stores a hoisted binding into its slot. Its
+// fallback name scan found the OUTER `parsed`'s slot, stored the inner value
+// there, and clobbered it (a C type error when the two types differed: the
+// compiler's own `run_add`). A binding env resolution finds is a local.
+test("Test a nullable-pointer arm binding does not store into a same-named hoisted variable", {
+  drive := (fn(rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      parsed := Cargo(label : String.from("outer"), size : i32(1));
+      aio.await(yield(aio), aio);
+      inner := match(
+        find_cargo(String.from("inner")),
+        .Some(parsed) => parsed.label,
+        .None => String.from("none")
+      );
+      aio.await(yield(aio), aio);
+      return(`${parsed.label}/${inner}`)
+    })
+  );
+  assert(io.await(drive(io), io) == `outer/inner`, "the outer binding keeps its own value across the arm");
+});
 // ---------------------------------------------------------------------------
 // A bare `if` whose branch awaits and then EARLY-RETURNS, in an async body.
 //
