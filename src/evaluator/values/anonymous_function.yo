@@ -1252,6 +1252,9 @@ evaluate_anonymous_function_implementation :: (
       );
       rpr_i = (rpr_i + usize(1));
     });
+    if(debug_knob(`YO_DBG_RP`).is_some(), {
+      eprintln(`[__DBG_RP] ft=${type_to_string(function_type)} names=${rp_resolved_names.len().to_string()} env_frames=${expected_type_env.frames.len().to_string()} nE=${get_variables_from_env(expected_type_env, String.from("E")).len().to_string()}`);
+    });
     if(rp_resolved_names.len() > usize(0), {
       function_type = _subst_some_types_from_env(function_type, expected_type_env, rp_resolved_names);
     });
