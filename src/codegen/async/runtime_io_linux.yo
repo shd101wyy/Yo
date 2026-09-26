@@ -596,7 +596,25 @@ static _Thread_local __yo_io_future_t* __yo_sq_deferred_futures[__YO_IO_RING_ENT
 // so the await codegen can access ->state and ->result uniformly.
 // We store the future pointer directly in the SQE user data.
 
-// Initialize io_uring (called once at event loop start)
+// Create the loop's wakeup channel (an eventfd) if it has none: a descriptor,
+// no locked memory. It is published to foreign wakers under the loop's lock,
+// the same lock a waker takes to queue its token and bump xwake_count, so a
+// wake posted before this finds notify_ready == 0 but is visible to the
+// loop's next check, and a wake posted after writes the eventfd.
+static void __yo_io_notify_init(void) {
+  if (__yo_notify_efd >= 0) return;
+  __yo_notify_efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (__yo_notify_efd >= 0) {
+    __yo_loop_t* loop = __yo_loop_self();
+    __yo_mutex_lock(&loop->lock);
+    loop->notify_fd = __yo_notify_efd;
+    loop->notify_ready = 1;
+    __yo_mutex_unlock(&loop->lock);
+  }
+}
+
+// Create the thread's io_uring ring. Called by the first I/O submission
+// (every __yo_async_*_start), never at loop start: see __yo_io_loop_start.
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
 
@@ -630,30 +648,26 @@ static void __yo_io_init(void) {
   }
   __yo_tsan_ring_mapped(&__yo_io_ring);
   __yo_io_initialized = true;
-  __yo_notify_efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  __yo_io_notify_init();
   if (__yo_notify_efd >= 0) {
-    __yo_loop_t* loop = __yo_loop_self();
-    __yo_mutex_lock(&loop->lock);
-    loop->notify_fd = __yo_notify_efd;
-    loop->notify_ready = 1;
-    __yo_mutex_unlock(&loop->lock);
     __yo_io_arm_notify();
   }
   ASYNC_DEBUG("[Io] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
 }
 
-// A loop creates its ring on its first kernel entry: an I/O submission (every
-// __yo_async_*_start calls __yo_io_init), or a wait (__yo_io_wait). A thread
-// whose loop never enters the kernel creates no ring. Creating one per thread
-// at loop start made thread churn a stream of ring setups and deferred kernel
-// teardowns, and io_uring_queue_init failed with ENOMEM after a few thousand
-// short-lived threads
+// A loop creates its ring on its first I/O submission (every
+// __yo_async_*_start calls __yo_io_init), not at loop start. A loop that only
+// waits for wakes (a spawn_blocking await, a Park, a cross-thread waker) never
+// needs one: __yo_io_wait blocks on the eventfd with poll(). The kernel charges
+// a ring's memory to RLIMIT_MEMLOCK and returns it only when its deferred
+// teardown runs, so a ring per short-lived thread ran the limit out within a
+// hundred threads: io_uring_queue_init failed with ENOMEM
 // (issues/fixed/every-thread-creates-an-io-uring-ring-and-thread-churn-runs-out-of-memory.md).
 static void __yo_io_loop_start(void) {}
 
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
-  if (!__yo_io_initialized) return;
+  if (!__yo_io_initialized && __yo_notify_efd < 0) return;
   // Clear the loop's wakeup channel under the loop's mutex BEFORE closing the
   // eventfd: a foreign __yo_io_notify loads notify_fd under the same mutex, so
   // the clear and any in-flight write are serialized. Without the lock a
@@ -680,8 +694,11 @@ static void __yo_io_cleanup(void) {
     future->state = -1;
     __yo_decr_rc((void*)future);
   }
-  __yo_tsan_ring_unmapping(&__yo_io_ring);
-  io_uring_queue_exit(&__yo_io_ring);
+  // A loop that only ever waited for wakes has an eventfd and no ring.
+  if (__yo_io_initialized) {
+    __yo_tsan_ring_unmapping(&__yo_io_ring);
+    io_uring_queue_exit(&__yo_io_ring);
+  }
   if (__yo_notify_efd >= 0) {
     close(__yo_notify_efd);
     __yo_notify_efd = -1;
@@ -943,14 +960,30 @@ static int __yo_io_wait(void) {
     return __yo_poll_and_fs_event_tick();
   }
 
-  // The loop's first wait creates the ring and arms the wakeup channel, then
-  // returns so the loop re-checks before blocking. A wake posted before the
-  // channel was armed found notify_ready == 0 and wrote nothing, but it had
-  // already queued its token and bumped xwake_count under the loop's lock,
-  // which __yo_io_init takes to set notify_ready: the re-check sees it. A wake
-  // posted after lands on the armed eventfd.
+  // No ring: nothing was submitted, so the only thing to wait for is a wake
+  // (a foreign waker's post, or a blocking call ending). Block on the eventfd.
+  // The first wait only creates it and returns, so the loop re-checks before
+  // blocking (see __yo_io_notify_init). Without an eventfd there is no other
+  // way to be woken: fall back to the ring, which waits on its own CQEs.
   if (!__yo_io_initialized) {
-    __yo_io_init();
+    if (__yo_notify_efd < 0) {
+      __yo_io_notify_init();
+      if (__yo_notify_efd < 0) {
+        __yo_io_init();
+      }
+      return 0;
+    }
+    struct pollfd pfd;
+    pfd.fd = __yo_notify_efd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int pr;
+    do {
+      pr = poll(&pfd, 1, -1);
+    } while (pr < 0 && errno == EINTR);
+    uint64_t v;
+    while (read(__yo_notify_efd, &v, sizeof(v)) == (ssize_t)sizeof(v)) {
+    }
     return 0;
   }
 
