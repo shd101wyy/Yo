@@ -151,10 +151,10 @@ test("full-GC prefix-only RC paths never cast to the full header", {
 test("every full-GC visitor tests TRACKED through the prefix before a full-header cast", {
   c := emit_rc_runtime(true);
   assert_tracked_first(c, "static void __yo_gc_unregister(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_mark_gray_visitor(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_black_visitor(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_visitor(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_gather_white_visitor(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_trial_delete_visitor(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_restore_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_black_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(c, "static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
 });

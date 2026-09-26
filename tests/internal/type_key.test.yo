@@ -58,3 +58,31 @@ test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));
   assert(!(type_key(st) == type_key(t_i32())), "SomeT vs i32");
 });
+// A one-field capture struct, as create_capture_type_and_value builds it.
+_capture_struct :: (fn(sid : String, label : String, field : TypeValue) -> TypeValue)({
+  labels := ArrayList(String).new();
+  labels.push(label);
+  fields := ArrayList(TypeValue).new();
+  fields.push(field);
+  TypeValue.Struct(sid, String.from(""), labels, fields, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
+});
+// A closure inside a generic function captures the function's `Impl(Fn...)`
+// parameter: one SomeT lineage whose cell each call site rewrites. The
+// capture struct's key must not follow the rewrite, or codegen looks it up
+// under a key it was never registered with
+// (issues/fixed/a-capture-struct-changes-type-key-when-a-captured-closure-param-is-re-resolved.md).
+test("type_key: a capture struct's key survives a rewrite of its captured closure's cell", {
+  wrapper := t_some_t(`Impl`, usize(0));
+  cell := match(wrapper, .SomeT({ resolved_concrete : rc }) => rc, _ => panic("t_some_t built no SomeT"));
+  first := _capture_struct(`capture_tk_first`, `n`, t_i32());
+  second := _capture_struct(`capture_tk_second`, `b`, t_bool());
+  cell.push(first);
+  outer := _capture_struct(`capture_tk_outer`, `cb`, wrapper);
+  before := type_key(outer);
+  // The bare identity is its resolution (the closure-container rule).
+  assert(type_key(wrapper) == type_key(first), "a resolved closure identity keys as its capture struct");
+  cell.clear();
+  cell.push(second);
+  assert(type_key(outer) == before, "the capture struct's key did not change with the cell");
+  assert(type_key(wrapper) == type_key(second), "the bare identity follows its cell");
+});
