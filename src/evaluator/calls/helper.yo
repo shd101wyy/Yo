@@ -3078,15 +3078,21 @@ create_specialized_function_inline :: (
               _ => String.from("")
             );
             is_closure_param := (closure_some_id.len() > usize(0));
-            // FUTURE-wrapper param (`task : Impl(Future(T, E))`): register
-            // the DECLARED wrapper's id → the ARG's wrapper type, so
-            // get_type_string on the spec's param chains through the arg
-            // wrapper's async-block registration to the concrete sm struct
-            // (the closure capbind's analog for futures). Without this the
-            // spec's param stays an unresolvable SomeT, the emission gate
-            // skips the fn, and every call site degrades to the statement
-            // FTT (async_await arm 72: `test_unwind(task, io)`).
-            if(!(is_closure_param), {
+            // FUTURE-wrapper param (`task : Impl(Future(T, E))`): bind a
+            // PER-SPEC REBUILD of the declared wrapper carrying the ARG's
+            // wrapper as its resolution — the closure capbind's analog for
+            // futures. The declared wrapper is ONE id across every
+            // specialization, so a registry entry under it was
+            // last-write-wins across specializations; the rebuild keeps
+            // every reader value-first (`some_resolution`), chaining to the
+            // arg wrapper's async-block registration and so to the concrete
+            // sm struct. Without this the spec's param stays an unresolvable
+            // SomeT, the emission gate skips the fn, and every call site
+            // degrades to the statement FTT (async_await arm 72:
+            // `test_unwind(task, io)`). Skipped when the folded-const rebind
+            // below already binds the arg's wrapper as the param's type.
+            (fw_rebind : Option(TypeValue)) = Option(TypeValue).None;
+            if((!(is_closure_param)) && !(cur_is_folded_const), {
               match(
                 decl_pt,
                 .SomeT({ id : fw_id }) => if(extract_future_trait_from_type(decl_pt).is_some(), {
@@ -3095,7 +3101,39 @@ create_specialized_function_inline :: (
                     .Some(fw_arg) => if(is_some_type(fw_arg) && (
                       match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
                     ), {
-                      register_some_resolved_concrete(fw_id.clone(), fw_arg);
+                      match(
+                        decl_pt,
+                        .SomeT(
+                          _,
+                          fw_nm,
+                          fw_fl,
+                          fw_pt,
+                          fw_rtt,
+                          fw_rtl,
+                          fw_ntt,
+                          fw_ntl,
+                          fw_ier,
+                          fw_kft,
+                          _
+                        ) => {
+                          fw_rebind = Option(TypeValue).Some(
+                            TypeValue.SomeT(
+                              `${fw_id}_fwbind_${type_key(fw_arg)}`,
+                              fw_nm,
+                              fw_fl,
+                              fw_pt,
+                              fw_rtt,
+                              fw_rtl,
+                              fw_ntt,
+                              fw_ntl,
+                              fw_ier,
+                              fw_kft,
+                              Option(TypeValue).Some(fw_arg.clone())
+                            )
+                          );
+                        },
+                        _ => ()
+                      );
                     }),
                     .None => ()
                   );
@@ -3103,6 +3141,22 @@ create_specialized_function_inline :: (
                 _ => ()
               );
             });
+            match(
+              fw_rebind,
+              .Some(fw_bt) => {
+                _fw := bind_parameter(
+                  callee_env,
+                  p_label,
+                  fw_bt.clone(),
+                  Option(EvalValue).Some(create_unknown_val(fw_bt)),
+                  false,
+                  match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
+                  false,
+                  synthetic_token(p_label, callee_env.module_path)
+                );
+              },
+              .None => ()
+            );
             if(is_closure_param, {
               // Bind the param to a PER-SPEC REBUILD of the declared SomeT
               // (fresh id + its own resolution carrying THIS spec's capture
@@ -3232,12 +3286,15 @@ create_specialized_function_inline :: (
                   // nothing declares
                   // (issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md).
                   //
-                  // Register the argument closure's own concrete result
-                  // against it. TYPE ONLY — binding the FuncVal itself was
-                  // measured and is wrong: the evaluator then CALLS the
-                  // closure at compile time and 20 `check ./src` sites fail
-                  // with "Expected enum type ... got unit". Same shared-id
-                  // last-write shape as the capture registration above.
+                  // Bind the argument closure's own concrete result as a TYPE
+                  // BINDING of that generic in the specialization's env,
+                  // recording the binder it resolves
+                  // (`_record_prebound_binder`, the Step-6b pre-binding
+                  // mechanism): the resolution travels on the binding, not the
+                  // shared id-keyed registry. TYPE ONLY — binding the FuncVal
+                  // itself was measured and is wrong: the evaluator then CALLS
+                  // the closure at compile time and 20 `check ./src` sites fail
+                  // with "Expected enum type ... got unit".
                   match(
                     extract_fn_trait_from_type(decl_pt),
                     .Some(fn_tr) => match(
@@ -3254,9 +3311,22 @@ create_specialized_function_inline :: (
                                 .Func({ result : cl_res3 }) => if(!(is_some_type(cl_res3)), {
                                   match(
                                     fn_res,
-                                    .SomeT({ id : fn_res_id }) => {
-                                      register_some_resolved_concrete(fn_res_id.clone(), cl_res3.clone());
-                                    },
+                                    .SomeT({ id : fn_res_id, name : fn_res_nm }) => if(fn_res_nm.len() > usize(0), {
+                                      _record_prebound_binder(
+                                        add_variable_to_env(
+                                          callee_env,
+                                          fn_res_nm.clone(),
+                                          cl_res3.clone(),
+                                          Option(EvalValue).Some(create_type_value(cl_res3.clone())),
+                                          true,
+                                          false,
+                                          false,
+                                          false,
+                                          synthetic_token(fn_res_nm.clone(), callee_env.module_path)
+                                        ),
+                                        fn_res_id.clone()
+                                      );
+                                    }),
                                     _ => ()
                                   );
                                 }),
