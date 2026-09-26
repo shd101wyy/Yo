@@ -317,6 +317,12 @@ t_with_func_result :: (fn(ft : TypeValue, result : TypeValue) -> TypeValue)(
     _ => ft
   )
 );
+/// The opaque C type an `extern`/`c_include` `X : Type` member declares
+/// (types/definitions.yo `ExternOpaqueT`). `c_name` is its C spelling; the
+/// label is its own spelling when no `c_type("...")` is given.
+t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
+  TypeValue.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone()))
+);
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
 /// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
 /// FRESH id and no resolution, copying every other
@@ -430,7 +436,8 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .FnTraitT(base_name : _) => TypeTag.TTrait,
     .FutureTraitT(base_name : _) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
-    .RefineT(inner, _) => type_value_tag(inner)
+    .RefineT(inner, _) => type_value_tag(inner),
+    .ExternOpaqueT(_, _) => TypeTag.TExternOpaque
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
@@ -844,6 +851,7 @@ export(
   clone_some_fresh,
   t_with_resolution,
   t_with_func_result,
+  t_extern_opaque,
   t_expr_t,
   t_comptime_list,
   t_effects_row,

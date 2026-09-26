@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, register_enum_type_arguments, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
 { type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
 {
@@ -94,7 +94,7 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
       somes.get(i),
       .Some(st) => match(
         st,
-        .SomeT({ name : has_nm, resolution : has_rc }) => if((!(is_extern_type_name(has_nm))) && has_rc.is_none(), {
+        .SomeT({ resolution : has_rc }) => if(has_rc.is_none(), {
           found = true;
         }),
         _ => ()

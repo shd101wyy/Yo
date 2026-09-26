@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue, FuncMeta } :: import("../types/definitions.yo");
-{ is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
+{ is_function_type, is_some_type, is_pointer_type, is_struct_type } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -1804,11 +1804,10 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// `SomeT`/`TypeAppT`, so generic ptr/slice/struct fns aren't deferred. NOT YET
 /// CONSUMED (body-eval wiring is the remaining multi-layer work); exported for
 /// that wiring. The `checked_ids` arg is the cycle guard,
-/// keyed by nominal type id. The extern-SomeType and resolved-concrete
-/// exclusions ARE implemented here — extern-ness through the
-/// `g_extern_type_names` side table, resolution through `SomeT`'s own
-/// `resolution` (treating either as a no-op is what once let
-/// `should_skip_function_codegen` drop functions with a resolved-SomeT return).
+/// keyed by nominal type id. The resolved-concrete exclusion IS implemented
+/// here, through `SomeT`'s own resolution (treating it as a no-op is what once
+/// let `should_skip_function_codegen` drop functions with a resolved-SomeT
+/// return). An extern opaque type is an `ExternOpaqueT`, not a SomeType.
 type_contains_some_type_for_codegen_param :: (
   fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
 )({
@@ -1839,15 +1838,9 @@ type_contains_some_type_for_codegen_param :: (
     checked_ids.push(nominal_id.clone());
   });
   if(is_some_type(ty), {
-    // SomeType: exclude extern SomeTypes, RECURSE INTO a resolved concrete,
+    // SomeType: RECURSE INTO a resolved concrete,
     // and exclude Fn/Future-trait SomeTypes (in that order); otherwise it IS
     // a codegen SomeType.
-    // Extern opaque type (`extern("Yo", X : Type)` → a SomeT placeholder named X)
-    // that codegen lowers to a concrete C type: NOT a codegen-blocking generic.
-    tc_some_nm := match(ty, .SomeT({ name : snm }) => snm, _ => String.from(""));
-    if(is_extern_type_name(tc_some_nm), {
-      return(false);
-    });
     // A SomeT that already carries a resolved concrete IS that concrete for
     // codegen purposes, so ask the question of the RESOLUTION. `SomeT`
     // does carry a `resolution`, and the SHALLOW sibling

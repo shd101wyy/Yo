@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
   same_name_note,
   type_contains_some_type_deep
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_extern_type_name, is_never_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -396,8 +396,7 @@ validate_function_return_type :: (
             should_skip := (
               type_implements_future(st) ||
                 type_implements_fn(st) ||
-                  (required_trait_types.len() > usize(0)) ||
-                    is_extern_type_name(name)
+                  (required_trait_types.len() > usize(0))
             );
             if(!(should_skip), {
               // Check if name is directly in the env.

@@ -28,9 +28,9 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_extern_opaque } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ is_type_hierarchy_type, register_extern_type_name } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -244,7 +244,17 @@ User code should normally call stdlib wrappers (e.g. functions in
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;
-    field_val := create_unknown_val_with_name(field_ty_with_extern, result.label.clone());
+    // An `extern("Yo", X : Type)` member declares an opaque FFI type: its
+    // value IS that type, a nominal `ExternOpaqueT` (types/definitions.yo),
+    // not a placeholder the uses turn into a SomeT.
+    field_val := match(
+      result.field_type,
+      .TypeUni(fv_lvl) => cond(
+        (fv_lvl == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
+        true => create_unknown_val_with_name(field_ty_with_extern, result.label.clone())
+      ),
+      _ => create_unknown_val_with_name(field_ty_with_extern, result.label.clone())
+    );
     field_vals.push(field_val);
     // Bind the field so the remaining field declarations can refer to it
     // (compile-time only, unknown value placeholder); removed below.
@@ -263,13 +273,6 @@ User code should normally call stdlib wrappers (e.g. functions in
       // is_implicit
       ast_expr_token(arg)
     );
-    // An `extern("Yo", X : Type)` member declares an opaque FFI type whose value
-    // is a SomeT placeholder named X. Record X so the codegen-generic checks
-    // (type_contains_some_type_for_codegen_param) don't treat it as a blocking
-    // generic (it lowers to a concrete C type).
-    if(is_type_hierarchy_type(result.field_type), {
-      register_extern_type_name(result.label.clone());
-    });
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });

@@ -35,9 +35,9 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_type } :: import("../../types/creators.yo");
+{ t_unit, t_extern_opaque, t_type } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ register_extern_type_name, register_extern_type_c_name, register_adopted_extern_c_type, type_decl_id } :: import("../../types/guards.yo");
+{ register_adopted_extern_c_type, type_decl_id } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -385,14 +385,6 @@ User code should normally call stdlib wrappers (e.g. functions in
       result.field_type,
       .TypeUni(level) => cond(
         (level == usize(0)) => {
-          // A `c_include` type declaration (`pid_t : Type`) is an extern-C
-          // OPAQUE type exactly like `extern("Yo", X : Type)` — record the
-          // name so extern-aware checks see it (SomeT carries no `is_extern`
-          // field; the guards.yo name registry stands in — same as extern.yo).
-          // Without this,
-          // `i32(unsafe(getpid()))` failed is_convertible_numeric_type's
-          // extern clause and FTT'd (the sys/signal red).
-          register_extern_type_name(result.label.clone());
           // ADOPT, don't shadow. When the label ALREADY names a module type,
           // `Name : Type` is not declaring a new opaque handle — it is saying
           // "the Yo type `Name` IS the C type `Name` in this header". Replacing
@@ -418,14 +410,11 @@ User code should normally call stdlib wrappers (e.g. functions in
               );
               EvalValue.TypeVal(existing_ty)
             },
-            .None => {
-              match(
-                c_type_spelling,
-                .Some(s) => register_extern_type_c_name(result.label.clone(), s),
-                .None => ()
-              );
-              EvalValue.TypeVal(t_some_t(result.label.clone(), usize(0)))
-            }
+            // A `c_include` type declaration (`pid_t : Type`) that adopts no
+            // Yo type is an extern-C OPAQUE type exactly like
+            // `extern("Yo", X : Type)`: a nominal `ExternOpaqueT` named by its
+            // C spelling (types/definitions.yo).
+            .None => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), c_spelling))
           )
         },
         true => create_unknown_val_with_name(result.field_type, result.label.clone())
