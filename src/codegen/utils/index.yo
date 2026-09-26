@@ -32,7 +32,8 @@
   is_struct_type,
   is_enum_type,
   is_extern_type_name,
-  extern_type_c_name
+  extern_type_c_name,
+  can_optimize_as_nullable_pointer
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -1094,64 +1095,6 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   });
   Option(String).Some(op)
 });
-/// Check if an enum can be optimized as a nullable pointer. Returns the
-/// pointer variant's field type if so, `.None` otherwise. Requires exactly
-/// two variants: one fieldless and one carrying a single pointer field.
-can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
-  match(
-    t,
-    .EnumT({ variant_fields }) => {
-      if(variant_fields.len() != usize(2), {
-        return(.None);
-      });
-      (empty_found : bool) = false;
-      (pointer_type : Option(TypeValue)) = .None;
-      (valid : bool) = true;
-      (vi : usize) = usize(0);
-      while(valid && (vi < usize(2)), {
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        fc := fields.len();
-        cond(
-          (fc == usize(0)) => {
-            if(empty_found, {
-              valid = false;
-            }, {
-              empty_found = true;
-            });
-          },
-          (fc == usize(1)) => {
-            child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
-            cond(
-              is_pointer_type(child) => {
-                match(
-                  pointer_type,
-                  .Some(_) => {
-                    valid = false;
-                  },
-                  .None => {
-                    pointer_type = .Some(child);
-                  }
-                );
-              },
-              true => {
-                valid = false;
-              }
-            );
-          },
-          true => {
-            valid = false;
-          }
-        );
-        vi = (vi + usize(1));
-      });
-      cond(
-        (valid && empty_found) => pointer_type,
-        true => Option(TypeValue).None
-      )
-    },
-    _ => Option(TypeValue).None
-  )
-);
 /// Check if an enum can be optimized as a simple C enum (all variants have no
 /// data members and there is at least one variant).
 can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(

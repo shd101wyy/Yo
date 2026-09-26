@@ -753,7 +753,70 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
+/// Check if an enum can be optimized as a nullable pointer. Returns the
+/// pointer variant's field type if so, `.None` otherwise. Requires exactly
+/// two variants: one fieldless and one carrying a single pointer field.
+/// Codegen lowers such an enum to the bare pointer (NULL = the empty variant),
+/// and the size/alignment model (`types/utils.yo`) must agree, so the rule
+/// lives here, where both can reach it.
+can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .EnumT({ variant_fields }) => {
+      if(variant_fields.len() != usize(2), {
+        return(.None);
+      });
+      (empty_found : bool) = false;
+      (pointer_type : Option(TypeValue)) = .None;
+      (valid : bool) = true;
+      (vi : usize) = usize(0);
+      while(valid && (vi < usize(2)), {
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        fc := fields.len();
+        cond(
+          (fc == usize(0)) => {
+            if(empty_found, {
+              valid = false;
+            }, {
+              empty_found = true;
+            });
+          },
+          (fc == usize(1)) => {
+            child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
+            cond(
+              is_pointer_type(child) => {
+                match(
+                  pointer_type,
+                  .Some(_) => {
+                    valid = false;
+                  },
+                  .None => {
+                    pointer_type = .Some(child);
+                  }
+                );
+              },
+              true => {
+                valid = false;
+              }
+            );
+          },
+          true => {
+            valid = false;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(
+        (valid && empty_found) => pointer_type,
+        true => Option(TypeValue).None
+      )
+    },
+    _ => Option(TypeValue).None
+  )
+);
+
 export(
+  can_optimize_as_nullable_pointer,
   // Variant-shape predicates (relocated from type.yo in Phase A.3.2)
   is_int_type,
   is_float_type,
