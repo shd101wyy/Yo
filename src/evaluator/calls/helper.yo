@@ -3116,9 +3116,9 @@ create_specialized_function_inline :: (
               // arc/prelude capture-split repro,
               // issues/repros/arc-spawn-capture-split.yo). The rebuild keeps
               // the fn-trait constraints so the body's `cb(x)` stays CALLABLE.
-              // The shared-id registration is kept too (last-write, as before)
-              // for consumers that resolve the DECLARED param type rather than
-              // the bound variable's.
+              // Nothing is registered under the shared declared id: that entry
+              // was last-write-wins across specializations (Phase 3 step 7
+              // part 2); consumers read the bound variable's rebuilt type.
               (bind_pt_cl : TypeValue) = decl_pt.clone();
               // cap_ty must be the CAPTURE STRUCT. On the try_to_call path the
               // arg_type already IS it (the closure eval recorded capture_type
@@ -3200,7 +3200,6 @@ create_specialized_function_inline :: (
                     },
                     _ => ()
                   );
-                  register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
                   // Rules D1 + D4: the fresh binder names the ARGUMENT's
                   // closure, for a marker judgement of the parameter's type
                   // inside the body (`function_value_marker`).
