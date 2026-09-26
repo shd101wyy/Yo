@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_trait_type, is_concrete_trait_type } :: import("../../types/guards.yo");
-{ generate_some_type_id, t_resolved_cell } :: import("../../types/creators.yo");
+{ generate_some_type_id } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -185,7 +185,7 @@ evaluate_impl_constraint :: (
     false => usize(0)
   );
   // Create the SomeT with required and negative trait constraints. A
-  // `Concrete(T)` specifier seeds the resolved-concrete cell with T.
+  // `Concrete(T)` specifier builds it with T as its resolution.
   some_type := TypeValue.SomeT(
     generate_some_type_id(),
     String.from("Impl"),
@@ -197,11 +197,7 @@ evaluate_impl_constraint :: (
     negative_trait_levels,
     false,
     Option(TypeValue).None,
-    match(
-      concrete_type,
-      .Some(ct) => t_resolved_cell(ct),
-      .None => ArrayList(TypeValue).new()
-    )
+    concrete_type
   );
   type_val := create_type_value(some_type);
   out_info := new_expr_info(cur_env, TypeValue.TypeUni(usize(0)));

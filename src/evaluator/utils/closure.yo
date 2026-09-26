@@ -133,7 +133,7 @@ _raise_capture_trait_violation :: (
 /// iff its captures are (Rust's auto trait), and its captures live in its
 /// capture struct, which auto-derives `Send` when every field is
 /// (`auto_derive_traits_for_struct_type` above). Resolve the wrapper: the
-/// SomeT's own resolved cell, then the global registry, then the VALUE's
+/// SomeT's own resolution, then the global registry, then the VALUE's
 /// registered capture struct. `.None` means "nothing to judge": a closure
 /// with no capture struct captures nothing and is trivially `Send`.
 /// (tests/sync/once.test.yo's `racer` — a closure over atomics, spawned
@@ -141,8 +141,8 @@ _raise_capture_trait_violation :: (
 _capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Option(TypeValue))(
   match(
     ty,
-    .SomeT({ id : sid, resolved_concrete : rc }) => match(
-      rc.get(usize(0)),
+    .SomeT({ id : sid, resolution : rc }) => match(
+      rc,
       .Some(c) => Option(TypeValue).Some(c),
       .None => match(
         lookup_some_resolved_concrete(sid),
@@ -918,7 +918,7 @@ create_capture_type_and_value :: (
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
         // `type_to_string` whether abstract (def-era eval — the captured
         // closure param is unbound, field lowers to void*) or resolved
-        // (spec-era eval — the capbind SomeT's cell holds the concrete
+        // (spec-era eval — the capbind SomeT's resolution is the concrete
         // capture struct). One shared struct froze the FIRST era's field
         // types, so the resolved-era spec initialized a void* field with a
         // concrete struct value (clang error; the forwarded-closure family,
@@ -928,10 +928,10 @@ create_capture_type_and_value :: (
           field_types.get(csi),
           .Some(ck_t) => match(
             ck_t,
-            .SomeT({ id : ck_sid, resolved_concrete : ck_rc }) => {
+            .SomeT({ id : ck_sid, resolution : ck_rc }) => {
               cap_key.push_str("@res:");
               match(
-                ck_rc.get(usize(0)),
+                ck_rc,
                 .Some(ck_r) => cap_key.push_string(type_to_string(ck_r)),
                 .None => cap_key.push_string(ck_sid.clone())
               );

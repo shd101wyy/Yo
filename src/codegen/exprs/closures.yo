@@ -63,7 +63,7 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t;
   (go : bool) = true;
   // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
-  // SomeT arm hops through the resolution cell, so a resolved SomeT keys
+  // SomeT arm hops through the resolution, so a resolved SomeT keys
   // EQUAL to its own resolution and the old `type_key(rct) == type_key(cur)`
   // check stopped the walk one hop short (Piece C then keyed the closure-call
   // map by the SomeT id instead of the capture struct id — the fold-closure
@@ -89,7 +89,7 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
       rsc_seen.push(sid.clone());
       // Per-object resolved concrete first (survives clone/substitute/intern);
       // global table as fallback.
-      own_rc := match(cur, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+      own_rc := match(cur, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
       match(
         match(own_rc, .Some(o1) => Option(TypeValue).Some(o1), .None => lookup_some_resolved_concrete(sid)),
         .Some(rct) => {

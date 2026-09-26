@@ -45,13 +45,13 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   // extern opaque type IS a SomeT whose NAME is registered in
   // the extern-type-name set, so extern-ness is `is_extern_type_name(name)`.
   // This branch is LOAD-BEARING since Impl's `Concrete(T)` support:
-  // the marker moves into the resolved-concrete cell rather
+  // the marker moves into the SomeT's resolution rather
   // than sitting in required_trait_types, so branch (2) alone no longer fires
   // for `IoFuture` — and misclassifying an io future as a lazy sync future
   // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
   // such member (the fs/gc batch C errors).
   some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
-  rc_cell := match(ty, .SomeT({ resolved_concrete : io_src }) => io_src.get(usize(0)), _ => Option(TypeValue).None);
+  rc_cell := match(ty, .SomeT({ resolution : io_src }) => io_src, _ => Option(TypeValue).None);
   rc_final := match(
     rc_cell,
     .Some(io_r) => Option(TypeValue).Some(io_r),

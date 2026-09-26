@@ -72,13 +72,13 @@ evaluate_dup :: (
   );
   (cur_env : Environment) = expr_info_adopt_env(arg_info);
   arg_type := arg_info.ty;
-  // Resolve a SomeT with a filled resolved-concrete cell.
+  // Resolve a SomeT that carries a resolution.
   (concrete_type : TypeValue) = arg_type;
   if(is_some_type(concrete_type), {
     match(
       concrete_type,
-      .SomeT({ resolved_concrete : dup_rc_cell }) => match(
-        dup_rc_cell.get(usize(0)),
+      .SomeT({ resolution : dup_rc_cell }) => match(
+        dup_rc_cell,
         .Some(dup_rc_inner) => {
           concrete_type = dup_rc_inner;
         },

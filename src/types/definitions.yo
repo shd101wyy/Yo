@@ -295,20 +295,19 @@ TypeValue :: ref(
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
       kind_function_type : Option(Self),
-      // The resolved concrete type for this SomeType, carried as a SHARED
-      // MUTABLE CELL (a one-element ArrayList used as a ref-semantics box:
-      // empty = unresolved, [t] = resolved). Every clone/substitute of a
-      // SomeT copies the ArrayList HANDLE, so a resolution stamped at ANY
-      // site propagates to every copy in that lineage — including copies
-      // already stored inside func types and registries. ArrayList is
-      // used (not a dedicated cell struct) because Yo has no forward
-      // references and a cell type mentioning TypeValue cannot be declared
-      // before it. EXCLUDED from type_key / type_intern_key / compatibility
-      // identity — resolution metadata, not identity. HAZARD: a SomeT cloned
-      // from ONE declaration across many calls is ONE lineage (the prelude
-      // ResumeType) — per-call resolutions must seed a FRESH SomeT + cell
-      // (rebuild), never mutate the shared cell (see helper.yo ctl-throw).
-      resolved_concrete : ArrayList(Self)
+      // The concrete type this SomeType stands for, when it is known where the
+      // SomeT is built: an opaque `Impl(...)` return's hidden type, a closure
+      // wrapper's capture struct, a call's per-call resolution
+      // (`_with_resolved_concrete`). An immutable VALUE: a copy carries it,
+      // and nothing writes it after construction, so two SomeTs never share a
+      // resolution they could change under each other (plans/
+      // TYPE_SYSTEM_SOUNDNESS.md Phase 3.7; until then this was a one-element
+      // ArrayList used as a shared mutable cell). A resolution learned later
+      // builds a new SomeT carrying it. EXCLUDED from type_key and
+      // compatibility identity except where they hop to it explicitly; the
+      // intern key renders it, so two SomeTs that differ only here stay two
+      // instances.
+      resolution : Option(Self)
     ),
     // Phase 2f: advanced type variants ----------------------------------------
     /// The Yo `Expr` type (a quoted expression node).

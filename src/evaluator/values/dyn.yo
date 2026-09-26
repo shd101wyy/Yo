@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_type, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -177,10 +177,10 @@ _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeVal
     return(Option(TypeValue).Some(t));
   });
   // `type_contains_some_type` waves through a `SomeT` that already carries its
-  // concrete on the per-object `resolved_concrete` cell (closures/futures).
-  // Follow that cell, then the env binding chain; if neither lands on a
+  // concrete as its own `resolution` (closures/futures).
+  // Follow that resolution, then the env binding chain; if neither lands on a
   // concrete the bound is still undecidable here.
-  own_rc := match(t, .SomeT({ resolved_concrete : rc }) => rc.get(usize(0)), _ => Option(TypeValue).None);
+  own_rc := match(t, .SomeT({ resolution : rc }) => rc, _ => Option(TypeValue).None);
   resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));
   cond(
     is_some_type(resolved) => Option(TypeValue).None,
@@ -703,7 +703,7 @@ evaluate_dyn_value :: (
           ntl,
           false,
           Option(TypeValue).None,
-          ArrayList(TypeValue).new()
+          Option(TypeValue).None
         );
         (exp_ty : TypeValue) = w_ty;
         // dyn(box(<closure>)) special case: pass `Box(Impl-SomeT)` as the
@@ -829,7 +829,7 @@ evaluate_dyn_value :: (
                     bx_ntl,
                     bx_ier,
                     bx_kft,
-                    t_resolved_cell(cci.capture_type)
+                    Option(TypeValue).Some(cci.capture_type)
                   );
                 },
                 _ => ()

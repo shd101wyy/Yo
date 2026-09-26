@@ -413,24 +413,25 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   future_type_name := get_type_string(future_type, context.base);
   // Result type (resolve SomeType to concrete): read the await
   // expr's own recorded type, then that type's resolution — never a global.
-  // The resolution cell is per-LINEAGE (the declaration's clones share
-  // the handle, so a sibling io.async call site can re-resolve it — the
-  // cross-call poisoning family, issues/yo-self-async-emission-cluster.md
-  // item 6), and the bare-sid global has the same cross-call hazard. The
-  // await EXPR's ExprInfo type is therefore the faithful per-call stand-in
-  // and must win; cells, then the legacy sid globals, are fallbacks only.
+  // Until Phase 3.7 a SomeT's resolution was a per-LINEAGE shared cell (the
+  // declaration's clones shared the handle, so a sibling io.async call site
+  // could re-resolve it — the cross-call poisoning family,
+  // issues/yo-self-async-emission-cluster.md item 6), and the bare-sid global
+  // keeps that cross-call hazard. The await EXPR's ExprInfo type is therefore
+  // the faithful per-call stand-in and must win; the SomeT's own resolution,
+  // then the legacy sid globals, are fallbacks only.
   // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
   // "" as unit while the binding knew i32.)
   (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
-    own_cell := match(result_type, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+    own_cell := match(result_type, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
     cond(
       !is_some_type(expr_type) => {
         result_type = expr_type;
       },
       true => {
-        expr_cell := match(expr_type, .SomeT({ resolved_concrete : erc }) => erc.get(usize(0)), _ => Option(TypeValue).None);
+        expr_cell := match(expr_type, .SomeT({ resolution : erc }) => erc, _ => Option(TypeValue).None);
         esid := match(expr_type, .SomeT({ id : i }) => i, _ => String.from(""));
         match(
           match(

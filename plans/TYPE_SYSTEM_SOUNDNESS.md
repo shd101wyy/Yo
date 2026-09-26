@@ -429,6 +429,39 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    ~459). Phase 2.4 fixed every observable leak of the shared `resolved_concrete` cell where it
    arose, but it did not remove the cell; this step removes it, together with
    `g_some_resolved_concrete`.
+
+   **Part 1 landed 2026-09-26: the cell is gone.** Measured first: in `tests/async_await.test.yo`
+   alone the shared cells were overwritten 31 times with a different value, the registry once, and
+   1074 resolutions were unregistered. A census of every writer and reader (225 sites) found:
+   - Most resolutions were already set once, where the SomeT was built.
+   - Two channels mutated shared cells in place: an opaque `Impl(...)` return's hidden type, and
+     io.await's effect `E`.
+   - The `set_resolved_concrete_type` synthesis channel that also wrote them was dead: nothing set
+     it `true`.
+
+   So:
+   - The field is `resolution : Option(Self)`, an immutable value. A copy carries a snapshot, and
+     a resolution learned later builds a new SomeT (`t_with_resolution`).
+   - Interning a SomeT is sound because nothing can change an interned instance. The intern key
+     already renders the resolution.
+   - The opaque return's hidden type re-registers the function's type with a result carrying it
+     (`t_with_func_result`). The id-keyed registry still records it for copies taken before.
+   - io.await's `E` write is deleted: every async test passes without it, and an env binding in its
+     place wrongly constrained a later bundle argument that only flows into `E`.
+   - The dead channel is removed.
+   - #939 already removed one shared-id registry write, `_resolve_some_types_deep`'s carrier
+     registrations, which a second specialization read back.
+
+   **Remaining (part 2):** `g_some_resolved_concrete` itself. Its live writers are:
+   - the opaque-return hidden type, keyed by declaration;
+   - io.async's future output, keyed by a per-call id;
+   - the forwarded Future-wrapper param;
+   - the closure-capture channels: `closure_type.yo`, the struct-field `Impl(Fn)` and the
+     capbind entries;
+   - the shared-id Fn-bound result binder, with its unregister reset;
+   - codegen's two composite-key channels (`<output>@@<block>`).
+
+   The shared-id entries are last-write-wins and go first.
 8. **Unblocks** `plans/backlog/TYPEVALUE_HASH_CONSING.md`. Its measured blocker is "the intern key
    must equal codegen's `_type_key_at`". Once steps 1–4 make the evaluator's identity equal to
    the codegen key, hash-consing is a memory project, not a soundness risk. It is also where the

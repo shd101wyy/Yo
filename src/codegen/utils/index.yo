@@ -1256,7 +1256,7 @@ _strip_stars :: (fn(s : String) -> String)({
 });
 /// get_type_string's SomeT-RESOLUTION cycle guard. The `.SomeT` arm hops to
 /// the resolved concrete (`recur(rct)`); a resolution CYCLE — a SomeT whose
-/// cell/global entry resolves (directly or via a chain) back to a type
+/// resolution/global entry resolves (directly or via a chain) back to a type
 /// containing the same SomeT — made that hop recurse unboundedly and every
 /// stage-2 self-emit died on the stack guard (SIGBUS, ~5M frames of
 /// get_type_string under generate_function_prototype; PRE-EXISTING —
@@ -1388,7 +1388,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // future's SM / sync-future struct under the future SomeType — return that.
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({ id : sid, name : snm, resolved_concrete : src }) => match(
+    .SomeT({ id : sid, name : snm, resolution : src }) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
       // intern — the id-keyed global misses when ids re-mint, e.g. the Box
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
@@ -1396,7 +1396,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // to the unresolved fallback instead of recursing forever.
       cond(
         _gts_stack_contains(sid) => Option(TypeValue).None,
-        true => match(src.get(usize(0)), .Some(rc0) => Option(TypeValue).Some(rc0), .None => lookup_some_resolved_concrete(sid))
+        true => match(src, .Some(rc0) => Option(TypeValue).Some(rc0), .None => lookup_some_resolved_concrete(sid))
       ),
       .Some(rct) => {
         // An extern-resolved FUTURE — `IoFuture :: Impl(Concrete(
@@ -1427,8 +1427,8 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
       // hard-coded in the parallelism runtime) — lower it to that name, not
       // `void*`.
-      // A heap-backed extern future reached WITHOUT a resolved-concrete
-      // cell — e.g. a NAMED local bound to an `IoFuture` in a sync function:
+      // A heap-backed extern future reached WITHOUT a resolution
+      // — e.g. a NAMED local bound to an `IoFuture` in a sync function:
       // the evaluator collapses the variable's type to the BARE extern SomeT
       // (no Future requirement left), so it is recognized here by the
       // runtime's contractual future type name, exactly as this function's

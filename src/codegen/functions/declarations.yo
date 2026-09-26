@@ -424,14 +424,14 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
           param_types.get(i),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
             // A RESOLVABLE top-level wrapper SomeT is NOT generic for
-            // codegen: get_type_string lowers it through its resolution
-            // cell / the id-keyed registry (utils/index.yo:980-990).
+            // codegen: get_type_string lowers it through its own
+            // resolution / the id-keyed registry (utils/index.yo:980-990).
             // Skipping such fns dropped
             // `test_unwind(task : Impl(Future(i32, Ctx)), ...)` and the
             // call site degraded to the statement FTT (async_await arm 72).
             pt_resolvable := match(
               pt,
-              .SomeT({ id : ghp_id, resolved_concrete : ghp_rc }) => ((ghp_rc.len() > usize(0)) || lookup_some_resolved_concrete(ghp_id).is_some()),
+              .SomeT({ id : ghp_id, resolution : ghp_rc }) => (ghp_rc.is_some() || lookup_some_resolved_concrete(ghp_id).is_some()),
               _ => false
             );
             if(!pt_resolvable, {
@@ -503,7 +503,8 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // The def-era ORIGINAL of a function the evaluator specialized, whose
   // signature still carries a SomeT param (an `Impl(Fn)` closure param):
   // every call dispatches through a specialization, and the original renders
-  // that param as whichever capture struct the SomeT cell last held — dead,
+  // that param as whichever capture struct was last registered under the
+  // SomeT's id — dead,
   // and ill-typed once two closure shapes flow through it. Collection skips
   // it where it can, but a module-namespace / registry path may still have
   // registered it; this gate is the single source of truth. Effect-record
@@ -676,7 +677,7 @@ _async_override_return_type :: (
 /// call expression's stamped type. The stamped type can carry a STALE
 /// generation's state machine — one minted during a def-time TRIAL of the
 /// same call and never emitted (forward-declared only), which the real
-/// evaluation's shared resolution cell then hands every reader:
+/// evaluation's shared id-keyed resolution then hands every reader:
 /// `incomplete definition of type '..._state_t'`, the C21 escalation that
 /// blocked D5's generic BufReader
 /// (issues/fixed/async-trait-default-shares-one-impl-future-concrete-type.md).

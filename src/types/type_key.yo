@@ -64,7 +64,7 @@ _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
 // O(distinct types on path) and is MORE precise than depth truncation (each
 // distinct type still gets a distinct key), so C-type identity is preserved.
 (g_tk_visited : ArrayList(String)) = ArrayList(String).new();
-/// Resolve a SomeT TYPE-ARGUMENT slot through its resolution-cell chain
+/// Resolve a SomeT TYPE-ARGUMENT slot through its resolution chain
 /// (cycle-guarded) before keying. Bare-id keying of argument slots split one
 /// logical instantiation into two C types whenever two records held the same
 /// resolution behind DIFFERENT SomeT identities — the closure-F family:
@@ -80,7 +80,7 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
   while(walk, {
     match(
       cur,
-      .SomeT({ id : ras_id, name : ras_nm, resolved_concrete : ras_rc }) => {
+      .SomeT({ id : ras_id, name : ras_nm, resolution : ras_rc }) => {
         // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
         // their OWN identity: the dyn/box closure machinery lowers them to a
         // distinct fat call/data C struct, and hopping to the capture struct
@@ -112,7 +112,7 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
         }, {
           seen.push(ras_id.clone());
           match(
-            ras_rc.get(usize(0)),
+            ras_rc,
             .Some(nx) => {
               cur = nx;
             },
@@ -211,7 +211,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
             match(
               stas.get(ti),
               .Some(ta_raw) => {
-                // Resolve a SomeT slot through its cell chain first (the
+                // Resolve a SomeT slot through its resolution chain first (the
                 // closure-F identity repair — see _tk_resolve_arg_slot).
                 ta := _tk_resolve_arg_slot(ta_raw);
                 // `Type` AND `unit` argument slots are value-erased: a comptime
@@ -295,10 +295,10 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           if(need_structural, {
             skey := sid.clone();
             // A closure's capture struct keys a SomeT field by the SomeT's id,
-            // not through its cell. The field holds the captured variable's
+            // not through its resolution. The field holds the captured variable's
             // type, and a closure inside a generic function captures that
-            // function's `Impl(Fn...)` parameter: one def-era lineage whose
-            // cell every call site rewrites. Keyed through the cell, the
+            // function's `Impl(Fn...)` parameter: one def-era parameter whose
+            // resolution differs at every call site. Keyed through the resolution, the
             // capture struct's key changed with each call, and codegen looked
             // it up under a key it was never registered with ("Capture type
             // not found for closure")
@@ -463,14 +463,14 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         })
       })
     },
-    // NOTE: a SomeT keys by its OWN id — NOT through its resolution cell. A
+    // NOTE: a SomeT keys by its OWN id — NOT through its resolution. A
     // blanket resolved-hop here was measured to over-merge: the dyn/box
     // closure-wrapper family keys the WRAPPER SomeT as a distinct C type (the
     // fat call/data struct) whose id-keyed identity must NOT collapse onto
     // the capture struct ("no member named 'call'" across the dyn corpus).
     // The closure-F identity split is instead repaired where it actually
     // occurs: the Struct arm resolves SomeT TYPE-ARGUMENT slots through
-    // their cells (see _tk_resolve_arg_slot below).
+    // their resolutions (see _tk_resolve_arg_slot below).
     //
     // A closure identity (`is_bound_closure_identity`: a resolved, non-Future
     // `Impl` annotation wrapper — never a dyn wrapper) is the exception: it is

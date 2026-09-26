@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
+{ lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 {
   is_some_type,
@@ -82,9 +82,6 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 /// Options controlling type synthesis behavior.
 SynthesizeOptions :: ref(
   struct(
-    /// When true, also records the SomeT's resolved concrete type in the
-    /// id-keyed registry (SomeT carries no such field).
-    set_resolved_concrete_type : bool,
     /// Optional source token for variable bindings created during synthesis.
     token : Option(Token)
   )
@@ -1151,33 +1148,6 @@ _synthesize_future_traits :: (
     opts,
     exn
   );
-  // Effect-type (E) binding for Future traits: when the EXPECTED effect slot
-  // is still an abstract SomeT (the io.await callee's freshened `E`) and the
-  // GIVEN side is concrete (the task's `Ctx`), write the concrete type into
-  // the expected SomeT's OWN resolution cell — CELL-ONLY, never the env and
-  // never via opts. Binding `E` into the env buried sibling `E` names (e.g.
-  // Result's error param — "Cannot unify usize and unit" x5 across the async
-  // batch), and stamping through opts wrote into SHARED def-era cells,
-  // poisoning sibling calls (the io.await shared-wrapper cluster,
-  // issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md). The cell here
-  // belongs to the per-call FRESHENED forall (_freshen_io_builtin_callee), so
-  // the write is call-local.
-  if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
-    sfe_exp := match(exp_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-    sfe_giv := match(giv_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_some_type(sfe_exp) && !is_some_type(sfe_giv), {
-      match(
-        sfe_exp,
-        .SomeT({ resolved_concrete : sfe_cell }) => {
-          if(sfe_cell.len() > usize(0), {
-            _r := sfe_cell.drain(usize(0) .. sfe_cell.len());
-          });
-          sfe_cell.push(sfe_giv);
-        },
-        _ => ()
-      );
-    });
-  });
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
@@ -1191,7 +1161,7 @@ _synthesize_future_traits :: (
 ///   expected_ty, expected_env — the "pattern" side (may contain SomeTypes).
 ///   given_ty, given_env       — the "actual value" side.
 ///   checked   — anti-circularity pairs (thread through all recursive calls).
-///   opts      — optional options (set_resolved_concrete_type, token).
+///   opts      — optional options (token).
 _synthesize_types_impl :: (
   fn(
     expected_ty : TypeValue,
@@ -1215,7 +1185,7 @@ _synthesize_types_impl :: (
   tok := opts_token(opts, ee);
   // Case: both are SomeTypes
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
-    // A closure identity's value is its own cell, never an env entry: the
+    // A closure identity's value is its own resolution, never an env entry: the
     // env is keyed by name, every closure's wrapper is named `Impl`, and
     // an entry written for one closure resolved every later closure to its
     // capture struct (`l1.push(k1); l2.push(k2)` failed at `k2`).
@@ -1371,27 +1341,6 @@ _synthesize_types_impl :: (
       };
       val := EvalValue.TypeVal(given_ty);
       _bind_some_type(ee, exp_name, exp_id2, val, given_ty, tok, exn);
-      // Phase 5: record the resolved CONCRETE type for this SomeT (keyed by id)
-      // in the side-table when the caller asked for it (SomeT has no such
-      // field): the `g_some_resolved_concrete` registry stands in (read by the
-      // async-Future / FSM codegen). Inert until the FSM readers land.
-      if(match(opts, .Some(o) => o.set_resolved_concrete_type, .None => false), {
-        register_some_resolved_concrete(exp_id2, given_ty);
-        // ALSO stamp the SHARED per-lineage CELL (definitions.yo SomeT
-        // resolved_concrete): every clone of this SomeT — including copies
-        // already stored in func types and registries — sees the resolution.
-        // Last-wins.
-        match(
-          expected_ty,
-          .SomeT({ resolved_concrete : exp_cell }) => {
-            if(exp_cell.len() > usize(0), {
-              _r := exp_cell.drain(usize(0) .. exp_cell.len());
-            });
-            exp_cell.push(given_ty);
-          },
-          _ => ()
-        );
-      });
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
       (eti : usize) = usize(0);
@@ -1460,23 +1409,6 @@ _synthesize_types_impl :: (
       };
       val := EvalValue.TypeVal(expected_ty);
       _bind_some_type(ge, giv_name, giv_id2, val, expected_ty, tok, exn);
-      // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
-      // type (the expected concrete) in the side-table.
-      // Keyed by the given SomeT's id.
-      if(match(opts, .Some(o) => o.set_resolved_concrete_type, .None => false), {
-        register_some_resolved_concrete(giv_id2, expected_ty);
-        // Symmetric per-lineage CELL stamp — see the expected-side site above.
-        match(
-          given_ty,
-          .SomeT({ resolved_concrete : giv_cell }) => {
-            if(giv_cell.len() > usize(0), {
-              _r := giv_cell.drain(usize(0) .. giv_cell.len());
-            });
-            giv_cell.push(expected_ty);
-          },
-          _ => ()
-        );
-      });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -2252,8 +2184,8 @@ _synthesize_types_impl :: (
       // unresolved vars). Retry the synthesis with the resolution.
       giv_resolution := match(
         given_ty,
-        .SomeT({ id : sg_id, resolved_concrete : sg_cell }) => match(
-          sg_cell.get(usize(0)),
+        .SomeT({ id : sg_id, resolution : sg_cell }) => match(
+          sg_cell,
           .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
           .None => lookup_some_resolved_concrete(sg_id)
         ),
@@ -2268,8 +2200,8 @@ _synthesize_types_impl :: (
       );
       exp_resolution := match(
         expected_ty,
-        .SomeT({ id : se_id, resolved_concrete : se_cell }) => match(
-          se_cell.get(usize(0)),
+        .SomeT({ id : se_id, resolution : se_cell }) => match(
+          se_cell,
           .Some(se_rt) => Option(TypeValue).Some(se_rt),
           .None => lookup_some_resolved_concrete(se_id)
         ),

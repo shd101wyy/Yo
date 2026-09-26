@@ -439,9 +439,9 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
       // An ORIGINAL the evaluator has minted specializations from, whose
       // signature still carries a SomeT param (an `Impl(Fn)` closure param):
       // every call dispatches through its specialization, and the original
-      // renders that param as whichever capture struct the SomeT cell last
-      // held — dead code that only type-checks while a single closure
-      // shape flows through it. RAW SomeT scan on purpose: the cell
+      // renders that param as whichever capture struct was last registered
+      // under the SomeT's id — dead code that only type-checks while a single
+      // closure shape flows through it. RAW SomeT scan on purpose: the
       // resolution is exactly what must not count as concrete here
       // (issues/fixed/forwarded-closure-param-shares-specialization.md).
       has_raw_some := (fn_has_specializations(_func_val_id(v)) && func_params_have_raw_some_type(get_func_type(_func_val_id(v))));

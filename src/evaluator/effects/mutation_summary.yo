@@ -838,8 +838,8 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)
         found
       },
       .IsoT(child : child) => recur(child, depth + u32(1)),
-      .SomeT({ required_trait_types : _, resolved_concrete : rc }) => match(
-        rc.get(usize(0)),
+      .SomeT({ required_trait_types : _, resolution : rc }) => match(
+        rc,
         .Some(concrete) => recur(concrete, depth + u32(1)),
         .None => true
       ),

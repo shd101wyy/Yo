@@ -98,12 +98,12 @@ lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_ar
 // exclude unreachable variants from an enum's constructor set).
 // ---------------------------------------------------------------------------
 /// Resolve a GADT type-constructor arg through the SomeT resolution channel
-/// (lineage cell first, then the id-keyed registry).
+/// (the SomeT's own resolution first, then the id-keyed registry).
 gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT({ id : rt_id, resolved_concrete : rt_cell }) => match(
-      rt_cell.get(usize(0)),
+    .SomeT({ id : rt_id, resolution : rt_cell }) => match(
+      rt_cell,
       .Some(rt_c) => rt_c,
       .None => match(
         lookup_some_resolved_concrete(rt_id),
