@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("./guards.yo");
 { type_to_string } :: import("./string.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../env.yo");
+{ Environment, Variable, get_variables_from_env, variable_bound_some_id } :: import("../env.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -125,9 +125,41 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
   });
   found
 });
+/// Whether `var` may be a binding for the SomeT with id `some_id`: a binding
+/// that recorded the SomeT it resolves (`variable_bound_some_id`) is for that
+/// SomeT only. A name and a frame level do not identify a binder — the
+/// caller's `T` and `io.async`'s `T` share both
+/// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
+_binding_may_be_for :: (fn(var : Variable, some_id : String) -> bool)({
+  bound := variable_bound_some_id(var);
+  (bound.len() == usize(0)) || (bound == some_id)
+});
+/// The most recent of `variables` that recorded it resolves the SomeT
+/// `some_id` (`variable_bound_some_id`), as its type; `unbound` when none did.
+_binding_recorded_for :: (fn(variables : ArrayList(Variable), some_id : String, unbound : TypeValue) -> TypeValue)({
+  (i : usize) = variables.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      variables.get(i),
+      .Some(v) => if(variable_bound_some_id(v) == some_id, {
+        match(
+          v.value.get(usize(0)),
+          .Some(val) => if(_is_type_eval_value(val), {
+            return(_unwrap_type_eval_value(val));
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  unbound
+});
 /// Look up a variable by (frame_level, name) and return its TypeValue if it
-/// holds a TypeVal.  Returns None otherwise.
-_lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(TypeValue))({
+/// holds a TypeVal and may be a binding for the SomeT `some_id`. Returns None
+/// otherwise.
+_lookup_by_frame :: (fn(env : Environment, fl : usize, name : String, some_id : String) -> Option(TypeValue))({
   n_frames := env.frames.len();
   cond(
     (fl >= n_frames) => Option(TypeValue).None,
@@ -144,7 +176,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
               vars.get(i),
               .Some(var) =>
                 cond(
-                  (var.name == name) =>
+                  ((var.name == name) && _binding_may_be_for(var, some_id)) =>
                     match(
                       var.value.get(usize(0)),
                       .Some(val) =>
@@ -189,7 +221,7 @@ _def_frame_confirms_binding :: (
     }
   );
   def_tv := match(
-    _lookup_by_frame(env, fl, _some_name(some_ty)),
+    _lookup_by_frame(env, fl, _some_name(some_ty), _some_id(some_ty)),
     .Some(t) => t,
     .None => {
       return(false);
@@ -341,6 +373,15 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           is_some_type(resolved_tv) => {
                             current = resolved_tv;
                           },
+                          // A binding that recorded the SomeT it resolves
+                          // answers for that SomeT and no other.
+                          (variable_bound_some_id(last_var).len() > usize(0)) => {
+                            result = cond(
+                              (variable_bound_some_id(last_var) == cur_id) => resolved_tv,
+                              true => _binding_recorded_for(variables, cur_id, current)
+                            );
+                            done = true;
+                          },
                           // Concrete type
                           true => {
                             // OWNERSHIP-PAIRED resolution: the last same-NAME
@@ -445,7 +486,7 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
       negative_trait_types : _,
       negative_trait_levels : _
     ) => {
-      r := _lookup_by_frame(env, sfl, sn);
+      r := _lookup_by_frame(env, sfl, sn, sid);
       match(
         r,
         .Some(tv) =>

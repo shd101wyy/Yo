@@ -25,7 +25,8 @@ pragma(Pragma.AllowUnsafe);
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  copy_frames
+  copy_frames,
+  variable_set_bound_some_id
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
@@ -180,6 +181,18 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
   });
   found
 });
+/// Record on a type binder's binding which SomeT it resolves (see
+/// `VariableRare.bound_some_id`). A self-marker (`T := SomeT(T)`) carries its
+/// id in its value and needs no record.
+_record_bound_some_id :: (fn(bound : Option(Variable), source_some_id : String, val : EvalValue) -> unit)(
+  match(
+    bound,
+    .Some(bv) => if((source_some_id.len() > usize(0)) && match(val, .TypeVal(bvt) => !(is_some_type(bvt)), _ => false), {
+      variable_set_bound_some_id(bv, source_some_id);
+    }),
+    .None => ()
+  )
+);
 /// Bind a SomeType variable in `env`: add if not present, update if already present.
 _bind_some_type :: (
   fn(
@@ -211,20 +224,24 @@ _bind_some_type :: (
   cond(
     (n == usize(0)) => {
       // No existing binding — add one
-      add_variable_to_env(
-        env,
-        name,
-        bind_ty,
-        Option(EvalValue).Some(val),
-        true,
-        // is_compile_time_only
-        false,
-        // is_reassignable
-        false,
-        // is_owning_the_rc_value
-        false,
-        // is_implicit
-        token
+      _record_bound_some_id(
+        add_variable_to_env(
+          env,
+          name,
+          bind_ty,
+          Option(EvalValue).Some(val),
+          true,
+          // is_compile_time_only
+          false,
+          // is_reassignable
+          false,
+          // is_owning_the_rc_value
+          false,
+          // is_implicit
+          token
+        ),
+        source_some_id,
+        val
       );
       ()
     },
@@ -285,20 +302,24 @@ _bind_some_type :: (
         eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames.len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))))).to_string()}`);
       });
       if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
-        add_variable_to_env(
-          env,
-          name,
-          bind_ty,
-          Option(EvalValue).Some(val),
-          true,
-          // is_compile_time_only
-          false,
-          // is_reassignable
-          false,
-          // is_owning_the_rc_value
-          false,
-          // is_implicit
-          token
+        _record_bound_some_id(
+          add_variable_to_env(
+            env,
+            name,
+            bind_ty,
+            Option(EvalValue).Some(val),
+            true,
+            // is_compile_time_only
+            false,
+            // is_reassignable
+            false,
+            // is_owning_the_rc_value
+            false,
+            // is_implicit
+            token
+          ),
+          source_some_id,
+          val
         );
         return(());
       });
@@ -326,6 +347,7 @@ _bind_some_type :: (
         is_ref : false,
         is_parameter : false
       );
+      _record_bound_some_id(Option(Variable).Some(new_var), source_some_id, val);
       update_existing_variable(env, old_var, new_var);
     }
   );
