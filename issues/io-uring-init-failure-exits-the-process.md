@@ -65,22 +65,34 @@ Ring-creation failure has exactly one handling path: print and `exit(1)`. There 
 recorded "ring unavailable" state for the op starts to consult, so degradation cannot
 even be expressed today except per-op in stub arms.
 
-## Fix direction (plans/DROP_LIBURING.md Phase 5)
+## Fix direction (plans/DROP_LIBURING.md Phase 5 — the backend ladder)
 
-Record the init errno once (`_Thread_local`); every `__yo_async_*_start` thereafter
-returns an already-completed future carrying that errno — generalizing the documented
-sleep-degrade shape to the whole op set — plus one clear diagnostic naming the errno
-and its likely cause:
+Ring creation failure stops being fatal and stops being the whole story. The first
+`__yo_io_init` failure selects the **epoll fallback backend** — a port of the macOS
+kqueue backend's shape (`runtime_io_macos.yo`): readiness pending-ops for
+sockets/pipes/ttys, the same timerfd timers, the same eventfd wake channel; regular
+files and the no-readiness ops (`openat`/`statx`/`fsync`/…) complete synchronously in
+the future, which is macOS's documented behavior today
+(`runtime_io_macos.yo:1270–1277`). Only if `epoll_create1` also fails does the ladder
+reach its final rung: record the errno once (`_Thread_local`) and every
+`__yo_async_*_start` returns an already-completed future carrying it — the documented
+sleep-degrade shape, generalized. Each selection logs one diagnostic line naming the
+errno and its likely cause:
 
 - `ENOSYS` → kernel < 5.6 or seccomp-blocked (name Docker's default profile);
 - `EPERM` → hardened/sandboxed kernel;
 - `ENOMEM` → RLIMIT_MEMLOCK (point at
   `issues/fixed/every-thread-creates-an-io-uring-ring-and-thread-churn-runs-out-of-memory.md`).
 
-Never `exit(1)`. A poll/epoll degraded backend is explicitly out of scope
-(`plans/DROP_LIBURING.md` §10) until users hit blocked environments in practice.
+`YO_IO_BACKEND=auto|uring|epoll` pins the backend for tests and benchmarks (getenv
+precedent: `YO_ASYNC_STRICT`, `YO_MAIN_STACK_MB`); forced and failing is a hard error,
+never a silent ladder step. Performance is guaranteed separately
+(`plans/DROP_LIBURING.md` Phase 6): zero regression on the ring path (emit-diff +
+A/B), fallback floors with a ratchet (`scripts/bench-io-backends.sh`), and
+CI-enforced deterministic syscall/behavior budgets.
 
-The fix lands with a regression test that fails before and passes after: a build whose
-`__yo_uring_queue_init` is forced to fail (e.g. an injected `seccomp` rule or a
-`__YO_TEST_RING_INIT_ERRNO` override compile flag) must complete the awaited op with
-the errno instead of exiting.
+The Docker reproducer above becomes the acceptance test (Phase 5's Docker CI leg): in
+a default-seccomp container the program must COMPLETE via the fallback — rc=0, correct
+output, one fallback line on stderr. That leg, plus the forced-epoll corpus
+(`YO_IO_BACKEND=epoll` over the async/io/net/thread tests), is the regression coverage
+that fails before and passes after.
