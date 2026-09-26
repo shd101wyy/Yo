@@ -1,0 +1,16 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Raise :: (ctl(msg : String) -> i32);
+safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
+  cond((y == i32(0)) => raise(`div-by-zero`), true => (x / y))
+);
+main :: (fn() -> unit)({
+  (raise : Raise) = (
+    msg -> {
+      return(`not an i32`);
+    }
+  );
+  r := safe_divide(i32(1), i32(0), raise);
+  println(`r=${r}`);
+});
+export(main);
