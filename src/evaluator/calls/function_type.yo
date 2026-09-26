@@ -29,18 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_set,
-  expr_info_table_get,
-  register_some_resolved_concrete,
-  lookup_some_resolved_concrete,
-  has_control_flow,
-  has_any_control_flow,
-  push_active_where_trait_ids,
-  pop_active_where_trait_ids
-} :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, register_some_resolved_concrete, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -1857,8 +1846,8 @@ Result type: ${type_to_string(result_box)}`
           // declared result taken before this point.
           match(
             result_box,
-            .SomeT({ id : dts_rid, resolution : dts_res }) => if(
-              dts_res.is_none() && lookup_some_resolved_concrete(dts_rid).is_none(),
+            .SomeT({ id : dts_rid }) => if(
+              some_resolution(result_box).is_none(),
               match(
                 flow_out.get(usize(0)),
                 .Some(dts_body) => match(
@@ -1867,15 +1856,7 @@ Result type: ${type_to_string(result_box)}`
                     dts_bty := dts_binfo.ty;
                     dts_hidden := cond(
                       !(is_some_type(dts_bty)) => Option(TypeValue).Some(dts_bty.clone()),
-                      true => match(
-                        dts_bty,
-                        .SomeT({ id : dts_bid, resolution : dts_bres }) => match(
-                          dts_bres,
-                          .Some(x) => Option(TypeValue).Some(x),
-                          .None => lookup_some_resolved_concrete(dts_bid)
-                        ),
-                        _ => Option(TypeValue).None
-                      )
+                      true => some_resolution(dts_bty)
                     );
                     match(
                       dts_hidden,
