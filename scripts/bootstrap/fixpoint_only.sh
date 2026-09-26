@@ -40,7 +40,16 @@ if [ -z "$SSL_FLAGS" ] && command -v brew >/dev/null 2>&1; then
     SSL_FLAGS=""
   fi
 fi
-clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 $SSL_FLAGS /tmp/${P}_stage2.c -o /tmp/${P}_s2 2> /tmp/${P}_clang.log
+# The Linux async runtime links liburing (macOS has no ring, so this gate ran
+# clean there for its whole life). CI's bootstrap-fixpoint step passes -luring
+# on its own clang line; this script needs the same or the stage-2 link dies
+# on every io_uring_* symbol.
+URING_FLAGS=""
+if [ "$(uname -s)" = "Linux" ]; then
+  URING_FLAGS="$(pkg-config --cflags --libs liburing 2>/dev/null || true)"
+  [ -n "$URING_FLAGS" ] || URING_FLAGS="-luring"
+fi
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 $SSL_FLAGS $URING_FLAGS /tmp/${P}_stage2.c -o /tmp/${P}_s2 2> /tmp/${P}_clang.log
 clang_rc=$?
 echo "CLANG_RC=$clang_rc"
 [ "$clang_rc" -eq 0 ] || rc=1
