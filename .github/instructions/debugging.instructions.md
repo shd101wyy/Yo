@@ -116,6 +116,16 @@ Two tells, both cheap:
   with no matching post-line means control left between them — i.e. something
   after the trial threw for real. That is where to look, not inside the body.
 
+A third tell: **`check` reports the rejection and `compile` does not.** A
+failed evaluation returns `make_err_expr()` (id 0), and callers test for
+failure by that node having no ExprInfo. `compile` shares one ExprInfoTable
+across every module, so anything stored at id 0 anywhere turns that test into
+a false success. Ids now start at 1 and `expr_info_table_set` refuses id 0
+(`issues/fixed/compile-reports-a-derived-error-instead-of-the-safe-code-raw-pointer-rejection.md`).
+The general form is: a sentinel value must not be a key that real data can
+also occupy. To find which handler ate an error, instrument every
+`throw : (...)` handler at once; the traced handler list was the fix.
+
 When several call sites could be the one, **tag them all in one build** rather
 than bisecting: four `_trial_eval_fn_body` sites, four distinct `eprintln`
 markers, one rebuild. Guessing which site runs cost four wrong hypotheses on the

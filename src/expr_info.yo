@@ -968,6 +968,13 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
   // for a statement costs >=8x on `check`
   // (issues/block-body-on-a-hot-constructor-makes-check-8x-slower.md).
   type_intern_probe_record(info.ty);
+  // Id 0 is `make_err_expr`'s: it names no node, and "the evaluation failed" is
+  // tested by it having no ExprInfo. A write through a fallback node (a
+  // `.Atom => make_err_expr()` arm) must not make that test pass for the next
+  // failure, which in `compile`'s shared table can be in another module.
+  if(id == usize(0), {
+    return(());
+  });
   table.data.insert(id, info);
   ()
 });
