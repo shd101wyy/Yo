@@ -262,10 +262,10 @@ try_to_call_type_with_arguments :: (
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, member_element.ty));
     // Closure arg into an `Impl(Fn(...))`-SomeT FIELD: register the capture
     // struct as the FIELD SomeT id's resolved concrete. The lambda take-on
-    // stamps only the VALUE COPY's resolved
-    // cell (anonymous_function.yo — the global stamp there regressed
+    // records it only as the VALUE COPY's
+    // resolution (anonymous_function.yo — the global stamp there regressed
     // fs/file+fs/temp via io.async's unresolved-`T` closures); the struct
-    // type's own field SomeT instance has no cell, so the field emitted
+    // type's own field SomeT instance has no resolution, so the field emitted
     // `void*` while the initializer emitted the capture struct
     // ("initializing 'void *' with __yo_tN" — tests/impl_fn_field_rejection
     // workaround B; issues/retired/yo-self-69-red-list-map.md 2026-07-30 scoping).

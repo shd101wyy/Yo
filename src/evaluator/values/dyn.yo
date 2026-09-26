@@ -177,8 +177,8 @@ _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeVal
     return(Option(TypeValue).Some(t));
   });
   // `type_contains_some_type` waves through a `SomeT` that already carries its
-  // concrete on the per-object `resolved_concrete` cell (closures/futures).
-  // Follow that cell, then the env binding chain; if neither lands on a
+  // concrete as its own `resolution` (closures/futures).
+  // Follow that resolution, then the env binding chain; if neither lands on a
   // concrete the bound is still undecidable here.
   own_rc := match(t, .SomeT({ resolution : rc }) => rc, _ => Option(TypeValue).None);
   resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));

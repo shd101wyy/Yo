@@ -1486,11 +1486,11 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
     .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
-      // Walk the SomeT and its resolved_concrete chain: a where-clause `F`
+      // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
       // carries the Fn in ITS required list). Iterative with a visited-id
-      // list — resolution cells can cycle (the get_type_string
+      // list — resolution chains can cycle (the get_type_string
       // SIGBUS family), which a plain recursive walk would not survive.
       (eft_cur : TypeValue) = ty;
       (eft_seen : ArrayList(String)) = ArrayList(String).new();
@@ -1807,7 +1807,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// keyed by nominal type id. The extern-SomeType and resolved-concrete
 /// exclusions ARE implemented here — extern-ness through the
 /// `g_extern_type_names` side table, resolution through `SomeT`'s own
-/// `resolved_concrete` cell (treating either as a no-op is what once let
+/// `resolution` (treating either as a no-op is what once let
 /// `should_skip_function_codegen` drop functions with a resolved-SomeT return).
 type_contains_some_type_for_codegen_param :: (
   fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
@@ -1850,9 +1850,9 @@ type_contains_some_type_for_codegen_param :: (
     });
     // A SomeT that already carries a resolved concrete IS that concrete for
     // codegen purposes, so ask the question of the RESOLUTION. `SomeT`
-    // does carry a `resolved_concrete` cell, and the SHALLOW sibling
+    // does carry a `resolution`, and the SHALLOW sibling
     // `type_contains_some_type` (types/utils.yo) has always read it
-    // (`(cst_rc.len() > usize(0)) => false`).
+    // (`cst_rc.is_some() => false`).
     //
     // SCOPE: this arm is NOT the fix for any measured
     // symptom. It was written while chasing an `ArrayList(Dyn(Trait))` link

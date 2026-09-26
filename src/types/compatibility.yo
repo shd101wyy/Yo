@@ -166,8 +166,9 @@ set_compat_type_implements_trait_fn :: (fn(f : CompatImplementsTraitFn) -> unit)
 });
 /// Hook to `lookup_some_resolved_concrete` (expr_info.yo) — same cycle-breaker
 /// pattern. The given-SomeT resolution unwrap needs the DURABLE id-keyed
-/// registry: the def-time stamping often reaches only the registry, not every
-/// lineage cell copy already stored in variables/ExprInfos.
+/// registry: a resolution learned at def time is often recorded only there,
+/// not in the SomeT copies already stored in variables/ExprInfos (each copy
+/// carries the resolution it was built with).
 CompatSomeResolvedFn :: (fn(some_id : String) -> Option(TypeValue));
 (g_compat_lookup_some_resolved : Option(CompatSomeResolvedFn)) =
   Option(CompatSomeResolvedFn).None;
@@ -208,7 +209,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
         });
       },
       .FutureTraitT(output : cc_fo, effect_types : cc_fets) => {
-        // TOP-LEVEL SomeT check only (after cell resolution): the gate's
+        // TOP-LEVEL SomeT check only (after the resolution chain): the gate's
         // purpose is to reject a RAW forall carrier arg (`Future(T, E)`
         // unresolved), not a concrete effect bundle that merely CONTAINS
         // nested SomeTs (an effect struct's ctl members carry ResumeType
@@ -621,8 +622,8 @@ _compat_impl :: (
   // `Impl(RetI32)` receiver resolved to `bool` flowing into an impl method's
   // `self : *(bool)` (the receiver-methods filter and the self-param check
   // both route here). require_exact passes through,
-  // so the pointer-children exact recursion also benefits. Reads the lineage
-  // CELL (the value-semantics surrogate of a mutated type object).
+  // so the pointer-children exact recursion also benefits. Reads the SomeT's
+  // own `resolution`, then the id-keyed registry.
   if(is_some_type(actual) && !(is_some_type(expected)), {
     match(
       actual,
@@ -930,8 +931,8 @@ _compat_impl :: (
           // def-time placeholder, an unresolved instantiation), so
           // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
           // that are not themselves non-exact-compatible disagree. The
-          // placeholder is NOT read through its resolution cell: cells are
-          // per-SomeT identity and can carry an EARLIER call's binding
+          // placeholder is NOT read through its resolution: a SomeT's
+          // resolution can carry an EARLIER call's binding
           // (a first cut did, and two eras of one iterator instantiation
           // "disagreed"); substitution already rewrites an instantiation's
           // payloads concretely where it can.

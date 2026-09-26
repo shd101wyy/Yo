@@ -1512,7 +1512,7 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
 );
 /// Freshen an io.async call's result type PER CALL SITE: rebuild the wrapper
 /// `Impl(Future(T, E))` SomeT AND the FutureTraitT OUTPUT `T` SomeT with
-/// fresh ids and FRESH resolution cells, so `resolved_concrete` stamps
+/// fresh ids and no resolution, so per-call resolutions
 /// stay per-call-isolated. Previously the output id was
 /// preserved across calls and awaits resolved through the GLOBAL registry keyed on it —
 /// the first call's resolution then poisoned every sibling io.async call
@@ -1542,8 +1542,8 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
   )
 );
 
-/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + FRESH
-/// resolution cell and substitute it CONSISTENTLY through the callee's param
+/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + no
+/// resolution and substitute it CONSISTENTLY through the callee's param
 /// AND return types. This closes the per-call lineage end-to-end: the action
 /// param's `T` the closure registers IS the future output's `T` the await
 /// reads, and a sibling call — e.g. command.yo's declared
@@ -1623,9 +1623,9 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
 ///   * `check_and_add_argument`'s Fn-bound arm registers the closure's
 ///     concrete result against the DECLARED bound's result id
 ///     (`register_some_resolved_concrete`) — one key, last write wins;
-///   * the SomeT's own `resolved_concrete` cell, which
-///     `resolve_some_type_to_concrete` consults FIRST, is stamped on a
-///     different schedule and trails the registry by one call.
+///   * (until Phase 3.7) the SomeT's own shared resolution cell, which
+///     `resolve_some_type_to_concrete` consulted FIRST, was stamped on a
+///     different schedule and trailed the registry by one call.
 ///
 /// Measured at three instantiations, both channels reach the emitted C and
 /// both are wrong: the async generations came out `[T2, T0, T1]` and
@@ -1638,7 +1638,7 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
 /// read-back side). That pair is what makes the shared id load-bearing; a
 /// generic whose binder never escapes into an id-keyed channel keeps the
 /// declaration's ids, so the hot path is untouched. Binder NAMES are
-/// preserved — only ids and resolution cells are fresh — so the by-name
+/// preserved — only ids are fresh, and resolutions are dropped — so the by-name
 /// forall-label match in `try_to_call_function_with_arguments` and every
 /// by-name env lookup keep working.
 /// Collect every SITE — `(name, frame_level, id, the SomeT itself)` — at which
@@ -1801,7 +1801,7 @@ _gc_freshen_all_sites :: (
       gf = (gf + usize(1));
     });
     if(!(g_have), {
-      // Copy EVERY attribute of the binder but its id and its resolution cell.
+      // Copy EVERY attribute of the binder but its id and its resolution.
       // Dropping `required_trait_types` would silently discard a
       // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
       // same type variable, only with a per-call identity.
@@ -3415,7 +3415,7 @@ _evaluate_funcval_runtime_call :: (
   // substitution alone cannot reach. Adoption stays conservative: only a
   // SomeT-free, non-unit result overrides.
   // Do NOT re-evaluate when the substituted result is already
-  // codegen-concrete (every SomeT resolves through its cell): the re-eval
+  // codegen-concrete (every SomeT resolves through its resolution): the re-eval
   // resolves foralls by NAME in the callee env, where a where-clause-bound
   // `F` holds the closure's BARE fn type — the SAME value for every call —
   // so it would clobber the per-call `F → __impl_fn → <capture>` identity
@@ -3474,13 +3474,13 @@ _evaluate_funcval_runtime_call :: (
         match(
           hkt_out.get(usize(0)),
           // Accept a SomeT-free result, OR one whose SomeTs ALL resolve
-          // concretely through their cells (the closure-`F` family:
+          // concretely through their resolutions (the closure-`F` family:
           // `IterFilter(Self, F)` with the per-call `F → __impl_fn →
           // <capture struct>` — codegen's type_key hops the same chain, so
           // the result is C-concrete; rejecting it left the caller stamped
           // with the SHARED unresolved `F`, merging every arm's return onto
           // ONE C type while each specialized callee returned its own).
-          // The cell-resolving arm is admitted ONLY for the pre-existing
+          // The resolution-chain arm is admitted ONLY for the pre-existing
           // triggers: on an era_suspect-ONLY run the substituted result was
           // already SomeT-free (`box(closure)`'s Box(<capture struct>) via
           // the declared-param bridge), and the re-eval resolves `V` by NAME
@@ -3493,8 +3493,8 @@ _evaluate_funcval_runtime_call :: (
           // callee's own generic binders, so substitution is COMPLETE for this
           // call and whatever SomeTs remain are existential wrappers rather
           // than type variables. That is exactly what an async return IS —
-          // `Impl(Future(i32) Io)` is one SomeT, with an empty resolution
-          // cell, so both arms above reject it and `resolved_ret` stayed
+          // `Impl(Future(i32) Io)` is one SomeT, with no resolution,
+          // so both arms above reject it and `resolved_ret` stayed
           // `Impl(Future(R) Io)`: EVERY caller of a generic
           // `-> Impl(Future(R))` function then shared one unresolved return,
           // the await site rendered it `void*`, and a second instantiation
@@ -7910,11 +7910,11 @@ Fix: wrap the call:
         // `lookup_some_resolved_concrete` has no other evaluator reader.
         if(is_io_async_call(expr), {
           // Freshen the io.async RESULT type per call site — wrapper SomeT id,
-          // OUTPUT SomeT id, and BOTH resolution cells (see
+          // OUTPUT SomeT id, both built with no resolution (see
           // _freshen_io_async_result). Distinct wrapper ids keep per-call
           // state-machine struct registrations from colliding at codegen
           // (issues/fixed/yo-self-multi-async-block-metadata-collision.md); the
-          // fresh OUTPUT id + cell make the closure-result registration below
+          // fresh OUTPUT id makes the closure-result registration below
           // and the io.await resolution PER-CALL (previously the preserved
           // shared id cross-poisoned sibling calls — item 7 of
           // issues/yo-self-async-emission-cluster.md).
@@ -8168,7 +8168,7 @@ Fix: wrap the call:
                 // (`b.return_i32()` on an Impl(RetI32)-resolved receiver,
                 // impl.test.yo 9a). Resolve the CONCRETE impl's method
                 // value through the receiver's SomeT resolution
-                // (cell/registry) and record THAT.
+                // (its own resolution / the registry) and record THAT.
                 rm_recv_ty0 := match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(method_info.receiver_expr)),
                   .Some(rm_ri) => rm_ri.ty,
@@ -8364,7 +8364,7 @@ Fix: wrap the call:
           // Wrapper return (`-> Impl(Future(R))`): bridge the call's result to
           // THIS callee's async block, like the FuncVal arm's
           // `_with_resolved_concrete` bridge. Without it the caller's wrapper
-          // carried no per-value cell and codegen fell back to the GLOBAL
+          // carried no resolution of its own and codegen fell back to the GLOBAL
           // registration for the DECLARED wrapper id — shared by every
           // specialization of the method, last writer wins — so two `R`s
           // through one method cast both futures to the second spec's struct
@@ -8606,7 +8606,7 @@ Fix: wrap the call:
           // value-independent, so the refinement must run here too.
           if(is_io_async_call(expr), {
             // Same per-call freshening + registration order as the FuncVal-
-            // callee branch above (fresh output id + cell FIRST, then register
+            // callee branch above (fresh output id FIRST, then register
             // the closure's concrete result under the fresh id).
             ret_type_none = _freshen_io_async_result(ret_type_none);
             match(

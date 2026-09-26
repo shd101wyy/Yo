@@ -1638,7 +1638,7 @@ _find_specialization_cache :: (
                           // SomeT (`IterFilter(CountIter, F)` — the per-call
                           // closure-`F` family) compares compat-EQUAL across
                           // calls: the shared def-era `F` matches by id while the
-                          // per-call resolution lives in its cell chain. codegen's
+                          // per-call resolution lives in its resolution chain. codegen's
                           // type_key resolves that chain (`_tk_resolve_arg_slot`),
                           // so two receivers with different capture structs get
                           // DIFFERENT C types — sharing one spec across them
@@ -1975,12 +1975,12 @@ _build_forward_ref_funcval :: (
 /// (`_tk_resolve_arg_slot`): the snapshot must agree with the key.
 _spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)(_tk_resolve_arg_slot(t_in));
 /// SNAPSHOT a ctor-stamped record's generic slots at SPECIALIZATION time:
-/// resolve each `type_arguments`/`field_types` SomeT through its cell chain
-/// NOW, so the registered spec signature reads the CALL era instead of
-/// whatever the shared def-era cell holds when the C emitter finally walks it.
-/// The def-era slot SomeT (e.g. prelude filter's `F`) is ONE lineage across
-/// every call site — a later `.filter(q)` call overwrites the cell, so an
-/// emission-time read resolves a DIFFERENT era than the call the spec was
+/// resolve each `type_arguments`/`field_types` SomeT through its resolution
+/// chain NOW, so the registered spec signature names the CALL era's concrete
+/// types rather than the def-era slot SomeT. That SomeT (e.g. prelude
+/// filter's `F`) is ONE SomeT across every call site; while its resolution
+/// was a shared cell, a later `.filter(q)` call overwrote it, so an
+/// emission-time read resolved a DIFFERENT era than the call the spec was
 /// minted for (`IterFilter(_, capture-A)` at the call site vs
 /// `IterFilter(_, capture-B)` in the spec signature — the arm-18 clang
 /// mismatch).
@@ -2076,7 +2076,7 @@ _reeval_closure_body_swallow :: (
 ///   4. Returns the specialized FuncVal.
 ///
 /// Resolve a specialization ARG type through the SomeT resolution chain (own
-/// cell first, then the global registry), bounded by a visited set. Adopt ONLY
+/// resolution first, then the global registry), bounded by a visited set. Adopt ONLY
 /// a CONCRETE (non-SomeT) result, so a FORWARDED closure param specializes on the
 /// CAPTURE STRUCT, not on the caller's abstract SomeT id. Without this, every
 /// forwarding hop keyed the spec on the bare declared SomeT id: the def-era
@@ -3129,10 +3129,10 @@ create_specialized_function_inline :: (
             });
             if(is_closure_param, {
               // Bind the param to a PER-SPEC REBUILD of the declared SomeT
-              // (fresh id + own resolved cell seeded with THIS spec's capture
+              // (fresh id + its own resolution carrying THIS spec's capture
               // struct) — never the shared declared SomeT. The declared SomeT
-              // is ONE lineage across every specialization of this function
-              // (the HAZARD note on SomeT.resolved_concrete): registering the
+              // is ONE id across every specialization of this function:
+              // registering the
               // capture on the SHARED id let the LAST specialization win
               // globally, so an EARLIER spec's emitted body resolved `cb` to
               // the wrong capture — spec-1 of Thread.spawn malloc'd closure-2's
@@ -5439,7 +5439,7 @@ _restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize
   out
 });
 /// The name of a binder among `binder_ids` that `t` still mentions with no
-/// resolution (empty cell, nothing registered) and that no inference channel
+/// resolution (none of its own, nothing registered) and that no inference channel
 /// bound (`bound_names`), or `.None`.
 unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), bound_names : ArrayList(String)) -> Option(String))({
   somes := get_all_some_types(t);
@@ -5482,7 +5482,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
 /// The CONCRETE type a call's `generic(...)` binder `label` is bound to in
 /// `env` right now, or `.None` while it is still a type variable. Reads the
 /// binding the way Step 8 extracts it (last binding; a SomeT through its
-/// resolution cell, then the id registry).
+/// own resolution, then the id registry).
 _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))({
   vars := get_variables_from_env(env, label);
   if(vars.len() == usize(0), {
@@ -6106,8 +6106,8 @@ try_to_call_function_with_arguments :: (
             // The SIG's own SomeT instance, deliberately NOT freshly minted
             // (measured 2026-09-19): the signature's types and the env
             // binding cohere THROUGH the shared id — the call's resolution
-            // is stamped on the shared SomeT (register_some_resolved_
-            // concrete / the cell), and every later read of the SIGNATURE's
+            // is recorded against the shared SomeT's id (register_some_resolved_
+            // concrete), and every later read of the SIGNATURE's
             // types (builtin param checks like `*(T).add`'s
             // `__yo_ptr_add(self, count)`) resolves through it. Minting a
             // fresh clone here leaves the shared signature's T permanently
@@ -7203,7 +7203,7 @@ try_to_call_function_with_arguments :: (
                 .Some(v) => {
                   // Propagate the resolved concrete type from a generic SomeT
                   // back before extraction — the body eval resolves `U` through the
-                  // lineage cell / id registry, but this raw env read handed
+                  // SomeT's own resolution / id registry, but this raw env read handed
                   // the spec's return substitution the bare SomeT, so
                   // spec_ret_ty stayed `List(U)` and emission's
                   // has_generic_return gate silently dropped the spec.
@@ -7213,10 +7213,9 @@ try_to_call_function_with_arguments :: (
                   // would re-evaluate the return type and still see T as
                   // SomeType instead of i32. That is
                   // exactly the Option/Result-combinator family's defect: the
-                  // closure argument's body/return unification stamps `B := i32`
-                  // on the lineage cell (anonymous_function.yo
-                  // _synth_nested_return_somes), but Step 9 resolves `Option(B)`
-                  // through the ENV, which still held the self-bound `B`.
+                  // bound SomeT can carry `B := i32` as its own resolution, but
+                  // Step 9 resolves `Option(B)` through the ENV, which still held
+                  // the self-bound `B`.
                   (wb_from_cell : bool) = false;
                   (wb_plain : bool) = false;
                   match(
@@ -7247,7 +7246,7 @@ try_to_call_function_with_arguments :: (
                     ),
                     _ => ()
                   );
-                  // Restricted to the CELL channel (not the id registry — that
+                  // Restricted to the SomeT's own resolution (not the id registry — that
                   // global table is shared across calls and would leak a sibling
                   // call's resolution) and to a binding in the call's OWN top
                   // frame, so the update pops with the frame instead of becoming
@@ -7364,7 +7363,7 @@ try_to_call_function_with_arguments :: (
                             // return "matched" here and the call was typed as
                             // the CLOSURE ARGUMENT's fn type — C27
                             // (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md).
-                            // Wrappers resolve through their own cells / the
+                            // Wrappers resolve through their own resolutions / the
                             // rte re-eval below, never through a sibling's arg.
                             .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(((s9_rnm == s9_pnm) && (s9_rnm != "Impl")) && (s9_rnm.len() > usize(0)), {
                               subst_add(s9, s9_rnm.clone(), s9_rlvl, s9_ae.arg_type);
@@ -7415,7 +7414,7 @@ try_to_call_function_with_arguments :: (
                     // Same reservation as above: a wrapper named `Impl` has
                     // no name-keyed env identity of its own (a sibling
                     // wrapper's binding would answer), so it is left for the
-                    // cell / rte routes.
+                    // resolution / rte routes.
                     if((!(s9_seen2)) && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
                       if(!(is_some_type(s9_env_res)), {
@@ -7451,7 +7450,7 @@ try_to_call_function_with_arguments :: (
       // the rte side-table supplies the expr (same mechanism as the
       // create_specialized mint).
       // Skip the re-eval when the current return_type is already
-      // codegen-concrete via resolution cells (see calls/function.yo
+      // codegen-concrete via resolution chains (see calls/function.yo
       // rre_wanted): the by-NAME re-eval would clobber the per-call
       // closure-`F` identity with the where-clause-bound bare fn type.
       if(((get_all_some_types(return_type).len() > usize(0)) && !(type_somes_all_resolve_concrete(return_type))) || _type_has_array_len_var(return_type), {
@@ -7500,7 +7499,7 @@ try_to_call_function_with_arguments :: (
                   rte9_out.get(usize(0)),
                   // Acceptance loosened for the closure-`F` family (see
                   // calls/function.yo rre block): SomeTs that ALL resolve
-                  // concretely through their cells are codegen-concrete.
+                  // concretely through their resolutions are codegen-concrete.
                   .Some(rte9_ty) => {
                     if((((get_all_some_types(rte9_ty).len() == usize(0)) || type_somes_all_resolve_concrete(rte9_ty)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
                       return_type = rte9_ty;
@@ -7845,10 +7844,10 @@ try_to_call_function_with_arguments :: (
       // A result that still mentions one of this callee's own binders,
       // unresolved, with the binder's env binding still the signature's own
       // SomeT: nothing — no argument, no expected type (Step 10/10b), no
-      // where-clause, no closure-identity cell — fixed it, so there is no type
+      // where-clause, no closure-identity resolution — fixed it, so there is no type
       // to specialize at: E0613
       // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
-      // Both channels are consulted: a binder resolved only through a cell
+      // Both channels are consulted: a binder resolved only through a resolution
       // chain (`ch.filter(x => …)`'s per-call `F`) is resolved in the result
       // even though its env slot still holds the marker. A control function's
       // `ResumeType` is exempt (resolved per call site above), as are externs.

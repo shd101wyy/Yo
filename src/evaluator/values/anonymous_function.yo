@@ -308,9 +308,9 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
 ///
 /// Only ENV BINDINGS (the per-lambda annotation frame + the callee env)
 /// drive this substitution — deliberately NOT the SomeT's own
-/// `resolvedConcreteType`. The resolution cell is per-LINEAGE (the
-/// declaration's clones share the handle), so by the time a later io.async
-/// call site's lambda evaluates, the shared `T` cell can hold a SIBLING
+/// `resolution`. Until Phase 3.7 that was a per-LINEAGE shared cell (the
+/// declaration's clones shared the handle), so by the time a later io.async
+/// call site's lambda evaluated, the shared `T` could hold a SIBLING
 /// call's resolution — substituting through it concretized the expected type
 /// with the WRONG type (e.g. unit for an i32-bodied task), the body's
 /// return-type check threw, the def-time trial swallowed, and the closure
@@ -461,10 +461,10 @@ _trial_eval_anon_body :: (
 /// caller-side `ctx.expected_type.env` — the call's own callee env — so the
 /// binding lands exactly where `evaluate_function_return_type_again` reads it.
 ///
-/// Going through the env rather than the lineage cell / id registry is what
-/// makes this PER CALL. Those channels are keyed on the SomeT's identity, and a
+/// Going through the env rather than the SomeT's resolution / id registry is
+/// what makes this PER CALL. Those channels belong to the SomeT's identity, and a
 /// prelude signature's `B` is ONE instance shared by every call of the method,
-/// so stamping them made
+/// so recording there made
 /// `opt.and_then(x => Option(String).Some(…))` inherit the previous call's
 /// `B := i32` — measured as a specialized `and_then` declared `-> Option(i32)`
 /// whose closure returned `Option(String)` (a C type error in
@@ -1211,7 +1211,7 @@ evaluate_anonymous_function_implementation :: (
   // (corrected_func_type → register_func_type → the emitted C prototype)
   // carries the concrete type. The rp loop above already binds the param
   // VARIABLE concretely (rp_ty), but the registered type kept the raw SomeT,
-  // whose cell is never written by the env binding — the C emitter then
+  // whose resolution the env binding never sets — the C emitter then
   // falls back to `void*` and every call site mismatches (`acc + x` with
   // `void* x`; iterator_combinators arm 18's last layer).
   if(is_creating_closure, {
@@ -1662,8 +1662,8 @@ Result type: ${type_to_string(decl_result_ty)}`
         // synthesize the declared return against the body type so every
         // NESTED type variable carries its resolution; the bindings are
         // routed through the call's own callee env — see
-        // _synth_nested_return_somes for why the identity channels (the shared
-        // `resolved_concrete` cell / id registry) are wrong here.
+        // _synth_nested_return_somes for why the identity channels (the
+        // SomeT's own `resolution` / id registry) are wrong here.
         //
         // Without this the whole Option/Result-combinator family hollowed: the
         // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper,
@@ -2065,10 +2065,10 @@ Result type: ${type_to_string(decl_result_ty)}`
   // SomeT wrapper TAKES ON that wrapper as its recorded type, with the
   // capture struct as its resolved concrete — so an Impl(Fn(...))-ANNOTATED
   // BINDING's compat check sees the SomeT, not the plain Func (the c01/c06
-  // closure-battery hollow). Recorded on the VALUE COPY's resolved cell —
-  // NOT the global register_some_resolved_concrete registry (that stamp
-  // measured hollow regressions in fs/file + fs/temp; the cell is
-  // value-scoped).
+  // closure-battery hollow). Recorded as the resolution of the VALUE COPY
+  // (a new SomeT built here) — NOT the global register_some_resolved_concrete
+  // registry (that stamp measured hollow regressions in fs/file + fs/temp;
+  // the copy's resolution is value-scoped).
   // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
   // async pipeline registers the sync-future struct and io.await
   // refinement against the UNRESOLVED wrapper SomeT, and its closures'
@@ -2130,7 +2130,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // whose Fn bound arrived via a where clause.
             // Exclude the reserved annotation name "Impl" AND the NAMELESS
             // dyn-coercion wrappers (values/dyn.yo:336): the dyn/box pipeline
-            // reads the wrapper's cell expecting the CAPTURE STRUCT directly
+            // reads the wrapper's resolution expecting the CAPTURE STRUCT directly
             // (ne_box_inner_ty), so an interposed `__impl_fn` level broke the
             // whole dyn corpus ("no member named 'call'").
             w_fn_from_where := ((w_nm != "Impl") && ((w_nm.len() > usize(0)) && w_fn_trait.is_some()));
@@ -2155,13 +2155,13 @@ Result type: ${type_to_string(decl_result_ty)}`
                     Option(TypeValue).None,
                     Option(TypeValue).Some(cap_t)
                   );
-                  // PER-CALL identity: the `F` here shares ONE
-                  // resolution cell across every call of the generic fn
-                  // (substitution copies the cell HANDLE), so an in-place
-                  // stamp makes the LAST closure win for every caller
+                  // PER-CALL identity: the `F` here is ONE SomeT across
+                  // every call of the generic fn, so recording the capture on
+                  // it (once an in-place stamp of a shared resolution cell)
+                  // makes the LAST closure win for every caller
                   // (measured: iter_filter_closure's three arms all rendered
-                  // the third arm's capture struct). Seed a FRESH cell on the
-                  // recorded COPY instead — the arg's recorded type feeds
+                  // the third arm's capture struct). The recorded COPY carries
+                  // its own resolution instead — the arg's recorded type feeds
                   // `fa_bound`, so the caller's return-type substitution and
                   // the body specialization both see THIS call's `__impl_fn`.
                   final_lambda_ty = TypeValue.SomeT(
