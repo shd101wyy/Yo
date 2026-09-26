@@ -2544,8 +2544,15 @@ jobs:
         # GitHub API unauthenticated and gets rate-limited on shared runners
         # ("Could not download Wasmtime version '{'"), leaving wasmtime
         # uninstalled and every test failing with "exit code undefined".
+        # The installer is downloaded to a file, not piped: in `curl | bash`
+        # the step's status is bash's, so a reset connection ("curl: (35)
+        # Recv failure") ran an empty script, the step passed, and the test
+        # step failed with "file or directory not found" (develop run
+        # 36206559953). The version check proves the binary is there.
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash -s -- --version v47.0.3
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/wasmtime-install.sh https://wasmtime.dev/install.sh
+          bash /tmp/wasmtime-install.sh --version v47.0.3
+          "$HOME/.wasmtime/bin/wasmtime" --version
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
       - name: Setup Node.js
