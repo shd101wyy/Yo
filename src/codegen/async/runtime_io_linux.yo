@@ -541,6 +541,21 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
 #include <poll.h>
 #include <fcntl.h>
 
+// Deterministic performance budgets (plans/DROP_LIBURING.md Phase 6, G3):
+// counts, not clocks — a shared CI runner can enforce these. Always on:
+// a thread-local increment per kernel entry costs nothing next to the entry
+// itself. kernel_enters counts every io_uring_enter and epoll_wait;
+// zero_timeout_enters counts the non-blocking probes (enter(0, 0, GETEVENTS)
+// and epoll_wait(0)) — the anti-spin signal: a loop that is merely WAITING
+// must accrue neither.
+static _Thread_local unsigned long __yo_stats_kernel_enters = 0;
+static _Thread_local unsigned long __yo_stats_zero_timeout_enters = 0;
+unsigned long __yo_io_stats_kernel_enters(void) {
+  return __yo_stats_kernel_enters;
+}
+unsigned long __yo_io_stats_zero_timeout_enters(void) {
+  return __yo_stats_zero_timeout_enters;
+}
 // ============================================================================
 // Vendored io_uring ring layer (plans/DROP_LIBURING.md Phase 1)
 // ============================================================================
@@ -778,6 +793,8 @@ static struct __yo_uring_sqe* __yo_uring_get_sqe(struct __yo_uring* ring) {
 
 static int __yo_uring_enter(struct __yo_uring* ring, uint32_t to_submit,
                             uint32_t min_complete, uint32_t flags) {
+  __yo_stats_kernel_enters++;
+  if (min_complete == 0) __yo_stats_zero_timeout_enters++;
   return (int)syscall(__NR_io_uring_enter, ring->ring_fd, to_submit,
                       min_complete, flags, NULL, 0);
 }
@@ -1821,6 +1838,8 @@ static __yo_io_future_t* __yo_epoll_done_future(int32_t result) {
 static void __yo_epoll_drive(int timeout_ms, int* count_out) {
   struct epoll_event events[64];
   int n;
+  __yo_stats_kernel_enters++;
+  if (timeout_ms == 0) __yo_stats_zero_timeout_enters++;
   do {
     n = epoll_wait(__yo_epoll_fd, events, 64, timeout_ms);
   } while (n < 0 && errno == EINTR);
