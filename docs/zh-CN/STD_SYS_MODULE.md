@@ -6,7 +6,7 @@ Yo 将平台原生的异步 I/O API 与单线程 async/await 事件循环集成�
 
 | 平台        | 后端     | 状态      | 描述                                                                       |
 | ----------- | -------- | --------- | -------------------------------------------------------------------------- |
-| **Linux**   | io_uring | ✅ 已完成 | 内核执行 I/O 操作的真正异步 I/O（内核 5.1+）                               |
+| **Linux**   | io_uring | ✅ 已完成 | 内核执行 I/O 操作的真正异步 I/O（内核 5.6+；环形层已内嵌，无库依赖）        |
 | **macOS**   | kqueue   | ✅ 已完成 | kqueue 事件循环：socket/pipe 使用非阻塞 I/O，常规文件使用同步 pread/pwrite |
 | **Windows** | IOCP     | ✅ 已完成 | 使用重叠 I/O 的 I/O 完成端口                                               |
 | **FreeBSD** | kqueue   | 🔜 计划中 | 事件通知 + 非阻塞 I/O                                                      |
@@ -288,28 +288,15 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1+）：
 - **批处理**：每次系统调用可提交多个 I/O 操作
 - **真正异步**：由内核执行 I/O，而非仅通知
 
-**liburing 依赖**：Yo 使用 liburing（由 Jens Axboe 维护的约 5KB 轻量封装）而非原始 io_uring 系统调用。通过包管理器安装：
-
-```bash
-# Arch Linux / Manjaro
-sudo pacman -S liburing
-
-# Ubuntu / Debian
-sudo apt-get install liburing-dev
-
-# Fedora / RHEL
-sudo dnf install liburing-devel
-```
-
-Yo 编译器通过 `pkg-config liburing --cflags --libs` 检测 liburing。在 Linux 上使用异步 I/O 时需链接 `-luring`。
+**无库依赖**：环形层（setup/mmap、提交、完成、SQE prep 辅助函数）以内嵌方式生成到 C 代码中，使用 `__yo_uring_*` 命名空间（`plans/DROP_LIBURING.md`）。编译出的程序只链接 libc——无需安装任何东西，是否存在 io_uring 由内核而非构建机器决定。
 
 **内核版本要求：**
 
-| 内核版本  | 功能                                |
-| --------- | ----------------------------------- |
-| **5.1+**  | 基本 io_uring（read、write、fsync） |
-| **5.6+**  | 注册缓冲区、链式操作                |
-| **5.11+** | 更好的性能、更多操作                |
+| 内核版本            | 功能                                                                |
+| ------------------- | ------------------------------------------------------------------- |
+| **5.6+**           | 本运行时提交的操作集（openat/close/名称操作）                        |
+| **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` 设置标志——一并请求，内核拒绝时自动降级重试 |
+| **6.14+**          | 异步 `ftruncate`（更早的内核通过 future 返回 `-EINVAL`）              |
 
 ### macOS：kqueue
 
@@ -376,7 +363,7 @@ case STATE_AWAIT_READ:
 | 资源                         | 开销                             |
 | ---------------------------- | -------------------------------- |
 | 状态机                       | 10,000 × ~200 字节 = **约 2 MB** |
-| io_uring SQE（环形，可复用） | 256 × 64 字节 = **16 KB**        |
+| io_uring SQE（环形，可复用） | 1024 × 64 字节 = **64 KB**       |
 | **合计**                     | **约 2 MB**                      |
 
 对比 10,000 个阻塞线程 × 1 MB 栈空间 = **10 GB** ❌
