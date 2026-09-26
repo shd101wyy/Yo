@@ -5497,7 +5497,7 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
         .TypeVal(t) => match(
           t,
           .SomeT({ id : fb_id, resolution : fb_cell }) => cond(
-            fb_cell.is_some() => fb_cell.get(fb_cell.len() - usize(1)),
+            fb_cell.is_some() => fb_cell,
             true => lookup_some_resolved_concrete(fb_id)
           ),
           _ => Option(TypeValue).Some(t)
@@ -5687,7 +5687,7 @@ try_to_call_function_with_arguments :: (
       match(
         nf2_cur,
         .SomeT(_, _, _, _, _, _, _, _, _, _, nf2_rc) => match(
-          nf2_rc.get(usize(0)),
+          nf2_rc,
           .Some(nf2_next) => {
             nf2_cur = nf2_next;
             nf2_hops = (nf2_hops + usize(1));
@@ -7225,8 +7225,8 @@ try_to_call_function_with_arguments :: (
                       v_tb,
                       .SomeT({ id : ex_sid, resolution : ex_cell, required_trait_types : ex_rtt }) => {
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
-                        ifex_cell.is_some(), {
-                          ex_res = ex_cell.get(ex_cell.len() - usize(1));
+                        if(ex_cell.is_some(), {
+                          ex_res = ex_cell;
                           wb_from_cell = true;
                         }, {
                           ex_res = lookup_some_resolved_concrete(ex_sid);
