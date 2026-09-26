@@ -1148,29 +1148,6 @@ _synthesize_future_traits :: (
     opts,
     exn
   );
-  // Effect-type (E) binding for Future traits: when the EXPECTED effect slot
-  // is still an abstract SomeT (the io.await callee's freshened `E`) and the
-  // GIVEN side is concrete (the task's `Ctx`), bind that `E` in the expected
-  // env. The binding records the `E` it resolves (`_bind_some_type` →
-  // `variable_bound_some_id`), so a sibling binder also named `E` (Result's
-  // error parameter) neither reads it nor is buried by it, the reason this
-  // used to be written into the SomeT's own cell instead
-  // (issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md). A SomeT's
-  // resolution is an immutable value now (plans/TYPE_SYSTEM_SOUNDNESS.md
-  // Phase 3.7).
-  if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
-    sfe_exp := match(exp_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-    sfe_giv := match(giv_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_some_type(sfe_exp) && !is_some_type(sfe_giv), {
-      match(
-        sfe_exp,
-        .SomeT({ id : sfe_id, name : sfe_name }) => {
-          _bind_some_type(ee, sfe_name, sfe_id, EvalValue.TypeVal(sfe_giv.clone()), sfe_giv, match(opts, .Some(o) => o.token, .None => Option(Token).None), exn);
-        },
-        _ => ()
-      );
-    });
-  });
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
