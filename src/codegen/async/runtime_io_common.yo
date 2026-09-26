@@ -663,15 +663,10 @@ static void __yo_timer_future_dispose(void* ptr) {
   }
 }
 
-// Async sleep using timerfd + io_uring.
-//
-// GUARDED: this body calls io_uring_get_sqe/__yo_io_ring/__yo_io_ring_submit,
-// which exist only inside runtime_io_linux.yo's
-// #if __has_include(<liburing.h>). It is emitted from a DIFFERENT file whose
-// output lands after that #endif, so without the guard a liburing-less Linux
-// box gets undefined symbols instead of the documented graceful degradation.
-// See issues/fixed/liburing-fallback-does-not-compile.md.
-#ifdef __YO_HAS_LIBURING
+// Async sleep using timerfd + the vendored io_uring ring. The ring layer
+// (runtime_io_linux.yo's emission, which lands before this file's output) is
+// always compiled on Linux since plans/DROP_LIBURING.md Phase 1, so this body
+// needs no feature guard.
 // Cancel a pending timerfd read. The kernel still delivers the read's own CQE
 // (with -ECANCELED), and that is what releases the ring's reference and frees
 // the timerfd through the dispose hook — so the retention window becomes one
@@ -724,7 +719,7 @@ ${timer_dispose_init}
   }
   
   // Use io_uring to read from timerfd (fires when timer expires)
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     atomic_store(&future->state, -1);
@@ -734,8 +729,8 @@ ${timer_dispose_init}
   // Allocate buffer for timerfd read (8 bytes)
   uint64_t* buf = (uint64_t*)__yo_rc_alloc(sizeof(uint64_t));
   timer_future->read_buf = buf;
-  io_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
+  __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_timer_future_cancel;
   __yo_io_ring_submit(future);
   
@@ -744,26 +739,7 @@ ${timer_dispose_init}
   
   return future;
 }
-#else
-// No liburing: same symbol, immediately-failed future, matching the shape of
-// the other stubs in runtime_io_linux.yo's #else arm, so a program that only
-// SLEEPS still links and reports a runtime error rather than failing to build.
-static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
-  (void)milliseconds;
-  __yo_timer_future_t* timer_future = (__yo_timer_future_t*)__yo_rc_alloc(sizeof(__yo_timer_future_t));
-  memset(timer_future, 0, sizeof(__yo_timer_future_t));
-  __yo_io_future_t* future = &timer_future->base;
-  future->header.ref_count = 1;
-${timer_dispose_init}
-  atomic_init(&future->state, -1);
-  future->result = -ENOSYS;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  timer_future->timerfd = -1;
-  timer_future->read_buf = NULL;
-  return future;
-}
-#endif // __YO_HAS_LIBURING`
+`
     );
   }, {
     if(is_macos, {
