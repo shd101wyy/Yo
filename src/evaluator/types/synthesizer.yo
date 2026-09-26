@@ -184,11 +184,14 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
 });
 /// Record on a type binder's binding which SomeT it resolves (see
 /// `VariableRare.bound_some_id`). A self-marker (`T := SomeT(T)`) carries its
-/// id in its value and needs no record.
-_record_bound_some_id :: (fn(bound : Option(Variable), source_some_id : String, val : EvalValue) -> unit)(
+/// id in its value and needs no record. Only a named type parameter is a
+/// binder: an `Impl(...)` annotation wrapper (the reserved name "Impl") and a
+/// nameless dyn-coercion wrapper are bound by synthesis too, but are not
+/// binders, and their name-keyed slots keep their old behaviour.
+_record_bound_some_id :: (fn(bound : Option(Variable), name : String, source_some_id : String, val : EvalValue) -> unit)(
   match(
     bound,
-    .Some(bv) => if((source_some_id.len() > usize(0)) && match(val, .TypeVal(bvt) => !(is_some_type(bvt)), _ => false), {
+    .Some(bv) => if((((source_some_id.len() > usize(0)) && (name.len() > usize(0))) && (name != "Impl")) && match(val, .TypeVal(bvt) => !(is_some_type(bvt)), _ => false), {
       variable_set_bound_some_id(bv, source_some_id);
     }),
     .None => ()
@@ -241,6 +244,7 @@ _bind_some_type :: (
           // is_implicit
           token
         ),
+        name,
         source_some_id,
         val
       );
@@ -323,6 +327,7 @@ _bind_some_type :: (
             // is_implicit
             token
           ),
+          name,
           source_some_id,
           val
         );
@@ -352,7 +357,7 @@ _bind_some_type :: (
         is_ref : false,
         is_parameter : false
       );
-      _record_bound_some_id(Option(Variable).Some(new_var), source_some_id, val);
+      _record_bound_some_id(Option(Variable).Some(new_var), name, source_some_id, val);
       update_existing_variable(env, old_var, new_var);
     }
   );
