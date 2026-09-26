@@ -83,8 +83,9 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
-{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
-{ Exception } :: import("std/error");
+{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
+{ Exception, AnyError } :: import("std/error");
 {
   register_definition_site_return,
   register_closure_body_type,
@@ -384,9 +385,29 @@ _flag_anon_swallow :: (fn(msg : String, code : Option(String)) -> unit)({
   g_anon_swallow_code.clear();
   match(code, .Some(c) => g_anon_swallow_code.push(c), .None => ());
 });
+/// The swallowed error's STRUCTURED diagnostics, written and cleared in
+/// lockstep with the text, as calls/function_type.yo's
+/// `g_trial_swallow_diags` is: a re-raise then carries the code, span and
+/// repair to the typed stash instead of a flattened string.
+(g_anon_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+_flag_anon_swallow_diags :: (fn(err : AnyError) -> unit)({
+  g_anon_swallow_diags.clear();
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      (dgi : usize) = usize(0);
+      while(dgi < ye.diagnostics.len(), {
+        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.push(d), .None => ());
+        dgi = (dgi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
 _clear_anon_swallow :: (fn() -> unit)({
   g_anon_swallow_msg.clear();
   g_anon_swallow_code.clear();
+  g_anon_swallow_diags.clear();
 });
 _anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.len() > usize(0));
 _anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.get(usize(0)));
@@ -431,6 +452,7 @@ _trial_eval_anon_body :: (
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
         _flag_anon_swallow(_err.to_string(), primary_diagnostic_code(_err));
+        _flag_anon_swallow_diags(_err);
         unwind(())
       }
     )
@@ -1440,6 +1462,11 @@ evaluate_anonymous_function_implementation :: (
       sd_i = (sd_i + usize(1));
     });
   });
+  // Whether the body types on its own: no forall binder and no SomeT in any
+  // parameter. Read BEFORE the io.async / ctl forcing below, which evaluates
+  // SomeT-param bodies too; only for this one is a swallowed error a real
+  // type error (Channel 3 below).
+  body_params_concrete := !should_defer_body;
   // Closure codegen: an io.async closure has its synthesized type's
   // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
   // the body's ExprInfo (types) from def-time eval — otherwise the body emits
@@ -1586,6 +1613,25 @@ Result type: ${type_to_string(decl_result_ty)}`
       },
       .None => ()
     );
+    // Channel 3 (Phase 6 step 2, plans/TYPE_SYSTEM_SOUNDNESS.md): a body
+    // whose parameters are all concrete has nothing a call could resolve, so
+    // an error its trial swallowed is a type error in the source. Re-raise
+    // it. Before this the body shipped as an `abort()` stub with no
+    // diagnostic (issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md).
+    // Gated on an EMPTY out, like the named-fn path: a body that succeeded
+    // leaves only a nested trial's leftover flag. Bodies forced for
+    // emission with SomeT parameters (io.async, ctl handlers) keep the
+    // swallow: they are typed again where their parameters resolve.
+    if((body_params_concrete && !(propagate_def_time_errors())) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
+      c3_msg := _anon_swallow_message();
+      c3_has_diags := (g_anon_swallow_diags.len() > usize(0));
+      c3_err := yo_error_from_diagnostics(g_anon_swallow_diags.clone());
+      _clear_anon_swallow();
+      if(c3_has_diags, {
+        exn.throw(dyn(c3_err));
+      });
+      exn.throw(dyn(c3_msg));
+    });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
