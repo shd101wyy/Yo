@@ -172,9 +172,12 @@ reproduced.
 
 "Exact" was doing two jobs. Identity (caches, the CTFE memo, `Type.eq`) and flow under a pointer
 (`*(Self)` against a `Dyn` receiver) shared one mode. `_compat_impl` now takes a `_CompatMode`:
-`Identity` drops the SomeT↔`Dyn` rules and the resolved-SomeT unwrap, and `Invariant` keeps
-them for pointees, the receiver/`*(Self)` match (`env.yo`) and the closure-result checks
-(`plans/reference/TYPE_IDENTITY.md`, "Two relations, two jobs").
+`Identity` drops the SomeT↔`Dyn` rules, and `Invariant` keeps them for pointees, the
+receiver/`*(Self)` match (`env.yo`) and the closure-result checks
+(`plans/reference/TYPE_IDENTITY.md`, "Two relations, two jobs"). The resolved-SomeT unwrap stays in
+both: codegen's `type_key` keys a resolved SomeT in an argument slot by its resolution, and
+dropping the unwrap from identity made `tests/thread.test.yo` fail with "Capture type not found
+for closure".
 
 Regression test: "soundness: an inherent Option method over a trait object is emitted"
 (`tests/type_soundness.test.yo`); `tests/error_source_chain.test.yo` uses `is_none()` again.

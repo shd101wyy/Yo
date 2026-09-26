@@ -332,11 +332,12 @@ _is_resolved_shell :: (fn(t : TypeValue, resolved : TypeValue) -> bool)(
 );
 /// Which relation `_compat_impl` decides (plans/reference/TYPE_IDENTITY.md).
 /// `Flow` is identity plus the listed coercions. `Invariant` is flow under a
-/// pointer: no coercion that changes a representation, but a resolved SomeT
-/// still stands for its resolution and a `Dyn` still satisfies a SomeT's
-/// bounds. `Identity` is the identity predicate itself, the relation caches
-/// and memos key by: a SomeT is only its own lineage, except a bound closure
-/// identity (`is_bound_closure_identity`), which is its capture struct.
+/// pointer: no coercion that changes a representation, but a `Dyn` still
+/// satisfies a SomeT's bounds (a `Dyn` receiver against `*(Self)`).
+/// `Identity` is the relation caches and memos key by, which must agree with
+/// codegen's `type_key`: a `Dyn` is never identical to a SomeT. A resolved
+/// SomeT stands for its resolution in both, as `type_key` keys it in an
+/// argument slot (`_tk_resolve_arg_slot`).
 _CompatMode :: enum(Flow, Invariant, Identity);
 _is_identity_mode :: (fn(mode : _CompatMode) -> bool)(
   match(mode, .Identity => true, _ => false)
@@ -622,7 +623,7 @@ _compat_impl :: (
   // both route here). require_exact passes through,
   // so the pointer-children exact recursion also benefits. Reads the lineage
   // CELL (the value-semantics surrogate of a mutated type object).
-  if(((!(identity) || is_bound_closure_identity(actual)) && is_some_type(actual)) && !(is_some_type(expected)), {
+  if(is_some_type(actual) && !(is_some_type(expected)), {
     match(
       actual,
       .SomeT({ id : a_res_id, resolved_concrete : a_res_cell }) => {
@@ -686,7 +687,7 @@ _compat_impl :: (
   // SomeT in the EXPECTED slot (e.g. helper.yo Step 8's self-param check:
   // expected = `Impl(RetI32)` receiver arg... or the roles reversed). A
   // resolved SomeT stands for its concrete either way.
-  if(((!(identity) || is_bound_closure_identity(expected)) && is_some_type(expected)) && !(is_some_type(actual)), {
+  if(is_some_type(expected) && !(is_some_type(actual)), {
     match(
       expected,
       .SomeT({ id : e_res_id, resolved_concrete : e_res_cell }) => {
@@ -1694,14 +1695,14 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
 );
 /// The identity predicate (plans/reference/TYPE_IDENTITY.md): what caches,
-/// memos and `Type.eq` key by. A SomeT is identical only to its own lineage,
-/// never to its resolution or to a type that satisfies its bounds.
+/// memos and `Type.eq` key by. A SomeT is never identical to a `Dyn` that
+/// merely satisfies its bounds.
 are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Identity, ArrayList(String).new())
 );
 /// Flow without representation-changing coercions, the relation a pointee
-/// uses: a resolved SomeT stands for its resolution and a `Dyn` satisfies a
-/// SomeT's bounds. For a receiver matched against a method's `*(Self)`.
+/// uses: a `Dyn` satisfies a SomeT's bounds. For a receiver matched against a
+/// method's `*(Self)`.
 are_types_compatible_invariant :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Invariant, ArrayList(String).new())
 );

@@ -17,14 +17,17 @@ answered both with rules that were looser than either question:
 | **flow** (`are_types_compatible`) | argument checks, annotations, assignment, returns | May a value of the first type be used where the second is expected? |
 | **invariant flow** (`are_types_compatible_invariant`) | a pointee inside flow, a receiver against a method's `*(Self)`, a closure body against its declared result | Flow with no coercion that changes a representation |
 
-Invariant flow differs from identity in exactly two rules, both about SomeTs: a SomeT with a
-resolution stands for its resolution, and a `Dyn` satisfies a SomeT whose bounds its traits cover
-(and the reverse). Neither is identity, with one exception: a closure identity (the SomeT row
-below) is its resolution under identity too. Until 2026-09-26 the pointee position and the identity
-callers shared one "exact" mode, so the identity relation inherited both rules: an unconstrained
-`T` was "exactly" `Dyn(ToString)`, and the specialization cache handed `Option(Dyn(ToString)).is_none()`
+Invariant flow differs from identity in one rule: a `Dyn` satisfies a SomeT whose bounds its
+traits cover (and the reverse). That is flow, not identity. Until 2026-09-26 the pointee position
+and the identity callers shared one "exact" mode, so identity inherited it: an unconstrained `T`
+was "exactly" `Dyn(ToString)`, and the specialization cache handed `Option(Dyn(ToString)).is_none()`
 the prelude's hard-generic `Option(T)` spec, which codegen never emits
-(`issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`).
+(`issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`). A resolved SomeT
+still stands for its resolution under both relations, because codegen's `type_key` keys a resolved
+SomeT in an argument slot by its resolution (`_tk_resolve_arg_slot`), and identity must agree with
+it. Dropping that too was tried and measured: `tests/thread.test.yo` then failed with "Capture
+type not found for closure", a capture struct registered under one key and looked up under
+another. The resolution itself is Phase 3.7's to retire.
 
 Identity must be an equivalence relation that agrees with codegen's type key
 (`src/types/type_key.yo`): when identity says two types are one, the memo hands the second

@@ -441,9 +441,10 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    **In progress 2026-09-26.**
    - `option-of-a-trait-object-…` is fixed. The identity callers (the specialization cache, the
      CTFE memo, `Type.eq`) and flow under a pointer shared one "exact" mode, so identity inherited
-     two flow rules: a SomeT equals its resolution, and a `Dyn` satisfies a SomeT's bounds. An
-     unconstrained `T` was "exactly" `Dyn(ToString)`. `_compat_impl` now has an `Identity` mode
-     and an `Invariant` mode (`are_types_compatible_invariant`).
+     a flow rule: a `Dyn` satisfies a SomeT's bounds, so an unconstrained `T` was "exactly"
+     `Dyn(ToString)`. `_compat_impl` now has an `Identity` mode and an `Invariant` mode
+     (`are_types_compatible_invariant`). The resolved-SomeT unwrap stays in identity, since
+     `type_key` keys a resolved argument-slot SomeT by its resolution. Step 7 retires it.
    - `a-box-over-an-impl-fn-…` no longer reproduces on v0.2.43 (measured; moved to fixed).
    - The async one reduces to a three-line program
      (`issues/repros/generic-async-fn-option-t-result-two-c-types.yo`). The reduction also found
