@@ -7984,6 +7984,9 @@ Fix: wrap the call:
         // the binder concretely; a legitimately-unbound binder keeps the
         // original type.
         rt_rt_resolved := _resolve_some_types_deep(ret_type_rt, call_result_rt.caller_env);
+        if(debug_knob(`YO_DBG_ASYNC`).is_some() && is_io_async_call(expr), {
+          eprintln(`[__DBG_ASYNC] eval io.async id=${ast_expr_id(expr).to_string()} ret=${type_to_string(ret_type_rt)} deep=${type_to_string(rt_rt_resolved)} module=${env.module_path}`);
+        });
         if(!(is_some_type(rt_rt_resolved)) && !(is_unit_type(rt_rt_resolved)), {
           ret_type_rt = rt_rt_resolved;
         });
