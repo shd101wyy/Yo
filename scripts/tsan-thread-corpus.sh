@@ -55,8 +55,13 @@ for f in "${FILES[@]}"; do
         awk '/WARNING: ThreadSanitizer/{p=1} p{print} /SUMMARY: ThreadSanitizer/{if(p && ++n==3) exit; p=0}' "$log" | head -150
         # A failure with no TSan report (a crash, an assert, a TSan fatal
         # error) says why only in the test's own output: print each failed
-        # test with what it printed.
-        if [ "$races" -eq 0 ]; then grep -a -A12 '✗' "$log" | head -80; grep -a -m5 'ThreadSanitizer' "$log"; fi
+        # test with what it printed. A file that failed before any test ran
+        # (spawns=0: its batch did not compile, or the runner died) has no
+        # such line, so print the end of its log instead.
+        if [ "$races" -eq 0 ]; then
+          if grep -aq '✗' "$log"; then grep -a -A12 '✗' "$log" | head -80; else grep -av '^profile:' "$log" | tail -40; fi
+          grep -a -m5 'ThreadSanitizer' "$log"
+        fi
         bad=1
       fi ;;
     HOLLOW) echo "  -> no thread was spawned: the run proves nothing"; bad=1 ;;
