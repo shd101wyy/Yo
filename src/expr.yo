@@ -376,7 +376,15 @@ impl(
 /// from the SAME sequence as parsed nodes. The ExprInfo table is keyed by
 /// this id — every distinct evaluated node MUST have a distinct id or table
 /// writes drop values other holders still use.
-(g_next_global_expr_id : usize) = usize(0);
+///
+/// Starts at 1: id 0 is `make_err_expr`'s, the node every swallowing
+/// evaluation returns, and a caller tests "the evaluation failed" by that
+/// node having no ExprInfo. When the first parsed node was also id 0, `compile`
+/// (one ExprInfoTable shared by the prelude and every module) found the
+/// prelude's first node's info there, and reported a derived error instead of
+/// the swallowed cause
+/// (issues/fixed/compile-reports-a-derived-error-instead-of-the-safe-code-raw-pointer-rejection.md).
+(g_next_global_expr_id : usize) = usize(1);
 /// Mint a fresh ExprId (parser nodes and synthesized nodes share the
 /// sequence).
 alloc_global_expr_id :: (fn() -> ExprId)({
