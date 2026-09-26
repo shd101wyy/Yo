@@ -31,7 +31,6 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  register_some_resolved_concrete,
   expr_info_set_closure_function_value,
   expr_info_capture_type,
   expr_info_set_capture_type
@@ -44,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   copy_frames
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_with_resolution } :: import("../../types/creators.yo");
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
 {
@@ -332,23 +331,18 @@ try_to_implement_closure_by_fn_module_type :: (
     capture_ty.clone(),
     .Some(ct) => {
       register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct.clone(), frame_level : n_cap_fr));
-      // Lower the `Impl(Fn)` wrapper SomeT to the capture struct for codegen: the
-      // closure VALUE then types as the capture struct (get_type_string resolves
-      // the SomeT via lookup_some_resolved_concrete) and a direct value-call
-      // `add(x)` resolves cc_id to the capture-struct id so it dispatches through
-      // impl_closure_call_map (`closure_fn(&add, x)`) instead of a bad fn-ptr
-      // cast, by resolving the closure wrapper SomeT to its concrete capture
-      // struct.
-      match(
-        wrapper_type.clone(),
-        .SomeT({ id : wid }) => register_some_resolved_concrete(wid, ct),
-        _ => ()
-      );
     },
     .None => ()
   );
-  // Determine the final type (use wrapper_type).
-  final_ty := wrapper_type;
+  // The closure VALUE types as its `Impl(Fn)` wrapper resolved to THIS
+  // closure's capture struct (a closure identity, `is_bound_closure_identity`):
+  // get_type_string lowers it to the capture struct, and a direct value-call
+  // `add(x)` dispatches through impl_closure_call_map (`closure_fn(&add, x)`)
+  // instead of a bad fn-ptr cast. The resolution is this value's own: the
+  // wrapper's id is shared by every closure checked against the same
+  // annotation, so an entry keyed by it named the last closure's struct for
+  // all of them (Phase 3 step 7 part 2).
+  final_ty := match(capture_ty.clone(), .Some(fct) => t_with_resolution(wrapper_type.clone(), fct), .None => wrapper_type);
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(env, final_ty);
   expr_info_set_capture_type(info, capture_ty);
