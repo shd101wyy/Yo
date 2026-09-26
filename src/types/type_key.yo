@@ -294,13 +294,29 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           );
           if(need_structural, {
             skey := sid.clone();
+            // A closure's capture struct keys a SomeT field by the SomeT's id,
+            // not through its cell. The field holds the captured variable's
+            // type, and a closure inside a generic function captures that
+            // function's `Impl(Fn...)` parameter: one def-era lineage whose
+            // cell every call site rewrites. Keyed through the cell, the
+            // capture struct's key changed with each call, and codegen looked
+            // it up under a key it was never registered with ("Capture type
+            // not found for closure")
+            // (issues/fixed/a-capture-struct-changes-type-key-when-a-captured-closure-param-is-re-resolved.md).
+            is_capture := sid.starts_with("capture_");
             (sfi : usize) = usize(0);
             while(sfi < sfts.len(), {
               match(
                 sfts.get(sfi),
                 .Some(sft) => {
                   skey.push_str("_");
-                  skey.push_string(recur(sft, depth + usize(1)));
+                  skey.push_string(
+                    match(
+                      sft,
+                      .SomeT({ id : cf_sid }) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(sft, depth + usize(1))),
+                      _ => recur(sft, depth + usize(1))
+                    )
+                  );
                 },
                 .None => ()
               );
