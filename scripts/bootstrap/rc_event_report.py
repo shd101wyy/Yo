@@ -13,7 +13,7 @@ An increment with no matching decrement across the window is the leak.
 
 Usage: python3 scripts/bootstrap/rc_event_report.py dump.txt <binary> fidmap.tsv [TOP]
 """
-import collections, re, subprocess, sys
+import collections, os, re, shutil, subprocess, sys
 
 dump, binary, fidmap = sys.argv[1], sys.argv[2], sys.argv[3]
 top = int(sys.argv[4]) if len(sys.argv) > 4 else 4
@@ -21,11 +21,24 @@ lines = open(dump).read().split("\n")
 base = lines[0].split()[-1]
 rows = [l for l in lines if l.startswith("E ")]
 addrs = sorted({a for l in rows for a in re.findall(r"0x[0-9a-f]+", l)})
+
+def symbolize(chunk):
+    # macOS: atos takes runtime addresses plus the load base. Linux: no atos,
+    # so shift PIE runtime addresses back to link-time and ask addr2line,
+    # whose -f output alternates function / location lines.
+    if shutil.which("atos"):
+        return subprocess.run(["atos", "-o", binary, "-l", base] + chunk,
+                              capture_output=True, text=True).stdout.split("\n")
+    base_i = int(base, 16)
+    link = [hex(int(a, 16) - base_i) for a in chunk]
+    out = subprocess.run(["addr2line", "-e", os.path.abspath(binary), "-f", "-C"] + link,
+                         capture_output=True, text=True).stdout.split("\n")
+    return out[0::2]
+
 sym = {}
 for i in range(0, len(addrs), 400):
     chunk = addrs[i:i + 400]
-    out = subprocess.run(["atos", "-o", binary, "-l", base] + chunk, capture_output=True, text=True).stdout.split("\n")
-    sym.update(zip(chunk, out))
+    sym.update(zip(chunk, symbolize(chunk)))
 names = {}
 for l in open(fidmap):
     f, loc, name = l.rstrip("\n").split("\t")
