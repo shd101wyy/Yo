@@ -36,7 +36,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -4958,15 +4958,11 @@ _resolve_some_types_deep :: (
         );
         if(!_skip_fallback, {
           match(
-            nres,
-            .SomeT({ id : nrsid }) => match(
-              lookup_some_resolved_concrete(nrsid),
-              .Some(c) => {
-                nres = c;
-              },
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(nres),
+            .Some(c) => {
+              nres = c;
+            },
+            .None => ()
           );
         });
       });
@@ -5003,15 +4999,11 @@ _resolve_some_types_deep :: (
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
     if(is_some_type(resolved), {
       match(
-        resolved,
-        .SomeT({ id : rsid }) => match(
-          lookup_some_resolved_concrete(rsid),
-          .Some(c) => {
-            resolved = c;
-          },
-          .None => ()
-        ),
-        _ => ()
+        some_resolution(resolved),
+        .Some(c) => {
+          resolved = c;
+        },
+        .None => ()
       );
     });
     // A closure identity is its capture struct: `*(T)` with
@@ -5200,15 +5192,11 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
         });
         if(is_some_type(tas_r), {
           match(
-            tas_r,
-            .SomeT({ id : tas_rid }) => match(
-              lookup_some_resolved_concrete(tas_rid),
-              .Some(tas_g) => {
-                tas_r = tas_g;
-              },
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(tas_r),
+            .Some(tas_g) => {
+              tas_r = tas_g;
+            },
+            .None => ()
           );
         });
         if(!is_some_type(tas_r), {
