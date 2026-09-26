@@ -35,10 +35,11 @@ pragma(Pragma.AllowUnsafe);
 /// Each platform uses its native timer: `timerfd_create(CLOCK_MONOTONIC)`
 /// submitted through io_uring on Linux, a `kqueue` `EVFILT_TIMER` on macOS,
 /// threadpool timers on Windows and a sorted timer queue the loop drains on
-/// wasm. On a Linux box built without liburing the whole async family is
-/// unavailable and this resolves immediately to `-ENOSYS` — it is the one
-/// operation there that degrades instead of aborting, so that a program which
-/// only sleeps still runs.
+/// wasm. On Linux the io_uring ring layer is always compiled in
+/// (plans/DROP_LIBURING.md), so there is no built-without-liburing case: a
+/// kernel that cannot create a ring at all (pre-5.6, or seccomp-blocked as
+/// under Docker's default profile) fails at ring init before any operation,
+/// which is the degradation path that plan's Phase 5 replaces.
 sleep :: (fn(milliseconds : u64) -> IoFuture)(
   __yo_async_sleep_start(milliseconds)
 );

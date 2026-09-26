@@ -517,13 +517,9 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
   emitter.emit_string_line(
     `
 // ============================================================================
-// Async I/O Runtime (Linux - io_uring via liburing)
+// Async I/O Runtime (Linux - io_uring via the vendored ring layer)
 // ============================================================================
 
-// Try to include liburing.h - if not available, disable I/O features
-#if __has_include(<liburing.h>)
-#define __YO_HAS_LIBURING 1
-#include <liburing.h>
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -535,13 +531,525 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
 #include <poll.h>
 #include <fcntl.h>
 
-static _Thread_local struct io_uring __yo_io_ring;
+// ============================================================================
+// Vendored io_uring ring layer (plans/DROP_LIBURING.md Phase 1)
+// ============================================================================
+// The kernel UAPI, frozen: the SQE (64 B) / CQE (16 B) layouts and the mmap
+// offsets are stable since 5.1 and append-only since; new ops and flags are
+// additive, and we define only the pieces this runtime submits. This layer
+// replaces the liburing dependency (~10 linked symbols plus header inlines)
+// with namespaced C11, so the emitted program links against libc only.
+//
+// The protocol is the classic single-issuer, single-threaded-per-ring one:
+//   fill an SQE slot (plain stores — we own it until the tail publish),
+//   publish the SQ tail with release, enter;
+//   acquire the CQ tail, read CQEs up to it, publish the CQ head with
+//   release. On x86-64 the atomics are free (compiler barriers); on aarch64
+//   they are ldar/stlr.
+//
+// Field names deliberately mirror liburing's struct __yo_uring so the layer
+// reads against its proven reference implementation.
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
 
-// ThreadSanitizer cannot see liburing's ring mappings: the library maps and
-// unmaps its rings with raw syscalls (Ubuntu's liburing 2.5 imports only
-// calloc/free from libc), so TSan's mmap/munmap interceptors never run. When
-// one thread's ring is torn down and a later thread's ring is mapped at the
-// same address, TSan still holds the dead ring's accesses and reports the new
+// Syscall numbers are unified across architectures (io_uring postdates the
+// asm-generic numbering merge); the fallbacks cover libc headers that lack
+// them.
+#ifndef __NR_io_uring_setup
+#define __NR_io_uring_setup 425
+#endif
+#ifndef __NR_io_uring_enter
+#define __NR_io_uring_enter 426
+#endif
+
+#define __YO_IORING_SETUP_COOP_TASKRUN   (1U << 8)
+#define __YO_IORING_SETUP_SINGLE_ISSUER  (1U << 12)
+#define __YO_IORING_SETUP_DEFER_TASKRUN  (1U << 13)
+#define __YO_IORING_ENTER_GETEVENTS      (1U << 0)
+#define __YO_IORING_FEAT_SINGLE_MMAP     (1U << 0)
+#define __YO_IORING_FSYNC_DATASYNC       (1U << 0)
+#define __YO_IORING_OFF_SQ_RING          0ULL
+#define __YO_IORING_OFF_CQ_RING          0x8000000ULL
+#define __YO_IORING_OFF_SQES             0x10000000ULL
+
+// Opcodes this runtime submits (numbers are stable UAPI; checked against
+// include/uapi/linux/io_uring.h):
+#define __YO_IORING_OP_FSYNC         3
+#define __YO_IORING_OP_POLL_ADD      6
+#define __YO_IORING_OP_SENDMSG       9
+#define __YO_IORING_OP_RECVMSG       10
+#define __YO_IORING_OP_ACCEPT        13
+#define __YO_IORING_OP_ASYNC_CANCEL  14
+#define __YO_IORING_OP_CONNECT       16
+#define __YO_IORING_OP_OPENAT        18
+#define __YO_IORING_OP_CLOSE         19
+#define __YO_IORING_OP_STATX         21
+#define __YO_IORING_OP_READ          22
+#define __YO_IORING_OP_WRITE         23
+#define __YO_IORING_OP_SEND          26
+#define __YO_IORING_OP_RECV          27
+#define __YO_IORING_OP_RENAMEAT      35
+#define __YO_IORING_OP_UNLINKAT      36
+#define __YO_IORING_OP_MKDIRAT       37
+#define __YO_IORING_OP_SYMLINKAT     38
+#define __YO_IORING_OP_LINKAT        39
+#define __YO_IORING_OP_FTRUNCATE     55
+
+// UAPI layouts (include/uapi/linux/io_uring.h), flat-spelled: the two unions
+// are written out as the fields this runtime uses, with explicit padding so
+// the sizes are load-bearing (64-byte SQE, 16-byte CQE — static_asserts
+// below). The 'off' slot is the UAPI {off, addr2} union (RENAMEAT/SYMLINKAT/
+// STATX carry a second address there); 'rw_flags' is the flag-word union.
+struct __yo_uring_sqe {
+  uint8_t  opcode;
+  uint8_t  flags;
+  uint16_t ioprio;
+  int32_t  fd;
+  uint64_t off;
+  uint64_t addr;
+  uint32_t len;
+  uint32_t rw_flags;
+  uint64_t user_data;
+  uint16_t buf_index;
+  uint16_t personality;
+  uint8_t  __pad[20];
+};
+
+struct __yo_uring_cqe {
+  uint64_t user_data;
+  int32_t  res;
+  uint32_t flags;
+};
+
+struct __yo_uring_sqring_offsets {
+  uint32_t head, tail, ring_mask, ring_entries, flags, dropped, array, resv1;
+  uint64_t resv2;
+};
+
+struct __yo_uring_cqring_offsets {
+  uint32_t head, tail, ring_mask, ring_entries, overflow, cqes, flags, resv1;
+  uint64_t resv2;
+};
+
+struct __yo_uring_params {
+  uint32_t sq_entries, cq_entries, flags, sq_thread_cpu, sq_thread_idle,
+      features, wq_fd, resv[3];
+  struct __yo_uring_sqring_offsets sq_off;
+  struct __yo_uring_cqring_offsets cq_off;
+};
+
+struct __yo_uring {
+  int ring_fd;
+  struct {
+    uint32_t* khead;
+    uint32_t* ktail;
+    uint32_t* ring_mask;
+    uint32_t* ring_entries;
+    uint32_t* flags;
+    uint32_t* dropped;
+    uint32_t* array;
+    uint32_t sqe_head, sqe_tail;
+    struct __yo_uring_sqe* sqes;
+    void* ring_ptr;
+    size_t ring_sz;
+  } sq;
+  struct {
+    uint32_t* khead;
+    uint32_t* ktail;
+    uint32_t* ring_mask;
+    uint32_t* ring_entries;
+    uint32_t* overflow;
+    struct __yo_uring_cqe* cqes;
+    void* ring_ptr;
+    size_t ring_sz;
+  } cq;
+};
+
+_Static_assert(sizeof(struct __yo_uring_sqe) == 64, "__yo_uring_sqe layout");
+_Static_assert(sizeof(struct __yo_uring_cqe) == 16, "__yo_uring_cqe layout");
+
+static inline uint32_t __yo_uring_load_acquire(const uint32_t* p) {
+  return __atomic_load_n(p, __ATOMIC_ACQUIRE);
+}
+
+static inline void __yo_uring_store_release(uint32_t* p, uint32_t v) {
+  __atomic_store_n(p, v, __ATOMIC_RELEASE);
+}
+
+// Create a ring: setup syscall, then the three mmaps (SQ ring, CQ ring, SQE
+// array). With __YO_IORING_FEAT_SINGLE_MMAP the kernel hands out one region for
+// both rings and both mmaps must use the larger size — the same dance
+// liburing does. Returns 0 or -errno.
+static int __yo_uring_queue_init(struct __yo_uring* ring, uint32_t entries,
+                                 struct __yo_uring_params* p) {
+  memset(ring, 0, sizeof(*ring));
+  int fd = (int)syscall(__NR_io_uring_setup, entries, p);
+  if (fd < 0) return -errno;
+
+  size_t sq_ring_sz =
+      (size_t)p->sq_off.array + p->sq_entries * sizeof(uint32_t);
+  size_t cq_ring_sz = (size_t)p->cq_off.cqes +
+                      p->cq_entries * sizeof(struct __yo_uring_cqe);
+  if (p->features & __YO_IORING_FEAT_SINGLE_MMAP) {
+    if (cq_ring_sz > sq_ring_sz) sq_ring_sz = cq_ring_sz;
+    cq_ring_sz = sq_ring_sz;
+  }
+
+  void* sq_ring = mmap(NULL, sq_ring_sz, PROT_READ | PROT_WRITE,
+                       MAP_SHARED | MAP_POPULATE, fd, __YO_IORING_OFF_SQ_RING);
+  if (sq_ring == MAP_FAILED) {
+    int e = errno;
+    close(fd);
+    return -e;
+  }
+  void* cq_ring = mmap(NULL, cq_ring_sz, PROT_READ | PROT_WRITE,
+                       MAP_SHARED | MAP_POPULATE, fd, __YO_IORING_OFF_CQ_RING);
+  if (cq_ring == MAP_FAILED) {
+    int e = errno;
+    munmap(sq_ring, sq_ring_sz);
+    close(fd);
+    return -e;
+  }
+  size_t sqes_sz = (size_t)p->sq_entries * sizeof(struct __yo_uring_sqe);
+  void* sqes = mmap(NULL, sqes_sz, PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_POPULATE, fd, __YO_IORING_OFF_SQES);
+  if (sqes == MAP_FAILED) {
+    int e = errno;
+    munmap(sq_ring, sq_ring_sz);
+    munmap(cq_ring, cq_ring_sz);
+    close(fd);
+    return -e;
+  }
+
+  ring->ring_fd = fd;
+  ring->sq.ring_ptr = sq_ring;
+  ring->sq.ring_sz = sq_ring_sz;
+  ring->sq.khead = (uint32_t*)((char*)sq_ring + p->sq_off.head);
+  ring->sq.ktail = (uint32_t*)((char*)sq_ring + p->sq_off.tail);
+  ring->sq.ring_mask = (uint32_t*)((char*)sq_ring + p->sq_off.ring_mask);
+  ring->sq.ring_entries = (uint32_t*)((char*)sq_ring + p->sq_off.ring_entries);
+  ring->sq.flags = (uint32_t*)((char*)sq_ring + p->sq_off.flags);
+  ring->sq.dropped = (uint32_t*)((char*)sq_ring + p->sq_off.dropped);
+  ring->sq.array = (uint32_t*)((char*)sq_ring + p->sq_off.array);
+  ring->sq.sqes = (struct __yo_uring_sqe*)sqes;
+  ring->cq.ring_ptr = cq_ring;
+  ring->cq.ring_sz = cq_ring_sz;
+  ring->cq.khead = (uint32_t*)((char*)cq_ring + p->cq_off.head);
+  ring->cq.ktail = (uint32_t*)((char*)cq_ring + p->cq_off.tail);
+  ring->cq.ring_mask = (uint32_t*)((char*)cq_ring + p->cq_off.ring_mask);
+  ring->cq.ring_entries = (uint32_t*)((char*)cq_ring + p->cq_off.ring_entries);
+  ring->cq.overflow = (uint32_t*)((char*)cq_ring + p->cq_off.overflow);
+  ring->cq.cqes = (struct __yo_uring_cqe*)((char*)cq_ring + p->cq_off.cqes);
+  return 0;
+}
+
+static void __yo_uring_queue_exit(struct __yo_uring* ring) {
+  munmap(ring->sq.sqes,
+         (size_t)(*ring->sq.ring_entries) * sizeof(struct __yo_uring_sqe));
+  munmap(ring->sq.ring_ptr, ring->sq.ring_sz);
+  munmap(ring->cq.ring_ptr, ring->cq.ring_sz);
+  close(ring->ring_fd);
+  memset(ring, 0, sizeof(*ring));
+}
+
+// Reserve the next SQE slot. NULL when the SQ is full (the caller decides how
+// to fail). Slot publication to the kernel happens at submit time.
+static struct __yo_uring_sqe* __yo_uring_get_sqe(struct __yo_uring* ring) {
+  if (ring->sq.sqe_tail - __yo_uring_load_acquire(ring->sq.khead) >=
+      *ring->sq.ring_entries) {
+    return NULL;
+  }
+  return &ring->sq.sqes[ring->sq.sqe_tail++ & *ring->sq.ring_mask];
+}
+
+static int __yo_uring_enter(struct __yo_uring* ring, uint32_t to_submit,
+                            uint32_t min_complete, uint32_t flags) {
+  return (int)syscall(__NR_io_uring_enter, ring->ring_fd, to_submit,
+                      min_complete, flags, NULL, 0);
+}
+
+// Publish every reserved SQE (fill the SQ array, release the tail) and enter.
+// Returns the number submitted or -errno; EINTR handling stays with the
+// callers, as it is today.
+static int __yo_uring_submit(struct __yo_uring* ring) {
+  uint32_t mask = *ring->sq.ring_mask;
+  uint32_t ktail = *ring->sq.ktail;
+  uint32_t head = ktail;
+  while (ring->sq.sqe_head != ring->sq.sqe_tail) {
+    ring->sq.array[head & mask] = ring->sq.sqe_head & mask;
+    ring->sq.sqe_head++;
+    head++;
+  }
+  if (head != ktail) __yo_uring_store_release(ring->sq.ktail, head);
+  uint32_t to_submit = head - *ring->sq.khead;
+  if (to_submit == 0) return 0;
+  return __yo_uring_enter(ring, to_submit, 0, 0);
+}
+
+// The loop's main batching win in one syscall: publish the SQEs and block for
+// the first completion together.
+static int __yo_uring_submit_and_wait(struct __yo_uring* ring,
+                                      uint32_t wait_nr) {
+  uint32_t mask = *ring->sq.ring_mask;
+  uint32_t ktail = *ring->sq.ktail;
+  uint32_t head = ktail;
+  while (ring->sq.sqe_head != ring->sq.sqe_tail) {
+    ring->sq.array[head & mask] = ring->sq.sqe_head & mask;
+    ring->sq.sqe_head++;
+    head++;
+  }
+  if (head != ktail) __yo_uring_store_release(ring->sq.ktail, head);
+  uint32_t to_submit = head - *ring->sq.khead;
+  return __yo_uring_enter(ring, to_submit, wait_nr,
+                          __YO_IORING_ENTER_GETEVENTS);
+}
+
+// A non-blocking enter with GETEVENTS: under __YO_IORING_SETUP_DEFER_TASKRUN the
+// kernel materialises completions only when this thread enters the ring, so a
+// pure-userspace peek can miss finished work; this is the non-blocking enter
+// that makes them visible (it consumes nothing).
+static int __yo_uring_getevents(struct __yo_uring* ring) {
+  return __yo_uring_enter(ring, 0, 0, __YO_IORING_ENTER_GETEVENTS);
+}
+
+// Returns 0 and sets *cqe_ptr, or -EAGAIN when the CQ ring is empty.
+static int __yo_uring_peek_cqe(struct __yo_uring* ring,
+                               struct __yo_uring_cqe** cqe_ptr) {
+  uint32_t head = *ring->cq.khead;
+  if (head != __yo_uring_load_acquire(ring->cq.ktail)) {
+    *cqe_ptr = &ring->cq.cqes[head & *ring->cq.ring_mask];
+    return 0;
+  }
+  return -EAGAIN;
+}
+
+static unsigned __yo_uring_peek_batch_cqe(struct __yo_uring* ring,
+                                          struct __yo_uring_cqe** cqes,
+                                          unsigned nr) {
+  uint32_t head = *ring->cq.khead;
+  uint32_t tail = __yo_uring_load_acquire(ring->cq.ktail);
+  unsigned count = 0;
+  while (head != tail && count < nr) {
+    cqes[count++] = &ring->cq.cqes[head & *ring->cq.ring_mask];
+    head++;
+  }
+  return count;
+}
+
+// Advance the CQ head; the kernel reuses the slot only after this release.
+static void __yo_uring_cqe_seen(struct __yo_uring* ring,
+                                struct __yo_uring_cqe* cqe) {
+  if (cqe) {
+    __yo_uring_store_release(ring->cq.khead, *ring->cq.khead + 1);
+  }
+}
+
+static int __yo_uring_wait_cqe(struct __yo_uring* ring,
+                               struct __yo_uring_cqe** cqe_ptr) {
+  int ret = __yo_uring_peek_cqe(ring, cqe_ptr);
+  if (ret == 0) return 0;
+  ret = __yo_uring_enter(ring, 0, 1, __YO_IORING_ENTER_GETEVENTS);
+  if (ret < 0) return ret;
+  return __yo_uring_peek_cqe(ring, cqe_ptr);
+}
+
+static inline void __yo_uring_sqe_set_data(struct __yo_uring_sqe* sqe,
+                                           void* data) {
+  sqe->user_data = (uint64_t)(uintptr_t)data;
+}
+
+static inline void* __yo_uring_cqe_get_data(const struct __yo_uring_cqe* cqe) {
+  return (void*)(uintptr_t)cqe->user_data;
+}
+
+// Prep helpers. Unlike liburing's (which initialise most-but-not-all fields
+// into a possibly-recycled slot), every helper here initialises EVERY field
+// via __yo_uring_prep_rw first — a stale-data hazard cannot exist. The
+// argument shapes mirror liburing's so the call sites keep their review
+// history; the field placements (which UAPI slot carries which argument) are
+// liburing's, verified against the kernel's opcode handlers.
+static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
+                                      int32_t fd, const void* addr,
+                                      uint32_t len, uint64_t off) {
+  sqe->opcode = op;
+  sqe->flags = 0;
+  sqe->ioprio = 0;
+  sqe->fd = fd;
+  sqe->off = off;
+  sqe->addr = (uint64_t)(uintptr_t)addr;
+  sqe->len = len;
+  sqe->rw_flags = 0;
+  sqe->user_data = 0;
+  sqe->buf_index = 0;
+  sqe->personality = 0;
+  memset(sqe->__pad, 0, sizeof(sqe->__pad));
+}
+
+static inline void __yo_uring_prep_read(struct __yo_uring_sqe* sqe, int32_t fd,
+                                        void* buf, uint32_t size,
+                                        int64_t offset) {
+  __yo_uring_prep_rw(__YO_IORING_OP_READ, sqe, fd, buf, size, (uint64_t)offset);
+}
+
+static inline void __yo_uring_prep_write(struct __yo_uring_sqe* sqe,
+                                         int32_t fd, const void* buf,
+                                         uint32_t size, int64_t offset) {
+  __yo_uring_prep_rw(__YO_IORING_OP_WRITE, sqe, fd, buf, size,
+                     (uint64_t)offset);
+}
+
+static inline void __yo_uring_prep_openat(struct __yo_uring_sqe* sqe,
+                                          int32_t dirfd, const char* path,
+                                          int32_t flags, uint32_t mode) {
+  __yo_uring_prep_rw(__YO_IORING_OP_OPENAT, sqe, dirfd, path, mode, 0);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_close(struct __yo_uring_sqe* sqe,
+                                         int32_t fd) {
+  __yo_uring_prep_rw(__YO_IORING_OP_CLOSE, sqe, fd, NULL, 0, 0);
+}
+
+static inline void __yo_uring_prep_statx(struct __yo_uring_sqe* sqe,
+                                         int32_t dirfd, const char* path,
+                                         int32_t flags, uint32_t mask,
+                                         void* statxbuf) {
+  __yo_uring_prep_rw(__YO_IORING_OP_STATX, sqe, dirfd, path, mask,
+                     (uint64_t)(uintptr_t)statxbuf);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_mkdirat(struct __yo_uring_sqe* sqe,
+                                           int32_t dirfd, const char* path,
+                                           uint32_t mode) {
+  __yo_uring_prep_rw(__YO_IORING_OP_MKDIRAT, sqe, dirfd, path, mode, 0);
+}
+
+static inline void __yo_uring_prep_unlinkat(struct __yo_uring_sqe* sqe,
+                                            int32_t dirfd, const char* path,
+                                            int32_t flags) {
+  // liburing's shape: len stays 0 and the flags travel in the rw_flags
+  // union slot (unlink_flags). Encoding them in len made every
+  // remove_dir (AT_REMOVEDIR) fail with EINVAL — caught by
+  // tests/fs/dir.test.yo in CI, which the flags=0-only standalone
+  // harness could not see.
+  __yo_uring_prep_rw(__YO_IORING_OP_UNLINKAT, sqe, dirfd, path, 0, 0);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_renameat(struct __yo_uring_sqe* sqe,
+                                            int32_t olddirfd,
+                                            const char* oldpath,
+                                            int32_t newdirfd,
+                                            const char* newpath,
+                                            uint32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_RENAMEAT, sqe, olddirfd, oldpath,
+                     (uint32_t)newdirfd, (uint64_t)(uintptr_t)newpath);
+  sqe->rw_flags = flags;
+}
+
+static inline void __yo_uring_prep_symlinkat(struct __yo_uring_sqe* sqe,
+                                             const char* target,
+                                             int32_t newdirfd,
+                                             const char* linkpath) {
+  __yo_uring_prep_rw(__YO_IORING_OP_SYMLINKAT, sqe, newdirfd, target, 0,
+                     (uint64_t)(uintptr_t)linkpath);
+}
+
+static inline void __yo_uring_prep_linkat(struct __yo_uring_sqe* sqe,
+                                          int32_t olddirfd, const char* oldpath,
+                                          int32_t newdirfd, const char* newpath,
+                                          int32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_LINKAT, sqe, olddirfd, oldpath,
+                     (uint32_t)newdirfd, (uint64_t)(uintptr_t)newpath);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_fsync(struct __yo_uring_sqe* sqe, int32_t fd,
+                                         uint32_t fsync_flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_FSYNC, sqe, fd, NULL, 0, 0);
+  sqe->rw_flags = fsync_flags;
+}
+
+static inline void __yo_uring_prep_ftruncate(struct __yo_uring_sqe* sqe,
+                                             int32_t fd, int64_t length) {
+  __yo_uring_prep_rw(__YO_IORING_OP_FTRUNCATE, sqe, fd, NULL, 0,
+                     (uint64_t)length);
+}
+
+static inline void __yo_uring_prep_accept(struct __yo_uring_sqe* sqe,
+                                          int32_t fd, void* addr,
+                                          void* addrlen, int32_t flags) {
+  // liburing's shape (checked against liburing 2.12): len stays 0 and the
+  // addrlen POINTER travels in the off slot (uring_ptr_to_u64). The kernel
+  // rejects a nonzero len for ACCEPT with EINVAL — encoding the pointer
+  // there made every listener accept fail AND strand the rest of the
+  // submission batch (io_uring_enter stops at a failed prep without
+  // IORING_SETUP_SUBMIT_ALL), which hung the connect behind it. The
+  // flags=0/NULL-buffer harness case cannot see either encoding.
+  __yo_uring_prep_rw(__YO_IORING_OP_ACCEPT, sqe, fd, addr, 0,
+                     (uint64_t)(uintptr_t)addrlen);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_connect(struct __yo_uring_sqe* sqe,
+                                           int32_t fd, const void* addr,
+                                           uint32_t addrlen) {
+  __yo_uring_prep_rw(__YO_IORING_OP_CONNECT, sqe, fd, addr, 0,
+                     (uint64_t)addrlen);
+}
+
+static inline void __yo_uring_prep_send(struct __yo_uring_sqe* sqe, int32_t fd,
+                                        const void* buf, size_t len,
+                                        int32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_SEND, sqe, fd, buf, (uint32_t)len, 0);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_recv(struct __yo_uring_sqe* sqe, int32_t fd,
+                                        void* buf, size_t len, int32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_RECV, sqe, fd, buf, (uint32_t)len, 0);
+  sqe->rw_flags = (uint32_t)flags;
+}
+
+static inline void __yo_uring_prep_sendmsg(struct __yo_uring_sqe* sqe,
+                                           int32_t fd, void* msg,
+                                           uint32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_SENDMSG, sqe, fd, msg, 1, 0);
+  sqe->rw_flags = flags;
+}
+
+static inline void __yo_uring_prep_recvmsg(struct __yo_uring_sqe* sqe,
+                                           int32_t fd, void* msg,
+                                           uint32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_RECVMSG, sqe, fd, msg, 1, 0);
+  sqe->rw_flags = flags;
+}
+
+static inline void __yo_uring_prep_poll_add(struct __yo_uring_sqe* sqe,
+                                            int32_t fd, uint32_t events) {
+  __yo_uring_prep_rw(__YO_IORING_OP_POLL_ADD, sqe, fd, NULL, 0, 0);
+  sqe->rw_flags = events;
+}
+
+static inline void __yo_uring_prep_cancel(struct __yo_uring_sqe* sqe,
+                                          void* target_user_data,
+                                          uint32_t flags) {
+  __yo_uring_prep_rw(__YO_IORING_OP_ASYNC_CANCEL, sqe, -1, target_user_data, 0,
+                     0);
+  sqe->rw_flags = flags;
+}
+
+static _Thread_local struct __yo_uring __yo_io_ring;
+
+// ThreadSanitizer does not order a munmap against a later mmap that returns
+// the same address, so ring mappings reused across threads look racy to it.
+// When one thread's ring is torn down and a later thread's ring is mapped at
+// the same address, TSan still holds the dead ring's accesses and reports the new
 // ring's first SQE write as a race with the old one. The kernel orders the
 // two: a munmap and a later mmap that returns the same address both take the
 // process's mmap_lock. Model exactly that order on each region's address,
@@ -559,25 +1067,25 @@ static _Thread_local struct io_uring __yo_io_ring;
 #ifdef __YO_TSAN
 void __tsan_acquire(void* addr);
 void __tsan_release(void* addr);
-static void __yo_tsan_ring_mapped(struct io_uring* ring) {
+static void __yo_tsan_ring_mapped(struct __yo_uring* ring) {
   __tsan_acquire(ring->sq.ring_ptr);
   __tsan_acquire(ring->cq.ring_ptr);
   __tsan_acquire(ring->sq.sqes);
 }
-static void __yo_tsan_ring_unmapping(struct io_uring* ring) {
+static void __yo_tsan_ring_unmapping(struct __yo_uring* ring) {
   __tsan_release(ring->sq.ring_ptr);
   __tsan_release(ring->cq.ring_ptr);
   __tsan_release(ring->sq.sqes);
 }
 #else
-static inline void __yo_tsan_ring_mapped(struct io_uring* ring) { (void)ring; }
-static inline void __yo_tsan_ring_unmapping(struct io_uring* ring) { (void)ring; }
+static inline void __yo_tsan_ring_mapped(struct __yo_uring* ring) { (void)ring; }
+static inline void __yo_tsan_ring_unmapping(struct __yo_uring* ring) { (void)ring; }
 #endif
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;
 // Cross-thread wakeup channel (plans/archive/WAKER_BASED_SCHEDULING.md step 5): an
 // eventfd this loop keeps a POLL_ADD armed on, so a foreign thread can end an
-// io_uring_wait_cqe that would otherwise block forever. Its SQE carries a
+// __yo_uring_wait_cqe that would otherwise block forever. Its SQE carries a
 // SENTINEL user_data rather than a future, and takes no pending-I/O slot: it
 // is not work the loop is waiting for, it is how the loop is reachable.
 #define __YO_IO_NOTIFY_UD ((void*)(uintptr_t)1)
@@ -619,31 +1127,25 @@ static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
 
   // Try modern kernel flags for lower overhead (requires Linux 6.0+):
-  //   IORING_SETUP_COOP_TASKRUN — avoids inter-processor interrupts on task wakeup
+  //   __YO_IORING_SETUP_COOP_TASKRUN — avoids inter-processor interrupts on task wakeup
   //     since we know our thread will reap completions.
-  //   IORING_SETUP_SINGLE_ISSUER — we only submit from the owner thread.
-  //   IORING_SETUP_DEFER_TASKRUN — completions run only when we call wait_cqe,
+  //   __YO_IORING_SETUP_SINGLE_ISSUER — we only submit from the owner thread.
+  //   __YO_IORING_SETUP_DEFER_TASKRUN — completions run only when we call wait_cqe,
   //     avoiding random overhead on timer interrupts.
-  struct io_uring_params params;
+  struct __yo_uring_params params;
   memset(&params, 0, sizeof(params));
-#ifdef IORING_SETUP_SINGLE_ISSUER
-  params.flags |= IORING_SETUP_SINGLE_ISSUER;
-#endif
-#ifdef IORING_SETUP_COOP_TASKRUN
-  params.flags |= IORING_SETUP_COOP_TASKRUN;
-#endif
-#ifdef IORING_SETUP_DEFER_TASKRUN
-  params.flags |= IORING_SETUP_DEFER_TASKRUN;
-#endif
+  params.flags |= __YO_IORING_SETUP_SINGLE_ISSUER;
+  params.flags |= __YO_IORING_SETUP_COOP_TASKRUN;
+  params.flags |= __YO_IORING_SETUP_DEFER_TASKRUN;
 
-  int ret = io_uring_queue_init_params(__YO_IO_RING_ENTRIES, &__yo_io_ring, &params);
+  int ret = __yo_uring_queue_init(&__yo_io_ring, __YO_IO_RING_ENTRIES, &params);
   if (ret < 0) {
     // Retry without any flags for older kernels
     memset(&params, 0, sizeof(params));
-    ret = io_uring_queue_init_params(__YO_IO_RING_ENTRIES, &__yo_io_ring, &params);
+    ret = __yo_uring_queue_init(&__yo_io_ring, __YO_IO_RING_ENTRIES, &params);
   }
   if (ret < 0) {
-    fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
+    fprintf(stderr, "[Yo] io_uring ring init failed: %s\\n", strerror(-ret));
     exit(1);
   }
   __yo_tsan_ring_mapped(&__yo_io_ring);
@@ -697,7 +1199,7 @@ static void __yo_io_cleanup(void) {
   // A loop that only ever waited for wakes has an eventfd and no ring.
   if (__yo_io_initialized) {
     __yo_tsan_ring_unmapping(&__yo_io_ring);
-    io_uring_queue_exit(&__yo_io_ring);
+    __yo_uring_queue_exit(&__yo_io_ring);
   }
   if (__yo_notify_efd >= 0) {
     close(__yo_notify_efd);
@@ -716,7 +1218,7 @@ static inline bool __yo_has_pending_io(void) {
 static int __yo_poll_and_fs_event_tick(void);
 
 // Queue an SQE for later submission to io_uring (deferred submit).
-// The actual io_uring_submit() syscall happens inside __yo_io_poll / __yo_io_wait,
+// The actual __yo_uring_submit() syscall happens inside __yo_io_poll / __yo_io_wait,
 // so many SQEs produced within one "drain tasks" pass batch into one syscall.
 static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
   future->header.ref_count++;    // io_uring holds a reference until CQE
@@ -733,10 +1235,10 @@ static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
 // leaving the operation registered.
 static inline bool __yo_io_ring_submit_cancel(__yo_io_future_t* target) {
   if (__yo_sq_unsubmitted >= __YO_IO_RING_ENTRIES) return false;
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) return false;
-  io_uring_prep_cancel(sqe, (void*)target, 0);
-  io_uring_sqe_set_data(sqe, NULL);
+  __yo_uring_prep_cancel(sqe, (void*)target, 0);
+  __yo_uring_sqe_set_data(sqe, NULL);
   __yo_sq_deferred_futures[(__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES] = NULL;
   __yo_sq_unsubmitted++;
   return true;
@@ -747,15 +1249,15 @@ static inline bool __yo_io_ring_submit_cancel(__yo_io_future_t* target) {
 static inline void __yo_io_arm_notify(void) {
   if (__yo_notify_efd < 0) return;
   if (__yo_sq_unsubmitted >= __YO_IO_RING_ENTRIES) return;
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) return;
-  io_uring_prep_poll_add(sqe, __yo_notify_efd, POLLIN);
-  io_uring_sqe_set_data(sqe, __YO_IO_NOTIFY_UD);
+  __yo_uring_prep_poll_add(sqe, __yo_notify_efd, POLLIN);
+  __yo_uring_sqe_set_data(sqe, __YO_IO_NOTIFY_UD);
   __yo_sq_deferred_futures[(__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES] = NULL;
   __yo_sq_unsubmitted++;
 }
 
-// Nudge a loop out of io_uring_wait_cqe. Safe from any thread: an eventfd
+// Nudge a loop out of __yo_uring_wait_cqe. Safe from any thread: an eventfd
 // write is atomic, and the check and the write run under the loop's mutex so
 // they cannot race __yo_io_cleanup's clear+close of the descriptor (see the
 // comment there).
@@ -782,14 +1284,15 @@ static void __yo_io_notify(__yo_loop_t* loop) {
   (void)w;
 }
 
-// Flush any queued SQEs to the kernel if non-empty. Returns the liburing result.
+// Flush any queued SQEs to the kernel if non-empty. Returns the number
+// submitted, or -errno.
 // On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
 // is left unchanged -- the next submit attempt (via poll/wait) will retry them.
 static inline int __yo_io_flush_sq(void) {
   if (__yo_sq_unsubmitted == 0) return 0;
   int ret;
   do {
-    ret = io_uring_submit(&__yo_io_ring);
+    ret = __yo_uring_submit(&__yo_io_ring);
   } while (ret == -EINTR);
   if (ret > 0) {
     if ((size_t)ret >= __yo_sq_unsubmitted) {
@@ -803,7 +1306,7 @@ static inline int __yo_io_flush_sq(void) {
   return ret;
 }
 
-// Extended future for the datagram ops (sendto/recvfrom). IORING_OP_SENDMSG/
+// Extended future for the datagram ops (sendto/recvfrom). __YO_IORING_OP_SENDMSG/
 // RECVMSG take a struct msghdr that must remain valid until the CQE is reaped
 // (the kernel reads the iovec and the destination address lazily, and RECVMSG
 // WRITES msg_name/msg_namelen at completion time), so the msghdr, the iovec
@@ -833,8 +1336,8 @@ static bool __yo_accept_future_cancel(__yo_io_future_t* future) {
 
 // Process completions from CQ
 // The future pointer is stored directly in the SQE user data
-static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
-  __yo_io_future_t* future = (__yo_io_future_t*)io_uring_cqe_get_data(cqe);
+static void __yo_io_process_cqe(struct __yo_uring_cqe* cqe) {
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_uring_cqe_get_data(cqe);
   if ((void*)future == __YO_IO_NOTIFY_UD) {
     // The wakeup channel fired. It carries no operation — draining the
     // eventfd and re-arming is all there is to do; the foreign wake itself is
@@ -842,7 +1345,7 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
     uint64_t v;
     while (__yo_notify_efd >= 0 && read(__yo_notify_efd, &v, sizeof(v)) == (ssize_t)sizeof(v)) {
     }
-    io_uring_cqe_seen(&__yo_io_ring, cqe);
+    __yo_uring_cqe_seen(&__yo_io_ring, cqe);
     __yo_io_arm_notify();
     return;
   }
@@ -850,7 +1353,7 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
     // Completion of a cancellation SQE (__yo_io_ring_submit_cancel): it owns
     // no future and no pending-I/O slot. The cancelled operation reports
     // separately, through its own CQE.
-    io_uring_cqe_seen(&__yo_io_ring, cqe);
+    __yo_uring_cqe_seen(&__yo_io_ring, cqe);
     return;
   }
   __yo_pending_io_count--;
@@ -899,10 +1402,10 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
     __yo_async_spawn_task(cont_fn, cont_sm);
   }
 
-  io_uring_cqe_seen(&__yo_io_ring, cqe);
+  __yo_uring_cqe_seen(&__yo_io_ring, cqe);
   
   // Release the io_uring event loop reference.
-  // This must be AFTER io_uring_cqe_seen and AFTER reading all future fields,
+  // This must be AFTER __yo_uring_cqe_seen and AFTER reading all future fields,
   // because decr_rc may free the future if user already dropped their ref.
   __yo_decr_rc((void*)future);
 }
@@ -916,25 +1419,23 @@ static int __yo_io_poll(void) {
   // Flush any queued SQEs so their completions can be reaped.
   __yo_io_flush_sq();
 
-  // The ring runs with IORING_SETUP_DEFER_TASKRUN (see __yo_io_init): the
+  // The ring runs with __YO_IORING_SETUP_DEFER_TASKRUN (see __yo_io_init): the
   // kernel materialises completions only when this thread enters it with
-  // IORING_ENTER_GETEVENTS. A pure-userspace peek therefore never sees a
+  // __YO_IORING_ENTER_GETEVENTS. A pure-userspace peek therefore never sees a
   // timer or socket complete while some task is always ready and the loop
   // never reaches __yo_io_wait — a poll-until-finished race spun forever on
   // Linux while macOS (kqueue always syscalls) was fine
   // (issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md).
   // A zero-timeout wait is that non-blocking enter; it consumes nothing.
   {
-    struct io_uring_cqe* probe = NULL;
-    struct __kernel_timespec zero_ts = {0, 0};
-    (void)io_uring_wait_cqe_timeout(&__yo_io_ring, &probe, &zero_ts);
+    (void)__yo_uring_getevents(&__yo_io_ring);
   }
 
-  struct io_uring_cqe* cqes[64];
+  struct __yo_uring_cqe* cqes[64];
   int count = 0;
 
   unsigned n;
-  while ((n = io_uring_peek_batch_cqe(&__yo_io_ring, cqes, 64)) > 0) {
+  while ((n = __yo_uring_peek_batch_cqe(&__yo_io_ring, cqes, 64)) > 0) {
     for (unsigned i = 0; i < n; ++i) {
       __yo_io_process_cqe(cqes[i]);
       count++;
@@ -990,18 +1491,18 @@ static int __yo_io_wait(void) {
   // With no I/O outstanding but a blocking call running on another thread, the
   // wait below is a wait on the wakeup channel alone — which is what the loop
   // should be doing rather than spinning.
-  struct io_uring_cqe* cqe;
+  struct __yo_uring_cqe* cqe;
   // Combined submit + wait in a single syscall -- this is the main batching win:
   // all deferred SQEs are submitted alongside the blocking wait for a CQE.
   int ret;
   if (__yo_sq_unsubmitted > 0) {
     do {
-      ret = io_uring_submit_and_wait(&__yo_io_ring, 1);
+      ret = __yo_uring_submit_and_wait(&__yo_io_ring, 1);
     } while (ret == -EINTR);
     if (ret < 0) {
       // SQEs remain in the SQ ring; do not drop __yo_sq_unsubmitted so the
       // next poll/wait retries them.
-      ASYNC_DEBUG("[Io] WARNING: io_uring_submit_and_wait failed: %d\\n", ret);
+      ASYNC_DEBUG("[Io] WARNING: __yo_uring_submit_and_wait failed: %d\\n", ret);
       return 0;
     }
     // ret >= 0: that many SQEs were submitted.
@@ -1013,14 +1514,14 @@ static int __yo_io_wait(void) {
       __yo_sq_unsubmitted -= (size_t)ret;
     }
     // After submit_and_wait, at least one CQE should be available; peek it.
-    if (io_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
+    if (__yo_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
       // Rare: spurious wake. Fall back to explicit wait.
-      if (io_uring_wait_cqe(&__yo_io_ring, &cqe) < 0) return 0;
+      if (__yo_uring_wait_cqe(&__yo_io_ring, &cqe) < 0) return 0;
     }
   } else {
-    ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
+    ret = __yo_uring_wait_cqe(&__yo_io_ring, &cqe);
     if (ret < 0) {
-      ASYNC_DEBUG("[Io] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
+      ASYNC_DEBUG("[Io] WARNING: __yo_uring_wait_cqe failed: %d\\n", ret);
       return 0;
     }
   }
@@ -1049,7 +1550,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   future->continuation_sm = NULL;
   
   // Submit to io_uring
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
@@ -1058,8 +1559,8 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     return future;
   }
   
-  io_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  __yo_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
+  __yo_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
@@ -1087,7 +1588,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   future->continuation_sm = NULL;
   
   // Submit to io_uring
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
@@ -1096,8 +1597,8 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     return future;
   }
   
-  io_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  __yo_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
+  __yo_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
@@ -1120,15 +1621,15 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_openat(sqe, dirfd, path, flags, (mode_t)mode);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_openat(sqe, dirfd, path, flags, (mode_t)mode);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async openat: dirfd=%d path=%s flags=0x%x mode=0%o (pending=%zu)\\n",
@@ -1150,15 +1651,15 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_close(sqe, fd);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_close(sqe, fd);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async close: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
@@ -1180,15 +1681,15 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_statx(sqe, dirfd, path, flags, mask, (struct statx*)statxbuf);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_statx(sqe, dirfd, path, flags, mask, (struct statx*)statxbuf);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async statx: dirfd=%d path=%s flags=0x%x mask=0x%x (pending=%zu)\\n",
@@ -1210,15 +1711,15 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_mkdirat(sqe, dirfd, path, (mode_t)mode);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_mkdirat(sqe, dirfd, path, (mode_t)mode);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async mkdirat: dirfd=%d path=%s mode=0%o (pending=%zu)\\n",
@@ -1240,15 +1741,15 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_unlinkat(sqe, dirfd, path, flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_unlinkat(sqe, dirfd, path, flags);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async unlinkat: dirfd=%d path=%s flags=0x%x (pending=%zu)\\n",
@@ -1270,15 +1771,15 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_renameat(sqe, olddirfd, oldpath, newdirfd, newpath, 0);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_renameat(sqe, olddirfd, oldpath, newdirfd, newpath, 0);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async renameat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s (pending=%zu)\\n",
@@ -1300,15 +1801,15 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_symlinkat(sqe, target, newdirfd, linkpath);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_symlinkat(sqe, target, newdirfd, linkpath);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async symlinkat: target=%s newdirfd=%d linkpath=%s (pending=%zu)\\n",
@@ -1330,15 +1831,15 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_linkat(sqe, olddirfd, oldpath, newdirfd, newpath, flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_linkat(sqe, olddirfd, oldpath, newdirfd, newpath, flags);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async linkat: olddirfd=%d oldpath=%s newdirfd=%d newpath=%s flags=0x%x (pending=%zu)\\n",
@@ -1360,15 +1861,15 @@ static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_fsync(sqe, fd, 0);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_fsync(sqe, fd, 0);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async fsync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
@@ -1389,15 +1890,15 @@ static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_fsync(sqe, fd, IORING_FSYNC_DATASYNC);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_fsync(sqe, fd, __YO_IORING_FSYNC_DATASYNC);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async fdatasync: fd=%d (pending=%zu)\\n", fd, __yo_pending_io_count);
@@ -1418,28 +1919,19 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
 
-#if defined(IORING_OP_FTRUNCATE)
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
 
-  io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, 0, (uint64_t)length);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_ftruncate(sqe, fd, length);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
 
   ASYNC_DEBUG("[Io] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
               fd, (long long)length, __yo_pending_io_count);
-#else
-  int result = ftruncate(fd, (off_t)length);
-  future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
-
-  ASYNC_DEBUG("[Io] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
-              fd, (long long)length, future->result);
-#endif
   
   return future;
 }
@@ -1536,15 +2028,15 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
+  __yo_uring_sqe_set_data(sqe, future);
   // The tag process_cqe reads to set O_NONBLOCK on the accepted fd; it also
   // gives an aborted accept a prompt cancel path instead of waiting out the
   // connection that may never arrive.
@@ -1569,15 +2061,15 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
@@ -1598,15 +2090,15 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_send(sqe, sockfd, buf, len, flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_send(sqe, sockfd, buf, len, flags);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
@@ -1627,15 +2119,15 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
     return future;
   }
   
-  io_uring_prep_recv(sqe, sockfd, buf, len, flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_recv(sqe, sockfd, buf, len, flags);
+  __yo_uring_sqe_set_data(sqe, future);
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
@@ -1646,7 +2138,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
 // Async sendto - send data to specific address (UDP)
 //
 // "io_uring doesn't have direct sendto" (the old comment here) has been wrong
-// for years: IORING_OP_SENDMSG is the direct sendto and has been in the kernel
+// for years: __YO_IORING_OP_SENDMSG is the direct sendto and has been in the kernel
 // since 5.3 — well under this runtime's existing floor (its openat/close ops
 // need 5.6+). The datagram is attempted inline first — sockets are created
 // nonblocking, so a full send buffer reports EAGAIN instead of parking the
@@ -1685,7 +2177,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   // (and the destination address it points at) lazily, so the address is
   // COPIED into the future's own allocation; the msghdr and iovec live there
   // too, and the ring's reference keeps them alive until the CQE.
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
@@ -1699,8 +2191,8 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   df->msg.msg_iovlen = 1;
   df->msg.msg_name = &df->dest;
   df->msg.msg_namelen = addrlen;
-  io_uring_prep_sendmsg(sqe, sockfd, &df->msg, (unsigned)flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_sendmsg(sqe, sockfd, &df->msg, (unsigned)flags);
+  __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_dgram_future_cancel;
   __yo_io_ring_submit(future);
 
@@ -1712,7 +2204,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
 // Async recvfrom - receive data with source address (UDP)
 //
 // Same shape as sendto: inline attempt first (EAGAIN on a quiet socket, never
-// a block), then IORING_OP_RECVMSG. The kernel writes the sender's address
+// a block), then __YO_IORING_OP_RECVMSG. The kernel writes the sender's address
 // into the CALLER's src_addr buffer and the address LENGTH into our msghdr at
 // completion time; __yo_io_process_cqe copies that length to the caller's
 // in/out addrlen. src_addr therefore has the same lifetime contract as every
@@ -1743,7 +2235,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   }
 
   // Quiet socket — arm RECVMSG and let the task park.
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     future->state = -1;
@@ -1756,8 +2248,8 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   df->msg.msg_iovlen = 1;
   df->msg.msg_name = src_addr;
   df->msg.msg_namelen = (src_addr && addrlen) ? (socklen_t)*addrlen : 0;
-  io_uring_prep_recvmsg(sqe, sockfd, &df->msg, (unsigned)flags);
-  io_uring_sqe_set_data(sqe, future);
+  __yo_uring_prep_recvmsg(sqe, sockfd, &df->msg, (unsigned)flags);
+  __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_dgram_future_cancel;
   __yo_io_ring_submit(future);
 
@@ -1836,224 +2328,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   return future;
 }
 
-#else // !__YO_HAS_LIBURING
 
-#include <time.h>
-
-// Stub functions when liburing is not available
-static inline void __yo_io_init(void) {
-  fprintf(stderr, "[Yo] Warning: liburing not available, async I/O disabled\\n");
-}
-
-static inline void __yo_io_cleanup(void) {}
-
-static void __yo_io_loop_start(void) {
-  __yo_io_init();
-}
-
-// No ring to interrupt: without liburing this target has no blocking I/O wait
-// to be woken out of.
-static void __yo_io_notify(__yo_loop_t* loop) {
-  (void)loop;
-}
-
-static inline bool __yo_has_pending_io(void) {
-  return __yo_active_watch_count > 0;
-}
-
-static int __yo_poll_and_fs_event_tick(void);
-
-static inline int __yo_io_poll(void) { return __yo_poll_and_fs_event_tick(); }
-
-static inline int __yo_io_wait(void) {
-  if (__yo_active_watch_count > 0) {
-    struct timespec ts = {0, 10 * 1000 * 1000};
-    nanosleep(&ts, NULL);
-    return __yo_poll_and_fs_event_tick();
-  }
-  return 0;
-}
-
-static inline void* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
-  (void)fd; (void)buffer; (void)size; (void)offset;
-  fprintf(stderr, "[Yo] Error: async read not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
-  (void)fd; (void)buffer; (void)size; (void)offset;
-  fprintf(stderr, "[Yo] Error: async write not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
-  (void)dirfd; (void)path; (void)flags; (void)mode;
-  fprintf(stderr, "[Yo] Error: async openat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_close_start(int32_t fd) {
-  (void)fd;
-  fprintf(stderr, "[Yo] Error: async close not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
-  (void)dirfd; (void)path; (void)flags; (void)mask; (void)statxbuf;
-  fprintf(stderr, "[Yo] Error: async statx not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
-  (void)dirfd; (void)path; (void)mode;
-  fprintf(stderr, "[Yo] Error: async mkdirat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
-  (void)dirfd; (void)path; (void)flags;
-  fprintf(stderr, "[Yo] Error: async unlinkat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
-  (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath;
-  fprintf(stderr, "[Yo] Error: async renameat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
-  (void)target; (void)newdirfd; (void)linkpath;
-  fprintf(stderr, "[Yo] Error: async symlinkat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
-  (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath; (void)flags;
-  fprintf(stderr, "[Yo] Error: async linkat not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_fsync_start(int32_t fd) {
-  (void)fd;
-  fprintf(stderr, "[Yo] Error: async fsync not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_fdatasync_start(int32_t fd) {
-  (void)fd;
-  fprintf(stderr, "[Yo] Error: async fdatasync not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
-  (void)fd; (void)length;
-  fprintf(stderr, "[Yo] Error: async ftruncate not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
-  (void)domain; (void)type; (void)protocol;
-  fprintf(stderr, "[Yo] Error: async socket not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen;
-  fprintf(stderr, "[Yo] Error: async bind not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
-  (void)sockfd; (void)backlog;
-  fprintf(stderr, "[Yo] Error: async listen not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen;
-  fprintf(stderr, "[Yo] Error: async accept not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  (void)sockfd; (void)addr; (void)addrlen;
-  fprintf(stderr, "[Yo] Error: async connect not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
-  (void)sockfd; (void)buf; (void)len; (void)flags;
-  fprintf(stderr, "[Yo] Error: async send not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
-  (void)sockfd; (void)buf; (void)len; (void)flags;
-  fprintf(stderr, "[Yo] Error: async recv not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
-                                             const void* dest_addr, uint32_t addrlen) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; (void)dest_addr; (void)addrlen;
-  fprintf(stderr, "[Yo] Error: async sendto not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
-                                               void* src_addr, uint32_t* addrlen) {
-  (void)sockfd; (void)buf; (void)len; (void)flags; (void)src_addr; (void)addrlen;
-  fprintf(stderr, "[Yo] Error: async recvfrom not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
-  (void)sockfd; (void)how;
-  fprintf(stderr, "[Yo] Error: async shutdown not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
-                                                 const void* optval, uint32_t optlen) {
-  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen;
-  fprintf(stderr, "[Yo] Error: async setsockopt not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-static inline void* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
-                                                 void* optval, uint32_t* optlen) {
-  (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen;
-  fprintf(stderr, "[Yo] Error: async getsockopt not supported without liburing\\n");
-  abort();
-  return NULL;
-}
-
-#endif // __YO_HAS_LIBURING
 
 `
   );
