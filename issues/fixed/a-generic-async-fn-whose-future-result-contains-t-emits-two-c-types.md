@@ -334,5 +334,10 @@ a concrete resolution is adopted as before, and so is a wrapper whose rebuild re
 one of its carriers' binders (fewer `collect_wrapper_trait_somes`); a bare binder that resolves
 only to another SomeT keeps the original.
 
+A second instantiation (`U = _Pair` after `U = i32`) then failed the closure's E0604 check,
+because `_resolve_some_types_deep` had registered `U := i32` in the global registry under `U`'s
+declaration id; that write is removed (see
+`issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md`).
+
 Regression tests: "a future result containing the binder, at two different U" and "a future result
 containing a binder named T" (`tests/async_generic_future_return.test.yo`).

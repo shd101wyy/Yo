@@ -19,8 +19,6 @@
 //! stub that used to live here has been retired.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ type_intern_key } :: import("../../types/intern.yo");
-{ HashSet } :: import("std/collections/hash_set");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -6357,9 +6355,6 @@ try_to_call_function_with_arguments :: (
                 // arm inside types as `unit` (the Step-10 adopt) — so the
                 // def-time body eval survives and the closure gets ExprInfo +
                 // FSM treatment (the self-capture io.async FTT family).
-                if(debug_knob(`YO_DBG_6B`).is_some(), {
-                  eprintln(`[__DBG_6B] out=${type_intern_key(io_t_out, usize(0), HashSet(String).new())} marker=${_self_marker_id(callee_env, String.from("T"))}`);
-                });
                 if(!(is_some_type(io_t_out)), {
                   (tb_i : usize) = usize(0);
                   while(tb_i < n_forall, {

@@ -18,8 +18,6 @@
 //!   - Effect row spread expansion (uses existing implicit params as-is)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ HashSet } :: import("std/collections/hash_set");
-{ type_intern_key } :: import("../../types/intern.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -1643,7 +1641,6 @@ Result type: ${type_to_string(decl_result_ty)}`
             cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
             cr_skip := ((((has_any_control_flow(cr_info.control_flow) || is_void_type(cr_ret_ty)) || is_type_hierarchy_type(cr_ret_ty)) || (get_all_some_types(cr_ret_ty).len() > usize(0))) || (get_all_some_types(cr_body_ty).len() > usize(0)));
             if(!(cr_skip) && !(are_types_compatible(cr_body_ty, cr_ret_ty)), {
-              eprintln(`[__DBG_CR] ret=${type_intern_key(cr_ret_ty, usize(0), HashSet(String).new())} body=${type_intern_key(cr_body_ty, usize(0), HashSet(String).new())}`);
               cr_hint := cond(
                 is_unit_type(cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
                 true => String.new()

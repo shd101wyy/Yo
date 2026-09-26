@@ -11,8 +11,6 @@
 //!   equality.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ eprintln } :: import("std/fmt");
-{ debug_knob } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
 { t_i32, t_f64, t_str } :: import("./creators.yo");
@@ -532,18 +530,11 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
     },
     _ => Option(TypeValue).None
   );
-  __dbg_r := match(
+  match(
     fast_result,
     .Some(resolved) => resolved,
     .None => _do_chain_resolve(env, start, visited_ids)
-  );
-  if(debug_knob(`YO_DBG_CHAIN`).is_some() && !is_some_type(__dbg_r), {
-    __dbg_vars := get_variables_from_env(env, _some_name(start));
-    __dbg_last := match(__dbg_vars.get(__dbg_vars.len() - usize(1)), .Some(lv) => `lastfl=${lv.frame_level.to_string()} lastid=${variable_bound_some_id(lv)} lasttok=${lv.token.module_path}:${lv.token.row.to_string()}`, .None => String.from("none"));
-    __dbg_rec := _binding_recorded_for(__dbg_vars, _some_id(start), TypeValue.Unit);
-    eprintln(`[__DBG_CHAIN] ${_some_name(start)} id=${_some_id(start)} fl=${match(_some_frame_level(start), .Some(l) => l.to_string(), .None => String.from("?"))} fast=${fast_result.is_some().to_string()} -> ${type_to_string(__dbg_r)} frames=${env.frames.len().to_string()} nvars=${__dbg_vars.len().to_string()} ${__dbg_last} rec=${type_to_string(__dbg_rec)} selfb=${_was_self_bound(env, _some_name(start), _some_id(start)).to_string()}`);
-  });
-  __dbg_r
+  )
 });
 /// Get the concrete type that a `SomeType` (generic type variable) resolves to
 /// in the given environment. Follows SomeType → SomeType chains until a

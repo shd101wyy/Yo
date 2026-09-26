@@ -7999,9 +7999,6 @@ Fix: wrap the call:
         // the binder concretely; a legitimately-unbound binder keeps the
         // original type.
         rt_rt_resolved := _resolve_some_types_deep(ret_type_rt, call_result_rt.caller_env);
-        if(debug_knob(`YO_DBG_ASYNC`).is_some() && is_io_async_call(expr), {
-          eprintln(`[__DBG_ASYNC] eval io.async id=${ast_expr_id(expr).to_string()} ret=${type_to_string(ret_type_rt)} deep=${type_to_string(rt_rt_resolved)} module=${env.module_path}`);
-        });
         if(_adopt_deep_resolution(ret_type_rt, rt_rt_resolved), {
           ret_type_rt = rt_rt_resolved;
         });
@@ -8453,9 +8450,6 @@ Fix: wrap the call:
           // through the CALL's env, where the enclosing specialization binds
           // R concretely; a legitimately-unbound R keeps the original type.
           m_rt_resolved := _resolve_some_types_deep(m_out_ty, call_result_m.caller_env);
-          if(debug_knob(`YO_DBG_ASYNC`).is_some(), {
-            eprintln(`[__DBG_ASYNC] eval method id=${ast_expr_id(expr).to_string()} ret=${type_to_string(m_out_ty)} deep=${type_to_string(m_rt_resolved)} wr=${collect_wrapper_trait_somes(m_out_ty).len().to_string()}/${collect_wrapper_trait_somes(m_rt_resolved).len().to_string()}`);
-          });
           if(_adopt_deep_resolution(m_out_ty, m_rt_resolved), {
             m_out_ty = m_rt_resolved;
           });
@@ -8701,9 +8695,6 @@ Fix: wrap the call:
           // unbound, and the resolver may hand back a re-identified SomeT we
           // do not want to adopt (id-keyed side tables).
           rt_none_resolved := _resolve_some_types_deep(ret_type_none, call_result_none.caller_env);
-          if(debug_knob(`YO_DBG_ASYNC`).is_some() && is_io_async_call(expr), {
-            eprintln(`[__DBG_ASYNC] eval none id=${ast_expr_id(expr).to_string()} ret=${type_to_string(ret_type_none)} deep=${type_to_string(rt_none_resolved)} wr=${collect_wrapper_trait_somes(ret_type_none).len().to_string()}/${collect_wrapper_trait_somes(rt_none_resolved).len().to_string()}`);
-          });
           if(_adopt_deep_resolution(ret_type_none, rt_none_resolved), {
             ret_type_none = rt_none_resolved;
           });

@@ -446,10 +446,17 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
      (`are_types_compatible_invariant`). The resolved-SomeT unwrap stays in identity, since
      `type_key` keys a resolved argument-slot SomeT by its resolution. Step 7 retires it.
    - `a-box-over-an-impl-fn-…` no longer reproduces on v0.2.43 (measured; moved to fixed).
-   - The async one reduces to a three-line program
-     (`issues/repros/generic-async-fn-option-t-result-two-c-types.yo`). The reduction also found
-     a false E0601 when the caller's binder is named `T`
-     (`issues/a-caller-binder-named-t-collides-with-io-async-t.md`).
+   - `a-generic-async-fn-…` is fixed. The call's result, resolved through the specialization's
+     env, was discarded whenever the rebuilt `Impl(Future(...))` wrapper was still a SomeT. All
+     three call arms now share `_adopt_deep_resolution`.
+   - Reducing it found `issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md`, a false
+     E0601. A name and a frame level do not identify a type binder: the caller's `T` and
+     `io.async`'s `T` share both. A binding now records the binder it resolves
+     (`variable_bound_some_id`), and the resolver and `_bind_some_type` pair by it. Two defects
+     behind it are fixed too:
+     - a wrapper's deep resolution replaced the wrapper node through a same-keyed carrier;
+     - it wrote a shared-id global registry entry that a second specialization read back. That is
+       step 7's hazard, removed at this site.
 
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
