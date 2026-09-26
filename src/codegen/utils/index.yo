@@ -66,7 +66,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -1486,7 +1486,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // future's SM / sync-future struct under the future SomeType — return that.
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({ id : sid, name : snm, resolution : src }) => match(
+    .SomeT({ id : sid, name : snm }) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
       // intern — the id-keyed global misses when ids re-mint, e.g. the Box
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
@@ -1494,7 +1494,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // to the unresolved fallback instead of recursing forever.
       cond(
         _gts_stack_contains(sid) => Option(TypeValue).None,
-        true => match(src, .Some(rc0) => Option(TypeValue).Some(rc0), .None => lookup_some_resolved_concrete(sid))
+        true => some_resolution(t)
       ),
       .Some(rct) => {
         // An extern-resolved FUTURE — `IoFuture :: Impl(Concrete(

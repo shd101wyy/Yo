@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
+{ lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 {
   is_some_type,
@@ -2215,15 +2215,7 @@ _synthesize_types_impl :: (
       // (bool, Impl-SomeT). Resolve the given side BEFORE declaring a
       // mismatch (the synthesizer's SomeType arms assume
       // unresolved vars). Retry the synthesis with the resolution.
-      giv_resolution := match(
-        given_ty,
-        .SomeT({ id : sg_id, resolution : sg_cell }) => match(
-          sg_cell,
-          .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
-          .None => lookup_some_resolved_concrete(sg_id)
-        ),
-        _ => Option(TypeValue).None
-      );
+      giv_resolution := some_resolution(given_ty);
       match(
         giv_resolution,
         .Some(sg_rt2) => {
@@ -2231,15 +2223,7 @@ _synthesize_types_impl :: (
         },
         .None => ()
       );
-      exp_resolution := match(
-        expected_ty,
-        .SomeT({ id : se_id, resolution : se_cell }) => match(
-          se_cell,
-          .Some(se_rt) => Option(TypeValue).Some(se_rt),
-          .None => lookup_some_resolved_concrete(se_id)
-        ),
-        _ => Option(TypeValue).None
-      );
+      exp_resolution := some_resolution(expected_ty);
       match(
         exp_resolution,
         .Some(se_rt2) => {

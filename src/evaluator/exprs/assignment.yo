@@ -24,27 +24,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BF_DOT
 } :: import("../../expr.yo");
-{
-  ExprInfo,
-  ComptimeRef,
-  new_expr_info,
-  expr_info_table_set,
-  expr_info_table_get,
-  ControlFlowFlags,
-  has_any_control_flow,
-  control_flow_to_string,
-  record_branch_init,
-  has_dominating_branch_init,
-  lookup_some_resolved_concrete,
-  expr_info_paths_for_write,
-  expr_info_set_converted_runtime_type,
-  register_thread_local,
-  is_thread_local,
-  expr_info_capture_type,
-  expr_info_comptime_ref,
-  expr_info_index_trait_ptr_type,
-  expr_info_set_is_compile_time_only_assignment
-} :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, expr_info_paths_for_write, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -1481,11 +1461,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // consults cond.yo's branch-group windows to exclude sibling-arm records
   // (sibling arms must not count).
   if(is_mutating_defined_variable, {
-    impl_resolved := match(
-      updated_variable.ty,
-      .SomeT(id : some_id, resolution : some_cell) => (some_cell.is_some() || lookup_some_resolved_concrete(some_id).is_some()),
-      _ => false
-    );
+    impl_resolved := some_resolution(updated_variable.ty).is_some();
     if(impl_resolved && has_dominating_branch_init(updated_variable.id), {
       ra_entries := ArrayList(TokenAndError).new();
       ra_entries.push(
