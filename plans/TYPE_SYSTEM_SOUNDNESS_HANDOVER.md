@@ -109,6 +109,26 @@ the largest bodies of code that has only ever been checked by the reversed relat
 because the seed does not contain the change; but anything std/src needs to change to pass the
 *new* checks must be written so the seed also accepts it.
 
+**First build (2026-09-26, on its `36ec17b8c` base, before the rebase onto #943).** It builds.
+`tests/dyn.test.yo` 25 passed, `tests/internal/env_lookup.test.yo` 8 passed (the new stranding
+test included), `tests/fn.test.yo` 26, `tests/closure.test.yo` 18. `tests/type_soundness.test.yo`
+fails to compile:
+
+```
+error[E0601]: Cannot unify incompatible types:
+Expected: "dyn(Fn(A) -> B)"
+Given: "dyn(Fn(i32) -> i32)"
+  (inc : Dyn(Fn(y : i32) -> i32)) = dyn(y => (y + i32(1))); _sound_apply_dyn(inc, i32(41))
+```
+
+Cause: the exact-trait-set loop this branch made unconditional in `compatibility.yo`'s DynT arm
+compares each actual trait against the expected ones with `_exact_mode(mode)`, i.e. Invariant in
+flow. The forward (subset) loop above it compares with `mode`. So in flow a generic
+`Dyn(Fn(A) -> B)` parameter no longer accepts `Dyn(Fn(i32) -> i32)`: Invariant does not let the
+Fn-trait's `A` take `i32`. The reverse loop should use the same relation as the forward one:
+`if(require_exact, _exact_mode(mode), mode)`. Fix that, re-run `type_soundness`, then the rest of
+the battery. Nothing else was run on this branch; the other three branches were not built.
+
 Then move the issue to `fixed/` with a Resolution section, regenerate `issues/TRIAGE.md`
 (`python3 scripts/gen-issue-triage.py`), and note it in the plan's Phase 3 step 8 list.
 
