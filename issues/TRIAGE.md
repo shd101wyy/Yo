@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 197 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 196 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 26 | 5 |
-| **Total** | **197** | **37** |
+| Other | 25 | 5 |
+| **Total** | **196** | **37** |
 
 ## Cross-cutting buckets
 
@@ -332,7 +332,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (26)
+### Other (25)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -359,6 +359,5 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
-| [`wsl2-io-uring-connect-await-exits-the-loop.md`](./wsl2-io-uring-connect-await-exits-the-loop.md) | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |

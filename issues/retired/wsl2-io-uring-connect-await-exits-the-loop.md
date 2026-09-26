@@ -1,9 +1,20 @@
 # On WSL2, an io_uring TCP connect await ends the loop silently (rc=0, program truncated)
 
-**Status: OPEN** — filed 2026-09-26 from the DROP_LIBURING Phase 6 gates.
-Pre-existing: reproduces identically with the pre-DROP_LIBURING baseline
-compiler. Environmental on WSL2 (CI's ubuntu runners pass `tests/net/tcp`
-on develop); the epoll fallback completes the same program on the same box.
+**Status: RETIRED 2026-09-26 — MISDIAGNOSIS.** The behavior was real, the
+attribution was wrong: it was NOT environmental and NOT pre-existing. It was
+the vendored ring layer's accept encoding (see the fixup commits on the
+DROP_LIBURING branches): io_uring_prep_accept must keep len 0 and carry the
+addrlen POINTER in the off slot; the pointer-in-len form fails kernel prep
+with EINVAL, and a failed prep stops the whole io_uring_enter submission
+batch — so the accept failed AND every SQE queued behind it (the connect)
+was stranded, which reads exactly like "the connect await ends the loop".
+With the fix, the reproducer below completes on the same WSL2 box.
+
+The "reproduces with the pre-DROP_LIBURING baseline" evidence was conflated:
+the baseline run of tests/net/tcp on this box fails 23/23 with the LOCAL
+leak-detector noise class (as does everything else here — see the DROP_LIBURING
+PR bodies), and that was mistaken for the connect hang. The direct hello
+reproducer had only ever been run against the broken binary.
 
 ## Symptom
 
