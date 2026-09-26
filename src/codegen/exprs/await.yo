@@ -44,6 +44,7 @@
   get_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
+  can_optimize_as_nullable_pointer,
   get_deferred_drop_target_atom_name,
   fresh_local_name
 } :: import("../utils/index.yo");
@@ -701,6 +702,12 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   );
   some_tag := get_enum_variant_c_name(option_type, String.from("Some"), context.base);
   none_tag := get_enum_variant_c_name(option_type, String.from("None"), context.base);
+  // `Option(T)` of a pointer or reference handle is the bare pointer (NULL =
+  // `.None`, `can_optimize_as_nullable_pointer`): `.Some(v)` is `v` itself.
+  jh_nullable := can_optimize_as_nullable_pointer(option_type).is_some();
+  some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = `);
+  some_close := if(jh_nullable, String.new(), String.from(" } } }"));
+  none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
   unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
@@ -734,7 +741,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
     if(type_contains_rc_type(rt), {
       match(
         get_dup_function_for_type(rt, context),
-        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = ${dup_fn}(${header_var.clone()}->result) } } };`),
+        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
         // INLINE dup, not a bare copy — same trap as generate_await's sync
         // path above: no ___dup methods are synthesized, so `.None` is
         // the ONLY path here, and the bare copy handed out a BORROWED
@@ -747,18 +754,18 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
         // sibling). The dup's side statements go through the same emitter.
         .None => {
           dup_code := generate_dup_code_for_value(`${header_var.clone()}->result`, rt, context);
-          em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = ${dup_code} } } };`);
+          em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_code}${some_close.clone()};`);
         }
       );
     }, {
-      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = ${header_var.clone()}->result } } };`);
+      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
     });
   });
   em.emit_string_line(`${indent.clone()}  } else {`);
   em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
   // `.None` is the typed observation of the abort: the program handles it.
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
-  em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${none_tag.clone()} };`);
+  em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
   // Release the reference the handle took at io.spawn (see _generate_io_spawn's
   // ownership comment). AFTER the result is read and dup'd above, since this
