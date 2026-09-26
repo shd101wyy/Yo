@@ -65,6 +65,31 @@ over-cancellation canary per the standing rules.
 `tests/internal/verifier.test.yo`, the CI red), and any user code doing
 `v := list_of_value_enums(i)`.
 
+## Pinpointed sites (2026-09-27, traced to the end)
+
+1. `emit_deferred_dup_or_code` (`src/codegen/exprs/drop_dup.yo`, the
+   `dup_result_name` match) only adopts a dup result temp when the recorded
+   dup expression is an fn_call whose ExprInfo carries a `variable_name` with
+   `type_key == type_key` of the source. The INLINE VALUE-ENUM dup (no
+   registered `___dup`) has no such variable_name → `dup_result_name = None`
+   → the `true` arm returns the PRE-dup fallback
+   (`_file_…960`) while `generate_deferred_dup_expressions` has already
+   materialized the owned temp `temp_dup_enum_0`.
+2. `generate_deferred_dup_expressions` (same file) renders the dup's return
+   code as a BARE STATEMENT (`  temp_dup_enum_0;`) — the +1 is taken and
+   discarded. That is the stray line in the C above.
+3. The scalar `:=` path (`src/codegen/exprs/init_assignment.yo`, ~465-525)
+   then emits `vi = _file_…960;` from the returned fallback. `vi` gets NO
+   scope-end drop in the emitted C (compare `_cache_store`'s `payload`,
+   whose scope drop IS emitted — so value-enum locals CAN get one; why `vi`
+   does not is part of the fix).
+
+Fix = make the inline value-enum dup's result temp flow back through
+`emit_deferred_dup_or_code` (with the same type_key guard), stop
+statement-izing it, and ensure the binding's scope-end drop exists. Gate with
+the dup/drop emit-diff + an over-cancellation canary (AGENTS.md), plus the
+7-line repro as a failing test.
+
 ## Fix sketch (next session)
 
 1. In the `:=` lowering, use the value returned by `emit_deferred_dup_or_code`
