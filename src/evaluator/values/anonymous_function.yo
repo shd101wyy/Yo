@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple, t_resolved_cell, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
@@ -927,8 +927,8 @@ evaluate_anonymous_function_implementation :: (
       // (`resolved_concrete` empty).
       ann_some_name := match(
         ann_exp_ty,
-        .SomeT({ name : ann_sn, resolved_concrete : ann_rc }) => if(
-          (ann_rc.len() == usize(0)) && ann_is_colon,
+        .SomeT({ name : ann_sn, resolution : ann_rc }) => if(
+          ann_rc.is_none() && ann_is_colon,
           Option(String).Some(ann_sn.clone()),
           Option(String).None
         ),
@@ -1084,7 +1084,7 @@ evaluate_anonymous_function_implementation :: (
       ArrayList(usize).new(),
       false,
       Option(TypeValue).None,
-      ArrayList(TypeValue).new()
+      Option(TypeValue).None
     );
     fl_tok := synthetic_token(fl_name.clone(), env.module_path);
     _fa_v := add_variable_to_env(
@@ -1780,8 +1780,8 @@ Result type: ${type_to_string(decl_result_ty)}`
               // io.async future result lower to void*.
               match(
                 body_ty,
-                .SomeT({ resolved_concrete : bt_cell }) => match(
-                  bt_cell.get(usize(0)),
+                .SomeT({ resolution : bt_cell }) => match(
+                  bt_cell,
                   .Some(bt_rc) => {
                     body_ty = bt_rc;
                   },
@@ -2153,7 +2153,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                     ArrayList(usize).new(),
                     false,
                     Option(TypeValue).None,
-                    t_resolved_cell(cap_t)
+                    Option(TypeValue).Some(cap_t)
                   );
                   // PER-CALL identity: the `F` here shares ONE
                   // resolution cell across every call of the generic fn
@@ -2175,7 +2175,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                     w_ntl,
                     w_ier,
                     w_kft,
-                    t_resolved_cell(impl_fn_wrapper)
+                    Option(TypeValue).Some(impl_fn_wrapper)
                   );
                 },
                 .None => ()
@@ -2192,7 +2192,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                   w_ntl,
                   w_ier,
                   w_kft,
-                  t_resolved_cell(cap_t)
+                  Option(TypeValue).Some(cap_t)
                 );
               },
               true => ()

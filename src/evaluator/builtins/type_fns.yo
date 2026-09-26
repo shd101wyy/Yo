@@ -1240,11 +1240,11 @@ evaluate_yo_type_get_info :: (
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
     //
-    .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolved_concrete : st_res }) => {
+    .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolution : st_res }) => {
       req_name := _ti_bind_trait_info_list(local_env, st_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(local_env, st_neg, String.from("neg"), ctx, exn);
       res_name := match(
-        st_res.get(usize(0)),
+        st_res,
         .Some(rt) => _ti_bind_type(local_env, rt, ctx),
         .None => String.from("unit")
       );

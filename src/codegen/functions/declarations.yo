@@ -431,7 +431,7 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
             // call site degraded to the statement FTT (async_await arm 72).
             pt_resolvable := match(
               pt,
-              .SomeT({ id : ghp_id, resolved_concrete : ghp_rc }) => ((ghp_rc.len() > usize(0)) || lookup_some_resolved_concrete(ghp_id).is_some()),
+              .SomeT({ id : ghp_id, resolution : ghp_rc }) => (ghp_rc.is_some() || lookup_some_resolved_concrete(ghp_id).is_some()),
               _ => false
             );
             if(!pt_resolvable, {

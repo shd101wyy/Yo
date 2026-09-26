@@ -282,16 +282,41 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     ArrayList(usize).new(),
     false,
     Option(TypeValue).None,
-    ArrayList(TypeValue).new()
+    Option(TypeValue).None
   )
 );
-/// Build a resolved-concrete CELL seeded with `t` (see definitions.yo SomeT:
-/// a one-element ArrayList used as a shared mutable box).
-t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
-  cell := ArrayList(TypeValue).new();
-  cell.push(t);
-  cell
-});
+/// `t` (a SomeT) with the SAME identity carrying the resolution `concrete`
+/// (types/definitions.yo `resolution`): a resolution learned after a SomeT is
+/// built makes a new SomeT, and the original is untouched. Non-SomeT input
+/// returns unchanged.
+t_with_resolution :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_ier, wr_kft, _) => TypeValue.SomeT(
+      wr_id,
+      wr_nm,
+      wr_fl,
+      wr_pt,
+      wr_rtt,
+      wr_rtl,
+      wr_ntt,
+      wr_ntl,
+      wr_ier,
+      wr_kft,
+      Option(TypeValue).Some(concrete)
+    ),
+    _ => t
+  )
+);
+/// The function type `ft` with its result replaced by `result`. Non-`Func`
+/// input returns unchanged.
+t_with_func_result :: (fn(ft : TypeValue, result : TypeValue) -> TypeValue)(
+  match(
+    ft,
+    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt),
+    _ => ft
+  )
+);
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
 /// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
 /// FRESH id and a FRESH (empty) resolved-concrete cell, copying every other
@@ -316,7 +341,7 @@ clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
       snegl,
       seff,
       skind,
-      ArrayList(TypeValue).new()
+      Option(TypeValue).None
     ),
     _ => s
   )
@@ -338,7 +363,7 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
     ArrayList(usize).new(),
     false,
     Option(TypeValue).Some(kind),
-    ArrayList(TypeValue).new()
+    Option(TypeValue).None
   )
 );
 // ---------------------------------------------------------------------------
@@ -768,7 +793,6 @@ export(UNFRAMED_BINDER_LEVEL);
 export(register_enum_type_arguments, lookup_enum_type_arguments);
 export(register_struct_final, resolve_struct_shell);
 export(
-  t_resolved_cell,
   generate_some_type_id,
   t_unit,
   t_str,
@@ -818,6 +842,8 @@ export(
   t_some_t,
   t_some_t_with_kind,
   clone_some_fresh,
+  t_with_resolution,
+  t_with_func_result,
   t_expr_t,
   t_comptime_list,
   t_effects_row,

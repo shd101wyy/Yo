@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -97,7 +97,7 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths
 } :: import("../context.yo");
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
-{ register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
+{ register_func_type, get_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
@@ -1845,48 +1845,46 @@ Result type: ${type_to_string(result_box)}`
               );
             });
           });
-          // When the declared return type
-          // is a SomeType (Impl(...)) without a resolved concrete type and
-          // the def-time-evaluated body has a concrete type, stamp the
-          // return SomeT's resolution — the lineage cell
-          // plus the id-keyed eval→codegen
-          // bridge. For a body that is itself a resolved SomeT (delegation
-          // wrappers, e.g. write_string_cstr → write_string, both returning
-          // Impl(Future(...))), propagate its resolution instead.
+          // When the declared return type is a SomeType (Impl(...)) with no
+          // resolution and the def-time-evaluated body has a concrete type,
+          // that type is the opaque return's hidden type. For a body that is
+          // itself a resolved SomeT (delegation wrappers, e.g.
+          // write_string_cstr → write_string, both returning
+          // Impl(Future(...))), its resolution is. The function's registered
+          // type is re-registered with a result SomeT CARRYING it (a SomeT's
+          // resolution is an immutable value, types/definitions.yo), and the
+          // id-keyed eval→codegen bridge records it for copies of the
+          // declared result taken before this point.
           match(
             result_box,
-            .SomeT({ id : dts_rid, resolved_concrete : dts_rcell }) => if(
-              (dts_rcell.len() == usize(0)) && lookup_some_resolved_concrete(dts_rid).is_none(),
+            .SomeT({ id : dts_rid, resolution : dts_res }) => if(
+              dts_res.is_none() && lookup_some_resolved_concrete(dts_rid).is_none(),
               match(
                 flow_out.get(usize(0)),
                 .Some(dts_body) => match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(dts_body)),
                   .Some(dts_binfo) => {
                     dts_bty := dts_binfo.ty;
-                    if(!(is_some_type(dts_bty)), {
-                      dts_rcell.push(dts_bty.clone());
-                      register_some_resolved_concrete(dts_rid.clone(), dts_bty);
-                    }, {
-                      match(
+                    dts_hidden := cond(
+                      !(is_some_type(dts_bty)) => Option(TypeValue).Some(dts_bty.clone()),
+                      true => match(
                         dts_bty,
-                        .SomeT({ id : dts_bid, resolved_concrete : dts_bcell }) => {
-                          dts_prop := match(
-                            dts_bcell.get(usize(0)),
-                            .Some(x) => Option(TypeValue).Some(x),
-                            .None => lookup_some_resolved_concrete(dts_bid)
-                          );
-                          match(
-                            dts_prop,
-                            .Some(dts_p) => {
-                              dts_rcell.push(dts_p.clone());
-                              register_some_resolved_concrete(dts_rid.clone(), dts_p);
-                            },
-                            .None => ()
-                          );
-                        },
-                        _ => ()
-                      );
-                    });
+                        .SomeT({ id : dts_bid, resolution : dts_bres }) => match(
+                          dts_bres,
+                          .Some(x) => Option(TypeValue).Some(x),
+                          .None => lookup_some_resolved_concrete(dts_bid)
+                        ),
+                        _ => Option(TypeValue).None
+                      )
+                    );
+                    match(
+                      dts_hidden,
+                      .Some(dts_h) => {
+                        register_some_resolved_concrete(dts_rid.clone(), dts_h.clone());
+                        register_func_type(fn_val_id.clone(), t_with_func_result(get_func_type(fn_val_id.clone()), t_with_resolution(result_box, dts_h)));
+                      },
+                      .None => ()
+                    );
                   },
                   .None => ()
                 ),

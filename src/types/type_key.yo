@@ -80,7 +80,7 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
   while(walk, {
     match(
       cur,
-      .SomeT({ id : ras_id, name : ras_nm, resolved_concrete : ras_rc }) => {
+      .SomeT({ id : ras_id, name : ras_nm, resolution : ras_rc }) => {
         // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
         // their OWN identity: the dyn/box closure machinery lowers them to a
         // distinct fat call/data C struct, and hopping to the capture struct
@@ -112,7 +112,7 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
         }, {
           seen.push(ras_id.clone());
           match(
-            ras_rc.get(usize(0)),
+            ras_rc,
             .Some(nx) => {
               cur = nx;
             },

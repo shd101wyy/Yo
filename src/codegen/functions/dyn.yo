@@ -368,8 +368,8 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     .Struct({ id : csid }) => csid,
                     // Impl(Fn) SOMET concrete (dyn'd closure): the capture
                     // struct rides on resolved_concrete — key the map with it.
-                    .SomeT({ resolved_concrete : ccrc }) => match(
-                      ccrc.get(usize(0)),
+                    .SomeT({ resolution : ccrc }) => match(
+                      ccrc,
                       .Some(ccrct) => match(ccrct, .Struct({ id : csid2 }) => csid2, _ => String.from("")),
                       .None => String.from("")
                     ),

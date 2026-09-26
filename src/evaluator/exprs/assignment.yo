@@ -1483,7 +1483,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   if(is_mutating_defined_variable, {
     impl_resolved := match(
       updated_variable.ty,
-      .SomeT(id : some_id, resolved_concrete : some_cell) => ((some_cell.len() > usize(0)) || lookup_some_resolved_concrete(some_id).is_some()),
+      .SomeT(id : some_id, resolution : some_cell) => (some_cell.is_some() || lookup_some_resolved_concrete(some_id).is_some()),
       _ => false
     );
     if(impl_resolved && has_dominating_branch_init(updated_variable.id), {

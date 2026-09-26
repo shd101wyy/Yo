@@ -884,7 +884,7 @@ _bind_forall_from_type_args :: (
             while(cell_walk, {
               match(
                 cell_cur,
-                .SomeT(id : cell_id, resolved_concrete : cell_rc) => {
+                .SomeT(id : cell_id, resolution : cell_rc) => {
                   (cell_revisit : bool) = false;
                   (cell_i : usize) = usize(0);
                   while(cell_i < cell_seen.len(), {
@@ -902,7 +902,7 @@ _bind_forall_from_type_args :: (
                   }, {
                     cell_seen.push(cell_id.clone());
                     match(
-                      cell_rc.get(usize(0)),
+                      cell_rc,
                       .Some(cell_nx) => {
                         cell_cur = cell_nx;
                       },
@@ -3045,7 +3045,7 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
                     r_ntl.clone(),
                     r_ier,
                     r_kft.clone(),
-                    ArrayList(TypeValue).new()
+                    Option(TypeValue).None
                   )
                 );
                 added = (added + usize(1));

@@ -1165,8 +1165,8 @@ _synthesize_future_traits :: (
     if(is_some_type(sfe_exp) && !is_some_type(sfe_giv), {
       match(
         sfe_exp,
-        .SomeT({ resolved_concrete : sfe_cell }) => {
-          if(sfe_cell.len() > usize(0), {
+        .SomeT({ resolution : sfe_cell }) => {
+          ifsfe_cell.is_some(), {
             _r := sfe_cell.drain(usize(0) .. sfe_cell.len());
           });
           sfe_cell.push(sfe_giv);
@@ -2211,8 +2211,8 @@ _synthesize_types_impl :: (
       // unresolved vars). Retry the synthesis with the resolution.
       giv_resolution := match(
         given_ty,
-        .SomeT({ id : sg_id, resolved_concrete : sg_cell }) => match(
-          sg_cell.get(usize(0)),
+        .SomeT({ id : sg_id, resolution : sg_cell }) => match(
+          sg_cell,
           .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
           .None => lookup_some_resolved_concrete(sg_id)
         ),
@@ -2227,8 +2227,8 @@ _synthesize_types_impl :: (
       );
       exp_resolution := match(
         expected_ty,
-        .SomeT({ id : se_id, resolved_concrete : se_cell }) => match(
-          se_cell.get(usize(0)),
+        .SomeT({ id : se_id, resolution : se_cell }) => match(
+          se_cell,
           .Some(se_rt) => Option(TypeValue).Some(se_rt),
           .None => lookup_some_resolved_concrete(se_id)
         ),

@@ -89,7 +89,7 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
       rsc_seen.push(sid.clone());
       // Per-object resolved concrete first (survives clone/substitute/intern);
       // global table as fallback.
-      own_rc := match(cur, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+      own_rc := match(cur, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
       match(
         match(own_rc, .Some(o1) => Option(TypeValue).Some(o1), .None => lookup_some_resolved_concrete(sid)),
         .Some(rct) => {

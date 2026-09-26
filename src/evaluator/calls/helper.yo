@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_ptr, t_resolved_cell, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
@@ -2092,7 +2092,7 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
   while(walk, {
     match(
       cur,
-      .SomeT({ id : sr_id, resolved_concrete : sr_rc }) => {
+      .SomeT({ id : sr_id, resolution : sr_rc }) => {
         (revisit : bool) = false;
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
@@ -2110,7 +2110,7 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
         }, {
           seen.push(sr_id.clone());
           match(
-            sr_rc.get(usize(0)),
+            sr_rc,
             .Some(nx) => {
               cur = nx;
             },
@@ -3219,7 +3219,7 @@ create_specialized_function_inline :: (
                         sp_ntl_c,
                         sp_ier_c,
                         sp_kft_c,
-                        t_resolved_cell(cap_ty)
+                        Option(TypeValue).Some(cap_ty)
                       );
                     },
                     _ => ()
@@ -5450,7 +5450,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
       somes.get(si),
       .Some(st) => match(
         st,
-        .SomeT({ id : ub_id, name : ubn_label, resolved_concrete : ub_cell }) => {
+        .SomeT({ id : ub_id, name : ubn_label, resolution : ub_cell }) => {
           (own : bool) = false;
           (bi : usize) = usize(0);
           while((bi < binder_ids.len()) && !(own), {
@@ -5467,7 +5467,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
             });
             ni = (ni + usize(1));
           });
-          if(((own && !(bound)) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none(), {
+          if(((own && !(bound)) && ub_cell.is_none()) && lookup_some_resolved_concrete(ub_id).is_none(), {
             return(Option(String).Some(ubn_label));
           });
         },
@@ -5496,8 +5496,8 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
         ev,
         .TypeVal(t) => match(
           t,
-          .SomeT({ id : fb_id, resolved_concrete : fb_cell }) => cond(
-            (fb_cell.len() > usize(0)) => fb_cell.get(fb_cell.len() - usize(1)),
+          .SomeT({ id : fb_id, resolution : fb_cell }) => cond(
+            fb_cell.is_some() => fb_cell.get(fb_cell.len() - usize(1)),
             true => lookup_some_resolved_concrete(fb_id)
           ),
           _ => Option(TypeValue).Some(t)
@@ -5533,7 +5533,7 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
         ev,
         .TypeVal(t) => match(
           t,
-          .SomeT({ id : ub_id, resolved_concrete : ub_cell }) => (((ub_id == sig_id) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none()),
+          .SomeT({ id : ub_id, resolution : ub_cell }) => (((ub_id == sig_id) && ub_cell.is_none()) && lookup_some_resolved_concrete(ub_id).is_none()),
           _ => false
         ),
         _ => false
@@ -6238,7 +6238,7 @@ try_to_call_function_with_arguments :: (
                   ArrayList(usize).new(),
                   false,
                   Option(TypeValue).None,
-                  ArrayList(TypeValue).new()
+                  Option(TypeValue).None
                 )
               );
             }
@@ -7223,9 +7223,9 @@ try_to_call_function_with_arguments :: (
                     v,
                     .TypeVal(v_tb) => match(
                       v_tb,
-                      .SomeT({ id : ex_sid, resolved_concrete : ex_cell, required_trait_types : ex_rtt }) => {
+                      .SomeT({ id : ex_sid, resolution : ex_cell, required_trait_types : ex_rtt }) => {
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
-                        if(ex_cell.len() > usize(0), {
+                        ifex_cell.is_some(), {
                           ex_res = ex_cell.get(ex_cell.len() - usize(1));
                           wb_from_cell = true;
                         }, {
@@ -7680,7 +7680,7 @@ try_to_call_function_with_arguments :: (
                 ct_ntl,
                 ct_ier,
                 ct_kft,
-                t_resolved_cell(ctl_rt_conc)
+                Option(TypeValue).Some(ctl_rt_conc)
               );
             },
             _ => ()
@@ -8085,7 +8085,7 @@ try_to_call_function_with_arguments :: (
                       cr_ntl,
                       cr_ier,
                       cr_kft,
-                      t_resolved_cell(ctl_res_conc)
+                      Option(TypeValue).Some(ctl_res_conc)
                     );
                   },
                   _ => ()

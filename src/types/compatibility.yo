@@ -626,9 +626,9 @@ _compat_impl :: (
   if(is_some_type(actual) && !(is_some_type(expected)), {
     match(
       actual,
-      .SomeT({ id : a_res_id, resolved_concrete : a_res_cell }) => {
+      .SomeT({ id : a_res_id, resolution : a_res_cell }) => {
         a_resolution := match(
-          a_res_cell.get(usize(0)),
+          a_res_cell,
           .Some(a_res_ty) => Option(TypeValue).Some(a_res_ty),
           .None => match(
             g_compat_lookup_some_resolved,
@@ -690,9 +690,9 @@ _compat_impl :: (
   if(is_some_type(expected) && !(is_some_type(actual)), {
     match(
       expected,
-      .SomeT({ id : e_res_id, resolved_concrete : e_res_cell }) => {
+      .SomeT({ id : e_res_id, resolution : e_res_cell }) => {
         e_resolution := match(
-          e_res_cell.get(usize(0)),
+          e_res_cell,
           .Some(e_res_ty) => Option(TypeValue).Some(e_res_ty),
           .None => match(
             g_compat_lookup_some_resolved,

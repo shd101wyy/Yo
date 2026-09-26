@@ -522,8 +522,8 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       // a comptime call) was reported RC → its result temp was marked owning →
       // the return-tail dup was skipped → stage-2 comptime_list evaluated_arg
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
-      .SomeT({ required_trait_types : _, resolved_concrete : rc }) => match(
-        rc.get(usize(0)),
+      .SomeT({ required_trait_types : _, resolution : rc }) => match(
+        rc,
         .Some(concrete) => recur(concrete, depth + u32(1)),
         .None => true
       ),
@@ -1024,7 +1024,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
     // FnTraitT; futures to state-machine structs). Without this carve-out the
     // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
-    .SomeT({ name : cst_name, required_trait_types : cst_rtt, resolved_concrete : cst_rc }) => cond(
+    .SomeT({ name : cst_name, required_trait_types : cst_rtt, resolution : cst_rc }) => cond(
       // An EXTERN type returns false: `extern("c", atomic_bool : Type)` is a
       // SomeType but is CONCRETE
       // at codegen time. `TypeValue` has no extern slot on
@@ -1034,7 +1034,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
       // generic and its `__yo_new_<cName>` constructor is never emitted
       // (the whole sync/* red family).
       is_extern_type_name(cst_name) => false,
-      (cst_rc.len() > usize(0)) => false,
+      cst_rc.is_some() => false,
       true => {
         (cst_has_fn_or_fut : bool) = false;
         (cst_i : usize) = usize(0);
@@ -1346,7 +1346,7 @@ resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
   while(walk, {
     match(
       cur,
-      .SomeT(id : rcc_id, resolved_concrete : rcc_rc) => {
+      .SomeT(id : rcc_id, resolution : rcc_rc) => {
         (revisit : bool) = false;
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
@@ -1364,7 +1364,7 @@ resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
         }, {
           seen.push(rcc_id.clone());
           match(
-            rcc_rc.get(usize(0)),
+            rcc_rc,
             .Some(nx) => {
               cur = nx;
             },

@@ -424,13 +424,13 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
-    own_cell := match(result_type, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+    own_cell := match(result_type, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
     cond(
       !is_some_type(expr_type) => {
         result_type = expr_type;
       },
       true => {
-        expr_cell := match(expr_type, .SomeT({ resolved_concrete : erc }) => erc.get(usize(0)), _ => Option(TypeValue).None);
+        expr_cell := match(expr_type, .SomeT({ resolution : erc }) => erc, _ => Option(TypeValue).None);
         esid := match(expr_type, .SomeT({ id : i }) => i, _ => String.from(""));
         match(
           match(

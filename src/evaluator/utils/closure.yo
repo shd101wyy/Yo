@@ -141,8 +141,8 @@ _raise_capture_trait_violation :: (
 _capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Option(TypeValue))(
   match(
     ty,
-    .SomeT({ id : sid, resolved_concrete : rc }) => match(
-      rc.get(usize(0)),
+    .SomeT({ id : sid, resolution : rc }) => match(
+      rc,
       .Some(c) => Option(TypeValue).Some(c),
       .None => match(
         lookup_some_resolved_concrete(sid),
@@ -928,10 +928,10 @@ create_capture_type_and_value :: (
           field_types.get(csi),
           .Some(ck_t) => match(
             ck_t,
-            .SomeT({ id : ck_sid, resolved_concrete : ck_rc }) => {
+            .SomeT({ id : ck_sid, resolution : ck_rc }) => {
               cap_key.push_str("@res:");
               match(
-                ck_rc.get(usize(0)),
+                ck_rc,
                 .Some(ck_r) => cap_key.push_string(type_to_string(ck_r)),
                 .None => cap_key.push_string(ck_sid.clone())
               );
