@@ -37,17 +37,7 @@ pragma(Pragma.AllowUnsafe);
   BK_WHERE,
   BK_TUPLE
 } :: import("../../expr.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_get,
-  expr_info_table_set,
-  lookup_some_resolved_concrete,
-  lookup_trait_ctor_fid,
-  take_active_where_trait_ids,
-  restore_active_where_trait_ids,
-  expr_info_adopt_env
-} :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -963,13 +953,9 @@ _bind_forall_from_type_args :: (
           // to the concrete spawned output instead of skipping the SomeType
           // arg. See issues/fixed/yo-self-async-await-struct-result-eval.md.
           match(
-            ct,
-            .SomeT({ id : ctid }) => match(
-              lookup_some_resolved_concrete(ctid),
-              .Some(c) => return(Option(TypeValue).Some(c)),
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(ct),
+            .Some(c) => return(Option(TypeValue).Some(c)),
+            .None => ()
           );
         }),
         .None => ());
