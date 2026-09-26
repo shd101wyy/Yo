@@ -2,7 +2,20 @@
 
 **Status:** ACTIVE — proposed 2026-09-26, extended the same day with the epoll fallback
 and the performance guarantees (Phases 5–6). Phase 0 is this document plus its companion
-issue (`issues/io-uring-init-failure-exits-the-process.md`); Phases 1–6 are open. This is
+issue (`issues/fixed/io-uring-init-failure-exits-the-process.md`).
+
+**Landed:** Phase 0 (this doc + the issue), Phase 1 (the vendored ring layer; PR #946 —
+`yo check ./src` 279/279, emit-diff clean, probe binaries link and run with zero
+`io_uring_*` undefined symbols, 5 internal pins), Phase 2 (docs en/zh + the
+PORTABLE_C trap note + the 256→1024 SQE doc fix; PR #947), Phase 5 (the epoll fallback
++ ladder; every gate green incl. the Docker default-seccomp leg — the issue is closed
+and moved to `fixed/`). Open: Phase 3 (waits on the release train), Phase 4 (seed-gated
+cleanup), Phase 6 (performance guarantees).
+
+Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
+(ring layer net +239), +~800 more with the epoll section; user binaries 0 undefined
+`io_uring_*`, no liburing in `ldd`; the generation-2 emit (new binary compiling the
+compiler) is liburing-free, exactly the §5 seed-lag table. This is
 both the decision record and the implementation plan. Seed at writing: `v0.2.43`
 (`.github/workflows/release.yml`); the first liburing-free release is therefore
 **≥ v0.2.44** and is referred to below as *release N*.
@@ -219,7 +232,7 @@ try ring (io_uring)  ──failure (any errno: ENOSYS seccomp/old kernel, EPERM 
 ### Phase 0 — this PR
 
 This document, the `plans/README.md` index line, and
-`issues/io-uring-init-failure-exits-the-process.md`. Docs-only.
+`issues/fixed/io-uring-init-failure-exits-the-process.md`. Docs-only.
 
 ### Phase 1 — vendor the ring layer in the emitted Linux runtime
 

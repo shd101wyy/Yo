@@ -1046,3 +1046,27 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
 - When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.
+
+## Linux async-backend testing (`YO_IO_BACKEND`)
+
+- The Linux async runtime picks its backend once per thread: io_uring, else the
+  epoll fallback (one stderr line), else degraded (`plans/DROP_LIBURING.md`).
+  Pin it with `YO_IO_BACKEND=uring|epoll|auto` — a PINNED backend that fails to
+  initialize is a hard error, which is exactly what tests want.
+- Run async/io/net tests under BOTH backends when touching
+  `src/codegen/async/runtime_io_linux.yo` or the timer section of
+  `runtime_io_common.yo`:
+  `YO_IO_BACKEND=epoll yo test ./tests/async_await.test.yo --parallel 1`
+  and the same without the env (the io_uring path).
+- `tests/internal/uring_runtime.test.yo` pins the emitted runtime text (vendored
+  ring layer, no liburing surface, backend ladder, per-op dispatch). It follows
+  the `gc_runtime_atomics.test.yo` pattern — call the emitters, assert on the C.
+- **Emit-diffs must pin `YO_STD`.** Minted type/function ids in the emitted C
+  (`__yo_t_*`, `yo_id_*`) incorporate the std tree's absolute path, so comparing
+  emissions from two checkouts (or two `YO_STD` values) shows a sea of id churn
+  that is NOT a codegen change. Compile both sides with the same
+  `YO_STD=<abs>/std` before diffing; then all diff hunks must sit inside the
+  runtime region (`Platform-specific sync helpers (Linux)` .. `__yo_main_thread_entry`).
+- A user program compiled on Linux needs no liburing anywhere in the pipeline;
+  a `yo` built by a pre-`DROP_LIBURING` seed still links that seed's liburing
+  runtime (the seed-lag table in `plans/DROP_LIBURING.md` §5) — not a bug.
