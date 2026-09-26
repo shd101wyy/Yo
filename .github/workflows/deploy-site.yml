@@ -56,15 +56,7 @@ jobs:
           submodules: recursive
 
       # The seed is a dynamically linked Linux binary whose async runtime
-      # links liburing — it cannot start without it (release.yml's site-build
       # step records the v0.2.10 failure this caused).
-      - name: Install liburing
-        run: |
-          # Drop the runner image's third-party apt sources first — see APT_OPTS.
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
       - name: Install the site-builder compiler
         uses: ./.github/actions/install-seed
         with:

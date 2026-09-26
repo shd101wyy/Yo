@@ -25,12 +25,11 @@ mkShell rec {
     vsce
     ripgrep
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-    liburing
     valgrind
     # OpenSSL dev for the compiler closure: src/ imports std/http, so the
     # self-build's emitted C #includes <openssl/ssl.h> — same reason CI's
-    # jobs install it next to liburing ("+ OpenSSL dev for std/http in the
-    # compiler closure", test.yml).
+    # jobs install it ("+ OpenSSL dev for std/http in the compiler
+    # closure", test.yml).
     openssl
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;

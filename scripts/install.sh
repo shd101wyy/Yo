@@ -154,22 +154,22 @@ immutable_distro_advice() {
     nixos)
       warn "NixOS detected: packages are managed declaratively, so this script"
       warn "will not install anything. Get a toolchain with, for example:"
-      warn "    nix-shell -p clang git pkg-config liburing"
+      warn "    nix-shell -p clang git pkg-config"
       warn "or add those to your configuration.nix / home-manager profile.";;
     steamos)
       warn "SteamOS detected: the root filesystem is read-only and pacman"
       warn "changes are reverted by system updates. Rather than"
       warn "'steamos-readonly disable', prefer a container:"
       warn "    distrobox create --name dev --image archlinux"
-      warn "    distrobox enter dev   # then install clang git pkgconf liburing";;
+      warn "    distrobox enter dev   # then install clang git pkgconf";;
     ostree)
       warn "An ostree-based system (Silverblue/Kinoite/Bazzite) was detected."
       warn "Install the toolchain with rpm-ostree (needs a reboot):"
-      warn "    rpm-ostree install clang git pkgconf-pkg-config liburing-devel"
+      warn "    rpm-ostree install clang git pkgconf-pkg-config"
       warn "or work inside a toolbox:  toolbox enter";;
     microos)
       warn "openSUSE MicroOS detected: use a transactional update (needs a reboot):"
-      warn "    transactional-update pkg install clang git pkg-config liburing-devel"
+      warn "    transactional-update pkg install clang git pkg-config"
       warn "or work inside a distrobox container.";;
   esac
 }
@@ -285,15 +285,10 @@ sudocmd() {
 #     and download dependencies by shelling out to `git ls-remote`, `git clone`,
 #     `git fetch` and `git checkout` (src/resolver.yo, src/fetch.yo).
 #     Compiling works without it; dependency management does not.
-#   * liburing + pkg-config on Linux — for async I/O (io_uring). pkg-config is
-#     also how a project's declared system libraries are resolved.
-#
-# liburing and pkg-config MUST be installed as a PAIR. The emitted C guards its
-# io_uring calls with `#if __has_include(<liburing.h>)`, while the `-luring`
-# link flag is added only when `pkg-config --exists liburing` succeeds. So a box
-# with the HEADER but no pkg-config emits io_uring calls and then fails to link
-# them ("undefined reference to io_uring_peek_batch_cqe"). Header without
-# pkg-config is strictly worse than neither.
+#   * pkg-config on Linux — how a project's declared system libraries are
+#     resolved. (liburing used to live here too; the emitted runtime vendors
+#     the io_uring ring layer since plans/DROP_LIBURING.md Phase 1, so async
+#     I/O needs no library at all.)
 #---------------------------------------------------------
 
 apt_get_install() {
@@ -352,33 +347,27 @@ MISSING_PKGCONFIG=""
 MISSING_LIBURING=""
 
 compute_missing_deps() {
-  MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""; MISSING_LIBURING=""
+  MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""
   if ! has_cmd clang && ! has_cmd gcc && ! has_cmd cc; then MISSING_CC="yes"; fi
   if ! has_cmd git; then MISSING_GIT="yes"; fi
   if [ "$OSNAME" = "linux" ]; then
     if ! has_cmd pkg-config && ! has_cmd pkgconf; then MISSING_PKGCONFIG="yes"; fi
-    # "Installed" for liburing means pkg-config can SEE it, since that is
-    # exactly the test the compiler makes before adding -luring.
-    if ! (has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null); then
-      MISSING_LIBURING="yes"
-    fi
   fi
 }
 
 any_missing() {
-  if [ -n "$MISSING_CC$MISSING_GIT$MISSING_PKGCONFIG$MISSING_LIBURING" ]; then
+  if [ -n "$MISSING_CC$MISSING_GIT$MISSING_PKGCONFIG" ]; then
     return 0
   fi
   return 1
 }
 
 # Package names differ per distribution; select only the missing ones.
-_pkglist() {  # <cc-pkg> <git-pkg> <pkgconfig-pkg> <liburing-pkg>
+_pkglist() {  # <cc-pkg> <git-pkg> <pkgconfig-pkg>
   out=""
   if [ -n "$MISSING_CC" ]; then out="$out $1"; fi
   if [ -n "$MISSING_GIT" ]; then out="$out $2"; fi
   if [ -n "$MISSING_PKGCONFIG" ]; then out="$out $3"; fi
-  if [ -n "$MISSING_LIBURING" ]; then out="$out $4"; fi
   echo "$out"
 }
 
@@ -406,27 +395,27 @@ install_dependencies() {
   fi
 
   if is_immutable_distro ; then
-    info "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config' 'liburing')"
+    info "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config')"
     immutable_distro_advice
     return 0
   fi
 
   pkgs=""
   if has_cmd apt-get ; then
-    pkgs="$(_pkglist clang git pkg-config liburing-dev)"
+    pkgs="$(_pkglist clang git pkg-config)"
   elif has_cmd dnf ; then
-    pkgs="$(_pkglist clang git pkgconf-pkg-config liburing-devel)"
+    pkgs="$(_pkglist clang git pkgconf-pkg-config)"
   elif has_cmd zypper ; then
-    pkgs="$(_pkglist clang git pkg-config liburing-devel)"
+    pkgs="$(_pkglist clang git pkg-config)"
   elif has_cmd pacman ; then
-    pkgs="$(_pkglist clang git pkgconf liburing)"
+    pkgs="$(_pkglist clang git pkgconf)"
   elif has_cmd apk ; then
-    pkgs="$(_pkglist clang git pkgconf liburing-dev)"
+    pkgs="$(_pkglist clang git pkgconf)"
   elif has_cmd yum ; then
-    pkgs="$(_pkglist clang git pkgconfig liburing-devel)"
+    pkgs="$(_pkglist clang git pkgconfig)"
   else
     warn "No supported package manager found; skipping dependency installation."
-    warn "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config' 'liburing')"
+    warn "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config')"
     return 0
   fi
 
@@ -480,26 +469,6 @@ check_c_compiler() {
   warn ""
 }
 
-# Guard the header-without-pkg-config trap described above.
-check_liburing_consistency() {
-  if [ "$OSNAME" != "linux" ]; then return 0; fi
-  header=""
-  for d in /usr/include /usr/local/include; do
-    if [ -f "$d/liburing.h" ]; then header="yes"; fi
-  done
-  if [ -z "$header" ]; then return 0; fi
-  if has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
-    return 0
-  fi
-  warn ""
-  warn "WARNING: <liburing.h> is present but pkg-config cannot see liburing."
-  warn "Yo emits io_uring calls whenever that header exists, but only passes"
-  warn "-luring when 'pkg-config --exists liburing' succeeds — so linking will"
-  warn "fail with 'undefined reference to io_uring_*'."
-  warn "Install pkg-config and liburing's .pc file (e.g. 'apt-get install"
-  warn "pkg-config liburing-dev'), or remove liburing.h."
-  warn ""
-}
 
 #---------------------------------------------------------
 # Download
@@ -766,38 +735,12 @@ install_from_source() {
 
   # -w: the emitted C is machine-generated and warns freely; warnings here are
   # noise, not signal, and would bury a real error.
-  # -luring is REQUIRED whenever <liburing.h> is present, and must be decided
-  # here rather than assumed. The emitted C opens its Linux async runtime with
-  # `#if __has_include(<liburing.h>)` — a check made on THIS machine at this
-  # moment — and the runtime it then compiles in calls real liburing symbols
-  # (io_uring_queue_init/_submit/_wait_cqe), not just the header's static
-  # inlines. So the header alone flips on code that cannot link without the
-  # library, which is the exact trap check_liburing_consistency warns about;
-  # this line simply has to obey it.
-  #
-  # Getting it wrong is worse than a link error in one direction: with NO
-  # header the file compiles happily and the async runtime is silently
-  # replaced by stubs, producing a `yo` that cannot read source files at all
-  # (test.yml's musl leg asserts against exactly that outcome).
-  #
-  # pkg-config is the same oracle the compiler itself consults before adding
-  # -luring, so this stays consistent with a bundle-built compiler.
-  uring_libs=""
-  if [ "$OSNAME" = "linux" ] && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
-    uring_libs="$(pkg-config --libs liburing 2>/dev/null || echo -luring)"
-    info "  liburing: $uring_libs (async I/O compiled in)"
-  elif [ "$OSNAME" = "linux" ]; then
-    warn "liburing is not visible to pkg-config, so async I/O will be compiled OUT"
-    warn "and the resulting compiler cannot read source files. Install it first"
-    warn "(e.g. 'apt-get install pkg-config liburing-dev') and re-run."
-  fi
-
   info "Compiling yo.c (this takes a minute).."
-  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE and uring_libs are intentionally word-split
+  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE is intentionally word-split
   "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm $uring_libs \
+    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm \
     || stop "Failed to compile yo.c with $CC_BIN.
-  On Linux, install the liburing development headers first (see --help)."
+Make sure a C compiler is present and the source tarball extracted cleanly."
 
   info "Installing.."
   stage="$YO_TEMP_DIR/stage"
@@ -1012,7 +955,6 @@ main_install() {
   fi
   check_c_compiler
   check_git
-  check_liburing_consistency
   if [ -n "$FROM_SOURCE" ]; then
     install_from_source
   else
