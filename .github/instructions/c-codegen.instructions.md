@@ -186,7 +186,7 @@ some expression, so the bare-atom arm position had never been exercised.
 
 - Emit C only: `yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2`
 - Compile with clang: `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out`
-- Add `-luring` on Linux for async Io features.
+- Linux async I/O needs no library: the runtime vendors the io_uring ring layer (plans/DROP_LIBURING.md)
 - On Windows, use `zig` instead of `clang`.
 - Full pipeline: `yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out`
 
