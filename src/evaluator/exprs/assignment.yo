@@ -854,7 +854,7 @@ evaluate_assignment :: (
         expr_info_set_converted_runtime_type(prop_rhs_info, Option(TypeValue).Some(prop_rhs_type.clone()));
       });
     });
-    if(!are_types_compatible(expected_ty, prop_rhs_type), {
+    if(!are_types_compatible(prop_rhs_type, expected_ty), {
       exp_str := type_to_string(expected_ty);
       rhs_str := type_to_string(prop_rhs_type);
       exn.throw(
@@ -1504,7 +1504,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     });
   });
   // Type-compatibility check.
-  if(!are_types_compatible(variable.ty, rhs_type), {
+  if(!are_types_compatible(rhs_type, variable.ty), {
     var_ty_str := type_to_string(variable.ty);
     rhs_ty_str := type_to_string(rhs_type);
     exn.throw(

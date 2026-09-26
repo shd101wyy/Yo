@@ -1523,8 +1523,8 @@ _compat_impl :: (
       .IsoT(echild) => recur(achild, echild, mode, visited),
       _ => false
     ),
-    // DynT: subset-based — all expected required traits must appear in actual;
-    // none of expected's negative traits may appear in actual's required traits.
+    // DynT: the same trait set on both sides, and none of expected's negative
+    // traits among actual's required traits.
     .DynT(required_trait_types : artt, required_trait_levels : _, negative_trait_types : antt, negative_trait_levels : _) =>
       match(
         expected,
@@ -1562,10 +1562,12 @@ _compat_impl :: (
             });
             i = (i + usize(1));
           });
-          // Identity is the exact trait SET: every actual trait must be
-          // expected too, so `Dyn(A, B)` is not `Dyn(A)` to the CTFE memo or
-          // `Type.eq` (the lenient rule keeps the subset direction above).
-          if(require_exact, {
+          // The trait SET must be exact in every mode: every actual trait must
+          // be expected too. `Dyn(A, B)` is not `Dyn(A)` to the CTFE memo or
+          // `Type.eq`, and flow has no upcast either (Phase 2.7,
+          // docs/en-US/DYN_DESIGN.md): the two vtables have different layouts
+          // and the concrete type that would build the smaller one is erased.
+          {
             (xi : usize) = usize(0);
             while(xi < artt.len(), {
               xat := match(artt.get(xi), .Some(v) => v, .None => TypeValue.Unit);
@@ -1582,7 +1584,7 @@ _compat_impl :: (
               });
               xi = (xi + usize(1));
             });
-          });
+          };
           true
         },
         _ => false

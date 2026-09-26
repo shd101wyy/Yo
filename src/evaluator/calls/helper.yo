@@ -1199,10 +1199,10 @@ ${ast_expr_to_string(actual_arg)}`
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
   // Debug hook (like YO_DEBUG_BIND): trace every param compatibility check.
   if(match(debug_knob(`YO_DEBUG_PARAMCHECK`), .Some(pdbg) => (pdbg.len() > usize(0)), .None => false), {
-    eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(final_pt, arg_type).to_string()}`);
+    eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(arg_type, final_pt).to_string()}`);
   });
   // Step 8: Type-compatibility check.
-  if(!(are_types_compatible(final_pt, arg_type)), {
+  if(!(are_types_compatible(arg_type, final_pt)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -7713,7 +7713,7 @@ try_to_call_function_with_arguments :: (
                     match(
                       ua_info.value,
                       .Some(ua_val) => {
-                        if(!(are_types_compatible(resolved_impl_type, ua_info.ty)), {
+                        if(!(are_types_compatible(ua_info.ty, resolved_impl_type)), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -7775,7 +7775,7 @@ try_to_call_function_with_arguments :: (
                   gv.is_compile_time_only &&
                     (
                       (!(gv.is_from_effect_spread)) &&
-                        are_types_compatible(resolved_impl_type, gv.ty)
+                        are_types_compatible(gv.ty, resolved_impl_type)
                     )
                 ), {
                   found_given = true;

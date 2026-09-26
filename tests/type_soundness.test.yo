@@ -767,6 +767,40 @@ test("soundness: a C scalar initializes an extern opaque, never the reverse", {
   // A variant payload compares exactly: the coercion does not reach inside.
   comptime_expect_error(_p38_opt_ull_sink(Option(u64).Some(u64(1))));
 });
+// issues/fixed/the-flow-relation-is-called-with-its-arguments-reversed.md:
+// `are_types_compatible(actual, expected)` is directional, and the argument,
+// binding and reassignment checks called it as (expected, actual). Each
+// directional rule is pinned here in the direction those sites had flipped.
+_p38_u64_sink :: (fn(x : u64) -> u64)(x);
+_P38DA :: trait(da : (fn(self : Self) -> i32));
+_P38DB :: trait(db : (fn(self : Self) -> i32));
+_P38OnlyA :: struct(n : i32);
+impl(_P38OnlyA, _P38DA(da : (self -> self.n)));
+_P38Both :: struct(n : i32);
+impl(_P38Both, _P38DA(da : (self -> self.n)));
+impl(_P38Both, _P38DB(db : (self -> (self.n + i32(1)))));
+_p38_takes_both :: (fn(x : Dyn(_P38DA, _P38DB)) -> i32)(x.db());
+_p38_takes_a :: (fn(x : Dyn(_P38DA)) -> i32)(x.da());
+_p38_both_into_a :: Type.is_compatible_with(Dyn(_P38DA, _P38DB), Dyn(_P38DA));
+_p38_a_into_both :: Type.is_compatible_with(Dyn(_P38DA), Dyn(_P38DB, _P38DA));
+test("soundness: an extern opaque value is not a scalar argument", {
+  comptime_expect_error((fn(a : _P38Ull) -> u64)(_p38_u64_sink(a)));
+  assert(true, "rejected");
+});
+test("soundness: a Dyn is neither downcast nor upcast", {
+  (one : Dyn(_P38DA)) = dyn(_P38OnlyA(n : i32(5)));
+  (both : Dyn(_P38DA, _P38DB)) = dyn(_P38Both(n : i32(1)));
+  // `_P38OnlyA` has no `db`: a downcast would dispatch through a missing slot.
+  comptime_expect_error(_p38_takes_both(one));
+  comptime_expect_error({
+    both = one;
+  });
+  comptime_expect_error(_p38_takes_a(both), "Yo does not upcast Dyn");
+  assert(!_p38_both_into_a, "no upcast in the relation");
+  assert(!_p38_a_into_both, "no downcast in the relation");
+  assert(_p38_takes_both(both) == i32(2), "the exact trait set flows");
+  assert(one.da() == i32(5), "the value itself is fine");
+});
 // ---------------------------------------------------------------------------
 // Phase 5.1/5.2/5.6: per-path move and initialization state
 // (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,

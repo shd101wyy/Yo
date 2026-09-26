@@ -3287,7 +3287,7 @@ _evaluate_funcval_runtime_call :: (
                     || is_comptime_string_type(_ac_aty)
                   );
                   if(((!(_ac_p_generic) && !(_ac_a_generic)) && !(_ac_a_comptime))
-                  && !(are_types_compatible(_ac_pty, _ac_aty)), {
+                  && !(are_types_compatible(_ac_aty, _ac_pty)), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
                     // Flag the flow-violation channel so an async-closure-body
@@ -7103,7 +7103,7 @@ Fix: wrap the call:
           if((fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg)) && !(type_contains_some_type_deep(resolved_decl_pt)), {
             etc_arg_ty := arg_info.ty;
             etc_skip := ((is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty)) || (is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty)));
-            if((!(etc_skip)) && !(are_types_compatible(resolved_decl_pt, etc_arg_ty)), {
+            if((!(etc_skip)) && !(are_types_compatible(etc_arg_ty, resolved_decl_pt)), {
               exn.throw(
                 dyn(
                   format_error_message(

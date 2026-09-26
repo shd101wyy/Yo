@@ -60,6 +60,11 @@ identity plus a short, listed set of coercions.
 
 ## Flow: identity plus these coercions, and nothing else
 
+Flow is directional: `are_types_compatible(actual, expected)` asks whether a value of type
+`actual` may be used where `expected` is required, and every caller passes the pair in that order
+(`Type.is_compatible_with(A, B)`: A flows into B). A caller that passes (expected, actual) turns
+every coercion below around (`issues/fixed/the-flow-relation-is-called-with-its-arguments-reversed.md`).
+
 - The comptime literal family: `comptime_int` into any integer type it fits, `comptime_float`
   into a float type, `comptime_str` into `str` and `String` positions that accept it.
 - A SomeT resolves: a concrete type flows into an unresolved type parameter that it satisfies,
@@ -79,7 +84,6 @@ identity plus a short, listed set of coercions.
   `fn(x : i32)` in either direction, an `own(x)` parameter is not a borrowing one, and the
   implicit parameters must agree. The one exception is an impl member's receiver, whose form is
   free (`self : Self` implements a trait's `inout(self) : Self`); see `_with_receiver_mode_of`.
-- `Dyn(A, B)` flows into `Dyn(A)`: a trait-set subset is an upcast.
 - `never` flows into every type (Phase 3.6): a diverging expression fits any slot, and a `cond`/
   `match` arm of type `never` does not constrain the join. Nothing but `never` flows into `never`.
 - A generic enum's instantiation reconstructed without its name (an empty-name copy the
@@ -92,6 +96,9 @@ What flow no longer accepts:
 - an equal name as proof: two modules' `P` with different fields are two types;
 - a `newtype` or a `ref` object in place of an anonymous value record, and the reverse;
 - a union by name alone: its fields are compared.
+- a `Dyn` with a different trait set, in either direction: `Dyn(A, B)` is not a `Dyn(A)` (no
+  upcast, Phase 2.7: the vtables differ and the concrete type is erased) and `Dyn(A)` is not a
+  `Dyn(A, B)`.
 
 ## Why the CTFE memo needed this
 
