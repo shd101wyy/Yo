@@ -34,40 +34,71 @@ Yo's own package manager:
 $ yo install
 ```
 
-Type-check the compiler sources (evaluator only, no codegen — this is the fast
-iteration loop):
+Type-check the compiler sources (evaluator only, no codegen). Run this first,
+before any longer command:
 
 ```bash
 $ yo check ./src
 ```
 
-Build the compiler from source. Always pass `--release`: at `-O0` the big
-evaluator functions have multi-megabyte stack frames and deep compile-time
-recursion exhausts the stack. With a v0.2.43 or later `yo` this fits on an 8 GB
-machine (about 4.3 GiB peak, C compiler included). `tests/internal` is heavier:
-each file compiles the compiler, so run it one file at a time
-(`--parallel 1`).
+For repeated edits, keep one checker resident instead of re-running the cold
+check. It re-checks only the definitions you changed:
 
 ```bash
-$ yo compile src/main.yo --release -o /tmp/yo-self-bin
+$ yo check ./src --watch
 ```
 
-> There is no watch-and-rebuild loop — re-run the `yo compile` above after a
-> change.
+`check` does not run codegen, so it cannot see the async state-machine rules
+enforced there. If you touch async code, also run the front half of a compile
+(about 3 minutes):
+
+```bash
+$ yo compile src/main.yo --skip-c-compiler
+```
+
+Build the compiler from source with its own build file,
+[`build.yo`](./build.yo). The binary lands in `yo-out/<target>/bin/yo`:
+
+```bash
+$ yo build --std-path ./std
+```
+
+`--std-path ./std` compiles against this checkout's standard library; without
+it the installed `yo` uses the std it ships with. `build.yo` already builds
+with `--optimize 2`. Keep that setting whenever you compile the compiler by
+hand. At `-O0` the big evaluator functions have multi-megabyte stack frames,
+and deep compile-time recursion exhausts the stack. (`--release` was removed;
+it was exactly `--optimize 2`.) With a v0.2.43 or later `yo`, the build fits
+on an 8 GB machine: about 4.3 GiB peak, C compiler included. `yo build --watch`
+rebuilds in-process on every change.
 
 Try the compiler you just built on a scratch program (`./tmp/` is gitignored —
 put throwaway `.yo` files there):
 
 ```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
+$ yo-out/<target>/bin/yo compile ./tmp/fixme.yo --optimize 2 -o /tmp/fixme && /tmp/fixme
 ```
 
 Run the test suites with `yo test`:
 
 ```bash
+# The fast language suite (what `yo build test` runs). Both excludes matter.
 $ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-$ yo test ./tests/internal --parallel 1   # the compiler's own tests
+# The standard library's own tests.
+$ yo test ./std --bail
+# The compiler's own tests. Each file compiles the whole compiler, so run
+# them ONE FILE AT A TIME; the whole directory takes over an hour.
+$ yo test ./tests/internal/parser.test.yo --parallel 1
 ```
+
+Before you open a PR:
+
+- run `yo fmt` on every `.yo` file you created or changed (`yo fmt --check`
+  verifies; there is no pre-commit hook);
+- give every bug you fix an entry in [`issues/`](./issues/) and a test in
+  `tests/` that fails before the fix and passes after;
+- write user docs in both [`docs/en-US/`](./docs/en-US/) and
+  [`docs/zh-CN/`](./docs/zh-CN/).
 
 ## LLM and AI-agent contributions are welcome
 

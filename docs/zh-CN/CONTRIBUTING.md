@@ -31,34 +31,64 @@ $ git submodule update --init --recursive
 $ yo install
 ```
 
-对编译器源码做类型检查（只跑求值器，不生成代码 —— 这是最快的迭代循环）：
+对编译器源码做类型检查（只跑求值器，不生成代码）。在运行任何更耗时的命令之前，先跑这一步：
 
 ```bash
 $ yo check ./src
 ```
 
-从源码构建编译器。务必加上 `--optimize 2`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
-兆字节，编译期的深度递归会耗尽栈空间。在 v0.2.43 或更新的 `yo` 下，这一步在 8 GB 内存的机器上即可完成（峰值约 4.3 GiB，包含 C 编译器）。`tests/internal` 更重：其中每个文件都会编译一次编译器，所以请逐个文件运行（`--parallel 1`）。
+需要反复修改时，让一个检查器常驻，而不是每次冷启动重新检查；它只会重新检查你改动过的定义：
 
 ```bash
-$ yo compile src/main.yo --optimize 2 -o /tmp/yo-self-bin
+$ yo check ./src --watch
 ```
 
-> 没有监视重建的循环 —— 改动之后重新运行上面的 `yo compile`。
+`check` 不经过代码生成，所以看不到在代码生成阶段才执行的异步状态机规则。改动异步代码时，
+还要跑一遍编译的前半段（约 3 分钟）：
+
+```bash
+$ yo compile src/main.yo --skip-c-compiler
+```
+
+用编译器自己的构建文件 [`build.yo`](../../build.yo) 从源码构建编译器，产物位于
+`yo-out/<target>/bin/yo`：
+
+```bash
+$ yo build --std-path ./std
+```
+
+`--std-path ./std` 让构建使用本仓库中的标准库；不加它时，已安装的 `yo` 会使用它自带的标准库。
+`build.yo` 已经使用 `--optimize 2` 构建；手动编译编译器时也要保持这一设置。在 `-O0` 下，
+求值器中那些大函数的栈帧有好几兆字节，编译期的深度递归会耗尽栈空间。（`--release` 已被移除，
+它就等同于 `--optimize 2`。）在 v0.2.43 或更新的 `yo` 下，这一步在 8 GB 内存的机器上即可完成
+（峰值约 4.3 GiB，包含 C 编译器）。`yo build --watch` 会在每次改动后于进程内重新构建。
 
 用刚构建出来的编译器试跑一个临时程序（`./tmp/` 已被 gitignore —— 请把一次性的 `.yo`
 文件放在那里）：
 
 ```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --optimize 2 -o /tmp/fixme && /tmp/fixme
+$ yo-out/<target>/bin/yo compile ./tmp/fixme.yo --optimize 2 -o /tmp/fixme && /tmp/fixme
 ```
 
 用 `yo test` 运行测试套件：
 
 ```bash
+# 快速语言测试套件（即 `yo build test` 运行的内容）。两个 exclude 都不能少。
 $ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-$ yo test ./tests/internal --parallel 1   # 编译器自身的测试
+# 标准库自身的测试。
+$ yo test ./std --bail
+# 编译器自身的测试。其中每个文件都会编译一次整个编译器，所以请逐个文件运行；
+# 整个目录要跑一个多小时。
+$ yo test ./tests/internal/parser.test.yo --parallel 1
 ```
+
+提交 PR 之前：
+
+- 对你新建或修改的每个 `.yo` 文件运行 `yo fmt`（`yo fmt --check` 可用于验证；仓库没有
+  pre-commit 钩子）；
+- 你修复的每个 bug 都要在 [`issues/`](../../issues/) 中留下记录，并在 `tests/` 中加一个
+  修复前失败、修复后通过的测试；
+- 用户文档要同时写在 [`docs/en-US/`](../en-US/) 和 [`docs/zh-CN/`](./) 中。
 
 ## 欢迎 LLM 与 AI Agent 的贡献
 
