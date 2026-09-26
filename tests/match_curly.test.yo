@@ -109,3 +109,26 @@ test("curly destructuring — comptime scrutinee", {
   );
   comptime_assert(comptime_a == i32(143), "comptime curly");
 });
+// A user enum with one fieldless variant and one reference-handle payload is a
+// nullable pointer (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3). Its match path
+// only bound a POSITIONAL payload and classified arms by shape, so a curly or
+// labeled payload bound nothing ("use of undeclared identifier") and a bare
+// `.Full` arm was taken for the fieldless variant.
+Item :: ref(struct(v : i32));
+Slot :: enum(Empty, Full(item : Item));
+test("nullable-pointer user enum: positional, labeled, curly and bare variant arms", {
+  full := Slot.Full(item : Item(v : i32(9)));
+  empty := Slot.Empty;
+  positional :: (fn(s : Slot) -> i32)(match(s, .Empty => i32(-1), .Full(it) => it.v));
+  labeled :: (fn(s : Slot) -> i32)(match(s, .Full(item : it) => it.v, .Empty => i32(-1)));
+  curly :: (fn(s : Slot) -> i32)(match(s, .Full({ item }) => item.v, .Empty => i32(-1)));
+  bare :: (fn(s : Slot) -> i32)(match(s, .Full => i32(1), .Empty => i32(0)));
+  assert(positional(full) == i32(9), "positional payload");
+  assert(positional(empty) == i32(-1), "positional empty");
+  assert(labeled(full) == i32(9), "labeled payload");
+  assert(labeled(empty) == i32(-1), "labeled empty");
+  assert(curly(full) == i32(9), "curly payload");
+  assert(curly(empty) == i32(-1), "curly empty");
+  assert(bare(full) == i32(1), "a bare .Full arm selects the payload variant");
+  assert(bare(empty) == i32(0), "a bare .Empty arm selects the fieldless variant");
+});

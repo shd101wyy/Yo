@@ -26,7 +26,7 @@
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
 { is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards } :: import("../utils/index.yo");
+{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards, nullable_arm_selects_payload, nullable_arm_payload_binder } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -3574,25 +3574,36 @@ _generate_match_with_await_impl :: (
                     match(
                       pat,
                       .Some(pattern) => {
-                        if(ast_expr_is_fn_call(pattern) && ast_expr_is_fn_call_of(pattern, ".", Option(usize).None), {
-                          null_case = Option(usize).Some(ni);
-                        }, {
-                          if(ast_expr_is_fn_call(pattern), {
-                            pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
-                            if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
-                              ptr_case = Option(usize).Some(ni);
-                              pargs := match(pattern, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-                              match(
-                                pargs.get(usize(0)),
-                                .Some(pv) => if(ast_expr_is_atom(pv), {
-                                  ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
-                                  ptr_var_expr = Option(AstExpr).Some(pv);
-                                }),
-                                .None => ()
-                              );
-                            });
+                        // First match wins, and an arm is classified by its
+                        // VARIANT NAME (`.Node` with no payload pattern still
+                        // selects the pointer variant); a `_` wildcard claims
+                        // whichever case is still unclaimed, with no binding
+                        // (the synchronous twin in exprs/match.yo).
+                        if(ast_expr_is_atom(pattern) && (ast_expr_token(pattern).value == "_"), {
+                          if(null_case.is_none(), {
+                            null_case = Option(usize).Some(ni);
                           });
-                        });
+                          if(ptr_case.is_none(), {
+                            ptr_case = Option(usize).Some(ni);
+                          });
+                        }, match(
+                          nullable_arm_selects_payload(match_value_type, pattern),
+                          .Some(true) => if(ptr_case.is_none(), {
+                            ptr_case = Option(usize).Some(ni);
+                            match(
+                              nullable_arm_payload_binder(pattern),
+                              .Some(pv) => {
+                                ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
+                                ptr_var_expr = Option(AstExpr).Some(pv);
+                              },
+                              .None => ()
+                            );
+                          }),
+                          .Some(false) => if(null_case.is_none(), {
+                            null_case = Option(usize).Some(ni);
+                          }),
+                          .None => ()
+                        ));
                       },
                       .None => ()
                     );

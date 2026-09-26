@@ -19,10 +19,12 @@ doc.
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) — the `match` redesign (pattern IR, exhaustiveness, general lowering).
 - [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) — cutting the evaluator's retained memory, measured per phase.
+- [`EVALUATOR_MEMORY_REDUCTION_HANDOVER.md`](EVALUATOR_MEMORY_REDUCTION_HANDOVER.md) — the 2026-09-26 handover: in-flight work (Phase 3 niche, the #932 slowdown fix) and every remaining item with recipes.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`DROP_LIBURING.md`](DROP_LIBURING.md) — drop the liburing library: vendor the io_uring ring layer into the emitted Linux runtime, add an epoll fallback behind a ring→epoll→degrade ladder, and CI-enforce performance budgets; phases keyed to one release's seed bump.
+- [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
 
 ## Reference (`reference/`)
 
