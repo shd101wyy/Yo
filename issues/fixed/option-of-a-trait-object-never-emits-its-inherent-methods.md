@@ -175,9 +175,8 @@ reproduced.
 `Identity` drops the SomeT↔`Dyn` rules, and `Invariant` keeps them for pointees, the
 receiver/`*(Self)` match (`env.yo`) and the closure-result checks
 (`plans/reference/TYPE_IDENTITY.md`, "Two relations, two jobs"). The resolved-SomeT unwrap stays in
-both: codegen's `type_key` keys a resolved SomeT in an argument slot by its resolution, and
-dropping the unwrap from identity made `tests/thread.test.yo` fail with "Capture type not found
-for closure".
+both, because codegen's `type_key` keys a resolved SomeT in an argument slot by its resolution
+(Phase 3.7 retires the resolution itself).
 
 Regression test: "soundness: an inherent Option method over a trait object is emitted"
 (`tests/type_soundness.test.yo`); `tests/error_source_chain.test.yo` uses `is_none()` again.

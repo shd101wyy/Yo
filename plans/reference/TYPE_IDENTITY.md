@@ -25,9 +25,7 @@ the prelude's hard-generic `Option(T)` spec, which codegen never emits
 (`issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`). A resolved SomeT
 still stands for its resolution under both relations, because codegen's `type_key` keys a resolved
 SomeT in an argument slot by its resolution (`_tk_resolve_arg_slot`), and identity must agree with
-it. Dropping that too was tried and measured: `tests/thread.test.yo` then failed with "Capture
-type not found for closure", a capture struct registered under one key and looked up under
-another. The resolution itself is Phase 3.7's to retire.
+it. The resolution itself is Phase 3.7's to retire.
 
 Identity must be an equivalence relation that agrees with codegen's type key
 (`src/types/type_key.yo`): when identity says two types are one, the memo hands the second
