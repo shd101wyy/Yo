@@ -4945,10 +4945,6 @@ _resolve_some_types_deep :: (
     while(nti < nested.len(), {
       nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
-      // Track whether the resolution came from the env (true) or from
-      // the global lookup_some_resolved_concrete fallback (false).
-      // Only register when sourced from env to avoid re-caching IoExn.
-      (nres_from_env : bool) = !is_some_type(nres);
       if(is_some_type(nres), {
         // Only fall back to the global table when the env lookup
         // returned a FRESH SomeType (from get_value_of_some_type_from_env's
@@ -4977,23 +4973,8 @@ _resolve_some_types_deep :: (
       if(!is_some_type(nres), {
         match(
           nst,
-          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
+          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
             subst_add(ns, nst_name, nst_lvl, nres);
-            // Register the concrete type in the global table when
-            // resolved from the env (not from the stale fallback).
-            // Skip registering IoExn — it's a compound effect that
-            // would overwrite single-effect Io and poison subsequent
-            // io.async calls that only need Io.
-            if(nres_from_env, {
-              _is_ioexn := match(
-                nres,
-                .Struct({ id : _reg_sid }) => (_reg_sid == "IoExn"),
-                _ => false
-              );
-              if(!_is_ioexn, {
-                register_some_resolved_concrete(nst_id, nres);
-              });
-            });
             nbound = true;
           },
           _ => ()
