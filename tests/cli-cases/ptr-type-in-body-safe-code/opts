@@ -1,0 +1,9 @@
+# A raw pointer type named in a BODY of a safe file (`(p : Option(*(i32))) = .None`)
+# must be reported as the safe-code rejection by `compile`, as `check` does.
+# `compile` shares one ExprInfoTable across the prelude and every module, and
+# the error sentinel `make_err_expr()` shared id 0 with the first parsed node, so
+# the swallowed rejection read back as the prelude's info and `compile` reported
+# `Expected "comptime" for compile-time known value binding: Comptime`
+# (issues/fixed/compile-reports-a-derived-error-instead-of-the-safe-code-raw-pointer-rejection.md).
+stdout_keep_match=Raw pointer types \('\*\(i32\)'\) are not available in safe code
+timeout=120
