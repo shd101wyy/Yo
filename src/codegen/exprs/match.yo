@@ -840,45 +840,44 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               // `state_code_gen.yo` follows for await-carrying arms,
               // issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md).
               (smb_env_resolved : bool) = false;
+              // Resolve by the PATTERN atom's own env (as `state_code_gen.yo`
+              // does): the arm body's recorded env may predate the binding, and
+              // a name lookup there finds an OUTER same-named variable.
               match(
-                ptr_body,
-                .Some(smb_pb) => match(
-                  context.base.get_expr_info(smb_pb),
-                  .Some(smb_bei) => {
-                    smb_vars := get_variables_from_env(smb_bei.env, ast_expr_token(dvar).value.to_string());
-                    if(smb_vars.len() > usize(0), {
-                      match(
-                        smb_vars.get(smb_vars.len() - usize(1)),
-                        .Some(smb_var) => {
-                          smb_env_resolved = true;
-                          smb_id = match(
-                            smb_var.is_owning_the_same_rc_value_as,
-                            .Some(ob) => ob.*.id.to_string(),
-                            .None => smb_var.id.to_string()
-                          );
-                          match(
-                            context.variable_id_remapping,
-                            .Some(rm) => match(
-                              rm.get(smb_id.clone()),
-                              .Some(mapped) => {
-                                smb_id = mapped;
-                              },
-                              .None => ()
-                            ),
+                context.base.get_expr_info(dvar),
+                .Some(smb_bei) => {
+                  smb_vars := get_variables_from_env(smb_bei.env, ast_expr_token(dvar).value.to_string());
+                  if(smb_vars.len() > usize(0), {
+                    match(
+                      smb_vars.get(smb_vars.len() - usize(1)),
+                      .Some(smb_var) => {
+                        smb_env_resolved = true;
+                        smb_id = match(
+                          smb_var.is_owning_the_same_rc_value_as,
+                          .Some(ob) => ob.*.id.to_string(),
+                          .None => smb_var.id.to_string()
+                        );
+                        match(
+                          context.variable_id_remapping,
+                          .Some(rm) => match(
+                            rm.get(smb_id.clone()),
+                            .Some(mapped) => {
+                              smb_id = mapped;
+                            },
                             .None => ()
-                          );
-                          smb_has = match(
-                            context.state_machine_variables,
-                            .Some(smv) => smv.get(smb_id.clone()).is_some(),
-                            .None => false
-                          );
-                        },
-                        .None => ()
-                      );
-                    });
-                  },
-                  .None => ()
-                ),
+                          ),
+                          .None => ()
+                        );
+                        smb_has = match(
+                          context.state_machine_variables,
+                          .Some(smv) => smv.get(smb_id.clone()).is_some(),
+                          .None => false
+                        );
+                      },
+                      .None => ()
+                    );
+                  });
+                },
                 .None => ()
               );
               if(!smb_has && !smb_env_resolved, {
