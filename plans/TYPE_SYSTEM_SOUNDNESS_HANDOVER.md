@@ -62,7 +62,9 @@ Never edit a tree while its own build or gates run.
 ## 3. The four pushed branches
 
 All four are pushed, based on develop `36ec17b8c` (after #942), and **none has been built yet**:
-they were written while a peer's release battery held the machine. Each commit is small and
+they were written while a peer's release battery held the machine. Develop has since gained #943
+(`Option` of a reference handle is one pointer, which touches codegen's nullable-pointer paths and
+`std`'s `String` layout): rebase each branch onto develop before building it. Each commit is small and
 single-purpose so a failure can be bisected or a commit dropped.
 
 ### 3.1 `tss/flow-orientation`: the flow relation called backwards
