@@ -1,0 +1,85 @@
+//! io_bench — the backend comparison benchmarks of plans/DROP_LIBURING.md
+//! Phase 6 (G2). Run via scripts/bench-io-backends.sh, which drives it under
+//! YO_IO_BACKEND=uring and =epoll and prints the ratio table against the
+//! floors in scripts/bench/io-floors.env. Numbers are for ONE box; the
+//! script is a merge criterion and release check, not a wall-clock CI gate.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ panic } :: import("std/assert");
+{ String } :: import("std/string");
+{ socketpair } :: import("std/sys/socketpair");
+tcp :: import("std/sys/tcp");
+{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+{ __yo_async_send_start, __yo_async_recv_start, __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl } :: import("std/sys/externs");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+{ write_string, read_to_string } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
+{ Duration } :: import("std/time/duration");
+{ Exception, IoExn } :: import("std/error");
+
+ECHO_ROUNDS :: usize(2000);
+TIMER_TICKS :: usize(2000);
+FILE_ITERS :: usize(400);
+FILE_SIZE :: usize(16384);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (_e -> unwind(())));
+
+  // --- TCP ping-pong throughput --------------------------------------------
+  sv := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) != i32(0), {
+    panic(String.from("socketpair failed"));
+  });
+  fd_a := (sv.add(usize(0))).*;
+  fd_b := (sv.add(usize(1))).*;
+  __yo_sync_fcntl_setfl(fd_a, __yo_sync_fcntl_getfl(fd_a) | i32(0x800));
+  __yo_sync_fcntl_setfl(fd_b, __yo_sync_fcntl_getfl(fd_b) | i32(0x800));
+  buf := (*u8)(malloc(usize(256)).unwrap());
+  msg := String.from("benchmark-payload-32-bytes-xxxxxxxx");
+  t0 := Instant.now();
+  i := usize(0);
+  while(i < ECHO_ROUNDS, {
+    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_b, buf, usize(256), i32(0)), io);
+    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_a, buf, usize(256), i32(0)), io);
+    i = (i + usize(1));
+  });
+  echo_elapsed := Instant.now().duration_since(t0);
+  echo_ms := echo_elapsed.as_millis();
+  io.await(tcp.close(fd_a), io);
+  io.await(tcp.close(fd_b), io);
+  println(`echo_ms ${echo_ms} rounds ${ECHO_ROUNDS}`);
+
+  // --- Timer churn -----------------------------------------------------------
+  t1 := Instant.now();
+  i = usize(0);
+  while(i < TIMER_TICKS, {
+    io.await(sleep(u64(0)), IoExn(io : io, exn : exn));
+    i = (i + usize(1));
+  });
+  timer_ms := Instant.now().duration_since(t1).as_millis();
+  println(`timer_ms ${timer_ms} ticks ${TIMER_TICKS}`);
+
+  // --- File write/read loop --------------------------------------------------
+  data := String.from("x");
+  j := usize(1);
+  while(j < FILE_SIZE, {
+    data.push_str("x");
+    j = (j + usize(1));
+  });
+  path := Path.new(String.from("/tmp/yo_io_bench_file"));
+  t2 := Instant.now();
+  i = usize(0);
+  while(i < FILE_ITERS, {
+    io.await(write_string(path, data, io), IoExn(io : io, exn : exn));
+    io.await(read_to_string(path, io), IoExn(io : io, exn : exn));
+    i = (i + usize(1));
+  });
+  file_ms := Instant.now().duration_since(t2).as_millis();
+  println(`file_ms ${file_ms} iters ${FILE_ITERS} bytes ${FILE_SIZE}`);
+});
+export(main);

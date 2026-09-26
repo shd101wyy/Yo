@@ -9,8 +9,23 @@ issue (`issues/fixed/io-uring-init-failure-exits-the-process.md`).
 `io_uring_*` undefined symbols, 5 internal pins), Phase 2 (docs en/zh + the
 PORTABLE_C trap note + the 256→1024 SQE doc fix; PR #947), Phase 5 (the epoll fallback
 + ladder; every gate green incl. the Docker default-seccomp leg — the issue is closed
-and moved to `fixed/`). Open: Phase 3 (waits on the release train), Phase 4 (seed-gated
-cleanup), Phase 6 (performance guarantees).
+and moved to `fixed/`). Open: Phase 3 (waits on the release train), Phase 4 (seed-gated cleanup — the
+gate is `SEED_VERSION` at or past the FIRST release built from Phase 1, which
+is v0.2.45+ since v0.2.44 was cut from develop before this stack merged).
+
+**Phase 6 landed** (PR #<p6>): G1 zero-regression (emit-diff + the A/B bench:
+echo identical, timer/file within variance); G2
+`scripts/bench-io-backends.sh` + `scripts/bench/` programs + the
+`io-floors.env` ratchet — measured on the merge box the epoll fallback is
+FASTER than the ring (echo 1.75x, timers 20x, files 7x — inline completion
+beats CQE round-trips there; re-measure on stock Linux at release checks);
+G3 the always-on `__yo_stats_*` counters (deviation from the #ifdef plan:
+three thread-local increments cost nothing next to the entries they count,
+and always-on avoids the -D plumbing) + `scripts/io-budget-check.sh` as the
+hard gate (CI job `io-budgets`) — measured: ring 2 enters/op linear, epoll
+0 on inline ops; timer 2-4 enters/tick; a 150 ms blocked window accrues
+<= 4 enters / <= 3 probes on either backend (the anti-spin rule). G4 came
+with Phase 5 (YO_IO_BACKEND + the never-silent fallback line).
 
 Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
 (ring layer net +239), +~800 more with the epoll section; user binaries 0 undefined
