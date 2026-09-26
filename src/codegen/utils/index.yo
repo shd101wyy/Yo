@@ -1093,6 +1093,106 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   });
   Option(String).Some(op)
 });
+/// The variant name + destructuring params of a tagged-union arm pattern,
+/// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
+/// Returns ("", empty) if the pattern is not a variant.
+arm_variant_name :: (fn(case_value : AstExpr) -> Option(String))(
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+);
+/// The destructuring params of a tagged-union arm: `args[1..]` for form 1
+/// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
+arm_params :: (fn(case_value : AstExpr) -> ArrayList(AstExpr))(
+  match(
+    case_value,
+    .FnCall(_, func, args, _, _) => match(
+      func,
+      .Atom(_, _) => {
+        out := ArrayList(AstExpr).new();
+        n := args.len();
+        (i : usize) = usize(1);
+        while(i < n, {
+          match(
+            args.get(i),
+            .Some(a) => {
+              out.push(a);
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        out
+      },
+      .FnCall(_, _, _, _, _) => args
+    ),
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  )
+);
+/// The two variants of a nullable-pointer enum (`can_optimize_as_nullable_pointer`):
+/// the fieldless one (NULL) and the one carrying the pointer, as `(empty, payload)`.
+nullable_variant_names :: (fn(t : TypeValue) -> Option(ArrayList(String)))(
+  match(
+    t,
+    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
+      (empty_name : String) = String.new();
+      (payload_name : String) = String.new();
+      (i : usize) = usize(0);
+      while(i < vns.len(), {
+        vn := match(vns.get(i), .Some(n) => n, .None => String.new());
+        nf := match(vfs.get(i), .Some(f) => f.len(), .None => usize(0));
+        if(nf == usize(0), {
+          empty_name = vn;
+        }, {
+          payload_name = vn;
+        });
+        i = (i + usize(1));
+      });
+      out := ArrayList(String).new();
+      out.push(empty_name);
+      out.push(payload_name);
+      Option(ArrayList(String)).Some(out)
+    },
+    _ => Option(ArrayList(String)).None
+  )
+);
+/// Which case of a nullable-pointer enum a match arm's pattern selects, by its
+/// VARIANT NAME: `.Some(true)` for the pointer variant (payload bound or not:
+/// `.Some(x)`, `.Some`, `.Node({ child })`), `.Some(false)` for the fieldless
+/// one, `.None` for a pattern that names neither (`_`, guards).
+nullable_arm_selects_payload :: (fn(enum_type : TypeValue, case_value : AstExpr) -> Option(bool))(
+  match(
+    arm_variant_name(case_value),
+    .Some(raw) => {
+      vname := if(raw.starts_with("."), raw.substring(usize(1), raw.len()), raw);
+      match(
+        nullable_variant_names(enum_type),
+        .Some(names) => cond(
+          (vname == match(names.get(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
+          (vname == match(names.get(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
+          true => Option(bool).None
+        ),
+        .None => Option(bool).None
+      )
+    },
+    .None => Option(bool).None
+  )
+);
+/// The binder of a nullable-pointer enum arm's payload: the variable a
+/// positional (`.Some(x)`), labeled (`.Node(child : c)`) or curly
+/// (`.Node({ child })`, `.Node({ child : c })`) pattern binds the single field
+/// to, or `.None` when it binds nothing (`.Some`, `.Some(_)`, a literal).
+nullable_arm_payload_binder :: (fn(case_value : AstExpr) -> Option(AstExpr))({
+  params := arm_params(case_value);
+  is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
+  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, ca, _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
+  match(
+    dparams.get(usize(0)),
+    .Some(p) => {
+      var := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(p, .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(v) => v, .None => p), .Atom(_, _) => p), p);
+      if(ast_expr_is_atom(var) && !(ast_expr_token(var).value == "_") && !pattern_param_is_literal(var), Option(AstExpr).Some(var), Option(AstExpr).None)
+    },
+    .None => Option(AstExpr).None
+  )
+});
 /// Check if an enum can be optimized as a simple C enum (all variants have no
 /// data members and there is at least one variant).
 can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
@@ -1947,6 +2047,11 @@ export(
   should_avoid_const,
   is_function_value_with_only_builtin_yo_inline_function_call,
   can_optimize_as_nullable_pointer,
+  arm_variant_name,
+  arm_params,
+  nullable_variant_names,
+  nullable_arm_selects_payload,
+  nullable_arm_payload_binder,
   can_optimize_as_simple_enum,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
