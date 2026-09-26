@@ -382,9 +382,6 @@ _compat_impl :: (
             .CULong => true,
             .CLongLong => true,
             .CULongLong => true,
-            // A C scalar initializes an extern opaque type (see the rule
-            // below the comptime blocks).
-            .ExternOpaqueT(_, _) => true,
             _ => false
           )
         )
@@ -402,7 +399,6 @@ _compat_impl :: (
           true => match(
             expected,
             .Float(_) => true,
-            .ExternOpaqueT(_, _) => true,
             _ => false
           )
         )
@@ -430,16 +426,6 @@ _compat_impl :: (
         )
       )
     );
-  });
-  // --- C scalar into an extern opaque type -----------------------------------
-  // An extern opaque type (`ExternOpaqueT`) is a C type Yo cannot see into; a
-  // C scalar (bool, integer, float, a C integer type) initializes it by value
-  // exactly as C would: `atomic(ref(struct((*) : atomic_bool)))(false)` is
-  // C's `_Atomic bool` initialized from a `bool`. Flow only, never identity
-  // or a pointee: `*(i32)` is not a `*(FILE)`, and no struct, `Dyn` or
-  // String flows into one (plans/reference/TYPE_IDENTITY.md).
-  if((!(require_exact) && match(expected, .ExternOpaqueT(_, _) => true, _ => false)) && ((is_numeric_type(actual) || is_bool_type(actual)) || is_c_compatible_type(actual)), {
-    return(true);
   });
   // --- C-compatible types ---------------------------------------------------
   if(is_c_compatible_type(actual), {
@@ -1567,6 +1553,10 @@ _compat_impl :: (
           // `Type.eq`, and flow has no upcast either (Phase 2.7,
           // docs/en-US/DYN_DESIGN.md): the two vtables have different layouts
           // and the concrete type that would build the smaller one is erased.
+          // Each ELEMENT compares with the ambient relation, like the forward
+          // loop: in flow a generic `Dyn(Fn(A) -> B)` parameter accepts
+          // `Dyn(Fn(i32) -> i32)` (`A` takes `i32`); exact modes stay exact.
+          rev_mode := cond(require_exact => _exact_mode(mode), true => mode);
           {
             (xi : usize) = usize(0);
             while(xi < artt.len(), {
@@ -1574,7 +1564,7 @@ _compat_impl :: (
               (xfound : bool) = false;
               (xj : usize) = usize(0);
               while((xj < ertt.len()) && !(xfound), {
-                if(recur(match(ertt.get(xj), .Some(v) => v, .None => TypeValue.Unit), xat, _exact_mode(mode), visited), {
+                if(recur(match(ertt.get(xj), .Some(v) => v, .None => TypeValue.Unit), xat, rev_mode, visited), {
                   xfound = true;
                 });
                 xj = (xj + usize(1));
@@ -1683,9 +1673,26 @@ _compat_impl :: (
 // `refine#N` obligation at the construction/call site, not a unifier
 // decision). Two predicates over the same inner likewise unify as that
 // inner: dispatch keys off the erased type everywhere.
-are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
-  _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
-);
+are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+  // The C-scalar → extern-opaque coercion is an INITIALIZATION rule — a C
+  // scalar value-initializes an opaque C slot exactly as C does
+  // (`atomic(ref(struct((*) : atomic_bool)))(false)` is C's `_Atomic bool`
+  // from a `bool`) — so it applies only to the slot the caller named, never
+  // to a type inside a compound type: `Option(u64)` is not `Option(FILE)`,
+  // `G(u64)` not `G(FILE)`, `Tuple(u64)` not `Tuple(FILE)` and `*(i32)` not
+  // `*(FILE)` (the pointee was always exact). Living inside `_compat_impl`
+  // it fired from every child comparison a container makes — the one flow
+  // coercion that composed
+  // (issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md).
+  (a_top : TypeValue) = t_refine_inner(actual);
+  (e_top : TypeValue) = t_refine_inner(expected);
+  if(match(e_top, .ExternOpaqueT(_, _) => true, _ => false), {
+    if((is_numeric_type(a_top) || is_bool_type(a_top)) || (is_c_compatible_type(a_top) || (is_comptime_int_type(a_top) || is_comptime_float_type(a_top))), {
+      return(true);
+    });
+  });
+  _compat_impl(a_top, e_top, _CompatMode.Flow, ArrayList(String).new())
+});
 /// The identity predicate (plans/reference/TYPE_IDENTITY.md): what caches,
 /// memos and `Type.eq` key by. A SomeT is never identical to a `Dyn` that
 /// merely satisfies its bounds.

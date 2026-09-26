@@ -756,16 +756,26 @@ test("soundness: an extern opaque type is nominal", {
 });
 // Its one coercion: a C scalar initializes it by value, as C does
 // (`AtomicU64(n * u64(4))`). Only in that direction: an extern opaque value is
-// not a `u64`.
+// not a `u64`. The coercion is an initialization rule for the slot the caller
+// named — it does not compose into a compound type
+// (issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md).
 { atomic_ullong : _P38Ull } :: import("std/libc/stdatomic");
 _p38_u64_into_ull :: Type.is_compatible_with(u64, _P38Ull);
 _p38_ull_not_u64 :: Type.is_compatible_with(_P38Ull, u64);
 _p38_opt_ull_sink :: (fn(o : Option(_P38Ull)) -> bool)(o.is_some());
+_P38G :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : T));
+_p38_opt_composes :: Type.is_compatible_with(Option(u64), Option(_P38Ull));
+_p38_g_composes :: Type.is_compatible_with(_P38G(u64), _P38G(_P38Ull));
+_p38_tup_composes :: Type.is_compatible_with(Tuple(u64), Tuple(_P38Ull));
 test("soundness: a C scalar initializes an extern opaque, never the reverse", {
   assert(_p38_u64_into_ull, "a u64 initializes an atomic_ullong");
   assert(!_p38_ull_not_u64, "an atomic_ullong is not a u64");
-  // A variant payload compares exactly: the coercion does not reach inside.
+  // A variant payload, a struct type argument and a tuple element compare
+  // exactly: the coercion does not reach inside a compound type.
   comptime_expect_error(_p38_opt_ull_sink(Option(u64).Some(u64(1))));
+  assert(!_p38_opt_composes, "Option(u64) is not Option(ExternOpaque)");
+  assert(!_p38_g_composes, "G(u64) is not G(ExternOpaque)");
+  assert(!_p38_tup_composes, "Tuple(u64) is not Tuple(ExternOpaque)");
 });
 // issues/fixed/the-flow-relation-is-called-with-its-arguments-reversed.md:
 // `are_types_compatible(actual, expected)` is directional, and the argument,

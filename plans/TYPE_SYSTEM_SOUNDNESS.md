@@ -499,9 +499,15 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
      `Comptime` or `Rc`, and takes one coercion: a C scalar initializes it by value in flow, as C
      does (`atomic_bool` is built as `Self(false)`).
      Its reverse-direction canary found
-     `issues/the-flow-relation-is-called-with-its-arguments-reversed.md`: the directional relation
-     is called as (expected, actual) at the argument, binding and reassignment checks, so a `Dyn`
-     downcast by reassignment passes `check`. Next in this phase.
+     `issues/fixed/the-flow-relation-is-called-with-its-arguments-reversed.md`: the directional
+     relation was called as (expected, actual) at the argument, binding and reassignment checks,
+     so a `Dyn` downcast by reassignment passed `check`. **Fixed 2026-09-26** (branch
+     `tss/flow-orientation`): all thirteen reversed sites pass `(actual, expected)`, `Dyn` flow is
+     the exact trait set in every mode, and the flip exposed one more hole the reversal had
+     masked — the extern-opaque C-scalar coercion composed into compound types (`Option(u64)`
+     flowed into `Option(FILE)`;
+     `issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md`) — fixed by
+     moving the coercion to the relation's entry point.
 
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
@@ -689,10 +695,13 @@ Each phase also updates these docs for the rules it adds.
 - `ERROR_DIAGNOSTICS.md` and the `-fwrapv` note.
 - The archive banner for row 17.
 
-Open:
-- `FLOWABILITY.md`'s "by-value overlap is fine too" lands with Phase 5.2, which changes the rule.
-- `THREAD_SAFETY.md`'s "sharing unsynchronized state across threads is a compile error" is
-  `plans/PARALLELISM_SOUNDNESS.md`'s to settle, as its rules land.
+Open: none.
+
+- `FLOWABILITY.md`'s "by-value overlap is fine too": closed with Phase 5.2 — the doc now records
+  the landed rule (a by-value argument that overlaps an `inout` one is dup'd for the call).
+- `THREAD_SAFETY.md`'s "sharing unsynchronized state across threads is a compile error": settled
+  by `plans/archive/PARALLELISM_SOUNDNESS.md` (archived COMPLETE 2026-09-26) — the guarantee
+  holds with an empty Known Holes list and rules D1–D9 behind it.
 
 ## 6. Order and sizing
 
