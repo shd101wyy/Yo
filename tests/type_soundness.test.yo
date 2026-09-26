@@ -740,6 +740,33 @@ test("soundness: an inherent Option method over a trait object is emitted", {
   assert(_p38_none(), "None is none");
   assert(!_p38_some(), "Some is not none");
 });
+// issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md (Phase 3.8): an
+// extern opaque type is the nominal `ExternOpaqueT`. It is only itself: never
+// a `Dyn`, never another extern opaque with a different C spelling.
+{ FILE : _P38File, fpos_t : _P38Fpos } :: import("std/libc/stdio");
+_p38_file_eq :: Type.eq(_P38File, _P38File);
+_p38_file_not_fpos :: Type.eq(_P38File, _P38Fpos);
+_p38_dyn_not_file :: Type.is_compatible_with(Dyn(_P38ToString), _P38File);
+_p38_file_not_dyn :: Type.is_compatible_with(_P38File, Dyn(_P38ToString));
+test("soundness: an extern opaque type is nominal", {
+  assert(_p38_file_eq, "FILE is FILE");
+  assert(!_p38_file_not_fpos, "FILE is not fpos_t");
+  assert(!_p38_dyn_not_file, "a trait object is not a FILE");
+  assert(!_p38_file_not_dyn, "a FILE is not a trait object");
+});
+// Its one coercion: a C scalar initializes it by value, as C does
+// (`AtomicU64(n * u64(4))`). Only in that direction: an extern opaque value is
+// not a `u64`.
+{ atomic_ullong : _P38Ull } :: import("std/libc/stdatomic");
+_p38_u64_into_ull :: Type.is_compatible_with(u64, _P38Ull);
+_p38_ull_not_u64 :: Type.is_compatible_with(_P38Ull, u64);
+_p38_opt_ull_sink :: (fn(o : Option(_P38Ull)) -> bool)(o.is_some());
+test("soundness: a C scalar initializes an extern opaque, never the reverse", {
+  assert(_p38_u64_into_ull, "a u64 initializes an atomic_ullong");
+  assert(!_p38_ull_not_u64, "an atomic_ullong is not a u64");
+  // A variant payload compares exactly: the coercion does not reach inside.
+  comptime_expect_error(_p38_opt_ull_sink(Option(u64).Some(u64(1))));
+});
 // ---------------------------------------------------------------------------
 // Phase 5.1/5.2/5.6: per-path move and initialization state
 // (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,

@@ -32,6 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
 { type_key } :: import("../../types/type_key.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -83,7 +84,12 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 SynthesizeOptions :: ref(
   struct(
     /// Optional source token for variable bindings created during synthesis.
-    token : Option(Token)
+    token : Option(Token),
+    /// The pair's orientation. Most callers synthesize (destination, source):
+    /// a parameter against its argument. A call's return type against the
+    /// caller's expected type is (source, destination), so it sets this.
+    /// Only a directional coercion reads it (`_extern_takes_scalar`).
+    expected_is_source : bool
   )
 );
 /// Return type of `synthesize_types`.
@@ -664,6 +670,19 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
 opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
   match(opts, .Some(o) => o.token, .None => Option(Token).None)
 );
+/// An extern opaque type takes a C scalar by value (`AtomicU64(n)` builds its
+/// `atomic_ullong` cell from a runtime `u64`), a flow rule of
+/// `are_types_compatible`. An `ExternOpaqueT` carries no SomeTs to bind, so
+/// there is nothing to synthesize; the pair is accepted exactly when the
+/// relation lets the source flow into the destination, which `opts` names.
+/// Never the reverse: an `atomic_ullong` is not a `u64`.
+_extern_takes_scalar :: (fn(expected_ty : TypeValue, given_ty : TypeValue, opts : Option(SynthesizeOptions)) -> bool)({
+  expected_is_source := match(opts, .Some(o) => o.expected_is_source, .None => false);
+  (destination : TypeValue) = if(expected_is_source, given_ty, expected_ty);
+  (source : TypeValue) = if(expected_is_source, expected_ty, given_ty);
+  (type_value_tag(destination) == TypeTag.TExternOpaque)
+  && ((type_value_tag(source) != TypeTag.TExternOpaque) && are_types_compatible(source, destination))
+});
 /// The token a synthesis ERROR is anchored at: the caller's option token
 /// (the argument or call expression being checked) when it supplied one,
 /// else a synthetic token — row 0, column 0 of the module — which is all
@@ -2173,6 +2192,9 @@ _synthesize_types_impl :: (
       && _is_runtime_numeric(expected_ty)
     );
     if(ct_rt_pair || rt_ct_pair, {
+      return(SynthesizeResult(expected_env : ee, given_env : ge));
+    });
+    if(_extern_takes_scalar(expected_ty, given_ty, opts), {
       return(SynthesizeResult(expected_env : ee, given_env : ge));
     });
     if(exp_tag != giv_tag, {

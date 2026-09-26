@@ -24,7 +24,7 @@
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
-{ is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
 { get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name } :: import("./state_machine_naming.yo");
@@ -41,10 +41,8 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   if(!(is_some_type(ty)), {
     return(false);
   });
-  // Branch (1): resolved concrete is an extern SomeType. An
-  // extern opaque type IS a SomeT whose NAME is registered in
-  // the extern-type-name set, so extern-ness is `is_extern_type_name(name)`.
-  // This branch is LOAD-BEARING since Impl's `Concrete(T)` support:
+  // Branch (1): the resolved concrete is an extern opaque type
+  // (`ExternOpaqueT`, `Impl(Concrete(__yo_io_future_t), ...)`). This branch is LOAD-BEARING since Impl's `Concrete(T)` support:
   // the marker moves into the SomeT's resolution rather
   // than sitting in required_trait_types, so branch (2) alone no longer fires
   // for `IoFuture` — and misclassifying an io future as a lazy sync future
@@ -61,9 +59,9 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
     rc_final,
     .Some(io_rcv) => match(
       io_rcv,
-      .SomeT({ name : io_enm }) => if(is_extern_type_name(io_enm), {
+      .ExternOpaqueT(_, _) => {
         return(true);
-      }),
+      },
       _ => ()
     ),
     .None => ()

@@ -66,7 +66,9 @@ TypeTag :: enum(
   TTypeApplication,
   // Atomic / dynamic dispatch / isolated
   TIso,
-  TDyn
+  TDyn,
+  // An opaque C type (`extern("Yo", X : Type)`, a `c_include` `X : Type`)
+  TExternOpaque
 );
 derive(TypeTag, Eq(TypeTag), Hash, Clone);
 /// Short string name for a tag, suitable for diagnostics.
@@ -119,7 +121,8 @@ type_tag_name :: (fn(t : TypeTag) -> String)(
     .TEffectsRow => `EffectsRow`,
     .TTypeApplication => `TypeApplication`,
     .TIso => `Iso`,
-    .TDyn => `Dyn`
+    .TDyn => `Dyn`,
+    .TExternOpaque => `extern opaque`
   )
 );
 export(TypeTag, type_tag_name);

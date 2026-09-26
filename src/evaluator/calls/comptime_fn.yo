@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, register_enum_type_arguments, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
 { type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
 {
@@ -94,7 +94,7 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
       somes.get(i),
       .Some(st) => match(
         st,
-        .SomeT({ name : has_nm, resolution : has_rc }) => if((!(is_extern_type_name(has_nm))) && has_rc.is_none(), {
+        .SomeT({ resolution : has_rc }) => if(has_rc.is_none(), {
           found = true;
         }),
         _ => ()
@@ -294,14 +294,14 @@ _ctfe_args_equal :: (
           // and `are_types_compatible_exact` is a SUBTYPING predicate that
           // answers TRUE for an unconstrained `SomeT` against anything. With
           // neither able to tell them apart, a concrete `Option(*(Dyn(Trait)))`
-          // request memo-hit the abstract `Option(*(T))` shell (and, before the
-          // extern carve-out in types/compatibility.yo, the `Option(*(FILE))`
-          // entry `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
+          // request memo-hit the abstract `Option(*(T))` shell (and, while an
+          // extern opaque was a bound-less SomeT, the `Option(*(FILE))` entry
+          // `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
           // at `T = Dyn(Trait)` bound to a payload that was not `*(Dyn(Trait))`,
           // and `_ptr.add(self._length)` in `push` had no `.add` to resolve.
           // `_has_abstract_some` is the DEEP walk, and a `DynT` contributes no
           // SomeTs at all — which is the whole distinction.
-          // issues/an-extern-opaque-type-unifies-with-every-dyn.md
+          // issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
           (_has_abstract_some(aty) != _has_abstract_some(bty)) => false,
           // Either side contains a SomeT inside: require exact structural match
           (type_contains_some_type(aty) || type_contains_some_type(bty)) =>

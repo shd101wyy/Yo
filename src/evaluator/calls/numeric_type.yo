@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_float_type, is_numeric_type, is_some_type, is_unit_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_float_type, is_numeric_type, is_some_type, is_unit_type } :: import("../../types/guards.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -67,13 +67,13 @@ is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
   cond(
     is_numeric_type(type_val) => true,
     is_c_compatible_type(type_val) => true,
-    // An extern-C OPAQUE type (`extern("c", pid_t : Type)` — a SomeT whose
-    // name is in the extern-type registry) is an integer alias at the C ABI
+    // An extern-C OPAQUE type (`extern("c", pid_t : Type)`, an
+    // `ExternOpaqueT`) is an integer alias at the C ABI
     // and converts via `__yo_as` like any C int. Without this,
     // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
     // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
     // (issues/fixed/yo-self-sys-signal-i32-extern-cast-ftt.md).
-    (is_some_type(type_val) && match(type_val, .SomeT({ name : ecn }) => is_extern_type_name(ecn), _ => false)) => true,
+    match(type_val, .ExternOpaqueT(_, _) => true, _ => false) => true,
     true => false
   )
 );

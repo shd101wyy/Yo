@@ -482,12 +482,13 @@ test("Test dyn inside a generic body whose concrete is still a type variable", {
   assert(_generic_show(true) == `true`, "dyn() of a generic parameter, second instantiation");
 });
 
-// An `extern("Yo", X : Type)` opaque — libc's `FILE` here — is a `SomeT` with
+// An `extern("Yo", X : Type)` opaque — libc's `FILE` here — was a `SomeT` with
 // an EMPTY required-trait list. `_compat_impl`'s two `Dyn`<->`SomeT` rules walk
 // that list to check the `Dyn` satisfies it, so an empty list meant the loop
 // body never ran and both rules returned true VACUOUSLY. Every `Dyn(Trait)`
 // unified with every extern opaque, in both directions and at every depth.
-// issues/an-extern-opaque-type-unifies-with-every-dyn.md
+// It is now a nominal `ExternOpaqueT`, identified by its C spelling.
+// issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
 _file_sink :: (fn(x : *FILE) -> usize)(usize(0));
 _widget_sink :: (fn(x : *String) -> usize)(usize(0));
 test("Test a trait object is not accepted where an extern opaque is expected", {
@@ -565,4 +566,16 @@ test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
   comptime_expect_error(_os_takes_sp(both), "Yo does not upcast Dyn");
   assert(both.speak() == i32(3), "the value itself is fine");
+});
+// issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md: this module
+// imports `std/libc/stdio`, whose `Option(*(FILE))` instance the CTFE memo used
+// to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
+{ ToString : _AlToString } :: import("std/fmt/to_string");
+test("Test an ArrayList of trait objects reads its elements back", {
+  (xs : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
+  xs.push(dyn(i32(7), _AlToString));
+  xs.push(dyn(i32(9), _AlToString));
+  got := match(xs.get(usize(1)), .Some(v) => v.to_string(), .None => String.from("none"));
+  assert(got == String.from("9"), "index 1 reads back the second trait object");
+  assert(xs.len() == usize(2), "both elements are held");
 });

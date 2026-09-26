@@ -1,15 +1,15 @@
 # An `extern` opaque type unifies with every `Dyn(Trait)`
 
-**Status:** OPEN
+**Status:** FIXED (2026-09-26, Type-system soundness Phase 3.8)
 **Found:** 2026-09-16
 **Repro:** `issues/repros/an-extern-opaque-type-unifies-with-every-dyn.yo`
-**Supersedes:** `issues/arraylist-of-a-trait-object-cannot-be-indexed.md` (which
+**Supersedes:** `issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md` (which
 PR #706 renames to `a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`).
 Same defect, same `_ptr.add` error, both found while writing `error_chain`. Both
 of those titles are wrong: the failure is not about indexing, and not about
 module boundaries — it is about whether some other module has already
-instantiated `Option(*(<an extern opaque>))`. Retire that doc in favour of this
-one once #706 and this change have both landed.
+instantiated `Option(*(<an extern opaque>))`. That doc is now
+`issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md`.
 
 ## Symptom
 
@@ -175,3 +175,51 @@ investigation has twice shown to be wrong.
 `src/types/compatibility.ts` at tag `src-attic-final` has the same shape and no
 extern check either (`isExtern` appears nowhere in that file), so this is a
 latent defect inherited from the original rather than a porting gap.
+
+## Resolution (Phase 3.8)
+
+The two halves above were carve-outs: every predicate that met an extern
+opaque had to ask the `g_extern_type_names` side table whether this `SomeT` was
+"really" a type parameter. The drop-path half closed with #938 (identity
+instead of exact compatibility for spec and memo keys; the repro now prints 2).
+What remained was the representation itself, and it is gone:
+
+- An extern opaque is its own nominal type,
+  `TypeValue.ExternOpaqueT(name, c_name)` (`src/types/definitions.yo`),
+  created by `t_extern_opaque` from both `extern("Yo", X : Type)`
+  (`src/evaluator/exprs/extern.yo`) and a non-adopted `c_include` type member
+  (`src/evaluator/exprs/c_include.yo`). Its identity is the C spelling: two
+  bindings of one C type are one type, `FILE` is not `fpos_t`, and a `Dyn` or a
+  type parameter is neither (`src/types/compatibility.yo`, `type_key.yo`,
+  `intern.yo`).
+- The side tables (`g_extern_type_names`, `g_extern_type_c_names` and their
+  accessors in `src/types/guards.yo`) and every `is_extern_type_name` carve-out
+  (compatibility, `type_contains_some_type`, the codegen-param walk, the CTFE
+  memo, the numeric-type builtin, trait checking) are deleted: an
+  `ExternOpaqueT` is not a `SomeT`, so no generic-parameter rule can reach it.
+- It is a runtime C value: it implements the marker traits `Runtime`, `Send`
+  and `Acyclic`, and not `Comptime` or `Rc` (`type_implements_trait`). The one
+  coercion into it is by value from a C scalar (a `bool`, a number, a C
+  integer type), in flow only, which is C value-initialization: std's
+  `atomic_bool` wrapper builds its cell as `Self(false)`. Pointers stay exact.
+
+Gates in `tests/type_soundness.test.yo`:
+
+- "soundness: an extern opaque type is nominal": `Type.eq(FILE, FILE)`, `FILE`
+  is not `fpos_t`, and `Dyn(ToString)` and `FILE` do not flow into each other.
+  On v0.2.43 `Type.is_compatible_with(Dyn(ToString), FILE)` was `true` (the
+  other three already held): the carve-out guarded the rules the pointer case
+  reached, not every path into the vacuous `Dyn`/`SomeT` rule.
+- "soundness: a C scalar initializes an extern opaque, never the reverse":
+  `u64` flows into `atomic_ullong` and not back, and the coercion does not
+  reach inside a variant payload (`Option(u64)` is not an
+  `Option(atomic_ullong)`). The synthesizer, which is where a runtime argument
+  meets its parameter, accepts only scalar-into-extern, in the direction the
+  call site names (`SynthesizeOptions.expected_is_source`: a return type
+  against the caller's expected type is (source, destination), a parameter
+  against its argument the reverse).
+
+Writing the reverse-direction canary at a call site found
+`issues/the-flow-relation-is-called-with-its-arguments-reversed.md`: v0.2.43
+accepts an `atomic_ullong` for a `u64` parameter, and so does this change,
+because the argument check calls the relation as (parameter, argument).

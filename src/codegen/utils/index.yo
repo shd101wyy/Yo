@@ -31,8 +31,6 @@
   is_pointer_type,
   is_struct_type,
   is_enum_type,
-  is_extern_type_name,
-  extern_type_c_name,
   can_optimize_as_nullable_pointer
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1410,11 +1408,9 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         if(_some_t_requires_future(t), {
           match(
             rct,
-            .SomeT({ name : gts_enm }) => if(is_extern_type_name(gts_enm), {
-              gts_ext := gts_enm.clone();
-              gts_ext.push_str("*");
-              return(gts_ext);
-            }),
+            .ExternOpaqueT(_, gts_ec) => {
+              return(`${gts_ec.clone()}*`);
+            },
             _ => ()
           );
         });
@@ -1423,22 +1419,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         g_gts_some_stack.drain((g_gts_some_stack.len() - usize(1)) .. g_gts_some_stack.len());
         gts_out
       },
-      // An `extern("Yo", X : Type)` opaque type is a SomeT placeholder that
-      // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
-      // hard-coded in the parallelism runtime) — lower it to that name, not
-      // `void*`.
-      // A heap-backed extern future reached WITHOUT a resolution
-      // — e.g. a NAMED local bound to an `IoFuture` in a sync function:
-      // the evaluator collapses the variable's type to the BARE extern SomeT
-      // (no Future requirement left), so it is recognized here by the
-      // runtime's contractual future type name, exactly as this function's
-      // own unregistered-extern fallback below hard-codes it. Same rule
-      // as the resolved branch above: pointer, not
-      // the bare struct — every use site (`->state`, drops) is pointer-shaped
-      // (issues/fixed/io-future-named-local-declared-by-value.md).
-      .None => if(
-        is_extern_type_name(snm),
-        if(_some_t_requires_future(t) || (snm == "__yo_io_future_t"), `${snm.clone()}*`, extern_type_c_name(snm.clone())),
+      .None => (
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,
@@ -1478,6 +1459,16 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
           )
         )
       )
+    ),
+    // An extern opaque type lowers to its C spelling (`__yo_thread_t`,
+    // `struct stat`). The async runtime's `__yo_io_future_t` is heap-backed:
+    // every use site (`->state`, drops) is pointer-shaped, so it lowers to a
+    // pointer wherever it appears bare, e.g. a NAMED local bound to an
+    // `IoFuture` in a sync function
+    // (issues/fixed/io-future-named-local-declared-by-value.md).
+    .ExternOpaqueT(_, eo_c) => cond(
+      (eo_c == "__yo_io_future_t") => String.from("__yo_io_future_t*"),
+      true => eo_c.clone()
     ),
     // Iso type (reference-counted isolated value): the C name is
     // `Iso_<cleanChild>` and the type is registered (idempotent) so its

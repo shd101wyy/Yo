@@ -374,6 +374,20 @@ TypeValue :: ref(
     RefineT(
       inner : Self,
       predicate_func_id : String
+    ),
+    /// An opaque C type declared by `extern("Yo", X : Type)` or a `c_include`
+    /// `X : Type`: a concrete type whose layout only the C compiler knows. It
+    /// is NOMINAL: two are the same type exactly when they lower to the same
+    /// C spelling (`c_name`, e.g. `struct stat` for `stat_buf :
+    /// c_type("struct stat")`); it is never a type variable and satisfies no
+    /// bound it was not given (plans/reference/TYPE_IDENTITY.md). `name` is
+    /// the Yo label, for diagnostics. It used to be a SomeT recorded in a
+    /// name registry, which made it unify with every `Dyn` and made any SomeT
+    /// that happened to share its name extern
+    /// (issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md).
+    ExternOpaqueT(
+      name : String,
+      c_name : String
     )
   )
 );

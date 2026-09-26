@@ -50,7 +50,6 @@ import("std/fmt");
   is_reference_struct_type,
   is_reference_enum_type,
   is_dyn_type,
-  is_extern_type_name,
   is_unit_type,
   type_decl_module,
   is_module_type,
@@ -546,8 +545,7 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
     match(
       hno_somes.get(hno_i),
       .Some(hno_s) => {
-        hno_extern := match(hno_s, .SomeT({ name : hno_nm }) => is_extern_type_name(hno_nm), _ => false);
-        if(!hno_extern && is_some_type(resolve_cell_chain(hno_s)), {
+        if(is_some_type(resolve_cell_chain(hno_s)), {
           return(false);
         });
       },
@@ -844,19 +842,19 @@ _type_refs_back_to_cyclic :: (
       }
     ),
     // A SomeType could resolve to anything — be conservative (its
-    // resolution, if any, is not followed here). EXCEPT an extern/`c_include`
-    // opaque type (`atomic_int : Type`), which is a SomeT placeholder for a C
-    // value that holds no Yo reference at all: answering "cyclic" for it made
+    // resolution, if any, is not followed here). An extern/`c_include`
+    // opaque type (`atomic_int : Type`, the `ExternOpaqueT` arm below) is a
+    // C value that holds no Yo reference at all: answering "cyclic" for it made
     // every `AtomicI32` — and so every struct holding a shared atomic counter
     // — look cycle-capable, which `^` refuses and the collector tracks.
     // And a closure identity (`is_bound_closure_identity`) IS its
     // resolution, the capture struct, so the struct is what is judged
     // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-    .SomeT(name : st_name) => cond(
-      is_extern_type_name(st_name) => false,
+    .SomeT(name : _) => cond(
       is_bound_closure_identity(ty) => recur(resolve_cell_chain(ty), original_id, visited),
       true => true
     ),
+    .ExternOpaqueT(_, _) => false,
     .Array({ element : el }) => recur(el, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
@@ -1024,16 +1022,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
     // FnTraitT; futures to state-machine structs). Without this carve-out the
     // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
-    .SomeT({ name : cst_name, required_trait_types : cst_rtt, resolution : cst_rc }) => cond(
-      // An EXTERN type returns false: `extern("c", atomic_bool : Type)` is a
-      // SomeType but is CONCRETE
-      // at codegen time. `TypeValue` has no extern slot on
-      // SomeT, so extern-ness lives in the `g_extern_type_names` side table
-      // that extern.yo registers into — same semantics, different mechanism.
-      // Without this, `atomic(ref(struct((*) : atomic_bool)))` counts as
-      // generic and its `__yo_new_<cName>` constructor is never emitted
-      // (the whole sync/* red family).
-      is_extern_type_name(cst_name) => false,
+    .SomeT({ required_trait_types : cst_rtt, resolution : cst_rc }) => cond(
       cst_rc.is_some() => false,
       true => {
         (cst_has_fn_or_fut : bool) = false;
