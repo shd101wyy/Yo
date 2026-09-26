@@ -992,8 +992,15 @@ static inline void __yo_uring_prep_ftruncate(struct __yo_uring_sqe* sqe,
 static inline void __yo_uring_prep_accept(struct __yo_uring_sqe* sqe,
                                           int32_t fd, void* addr,
                                           void* addrlen, int32_t flags) {
-  __yo_uring_prep_rw(__YO_IORING_OP_ACCEPT, sqe, fd, addr,
-                     (uint32_t)(uintptr_t)addrlen, 0);
+  // liburing's shape (checked against liburing 2.12): len stays 0 and the
+  // addrlen POINTER travels in the off slot (uring_ptr_to_u64). The kernel
+  // rejects a nonzero len for ACCEPT with EINVAL — encoding the pointer
+  // there made every listener accept fail AND strand the rest of the
+  // submission batch (io_uring_enter stops at a failed prep without
+  // IORING_SETUP_SUBMIT_ALL), which hung the connect behind it. The
+  // flags=0/NULL-buffer harness case cannot see either encoding.
+  __yo_uring_prep_rw(__YO_IORING_OP_ACCEPT, sqe, fd, addr, 0,
+                     (uint64_t)(uintptr_t)addrlen);
   sqe->rw_flags = (uint32_t)flags;
 }
 
