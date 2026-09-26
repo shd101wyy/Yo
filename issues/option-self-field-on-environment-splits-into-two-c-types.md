@@ -26,16 +26,30 @@ declared as the other. Two spellings of one type: the id/era split class
 `Variable` avoids the shape with `is_owning_the_same_rc_value_as : Option(Box(Self))`
 — the Box indirection is what the tree relies on.
 
-## Minimal repro: NOT yet found
+## Minimal repro (found 2026-09-26)
 
-A two-module program (`Env :: ref(struct(frames : ArrayList(i64), memo : Option(Self)))`
-in a library module with a module-level `ArrayList(Env)` and a getter; `main`
-imports it and matches `envs().get(i)`) compiles and runs correctly with the
-v0.2.38 seed. The in-tree trigger involves more: `Environment` is imported by
-~250 modules and `ArrayList(Environment)` is instantiated both before and after
-the struct completes in different modules' evaluation order. Reproduce in tree:
-`git stash`-free — apply the field on `perf/evaluator-memory-p2-f3`'s parent
-commit and run `yo build`.
+`issues/repros/option-self-field-on-environment-splits-into-two-c-types.yo`:
+one module, no module global needed.
+
+```rust
+Env :: ref(struct(n : i64, memo : Option(Self)));
+first :: (fn(l : ArrayList(Env)) -> Option(Env))(l.get(usize(0)));
+```
+
+The `ArrayList(Env).get` specialization is emitted with the declared,
+unsubstituted result: its C struct is commented `Option(T)`, while `first`
+declares `Option(<struct:…Env…>)`. Measured controls:
+
+- the same program without the `memo : Option(Self)` field prints 5;
+- `l.get(...)` called directly in `main` on a local list prints the value;
+- the call inside a helper whose parameter is `ArrayList(Env)` fails, in one
+  module or across two;
+- v0.2.43 fails identically.
+
+So the trigger is a generic method specialized for a receiver whose element
+type is a self-referential struct still carrying its `Option(Self)` shell,
+reached from a function signature. The earlier two-module attempt called
+`get` from `main`, which is why it did not reproduce.
 
 ## What to fix
 

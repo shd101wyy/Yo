@@ -1,0 +1,23 @@
+// Repro — a `ref(struct)` with an `Option(Self)` field, and a function whose
+// parameter is `ArrayList(Env)` returning `l.get(...)`. The `get`
+// specialization is emitted returning the ABSTRACT `Option(T)` while its
+// caller declares `Option(Env)`:
+//
+//   yo compile issues/repros/option-self-field-on-environment-splits-into-two-c-types.yo --optimize 2 -o /tmp/x
+//   error: initializing '__yo_t_…' (… Option(<struct:…Env…>)) with an expression
+//          of incompatible type '__yo_t_…' (… Option(T))
+//
+// Expected: prints 5. Without the `memo : Option(Self)` field it does.
+// Fails on v0.2.43 as well.
+//
+// See issues/option-self-field-on-environment-splits-into-two-c-types.md
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+Env :: ref(struct(n : i64, memo : Option(Self)));
+first :: (fn(l : ArrayList(Env)) -> Option(Env))(l.get(usize(0)));
+main :: (fn() -> unit)({
+  l := ArrayList(Env).new();
+  l.push(Env(n : i64(5), memo : Option(Env).None));
+  match(first(l), .Some(e) => println(e.n.to_string()), .None => println("none"));
+});
+export(main);
