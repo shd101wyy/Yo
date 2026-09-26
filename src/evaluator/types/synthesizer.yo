@@ -43,7 +43,8 @@ pragma(Pragma.AllowUnsafe);
   is_function_type,
   is_pointer_type,
   is_comptime_int_type,
-  is_comptime_float_type
+  is_comptime_float_type,
+  is_comptime_string_type
 } :: import("../../types/guards.yo");
 /// Runtime numeric (Int/Float of any width) — the lowering targets of
 /// comptime_int / comptime_float at a consuming boundary.
@@ -88,7 +89,7 @@ SynthesizeOptions :: ref(
     /// The pair's orientation. Most callers synthesize (destination, source):
     /// a parameter against its argument. A call's return type against the
     /// caller's expected type is (source, destination), so it sets this.
-    /// Only a directional coercion reads it (`_extern_takes_scalar`).
+    /// Only a directional coercion reads it (`_flow_coercion_without_binders`).
     expected_is_source : bool
   )
 );
@@ -670,18 +671,26 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
 opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
   match(opts, .Some(o) => o.token, .None => Option(Token).None)
 );
-/// An extern opaque type takes a C scalar by value (`AtomicU64(n)` builds its
-/// `atomic_ullong` cell from a runtime `u64`), a flow rule of
-/// `are_types_compatible`. An `ExternOpaqueT` carries no SomeTs to bind, so
-/// there is nothing to synthesize; the pair is accepted exactly when the
-/// relation lets the source flow into the destination, which `opts` names.
-/// Never the reverse: an `atomic_ullong` is not a `u64`.
-_extern_takes_scalar :: (fn(expected_ty : TypeValue, given_ty : TypeValue, opts : Option(SynthesizeOptions)) -> bool)({
+/// A flow coercion between two types that carry no SomeTs to bind: there is
+/// nothing to synthesize, so the pair is accepted exactly when
+/// `are_types_compatible` lets the source flow into the destination, in the
+/// direction `opts` names. Two coercions reach here with different tags:
+///
+/// - a C scalar into an extern opaque type (`AtomicU64(n)` builds its
+///   `atomic_ullong` cell from a runtime `u64`); never the reverse, an
+///   `atomic_ullong` is not a `u64`;
+/// - a `comptime_str` into a `str` or C-string slot: an async closure's
+///   literal result (`io.async((io : Io) => "hi")`) reaches `io.await` as
+///   `comptime_str`, and a `str` destination lowers it
+///   (issues/fixed/io-await-of-a-string-literal-task-rejects-its-str-destination.md).
+///   Never the reverse: a runtime `str` is not a `comptime_str`.
+_flow_coercion_without_binders :: (fn(expected_ty : TypeValue, given_ty : TypeValue, opts : Option(SynthesizeOptions)) -> bool)({
   expected_is_source := match(opts, .Some(o) => o.expected_is_source, .None => false);
   (destination : TypeValue) = if(expected_is_source, given_ty, expected_ty);
   (source : TypeValue) = if(expected_is_source, expected_ty, given_ty);
-  (type_value_tag(destination) == TypeTag.TExternOpaque)
-  && ((type_value_tag(source) != TypeTag.TExternOpaque) && are_types_compatible(source, destination))
+  extern_takes_scalar := ((type_value_tag(destination) == TypeTag.TExternOpaque) && (type_value_tag(source) != TypeTag.TExternOpaque));
+  str_lowers := (is_comptime_string_type(source) && !(is_comptime_string_type(destination)));
+  (extern_takes_scalar || str_lowers) && are_types_compatible(source, destination)
 });
 /// The token a synthesis ERROR is anchored at: the caller's option token
 /// (the argument or call expression being checked) when it supplied one,
@@ -2180,9 +2189,11 @@ _synthesize_types_impl :: (
     // "Cannot unify comptime_int and i32" from the comptime_add call's
     // return-vs-expected synthesis (helper.yo Step 10) and hollowed every
     // `${(expr)}` template statement (the fmt/basic/fn family;
-    // issues/repros/comptime-expr-to-string-runtime-binding.yo). The
-    // comptime_str-vs-String pair deliberately KEEPS throwing (untested
-    // whether prelude trials rely on it; numeric pairs suffice here).
+    // issues/repros/comptime-expr-to-string-runtime-binding.yo). A
+    // `comptime_str` is directional (it lowers into a `str` or C-string slot,
+    // never the reverse), so it goes through `_flow_coercion_without_binders`
+    // below instead; a `String` destination is not one of its flows and still
+    // throws.
     ct_rt_pair := (
       (is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty))
       && _is_runtime_numeric(given_ty)
@@ -2194,7 +2205,7 @@ _synthesize_types_impl :: (
     if(ct_rt_pair || rt_ct_pair, {
       return(SynthesizeResult(expected_env : ee, given_env : ge));
     });
-    if(_extern_takes_scalar(expected_ty, given_ty, opts), {
+    if(_flow_coercion_without_binders(expected_ty, given_ty, opts), {
       return(SynthesizeResult(expected_env : ee, given_env : ge));
     });
     if(exp_tag != giv_tag, {
