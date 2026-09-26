@@ -879,13 +879,26 @@ create_capture_type_and_value :: (
                 cvwv.get(cap_name.clone()),
                 .None => (),
                 .Some(fci) => {
+                  // A captured closure's type is its annotation wrapper, and
+                  // for a generic function's `Impl(Fn...)` parameter that
+                  // wrapper is one def-era lineage whose cell every call
+                  // site rewrites. type_key keys a resolved closure identity
+                  // by its resolution, so a field holding the wrapper changed
+                  // key whenever another call rewrote the cell, and codegen
+                  // looked the capture struct up under a key it was never
+                  // registered with ("Capture type not found for closure").
+                  // Store the resolution as it is now, when this closure is
+                  // built: the capture struct's type never changes after.
+                  // Codegen lowered the wrapper to the same capture struct
+                  // (issues/fixed/a-capture-struct-changes-type-key-when-a-captured-closure-param-is-re-resolved.md).
+                  fci_ty := if(is_bound_closure_identity(fci.ty), resolve_cell_chain(fci.ty), fci.ty);
                   field_labels.push(cap_name.clone());
-                  field_types.push(fci.ty);
+                  field_types.push(fci_ty.clone());
                   cap_values.push(fci.value);
                   type_fields.push(
                     TypeField(
                       label : cap_name.clone(),
-                      ty : fci.ty,
+                      ty : fci_ty,
                       is_comptime : false,
                       default_value : Option(EvalValue).None,
                       assigned_value : Option(EvalValue).None,
