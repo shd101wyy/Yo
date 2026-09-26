@@ -13,7 +13,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -1212,21 +1212,17 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     // this edge the capture body comes later → "field has incomplete type").
     is_some_type(ft) => match(
       ft,
-      .SomeT({ id : w_sid, resolution : wrc }) => match(
-        wrc,
+      .SomeT({ id : _ }) => match(
+        some_resolution(ft),
+        // `some_resolution` reads the per-object resolution, then the global
+        // registry exactly like get_type_string's SomeT arm (utils/index.yo):
+        // a closure-param capture field (Impl(Fn) SomeT) is registered there
+        // at closure creation, so without it the emitter prints the capture
+        // struct while the dep walk adds no edge → "field has incomplete
+        // type" when a capture struct embeds another closure's capture struct
+        // by value.
         .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
-        // No per-object resolution: fall back to the GLOBAL registry, exactly
-        // like get_type_string's SomeT arm (utils/index.yo) — a closure-param
-        // capture field (Impl(Fn) SomeT) is registered there
-        // (register_some_resolved_concrete at closure creation), so without
-        // this fallback the emitter prints the capture struct while the dep
-        // walk adds no edge → "field has incomplete type" when a capture
-        // struct embeds another closure's capture struct by value.
-        .None => match(
-          lookup_some_resolved_concrete(w_sid),
-          .Some(grct) => recur(deps_set, grct, self_type_id, guard_nullable, cname_to_typeid, context),
-          .None => ()
-        )
+        .None => ()
       ),
       _ => ()
     ),

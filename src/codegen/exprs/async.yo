@@ -47,21 +47,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid } :: import("../../function_value.yo");
-{
-  ExprInfo,
-  lookup_some_resolved_concrete,
-  register_some_resolved_concrete,
-  expr_info_table_set,
-  lookup_macro_expansion,
-  expr_info_closure_function_value,
-  expr_info_async_state_machine_struct_name,
-  expr_info_set_async_state_machine_struct_name,
-  expr_info_capture_type,
-  expr_info_deferred_dup_expressions,
-  expr_info_early_return_only_deferred_drop_expressions,
-  expr_info_set_deferred_dup_expressions,
-  expr_info_set_early_return_only_deferred_drop_expressions
-} :: import("../../expr_info.yo");
+{ ExprInfo, lookup_some_resolved_concrete, register_some_resolved_concrete, expr_info_table_set, lookup_macro_expansion, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, expr_info_set_deferred_dup_expressions, expr_info_set_early_return_only_deferred_drop_expressions, some_resolution } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -508,11 +494,7 @@ _await_result_is_unit :: (fn(result_type : TypeValue) -> bool)({
   if(is_unit_type(result_type), return(true));
   if(!(is_some_type(result_type)), return(false));
   // Unresolved SomeType (no resolved concrete type) ⇒ treat as unit.
-  match(
-    result_type,
-    .SomeT({ id : sid }) => match(lookup_some_resolved_concrete(sid), .Some(_) => false, .None => true),
-    _ => false
-  )
+  some_resolution(result_type).is_none()
 });
 /// Find the C name of the capture struct for `capture_type`: the registered
 /// type-entry c_name if present, else `async_capture_<id>`.
@@ -2028,9 +2010,8 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
-                bsid := match(bt, .SomeT({ id : i }) => i, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(bsid),
+                  some_resolution(bt),
                   .Some(r) => {
                     result_type = r;
                   },
@@ -2622,9 +2603,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
-                bsid := match(bt, .SomeT({ id : i }) => i, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(bsid),
+                  some_resolution(bt),
                   .Some(r) => {
                     result_type = r;
                   },

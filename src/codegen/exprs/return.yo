@@ -12,7 +12,7 @@
 { Token } :: import("../../token.yo");
 { Variable, Environment, get_variables_from_env, variable_undone_moves } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ lookup_some_resolved_concrete, expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -810,8 +810,8 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               }, {
                 match(
                   at,
-                  .SomeT({ id : aid_t }) => match(
-                    lookup_some_resolved_concrete(aid_t),
+                  .SomeT({ id : _ }) => match(
+                    some_resolution(at),
                     .Some(act) => {
                       sm_output_rt = Option(String).Some(get_type_string(act, context.base));
                     },

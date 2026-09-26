@@ -16,7 +16,7 @@
 { is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete, some_resolution } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { arm_value_with_dups } :: import("../exprs/drop_dup.yo");
@@ -1340,7 +1340,7 @@ generate_state_segment_code :: (
       // renders "", and both emit paths below skip empty code.
       hp_is_unit := (
         is_unit_type(hp.result_type) || (
-          is_some_type(hp.result_type) && match(hp.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+          is_some_type(hp.result_type) && some_resolution(hp.result_type).is_none()
         )
       );
       if(!(hp_is_unit), {

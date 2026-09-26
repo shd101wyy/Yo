@@ -1511,9 +1511,10 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
   )
 );
 /// Freshen an io.async call's result type PER CALL SITE: rebuild the wrapper
-/// `Impl(Future(T, E))` SomeT AND the FutureTraitT OUTPUT `T` SomeT with
-/// fresh ids and no resolution, so per-call resolutions
-/// stay per-call-isolated. Previously the output id was
+/// `Impl(Future(T, E))` SomeT with a fresh id and no resolution, so per-call
+/// resolutions stay per-call-isolated. The OUTPUT `T` inside it is already
+/// fresh per call: `_freshen_io_builtin_callee` substitutes new binders
+/// through the whole callee before the call. Previously the output id was
 /// preserved across calls and awaits resolved through the GLOBAL registry keyed on it —
 /// the first call's resolution then poisoned every sibling io.async call
 /// (def-eval re-runs saw a wrong CONCRETE expected result — "expected unit,
@@ -1542,14 +1543,6 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
   )
 );
 
-/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + no
-/// resolution and substitute it CONSISTENTLY through the callee's param
-/// AND return types. This closes the per-call lineage end-to-end: the action
-/// param's `T` the closure registers IS the future output's `T` the await
-/// reads, and a sibling call — e.g. command.yo's declared
-/// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
-/// shared declaration ids (the `Output*`-prototype class,
-/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
 /// Whether a call's result, resolved through the call's env
 /// (`_resolve_some_types_deep`), replaces the result the call computed. A
 /// concrete resolution always does. A wrapper (`Impl(Future(Option(U), Io))`)
@@ -1565,6 +1558,14 @@ _adopt_deep_resolution :: (fn(original : TypeValue, resolved : TypeValue) -> boo
     true => (collect_wrapper_trait_somes(resolved).len() < collect_wrapper_trait_somes(original).len())
   )
 );
+/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + no
+/// resolution and substitute it CONSISTENTLY through the callee's param
+/// AND return types. This closes the per-call lineage end-to-end: the action
+/// param's `T` the closure registers IS the future output's `T` the await
+/// reads, and a sibling call — e.g. command.yo's declared
+/// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
+/// shared declaration ids (the `Output*`-prototype class,
+/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
 _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
   match(
     ft,
