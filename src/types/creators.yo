@@ -329,8 +329,8 @@ t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
 /// field. A call binds THESE clones into its callee env — the shared
 /// signature's SomeT objects stay pristine forever, so stored values
 /// (registry entries, captured types, memoized instances) can never observe
-/// another call's resolutions, and the global g_some_resolved_concrete
-/// table (keyed by id) is never contended between calls. Same name and
+/// another call's resolutions, and no id-keyed global is contended between
+/// calls (the retired `g_some_resolved_concrete` hazard). Same name and
 /// frame_level, so the callee body's (name, level) resolution is
 /// unchanged. Non-SomeT input returns unchanged.
 clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(

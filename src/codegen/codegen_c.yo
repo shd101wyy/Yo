@@ -11,9 +11,9 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
+{ ExprInfoTable } :: import("../expr_info.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type } :: import("../types/guards.yo");
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
@@ -297,10 +297,6 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_sm_atom_resolver(_generate_sm_atom);
   // Register the FSM await/cond/match/while emitter indirections.
   register_fsm_emitters_impl();
-  // Inject the resolved-concrete lookup into the low-level type guards so
-  // is_function_type_hard_generic can exclude SomeType params that resolved to a
-  // concrete type.
-  set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
   // The entry module's path decides which top-level exports get plain,

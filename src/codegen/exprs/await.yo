@@ -28,7 +28,7 @@
 } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
-{ lookup_some_resolved_concrete, some_resolution } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
   extract_future_trait_from_type,
@@ -425,7 +425,6 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   // "" as unit while the binding knew i32.)
   (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
-    rsid := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
     own_cell := match(result_type, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
     cond(
       !is_some_type(expr_type) => {
@@ -433,20 +432,11 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       },
       true => {
         expr_cell := match(expr_type, .SomeT({ resolution : erc }) => erc, _ => Option(TypeValue).None);
-        esid := match(expr_type, .SomeT({ id : i }) => i, _ => String.from(""));
         match(
           match(
             expr_cell,
             .Some(ec) => Option(TypeValue).Some(ec),
-            .None => match(
-              own_cell,
-              .Some(oc) => Option(TypeValue).Some(oc),
-              .None => match(
-                lookup_some_resolved_concrete(rsid),
-                .Some(rg) => Option(TypeValue).Some(rg),
-                .None => lookup_some_resolved_concrete(esid)
-              )
-            )
+            .None => own_cell
           ),
           .Some(rt) => {
             result_type = rt;

@@ -134,7 +134,7 @@ pragma(Pragma.AllowUnsafe);
   type_head_name_for_impl_forcing,
   call_function_value_marker
 } :: import("../context.yo");
-{ PathCollection, path_collection_new, ExprInfo, new_expr_info, expr_info_table_get, expr_info_set_converted_runtime_type, register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete, adopt_receiver_struct_instance, push_active_where_trait_ids, pop_active_where_trait_ids, expr_info_adopt_env, expr_info_capture_type, expr_info_set_deferred_dup_expressions, has_any_control_flow, some_resolution } :: import("../../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfo, new_expr_info, expr_info_table_get, expr_info_set_converted_runtime_type, adopt_receiver_struct_instance, push_active_where_trait_ids, pop_active_where_trait_ids, expr_info_adopt_env, expr_info_capture_type, expr_info_set_deferred_dup_expressions, has_any_control_flow, some_resolution } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
   SynthesizeResult,
@@ -3213,14 +3213,14 @@ create_specialized_function_inline :: (
                 cap_ty_fixed,
                 // A still-ABSTRACT cap_ty (a SomeT — the forwarded-param
                 // mint where no concrete capture is determinable) must NOT
-                // rebuild or register: `register_some_resolved_concrete(id,
-                // SomeT(id))` created a SELF-LOOP entry, and SomeT→SomeT
-                // chains poisoned every later render of the shared declared
-                // id (the def-era spec's param flipping void*→concrete
-                // depending on registration order — the stage-2 dyn-capture
-                // cluster). Bind the declared type instead; the resolved-era
-                // mints (arg resolves to the concrete capture via
-                // _spec_resolve_arg_ty) rebuild as before.
+                // rebuild: a self-resolution (SomeT(id) resolving to itself)
+                // is a self-loop, and SomeT→SomeT chains poisoned every
+                // later render of the shared declared id (the def-era spec's
+                // param flipping void*→concrete depending on registration
+                // order — the stage-2 dyn-capture cluster). Bind the declared
+                // type instead; the resolved-era mints (arg resolves to the
+                // concrete capture via _spec_resolve_arg_ty) rebuild as
+                // before.
                 .Some(cap_ty) => if(!(is_some_type(cap_ty)), {
                   fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
                   match(
@@ -5670,7 +5670,7 @@ try_to_call_function_with_arguments :: (
   // Normalize a closure-trait callee type (`Impl(Fn(...))` SomeT or a bare
   // FnTraitT) to its Func signature so the `.Func` arm below types the call.
   // A specialized closure param `cb` is bound to its declared SomeT(Impl(Fn))
-  // (callable + codegen-resolvable via g_some_resolved_concrete); calling it
+  // (callable + codegen-resolvable via its per-spec resolution); calling it
   // (`cb(x)`) lands here with that SomeT — without this it would miss the
   // `.Func` arm and the call would not be typed (no ExprInfo → codegen
   // "Failed to transpile"). Real Func callees pass through unchanged.
@@ -6328,32 +6328,6 @@ try_to_call_function_with_arguments :: (
           false,
           synthetic_token(flabel, callee_env.module_path)
         );
-        // This call now OWNS `flabel`: drop any resolution a PREVIOUS call left
-        // for the same signature SomeT in the durable id registry. The one
-        // signature instance is reused across calls, and
-        // `_resolve_some_types_deep`'s registry fallback
-        // then silently pre-resolved the NEXT call's `Impl(Fn() -> B)` parameter
-        // to `Impl(Fn() -> i32)`. That flipped the closure onto the take-on path,
-        // which skips the Step-5.5 body-type substitution that binds `B` — so the
-        // second `map_or_else` in a batch main returned `unit`
-        // (tests/option_result_combinators arms 17+18; either arm alone was fine).
-        {
-          (fv_clear_i : usize) = usize(0);
-          while(fv_clear_i < sig_some_types.len(), {
-            match(
-              sig_some_types.get(fv_clear_i),
-              .Some(fv_cst) => match(
-                fv_cst,
-                .SomeT({ id : fv_cid, name : fv_cnm }) => if(fv_cnm == flabel, {
-                  unregister_some_resolved_concrete(fv_cid.clone());
-                }),
-                _ => ()
-              ),
-              .None => ()
-            );
-            fv_clear_i = (fv_clear_i + usize(1));
-          });
-        };
         fpi = (fpi + usize(1));
       });
       // ----------------------------------------------------------------
@@ -7264,13 +7238,11 @@ try_to_call_function_with_arguments :: (
                     v,
                     .TypeVal(v_tb) => match(
                       v_tb,
-                      .SomeT({ id : ex_sid, resolution : ex_cell, required_trait_types : ex_rtt }) => {
+                      .SomeT({ resolution : ex_cell, required_trait_types : ex_rtt }) => {
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
                         if(ex_cell.is_some(), {
                           ex_res = ex_cell;
                           wb_from_cell = true;
-                        }, {
-                          ex_res = lookup_some_resolved_concrete(ex_sid);
                         });
                         // The write-back is gated on the type variable carrying
                         // NO trait constraints — a constrained

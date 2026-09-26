@@ -6,7 +6,7 @@
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_some_resolved_concrete, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 { type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -57,8 +57,8 @@ check_variable_is_closure_captured :: (
   )
 });
 /// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
-/// (or no resolution / a self-cycle). The resolved concrete is read via the
-/// `lookup_some_resolved_concrete` side-table (no `.resolvedConcreteType` field).
+/// (or no resolution / a self-cycle). The resolved concrete is the value's
+/// own `SomeT.resolution` (`some_resolution`, expr_info.yo).
 resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t;
   (go : bool) = true;
