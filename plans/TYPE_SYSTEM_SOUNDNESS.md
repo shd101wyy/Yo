@@ -498,6 +498,10 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
      carve-out that read it are deleted. The variant implements `Runtime`, `Send` and `Acyclic` and not
      `Comptime` or `Rc`, and takes one coercion: a C scalar initializes it by value in flow, as C
      does (`atomic_bool` is built as `Self(false)`).
+     Its reverse-direction canary found
+     `issues/the-flow-relation-is-called-with-its-arguments-reversed.md`: the directional relation
+     is called as (expected, actual) at the argument, binding and reassignment checks, so a `Dyn`
+     downcast by reassignment passes `check`. Next in this phase.
 
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule

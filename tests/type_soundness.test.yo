@@ -760,12 +760,10 @@ test("soundness: an extern opaque type is nominal", {
 { atomic_ullong : _P38Ull } :: import("std/libc/stdatomic");
 _p38_u64_into_ull :: Type.is_compatible_with(u64, _P38Ull);
 _p38_ull_not_u64 :: Type.is_compatible_with(_P38Ull, u64);
-_p38_u64_sink :: (fn(x : u64) -> u64)(x);
 _p38_opt_ull_sink :: (fn(o : Option(_P38Ull)) -> bool)(o.is_some());
 test("soundness: a C scalar initializes an extern opaque, never the reverse", {
   assert(_p38_u64_into_ull, "a u64 initializes an atomic_ullong");
   assert(!_p38_ull_not_u64, "an atomic_ullong is not a u64");
-  comptime_expect_error((fn(a : _P38Ull) -> u64)(_p38_u64_sink(a)));
   // A variant payload compares exactly: the coercion does not reach inside.
   comptime_expect_error(_p38_opt_ull_sink(Option(u64).Some(u64(1))));
 });

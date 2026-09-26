@@ -1,0 +1,29 @@
+// Repro — `are_types_compatible(actual, expected)` is directional, and the
+// reassignment check calls it as (variable type, rhs type): reversed. A
+// `Dyn(A)` then "flows" into a `Dyn(A, Bt)` variable (the trait-set subset
+// rule, read backwards, is a downcast), the variable's type silently becomes
+// `dyn(A)`, and only the C compiler notices:
+//
+//   yo compile issues/repros/the-flow-relation-is-called-with-its-arguments-reversed.yo --optimize 2 -o /tmp/x
+//   error: assigning to '__yo_t_…' from incompatible type '__yo_t_…'
+//
+// Expected: E0601 at `both = one;`.
+//
+// See issues/the-flow-relation-is-called-with-its-arguments-reversed.md
+{ println } :: import("std/fmt");
+A :: trait(a : (fn(self : Self) -> i32));
+Bt :: trait(b : (fn(self : Self) -> i32));
+S :: struct(n : i32);
+impl(S, A(a : (self -> self.n)));
+impl(S, Bt(b : (self -> (self.n + i32(1)))));
+T :: struct(n : i32);
+impl(T, A(a : (self -> self.n)));
+main :: (fn() -> unit)({
+  (both : Dyn(A, Bt)) = dyn(S(n : i32(1)));
+  (one : Dyn(A)) = dyn(T(n : i32(5)));
+  both = one;
+  println(both.a().to_string());
+  f := (fn(x : Dyn(A, Bt)) -> i32)(x.b());
+  println(f(both).to_string());
+});
+export(main);

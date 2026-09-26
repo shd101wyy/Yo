@@ -203,9 +203,23 @@ What remained was the representation itself, and it is gone:
   integer type), in flow only, which is C value-initialization: std's
   `atomic_bool` wrapper builds its cell as `Self(false)`. Pointers stay exact.
 
-Gate: `tests/type_soundness.test.yo`, "soundness: an extern opaque type is
-nominal" (`Type.eq(FILE, FILE)`, `FILE` is not `fpos_t`, neither direction of
-`Dyn(ToString)` against `FILE` is compatible). Before the change both `Dyn`
-assertions failed: the rule was an extern carve-out on a `SomeT`, and
-`Type.is_compatible_with` reached the vacuous `Dyn`/`SomeT` rule through the
-comptime path that did not consult the table.
+Gates in `tests/type_soundness.test.yo`:
+
+- "soundness: an extern opaque type is nominal": `Type.eq(FILE, FILE)`, `FILE`
+  is not `fpos_t`, and `Dyn(ToString)` and `FILE` do not flow into each other.
+  On v0.2.43 `Type.is_compatible_with(Dyn(ToString), FILE)` was `true` (the
+  other three already held): the carve-out guarded the rules the pointer case
+  reached, not every path into the vacuous `Dyn`/`SomeT` rule.
+- "soundness: a C scalar initializes an extern opaque, never the reverse":
+  `u64` flows into `atomic_ullong` and not back, and the coercion does not
+  reach inside a variant payload (`Option(u64)` is not an
+  `Option(atomic_ullong)`). The synthesizer, which is where a runtime argument
+  meets its parameter, accepts only scalar-into-extern, in the direction the
+  call site names (`SynthesizeOptions.expected_is_source`: a return type
+  against the caller's expected type is (source, destination), a parameter
+  against its argument the reverse).
+
+Writing the reverse-direction canary at a call site found
+`issues/the-flow-relation-is-called-with-its-arguments-reversed.md`: v0.2.43
+accepts an `atomic_ullong` for a `u64` parameter, and so does this change,
+because the argument check calls the relation as (parameter, argument).
