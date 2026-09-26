@@ -538,7 +538,10 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
     .None => _do_chain_resolve(env, start, visited_ids)
   );
   if(debug_knob(`YO_DBG_CHAIN`).is_some() && !is_some_type(__dbg_r), {
-    eprintln(`[__DBG_CHAIN] ${_some_name(start)} id=${_some_id(start)} fl=${match(_some_frame_level(start), .Some(l) => l.to_string(), .None => String.from("?"))} fast=${fast_result.is_some().to_string()} -> ${type_to_string(__dbg_r)} module=${env.module_path}`);
+    __dbg_vars := get_variables_from_env(env, _some_name(start));
+    __dbg_last := match(__dbg_vars.get(__dbg_vars.len() - usize(1)), .Some(lv) => `lastfl=${lv.frame_level.to_string()} lastid=${variable_bound_some_id(lv)} lasttok=${lv.token.module_path}:${lv.token.row.to_string()}`, .None => String.from("none"));
+    __dbg_rec := _binding_recorded_for(__dbg_vars, _some_id(start), TypeValue.Unit);
+    eprintln(`[__DBG_CHAIN] ${_some_name(start)} id=${_some_id(start)} fl=${match(_some_frame_level(start), .Some(l) => l.to_string(), .None => String.from("?"))} fast=${fast_result.is_some().to_string()} -> ${type_to_string(__dbg_r)} frames=${env.frames.len().to_string()} nvars=${__dbg_vars.len().to_string()} ${__dbg_last} rec=${type_to_string(__dbg_rec)} selfb=${_was_self_bound(env, _some_name(start), _some_id(start)).to_string()}`);
   });
   __dbg_r
 });
