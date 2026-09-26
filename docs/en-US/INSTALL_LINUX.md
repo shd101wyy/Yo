@@ -10,18 +10,18 @@ for troubleshooting. -->
 > setting the toolchain up by hand, or diagnosing a failed install.
 
 
-Install **Clang** (recommended), **liburing** (for async I/O), and **pkg-config** (for system library discovery):
+Install **Clang** (recommended) and **pkg-config** (for system library discovery). Async I/O needs no extra library: the runtime speaks io_uring directly through a ring layer vendored into the emitted C, and needs only a Linux kernel of 5.6 or newer:
 
 ```bash
 # Ubuntu/Debian
 $ sudo apt-get update
-$ sudo apt-get install clang liburing-dev pkg-config
+$ sudo apt-get install clang pkg-config
 
 # Fedora/RHEL
-$ sudo dnf install clang liburing-devel pkgconf-pkg-config
+$ sudo dnf install clang pkgconf-pkg-config
 
 # Arch Linux
-$ sudo pacman -S clang liburing pkgconf
+$ sudo pacman -S clang pkgconf
 ```
 
 You can also use `gcc` or `zig` instead of `clang` by passing `--cc gcc` or `--cc zig`.

@@ -6,7 +6,7 @@ Yo integrates platform-native async I/O APIs with the single-threaded async/awai
 
 | Platform    | Backend  | Status      | Description                                                                                    |
 | ----------- | -------- | ----------- | ---------------------------------------------------------------------------------------------- |
-| **Linux**   | io_uring | ✅ Complete | True async I/O with kernel-performed operations (kernel 5.1+)                                  |
+| **Linux**   | io_uring | ✅ Complete | True async I/O with kernel-performed operations (kernel 5.6+; ring layer vendored, no library) |
 | **macOS**   | kqueue   | ✅ Complete | kqueue event loop with non-blocking I/O for sockets/pipes, sync pread/pwrite for regular files |
 | **Windows** | IOCP     | ✅ Complete | I/O Completion Ports with overlapped I/O                                                       |
 | **FreeBSD** | kqueue   | 🔜 Planned  | Event notification + non-blocking I/O                                                          |
@@ -288,28 +288,15 @@ io_uring is Linux's modern async I/O interface (kernel 5.1+):
 - **Batching**: Multiple I/O operations per syscall
 - **True async**: Kernel performs I/O, not just notification
 
-**liburing dependency**: Yo uses liburing (a thin ~5KB wrapper maintained by Jens Axboe) rather than raw io_uring syscalls. Install it via your package manager:
-
-```bash
-# Arch Linux / Manjaro
-sudo pacman -S liburing
-
-# Ubuntu / Debian
-sudo apt-get install liburing-dev
-
-# Fedora / RHEL
-sudo dnf install liburing-devel
-```
-
-The Yo compiler detects liburing via `pkg-config liburing --cflags --libs`. Link with `-luring` when using async I/O on Linux.
+**No library dependency**: the ring layer (setup/mmap, submission, completion, the SQE prep helpers) is vendored into the emitted C under the `__yo_uring_*` namespace (`plans/DROP_LIBURING.md`). A compiled program links against libc only — nothing to install, and the kernel, not the build box, decides whether io_uring exists.
 
 **Kernel version requirements:**
 
-| Kernel Version | Features                              |
-| -------------- | ------------------------------------- |
-| **5.1+**       | Basic io_uring (read, write, fsync)   |
-| **5.6+**       | Registered buffers, linked operations |
-| **5.11+**      | Better performance, more operations   |
+| Kernel Version | Features                                                     |
+| -------------- | ------------------------------------------------------------ |
+| **5.6+**       | The operation set this runtime submits (openat/close/name ops) |
+| **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` setup flags — requested together, retried without flags when the kernel refuses |
+| **6.14+**      | Async `ftruncate` (older kernels answer `-EINVAL` through the future) |
 
 ### macOS: kqueue
 
@@ -376,7 +363,7 @@ case STATE_AWAIT_READ:
 | Resource                     | Cost                            |
 | ---------------------------- | ------------------------------- |
 | State machines               | 10,000 × ~200 bytes = **~2 MB** |
-| io_uring SQEs (ring, reused) | 256 × 64 bytes = **16 KB**      |
+| io_uring SQEs (ring, reused) | 1024 × 64 bytes = **64 KB**     |
 | **Total**                    | **~2 MB**                       |
 
 Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌

@@ -587,7 +587,7 @@ static _Thread_local size_t __yo_pending_io_count = 0;
 static _Thread_local size_t __yo_active_watch_count = 0;
 
 // Per-thread I/O backend (Linux example)
-static _Thread_local struct io_uring __yo_io_ring;
+static _Thread_local struct __yo_uring __yo_io_ring;
 ```
 
 This means:
@@ -626,7 +626,7 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 
 | Platform | Backend                                         | File                    |
 | -------- | ----------------------------------------------- | ----------------------- |
-| Linux    | `io_uring` (via liburing)                       | `src/codegen/async/runtime_io_linux.yo`   |
+| Linux    | `io_uring` (vendored ring layer)                | `src/codegen/async/runtime_io_linux.yo`   |
 | macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `src/codegen/async/runtime_io_macos.yo`   |
 | Windows  | I/O Completion Ports (IOCP)                     | `src/codegen/async/runtime_io_windows.yo` |
 | WASM     | POSIX I/O (NODERAWFS) + timer queue             | `src/codegen/async/runtime_io_wasm.yo`    |
