@@ -2058,7 +2058,18 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
 _reeval_closure_body_swallow :: (
   fn(body : AstExpr, benv : Environment, ctx : EvalContext) -> unit
 )({
-  rcb_exn := Exception(throw : ((_rcb_e) -> unwind(())));
+  // YO_DEBUG_SWALLOW=1 prints `[reeval-swallow] <err>` (Phase 6 census: this
+  // swallow runs with the closure's parameter types already substituted).
+  rcb_exn := Exception(
+    throw : (
+      (_rcb_e) -> {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[reeval-swallow] ${_rcb_e.to_string()}`);
+        });
+        unwind(())
+      }
+    )
+  );
   rcb_out := evaluate_expression_raw(wrap_body_in_begin(body), benv, ctx, rcb_exn);
   rcb_out;
 });
