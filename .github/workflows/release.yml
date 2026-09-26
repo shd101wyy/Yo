@@ -393,19 +393,12 @@ jobs:
       # bun/node in this step. Verified byte-identical to the TS original
       # (160 files, homepage md5 equal) before the swap.
       # The seed is a dynamically linked Linux binary and the async runtime
-      # links liburing, so it cannot even START without it — `yo: error while
-      # loading shared libraries: liburing.so.2`. Every other Linux job in this
+      # (Historical: the bundle used to die here with `error while
+      # loading shared libraries: liburing.so.2`.) Every other Linux job in this
       # file installs it; this job did not, because until the docs site moved
       # off bun (#151) it never RAN a Yo compiler. That is what failed v0.2.10:
       # exit 127 at the site build, AFTER the version bump had been committed
       # and the extension published.
-      - name: Install liburing
-        run: |
-          # Drop the runner image's third-party apt sources first — see APT_OPTS.
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
         with:
@@ -446,7 +439,7 @@ jobs:
   # <name>/.github/skills, <name>/pack, <name>/LICENSE.md (init templates are
   # generated inline by the binary — nothing else to ship).
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
-  # std/. The Linux bundle is glibc + liburing dynamic for now — the
+  # std/. The Linux bundle is glibc-dynamic for now — the
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
   # The portable-C artifacts: ONE .c.gz per platform (per-target split), with
   # the merged assembly kept as a publish gate only.
@@ -565,18 +558,18 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
-      # The SEED runs on this Linux host, so it needs liburing itself even
-      # though the EMITTED C targets macOS (kqueue backend, no liburing).
+      # OpenSSL dev: std/http in the compiler closure puts OpenSSL headers
+      # into stage1.c.
       # OpenSSL dev + pkg-config because the candidate this job builds below
       # compiles the tree WITH std/http in its closure (D6 PR-3) — its
       # compiler-driven clang resolves OpenSSL via pkg-config (_probe_openssl,
       # src/main.yo, with the Homebrew-keg fallbacks for local runs).
-      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -998,18 +991,6 @@ jobs:
           ref: ${{ needs.release.outputs.sha }}
           submodules: recursive
 
-      # The SEED needs liburing to RUN even though this job only uses it to
-      # emit C — the published Linux bundle is dynamically linked against
-      # liburing.so.2, so without this the seed dies with exit 127 before
-      # doing any work (same note as test.yml's musl leg, which proved this
-      # exact seed-driven pipeline in PR CI).
-      - name: Install liburing (needed to run the seed)
-        run: |
-          # Drop the runner image's third-party apt sources first — see APT_OPTS.
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -1046,24 +1027,15 @@ jobs:
             --std-path ./std --emit-c --skip-c-compiler -o yo-g1 > /dev/null
           ls -la yo-g1.c
 
-      - name: "C -> static stage-1 binary, inside Alpine (musl + static liburing)"
+      - name: "C -> static stage-1 binary, inside Alpine (musl)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            # NOT liburing-static: Alpine has no such package. Debian splits
-            # static libs into a -static package; Alpine ships liburing.a
-            # inside liburing-dev. Assert it rather than discovering its
-            # absence as a link error 140 MB into the compile.
-            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
-            test -f /usr/lib/liburing.a || {
-              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
-              exit 1
-            }
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
             # emitted C. Alpine splits the archives out of openssl-dev (headers +
             # .so) into openssl-libs-static — without it the assert below fires
             # (the PR 364 first run hit this). Static here means the artifact
             # needs NO openssl on the machine of whoever runs it. Same
-            # assert-the-.a stance as liburing above. No apostrophes in here:
+            # assert-the-.a stance. No apostrophes in here:
             # the whole script is single-quoted for docker sh -euc, and one
             # broke the quoting on the test.yml twin of this block.
             test -f /usr/lib/libssl.a || {
@@ -1094,14 +1066,10 @@ jobs:
             --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
-      - name: "C -> static SHIPPED binary, inside Alpine (musl + static liburing)"
+      - name: "C -> static SHIPPED binary, inside Alpine (musl)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
-            test -f /usr/lib/liburing.a || {
-              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
-              exit 1
-            }
+            apk add --no-cache build-base linux-headers openssl-dev openssl-libs-static
             test -f /usr/lib/libssl.a || {
               echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
               exit 1
@@ -1182,9 +1150,9 @@ jobs:
 
       # Smoked ON Alpine, because Alpine is the entire point of this bundle —
       # a glibc smoke would prove nothing it does not already know. The
-      # container gets build-base + liburing-dev because that is what a real
-      # Alpine user compiling Yo programs has; the BUNDLE itself is static and
-      # needs neither.
+      # container gets build-base because that is what a real Alpine user
+      # compiling Yo programs has; the BUNDLE itself is static and needs
+      # neither.
       #
       # seccomp=unconfined is REQUIRED, not a convenience: Docker's default
       # profile blocks io_uring_setup, so it fails exactly the binaries that
@@ -1195,7 +1163,7 @@ jobs:
           printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
           docker run --rm --security-opt seccomp=unconfined \
             -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
-              apk add --no-cache build-base liburing-dev
+              apk add --no-cache build-base
               YO=/w/$BUNDLE/bin/yo
               YO_STD=/w/$BUNDLE/std $YO compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
               cat compile.err
@@ -1205,10 +1173,6 @@ jobs:
               # it. v0.2.0 and v0.2.1 both shipped that.
               if grep -q "mimalloc: error" compile.err; then
                 echo "::error::the bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle"
-                exit 1
-              fi
-              if grep -q "liburing not available" compile.err; then
-                echo "::error::async I/O was compiled OUT — this binary cannot read source files"
                 exit 1
               fi
               if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi

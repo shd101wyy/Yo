@@ -64,7 +64,6 @@ directive " * the preprocessor selects the one matching your machine."
 directive " *"
 directive " * Build (Linux/macOS):"
 directive " *   cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 yo.c -o yo -lpthread -lm"
-directive " * On Linux, install liburing headers first or async I/O is unavailable."
 directive " */"
 
 directive "#if defined(_WIN32)"
