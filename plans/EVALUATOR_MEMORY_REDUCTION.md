@@ -1774,7 +1774,10 @@ each with an `issues/fixed/` doc and a test that fails first:
 
 Stage-2 A/B on the same base (3eec8bd22), three interleaved pairs:
 `check src/main.yo` **1,228 → 1,086 MB peak footprint (≈ −142 MB, −11.5 %)** and
-**108.3 → 102.5 s wall (−5.4 %)**. Census retained 1,086 → 970 MB.
+**108.3 → 102.5 s wall (−5.4 %)**. Census retained 1,086 → 970 MB. On Linux (the
+CI ratchets, re-baselined): `check src/main.yo` max RSS **1,381,732 → 1,191,996 kB
+(−13.7 %)**, and the whole compiler build under the 8 GB cgroup **4,062,412 →
+3,527,328 kB** (3.87 → 3.36 GiB).
 
 ## 6. Gates (every phase)
 

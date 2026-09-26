@@ -25,8 +25,8 @@ to-do list.
 - **Memory ratchets fail both ways at ±10 %** (`scripts/bootstrap/memory-ratchet.tsv`;
   CI jobs "Evaluator memory ratchet" and "Compiler build inside 8 GB"). A win
   turns CI red: open the PR, read the measured kB from those two job logs, and
-  lower the baselines in the same PR. Baselines at hand-off are
-  `check_src_main_max_rss_kb 1381732` and `compile_src_main_peak_kb 4062412`.
+  lower the baselines in the same PR. Baselines at hand-off (after Phase 3) are
+  `check_src_main_max_rss_kb 1191996` and `compile_src_main_peak_kb 3527328`.
 - **Measuring on macOS:** footprint noise is about ±180 MB for the same binary.
   - Use interleaved pairs (three or more) on a quiet machine (no suite or build running).
   - Build the baseline from the exact merge-base, with the same builder.
@@ -105,6 +105,8 @@ built by their own tree (`fixpoint_only.sh`), measured with three interleaved
 | wall | 108.3 / 108.4 / 108.2 s | **102.5 / 102.4 / 102.5 s** (−5.4 %) |
 | census retained at exit | 1,086 MB | 970 MB |
 | `LEAK` group | 2.24 M objects / 249 MB | 2.24 M objects / 209 MB (the same population, smaller objects) |
+| Linux CI `check` max RSS | 1,381,732 kB | **1,191,996 kB** (−13.7 %) |
+| Linux CI whole build (8 GB cgroup) | 4,062,412 kB | **3,527,328 kB** (3.87 → 3.36 GiB) |
 
 Also on the branch: `FIXPOINT_HOLDS`, and the targeted tests pass
 (`match_catch_all` 8/8, `match_async_arms` 6/6, `match_curly` 11/11). The rest of
