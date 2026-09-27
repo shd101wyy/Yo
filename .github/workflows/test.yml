@@ -1522,6 +1522,42 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  io-budgets:
+    # DROP_LIBURING Phase 6 (G3): the deterministic syscall/behavior budgets
+    # — counts, not clocks, so a shared runner can enforce them. Echo
+    # linearity, timer linearity, and the anti-spin rule (a blocked loop
+    # accrues almost no kernel entries) under BOTH backends.
+    # NOTE: add to branch protection's required checks by hand (manual list).
+    name: I/O budgets (G3, both backends)
+    needs: [changes, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Make the candidate executable
+        run: chmod +x yo-stage1
+      # The stage-1 binary was emitted by the SEED, whose runtime still links
+      # liburing.so.2 (the seed-lag table, plans/DROP_LIBURING.md 5). This
+      # job only RUNS it, so the runtime package is enough — and this whole
+      # step disappears with Phase 4 once SEED_VERSION passes the first
+      # Phase-1-built release.
+      - name: Install liburing runtime (for the seed-built stage 1)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing2
+      - name: Run the I/O budgets (uring + epoll)
+        run: |
+          YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/io-budget-check.sh
+
   docker-seccomp-epoll:
     # DROP_LIBURING Phase 5 acceptance leg: Docker's default seccomp profile
     # blocks io_uring_setup (ENOSYS), so an async program run in a stock

@@ -1,0 +1,102 @@
+//! io_budget — the deterministic syscall/behavior budgets of
+//! plans/DROP_LIBURING.md Phase 6 (G3): counts, not clocks, so a shared CI
+//! runner can enforce them. Run via scripts/io-budget-check.sh (which also
+//! drives it under both backends). Exits non-zero on any violation.
+pragma(Pragma.AllowUnsafe);
+extern(
+  "Yo",
+  __yo_io_stats_kernel_enters : (fn() -> u64),
+  __yo_io_stats_zero_timeout_enters : (fn() -> u64)
+);
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ socketpair } :: import("std/sys/socketpair");
+tcp :: import("std/sys/tcp");
+{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+{ __yo_async_send_start, __yo_async_recv_start, __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl } :: import("std/sys/externs");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+{ sleep } :: import("std/sys/timer");
+{ panic } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+
+N_ECHO :: usize(200);
+N_TIMERS :: usize(50);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (_e -> unwind(())));
+
+  // --- Budget A: an N-round echo ping-pong is LINEAR in the kernel enters
+  // (no syscall storms, batching preserved). Measured constants: the ring
+  // completes each op through its CQE at 2 enters/op (submit + reap probe);
+  // the epoll fallback completes this inline pattern without entering the
+  // kernel at all. 10N + 64 bounds both with headroom while still catching
+  // any per-op storm (a spin or re-submit loop blows past it by 10x+).
+  sv := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) != i32(0), {
+    panic(String.from("socketpair failed"));
+  });
+  fd_a := (sv.add(usize(0))).*;
+  fd_b := (sv.add(usize(1))).*;
+  __yo_sync_fcntl_setfl(fd_a, __yo_sync_fcntl_getfl(fd_a) | i32(0x800));
+  __yo_sync_fcntl_setfl(fd_b, __yo_sync_fcntl_getfl(fd_b) | i32(0x800));
+  buf := (*u8)(malloc(usize(64)).unwrap());
+  before := __yo_io_stats_kernel_enters();
+  i := usize(0);
+  while(i < N_ECHO, {
+    io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_b, buf, usize(64), i32(0)), io);
+    io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
+    io.await(__yo_async_recv_start(fd_a, buf, usize(64), i32(0)), io);
+    i = (i + usize(1));
+  });
+  a_delta := (__yo_io_stats_kernel_enters() - before);
+  budget_a := ((u64(N_ECHO) * u64(10)) + u64(64));
+  println(`budget A (echo ${N_ECHO} rounds): kernel_enters=${a_delta} <= ${budget_a}`);
+  if(a_delta > budget_a, {
+    panic(String.from("BUDGET A VIOLATED"));
+  });
+  io.await(tcp.close(fd_a), io);
+  io.await(tcp.close(fd_b), io);
+
+  // --- Budget B: N timer ticks are LINEAR in the kernel enters.
+  before = __yo_io_stats_kernel_enters();
+  i = usize(0);
+  while(i < N_TIMERS, {
+    io.await(sleep(u64(1)), IoExn(io : io, exn : exn));
+    i = (i + usize(1));
+  });
+  b_delta := (__yo_io_stats_kernel_enters() - before);
+  budget_b := ((u64(N_TIMERS) * u64(3)) + u64(64));
+  println(`budget B (${N_TIMERS} timer ticks): kernel_enters=${b_delta} <= ${budget_b}`);
+  if(b_delta > budget_b, {
+    panic(String.from("BUDGET B VIOLATED"));
+  });
+
+  // --- Budget C (anti-spin): with one parked socket and a single timer, a
+  // 150 ms window must accrue almost no kernel entries — the loop is BLOCKED
+  // in its wait, not polling. A spin storm (the DEFER_TASKRUN class) would
+  // accrue thousands.
+  sv2 := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv2) != i32(0), {
+    panic(String.from("socketpair 2 failed"));
+  });
+  parked_a := (sv2.add(usize(0))).*;
+  before = __yo_io_stats_kernel_enters();
+  before_zt := __yo_io_stats_zero_timeout_enters();
+  io.await(sleep(u64(150)), IoExn(io : io, exn : exn));
+  c_delta := (__yo_io_stats_kernel_enters() - before);
+  c_zt := (__yo_io_stats_zero_timeout_enters() - before_zt);
+  println(`budget C (150 ms blocked window): kernel_enters=${c_delta} zero_timeout=${c_zt} (both must be <= 8)`);
+  if(c_delta > u64(8), {
+    panic(String.from("BUDGET C VIOLATED (kernel enters)"));
+  });
+  if(c_zt > u64(8), {
+    panic(String.from("BUDGET C VIOLATED (zero-timeout probes)"));
+  });
+  io.await(tcp.close(parked_a), io);
+  io.await(tcp.close((sv2.add(usize(1))).*), io);
+
+  println("ALL BUDGETS OK");
+});
+export(main);

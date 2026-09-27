@@ -28,14 +28,14 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
-| Async / effects | 30 | 7 |
+| Async / effects | 29 | 7 |
 | Codegen / emitted C | 20 | 3 |
 | Evaluator / types | 23 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 25 | 5 |
+| Other | 26 | 5 |
 | **Total** | **197** | **37** |
 
 ## Cross-cutting buckets
@@ -139,7 +139,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (30)
+### Async / effects (29)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -163,7 +163,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | OPEN — worked around in `std/thread | yes |
 | [`io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`](./io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md) | OPEN | — |
 | [`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`](./io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md) | — | yes |
-| [`io-uring-init-failure-exits-the-process.md`](./io-uring-init-failure-exits-the-process.md) | — | — |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | OPEN — analysis-verified hazard, not | — |
 | [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./spawn-blocking-degrades-to-inline-on-a-threadless-target.md) | OPEN — the behaviour is deliberate and | — |
 | [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | — | — |
@@ -333,7 +332,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (25)
+### Other (26)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -345,6 +344,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
+| [`fv-z3-self-test-leaks-under-the-v0244-seed.md`](./fv-z3-self-test-leaks-under-the-v0244-seed.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
