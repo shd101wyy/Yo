@@ -1105,6 +1105,24 @@ _select_matching_overload :: (
   if(ct_matches.len() == usize(1), {
     winner_hi = match(ct_matches.get(usize(0)), .Some(i) => i, .None => winner_hi);
   });
+  // TEMP census (tss/dyn-upcast): every call with 2+ matching candidates.
+  if((matching.len() > usize(1)) && debug_knob(`YO_DEBUG_AMBIG`).is_some(), {
+    amb_line := String.new();
+    (ami : usize) = usize(0);
+    while(ami < matching.len(), {
+      am_idx := match(matching.get(ami), .Some(i) => i, .None => usize(0));
+      match(
+        base.all_hits.get(am_idx),
+        .Some(amc) => {
+          amb_line = `${amb_line} [${amc.label} trait=${amc.source_trait_id} owner=${amc.owner} ct=${match(amc.ty, .Func({ meta : __amm }) => __amm.*.result_is_comptime_only, _ => false).to_string()}]`;
+        },
+        .None => ()
+      );
+      ami = (ami + usize(1));
+    });
+    tok_a := ast_expr_token(func_expr);
+    eprintln(`[ambig] ${tok_a.module_path}:${tok_a.row.to_string()} n=${matching.len().to_string()} aw=${aw_ids.len().to_string()} ct=${ct_matches.len().to_string()} recv_concrete=${recv_concrete.to_string()}${amb_line}`);
+  });
   match(
     base.all_hits.get(winner_hi),
     .Some(w_cand) => ReceiverMethodResult(
