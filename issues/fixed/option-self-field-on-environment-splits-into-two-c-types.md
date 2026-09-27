@@ -44,3 +44,29 @@ in every module that instantiates a generic over it; the shell → completed
 patch (`_patch_self_shell`) evidently misses `Option(<shell>)` instantiations
 that were minted by an importer's generic specialization. Until then the
 tree's rule stands: a self reference on a ref struct goes through `Box(Self)`.
+
+## Resolution
+
+**FIXED — no longer reproduces on develop `37045aa56`** (measured 2026-09-26
+with a develop-built binary): the minimal repro above compiles and prints 5,
+and the two-module control (the helper and `Env` in one module, `main` in
+another) compiles and prints. The v0.2.43 seed still fails both, so the fix is
+one of the post-seed landings #939–#943 — the binder-identity /
+resolution-on-the-value chain (#939, #940) that made the specialization's
+result substitute, with #943's `Option(<reference handle>)` → bare nullable
+pointer collapsing the two C spellings (`Option(T)`-commented and
+`Option(<Env>)`-commented) to one pointer typedef over the single emitted
+`Env` struct either way.
+
+The emitted C still carries two TYPE KEYS for the Option position (the
+typedefs differ), but both lower to the same pointer, one `Env` struct is
+emitted, and the program is correct. Phase 3 step 8's unblock note
+(TYPEVALUE_HASH_CONSING, "the intern key must equal codegen's `_type_key_at`")
+is where a single key for the position would come from; nothing user-visible
+remains open here.
+
+The neighbouring VALUE-struct shape (`struct(n : i64, memo : Option(Self))`)
+remains broken in a different way — no indirection check exists for structs at
+all — and is filed as
+`issues/fixed/recursive-type-definitions-have-no-indirection-check.md` (fixed
+in the same branch).

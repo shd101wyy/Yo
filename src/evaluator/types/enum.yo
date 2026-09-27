@@ -145,7 +145,7 @@ _type_value_cycle_step :: (
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
             ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
-            if(recur(ft, root.clone(), shell.clone(), visited), {
+            if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
             j = (j + usize(1));
@@ -156,6 +156,11 @@ _type_value_cycle_step :: (
       }
     ),
     .Struct(s_id, _, _, s_fts, _, _, _, _, _, _) => cond(
+      // The struct twin of the EnumT root test above (struct.yo's
+      // definition-time value-cycle check passes this struct's id as root;
+      // the struct shell shares the final's id, so one comparison covers
+      // both).
+      ((s_id == root) || (s_id == shell)) => true,
       _visited_has(visited, s_id.clone()) => false,
       true => {
         visited.push(s_id.clone());
@@ -163,7 +168,7 @@ _type_value_cycle_step :: (
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
           ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-          if(recur(ft, root.clone(), shell.clone(), visited), {
+          if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
           i = (i + usize(1));
@@ -176,7 +181,7 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
         ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(recur(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
@@ -188,14 +193,14 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
         ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(recur(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
       });
       hit
     },
-    .Array(element, _, _) => recur(element, root.clone(), shell.clone(), visited),
+    .Array(element, _, _) => _type_reaches_root_by_value(element, root.clone(), shell.clone(), visited),
     _ => false
   )
 );
@@ -872,4 +877,4 @@ evaluate_enum_type :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr
 });
-export(evaluate_enum_type);
+export(evaluate_enum_type, _type_reaches_root_by_value);

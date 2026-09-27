@@ -469,7 +469,12 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    (`option-of-a-trait-object-never-emits-its-inherent-methods`,
    `a-box-over-an-impl-fn-is-emitted-as-two-c-structs`,
    `a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types`,
-   `option-self-field-on-environment-splits-into-two-c-types`).
+   `option-self-field-on-environment-splits-into-two-c-types` — no longer reproduces on develop
+   `37045aa56` (fixed somewhere in the #939–#943 chain; measured with a develop-built binary,
+   single-module and two-module controls; closed with a runtime gate in
+   `tests/type_soundness.test.yo`). The neighbouring VALUE-struct shape had no indirection check
+   at all and is fixed by the struct twin of the enum check
+   (`issues/fixed/recursive-type-definitions-have-no-indirection-check.md`).
 
    **In progress 2026-09-26.**
    - `option-of-a-trait-object-…` is fixed. The identity callers (the specialization cache, the
