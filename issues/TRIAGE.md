@@ -163,7 +163,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | OPEN — worked around in `std/thread | yes |
 | [`io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`](./io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md) | OPEN | — |
 | [`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`](./io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md) | — | yes |
-| [`io-uring-init-failure-exits-the-process.md`](./io-uring-init-failure-exits-the-process.md) | — | — |
+| [`io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`](./io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md) | — | — |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | OPEN — analysis-verified hazard, not | — |
 | [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./spawn-blocking-degrades-to-inline-on-a-threadless-target.md) | OPEN — the behaviour is deliberate and | — |
 | [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | — | — |
@@ -344,9 +344,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
+| [`epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`](./epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md) | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
-| [`fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md`](./fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
+| [`linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`](./linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md) | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`local-binding-of-an-indexed-read-never-releases-its-element.md`](./local-binding-of-an-indexed-read-never-releases-its-element.md) | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
@@ -358,7 +359,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
-| [`verifier-z3-harness-self-test-leaks-40-bytes.md`](./verifier-z3-harness-self-test-leaks-40-bytes.md) | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |

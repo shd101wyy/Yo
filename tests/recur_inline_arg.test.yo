@@ -62,3 +62,43 @@ test("recur returning RC type bound to local", {
   s := build_tag(i32(3));
   assert(s == `xxxend`, "should be xxxend");
 });
+// ---------- Test 3: unit recur releases a composite argument's dup ----------
+//
+// A unit-returning `recur` has no result temp, and its deferred drops (the
+// balancing drop of a by-value composite argument's dup) were flushed only on
+// the result-temp path — so every `recur(items(i), ...)` leaked one interior
+// reference. std/encoding/json.yo `_stringify_into` was the CI red (the
+// verifier's cache-store `stringify`).
+// Tracking issue: issues/fixed/unit-recur-never-flushes-its-argument-drops.md
+Leaf :: ref(struct(name : String));
+Node :: enum(
+  One(leaf : Leaf),
+  Many(items : ArrayList(Self))
+);
+count_leaves :: (fn(n : Node, acc : ArrayList(usize)) -> unit)({
+  match(
+    n,
+    .One(_) => {
+      acc.push(usize(1));
+    },
+    .Many(items) => {
+      i := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        recur(items(i), acc);
+      });
+    }
+  );
+});
+test("unit recur releases the dup of a composite argument", {
+  leaf := Leaf(name : `x`);
+  items := ArrayList(Node).new();
+  items.push(Node.One(leaf : leaf));
+  items.push(Node.One(leaf : leaf));
+  root := Node.Many(items : items);
+  before := rc(leaf);
+  acc := ArrayList(usize).new();
+  count_leaves(root, acc);
+  count_leaves(root, acc);
+  assert(acc.len() == usize(4), "four leaves visited");
+  assert(rc(leaf) == before, "recur(items(i), acc) leaves no reference behind");
+});

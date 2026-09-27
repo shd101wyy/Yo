@@ -177,6 +177,21 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         }),
         .None => ()
       );
+      // A unit recur has no result temp, so the flush above never runs:
+      // emit the call as a statement and flush after it, as the direct-call
+      // unit exit does. Returning the bare call instead lost the balancing
+      // drop of a by-value composite argument's dup — one leaked interior
+      // reference per call (`recur(values(i), out)` in std/encoding/json.yo
+      // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
+      if(is_unit_type(ei.ty), {
+        uline := indent.clone();
+        uline.push_string(call_code);
+        uline.push_str(";");
+        uem := context.base.emitter;
+        uem.emit_string_line(uline);
+        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+        return(String.from(""));
+      });
       call_code
     },
     .None => codegen_fatal_expr(String.from("No arguments for recur call"))

@@ -1,5 +1,11 @@
 # The verifier's real-Z3 harness self-test leaks 40 bytes (Linux CI, red on develop's tip)
 
+> **FIXED 2026-09-27 — superseded.** The root cause is a unit-returning `recur(...)`
+> that never flushed its argument drops (`std/encoding/json.yo` `_stringify_into`),
+> measured in `issues/fixed/unit-recur-never-flushes-its-argument-drops.md`. The
+> mechanisms proposed below (seed-emit interaction; composite params never dropped)
+> were not borne out; they are kept as the investigation record.
+
 Found 2026-09-26 while gating PR #951. **Open** — root cause not yet found.
 
 ## Verbatim error (ubuntu-latest, "Formal verification (pinned Z3)")

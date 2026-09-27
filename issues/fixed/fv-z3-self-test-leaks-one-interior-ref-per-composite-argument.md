@@ -1,5 +1,11 @@
 # develop red: the FV job's z3 self-test leaks 40 bytes — one leaked interior reference per heap-carrying composite call argument
 
+> **FIXED 2026-09-27 — superseded.** The root cause is a unit-returning `recur(...)`
+> that never flushed its argument drops (`std/encoding/json.yo` `_stringify_into`),
+> measured in `issues/fixed/unit-recur-never-flushes-its-argument-drops.md`. The
+> mechanisms proposed below (seed-emit interaction; composite params never dropped)
+> were not borne out; they are kept as the investigation record.
+
 **Status: OPEN** — filed 2026-09-26; develop's battery has been red on this
 since the 16:52 run. It blocks every merge in the repository, including the
 whole DROP_LIBURING stack (not caused by it: develop had none of its
