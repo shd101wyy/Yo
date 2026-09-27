@@ -1557,6 +1557,14 @@ jobs:
       - name: Run the I/O budgets (uring + epoll)
         run: |
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/io-budget-check.sh
+      # G2's ratio table on a stock Linux runner, for the record: wall-clock
+      # varies across shared runners, so the floors are a merge criterion,
+      # not a gate (plans/DROP_LIBURING.md Phase 6) — a BELOW FLOOR here
+      # annotates the run without failing it.
+      - name: Backend bench table (informational)
+        continue-on-error: true
+        run: |
+          YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/bench-io-backends.sh
 
   epoll-corpus:
     # DROP_LIBURING Phase 5's forced-epoll corpus: the async, I/O, network and
