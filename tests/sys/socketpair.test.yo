@@ -160,7 +160,10 @@ _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
   fut := io.async((io : Io) => {
     b_uninit := MaybeUninit(Array(u8, usize(16))).new();
     b := (*u8)(b_uninit.as_ptr());
-    return(io.await(tcp.recv(fd0, b, usize(16), i32(0)), io));
+    // Bound first: return(io.await(...)) is E0904 today
+    // (issues/return-of-an-await-is-rejected-inside-io-async.md).
+    n := io.await(tcp.recv(fd0, b, usize(16), i32(0)), io);
+    return(n);
   });
   h := io.spawn(fut, io);
   io.await(yield(io), io);
