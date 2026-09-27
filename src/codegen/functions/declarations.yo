@@ -313,6 +313,7 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   em.emit_declaration_line("static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root");
   em.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
   em.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
+  em.emit_declaration_line("static void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc");
   em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
   // Per-object constructor declarations.
   vals := context.types.values();
