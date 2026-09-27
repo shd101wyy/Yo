@@ -36,7 +36,8 @@ import("std/string");
 { t_bool, t_expr_t, t_comptime_string, t_comptime_list } :: import("../../types/creators.yo");
 { is_expr_type } :: import("../../types/guards.yo");
 { are_values_equal } :: import("../utils.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_COMPTIME_EXPRESSION_VALUE } :: import("../../diagnostics.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -101,9 +102,12 @@ evaluate_yo_expr_is_atom :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_e),
-            `Expected expression value for "${BF_YO_EXPR_IS_ATOM}" argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(arg_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -177,9 +181,12 @@ evaluate_yo_expr_is_fn_call :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_e),
-            `Expected expression value for "${BF_YO_EXPR_IS_FN_CALL}" argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(arg_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -276,9 +283,12 @@ evaluate_yo_expr_get_callee :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_e),
-            `Expected expression value for "${BF_YO_EXPR_GET_CALLEE}" argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(arg_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -380,9 +390,12 @@ evaluate_yo_expr_get_args :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_e),
-            `Expected expression value for "${BF_YO_EXPR_GET_ARGS}" argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(arg_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -460,9 +473,12 @@ evaluate_yo_expr_to_string :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_e),
-            `Expected expression value for "${BF_YO_EXPR_TO_STRING}" argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(arg_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -537,9 +553,12 @@ evaluate_yo_expr_eq :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(first_e),
-            `Expected expression value for "${BF_YO_EXPR_EQ}" first argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(first_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );
@@ -580,9 +599,12 @@ evaluate_yo_expr_eq :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(second_e),
-            `Expected expression value for "${BF_YO_EXPR_EQ}" second argument`
+          with_code(
+            format_error_message(
+              ast_expr_token(second_e),
+              `Expected expression value for an AST builtin argument`
+            ),
+            E_COMPTIME_EXPRESSION_VALUE
           )
         )
       );

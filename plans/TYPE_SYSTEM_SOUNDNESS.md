@@ -652,6 +652,11 @@ The largest and last phase, because Phases 1–5 shrink it.
    body that cannot be typed until a SomeT is resolved at a call. Illegitimate: anything else.
 2. A swallowed error whose context has no unresolved SomeT is re-raised immediately. The
    named-fn path already does this through `g_trial_swallow_msg`; generalize it.
+   **Closure bodies landed 2026-09-27** (branch `tss/p6-closure-reraise`): the concrete-params
+   gate re-raises with the structured diagnostics; the VALUE-DEPENDENCE family is excluded by
+   its own code (E1104 `E_COMPTIME_EXPRESSION_VALUE`), because a call supplies the value — the
+   prelude's `to_comptime_string` was the false positive that blocked the first build. Sites #2/#6
+   (the deferred-generic trials) still need the "does the error involve a SomeT?" refinement.
 3. A swallowed error that *is* SomeT-pending is recorded against the specialization and
    re-raised when the specialization with concrete types fails, with the call site as a note.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.
