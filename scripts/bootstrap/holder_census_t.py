@@ -70,13 +70,18 @@ if sys.platform == "linux":
 #define __HO_TCAP (1u << 27)
 #define __HO_TRK_TOMB ((void*)1)
 static void** __ho_trk_k; static size_t* __ho_trk_v; static size_t __ho_trk_n, __ho_trk_t;
+static int __ho_trk_degraded;   /* live set alone fills the table: stop tracking new blocks */
 static size_t __ho_trk_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (size_t)(x >> 37) & (__HO_TCAP - 1); }
 static void __ho_trk_init(void) { if (!__ho_trk_k) { __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t)); } }
 static void __ho_trk_put(void* p, size_t sz);
 /* Deletion leaves tombstones (linear probing), so a long alloc/free churn
    fills the table with them even at a small live count; rebuild from the
    live entries then. An unbounded probe on a full table is how the first
-   Linux census run spun for 40 CPU-minutes. */
+   Linux census run spun for 40 CPU-minutes. And a rebuild only helps when
+   TOMBSTONES were the load: when the live entries alone fill the table,
+   rehashing per put is O(table) per allocation — the full-tree census burned
+   5 CPU-hours on exactly that — so degrade ONCE (new blocks go untracked,
+   the dump header says so) instead. */
 static void __ho_trk_rehash(void) {
   void** ok = __ho_trk_k; size_t* ov = __ho_trk_v;
   __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t));
@@ -88,8 +93,13 @@ static void __ho_trk_rehash(void) {
 }
 static void __ho_trk_put(void* p, size_t sz) {
   if (!p) return; __ho_trk_init();
-  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) __ho_trk_rehash();
-  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) return;
+  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) {
+    if (!__ho_trk_degraded) {
+      __ho_trk_rehash();
+      if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) __ho_trk_degraded = 1;
+    }
+    if (__ho_trk_degraded) return;
+  }
   size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_v[i] = sz; return; } i = (i + 1) & (__HO_TCAP - 1); }
   __ho_trk_k[i] = p; __ho_trk_v[i] = sz; __ho_trk_n++;
 }
@@ -614,6 +624,10 @@ static void __ho_census(void* st) {
     if (ext > 0 && s >= 0) { __ho_extn[s]++; __ho_ext[s] += ext; }
   }
   FILE* f = fopen("%(dump)s", "w"); if (!f) return;
+  /* self-describe the Linux registry: degraded=1 means blocks past saturation
+     went untracked and every count below is a lower bound */
+  fprintf(f, "# trk n=%%zu tomb=%%zu degraded=%%d\n", __ho_trk_n, __ho_trk_t, __ho_trk_degraded);
+  fprintf(stderr, "[holders] registry: %%zu live tracked, %%zu tombstones, degraded=%%d\n", __ho_trk_n, __ho_trk_t, __ho_trk_degraded);
   for (int r = 0; r < %(nr)d; r++) for (int t = 0; t < %(nb)d; t++) {
     long long c = __ho_count[(size_t)r * %(nb)d + t];
     if (c) fprintf(f, "H %%lld %%s %%s\n", c, __ho_roots[r], __ho_types[t]);
