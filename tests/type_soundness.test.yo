@@ -811,6 +811,45 @@ test("soundness: a Dyn is neither downcast nor upcast", {
   assert(_p38_takes_both(both) == i32(2), "the exact trait set flows");
   assert(one.da() == i32(5), "the value itself is fine");
 });
+// issues/fixed/recursive-type-definitions-have-no-indirection-check.md: a
+// value struct that reaches itself by value — directly or through a
+// constructor that EMBEDS its argument (`Option` of a value type is a tagged
+// union, not a pointer) — has infinite size. `check` used to accept it and
+// the C compiler reported the cycle ("field has incomplete type"); the enum
+// twin of this rule existed already (plain-recursive-enum-segfaults).
+test("soundness: a value struct cannot reach itself by value", {
+  comptime_expect_error({
+    _bad_direct :: struct(n : i64, me : Self);
+    ()
+  }, "recursive value struct");
+  comptime_expect_error({
+    _bad_option :: struct(n : i64, memo : Option(Self));
+    ()
+  }, "recursive value struct");
+  // Reference indirection keeps the working shapes working: a ref struct may
+  // name itself through Option(Self) (pointer-sized), and a Box cuts the path.
+  _ok_ref :: ref(struct(n : i64, memo : Option(Self)));
+  _ok_box :: struct(n : i64, next : Option(Box(Self)));
+  comptime_assert(true, "the indirect forms still check");
+});
+// issues/fixed/option-self-field-on-environment-splits-into-two-c-types.md:
+// a `ref(struct)` with an `Option(Self)` field, read back through a generic
+// specialization (`ArrayList(Env).get`), used to emit the specialization
+// returning the ABSTRACT `Option(T)` while the caller declared
+// `Option(<Env>)` — two C types, clang error. Fixed by the #939–#943 chain;
+// this pins the runtime behavior.
+test("soundness: a ref struct's Option(Self) survives a generic specialization", {
+  { ArrayList } :: import("std/collections/array_list");
+  _osf_env :: ref(struct(n : i64, memo : Option(Self)));
+  _osf_first :: (fn(l : ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
+  l := ArrayList(_osf_env).new();
+  l.push(_osf_env(n : i64(5), memo : Option(_osf_env).None));
+  match(
+    _osf_first(l),
+    .Some(e) => assert(e.n == i64(5), "the specialization returns the concrete Env"),
+    .None => panic("the Option(Self) field made the read come back None")
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5.1/5.2/5.6: per-path move and initialization state
 // (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,

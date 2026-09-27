@@ -35,6 +35,7 @@ import("std/fmt");
 } :: import("./field.yo");
 { stable_position_id, stable_type_id } :: import("../../utils.yo");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
+{ _type_reaches_root_by_value } :: import("./enum.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
@@ -279,6 +280,34 @@ evaluate_struct_type :: (
     ft := match(field_types.get(pt_i), .Some(t) => t, .None => TypeValue.Unit);
     patched_types.push(_patch_self_shell(ft, struct_id.clone(), pre_final_ty));
     pt_i = (pt_i + usize(1));
+  });
+  // Definition-time value-cycle rejection, the enum twin's
+  // (enum.yo, issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
+  // a plain `struct(...)`/`newtype(...)` whose fields reach ITSELF by value —
+  // no reference indirection anywhere on the path — has infinite C size, and
+  // before this check the cycle surfaced only as the C compiler's "field has
+  // incomplete type" (issues/fixed/recursive-type-definitions-have-no-indirection-check.md).
+  // `ref(struct(...))` and `atomic(ref(...))` are exempt (pointer-sized), and
+  // the walker cuts paths through Box/ArrayList/ref/pointer fields
+  // (`_type_is_ref_indirection`). Run on the PATCHED types: the shell shares
+  // the final's struct_id, so a `Self` field is already the root either way.
+  if(!(is_reference_semantics || is_atomic_rc), {
+    (vc_i : usize) = usize(0);
+    while(vc_i < patched_types.len(), {
+      vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => TypeValue.Unit);
+      vc_label := match(field_labels.get(vc_i), .Some(l) => l, .None => String.from(""));
+      if(_type_reaches_root_by_value(vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Box, Option of a ref).`
+            )
+          )
+        );
+      });
+      vc_i = (vc_i + usize(1));
+    });
   });
   // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
