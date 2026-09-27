@@ -10,7 +10,7 @@ for troubleshooting. -->
 > setting the toolchain up by hand, or diagnosing a failed install.
 
 
-Install **Clang** (recommended) and **pkg-config** (for system library discovery). Async I/O needs no extra library: the runtime speaks io_uring directly through a ring layer vendored into the emitted C, and needs only a Linux kernel of 5.6 or newer:
+Install **Clang** (recommended) and **pkg-config** (for system library discovery). Async I/O needs no extra library: the runtime speaks io_uring directly through a ring layer vendored into the emitted C, and needs a Linux kernel of 5.6 or newer (5.15 or newer for every filesystem operation to run on io_uring — the per-operation floors are in `docs/en-US/STD_SYS_MODULE.md`; where io_uring is unavailable, the epoll fallback takes over):
 
 ```bash
 # Ubuntu/Debian

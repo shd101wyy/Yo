@@ -280,7 +280,7 @@ int __yo_io_wait(void);   // Blocking, waits for at least one completion
 
 ### Linux: io_uring
 
-io_uring is Linux's modern async I/O interface (kernel 5.1+):
+io_uring is Linux's modern async I/O interface (introduced in kernel 5.1; this runtime's floors are below):
 
 - **Submission Queue (SQ)**: Ring buffer for submitting I/O requests
 - **Completion Queue (CQ)**: Ring buffer for completed I/O results
@@ -294,9 +294,13 @@ io_uring is Linux's modern async I/O interface (kernel 5.1+):
 
 | Kernel Version | Features                                                     |
 | -------------- | ------------------------------------------------------------ |
-| **5.6+**       | The operation set this runtime submits (openat/close/name ops) |
+| **5.6+**       | The core operation set: read/write, openat/close/statx/fsync, sockets (accept/connect/send/recv/sendmsg/recvmsg) |
+| **5.11+**      | `renameat` / `unlinkat` (rename, remove a file or directory) |
+| **5.15+**      | `mkdirat` / `symlinkat` / `linkat` (create a directory, symlink, hard link) |
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` setup flags — requested together, retried without flags when the kernel refuses |
 | **6.14+**      | Async `ftruncate` (older kernels answer `-EINVAL` through the future) |
+
+On a kernel that has io_uring but predates an operation's row, that operation completes with `-EINVAL` through its future — io_uring itself initialises, so the epoll fallback is not selected. Where io_uring cannot initialise at all (kernel < 5.6's ring, Docker's default seccomp profile, gVisor, hardened kernels), the runtime runs on the epoll fallback, which completes the name operations synchronously (`docs/en-US/ASYNC_AWAIT.md`, the backend ladder).
 
 ### macOS: kqueue
 
