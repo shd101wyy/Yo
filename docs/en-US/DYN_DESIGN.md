@@ -136,10 +136,13 @@ An inherent impl on a `Dyn` type itself adds methods to that `Dyn`, like Rust's 
 A trait implemented through a generic impl (`ArrayList(T)`'s `ToString` for `T <: ToString`) can be
 put behind a `Dyn`: `dyn(xs)` specializes the generic impl's methods for the concrete type.
 
-**No upcasting.** A `Dyn(Sp, Ot)` is not converted to a `Dyn(Sp)`: the two have different vtable
-layouts, and the concrete type needed to build the smaller vtable is gone. Call `dyn(...)` on the
-concrete value with the traits the destination needs. The decision is recorded in
-`plans/TYPE_SYSTEM_SOUNDNESS.md` (Phase 2.7).
+**No implicit upcasting.** A `Dyn(Sp, Ot)` does not flow into a `Dyn(Sp)` parameter or binding:
+the two have different vtable layouts, so the conversion is a representation change and is written
+out with `upcast` (below). The trait list is a set: `Dyn(Sp, Ot)` and `Dyn(Ot, Sp)` are one type.
+
+**Two traits in one `Dyn` may not share a method name** (E0616). A `Dyn` calls its methods by
+name, so `Dyn(A, B)` where `A` and `B` both declare a callable `get` is rejected where the type is
+written: `d.get()` could not say which trait's method it means.
 
 ## Reference-Semantics Type Requirement for dyn(...)
 
@@ -302,6 +305,37 @@ than to a check that is always false.
 want a panic on mismatch, that is `downcast(v, T).unwrap()`, spelled at the call
 site so it is visible. `typeid` is a separate builtin and takes a TYPE, not a
 value — it cannot be used to test a `Dyn` at runtime.
+
+## Upcasting: `upcast(value, Dyn(...))`
+
+`upcast` gives the same payload behind a `Dyn` with fewer traits:
+
+```rust
+(both : Dyn(Speak, Run)) = dyn(Dog());
+(s : Dyn(Speak)) = upcast(both, Dyn(Speak));   // Dyn(Speak)
+(e : AnyError) = dyn(ParseError.Bad);
+(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError is Dyn(Error, ToString)
+```
+
+It is checked at compile time, so it returns the `Dyn`, not an `Option`: every trait the target
+requires must be one the source carries (after supertrait expansion), and every trait the target
+excludes (`!Send`) must be one the source excludes. `upcast(one, Dyn(Speak, Run))` from a
+`Dyn(Speak)` is E0602. `dyn(d)` of a value that is already a `Dyn` is an error that points at
+`upcast`: the payload's type is erased, so there is nothing to build a new vtable from.
+
+**How it works.** The concrete type is erased at the upcast, but not at the `dyn(...)` sites that
+built the source, and the compiler sees the whole program. For every `upcast(_, Dyn(Tgt))` of a
+source `Dyn(Src)`, each `Dyn(Src)` vtable carries one extra pointer, `__yo_up_<Tgt>`, to the same
+concrete type's `Dyn(Tgt)` vtable, which the compiler emits for it. The upcast is then a load and
+a retain:
+
+```c
+(Tgt){ .data = __yo_dyn_retain(d.data, d.vtable), .vtable = d.vtable->__yo_up_Tgt }
+```
+
+This is how Rust implements `dyn Sub -> dyn Super`. The payload is shared, not copied: the result
+is an owned `Dyn` that retains the payload through the source vtable's RC slot, and `downcast` on
+it finds the original concrete type. A program with no `upcast` emits exactly what it did before.
 
 ## Reference Counting for Dyn
 

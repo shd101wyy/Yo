@@ -172,8 +172,17 @@ evaluate_address_call :: (
       // — writes through `p.*` land in the SAME list the variable reads,
       // the arm-22 mutable-reference semantics. Empty cell = runtime
       // variable — no comptime place.
+      //
+      // A RUNTIME parameter is never a compile-time place in code that is
+      // emitted: a specialization binds it with the call's argument VALUE
+      // (`bind_parameter`, so a CTFE execution of the body can read it), and
+      // taking `&v` of that cell made the pointer a comptime value codegen
+      // cannot emit — `uint64_t* p = /* skip generating value */;` for `&v` in
+      // a generic fn called with a literal
+      // (issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md).
+      // Only an executing (CTFE) evaluation addresses the cell.
       .Some(src_var) => if(
-        src_var.value.len() > usize(0),
+        (src_var.value.len() > usize(0)) && (!(src_var.is_parameter && !src_var.is_compile_time_only) || ctx.is_executing),
         Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0))),
         Option(EvalValue).None
       ),

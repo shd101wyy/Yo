@@ -298,7 +298,7 @@ site as a note, when the concrete specialization fails) has no code yet.
 - `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`: since Phase 1.6 it is a loud
   E0610, but the error itself is wrong. The root cause is impl-field forcing order
   (`_force_field_eval`, `values/impl.yo`), not a swallow.
-- `issues/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`,
+- `issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`,
   `issues/emitted-c-identifiers-collide-with-header-macros.md`,
   `issues/unknown-type-argument-in-typed-binding-reports-expected-comptime.md`,
   `issues/yo-self-where-clause-full-enforcement.md`: untouched this session.

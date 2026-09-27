@@ -124,7 +124,9 @@ d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a
 
 通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放进 `Dyn`：`dyn(xs)` 会针对具体类型特化泛型 impl 的方法。
 
-**不支持向上转换。** `Dyn(Sp, Ot)` 不会被转换为 `Dyn(Sp)`：两者的 vtable 布局不同，而构造较小 vtable 所需的具体类型已被擦除。请对具体值调用 `dyn(...)`，并带上目标所需的 trait。该决定记录在 `plans/TYPE_SYSTEM_SOUNDNESS.md`（Phase 2.7）中。
+**没有隐式的向上转换。** `Dyn(Sp, Ot)` 不会流入 `Dyn(Sp)` 形参或绑定：两者的 vtable 布局不同，因此这种转换改变了表示方式，需要用 `upcast`（见下文）显式写出。trait 列表是一个集合：`Dyn(Sp, Ot)` 和 `Dyn(Ot, Sp)` 是同一个类型。
+
+**同一个 `Dyn` 中的两个 trait 不能有同名方法**（E0616）。`Dyn` 按名字调用方法，因此当 `A` 和 `B` 都声明了可调用的 `get` 时，`Dyn(A, B)` 会在写出该类型的地方被拒绝：`d.get()` 无法说明它指的是哪个 trait 的方法。
 
 ## dyn(...) 的引用语义类型要求
 
@@ -278,6 +280,27 @@ if(downcast(animal, Dog).is_some(), {
 **没有非检查式的强制转换。** `downcast` 始终返回 `Option(T)`；如果你想在不匹配时
 panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见的。`typeid` 是另一个
 内建，它接受一个**类型**而不是值——不能用来在运行时判断 `Dyn`。
+
+## 向上转换：`upcast(value, Dyn(...))`
+
+`upcast` 把同一个载荷放到 trait 更少的 `Dyn` 后面：
+
+```rust
+(both : Dyn(Speak, Run)) = dyn(Dog());
+(s : Dyn(Speak)) = upcast(both, Dyn(Speak));   // Dyn(Speak)
+(e : AnyError) = dyn(ParseError.Bad);
+(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError 是 Dyn(Error, ToString)
+```
+
+它在编译期检查，因此返回 `Dyn` 而不是 `Option`：目标要求的每个 trait 都必须是源携带的（包括展开后的父 trait），目标排除的每个 trait（`!Send`）都必须是源也排除的。从 `Dyn(Speak)` 做 `upcast(one, Dyn(Speak, Run))` 会报 E0602。对已经是 `Dyn` 的值调用 `dyn(d)` 是一个错误，并会提示使用 `upcast`：载荷的类型已被擦除，没有东西可以用来构造新的 vtable。
+
+**实现方式。** 具体类型在 upcast 处已被擦除，但在构造源值的 `dyn(...)` 处并没有，而且编译器能看到整个程序。对源 `Dyn(Src)` 的每个 `upcast(_, Dyn(Tgt))`，每个 `Dyn(Src)` vtable 都多带一个指针 `__yo_up_<Tgt>`，指向同一具体类型的 `Dyn(Tgt)` vtable（由编译器为它生成）。于是 upcast 只是一次读取加一次 retain：
+
+```c
+(Tgt){ .data = __yo_dyn_retain(d.data, d.vtable), .vtable = d.vtable->__yo_up_Tgt }
+```
+
+Rust 也是这样实现 `dyn Sub -> dyn Super` 的。载荷是共享的而不是复制的：结果是一个拥有所有权的 `Dyn`，它通过源 vtable 的 RC 槽位 retain 载荷，对它做 `downcast` 能找回原来的具体类型。不含 `upcast` 的程序生成的代码与以前完全相同。
 
 ## Dyn 的引用计数
 

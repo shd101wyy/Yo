@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 196 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 194 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
 | Async / effects | 31 | 7 |
-| Codegen / emitted C | 20 | 3 |
-| Evaluator / types | 23 | 4 |
+| Codegen / emitted C | 19 | 3 |
+| Evaluator / types | 22 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 23 | 4 |
-| **Total** | **196** | **36** |
+| **Total** | **194** | **36** |
 
 ## Cross-cutting buckets
 
@@ -175,11 +175,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (20)
+### Codegen / emitted C (19)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`](./address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md) | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | — | yes |
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
@@ -200,7 +199,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (23)
+### Evaluator / types (22)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -217,7 +216,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`derived-eq-ref-enum-self-payload-hollow-at-runtime.md`](./derived-eq-ref-enum-self-payload-hollow-at-runtime.md) | — | — |
 | [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | OPEN | — |
-| [`dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`](./dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md) | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | OPEN — found during the env-sharing implement | — |
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |

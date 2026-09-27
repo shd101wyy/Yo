@@ -442,6 +442,10 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   or a declared return type. As a bare argument (`downcast(dyn(x), T)`) it has
   none and is rejected, today with a misleading message
   (`issues/dyn-as-a-direct-downcast-argument-reports-got-option.md`).
+- `upcast(d, Dyn(Fewer))` drops traits from a `Dyn` (checked at compile time, returns the
+  `Dyn`): `upcast(err, Dyn(ToString))` from an `AnyError`. Flow never does it implicitly, and
+  `dyn(d)` of a value that is already a `Dyn` is an error. Two traits of one `Dyn` may not share
+  a method name (E0616).
 - For exception-style control flow, see [yo-async-effects](../yo-async-effects/SKILL.md)
 
 ## Closures as values
