@@ -160,3 +160,45 @@ the dup/drop emit-diff + an over-cancellation canary (AGENTS.md), plus the
    carries RC fields.
 3. Failing test first: the minimal repro above as
    `tests/internal/…` or a language test with a Dispose counter / rc(...) check.
+## MECHANISM PINNED (2026-09-27, module-filtered `[sd]` probe + a second shape)
+
+The earlier hypotheses (DCE'd-tail atom; dup/drop pair cancellation) are both
+DEAD. The module-filtered scheduler probe on the clean vs leaking binding:
+
+```
+nouse2    (no use):  vi owning=true ty_rc=true consumed=FALSE e7=true  → drop scheduled
+straight  (DCE'd use): vi owning=true ty_rc=true consumed=TRUE  e7=false → drop SKIPPED
+```
+
+`consume(vi)`'s by-value `v : JsonValue` parameter counts as an **owning**
+parameter, so `consume_argument_for_parameter` (`src/evaluator/calls/helper.yo`)
+marks the argument **consumed** — ownership "moves" into the callee. The
+callee is pure and unit-returning; codegen elides the whole call (its
+statement folds to unit), so **nothing ever takes the moved reference**: the
+binding's scope drop is skipped (consumed) while the boundary/deferred dup
+(+1) still emits. Net +1 per call site.
+
+A second, simpler shape leaks the same way (41 B / 2 allocations):
+
+```rust
+consume(make_json());   // temp arg, consumed into a call that never runs
+```
+
+Every by-value composite RC argument to a pure, DCE'd call strands its
+reference.
+
+## Fix locus + coordination (deliberately sequenced behind the peer)
+
+The fix belongs on the caller-side own-arm of `consume_argument_for_parameter`
+(by-value composite args should take the `is_ref` arm's shape — boundary dup,
+no consume — with the callee releasing its copy's interiors) OR at the
+elision site (emit the consumed argument's balancing drop when the call is
+dropped). **`calls/helper.yo` and `evaluator/exprs/begin.yo` are exactly the
+two files the drop-liburing agent has uncommitted edits in** (their
+param-interior fix is the callee-side half of this same ownership boundary:
+their fix releases the callee's copy when the call RUNS; this bug strands the
+caller's reference when the call is ELIDED). Implementing the caller-side
+gate concurrently would collide in the same function — per the standing
+coordination (PR #950 comments), their fix lands first, this issue's fix
+rebases on it and re-verifies both shapes plus the original matrix.
+

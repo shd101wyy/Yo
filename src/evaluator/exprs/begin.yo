@@ -1473,7 +1473,7 @@ _schedule_scope_end_drops :: (
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
         e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
         if(g_debug_scope_drops, {
-          eprintln(`[sd] var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} e7=${e7.to_string()}`);
+          eprintln(`[sd] mod=${v.token.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
         });
         if(e7, {
           to_drop.push(v);
