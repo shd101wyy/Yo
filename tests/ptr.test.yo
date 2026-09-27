@@ -57,3 +57,15 @@ test("sizeof of a nullable-pointer Option is the pointer's", {
   assert(sizeof(Option(*i32)) == sizeof(*i32), "sizeof(Option(*(i32))) is a pointer's size");
   assert(alignof(Option(*i32)) == alignof(*i32), "alignof(Option(*(i32))) is a pointer's alignment");
 });
+// issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md:
+// `&v` of a generic fn's parameter, called with a compile-time argument, is
+// the parameter's runtime address (it was a comptime pointer codegen emitted
+// as `/* skip generating value */`).
+_addr_of_param :: (fn(generic(T : Type), v : T) -> T)({
+  (p : *T) = &v;
+  p.*
+});
+test("&param in a generic fn called with a literal", {
+  assert(_addr_of_param(u64(6)) == u64(6), "the literal's value through its parameter's address");
+  assert(_addr_of_param(u64(9)) == u64(9), "a second literal, one specialization");
+});
