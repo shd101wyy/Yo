@@ -1558,6 +1558,53 @@ jobs:
         run: |
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/io-budget-check.sh
 
+  epoll-corpus:
+    # DROP_LIBURING Phase 5's forced-epoll corpus: the async, I/O, network and
+    # thread suites with YO_IO_BACKEND=epoll pinned, so the fallback's parked-op
+    # machine (the path Docker's default profile, gVisor and hardened kernels
+    # take) runs on every PR, not only the one probe program below. A pinned
+    # backend that fails to initialise is a hard error, so this leg can never
+    # silently measure the ring. `yo test a b` runs only b — one path per call.
+    # NOTE: add to branch protection's required checks by hand (manual list).
+    name: Forced-epoll async corpus
+    needs: [changes, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
+        run: |
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
+      # The stage-1 binary was emitted by the SEED, whose runtime still links
+      # liburing.so.2 (plans/DROP_LIBURING.md 5); removed with Phase 4.
+      - name: Install liburing runtime (for the seed-built stage 1)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing2
+      - name: Run the async/io/net/thread corpus on the epoll backend
+        env:
+          YO_IO_BACKEND: epoll
+          YO_STD: ${{ github.workspace }}/std
+          YO_TEST_LEAK_VERDICT: "0"
+        run: |
+          set -e
+          for p in tests/async_await.test.yo tests/async tests/io tests/net tests/sys \
+                   tests/thread.test.yo tests/cross_thread_wake.test.yo tests/spawn_blocking.test.yo; do
+            echo "::group::$p"
+            /tmp/yo-stage1 test "$p" --parallel 1 --bail
+            echo "::endgroup::"
+          done
+
   docker-seccomp-epoll:
     # DROP_LIBURING Phase 5 acceptance leg: Docker's default seccomp profile
     # blocks io_uring_setup (ENOSYS), so an async program run in a stock
@@ -1594,14 +1641,37 @@ jobs:
       - name: Compile the probe on the host (io_uring present)
         run: |
           cat > /tmp/probe.yo <<'EOF'
+          pragma(Pragma.AllowUnsafe);
           { sleep } :: import("std/sys/timer");
           { write_string } :: import("std/fs/file");
           { Path } :: import("std/path");
           { String } :: import("std/string");
           { Exception, IoExn } :: import("std/error");
+          { yield } :: import("std/async");
+          socketpair_io :: import("std/sys/socketpair");
+          tcp :: import("std/sys/tcp");
+          fcntl :: import("std/sys/fcntl");
+          { O_NONBLOCK } :: import("std/sys/constants");
+          { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+          { assert } :: import("std/assert");
           main :: (fn(io : Io) -> unit)({
-            io.await(sleep(u64(20)), IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(())))));
-            io.await(write_string(Path.new(String.from("/probe-out.txt")), String.from("ok"), io), IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(())))));
+            e := IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(()))));
+            io.await(sleep(u64(20)), e);
+            // A socket op that PARKS on the fallback: the recv is issued before
+            // the peer sends, so it must wait for readiness and be woken.
+            sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+            sv := (*i32)(sv_uninit.as_ptr());
+            assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
+            fd0 := (sv.add(usize(0))).*;
+            fd1 := (sv.add(usize(1))).*;
+            assert(fcntl.setfl(fd0, (fcntl.getfl(fd0) | O_NONBLOCK)) == i32(0), "nonblocking");
+            b_uninit := MaybeUninit(Array(u8, usize(16))).new();
+            b := (*u8)(b_uninit.as_ptr());
+            r := tcp.recv(fd0, b, usize(16), i32(0));
+            io.await(yield(io), io);
+            assert(io.await(tcp.send(fd1, (*u8)("k"), usize(1), i32(0)), io) == i32(1), "send");
+            assert(io.await(r, io) == i32(1), "parked recv woken");
+            io.await(write_string(Path.new(String.from("/probe-out.txt")), String.from("ok"), io), e);
           });
           export(main);
           EOF
