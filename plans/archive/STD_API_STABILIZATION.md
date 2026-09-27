@@ -170,7 +170,7 @@ blamed:
 - `issues/fixed/a-generic-impl-methods-closure-is-emitted-twice.md` — a dead
   generic closure generation was emitted and keyed its callees on an unresolved
   `T`.
-- `issues/a-closure-typed-slot-never-releases-its-captures.md` — the drop walk
+- `issues/fixed/a-closure-typed-slot-never-releases-its-captures.md` — the drop walk
   is blind to a bare `Impl(Fn)` SomeT, so nothing reached through a captured
   CLOSURE was released. Fixed in the spawn wrapper, which owns the heap copy;
   doing it in the shared drop generator instead double-released every closure

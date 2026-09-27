@@ -725,6 +725,28 @@ cp yo-out/aarch64-apple-darwin/bin/yo /tmp/yo-s1
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 ```
 
+## `yo build` with a self-built compiler serves the OLD binary unless `YO_BUILD_NO_CACHE=1`
+
+The artifact cache stamps the sources, `yo.toml`/`yo.lock`, argv and
+`CURRENT_YO_VERSION`, but not WHICH `yo` binary is running. A stage-1 built
+from this tree reports the same version string as the seed that built it. So
+`<stage-1> build` on an unchanged tree prints
+`(cached: inputs unchanged, skipping compile)` and copies the stage-1 binary
+back. You never get a stage-2 that way, and an A/B of "stage-2" against
+stage-1 compares a binary with itself (measured 2026-09-28, plan §0.19). To
+get the real, shipped-configuration stage-2 (mimalloc on Linux, build.yo's
+flags):
+
+```bash
+YO_BUILD_NO_CACHE=1 YO_MAIN_STACK_MB=4096 <stage-1> build
+sha256sum <stage-1> yo-out/<target>/bin/yo   # must differ
+```
+
+`fixpoint_only.sh`'s `/tmp/<P>_s2` is a stage-2 too, but it is built with the
+SYSTEM allocator and plain `clang -O2`. Its wall time is not the shipped
+compiler's: glibc's malloc charges for reusing freed chunks, which mimalloc
+does not.
+
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
 `scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has

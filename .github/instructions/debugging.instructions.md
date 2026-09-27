@@ -151,14 +151,29 @@ C is the same bug seen later and more expensively.
 Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a
 `sample` profile or an rc-event log (`scripts/bootstrap/alloc_site_census_t.py
 --rc-events` + `rc_event_report.py`) prints frames nobody can read.
-`scripts/bootstrap/fid_name_map.py` rehashes source positions, but it predates the
-anchored ids of `stable_func_id` (#914) and maps nothing on the current tree.
-Instead, emit the C with `YO_DEBUG_FN_ORIGIN=1`: every definition is preceded by
-`/* yo-origin <module>:<line> <c name> */`. Build the map from those comments,
-using the nearest `name ::` at or above the line as the name, and pass it as the
-report's `fidmap.tsv` (`<c name>\t<file>:<line>\t<name>`). That is how the
-Phase 3 scrutinee leak was found
+Emit the C with `YO_DEBUG_FN_ORIGIN=1`: every definition is preceded by
+`/* yo-origin <module>:<line> <c name> */`. `scripts/bootstrap/fid_name_map.py
+fresh.c fidmap.tsv` turns those comments into the report's `fidmap.tsv`
+(`<c name>\t<file>:<line>\t<name>`, the nearest `name ::` at or above the
+line). That is how the Phase 3 scrutinee leak was found
 (`issues/fixed/nullable-pointer-match-never-releases-its-scrutinee.md`).
+
+## A leak of an object referenced from everywhere: `--rc-balance`
+
+`--rc-events` keeps each leak root's first and last 8 refcount events, which
+says nothing about an object dup'd thousands of times: an `ExprInfoTable`, an
+`Environment`, a shared list. For those,
+`alloc_site_census_t.py IN.c OUT.c dump.txt "<Type>" --rc-balance` keeps each
+object's NET change per call site. A disposed object folds into a "freed"
+histogram, the control group, and a survivor into the "live" one.
+`rc_balance_report.py dump.txt <bin> fidmap.tsv` sums both per function. The
+missing release belongs to the function whose live net is positive while its
+freed net is about 0. The 2026-09-28 run on `HashMap(usize, ExprInfo)` named
+`analyze_await_points` and a closure in `evaluate_anonymous_function_implementation`
+(+236 each over 38 leaked tables, 0 over 3,571 freed ones). That is how
+`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md` was found
+in the compiler's own code. The full recipe is in
+`plans/EVALUATOR_MEMORY_REDUCTION_HANDOVER.md` §4.
 
 ## GDB for generated C code
 
