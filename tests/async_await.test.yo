@@ -43,6 +43,15 @@ future_with_returned_state :: (fn(value : i32, io : Io) -> Impl(Future(i32, Io))
     return(local.* + i32(1));
   })
 });
+// A synchronous await from a test body recycles one continuation node through
+// the runtime's thread-local pool. The pool used to outlive the thread, and
+// LeakSanitizer reported it for every such test
+// (issues/fixed/async-continuation-pool-outlives-its-thread.md). The oracle
+// here is LeakSanitizer itself (Linux, leak verdicts on).
+test("a synchronous await leaves no pooled continuation node behind", {
+  io.await(yield(io), io);
+  io.await(yield(io), io);
+});
 // ---------------------------------------------------------------------------
 // 1. Basic lazy async – verify task doesn't run until awaited
 // ---------------------------------------------------------------------------
