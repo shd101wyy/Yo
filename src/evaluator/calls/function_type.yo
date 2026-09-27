@@ -1969,7 +1969,14 @@ Result type: ${type_to_string(result_box)}`
           // validated at specialization time), so the swallow is correct
           // here; only the final compare throws. Uses the DEEP some-type
           // scan — `-> Tuple(T)` must qualify, not just a bare `T`.
-          if(type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()), {
+          // Every deferred generic body is trialled (Phase 6 step 2): the
+          // trial re-raises an error no instantiation can fix
+          // (`generic_trial_independent_error`), which a never-called
+          // generic otherwise never reported. The RESULT-type comparison
+          // below still runs only when the result mentions a type variable,
+          // the case it was written for.
+          dg_check_result := type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new());
+          {
             dg_where := match(
               expr,
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
@@ -2083,100 +2090,102 @@ Result type: ${type_to_string(result_box)}`
             if(!(dg_fv_was) && flow_violation_pending(), {
               clear_flow_violation();
             });
-            match(
-              dg_out.get(usize(0)),
-              .Some(dg_body) => match(
-                expr_info_table_get(ctx.expr_info_table, ast_expr_id(dg_body)),
-                .Some(dg_info) => {
-                  // Pure-unwind bodies are control functions discarding the
-                  // continuation — no return type to check.
-                  dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
-                  dg_expected := cond(
-                    result_is_ref => t_ptr(result_box),
-                    true => result_box
-                  );
-                  // Expected bare SomeT that is NOT this fn's own forall: the
-                  // generic var is bound by the CALL SITE (e.g. effect-handler
-                  // `-> T`), so a concrete body is the correct shape.
-                  dg_own_forall_skip := match(
-                    dg_expected,
-                    .SomeT({ name : dg_sname }) => {
-                      (dg_found : bool) = false;
-                      (dg_fi : usize) = usize(0);
-                      while(dg_fi < forall_labels.len(), {
-                        if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
-                          dg_found = true;
+            if(dg_check_result, {
+              match(
+                dg_out.get(usize(0)),
+                .Some(dg_body) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(dg_body)),
+                  .Some(dg_info) => {
+                    // Pure-unwind bodies are control functions discarding the
+                    // continuation — no return type to check.
+                    dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
+                    dg_expected := cond(
+                      result_is_ref => t_ptr(result_box),
+                      true => result_box
+                    );
+                    // Expected bare SomeT that is NOT this fn's own forall: the
+                    // generic var is bound by the CALL SITE (e.g. effect-handler
+                    // `-> T`), so a concrete body is the correct shape.
+                    dg_own_forall_skip := match(
+                      dg_expected,
+                      .SomeT({ name : dg_sname }) => {
+                        (dg_found : bool) = false;
+                        (dg_fi : usize) = usize(0);
+                        while(dg_fi < forall_labels.len(), {
+                          if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
+                            dg_found = true;
+                          });
+                          dg_fi = (dg_fi + usize(1));
                         });
-                        dg_fi = (dg_fi + usize(1));
-                      });
-                      !(dg_found)
-                    },
-                    _ => false
-                  );
-                  dg_trial_ty := dg_info.ty;
-                  // Only a FULLY CONCRETE trial result can convict — a trial
-                  // type still carrying SomeTs unifies at specialization time
-                  // (the prelude Box-Clone impl false-fired on an
-                  // abstract-vs-abstract exact compare and abandoned the whole
-                  // module load). A `unit` trial type is likewise no
-                  // conviction: the per-node swallows can degrade a
-                  // failing generic-body eval into a unit-typed "success"
-                  // (measured
-                  // false-fires: std ordered_map.get / imm set.to_list /
-                  // imm vec Index, corpus deque_self_cycle).
-                  dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
-                  dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
-                  // Parametricity twin of the anon-path fix (see
-                  // values/anonymous_function.yo): an own-forall SomeT return
-                  // can never be satisfied by a CONCRETE trial type; the exact
-                  // check alone cannot convict (unresolved SomeT unifies with
-                  // anything).
-                  dg_expected_is_some := is_some_type(dg_expected);
-                  // An `Impl(Trait, ...)` RESULT (a SomeT that is not one of
-                  // this fn's binders, carrying required traits) is satisfied
-                  // by ANY concrete body type — but only one that implements
-                  // every required trait. The own-forall skip above waved it
-                  // through unchecked, so `(fn() -> Impl(Foo))(Q(...))` for a
-                  // `Q` without `Foo` passed `check` and reached codegen as an
-                  // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
-                  if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
-                    dg_fam := judge_function_argument_markers(dg_expected, dg_trial_ty, dg_info.value, dg_env, ctx);
-                    match(
-                      dg_fam.offense,
-                      .Some(dg_fo) => {
-                        dg_fam_msg := `The body's value (type ${type_to_string(dg_trial_ty)}) cannot be returned as ${type_to_string(dg_expected)}: ${dg_fo}.`;
-                        raise_flow_violation(format_error_message(tok, dg_fam_msg), ctx, exn);
+                        !(dg_found)
                       },
-                      .None => ()
+                      _ => false
                     );
-                    match(
-                      impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env, dg_fam.judged),
-                      .Some(dg_rt) => {
-                        raise_flow_violation(format_error_message(tok, _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected)), ctx, exn);
-                      },
-                      .None => ()
-                    );
-                  });
-                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_invariant(dg_trial_ty, dg_expected))), {
-                    dg_exp_str := type_to_string(dg_expected);
-                    dg_got_str := type_to_string(dg_trial_ty);
-                    // Deliberate user-facing rejection — flagged for the def-time
-                    // re-raise (see the anon twin in values/anonymous_function.yo).
-                    raise_flow_violation(
-                      format_error_message(
-                        tok,
-                        `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
-                      ),
-                      ctx,
-                      exn
-                    );
-                  });
-                },
+                    dg_trial_ty := dg_info.ty;
+                    // Only a FULLY CONCRETE trial result can convict — a trial
+                    // type still carrying SomeTs unifies at specialization time
+                    // (the prelude Box-Clone impl false-fired on an
+                    // abstract-vs-abstract exact compare and abandoned the whole
+                    // module load). A `unit` trial type is likewise no
+                    // conviction: the per-node swallows can degrade a
+                    // failing generic-body eval into a unit-typed "success"
+                    // (measured
+                    // false-fires: std ordered_map.get / imm set.to_list /
+                    // imm vec Index, corpus deque_self_cycle).
+                    dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
+                    dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
+                    // Parametricity twin of the anon-path fix (see
+                    // values/anonymous_function.yo): an own-forall SomeT return
+                    // can never be satisfied by a CONCRETE trial type; the exact
+                    // check alone cannot convict (unresolved SomeT unifies with
+                    // anything).
+                    dg_expected_is_some := is_some_type(dg_expected);
+                    // An `Impl(Trait, ...)` RESULT (a SomeT that is not one of
+                    // this fn's binders, carrying required traits) is satisfied
+                    // by ANY concrete body type — but only one that implements
+                    // every required trait. The own-forall skip above waved it
+                    // through unchecked, so `(fn() -> Impl(Foo))(Q(...))` for a
+                    // `Q` without `Foo` passed `check` and reached codegen as an
+                    // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
+                    if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
+                      dg_fam := judge_function_argument_markers(dg_expected, dg_trial_ty, dg_info.value, dg_env, ctx);
+                      match(
+                        dg_fam.offense,
+                        .Some(dg_fo) => {
+                          dg_fam_msg := `The body's value (type ${type_to_string(dg_trial_ty)}) cannot be returned as ${type_to_string(dg_expected)}: ${dg_fo}.`;
+                          raise_flow_violation(format_error_message(tok, dg_fam_msg), ctx, exn);
+                        },
+                        .None => ()
+                      );
+                      match(
+                        impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env, dg_fam.judged),
+                        .Some(dg_rt) => {
+                          raise_flow_violation(format_error_message(tok, _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected)), ctx, exn);
+                        },
+                        .None => ()
+                      );
+                    });
+                    if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_invariant(dg_trial_ty, dg_expected))), {
+                      dg_exp_str := type_to_string(dg_expected);
+                      dg_got_str := type_to_string(dg_trial_ty);
+                      // Deliberate user-facing rejection — flagged for the def-time
+                      // re-raise (see the anon twin in values/anonymous_function.yo).
+                      raise_flow_violation(
+                        format_error_message(
+                          tok,
+                          `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
+                        ),
+                        ctx,
+                        exn
+                      );
+                    });
+                  },
+                  .None => ()
+                ),
                 .None => ()
-              ),
-              .None => ()
-            );
-          });
+              );
+            });
+          };
         }
       );
       expr
