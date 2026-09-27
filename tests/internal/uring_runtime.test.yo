@@ -1,0 +1,89 @@
+//! Pins the vendored io_uring ring layer in the emitted Linux async runtime
+//! (plans/DROP_LIBURING.md Phase 1).
+//!
+//! The Linux runtime stopped depending on liburing: the ring layer
+//! (setup/mmap, get_sqe, submit/enter, CQ peek/wait — the ~10 symbols that
+//! used to be linked from liburing.so) is emitted inline under the
+//! `__yo_uring_*` namespace, and the `#if __has_include(<liburing.h>)` /
+//! `#else`-stubs split is gone entirely — async I/O is always compiled on
+//! Linux. These pins hold that state: the vendored layer is present, the
+//! liburing surface is absent, and the common runtime's Linux timer arms
+//! through the vendored ring instead of the old `__YO_HAS_LIBURING` guard.
+//! The port of `tests/internal/gc_runtime_atomics.test.yo`'s technique: call
+//! the emitter functions directly and pin the emitted C text.
+{ String } :: import("std/string");
+{ Emitter } :: import("../../src/emitter.yo");
+{ generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
+{ generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
+{ generate_async_runtime_io_common, AsyncRuntimeOptions } :: import("../../src/codegen/async/runtime_io_common.yo");
+{ parse_target, host_target, is_target_linux } :: import("../../src/target.yo");
+{ assert, panic } :: import("std/assert");
+/// The emitted Linux platform runtime (sync helpers + the async section that
+/// carries the vendored ring layer).
+emit_linux_runtime :: (fn() -> String)({
+  em := Emitter.new();
+  generate_platform_sys_runtime_linux(em);
+  generate_async_runtime_io_linux(em);
+  em.print()
+});
+/// The shared common runtime as emitted for a Linux target (the section the
+/// Linux timer lives in).
+emit_linux_common :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-unknown-linux-gnu")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_linux(t), String.from("linux triple failed to parse as linux"));
+  opts := AsyncRuntimeOptions(
+    needs_cycle_gc : false,
+    timer_dispose_type_id : Option(i64).None
+  );
+  generate_async_runtime_io_common(em, t, opts);
+  em.print()
+});
+/// The macOS runtime, for the negative pin: the vendored layer must stay a
+/// Linux-only emission.
+emit_macos_runtime :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_io_macos(em);
+  em.print()
+});
+test("linux runtime: the vendored ring layer is emitted", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__yo_uring_queue_init(&__yo_io_ring, __YO_IO_RING_ENTRIES, &params)")), String.from("ring init call missing"));
+  assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("get_sqe missing"));
+  assert(c.contains(String.from("__YO_IORING_ENTER_GETEVENTS")), String.from("GETEVENTS enter missing"));
+  assert(c.contains(String.from("_Static_assert(sizeof(struct __yo_uring_sqe) == 64")), String.from("SQE layout assert missing"));
+  assert(c.contains(String.from("syscall(__NR_io_uring_setup, entries, p)")), String.from("setup syscall missing"));
+  assert(c.contains(String.from("__yo_uring_prep_cancel")), String.from("cancel prep missing"));
+});
+test("linux runtime: no liburing surface remains", {
+  c := emit_linux_runtime();
+  assert(!c.contains(String.from("#include <liburing.h>")), String.from("liburing.h include leaked back"));
+  assert(!c.contains(String.from("__has_include")), String.from("__has_include guard leaked back"));
+  assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("__YO_HAS_LIBURING leaked back"));
+  assert(!c.contains(String.from("io_uring_queue_init_params")), String.from("unprefixed io_uring_queue_init_params"));
+  assert(!c.contains(String.from("io_uring_get_sqe(")), String.from("unprefixed io_uring_get_sqe call"));
+  assert(!c.contains(String.from("io_uring_submit(")), String.from("unprefixed io_uring_submit call"));
+  assert(!c.contains(String.from("not supported without liburing")), String.from("stub-arm abort text leaked back"));
+  assert(!c.contains(String.from("io_uring_queue_exit")), String.from("unprefixed io_uring_queue_exit"));
+});
+test("linux runtime: the DEFER_TASKRUN probe is the plain GETEVENTS enter", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("(void)__yo_uring_getevents(&__yo_io_ring);")), String.from("zero-timeout probe not replaced by getevents"));
+  assert(!c.contains(String.from("__kernel_timespec")), String.from("timeout probe leftover"));
+});
+test("common runtime: the Linux timer arms through the vendored ring, unguarded", {
+  c := emit_linux_common();
+  assert(c.contains(String.from("__yo_async_sleep_start")), String.from("sleep symbol missing"));
+  assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("timer does not arm through the ring"));
+  assert(c.contains(String.from("__yo_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0)")), String.from("timerfd read prep changed"));
+  assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("timer feature guard leaked back"));
+  assert(!c.contains(String.from("No liburing: same symbol")), String.from("timer -ENOSYS stub arm leaked back"));
+});
+test("macos runtime: the vendored ring layer is not emitted", {
+  c := emit_macos_runtime();
+  assert(!c.contains(String.from("__yo_uring_queue_init")), String.from("ring layer leaked into the macOS runtime"));
+});

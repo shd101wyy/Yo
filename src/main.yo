@@ -2267,7 +2267,8 @@ _path_has_extension :: (fn(p : String) -> bool)({
   last_dot > (last_slash + isize(1))
 });
 /// One removal attempt under a swallowing handler (the `unwind` needs its own
-/// fn boundary, same pattern as `_probe_liburing`). Success is signalled by
+/// fn boundary — the swallowing-probe pattern used throughout this file).
+/// Success is signalled by
 /// the push; a throw of any kind leaves `ok` empty.
 _try_remove_once :: (fn(path : String, io : Io, ok : ArrayList(bool)) -> unit)({
   try_exn := Exception(
@@ -2307,26 +2308,12 @@ _remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
     println(`  warning: could not remove batch artifact ${path} (still locked?) — leaving it behind`);
   });
 });
-/// Is liburing available for linking? Probes `pkg-config --exists liburing`.
-///
-/// LOAD-BEARING ON LINUX. `codegen/async/runtime_io_linux.yo` emits io_uring
-/// calls guarded by `#if __has_include(<liburing.h>)`, so when the header IS
-/// present the emitted C references `io_uring_*` and the LINK fails without
-/// `-luring`. That is exactly how tests/io/bufio, tests/fs/{file,temp,walker},
-/// async_await and imm_string failed in CI with "undefined reference to
-/// io_uring_peek_batch_cqe" etc. while passing on macOS, which uses kqueue and
-/// never references those symbols. `compile` and `test` funnel through one
-/// link path, so the flag is added once here.
-///
-/// The probe runs under a SWALLOWING handler because `pkg-config` may not exist
-/// at all, in which case spawning throws. A swallowed probe leaves `out` empty,
-/// read as "not available", so a box without liburing still links.
 /// OpenSSL discovery for `std/crypto/tls` (plans/archive/D6_TLS_PLAN.md): run
 /// `pkg-config --cflags --libs openssl`, retrying under the Homebrew keg
 /// pkg-config paths on failure (brew does not put keg `.pc` dirs on the
 /// default path). Pushes `-I` dirs into `includes`, `-L` dirs into
-/// `libdirs`, and `true` into `ok` on success. Same swallowing-handler
-/// stance as `_probe_liburing`: no pkg-config / no openssl simply leaves
+/// `libdirs`, and `true` into `ok` on success. Same swallowing-handler stance as
+/// the probes here: no pkg-config / no openssl simply leaves
 /// `ok` empty and only tls users fail (at their own link) — everything
 /// else is unaffected. Result cached process-wide.
 (g_openssl_probe : Option(bool)) = Option(bool).None;
@@ -2411,20 +2398,6 @@ _probe_openssl :: (fn(io : Io) -> bool)({
       false
     }
   )
-});
-_probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
-  probe_exn := Exception(
-    throw : (
-      (_e) -> {
-        unwind(());
-      }
-    )
-  );
-  probe := Command.new(String.from("pkg-config"));
-  probe.arg(String.from("--exists"));
-  probe.arg(String.from("liburing"));
-  st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
-  out.push(st.raw == i32(0));
 });
 /// AddressSanitizer functionality probe: compile a trivial C program
 /// with `-fsanitize=address` via the SYSTEM `cc` (probed
@@ -4636,7 +4609,7 @@ run_compile :: (
   });
   // --shared-library: the executable link line with `-shared -fPIC` and no
   // `main` — the emission already left the wrapper out (plan §4.5.4). Every
-  // system library the runtime needs (-lm/-pthread/-luring/OpenSSL, below) is
+  // system library the runtime needs (-lm/-pthread/OpenSSL, below) is
   // linked into the library itself, so a consumer needs only -l<name>.
   if(shared_library, {
     cmd.arg(String.from("-shared"));
@@ -4747,17 +4720,8 @@ run_compile :: (
     cmd.arg(String.from("-lm"));
     cmd.arg(String.from("-pthread"));
   });
-  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
-  // it every emitted `io_uring_*` reference is an undefined symbol at link time.
-  if(is_target_linux(target), {
-    ur := ArrayList(bool).new();
-    _probe_liburing(io, ur);
-    if(match(ur.get(usize(0)), .Some(b) => b, .None => false), {
-      cmd.arg(String.from("-luring"));
-    });
-  });
-  // OpenSSL for std/crypto/tls — the same probe-and-add stance as liburing
-  // (plans/archive/D6_TLS_PLAN.md): when pkg-config finds it, its include/lib dirs
+  // OpenSSL for std/crypto/tls (plans/archive/D6_TLS_PLAN.md): when
+  // pkg-config finds it, its include/lib dirs
   // and -lssl -lcrypto are added so a program importing the tls module
   // compiles and links; when absent, only tls users fail, at their own
   // build, with the linker naming the missing library.
