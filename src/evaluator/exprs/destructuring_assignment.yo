@@ -21,10 +21,9 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../../expr.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ Token, is_reserved_builtin_binding_name, is_yo_runtime_prefixed_name, note_builtin_binding_rejected } :: import("../../token.yo");
+{ Token, is_reserved_builtin_binding_name, note_builtin_binding_rejected } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { ToString } :: import("std/fmt");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 {
@@ -146,8 +145,7 @@ _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx :
   // renamed to): every call spelled with the name dispatches to the builtin,
   // so the binding could never run (twin of binding.yo's gate; the choke
   // point both destructuring branches already pass through).
-  if((is_reserved_builtin_binding_name(var_name.clone()) && !at.module_path.ends_with(String.from("std/prelude.yo"))) ||
-    (is_yo_runtime_prefixed_name(var_name.clone()) && !is_implicitly_unsafe_capable_file(Option(String).Some(at.module_path.clone())) && !at.module_path.contains(String.from(".yo_selftest_batch"))), {
+  if(is_reserved_builtin_binding_name(var_name.clone()) && !at.module_path.ends_with(String.from("std/prelude.yo")), {
     if(note_builtin_binding_rejected(`${at.module_path}:${at.row.to_string()}:${at.column.to_string()}`), {
       return(());
     });

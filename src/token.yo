@@ -121,16 +121,12 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
 /// WHOLE surface is reserved for bindings, like the reserved operators —
 /// every BF_/BK_ builtin spelled as a plain identifier, plus the unspellable
 /// `___drop`/`___dup` (underscores are identifier characters, so they are
-/// typeable), plus every `__yo`-prefixed name (the runtime's reserved
-/// namespace). Structural keywords (begin/cond/match/while/if/return/…)
-/// never lex as identifiers and need no entry. Trusted definitions are exempt
-/// at the gate sites, not here: the plain-name list skips `std/prelude.yo`
-/// (its `unsafe :: impl(…)` namespace module predates the rule); the `__yo`
-/// prefix skips implicitly-unsafe-capable modules (std/, the compiler's src/,
-/// `pragma(AllowUnsafe)` files — where the runtime's extern declarations live)
-/// and the test runner's generated `.yo_selftest_batch` files (the prefix
-/// exists exactly so compiler-minted names cannot collide with user code).
-is_yo_runtime_prefixed_name :: (fn(name : String) -> bool)(name.starts_with(String.from("__yo")));
+/// typeable). Structural keywords (begin/cond/match/while/if/return/…)
+/// never lex as identifiers and need no entry. `std/prelude.yo` is exempt at
+/// the gate sites (its `unsafe :: impl(…)` namespace module predates the
+/// rule). The `__yo` runtime prefix is NOT reserved yet: src/ binds 133
+/// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
+/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules.
 /// Idempotence for the reservation gates: a binding node can be evaluated
 /// MORE THAN ONCE (a `:=` inside comptime_expect_error is caught cleanly on
 /// the first evaluation, then a later pass re-evaluates the same node with
@@ -354,7 +350,6 @@ export(
   is_operator_char,
   is_reserved_operator_name,
   is_reserved_builtin_binding_name,
-  is_yo_runtime_prefixed_name,
   note_builtin_binding_rejected,
   is_identifier_start,
   is_identifier_continue,
