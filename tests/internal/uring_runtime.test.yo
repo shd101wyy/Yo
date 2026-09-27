@@ -92,6 +92,10 @@ test("linux runtime: the epoll fallback backend and the selection ladder are emi
   assert(c.contains(String.from("epoll_create1(EPOLL_CLOEXEC)")), String.from("epoll init missing"));
   assert(c.contains(String.from("__YO_BACKEND_EPOLL")), String.from("backend enum missing"));
   assert(c.contains(String.from("__yo_epoll_park")), String.from("pending-op machine missing"));
+  // One kernel interest per fd, shared by its read and write registrations
+  // (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md).
+  assert(c.contains(String.from("static int __yo_epoll_sync_fd(int fd)")), String.from("per-fd interest sync missing"));
+  assert(!c.contains(String.from("__yo_epoll_arm(")), String.from("per-direction arm is back"));
   assert(c.contains(String.from("YO_IO_BACKEND")), String.from("env override missing"));
   assert(c.contains(String.from("async I/O running on the epoll fallback")), String.from("fallback log line missing"));
   assert(c.contains(String.from("__YO_BACKEND_DEGRADED")), String.from("degraded rung missing"));

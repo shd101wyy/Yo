@@ -1459,8 +1459,12 @@ static void __yo_epoll_free_pending(__yo_epoll_pending_t* p) {
   __yo_epoll_pending_free = p;
 }
 
-// One registration per (fd, direction); epoll_event.data carries this
-// pointer. events is EPOLLIN or EPOLLOUT, always level-triggered.
+// One registration per (fd, direction), each with its own FIFO of waiters;
+// events is EPOLLIN or EPOLLOUT, always level-triggered. The KERNEL interest
+// is per fd, not per registration: epoll holds one entry per fd, so a read
+// and a write parked on the same socket share it (__yo_epoll_sync_fd). That
+// entry's data.ptr names one of the fd's registrations; dispatch reaches the
+// fd's other registration through the fd.
 typedef struct __yo_epoll_reg_t {
   int fd;
   uint32_t events;
@@ -1507,25 +1511,40 @@ typedef struct __yo_epoll_timer_node_t {
 } __yo_epoll_timer_node_t;
 static _Thread_local __yo_epoll_timer_node_t* __yo_epoll_timers = NULL;
 
-// Arm one registration with the kernel. A stale interest cannot exist: fds
-// are disarmed the moment their waiter list drains and on close, so EEXIST
-// is handled defensively with MOD, never silently ignored.
-static int __yo_epoll_arm(__yo_epoll_reg_t* reg) {
-  struct epoll_event ev;
-  memset(&ev, 0, sizeof(ev));
-  ev.events = reg->events;
-  ev.data.ptr = reg;
-  int rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, reg->fd, &ev);
-  if (rc < 0 && errno == EEXIST) {
-    rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, reg->fd, &ev);
-  }
-  return rc;
-}
-
 static void __yo_epoll_disarm(int fd) {
   struct epoll_event ev;
   memset(&ev, 0, sizeof(ev));
   epoll_ctl(__yo_epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+}
+
+// Make the kernel's single interest for fd match the fd's live registrations:
+// the union of their directions, data.ptr naming the first of them. No
+// registration left: DEL. A per-(fd, direction) ADD cannot work — the second
+// direction's ADD fails with EEXIST, and a MOD would REPLACE the first
+// direction's interest (and its data.ptr), stranding its waiters
+// (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md).
+static int __yo_epoll_sync_fd(int fd) {
+  uint32_t mask = 0;
+  __yo_epoll_reg_t* rep = NULL;
+  for (__yo_epoll_reg_t* r = __yo_epoll_regs; r; r = r->next) {
+    if (r->fd == fd) {
+      mask |= r->events;
+      if (!rep) rep = r;
+    }
+  }
+  if (!rep) {
+    __yo_epoll_disarm(fd);
+    return 0;
+  }
+  struct epoll_event ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.events = mask;
+  ev.data.ptr = rep;
+  int rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+  if (rc < 0 && errno == ENOENT) {
+    rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+  }
+  return rc;
 }
 
 static void __yo_epoll_wake(__yo_io_future_t* future) {
@@ -1558,16 +1577,17 @@ static __yo_epoll_pending_t* __yo_epoll_park(__yo_epoll_op_type op,
     reg->next = __yo_epoll_regs;
     __yo_epoll_regs = reg;
     first = true;
-    if (__yo_epoll_arm(reg) < 0) {
+    if (__yo_epoll_sync_fd(fd) < 0) {
       __yo_epoll_release_reg(reg);
+      __yo_epoll_sync_fd(fd);
       return NULL;
     }
   }
   __yo_epoll_pending_t* pending = __yo_epoll_alloc_pending();
   if (!pending) {
     if (first) {
-      __yo_epoll_disarm(fd);
       __yo_epoll_release_reg(reg);
+      __yo_epoll_sync_fd(fd);
     }
     return NULL;
   }
@@ -1599,8 +1619,9 @@ static void __yo_epoll_finish(__yo_epoll_pending_t* pending) {
 // until one would block (a spurious wakeup, or an earlier waiter consuming
 // the readiness). Level-triggered epoll keeps the registration reported
 // while readiness persists, so a would-block waiter simply stays parked —
-// no re-arm. When the list drains, disarm and release: a registration with
-// no waiters must never stay armed.
+// no re-arm. When the list drains, release the registration and re-sync the
+// fd's interest: a direction with no waiters must never stay armed (the
+// fd's other direction, if parked, keeps its interest).
 static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
   while (reg->waiters_head) {
     __yo_epoll_pending_t* pending = reg->waiters_head;
@@ -1701,8 +1722,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
     __yo_epoll_finish(pending);
   }
   if (!reg->waiters_head) {
-    __yo_epoll_disarm(reg->fd);
+    int fd = reg->fd;
     __yo_epoll_release_reg(reg);
+    __yo_epoll_sync_fd(fd);
   }
 }
 
@@ -1760,8 +1782,9 @@ static bool __yo_epoll_cancel(__yo_io_future_t* future) {
         future->result = -ECANCELED;
         __yo_epoll_finish(p);
         if (!reg->waiters_head) {
-          __yo_epoll_disarm(reg->fd);
+          int fd = reg->fd;
           __yo_epoll_release_reg(reg);
+          __yo_epoll_sync_fd(fd);
         }
         return true;
       }
@@ -1863,7 +1886,31 @@ static void __yo_epoll_drive(int timeout_ms, int* count_out) {
       if ((void*)reg == events[i].data.ptr) found_reg = reg;
       reg = reg->next;
     }
-    if (!found_reg) {
+    if (found_reg) {
+      // The interest is per fd (__yo_epoll_sync_fd): service every direction
+      // of this fd that the event covers. ERR/HUP wake both — the retried
+      // syscall reports the error. Snapshot first: servicing one direction
+      // can release it and re-sync the fd.
+      int fd = found_reg->fd;
+      uint32_t rev = events[i].events;
+      __yo_epoll_reg_t* todo[2] = { NULL, NULL };
+      int ntodo = 0;
+      for (__yo_epoll_reg_t* r = __yo_epoll_regs; r && ntodo < 2; r = r->next) {
+        if (r->fd == fd && ((r->events & rev) || (rev & (EPOLLERR | EPOLLHUP)))) {
+          todo[ntodo++] = r;
+        }
+      }
+      for (int k = 0; k < ntodo; k++) {
+        __yo_epoll_reg_t* live = __yo_epoll_regs;
+        while (live && live != todo[k]) live = live->next;
+        if (live) {
+          __yo_epoll_process_reg(live);
+          count++;
+        }
+      }
+      continue;
+    }
+    {
       __yo_epoll_timer_node_t* tn = __yo_epoll_timers;
       while (tn) {
         if ((void*)tn == events[i].data.ptr) {
@@ -1876,13 +1923,11 @@ static void __yo_epoll_drive(int timeout_ms, int* count_out) {
     if (found_timer) {
       __yo_epoll_process_timer(found_timer);
       count++;
-    } else if (found_reg) {
-      __yo_epoll_process_reg(found_reg);
-      count++;
     }
-    // An unknown data.ptr cannot happen: every registration is disarmed
-    // before it is released. If it ever did, ignoring the event is the safe
-    // answer (the loop re-checks its own counters).
+    // An unknown data.ptr: an event fetched in this batch for a registration
+    // an earlier event released (its fd was re-synced to a surviving
+    // registration, or DELeted). Ignoring it is correct — level-triggered
+    // epoll reports the live interest again on the next wait.
   }
   *count_out = count;
 }
