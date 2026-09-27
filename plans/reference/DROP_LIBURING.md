@@ -639,6 +639,24 @@ Stretch goal (post-Phase-6, evidence-gated): a C-level worker pool for file ops 
 epoll fallback, closing the cold-file loop-stall gap with macOS-parity as the baseline
 to beat.
 
+Considered and rejected (2026-09-27): **keeping an idle fd's EPOLLIN interest
+armed between parks**, libuv style.
+- **Saving:** 2 of the 5 syscalls on a parked epoll op (the ADD and the DEL).
+  Budget D on epoll would go from 12 to 8 per round.
+- **Why rejected:** an epoll interest belongs to the open file *description*,
+  not the fd number.
+  - An interest kept armed with no waiter outlives any `close()` that bypasses
+    the runtime's close hook: a raw libc `close`, or the last close of a
+    dup'd or inherited descriptor.
+  - `EPOLL_CTL_DEL` by number can then no longer reach it, so `epoll_wait`
+    reports it forever and the loop spins.
+  - The eager model has that exposure only while a waiter is parked, which is
+    already a misuse.
+- The parked epoll path runs at 0.65 of the ring's throughput on stock Linux.
+  The measured cost of the fallback is the price of not spinning.
+- **Revisit condition:** only with a registry that can prove every close of a
+  registered description goes through `__yo_io_close_hook`.
+
 ## 11. Lifecycle
 
 Phases 1+2 land → this doc tracks the campaign with per-phase "Landed" notes (the
