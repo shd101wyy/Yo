@@ -1,7 +1,7 @@
 # Order-dependent generic-slot stranding: `ptr: Expected T, Got *(u8)` at prelude:6801
 
-**Status:** OPEN (mechanism measured 2026-09-20; the fix below was
-implemented and REVERTED after A/B — see the end). Found 2026-09-20 while
+**Status:** FIXED (2026-09-26, by the binder identity of #939; the 2026-09-20
+fix below was implemented and reverted). Found 2026-09-20 while
 characterizing the doc_stability warm bug
 (issues/fixed/warm-test-batches-doc-stability-genericimplentry.md) — the two are
 siblings of the same shared-signature-slot disease.
@@ -82,3 +82,24 @@ misattributes. Both reverted; the record lives in
 issues/fixed/warm-test-batches-doc-stability-genericimplentry.md's 2026-09-20
 section. Reviving this fix requires enforcing the marker-before-concrete
 invariant at every concrete append site first.
+
+## Resolution (2026-09-26)
+
+The reverted fix tried to re-derive ownership from markers after the fact,
+and its invariant ("every concrete follows its own marker") did not hold.
+Type-system soundness Phase 3.8 (#939) removed the need for markers instead:
+a binding records the binder it resolves (`VariableRare.bound_some_id`,
+written by `_bind_some_type` for a named type parameter and by the Step-6b
+pre-bindings), and `_do_chain_resolve` (`src/types/env_lookup.yo`) accepts a
+concrete binding that carries a record without consulting `_was_self_bound`
+or `_def_frame_confirms_binding`. Those were the two checks that stranded this
+slot: the in-place bind had consumed the marker, and the shared slot's frame
+level had drifted. A same-named binder of another lineage is filtered out by
+`_binding_may_be_for`, which is what the reverted pairing was reaching for.
+
+The original repro depends on the binary's id luck and cannot be forced, so
+the gate is the mechanism itself: `tests/internal/env_lookup.test.yo`, "a
+recorded binder resolves without a marker or a matching frame". It builds a
+slot at a drifted frame level with its concrete binding and no marker. The
+slot stays abstract until the binding records the slot's id, then resolves,
+and a sibling binder named `T` still does not read it.

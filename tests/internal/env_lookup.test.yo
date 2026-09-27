@@ -3,7 +3,7 @@
 import("std/string");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32, t_some_t, t_trait_simple } :: import("../../src/types/creators.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, get_variables_from_env, variable_set_bound_some_id } :: import("../../src/env.yo");
 { EvalValue } :: import("../../src/value.yo");
 { get_trait_type_from_env, get_value_of_some_type_from_env } :: import("../../src/types/env_lookup.yo");
 { is_trait_type, is_some_type } :: import("../../src/types/guards.yo");
@@ -67,4 +67,23 @@ test("get_value_of_some_type_from_env: cycle detection returns SomeT", {
   _d := env.define_val(`T`, st, true, .Some(EvalValue.TypeVal(st)));
   r := get_value_of_some_type_from_env(env, st);
   assert(is_some_type(r), "self-bound SomeT stays SomeT (cycle safe)");
+});
+// issues/fixed/order-dependent-generic-slot-stranding-e0605.md: a shared
+// signature slot is minted at a deep frame level that says nothing about the
+// callee env's layout, and an in-place bind consumed the self-marker, so the
+// reader found the concrete but could neither pair it with a marker nor
+// confirm it by frame level, and left the slot abstract (E0605 at
+// `__yo_ptr_add`). A binding now records the binder it resolves: that record
+// alone decides, with no marker and no frame-level agreement, and a sibling
+// lineage's same-named binder does not read it.
+test("get_value_of_some_type_from_env: a recorded binder resolves without a marker or a matching frame", {
+  env := Environment.new(`test`);
+  slot := t_some_t(`T`, usize(7));
+  sibling := t_some_t(`T`, usize(7));
+  slot_id := match(slot, .SomeT({ id : sid }) => sid, _ => panic("t_some_t built no SomeT"));
+  _d := env.define_val(`T`, t_i32(), true, .Some(EvalValue.TypeVal(t_i32())));
+  assert(is_some_type(get_value_of_some_type_from_env(env, slot)), "an unrecorded, unconfirmed binding is not the slot's");
+  match(get_variables_from_env(env, `T`).get(usize(0)), .Some(v) => variable_set_bound_some_id(v, slot_id), .None => panic("T was not defined"));
+  assert(match(get_value_of_some_type_from_env(env, slot), .Int(_, _) => true, _ => false), "the recorded binder resolves");
+  assert(is_some_type(get_value_of_some_type_from_env(env, sibling)), "a sibling binder named T does not read it");
 });
