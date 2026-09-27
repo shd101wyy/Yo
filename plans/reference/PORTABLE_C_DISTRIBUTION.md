@@ -274,9 +274,10 @@ because the binary still needs `std/` sources at runtime.
 
 ### Work worth doing regardless of the one-file decision
 
-1. `issues/fixed/liburing-fallback-does-not-compile.md` — the `#else` arm does not
-   compile for programs using `sleep`. Breaks the "any C compiler" promise on
-   Linux **today**.
+1. ~~`issues/fixed/liburing-fallback-does-not-compile.md` — the `#else` arm does
+   not compile for programs using `sleep`. Breaks the "any C compiler" promise
+   on Linux **today**.~~ Fixed for good by `plans/DROP_LIBURING.md` Phase 1:
+   the `#else` arm no longer exists — async I/O is always compiled in.
 2. Make dispose/dyn type-ids position-independent (key on the dispose function
    _name_, not emission order). They are a single dense counter shared by four
    allocators, baked as literals and consumed by a `switch`; an innocuous
@@ -470,7 +471,12 @@ Design notes:
 
 Prerequisites to document per platform:
 
-- **The liburing trap, which this path makes MORE likely to be hit.** The
+- ~~**The liburing trap, which this path makes MORE likely to be hit.**~~
+  **Superseded 2026-09-26** by `plans/DROP_LIBURING.md` Phase 1: the emitted
+  runtime vendors the io_uring ring layer — no `<liburing.h>`, no `-luring`,
+  nothing to install. A Linux user of the one-file artifact needs only a C
+  compiler (kernel 5.6+ for the async operation set). The original trap, kept
+  for the record: The
   Linux C gates its whole io_uring subsystem on
   `#if __has_include(<liburing.h>)`, and the `#else` arm is stubs that only
   warn. Since the compiler reads every source file through `io.await`, a user

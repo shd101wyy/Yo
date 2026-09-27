@@ -576,7 +576,7 @@ static _Thread_local size_t __yo_pending_io_count = 0;
 static _Thread_local size_t __yo_active_watch_count = 0;
 
 // 每线程 I/O 后端（以 Linux 为例）
-static _Thread_local struct io_uring __yo_io_ring;
+static _Thread_local struct __yo_uring __yo_io_ring;
 ```
 
 这意味着：
@@ -615,7 +615,7 @@ int main(int argc, char** argv) {
 
 | 平台    | 后端                                            | 文件                    |
 | ------- | ----------------------------------------------- | ----------------------- |
-| Linux   | `io_uring`（通过 liburing）                     | `runtime-io-linux.ts`   |
+| Linux   | `io_uring`（内嵌环形层）                         | `runtime_io_linux.yo`   |
 | macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `runtime-io-macos.ts`   |
 | Windows | I/O 完成端口（IOCP）                            | `runtime-io-windows.ts` |
 | WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `runtime-io-wasm.ts`    |

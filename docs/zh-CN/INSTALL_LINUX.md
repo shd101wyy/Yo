@@ -8,18 +8,18 @@
 > 排查安装失败时才需要阅读本页。
 
 
-安装 **Clang**（推荐）、**liburing**（用于异步 I/O）和 **pkg-config**（用于系统库发现）：
+安装 **Clang**（推荐）和 **pkg-config**（用于系统库发现）。异步 I/O 不需要任何额外的库：运行时通过内嵌在生成 C 中的环形层直接使用 io_uring，只需要 Linux 内核 5.6 及以上：
 
 ```bash
 # Ubuntu/Debian
 $ sudo apt-get update
-$ sudo apt-get install clang liburing-dev pkg-config
+$ sudo apt-get install clang pkg-config
 
 # Fedora/RHEL
-$ sudo dnf install clang liburing-devel pkgconf-pkg-config
+$ sudo dnf install clang pkgconf-pkg-config
 
 # Arch Linux
-$ sudo pacman -S clang liburing pkgconf
+$ sudo pacman -S clang pkgconf
 ```
 
 你也可以通过传递 `--cc gcc` 或 `--cc zig` 使用 `gcc` 或 `zig` 代替 `clang`。
