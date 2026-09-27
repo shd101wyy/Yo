@@ -1077,6 +1077,11 @@ typedef struct __yo_io_future_t {
   // delivered for it. Set by the *_start function that registered the
   // operation. See __yo_async_io_cancel in the async runtime core.
   bool (*cancel_fn)(struct __yo_io_future_t*);
+  // Backend-private bookkeeping for an in-flight operation, NULL otherwise.
+  // The Linux ring backend links fd-bound operations into a per-descriptor
+  // list here, so closing the descriptor can cancel them (O(1) to unlink at
+  // completion). Zeroed by every constructor's memset.
+  void* backend_link;
 } __yo_io_future_t;
 
 // Forward declarations will be added here if needed
