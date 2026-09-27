@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 196 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 198 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 24 | 4 |
-| **Total** | **196** | **36** |
+| Other | 26 | 4 |
+| **Total** | **198** | **36** |
 
 ## Cross-cutting buckets
 
@@ -333,7 +333,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (24)
+### Other (26)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -345,9 +345,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
-| [`fv-z3-self-test-leaks-under-the-v0244-seed.md`](./fv-z3-self-test-leaks-under-the-v0244-seed.md) | — | — |
+| [`fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md`](./fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
+| [`local-binding-of-an-indexed-read-never-releases-its-element.md`](./local-binding-of-an-indexed-read-never-releases-its-element.md) | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
@@ -358,6 +359,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
+| [`verifier-z3-harness-self-test-leaks-40-bytes.md`](./verifier-z3-harness-self-test-leaks-40-bytes.md) | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |

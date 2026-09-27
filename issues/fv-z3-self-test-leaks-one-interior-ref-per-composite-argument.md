@@ -1,11 +1,25 @@
-# develop red: the FV job's z3 self-test leaks 40 bytes — only under the v0.2.44 seed's emit
+# develop red: the FV job's z3 self-test leaks 40 bytes — one leaked interior reference per heap-carrying composite call argument
 
 **Status: OPEN** — filed 2026-09-26; develop's battery has been red on this
-since the 16:52 run (every run since the release's SEED_VERSION bump to
-v0.2.44). It blocks every merge in the repository, including the whole
-DROP_LIBURING stack. Not caused by that stack: the red predates it (develop
-has none of its commits) and the stack's PR batteries skip the FV job
-(stacked reduced battery).
+since the 16:52 run. It blocks every merge in the repository, including the
+whole DROP_LIBURING stack (not caused by it: develop had none of its
+commits when the red started, and the stack's reduced batteries skip the
+FV job).
+
+**Retitled 2026-09-27 — the "only under the v0.2.44 seed" thesis was wrong**
+(correction by the evaluator-memory agent, PR #954, accepted after
+verification): the leak reproduces under every recent seed-built AND
+tree-built compiler with the pinned z3 5.1.0; the z3 4.16 arm of my matrix
+passed only because 4.1.6's verdict shapes route different JsonValue
+shapes through the leaking path. The z3-free mechanism: **every call whose
+arguments are heap-carrying composites (JsonValue and friends) leaks one
+interior reference per argument** — call-args are consumed by the callee,
+`ArrayList(T).push` retains composite elements, and
+`_schedule_scope_end_drops`' `is_owning_the_rc_value` gate never schedules
+non-own composite params, so their interiors are orphaned. Full dossier on
+PR #954 (mechanism, repro family, three gate experiments, the
+dispose-dispatch recursion the design-conformant gate exposes). The fix is
+with the evaluator-memory agent; this issue tracks the develop red.
 
 ## Symptom (CI, `Formal verification (pinned Z3)`)
 

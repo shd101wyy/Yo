@@ -7,7 +7,7 @@ COORDINATION 2026-09-27: the CI z3 case itself is being fixed by the
 drop-liburing agent (branch `fv-param-interior-drop`: by-value COMPOSITE
 params own their interior RC references — `_verdict_to_json(verdict)`'s
 VerifyVerdict — a different missing-drop site in the same family; their issue
-is `issues/fv-z3-self-test-leaks-under-the-v0244-seed.md`). Their fix does not
+is `issues/fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md`). Their fix does not
 obviously cover THIS issue's local-binding/DCE-tail site; this repro gets
 verified against their fix once pushed and this issue closes or follows up
 accordingly. The CI "v0.2.44 seed" correlation is disproven: the leak
