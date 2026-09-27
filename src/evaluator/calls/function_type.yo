@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
 {
   ExprInfo,
@@ -2047,7 +2047,13 @@ Result type: ${type_to_string(result_box)}`
             // A swallowed throw strands whatever the body pushed on the forcing
             // stacks (an impl abandoned inside the body) — truncate back.
             dg_depths := forcing_depths();
-            _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
+            // A trial kept only for its diagnostics (the result mentions no
+            // type variable, so there is no result comparison and no stamp
+            // any reader needs) runs on a FRESH-ID clone: an id-preserving
+            // clone writes the trial's abstract-typed ExprInfos onto the real
+            // body's nodes, which codegen reads for an `io.async` closure in
+            // it (`R` lowered to `void*`, tests/async_generic_future_return).
+            _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(body_expr)), dg_env, dg_ctx, dg_out);
             truncate_forcing_depths(dg_depths);
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();

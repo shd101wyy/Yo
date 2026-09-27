@@ -68,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
   make_capture_variable,
   mint_funcval_env_key,
   set_find_methods_from_generic_impls_fn,
-  set_force_in_flight_field_fn
+  set_force_in_flight_field_fn,
+  capture_env_for
 } :: import("../../env.yo");
 {
   MethodEntry,
@@ -5065,7 +5066,21 @@ evaluate_module_value :: (
                           register_func_type(d_fresh_id.clone(), d_sub_ty.clone());
                           d_saved_self := ctx.self_type;
                           ctx.self_type = Option(TypeValue).Some(receiver_ty.clone());
-                          ___df := env.push_frame(false);
+                          // The default is evaluated in ITS OWN definition scope (the trait's
+                          // module), built the way a call builds it (`capture_env_for`),
+                          // not in the impl's: a default body naming something its
+                          // module imports (`FormatSpec` in std/fmt/format.yo's
+                          // `format`) must not depend on what the implementing module
+                          // happens to import.
+                          d_env := capture_env_for(
+                            d_fvd.*.func_id.clone(),
+                            d_fvd.*.env_key,
+                            d_fvd.*.cap_names,
+                            d_fvd.*.cap_tys,
+                            d_cvs,
+                            ast_expr_token(d_fvd.*.body).module_path
+                          );
+                          ___df := d_env.push_frame(false);
                           d_pts := match(d_sub_ty, .Func({ param_types : d_ppts }) => d_ppts, _ => ArrayList(TypeValue).new());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
@@ -5088,7 +5103,7 @@ evaluate_module_value :: (
                             d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
                             d_pt := match(d_pts.get(d_pi), .Some(t) => t, .None => t_unit());
                             ___dpv := add_variable_to_env(
-                              env,
+                              d_env,
                               d_pn,
                               d_pt,
                               Option(EvalValue).Some(create_unknown_val(d_pt)),
@@ -5096,7 +5111,7 @@ evaluate_module_value :: (
                               false,
                               false,
                               false,
-                              synthetic_token(d_pn, env.module_path)
+                              synthetic_token(d_pn, d_env.module_path)
                             );
                             match(
                               ___dpv,
@@ -5114,9 +5129,9 @@ evaluate_module_value :: (
                           d_out := ArrayList(AstExpr).new();
                           d_depths := forcing_depths();
                           g_mat_default_err.clear();
-                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), env, ctx, d_out);
+                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), d_env, ctx, d_out);
                           truncate_forcing_depths(d_depths);
-                          env.pop_frame();
+                          d_env.pop_frame();
                           ctx.self_type = d_saved_self;
                           // Phase 6 step 2 (census site #14): with `Self` this
                           // impl's concrete receiver and a signature with no

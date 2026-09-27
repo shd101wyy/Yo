@@ -29,7 +29,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   make_err_expr,
   ast_expr_to_string,
-  BK_TUPLE
+  BK_TUPLE,
+  clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -1987,7 +1988,9 @@ Result type: ${type_to_string(decl_result_ty)}`
       dgc_out := ArrayList(AstExpr).new();
       dgc_fv_was := flow_violation_pending();
       dgc_depths := forcing_depths();
-      _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
+      // Diagnostic-only (no result comparison): a fresh-id clone, so the
+      // trial never stamps the real body's nodes (the named-fn twin).
+      _trial_eval_anon_body(if(dgc_check_result, body_for_def_eval.clone(), clone_expr_fresh_ids(body_for_def_eval)), dgc_env, dgc_ctx, dgc_out);
       truncate_forcing_depths(dgc_depths);
       // P0 (§4.6): forward reference — re-raise instead of discarding (the
       // dgc trial is the SILENT swallow otherwise; every other error class
