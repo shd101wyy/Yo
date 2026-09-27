@@ -103,8 +103,8 @@ above wrong.
 - The kernel floors in §3.5 are corrected per opcode.
 - Records:
   - `issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`
-  - `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
-  - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
+  - `issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
+  - `issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
   - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
   - `issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
   - `issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md`
@@ -157,7 +157,7 @@ interpolations) plus the Linux timer section of `src/codegen/async/runtime_io_co
 thread-local, `IORING_SETUP_SINGLE_ISSUER|COOP_TASKRUN|DEFER_TASKRUN` with a retry
 without flags for older kernels. Lazy ring creation on first submission (the #934
 RLIMIT_MEMLOCK fix). No registered buffers, no buffer rings, no multishot, no SQPOLL, no
-`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`). *(Corrected 2026-09-27: the code did a timerfd `READ`, which io_uring punts to an io-wq worker; a ring sleep is now one `IORING_OP_TIMEOUT` — `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`.)*
+`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`). *(Corrected 2026-09-27: the code did a timerfd `READ`, which io_uring punts to an io-wq worker; a ring sleep is now one `IORING_OP_TIMEOUT` — `issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`.)*
 
 Linked (non-inline) liburing symbols used — the complete list:
 

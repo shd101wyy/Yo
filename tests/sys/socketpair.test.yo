@@ -118,7 +118,7 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
 // purged their parked waiters; the io_uring backend did nothing — a ring
 // request holds its own file reference, so the recv stayed pending and this
 // test hung at the last await
-// (issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
+// (issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
 _pending_recv_fails_after_close :: (fn(io : Io) -> unit)({
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
@@ -149,7 +149,7 @@ test("closing an fd fails the recv still pending on it (epoll fallback)", {
 // io_uring backend it had no cancel path, so the kernel kept it and it
 // swallowed the next bytes sent to the socket — the second recv below then
 // waited forever for data the aborted task had taken
-// (issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
+// (issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
 _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());

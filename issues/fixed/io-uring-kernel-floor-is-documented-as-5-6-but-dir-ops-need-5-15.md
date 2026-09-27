@@ -1,6 +1,10 @@
 # The documented io_uring kernel floor (5.6) is wrong: rename/unlink need 5.11, mkdir/symlink/link need 5.15
 
-**Status: FIXED (2026-09-27), awaiting Linux CI.** Filed the same day from the DROP_LIBURING audit. The opcode list
+**Status: FIXED (2026-09-27).** Linux CI (#964, run 36341166428) runs the file and
+directory suites on io_uring on both architectures with the opcode probe in
+place, so the probe routes a current kernel's ops to the ring (**measured**). No
+runner has a pre-5.15 kernel, so routing an unsupported op to the synchronous
+path is **reasoned**, not run. Filed the same day from the DROP_LIBURING audit. The opcode list
 is **read from the code**; the per-opcode kernel versions come from the upstream
 io_uring history and were **not tested here**. The runtime behaviour predates the
 campaign. What is new is that DROP_LIBURING §3.5 and Phase 2's docs present "5.6+"

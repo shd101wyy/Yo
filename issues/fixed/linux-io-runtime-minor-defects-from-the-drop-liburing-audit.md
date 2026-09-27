@@ -41,7 +41,7 @@ resolved as stated. Filed 2026-09-27. None of them was a crash on the default
    1 ms.
 3. **Fixed.** The hook is `_Thread_local`, reset at cleanup. It is also now the
    ring's close path (`__yo_ring_drop_fd`,
-   `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`).
+   `issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md`).
 4. **Fixed.**
    - A value other than `auto`/`uring`/`epoll` exits with an error.
    - The fallback line names the likely cause on `ENOSYS`.
@@ -58,7 +58,7 @@ resolved as stated. Filed 2026-09-27. None of them was a crash on the default
    - The bench times in microseconds with no 0→1 substitution, labels the
      socketpair honestly, and adds a parked ping-pong.
    - The ring timer really was punted to io-wq and is now an
-     `IORING_OP_TIMEOUT` (`issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`).
+     `IORING_OP_TIMEOUT` (`issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`).
    - The table runs, informationally, in CI's I/O budgets job. `io-floors.env`
      is tightened from those measurements, not before them: pingpong 1.00,
      parked 0.50, timer 0.90, from the 2026-09-27 stock-Linux table.

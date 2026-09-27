@@ -83,7 +83,7 @@ test("common runtime: the Linux timer arms through the vendored ring, unguarded"
   assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("timer does not arm through the ring"));
   // A ring sleep is one IORING_OP_TIMEOUT, never a timerfd read (which io_uring
   // punts to an io-wq worker per tick —
-  // issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
+  // issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
   assert(c.contains(String.from("__yo_uring_prep_timeout(sqe, &timer_future->ts);")), String.from("ring sleep is not a timeout op"));
   assert(!c.contains(String.from("__yo_uring_prep_read(sqe, tfd")), String.from("timerfd read prep is back"));
   assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("timer feature guard leaked back"));

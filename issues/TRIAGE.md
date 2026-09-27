@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 194 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 192 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,7 +28,7 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
-| Async / effects | 31 | 7 |
+| Async / effects | 29 | 7 |
 | Codegen / emitted C | 19 | 3 |
 | Evaluator / types | 22 | 4 |
 | Std library | 54 | 14 |
@@ -36,7 +36,7 @@ Three things are worth knowing before trusting any row.
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 23 | 4 |
-| **Total** | **194** | **36** |
+| **Total** | **192** | **36** |
 
 ## Cross-cutting buckets
 
@@ -139,7 +139,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (31)
+### Async / effects (29)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -163,8 +163,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | OPEN — worked around in `std/thread | yes |
 | [`io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`](./io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md) | OPEN | — |
 | [`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`](./io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md) | — | yes |
-| [`io-uring-close-leaves-pending-ops-on-the-fd-running.md`](./io-uring-close-leaves-pending-ops-on-the-fd-running.md) | — | — |
-| [`io-uring-sleep-punts-every-tick-to-a-worker-thread.md`](./io-uring-sleep-punts-every-tick-to-a-worker-thread.md) | — | — |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | OPEN — analysis-verified hazard, not | — |
 | [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./spawn-blocking-degrades-to-inline-on-a-threadless-target.md) | OPEN — the behaviour is deliberate and | — |
 | [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | — | — |
