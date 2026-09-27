@@ -110,6 +110,37 @@ is_operator_char :: (fn(c : rune) -> bool)(
 is_reserved_operator_name :: (fn(name : String) -> bool)(
   (name == "=") || ((name == ":=") || ((name == "::") || ((name == ":") || ((name == "=>") || ((name == "->") || ((name == "<:") || ((name == "?=") || ((name == "&&") || ((name == "||") || ((name == "#") || ((name == "...#") || ((name == "..") || ((name == "..=") || ((name == "...") || (name == "==>")))))))))))))))
 );
+/// Plain-named BUILTIN dispatch names. Any call spelled with one of these
+/// names routes to the builtin in the evaluator AND codegen, so a user
+/// binding of the same name is silently hijacked — the definition can never
+/// run: `consume(x)` marked x consumed and leaked its reference, and probes
+/// of the rest mis-evaluated (typeof/asm/pragma/the/quote rejected with the
+/// builtin's own type errors; comptime_print/requires/&c. folded to unit;
+/// only `as` and `clone` happened to defer). Per the 2026-09-27 decision the
+/// WHOLE surface is reserved for bindings, like the reserved operators —
+/// every BF_/BK_ builtin spelled as a plain identifier, plus the unspellable
+/// `___drop`/`___dup` (underscores are identifier characters, so they are
+/// typeable). Structural keywords (begin/cond/match/while/if/return/…)
+/// never lex as identifiers and need no entry. `std/prelude.yo` is exempt at
+/// the gate sites (its `unsafe :: impl(…)` namespace module predates the
+/// rule). The `__yo` runtime prefix is NOT reserved yet: src/ binds 133
+/// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
+/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules.
+is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
+  (
+    ((name == "typeof") || ((name == "sizeof") || ((name == "alignof") || (name == "typeid")))) ||
+      ((name == "runtime") || ((name == "unwind") || ((name == "recur") || (name == "consume"))))
+  ) || (
+    ((name == "unsafe") || ((name == "pragma") || ((name == "asm") || (name == "global_asm")))) ||
+      ((name == "macro_expand") || (name == "va_start"))
+  ) || (
+    ((name == "comptime_assert") || ((name == "comptime_fn") || ((name == "comptime_print") || (name == "comptime_eval")))) ||
+      ((name == "comptime_read_file") || ((name == "comptime_json_parse") || (name == "comptime_toml_parse")))
+  ) || (
+    ((name == "requires") || ((name == "ensures") || ((name == "invariant") || (name == "decreases")))) ||
+      ((name == "assumed") || (name == "___drop") || ((name == "___dup") || (name == "dyn")))
+  ) || ((name == "the") || ((name == "as") || ((name == "clone") || (name == "quote"))))
+);
 is_identifier_start :: (fn(c : rune) -> bool)(
   (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))
 );
@@ -303,6 +334,7 @@ export(
   Token,
   is_operator_char,
   is_reserved_operator_name,
+  is_reserved_builtin_binding_name,
   is_identifier_start,
   is_identifier_continue,
   string_is_operator,

@@ -941,7 +941,7 @@ _TS_TEXT :: u8(2);
 /// (an unterminated literal is the lexer's diagnostic, not this scanner's).
 _skip_quoted_literal :: (fn(bytes : ArrayList(u8), at : usize) -> usize)({
   n := bytes.len();
-  quote := bytes(at);
+  qb := bytes(at);
   (i : usize) = (at + usize(1));
   (end : usize) = n;
   while(i < n, {
@@ -950,8 +950,8 @@ _skip_quoted_literal :: (fn(bytes : ArrayList(u8), at : usize) -> usize)({
       (b == u8(0x5C)) => {
         i = (i + usize(2));
       },
-      ((b == quote) || (b == u8(0x0A))) => {
-        end = cond((b == quote) => (i + usize(1)), true => i);
+      ((b == qb) || (b == u8(0x0A))) => {
+        end = cond((b == qb) => (i + usize(1)), true => i);
         i = n;
       },
       true => {

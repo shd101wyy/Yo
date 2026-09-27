@@ -158,7 +158,35 @@ artifacts bisected one-for-one against the develop binary; the five `doc-*`
 goldens are this box's git wording). Also in the PR:
 `issues/fixed/fixpoint-only-links-no-liburing-on-linux.md`.
 
-### 2.2b NEW (2026-09-27): `vi := list(i)` leaks one reference per binding — likely a large slice of §3.1
+### 2.2b RESOLVED 2026-09-27 (evening): the leak class was eliminated by RESERVING the builtin names (PR #958)
+
+The hijack root cause (see the issue for the full probe history): ANY user fn
+named `consume` has its calls silently replaced by the builtin — codegen emits
+only the argument, the evaluator marks the argument's variable CONSUMED, and
+the binding's scope drop is skipped while the boundary dup still emits: +1 per
+call site, in every program that defines a `consume` helper. Probing the whole
+builtin surface found the same hijack for every plain-named builtin except
+`as`/`clone` (fragile deferral). Per the user's decision, ALL of them plus the
+`__yo` prefix are now RESERVED for bindings (`is_reserved_builtin_binding_name`,
+`src/token.yo`; enforced at binder/initializer/destructure via
+`raise_flow_violation`; trusted `std/` exempt — it declares the runtime's own
+`__yo_*` externs and the `unsafe` namespace). markdown_yo v0.0.8 renamed its
+`consume` locals (the compiler's own dependency was the one ecosystem hit).
+The FV z3 red itself was fixed by the drop-liburing agent's #961.
+
+### 2.2c SESSION CLOSE (2026-09-27 night) — state for the next agent
+
+Landed this session: #951, #954, #955, #961(peer), #957 (census + g_match_arms
+owner purge + DynT exact-set test fix), #958 (builtin-name reservation).
+Remaining, re-ranked by the §0.18 census: §3.2 type_intern hash+verify
+(TypeValue 23,660 × ≈5.2 unexplained refs), §3.3 Phase 4 specialization
+population, §3.4 token diet, §3.5 leftovers, HOLDER_SCAN's Linux chunk-walk
+gap (coalesced anon regions defeat exact chain validation). Open issues:
+`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`
+(KNOWN follow-up: plain `yo check` swallows the reservation rejection —
+compile and the test runner enforce), the match-arm registry purge test
+exists; Pattern retention FIXED (#957). Peer sessions: drop-liburing's #961
+landed (develop FV green expected).
 
 Root-caused from the Linux CI "Formal verification" red (develop-side, both
 binaries), and the mechanism is now PROBE-VERIFIED (2026-09-27): when a
@@ -170,7 +198,7 @@ net +1 per binding. No trailing statement or a LIVE use: clean. Full table,
 `[sd]`/`[sd-fl]` probe transcripts and two fix directions (DCE a pure call
 statement to unit, not its argument atom; or scope the tail-atom exclusion
 to consumed block results) in
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`.
+`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`.
 `YO_DEBUG_SCOPE_DROPS=1` now ships on `mem/leak-group` (cached knobs). Fix
 must pass the dup/drop emit-diff gate + over-cancellation canary.
 

@@ -1824,7 +1824,7 @@ Next levers this re-ranks: (1) the Arm→Pattern single missing release
 (35,119 × Pattern, likely one codegen site — same family as the two live
 missing-drop bugs); (2) TypeValue intern retention (~5 unexplained refs per
 interned node); (3) the two open missing-drop bugs
-(`issues/local-binding-of-an-indexed-read-never-releases-its-element.md` and
+(`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md` and
 the drop-liburing agent's param-interior fix) land first — each shrinks the
 same ExprInfo/Variable/Environment mass.
 

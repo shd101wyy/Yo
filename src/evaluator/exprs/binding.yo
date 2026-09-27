@@ -23,7 +23,8 @@ import("std/fmt");
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ TokenKind, is_reserved_operator_name } :: import("../../token.yo");
+{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
@@ -279,6 +280,21 @@ evaluate_binding :: (
           `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
         )
       )
+    );
+  });
+  // Twin of the operator rule for plain-named BUILTINS: a binding of
+  // `consume`/`runtime`/`recur`/`dyn` can never be called — every call site
+  // spelled with the name dispatches to the builtin, silently. Reject the
+  // binding instead (the `consume` arm leaked the argument's reference before
+  // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
+  if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo")), {
+    raise_flow_violation(
+      format_error_message(
+        res_tok,
+        `"${res_tok.value}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+      ),
+      ctx,
+      exn
     );
   });
   // Reject type annotations that require comptime but binding is runtime.

@@ -50,7 +50,7 @@ owned by the drop-liburing agent (branch `fv-param-interior-drop`, their issue
 `issues/fv-z3-self-test-leaks-under-the-v0244-seed.md`). A SECOND missing-drop
 site in the same family (local `:=` binding of an indexed read whose only use
 DCEs to the argument-atom tail) is documented in
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`; this
+`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`; this
 issue closes when the param-interior fix lands. The run-history "seed"
 correlation is disproven — z3 5.1.0 reproduces the leak under v0.2.43-built
 compilers locally.

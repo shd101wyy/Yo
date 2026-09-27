@@ -349,8 +349,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`](./linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md) | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
-| [`local-binding-of-an-indexed-read-never-releases-its-element.md`](./local-binding-of-an-indexed-read-never-releases-its-element.md) | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
+| [`match-arm-registry-retains-every-generation-of-compiled-arms.md`](./match-arm-registry-retains-every-generation-of-compiled-arms.md) | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |

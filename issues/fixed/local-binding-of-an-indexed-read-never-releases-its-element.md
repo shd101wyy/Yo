@@ -1,7 +1,18 @@
 # `vi := list(i)` of a value-type element with RC fields leaks one reference per binding
 
 Found 2026-09-27 root-causing `issues/fixed/verifier-z3-harness-self-test-leaks-40-bytes.md`
-(Linux CI's "Formal verification (pinned Z3)" job, red on develop's tip). **Open.**
+(Linux CI's "Formal verification (pinned Z3)" job, red on develop's tip).
+
+> **FIXED 2026-09-27 (PR #958) — and not the leak it looked like.** Every leaking
+> repro below calls a user function named `consume`. That name is a builtin:
+> the call was dispatched to it, never ran, and marked the argument consumed.
+> That is the stranded reference. A by-name call of the same shape is
+> leak-free. The CI z3 red had an unrelated cause
+> (`issues/fixed/unit-recur-never-flushes-its-argument-drops.md`). The fix is the
+> reservation in the RESOLUTION section: binding any plain-named builtin is now an
+> error. The list is `is_reserved_builtin_binding_name` in `src/token.yo`, which
+> covers the whole plain-named builtin surface, not only the four names
+> first probed. The `__yo` prefix is not reserved.
 
 COORDINATION 2026-09-27: the CI z3 case itself is being fixed by the
 drop-liburing agent (branch `fv-param-interior-drop`: by-value COMPOSITE
@@ -201,4 +212,22 @@ caller's reference when the call is ELIDED). Implementing the caller-side
 gate concurrently would collide in the same function — per the standing
 coordination (PR #950 comments), their fix lands first, this issue's fix
 rebases on it and re-verifies both shapes plus the original matrix.
+## RESOLUTION (2026-09-27, user decision): reserve the plain-named builtins
+
+Rather than adjudicating user-vs-builtin at call sites, the user decided to
+**prohibit user definitions of the plain-named builtin keywords outright** —
+no bare function, no variable, no destructuring rename may bind
+`consume`/`runtime`/`recur`/`dyn` (the probed hijack set; `as` defers
+correctly, `the`/`quote` reject at parse, `unwind` was already reserved).
+Landed on branch `mem/builtin-name-reservation` (stacked on PR #957):
+`is_reserved_builtin_binding_name` in `src/token.yo`, enforced at the binder
+(`binding.yo`), the initializer's atom gate
+(`initialization_assignment.yo`), and the destructuring choke point
+(`_reject_shadowing`), all through `raise_flow_violation` so the rejection
+survives the def-time trial wall. Verified red (seed and gate-stashed tree:
+`comptime_expect_error` unfired) → green (3/3 in `tests/basic.test.yo`;
+`yo compile` rejects all four binding shapes with the positioned diagnostic;
+`check ./src` 279/279). Known follow-up: plain `yo check` swallows the
+rejection (pre-existing check-driver diagnostics gap for trial-swallowed
+rejections) — `yo compile` and the test runner both enforce.
 
