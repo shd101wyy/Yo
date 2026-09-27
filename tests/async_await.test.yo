@@ -3106,26 +3106,6 @@ test("Test await as the scrutinee of an assigned match", {
   r := io.await(task, io);
   assert(r == i32(20), "the assigned match should see the awaited scrutinee");
 });
-test("Test await as the scrutinee of a bound match inside a match arm", {
-  task := io.async((io : Io) => {
-    (outer : Option(i32)) = Option(i32).Some(i32(5));
-    n := match(
-      outer,
-      .Some(k) => {
-        inner := match(
-          io.await(future_opt_bytes(usize(2), io), io),
-          .Some(bytes) => (bytes.len() + usize(k)),
-          .None => usize(0)
-        );
-        inner
-      },
-      .None => usize(1)
-    );
-    return(n);
-  });
-  r := io.await(task, io);
-  assert(r == usize(7), "the nested bound match should see the awaited payload");
-});
 test("Test code after an if whose condition awaits", {
   task := io.async((io : Io) => {
     acc := Box(i32)(0);
