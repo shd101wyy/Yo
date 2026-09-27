@@ -1828,6 +1828,88 @@ interned node); (3) the two open missing-drop bugs
 the drop-liburing agent's param-interior fix) land first — each shrinks the
 same ExprInfo/Variable/Environment mass.
 
+**Corrections (2026-09-28, §0.19).** Three readings above did not hold up.
+- The Pattern row is not a missing release. The `+1` is the untracked `Arm`
+  in `g_match_arms`, which keeps one generation per re-evaluation
+  (`issues/fixed/match-arm-registry-retains-every-generation-of-compiled-arms.md`).
+- The heuristic chunk walk above could not support HOLDER_SCAN or
+  HOLDER_DEEP. The deep walk segfaulted on Linux, so no byte figures came
+  out of it.
+- The `:=` indexed-read "leak" was a user function named `consume` (#958),
+  not a missing drop.
+
+The LEAK group's real cause is §0.19.
+
+### 0.19 Closures never released their captures: the LEAK group was 38 `ExprInfoTable`s (2026-09-28)
+
+**The census, made exact on Linux.** The instrumented binary now re-executes
+itself under glibc tunables that make the heap walkable:
+- `arena_max=1` puts every thread in the main arena, one contiguous chain
+  over `[heap]`;
+- `tcache_count=0` and `mxfast=0` keep every freed chunk in a regular bin,
+  so the next chunk's `PREV_INUSE` bit is exact;
+- `mmap_threshold=32M` leaves only 32 MiB+ blocks as whole-mapping chunks.
+
+The walk is then glibc's own chunk chain, and the dump header says `exact 1`.
+The census's own tables live in private mappings the walk skips; they point
+at the unreached set and would otherwise count as holders. Two fixes in the
+deep walk (`HOLDER_DEEP`):
+- It no longer calls a `traverse_fn` read out of raw storage that merely
+  looks like a header. That was the segfault behind §0.18's missing byte
+  figures.
+- It scans an untracked object only up to `sizeof` its struct. The malloc
+  chunk's tail holds the previous occupant's stale words, which had credited
+  a 17 KB `HashMap(String, String)` with 339 MB of the AST.
+
+**The LEAK group, exactly.** `check src/main.yo` (develop @ a9e20aa4b,
+stage-2 C, system malloc) keeps 942.5 MB of RC objects at exit. 129.5 MB of
+that is LEAK: 1.49 M objects no root reaches even through untracked links.
+The breakdown:
+- 265 K `ExprInfo`, 155 K `Environment`, 91 K `Variable`, 154 K frame lists;
+- all of them held by the data arrays of **38 `HashMap(usize, ExprInfo)` —
+  whole `ExprInfoTable`s — with 472 references nothing released**.
+
+The first/last-8 rc-event window cannot follow an object dup'd thousands of
+times. A new mode can: `alloc_site_census_t.py --rc-balance` keeps each
+object's net refcount per call site, and a disposed object folds into a
+"freed" control histogram (`rc_balance_report.py` sums per function). Two
+functions retained the 38 live tables and appeared in none of the 3,571 freed
+ones:
+- `evaluate_anonymous_function_implementation`'s
+  `(e) => expr_info_table_get(info_tbl, …)`;
+- `analyze_await_points`'s `dyn((expr, …) => …get_info…)`.
+
+Each call leaked one reference to the table.
+
+**The cause** is a defect filed on 2026-09-12 and left half-fixed. A closure
+never released what it captured, and every seed from v0.2.29 to v0.2.44
+leaks the 14-line repro
+(`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md`). There
+were three pieces:
+- codegen's value drop/dup did nothing for a closure's `Impl(Fn)` SomeT; both
+  now walk the capture struct;
+- a bound closure's capture dups were emitted twice;
+- a closure literal passed as an argument had no owner; it now gets an owning
+  temp typed as its capture struct.
+
+`Thread.spawn`'s heap copy now retains its own fields; before, it relied on
+the call-site copy never being released.
+
+| exit census, `check src/main.yo` | develop | fixed |
+| --- | --- | --- |
+| RC bytes live at exit | 942.5 MB | **763.0 MB (−19 %)** |
+| LEAK (unreachable) | 129.5 MB / 1.49 M objects | **17.8 MB / 244 K** |
+| tracked objects at teardown | 1,619,099 | 634,407 |
+| leaked `ExprInfoTable`s | 38 | 0 |
+
+What LEAK still holds is mostly not leaks:
+- `Pattern` 35 K is the registry's untracked `Arm`s;
+- `TypeValue` 20.8 K has about 5.7 refs each from untracked holders (§3.2's
+  intern family);
+- `Environment` 10.6 K.
+
+Peak and wall time: see the A/B below.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.

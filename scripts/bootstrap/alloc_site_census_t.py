@@ -25,6 +25,12 @@ HS_ONLY_MARKED=1 the dump then carries `E <type> <events> rc=<n> alloc=<ra0> <ra
 rows for the marked leak roots — scripts/bootstrap/rc_event_report.py aggregates them (build
 with -g -fno-omit-frame-pointer). This is what found the HashMap rehash leak
 (issues/fixed/cond-unit-arm-statement-is-dropped.md).
+--rc-balance (a trailing flag; same hooks) keeps, per target object, the NET refcount
+change per call site in an 8192-slot table; a disposed object folds into a FREED
+histogram, a live one into a LIVE histogram at the dump. `B <live net> <freed net> <site> -`
+rows; scripts/bootstrap/rc_balance_report.py sums them per function. This is the tool
+for objects dup'd thousands of times (an ExprInfoTable), where the first/last-8 event
+windows of --rc-events say nothing (§0.19: the closure-capture leak).
 Dump rows: `S <live> <type label> <tag or -1> <ra0> <ra1> <summed capacity> <ra2> <ra3> <ra4>`
 (capacity is 0 for non-ArrayList types; ra2..ra4 come from the frame-record chain, so
 build with -fno-omit-frame-pointer); line 1 is the image base.
