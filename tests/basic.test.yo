@@ -2654,6 +2654,31 @@ test("a plain-named builtin cannot be bound: runtime/recur/dyn as variables", {
   comptime_expect_error(recur := 2, "names a builtin");
   comptime_expect_error(dyn := 3, "names a builtin");
 });
+test("every plain-named builtin is reserved for bindings", {
+  /// The full surface (probed 2026-09-27): typeof/sizeof/alignof/typeid,
+  /// the comptime_* family, asm/global_asm/macro_expand/unsafe/pragma,
+  /// requires/ensures/invariant/decreases/assumed/va_start,
+  /// the/as/clone/quote/dyn — a user fn of any of these is silently
+  /// hijacked by the builtin dispatch (or, for as/clone, only fragily
+  /// defers), so all are rejected at the binding sites.
+  comptime_expect_error(typeof := 1, "names a builtin");
+  comptime_expect_error(sizeof := 2, "names a builtin");
+  comptime_expect_error(alignof := 3, "names a builtin");
+  comptime_expect_error(typeid := 4, "names a builtin");
+  comptime_expect_error(asm := 5, "names a builtin");
+  comptime_expect_error(pragma := 6, "names a builtin");
+  comptime_expect_error(the := 7, "names a builtin");
+  comptime_expect_error(as := 8, "names a builtin");
+  comptime_expect_error(clone := 9, "names a builtin");
+  comptime_expect_error(quote := 10, "names a builtin");
+  comptime_expect_error(assumed := 11, "names a builtin");
+  comptime_expect_error(requires := 12, "names a builtin");
+  comptime_expect_error(comptime_print := 13, "names a builtin");
+});
+test("the __yo prefix is reserved for the runtime", {
+  comptime_expect_error(__yo_foo := 1, "names a builtin");
+  comptime_expect_error((__yo_bar : i32) = 2, "names a builtin");
+});
 test("a plain-named builtin cannot be destructured into, even renamed", {
   P :: struct(a : i32);
   p := P(a : 1);

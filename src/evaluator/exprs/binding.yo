@@ -10,6 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
+{ eprintln, ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -23,8 +24,9 @@ import("std/fmt");
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, is_yo_runtime_prefixed_name, note_builtin_binding_rejected } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
@@ -287,7 +289,11 @@ evaluate_binding :: (
   // spelled with the name dispatches to the builtin, silently. Reject the
   // binding instead (the `consume` arm leaked the argument's reference before
   // this gate: issues/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.clone()), {
+  if((is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo"))) ||
+    (is_yo_runtime_prefixed_name(res_tok.value.clone()) && !is_implicitly_unsafe_capable_file(Option(String).Some(res_tok.module_path.clone())) && !res_tok.module_path.contains(String.from(".yo_selftest_batch"))), {
+    if(note_builtin_binding_rejected(`${res_tok.module_path}:${res_tok.row.to_string()}:${res_tok.column.to_string()}`), {
+      return(BindingResult(expr : expr, variable_expr : lhs, variable_name : res_tok.value.clone()));
+    });
     raise_flow_violation(
       format_error_message(
         res_tok,
