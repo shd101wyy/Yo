@@ -30,7 +30,7 @@
 { EvalValue } :: import("../../value.yo");
 { t_comptime_string } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { file_exists_sync, read_file_sync, find_manifest } :: import("../../manifest.yo");
 { record_input_file, input_hashing_enabled } :: import("../../input_record.yo");
 { sha256_hex } :: import("std/crypto/sha256");
@@ -107,7 +107,7 @@ evaluate_comptime_read_file :: (
     );
   });
   arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
-  evaluated := evaluate_expression(arg, env, ctx);
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
   arg_value := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(info) => info.value,

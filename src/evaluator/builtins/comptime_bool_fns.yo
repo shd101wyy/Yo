@@ -33,7 +33,7 @@
 { t_bool, t_comptime_string } :: import("../../types/creators.yo");
 { is_bool_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is bool type with a value.
@@ -47,7 +47,7 @@ eval_bool_arg :: (
     exn : Exception
   ) -> ExprInfo
 )({
-  evaluated := evaluate_expression(arg, env, ctx);
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,

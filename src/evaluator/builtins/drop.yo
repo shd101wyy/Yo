@@ -21,7 +21,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { set_variable_as_consumed } :: import("./consume.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_drop :: (
   fn(
@@ -45,7 +45,7 @@ evaluate_drop :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
   match(
     arg_info_opt,

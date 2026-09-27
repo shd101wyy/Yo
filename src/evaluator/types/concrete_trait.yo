@@ -30,7 +30,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 evaluate_concrete_type :: (
   fn(
     expr : AstExpr,
@@ -61,7 +61,7 @@ evaluate_concrete_type :: (
     .None => make_err_expr()
   );
   // Evaluate the concrete-type expression.
-  evaluated := evaluate_expression(concrete_type_expr, env, ctx);
+  evaluated := evaluate_expression_raw(concrete_type_expr, env, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,

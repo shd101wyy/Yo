@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -259,7 +259,7 @@ _resolve_effect_arg :: (
     },
     true => {
       // Individual effect type — evaluate it
-      evaluated_expr := evaluate_expression(effect_expr, env, ctx);
+      evaluated_expr := evaluate_expression_raw(effect_expr, env, ctx, exn);
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_expr));
       match(
         info_opt,
@@ -327,7 +327,7 @@ evaluate_future_type :: (
   });
   // Evaluate output type (first arg)
   element_type_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  evaluated_elem_expr := evaluate_expression(element_type_expr, env, ctx);
+  evaluated_elem_expr := evaluate_expression_raw(element_type_expr, env, ctx, exn);
   elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_expr));
   elem_info := match(
     elem_info_opt,

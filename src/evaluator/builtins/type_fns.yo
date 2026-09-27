@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
   generate_expr_from_code,
   generate_exprs_from_code
@@ -118,7 +118,7 @@ evaluate_yo_type_to_string :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg0, env, ctx);
+  eval_arg := evaluate_expression_raw(arg0, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -397,7 +397,7 @@ evaluate_yo_type_contains_rc_type :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg0, env, ctx);
+  eval_arg := evaluate_expression_raw(arg0, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -455,7 +455,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg0, env, ctx);
+  eval_arg := evaluate_expression_raw(arg0, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -521,7 +521,7 @@ evaluate_yo_type_impls :: (
     }
   );
   // Evaluate arg0 (the type to check).
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -550,7 +550,7 @@ evaluate_yo_type_impls :: (
   });
   target_type := _extract_type_val(arg0, info0, "__yo_type_impls", exn);
   // Evaluate arg1 (the trait to check for).
-  eval1 := evaluate_expression(arg1, cur_env, ctx);
+  eval1 := evaluate_expression_raw(arg1, cur_env, ctx, exn);
   info1 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,
@@ -1115,7 +1115,7 @@ evaluate_yo_type_get_info :: (
       return(expr);
     }
   );
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -1412,7 +1412,7 @@ evaluate_comptime_eval :: (
       return(expr);
     }
   );
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -1506,7 +1506,7 @@ evaluate_comptime_string_to_expr :: (
       return(expr);
     }
   );
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -1608,7 +1608,7 @@ evaluate_type_join_fields :: (
     }
   );
   // Evaluate T.
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -1645,7 +1645,7 @@ evaluate_type_join_fields :: (
     );
   });
   // Evaluate mapper.
-  eval1 := evaluate_expression(arg1, local_env, ctx);
+  eval1 := evaluate_expression_raw(arg1, local_env, ctx, exn);
   info1 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,
@@ -1688,7 +1688,7 @@ evaluate_type_join_fields :: (
     }
   );
   // Evaluate combiner.
-  eval2 := evaluate_expression(arg2, local_env, ctx);
+  eval2 := evaluate_expression_raw(arg2, local_env, ctx, exn);
   info2 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval2)),
     .Some(i) => i,
@@ -1902,7 +1902,7 @@ evaluate_type_map_variants :: (
     }
   );
   // Evaluate T.
-  eval0 := evaluate_expression(arg0, env, ctx);
+  eval0 := evaluate_expression_raw(arg0, env, ctx, exn);
   info0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
@@ -1940,7 +1940,7 @@ evaluate_type_map_variants :: (
     );
   });
   // Evaluate mapper.
-  eval1 := evaluate_expression(arg1, local_env, ctx);
+  eval1 := evaluate_expression_raw(arg1, local_env, ctx, exn);
   info1 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,

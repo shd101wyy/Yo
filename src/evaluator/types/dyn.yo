@@ -43,7 +43,7 @@ import("std/fmt");
 { dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Returns the canonical id of a trait type for duplicate detection.
 /// Uses the `id` field on `TraitT` when populated; falls back to the
 /// pretty-printed type as an identity proxy.
@@ -169,7 +169,7 @@ evaluate_dyn_type :: (
       ),
       trait_arg
     );
-    eval_trait := evaluate_expression(actual_arg, cur_env, ctx);
+    eval_trait := evaluate_expression_raw(actual_arg, cur_env, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_trait));
     trait_info := match(
       info_opt,

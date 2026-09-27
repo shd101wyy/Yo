@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { cwd } :: import("std/env");
 { stat } :: import("std/libc/sys/stat");
 { GlobalAllocator } :: import("std/allocator");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ evaluate_import :: (
     }
   );
   // Evaluate the argument — it must yield a comptime string.
-  evaluated_arg := evaluate_expression(module_arg, env, ctx);
+  evaluated_arg := evaluate_expression_raw(module_arg, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
   arg_info := match(
     arg_info_opt,

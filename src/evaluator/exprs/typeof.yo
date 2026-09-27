@@ -26,7 +26,7 @@ import("std/fmt");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { expr_info_adopt_env } :: import("../../expr_info.yo");
 /// Evaluate `typeof(expr)`. Returns the same FnCall node, with its
 /// `ExprInfo` filled in (env, ty = meta-type of arg, value = TypeVal(arg-type)).
@@ -61,7 +61,7 @@ evaluate_typeof :: (
     .Atom(_, _) => make_err_expr()
   );
   // Recursively evaluate the argument.
-  evaluated := evaluate_expression(type_expr, env, ctx);
+  evaluated := evaluate_expression_raw(type_expr, env, ctx, exn);
   // Read its info from the side table.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(

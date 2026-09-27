@@ -37,7 +37,7 @@ import("std/string");
 { is_expr_type } :: import("../../types/guards.yo");
 { are_values_equal } :: import("../utils.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // evaluate_yo_expr_is_atom
@@ -64,7 +64,7 @@ evaluate_yo_expr_is_atom :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -140,7 +140,7 @@ evaluate_yo_expr_is_fn_call :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -216,7 +216,7 @@ evaluate_yo_expr_get_callee :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -313,7 +313,7 @@ evaluate_yo_expr_get_args :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -417,7 +417,7 @@ evaluate_yo_expr_to_string :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -504,7 +504,7 @@ evaluate_yo_expr_eq :: (
       return(expr);
     }
   );
-  eval_first := evaluate_expression(first_e, env, ctx);
+  eval_first := evaluate_expression_raw(first_e, env, ctx, exn);
   first_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_first)),
     .Some(i) => i,
@@ -547,7 +547,7 @@ evaluate_yo_expr_eq :: (
     }
   );
   cur_env := expr_info_adopt_env(first_info);
-  eval_second := evaluate_expression(second_e, cur_env, ctx);
+  eval_second := evaluate_expression_raw(second_e, cur_env, ctx, exn);
   second_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_second)),
     .Some(i) => i,

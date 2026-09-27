@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 /// Global registry: trait name → derive rule FuncVal EvalValue, stored
 /// globally because types are immutable enums.
@@ -108,7 +108,7 @@ evaluate_derive_rule :: (
     }
   );
   // Evaluate the derive function argument.
-  evaled_derive_fn := evaluate_expression(derive_fn_expr, env, ctx);
+  evaled_derive_fn := evaluate_expression_raw(derive_fn_expr, env, ctx, exn);
   derive_fn_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_derive_fn));
   derive_fn_info := match(
     derive_fn_info_opt,

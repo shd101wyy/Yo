@@ -50,7 +50,7 @@ import("std/fmt");
   type_id_or_empty
 } :: import("../values/type_trait_methods.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
@@ -197,7 +197,7 @@ try_to_specialize_trait_type :: (
       );
     });
     // Evaluate the constraint type expression.
-    evaluated := evaluate_expression(value_sub, caller_env, ctx);
+    evaluated := evaluate_expression_raw(value_sub, caller_env, ctx, exn);
     evaluated_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
     if(!match(evaluated_info_opt, .Some(info) => is_type_value(info.value), .None => false), {
       exn.throw(
