@@ -195,7 +195,7 @@ C 运行时被拆分为 `src/codegen/async/` 下的多个专注模块：
 | **readlink**                | ✅（同步）            | ✅（同步）            | ✅ (GetFinalPathNameByHandleW)                     |
 | **dup/dup2/pipe**           | ✅（同步）            | ✅（同步）            | ✅（同步）                                         |
 | **Socket 操作**             | ✅                    | ✅（kqueue 就绪通知） | ✅ (IOCP WSASend/WSARecv)                          |
-| **定时器 (sleep)**          | ✅ (timerfd+io_uring) | ✅ (EVFILT_TIMER)     | ✅（IOCP 等待超时）                                |
+| **定时器 (sleep)**          | ✅ (io_uring TIMEOUT; epoll fallback: timerfd) | ✅ (EVFILT_TIMER)     | ✅（IOCP 等待超时）                                |
 | **getdents/readdir**        | ✅ (getdents64)       | ✅（readdir 模拟）    | ✅ (FindFirstFileW/FindNextFileW)                  |
 | **access/realpath**         | ✅（同步）            | ✅（同步）            | ✅（同步）                                         |
 | **utime**                   | ✅（同步）            | ✅（同步）            | ✅（同步，FILE_WRITE_ATTRIBUTES 重新打开）         |
@@ -280,7 +280,7 @@ int __yo_io_wait(void);   // 阻塞，等待至少一个完成
 
 ### Linux：io_uring
 
-io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1+）：
+io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1 引入；本运行时的版本下限见下表）：
 
 - **提交队列 (SQ)**：用于提交 I/O 请求的环形缓冲区
 - **完成队列 (CQ)**：用于已完成 I/O 结果的环形缓冲区
@@ -294,9 +294,13 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1+）：
 
 | 内核版本            | 功能                                                                |
 | ------------------- | ------------------------------------------------------------------- |
-| **5.6+**           | 本运行时提交的操作集（openat/close/名称操作）                        |
+| **5.6+**           | 核心操作集：read/write、openat/close/statx/fsync、socket（accept/connect/send/recv/sendmsg/recvmsg） |
+| **5.11+**          | `renameat` / `unlinkat`（重命名、删除文件或目录）                    |
+| **5.15+**          | `mkdirat` / `symlinkat` / `linkat`（创建目录、符号链接、硬链接）      |
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` 设置标志——一并请求，内核拒绝时自动降级重试 |
 | **6.14+**          | 异步 `ftruncate`（更早的内核通过 future 返回 `-EINVAL`）              |
+
+若内核支持 io_uring 但早于某项操作所在行的版本，运行时会像 epoll 回退那样同步完成该操作。它在建立环形队列时向内核查询一次支持哪些操作码（`IORING_REGISTER_PROBE`），因此该操作仍然可用，而不会以 `-EINVAL` 失败。若 io_uring 完全无法初始化（Docker 默认 seccomp 配置、gVisor、加固内核等），运行时改用 epoll 回退，名称类操作以同步方式完成（见 `docs/zh-CN/ASYNC_AWAIT.md` 中的后端阶梯）。
 
 ### macOS：kqueue
 
@@ -397,7 +401,7 @@ case STATE_AWAIT_READ:
 ## 已修复的已知问题
 
 - **errno 命名冲突**：枚举变体解构（`.Other(errno)`）现在会在 C 代码生成中对变量名进行清洁化处理，以避免与 C 的 `errno` 宏冲突。
-- **定时器资源泄漏（Linux）**：timerfd 和读取缓冲区现在通过扩展 future 结构上的 `dispose_fn` 被正确跟踪和清理。
+- **定时器资源泄漏（Linux）**：epoll 回退的 timerfd 和读取缓冲区通过扩展 future 结构上的 `dispose_fn` 被正确跟踪和清理（io_uring 后端的 sleep 是 `IORING_OP_TIMEOUT`，不占用任何描述符）。
 - **c_include 常量上的位或运算**：`c_include` 常量（O_WRONLY、O_CREAT 等）持有 `UnknownValue`，导致选择了 `ComptimeBitOr`。在 `identifer-and-operator.ts` 中修复，将 extern "c" unknown 视为运行时值。
 - **导入命名空间常量的 C 代码生成访问**：像 `fcntl_io.O_NONBLOCK` 这样的表达式生成了无效的 C 代码（`/* skip generating: namespace */.FIELD`），因为导入的编译期命名空间值不会作为运行时表达式生成。在 `src/codegen/exprs/property-access.ts` 中修复。
 - **移除了 barrel 重导出**：`std/sys/index.yo` 已移除以避免命名冲突。用户直接导入子模块。

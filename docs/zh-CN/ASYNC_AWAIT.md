@@ -615,10 +615,10 @@ int main(int argc, char** argv) {
 
 | 平台    | 后端                                            | 文件                    |
 | ------- | ----------------------------------------------- | ----------------------- |
-| Linux   | `io_uring`（内嵌环形层），epoll 回退              | `runtime_io_linux.yo`   |
-| macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `runtime-io-macos.ts`   |
-| Windows | I/O 完成端口（IOCP）                            | `runtime-io-windows.ts` |
-| WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `runtime-io-wasm.ts`    |
+| Linux   | `io_uring`（内嵌环形层），epoll 回退              | `src/codegen/async/runtime_io_linux.yo`   |
+| macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `src/codegen/async/runtime_io_macos.yo`   |
+| Windows | I/O 完成端口（IOCP）                            | `src/codegen/async/runtime_io_windows.yo` |
+| WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `src/codegen/async/runtime_io_wasm.yo`    |
 
 #### WASM 异步支持
 
@@ -1271,7 +1271,23 @@ r2 := handle2.await(io); // Option(T)
 3. **降级（degraded）**——仅当 epoll 也不可用时：每个异步操作以 errno
    完成，而不是挂起或退出进程。
 
-选择过程从不是静默的：回退会向 stderr 输出一行日志。可通过
-`YO_IO_BACKEND` 环境变量固定后端用于测试或基准测试
+选择过程从不是静默的：回退会为每个 I/O 线程向 stderr 输出一行日志，写明
+errno（遇到 `ENOSYS` 时还会指出可能的原因——例如 Docker 默认配置这样的
+seccomp 过滤器）。可通过 `YO_IO_BACKEND` 环境变量固定后端用于测试或基准测试
 （`auto`（默认）| `uring` | `epoll`）；固定的后端初始化失败时是硬错误，
-而不是静默切换。
+而不是静默切换；其他取值同样是错误，因此拼写错误不会悄悄变成 `auto`。
+
+### 各后端的操作生命周期一致
+
+- **关闭描述符会结束其上仍在等待的操作**：它们以 `-EBADF` 完成（kqueue、
+  epoll 与 io_uring 相同——环形队列会取消自己的请求，因为 io_uring 请求持有
+  自己的文件引用，否则会比描述符活得更久）。
+- **中止任务会取消它正挂起其中的操作**，因此被中止的 `recv` 不会吞掉本应由
+  后续 `recv` 读到的数据。
+- **`send`/`recv`/`sendto`/`recvfrom` 的套接字可以是阻塞或非阻塞的**：
+  就绪型后端以 `MSG_DONTWAIT` 尝试这些调用。在 macOS 与 epoll 后端上，
+  `accept`、`connect` 以及对管道或终端的 `read`/`write` 需要非阻塞描述符
+  （std 创建的每个套接字与管道都是非阻塞的）；阻塞描述符会在调用期间阻塞
+  事件循环线程。io_uring 两种模式都能处理。
+- 向 backlog 已满的监听者发起 Unix 域 `connect` 时，io_uring 会一直重试直到
+  连接成功；epoll 回退则报告 `EAGAIN`——就绪通知无法表达“backlog 有空位”。

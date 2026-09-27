@@ -27,6 +27,54 @@ hard gate (CI job `io-budgets`) — measured: ring 2 enters/op linear, epoll
 <= 4 enters / <= 3 probes on either backend (the anti-spin rule). G4 came
 with Phase 5 (YO_IO_BACKEND + the never-silent fallback line).
 
+**Audit follow-up (2026-09-27).** A review of the merged stack found defects
+that the stack's own gates could not see. Several of them made the claims
+above wrong.
+
+- **Fixed:**
+  - The epoll fallback hung when one fd had both a parked reader and a parked
+    writer: one kernel interest per fd, but registered per direction.
+  - The ring ignored `close` (a request holds its own file reference) and
+    could not cancel an aborted read/write/recv/send/connect, so an aborted
+    recv swallowed later data.
+  - `__yo_uring_enter` returned `-1`, not `-errno`, so every EINTR retry was
+    dead.
+  - The DEGRADED rung spun.
+  - The close hook was a process global.
+  - A `YO_IO_BACKEND` typo silently meant `auto`.
+  - AF_UNIX `connect` with a full backlog was reported as connected on epoll.
+  - The readiness backends' inline socket ops blocked the loop on a blocking fd.
+  - Epoll registrations cost O(n) per park, event and cancel.
+  - §2.1's "sleep is timerfd + `POLL_ADD`" was wrong: it was timerfd + `READ`,
+    punted to an io-wq worker per tick. It is now one `IORING_OP_TIMEOUT`.
+  - The ring's poll submitted and then probed in two `io_uring_enter` calls.
+    Phase 6's "ring 2 enters/op" was that defect, not a floor: on stock Linux
+    it made the ring lose the inline ping-pong to epoll 1.74×. It is now one
+    enter per op.
+  - `io-floors.env` keyed the echo floor `echo_min_ratio` after the bench had
+    renamed the metric, so that floor checked nothing.
+- **Phase 6's numbers above were not like-for-like:**
+  - "echo" was an AF_UNIX socketpair that never parked.
+  - Timings were whole milliseconds.
+  - The counters saw none of epoll's inline syscalls.
+  - The budget program's "parked socket" parked nothing.
+- **Now:**
+  - The budgets count every syscall the runtime issues.
+  - Budget C holds a real parked recv, and budget D is a parked ping-pong.
+  - The bench times in microseconds and has a parked case.
+  - A forced-epoll corpus job runs the async/io/net/thread suites on the
+    fallback.
+  - The Docker probe parks a socket op.
+  - The bench table runs, informationally, on every CI battery.
+- The kernel floors in §3.5 are corrected per opcode.
+- Records:
+  - `issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`
+  - `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
+  - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
+  - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
+  - `issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
+  - `issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md`
+
 Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
 (ring layer net +239), +~800 more with the epoll section; user binaries 0 undefined
 `io_uring_*`, no liburing in `ldd`; the generation-2 emit (new binary compiling the
@@ -75,7 +123,7 @@ interpolations) plus the Linux timer section of `src/codegen/async/runtime_io_co
 thread-local, `IORING_SETUP_SINGLE_ISSUER|COOP_TASKRUN|DEFER_TASKRUN` with a retry
 without flags for older kernels. Lazy ring creation on first submission (the #934
 RLIMIT_MEMLOCK fix). No registered buffers, no buffer rings, no multishot, no SQPOLL, no
-`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`).
+`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`). *(Corrected 2026-09-27: the code did a timerfd `READ`, which io_uring punts to an io-wq worker; a ring sleep is now one `IORING_OP_TIMEOUT` — `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`.)*
 
 Linked (non-inline) liburing symbols used — the complete list:
 
@@ -199,7 +247,8 @@ of ring mappings, not of who made them.
 
 | Capability | Kernel |
 | --- | --- |
-| The op set the runtime submits (`openat`/`close`/… the existing floor) | 5.6+ |
+| The core op set the runtime submits (`openat`/`close`/`statx`/sockets) | 5.6+ |
+| `renameat`/`unlinkat` · `mkdirat`/`symlinkat`/`linkat` (corrected 2026-09-27 by the audit — below these the op answers `-EINVAL`; `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`) | 5.11 · 5.15 |
 | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` flags | 5.19 / 6.0 / 6.1 — requested together, retried with no flags on rejection (existing logic, preserved verbatim) |
 | Async `ftruncate` (`IORING_OP_FTRUNCATE`) | 6.14+ |
 

@@ -26,20 +26,18 @@ pragma(Pragma.AllowUnsafe);
 /// event loop — the one operation in `std/sys` that exists purely to yield
 /// time back to the loop.
 ///
-/// Resolves to 8 on success (the size of the `timerfd` read the Linux
-/// implementation performs; macOS reports the same number deliberately, so
-/// the value carries no information) or a negative errno. Awaiting it is what
-/// arms the timer's completion; a future that is created and never awaited
-/// still holds the loop open until it fires.
+/// Resolves to 8 on success on every platform (historically the size of a
+/// `timerfd` read; the value carries no information) or a negative errno.
+/// Awaiting it is what arms the timer's completion; a future that is created
+/// and never awaited still holds the loop open until it fires.
 ///
-/// Each platform uses its native timer: `timerfd_create(CLOCK_MONOTONIC)`
-/// submitted through io_uring on Linux, a `kqueue` `EVFILT_TIMER` on macOS,
-/// threadpool timers on Windows and a sorted timer queue the loop drains on
-/// wasm. On Linux the io_uring ring layer is always compiled in
-/// (plans/DROP_LIBURING.md), so there is no built-without-liburing case: a
-/// kernel that cannot create a ring at all (pre-5.6, or seccomp-blocked as
-/// under Docker's default profile) fails at ring init before any operation,
-/// which is the degradation path that plan's Phase 5 replaces.
+/// Each platform uses its native timer. On Linux, io_uring uses one
+/// `IORING_OP_TIMEOUT` with no descriptor, and the epoll fallback (a kernel
+/// or sandbox without io_uring, such as Docker's default seccomp profile)
+/// uses a `timerfd` in its epoll set. macOS uses a `kqueue` `EVFILT_TIMER`,
+/// Windows threadpool timers, and wasm a sorted timer queue the loop drains.
+/// If Linux can create neither backend, the sleep completes at once with that
+/// errno instead of exiting the process (plans/DROP_LIBURING.md §3.6).
 sleep :: (fn(milliseconds : u64) -> IoFuture)(
   __yo_async_sleep_start(milliseconds)
 );

@@ -8,7 +8,7 @@
 > 排查安装失败时才需要阅读本页。
 
 
-安装 **Clang**（推荐）和 **pkg-config**（用于系统库发现）。异步 I/O 不需要任何额外的库：运行时通过内嵌在生成 C 中的环形层直接使用 io_uring，只需要 Linux 内核 5.6 及以上：
+安装 **Clang**（推荐）和 **pkg-config**（用于系统库发现）。异步 I/O 不需要任何额外的库：运行时通过内嵌在生成 C 中的环形层直接使用 io_uring，需要 Linux 内核 5.6 及以上（要让所有文件系统操作都走 io_uring 需 5.15 及以上——各操作的版本下限见 `docs/zh-CN/STD_SYS_MODULE.md`；io_uring 不可用时由 epoll 回退接管）：
 
 ```bash
 # Ubuntu/Debian

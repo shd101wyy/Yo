@@ -195,7 +195,7 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | **readlink**                | ✅ (sync)             | ✅ (sync)              | ✅ (GetFinalPathNameByHandleW)                        |
 | **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
 | **Socket ops**              | ✅                    | ✅ (kqueue readiness)  | ✅ (IOCP WSASend/WSARecv)                             |
-| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (EVFILT_TIMER)      | ✅ (IOCP wait timeout)                                |
+| **Timer (sleep)**           | ✅ (io_uring TIMEOUT; epoll fallback: timerfd) | ✅ (EVFILT_TIMER)      | ✅ (IOCP wait timeout)                                |
 | **getdents/readdir**        | ✅ (getdents64)       | ✅ (readdir emulation) | ✅ (FindFirstFileW/FindNextFileW)                     |
 | **access/realpath**         | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
 | **utime**                   | ✅ (sync)             | ✅ (sync)              | ✅ (sync, FILE_WRITE_ATTRIBUTES reopen)               |
@@ -280,7 +280,7 @@ int __yo_io_wait(void);   // Blocking, waits for at least one completion
 
 ### Linux: io_uring
 
-io_uring is Linux's modern async I/O interface (kernel 5.1+):
+io_uring is Linux's modern async I/O interface (introduced in kernel 5.1; this runtime's floors are below):
 
 - **Submission Queue (SQ)**: Ring buffer for submitting I/O requests
 - **Completion Queue (CQ)**: Ring buffer for completed I/O results
@@ -294,9 +294,13 @@ io_uring is Linux's modern async I/O interface (kernel 5.1+):
 
 | Kernel Version | Features                                                     |
 | -------------- | ------------------------------------------------------------ |
-| **5.6+**       | The operation set this runtime submits (openat/close/name ops) |
+| **5.6+**       | The core operation set: read/write, openat/close/statx/fsync, sockets (accept/connect/send/recv/sendmsg/recvmsg) |
+| **5.11+**      | `renameat` / `unlinkat` (rename, remove a file or directory) |
+| **5.15+**      | `mkdirat` / `symlinkat` / `linkat` (create a directory, symlink, hard link) |
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` setup flags — requested together, retried without flags when the kernel refuses |
 | **6.14+**      | Async `ftruncate` (older kernels answer `-EINVAL` through the future) |
+
+On a kernel that has io_uring but predates an operation's row, the runtime completes that operation synchronously, the way the epoll fallback does. It asks the kernel once, at ring setup (`IORING_REGISTER_PROBE`), which opcodes exist, so the operation still works rather than failing with `-EINVAL`. Where io_uring cannot initialise at all (kernel < 5.6's ring, Docker's default seccomp profile, gVisor, hardened kernels), the runtime runs on the epoll fallback, which completes the name operations synchronously (`docs/en-US/ASYNC_AWAIT.md`, the backend ladder).
 
 ### macOS: kqueue
 
@@ -397,7 +401,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 ## Known Issues Fixed
 
 - **errno naming conflict**: Enum variant destructuring (`.Other(errno)`) now sanitizes variable names in C codegen to avoid conflicts with C's `errno` macro.
-- **Timer resource leak (Linux)**: timerfd and read buffer are properly tracked and cleaned up via `dispose_fn` on an extended future struct.
+- **Timer resource leak (Linux)**: the epoll fallback's timerfd and read buffer are tracked and cleaned up via `dispose_fn` on an extended future struct (the io_uring backend's sleep is an `IORING_OP_TIMEOUT` and owns no descriptor).
 - **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue`, causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
 - **Imported namespace constant access in C codegen**: Expressions like `fcntl_io.O_NONBLOCK` emitted invalid C (`/* skip generating: namespace */.FIELD`) because imported comptime namespace values are not emitted as runtime expressions. Fixed in `src/codegen/exprs/property-access.ts`.
 - **Barrel re-export removed**: `std/sys/index.yo` removed to avoid naming conflicts. Users import submodules directly.

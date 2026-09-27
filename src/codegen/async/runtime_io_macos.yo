@@ -1005,7 +1005,7 @@ static void __yo_io_process_event(struct kevent* ev) {
         break;
       }
       case __YO_IO_OP_SEND: {
-        ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags);
+        ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1014,7 +1014,7 @@ static void __yo_io_process_event(struct kevent* ev) {
         break;
       }
       case __YO_IO_OP_RECV: {
-        ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags);
+        ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1024,7 +1024,7 @@ static void __yo_io_process_event(struct kevent* ev) {
       }
       case __YO_IO_OP_SENDTO: {
         ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
-                           pending->sendto.flags, (const struct sockaddr*)pending->sendto.addr,
+                           pending->sendto.flags | MSG_DONTWAIT, (const struct sockaddr*)pending->sendto.addr,
                            (socklen_t)pending->sendto.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
@@ -1035,7 +1035,7 @@ static void __yo_io_process_event(struct kevent* ev) {
       }
       case __YO_IO_OP_RECVFROM: {
         ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
-                             pending->recvfrom.flags, (struct sockaddr*)pending->recvfrom.addr,
+                             pending->recvfrom.flags | MSG_DONTWAIT, (struct sockaddr*)pending->recvfrom.addr,
                              (socklen_t*)pending->recvfrom.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
@@ -1813,7 +1813,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   atomic_init(&future->continuation_sm, NULL);
   
   // Try non-blocking send first
-  ssize_t result = send(sockfd, buf, len, flags);
+  ssize_t result = send(sockfd, buf, len, flags | MSG_DONTWAIT);
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
@@ -1858,7 +1858,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   atomic_init(&future->continuation_sm, NULL);
   
   // Try non-blocking recv first
-  ssize_t result = recv(sockfd, buf, len, flags);
+  ssize_t result = recv(sockfd, buf, len, flags | MSG_DONTWAIT);
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
@@ -1904,7 +1904,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   atomic_init(&future->continuation_sm, NULL);
   
   // Try non-blocking sendto first
-  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
+  ssize_t result = sendto(sockfd, buf, len, flags | MSG_DONTWAIT, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);
@@ -1952,7 +1952,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   atomic_init(&future->continuation_sm, NULL);
   
   // Try non-blocking recvfrom first
-  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
+  ssize_t result = recvfrom(sockfd, buf, len, flags | MSG_DONTWAIT, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
   if (result >= 0) {
     future->result = (int32_t)result;
     atomic_init(&future->state, -1);

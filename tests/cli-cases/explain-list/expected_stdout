@@ -67,7 +67,7 @@ E0904 — not supported in an io.async body that awaits
 
 An `io.async` body that awaits is lowered to a state machine, and a few constructs cannot be placed in one yet.
 
-An `io.await` must stand as a statement, as the value of `x := ...` or `x = ...`, as a `cond`/`match` arm value, as the FIRST `cond` condition, or inside a `while` body; hoist any other await into a local first (`r := io.await(f, io);`). An `if` whose body awaits must be written as the `cond` it expands to. A `match` whose arms await takes only plain variant patterns: bind the payload and match again inside the arm. An `inout(name) := ...` binding cannot live in such a body, because the state machine keeps a per-state copy of each local; read the value into a local instead.
+An `io.await` must stand as a statement, as the value of `x := ...`, `x = ...` or `return(...)`, as a `cond`/`match` arm value, as the FIRST `cond` condition, or inside a `while` body; hoist any other await into a local first (`r := io.await(f, io);`). An `if` whose body awaits must be written as the `cond` it expands to. A `match` whose arms await takes only plain variant patterns: bind the payload and match again inside the arm. An `inout(name) := ...` binding cannot live in such a body, because the state machine keeps a per-state copy of each local; read the value into a local instead.
 
 Example — this fails:
   inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));

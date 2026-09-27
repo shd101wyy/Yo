@@ -404,13 +404,14 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   return result;
 }
 
-// Installed by the epoll fallback's init (NULL otherwise): purge parked
-// async ops registered on a descriptor before it goes away, so parked
-// waiters do not outlive their fd and a reused fd number cannot collide
-// with a stale registration. The ring backend needs no hook: closing an fd
-// with pending ring ops makes the kernel cancel them, each through its own
-// CQE, which is what releases the ring's reference.
-static void (*__yo_io_close_hook)(int32_t) = NULL;
+// Installed by the backend's init (per thread — each loop thread picks its
+// own backend): before a descriptor goes away, end the async operations
+// still pending on it, so their waiters wake with -EBADF instead of
+// outliving the fd, and a reused fd number cannot collide with a stale
+// registration. epoll purges its parked waiters (__yo_epoll_drop_fd); the
+// ring must CANCEL its requests (__yo_ring_drop_fd) — a ring request holds
+// its own file reference, so closing the fd alone does not end it.
+static _Thread_local void (*__yo_io_close_hook)(int32_t) = NULL;
 
 static void __yo_file_close(int32_t fd) {
   ASYNC_DEBUG("[Io] close(%d)\\n", fd);
@@ -556,6 +557,17 @@ unsigned long __yo_io_stats_kernel_enters(void) {
 unsigned long __yo_io_stats_zero_timeout_enters(void) {
   return __yo_stats_zero_timeout_enters;
 }
+// io_syscalls counts every OTHER syscall the runtime issues on an operation's
+// behalf — the epoll fallback's inline and retried read/write/send/recv/
+// accept/connect/getsockopt/fstat/fcntl and its epoll_ctl calls, and the
+// inline datagram attempts both backends make. kernel_enters alone made the
+// fallback look free ("0 enters per op") while it was doing every syscall
+// inline; a budget over the SUM compares the backends honestly.
+static _Thread_local unsigned long __yo_stats_io_syscalls = 0;
+unsigned long __yo_io_stats_io_syscalls(void) {
+  return __yo_stats_io_syscalls;
+}
+#define __YO_SC(call) (__yo_stats_io_syscalls++, (call))
 // ============================================================================
 // Vendored io_uring ring layer (plans/DROP_LIBURING.md Phase 1)
 // ============================================================================
@@ -590,6 +602,9 @@ unsigned long __yo_io_stats_zero_timeout_enters(void) {
 #ifndef __NR_io_uring_enter
 #define __NR_io_uring_enter 426
 #endif
+#ifndef __NR_io_uring_register
+#define __NR_io_uring_register 427
+#endif
 
 #define __YO_IORING_SETUP_COOP_TASKRUN   (1U << 8)
 #define __YO_IORING_SETUP_SINGLE_ISSUER  (1U << 12)
@@ -605,6 +620,7 @@ unsigned long __yo_io_stats_zero_timeout_enters(void) {
 // include/uapi/linux/io_uring.h):
 #define __YO_IORING_OP_FSYNC         3
 #define __YO_IORING_OP_POLL_ADD      6
+#define __YO_IORING_OP_TIMEOUT       11
 #define __YO_IORING_OP_SENDMSG       9
 #define __YO_IORING_OP_RECVMSG       10
 #define __YO_IORING_OP_ACCEPT        13
@@ -791,12 +807,20 @@ static struct __yo_uring_sqe* __yo_uring_get_sqe(struct __yo_uring* ring) {
   return &ring->sq.sqes[ring->sq.sqe_tail++ & *ring->sq.ring_mask];
 }
 
+// Returns what the kernel returned, or -errno — liburing's convention, which
+// every caller's ret < 0 / ret == -EINTR test is written against
+// (syscall(2) itself returns -1 with errno set).
 static int __yo_uring_enter(struct __yo_uring* ring, uint32_t to_submit,
                             uint32_t min_complete, uint32_t flags) {
   __yo_stats_kernel_enters++;
-  if (min_complete == 0) __yo_stats_zero_timeout_enters++;
-  return (int)syscall(__NR_io_uring_enter, ring->ring_fd, to_submit,
-                      min_complete, flags, NULL, 0);
+  // A probe is a GETEVENTS entry that may not block; a plain submit
+  // (flags 0) is not one.
+  if ((flags & __YO_IORING_ENTER_GETEVENTS) && min_complete == 0) {
+    __yo_stats_zero_timeout_enters++;
+  }
+  long r = syscall(__NR_io_uring_enter, ring->ring_fd, to_submit,
+                   min_complete, flags, NULL, 0);
+  return (r < 0) ? -errno : (int)r;
 }
 
 // Publish every reserved SQE (fill the SQ array, release the tail) and enter.
@@ -817,8 +841,9 @@ static int __yo_uring_submit(struct __yo_uring* ring) {
   return __yo_uring_enter(ring, to_submit, 0, 0);
 }
 
-// The loop's main batching win in one syscall: publish the SQEs and block for
-// the first completion together.
+// The loop's main batching win in one syscall: publish the SQEs and wait for
+// wait_nr completions together. wait_nr == 0 does not block: it is the poll's
+// submit-and-reap, which also runs the deferred task work.
 static int __yo_uring_submit_and_wait(struct __yo_uring* ring,
                                       uint32_t wait_nr) {
   uint32_t mask = *ring->sq.ring_mask;
@@ -841,6 +866,58 @@ static int __yo_uring_submit_and_wait(struct __yo_uring* ring,
 // that makes them visible (it consumes nothing).
 static int __yo_uring_getevents(struct __yo_uring* ring) {
   return __yo_uring_enter(ring, 0, 0, __YO_IORING_ENTER_GETEVENTS);
+}
+
+// Which opcodes this kernel implements (IORING_REGISTER_PROBE, kernel 5.6 —
+// the ring's own floor). io_uring_setup succeeding says nothing about
+// individual ops: renameat/unlinkat arrived in 5.11, mkdirat/symlinkat/
+// linkat in 5.15, ftruncate later still, and an unimplemented op completes
+// with -EINVAL — so on 5.10 LTS create_dir would simply fail. Probed once
+// per ring; an op the kernel lacks is completed synchronously instead, the
+// same code the epoll fallback runs for it
+// (issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md).
+#define __YO_IORING_REGISTER_PROBE 8
+#define __YO_IO_URING_OP_SUPPORTED (1U << 0)
+#define __YO_IORING_PROBE_OPS 64
+struct __yo_uring_probe_op {
+  uint8_t op;
+  uint8_t resv;
+  uint16_t flags;
+  uint32_t resv2;
+};
+struct __yo_uring_probe {
+  uint8_t last_op;
+  uint8_t ops_len;
+  uint16_t resv;
+  uint32_t resv2[3];
+  struct __yo_uring_probe_op ops[__YO_IORING_PROBE_OPS];
+};
+static _Thread_local bool __yo_uring_ops_probed = false;
+static _Thread_local uint8_t __yo_uring_op_ok_table[__YO_IORING_PROBE_OPS];
+
+static void __yo_uring_probe_ops(struct __yo_uring* ring) {
+  struct __yo_uring_probe probe;
+  memset(&probe, 0, sizeof(probe));
+  long r = syscall(__NR_io_uring_register, ring->ring_fd, __YO_IORING_REGISTER_PROBE,
+                   &probe, __YO_IORING_PROBE_OPS);
+  __yo_stats_io_syscalls++;
+  if (r < 0) {
+    // No probe: assume every op the runtime uses exists, which is what the
+    // runtime did before probing; an unimplemented one reports -EINVAL.
+    __yo_uring_ops_probed = false;
+    return;
+  }
+  for (int i = 0; i < __YO_IORING_PROBE_OPS; i++) {
+    __yo_uring_op_ok_table[i] =
+        (i <= probe.last_op && i < probe.ops_len &&
+         (probe.ops[i].flags & __YO_IO_URING_OP_SUPPORTED)) ? 1 : 0;
+  }
+  __yo_uring_ops_probed = true;
+}
+
+static inline bool __yo_uring_op_ok(int op) {
+  if (!__yo_uring_ops_probed) return true;
+  return op >= 0 && op < __YO_IORING_PROBE_OPS && __yo_uring_op_ok_table[op];
 }
 
 // Returns 0 and sets *cqe_ptr, or -EAGAIN when the CQ ring is empty.
@@ -899,6 +976,12 @@ static inline void* __yo_uring_cqe_get_data(const struct __yo_uring_cqe* cqe) {
 // argument shapes mirror liburing's so the call sites keep their review
 // history; the field placements (which UAPI slot carries which argument) are
 // liburing's, verified against the kernel's opcode handlers.
+// The kernel's 64-bit timespec, the layout IORING_OP_TIMEOUT reads on every ABI.
+struct __yo_uring_timespec {
+  int64_t tv_sec;
+  long long tv_nsec;
+};
+
 static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
                                       int32_t fd, const void* addr,
                                       uint32_t len, uint64_t off) {
@@ -914,6 +997,15 @@ static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
   sqe->buf_index = 0;
   sqe->personality = 0;
   memset(sqe->__pad, 0, sizeof(sqe->__pad));
+}
+
+// A relative timeout (IORING_OP_TIMEOUT, kernel 5.4): count 0 makes it a
+// pure timer that other completions never satisfy; it completes with -ETIME
+// on expiry. The kernel copies *ts when the SQE is submitted, so ts must
+// live until then — the deferred-submit batch, so it lives in the future.
+static inline void __yo_uring_prep_timeout(struct __yo_uring_sqe* sqe,
+                                           struct __yo_uring_timespec* ts) {
+  __yo_uring_prep_rw(__YO_IORING_OP_TIMEOUT, sqe, -1, ts, 1, 0);
 }
 
 static inline void __yo_uring_prep_read(struct __yo_uring_sqe* sqe, int32_t fd,
@@ -1159,6 +1251,12 @@ static _Thread_local int __yo_backend_errno = 0;
 
 static _Thread_local int __yo_epoll_fd = -1;
 static void __yo_epoll_drop_fd(int fd);
+static void __yo_ring_drop_fd(int32_t fd);
+static bool __yo_ring_untrack_fd(__yo_io_future_t* future);
+static void __yo_ring_fd_teardown(void);
+// The Linux timer section (runtime_io_common.yo, always emitted after this
+// file on Linux) defines it; its identity tags a timer future in the CQE path.
+static bool __yo_timer_future_cancel(__yo_io_future_t* future);
 static bool __yo_epoll_cancel(__yo_io_future_t* future);
 static void __yo_epoll_drive(int timeout_ms, int* count_out);
 static void __yo_epoll_teardown(void);
@@ -1180,9 +1278,15 @@ static void __yo_io_init(void) {
   int forced = 0;  // 0 auto, 1 uring, 2 epoll
   {
     const char* env = getenv("YO_IO_BACKEND");
-    if (env) {
+    if (env && env[0] != 0) {
       if (strcmp(env, "uring") == 0) forced = 1;
       else if (strcmp(env, "epoll") == 0) forced = 2;
+      else if (strcmp(env, "auto") != 0) {
+        // A typo must not silently mean auto: the whole point of pinning is
+        // that a test or benchmark knows which path it measured.
+        fprintf(stderr, "[Yo] YO_IO_BACKEND=%s is not one of auto, uring, epoll\\n", env);
+        exit(1);
+      }
     }
   }
 
@@ -1209,6 +1313,8 @@ static void __yo_io_init(void) {
       __yo_backend = __YO_BACKEND_URING;
       __yo_tsan_ring_mapped(&__yo_io_ring);
       __yo_io_initialized = true;
+      __yo_io_close_hook = __yo_ring_drop_fd;
+      __yo_uring_probe_ops(&__yo_io_ring);
       __yo_io_notify_init();
       if (__yo_notify_efd >= 0) {
         __yo_io_arm_notify();
@@ -1220,7 +1326,8 @@ static void __yo_io_init(void) {
       fprintf(stderr, "[Yo] YO_IO_BACKEND=uring but io_uring is unavailable: %s\\n", strerror(-ret));
       exit(1);
     }
-    fprintf(stderr, "[Yo] io_uring unavailable (%s); async I/O running on the epoll fallback\\n", strerror(-ret));
+    fprintf(stderr, "[Yo] io_uring unavailable (%s%s); async I/O running on the epoll fallback\\n", strerror(-ret),
+            (ret == -ENOSYS) ? "; blocked by seccomp (e.g. Docker's default profile) or a pre-5.1 kernel" : "");
   }
 
   __yo_epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -1235,7 +1342,7 @@ static void __yo_io_init(void) {
       struct epoll_event ev;
       memset(&ev, 0, sizeof(ev));
       ev.events = EPOLLIN;
-      ev.data.ptr = (void*)(intptr_t)-1;
+      ev.data.fd = __yo_notify_efd;
       epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, __yo_notify_efd, &ev);
     }
     // Parked ops must not outlive their descriptor: route the always-emitted
@@ -1290,6 +1397,7 @@ static void __yo_io_cleanup(void) {
     __yo_sq_unsubmitted--;
     if (!future) continue;  // a cancellation SQE: no future, no pending slot
     __yo_pending_io_count--;
+    (void)__yo_ring_untrack_fd(future);
     future->result = -ECANCELED;
     future->state = -1;
     __yo_decr_rc((void*)future);
@@ -1298,9 +1406,11 @@ static void __yo_io_cleanup(void) {
   if (__yo_backend == __YO_BACKEND_URING) {
     __yo_tsan_ring_unmapping(&__yo_io_ring);
     __yo_uring_queue_exit(&__yo_io_ring);
+    __yo_ring_fd_teardown();
   } else if (__yo_backend == __YO_BACKEND_EPOLL) {
     __yo_epoll_teardown();
   }
+  __yo_io_close_hook = NULL;
   if (__yo_notify_efd >= 0) {
     close(__yo_notify_efd);
     __yo_notify_efd = -1;
@@ -1344,6 +1454,131 @@ static inline bool __yo_io_ring_submit_cancel(__yo_io_future_t* target) {
   return true;
 }
 
+// In-flight ring operations bound to a descriptor. A ring request holds its
+// own reference to the file, so closing the descriptor does NOT end it: a
+// parked recv on a closed socket would wait for data forever, and the task
+// awaiting it with it. The kqueue and epoll backends fail such waiters with
+// -EBADF when the fd closes (__yo_kq_drop_fd, __yo_epoll_drop_fd); the ring
+// matches that contract by cancelling every tracked operation on the fd
+// (IORING_OP_ASYNC_CANCEL by user data — kernel 5.5, under the ring's 5.6
+// floor) and reporting the resulting -ECANCELED as -EBADF.
+//
+// Buckets are indexed by fd (descriptors are small dense integers — libuv's
+// watcher array), each a doubly-linked list whose node the future points at
+// through backend_link: track, untrack and the per-close walk are all
+// proportional to the operations actually involved, never to the table.
+typedef struct __yo_ring_fd_node_t {
+  __yo_io_future_t* future;
+  struct __yo_ring_fd_node_t* prev;
+  struct __yo_ring_fd_node_t* next;
+  int fd;
+  bool closed;  // the fd closed under it: its -ECANCELED reports as -EBADF
+} __yo_ring_fd_node_t;
+static _Thread_local __yo_ring_fd_node_t** __yo_ring_fd_heads = NULL;
+static _Thread_local size_t __yo_ring_fd_cap = 0;
+static _Thread_local __yo_ring_fd_node_t* __yo_ring_fd_node_free = NULL;
+
+static inline int __yo_io_flush_sq(void);
+
+// Link future into fd's bucket. On allocation failure the op simply stays
+// untracked: it still completes and releases as before; only close-time
+// cancellation is lost for it.
+static void __yo_ring_track_fd(__yo_io_future_t* future, int fd) {
+  if (fd < 0) return;
+  if ((size_t)fd >= __yo_ring_fd_cap) {
+    size_t cap = __yo_ring_fd_cap ? __yo_ring_fd_cap : 64;
+    while (cap <= (size_t)fd) cap *= 2;
+    __yo_ring_fd_node_t** heads = (__yo_ring_fd_node_t**)__yo_realloc(
+        __yo_ring_fd_heads, cap * sizeof(__yo_ring_fd_node_t*));
+    if (!heads) return;
+    memset(heads + __yo_ring_fd_cap, 0,
+           (cap - __yo_ring_fd_cap) * sizeof(__yo_ring_fd_node_t*));
+    __yo_ring_fd_heads = heads;
+    __yo_ring_fd_cap = cap;
+  }
+  __yo_ring_fd_node_t* node = __yo_ring_fd_node_free;
+  if (node) {
+    __yo_ring_fd_node_free = node->next;
+  } else {
+    node = (__yo_ring_fd_node_t*)__yo_malloc(sizeof(__yo_ring_fd_node_t));
+    if (!node) return;
+  }
+  node->future = future;
+  node->fd = fd;
+  node->closed = false;
+  node->prev = NULL;
+  node->next = __yo_ring_fd_heads[fd];
+  if (node->next) node->next->prev = node;
+  __yo_ring_fd_heads[fd] = node;
+  future->backend_link = node;
+}
+
+// Unlink at completion. Returns whether the fd was closed under the
+// operation.
+static bool __yo_ring_untrack_fd(__yo_io_future_t* future) {
+  __yo_ring_fd_node_t* node = (__yo_ring_fd_node_t*)future->backend_link;
+  if (!node) return false;
+  future->backend_link = NULL;
+  bool closed = node->closed;
+  if (node->prev) {
+    node->prev->next = node->next;
+  } else {
+    __yo_ring_fd_heads[node->fd] = node->next;
+  }
+  if (node->next) node->next->prev = node->prev;
+  node->next = __yo_ring_fd_node_free;
+  __yo_ring_fd_node_free = node;
+  return closed;
+}
+
+// The fd is being closed: cancel every live tracked operation on it. A node
+// already marked closed belongs to an earlier descriptor with the same
+// number whose cancel is in flight. When the SQ is full, flush it and retry
+// once; a cancel that still cannot be queued leaves the operation to finish
+// on its own, exactly as before this path existed.
+static void __yo_ring_drop_fd(int32_t fd) {
+  if (fd < 0 || (size_t)fd >= __yo_ring_fd_cap) return;
+  for (__yo_ring_fd_node_t* node = __yo_ring_fd_heads[fd]; node; node = node->next) {
+    if (node->closed) continue;
+    node->closed = true;
+    if (!__yo_io_ring_submit_cancel(node->future)) {
+      __yo_io_flush_sq();
+      (void)__yo_io_ring_submit_cancel(node->future);
+    }
+  }
+}
+
+// Teardown: the ring is gone, so no tracked operation can complete through
+// it any more. Free the nodes and the table.
+static void __yo_ring_fd_teardown(void) {
+  for (size_t i = 0; i < __yo_ring_fd_cap; i++) {
+    __yo_ring_fd_node_t* node = __yo_ring_fd_heads[i];
+    while (node) {
+      __yo_ring_fd_node_t* next = node->next;
+      node->future->backend_link = NULL;
+      __yo_free(node);
+      node = next;
+    }
+  }
+  __yo_free(__yo_ring_fd_heads);
+  __yo_ring_fd_heads = NULL;
+  __yo_ring_fd_cap = 0;
+  while (__yo_ring_fd_node_free) {
+    __yo_ring_fd_node_t* next = __yo_ring_fd_node_free->next;
+    __yo_free(__yo_ring_fd_node_free);
+    __yo_ring_fd_node_free = next;
+  }
+}
+
+// Cancel hook for the fd-bound ring operations with no post-completion hook
+// of their own (read, write, recv, send, connect): the same contract as
+// __yo_accept_future_cancel — the cancel is queued, the continuation is taken
+// by __yo_async_io_cancel, and the op's own -ECANCELED CQE releases the ring's
+// reference.
+static bool __yo_ring_fd_future_cancel(__yo_io_future_t* future) {
+  return __yo_io_ring_submit_cancel(future);
+}
+
 // Re-arm the wakeup channel's POLL_ADD. One-shot per completion, so every
 // drain of the eventfd arms the next one.
 static inline void __yo_io_arm_notify(void) {
@@ -1384,25 +1619,29 @@ static void __yo_io_notify(__yo_loop_t* loop) {
   (void)w;
 }
 
-// Flush any queued SQEs to the kernel if non-empty. Returns the number
-// submitted, or -errno.
+// Retire the deferred-SQE bookkeeping for an enter that submitted ret SQEs.
 // On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
 // is left unchanged -- the next submit attempt (via poll/wait) will retry them.
+static inline void __yo_io_account_submitted(int ret) {
+  if (ret <= 0) return;
+  if ((size_t)ret >= __yo_sq_unsubmitted) {
+    __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
+    __yo_sq_unsubmitted = 0;
+  } else {
+    __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
+    __yo_sq_unsubmitted -= (size_t)ret;
+  }
+}
+
+// Flush any queued SQEs to the kernel if non-empty. Returns the number
+// submitted, or -errno.
 static inline int __yo_io_flush_sq(void) {
   if (__yo_sq_unsubmitted == 0) return 0;
   int ret;
   do {
     ret = __yo_uring_submit(&__yo_io_ring);
   } while (ret == -EINTR);
-  if (ret > 0) {
-    if ((size_t)ret >= __yo_sq_unsubmitted) {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted = 0;
-    } else {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted -= (size_t)ret;
-    }
-  }
+  __yo_io_account_submitted(ret);
   return ret;
 }
 
@@ -1437,6 +1676,10 @@ typedef struct __yo_epoll_pending_t {
     struct { int fd; void* buf; size_t len; int flags; void* addr; uint32_t* addrlen; } recvfrom;
   };
   struct __yo_epoll_pending_t* next_waiter;
+  struct __yo_epoll_pending_t* prev_waiter;
+  // The registration whose FIFO this waiter is on (unlink and cancel are
+  // O(1): the future reaches its pending through backend_link).
+  struct __yo_epoll_reg_t* reg;
 } __yo_epoll_pending_t;
 
 // Free list, same overlay trick as the macOS backend: the first word is the
@@ -1459,23 +1702,78 @@ static void __yo_epoll_free_pending(__yo_epoll_pending_t* p) {
   __yo_epoll_pending_free = p;
 }
 
-// One registration per (fd, direction); epoll_event.data carries this
-// pointer. events is EPOLLIN or EPOLLOUT, always level-triggered.
+// A registration is one direction's FIFO of parked waiters on one fd
+// (events is EPOLLIN or EPOLLOUT, always level-triggered).
 typedef struct __yo_epoll_reg_t {
   int fd;
   uint32_t events;
   __yo_epoll_pending_t* waiters_head;
   __yo_epoll_pending_t* waiters_tail;
-  struct __yo_epoll_reg_t* next;
+  struct __yo_epoll_reg_t* next_free;
 } __yo_epoll_reg_t;
 
-static _Thread_local __yo_epoll_reg_t* __yo_epoll_regs = NULL;
+// An armed timer: the common runtime's timer section owns the future's
+// layout (timerfd, read buffer, dispose hook); this node is what epoll needs
+// to complete it.
+typedef struct __yo_epoll_timer_node_t {
+  __yo_io_future_t* future;
+  int timerfd;
+  void* read_buf;
+} __yo_epoll_timer_node_t;
+
+// One slot per descriptor number (descriptors are small dense integers —
+// libuv's watcher array). The kernel holds ONE interest per fd per epoll
+// instance, so the slot is the unit the kernel sees: armed is the mask
+// currently registered with it (0 = none), kept equal to the union of the
+// slot's live directions by __yo_epoll_sync_fd. A per-(fd, direction) ADD
+// cannot work — the second direction's ADD fails with EEXIST, and a MOD
+// REPLACES the first direction's interest, stranding its waiters
+// (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md).
+// A timerfd's slot carries its timer node instead.
+//
+// epoll_event.data carries the fd itself, never a pointer: an event fetched
+// in the same epoll_wait batch as an earlier event that released its
+// interest finds an empty slot and is ignored — no memory can go stale.
+// Park, dispatch, cancel and close are all O(1) in the number of
+// registrations (the previous list walks made every event O(n)).
+typedef struct {
+  __yo_epoll_reg_t* dir[2];  // [0] EPOLLIN waiters, [1] EPOLLOUT waiters
+  __yo_epoll_timer_node_t* timer;
+  uint32_t armed;
+} __yo_epoll_slot_t;
+static _Thread_local __yo_epoll_slot_t* __yo_epoll_slots = NULL;
+static _Thread_local size_t __yo_epoll_slot_cap = 0;
 static _Thread_local __yo_epoll_reg_t* __yo_epoll_reg_free = NULL;
+
+static inline int __yo_epoll_dir(uint32_t events) {
+  return (events & EPOLLOUT) ? 1 : 0;
+}
+
+static __yo_epoll_slot_t* __yo_epoll_slot(int fd) {
+  if (fd < 0 || (size_t)fd >= __yo_epoll_slot_cap) return NULL;
+  return &__yo_epoll_slots[fd];
+}
+
+static __yo_epoll_slot_t* __yo_epoll_slot_grow(int fd) {
+  if (fd < 0) return NULL;
+  if ((size_t)fd >= __yo_epoll_slot_cap) {
+    size_t cap = __yo_epoll_slot_cap ? __yo_epoll_slot_cap : 64;
+    while (cap <= (size_t)fd) cap *= 2;
+    __yo_epoll_slot_t* slots = (__yo_epoll_slot_t*)__yo_realloc(
+        __yo_epoll_slots, cap * sizeof(__yo_epoll_slot_t));
+    if (!slots) return NULL;
+    memset(slots + __yo_epoll_slot_cap, 0,
+           (cap - __yo_epoll_slot_cap) * sizeof(__yo_epoll_slot_t));
+    __yo_epoll_slots = slots;
+    __yo_epoll_slot_cap = cap;
+  }
+  return &__yo_epoll_slots[fd];
+}
 
 static __yo_epoll_reg_t* __yo_epoll_alloc_reg(void) {
   if (__yo_epoll_reg_free) {
     __yo_epoll_reg_t* r = __yo_epoll_reg_free;
-    __yo_epoll_reg_free = r->next;
+    __yo_epoll_reg_free = r->next_free;
     return r;
   }
   return (__yo_epoll_reg_t*)__yo_rc_alloc(sizeof(__yo_epoll_reg_t));
@@ -1483,49 +1781,57 @@ static __yo_epoll_reg_t* __yo_epoll_alloc_reg(void) {
 
 static void __yo_epoll_free_reg(__yo_epoll_reg_t* r) {
   if (!r) return;
-  r->next = __yo_epoll_reg_free;
+  r->next_free = __yo_epoll_reg_free;
   __yo_epoll_reg_free = r;
-}
-
-static void __yo_epoll_release_reg(__yo_epoll_reg_t* reg) {
-  __yo_epoll_reg_t** pp = &__yo_epoll_regs;
-  while (*pp && *pp != reg) pp = &(*pp)->next;
-  if (*pp) *pp = reg->next;
-  __yo_epoll_free_reg(reg);
-}
-
-// The timer futures currently armed. Registered with the node pointer as
-// epoll data, but a cancel arrives holding only the future, so the list is
-// how it finds its timerfd. Timers are low-volume; a list is honest about
-// that. The future itself stays opaque here — the timer section in the
-// common runtime owns its layout (timerfd, read buffer, dispose hook).
-typedef struct __yo_epoll_timer_node_t {
-  __yo_io_future_t* future;
-  int timerfd;
-  void* read_buf;
-  struct __yo_epoll_timer_node_t* next;
-} __yo_epoll_timer_node_t;
-static _Thread_local __yo_epoll_timer_node_t* __yo_epoll_timers = NULL;
-
-// Arm one registration with the kernel. A stale interest cannot exist: fds
-// are disarmed the moment their waiter list drains and on close, so EEXIST
-// is handled defensively with MOD, never silently ignored.
-static int __yo_epoll_arm(__yo_epoll_reg_t* reg) {
-  struct epoll_event ev;
-  memset(&ev, 0, sizeof(ev));
-  ev.events = reg->events;
-  ev.data.ptr = reg;
-  int rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, reg->fd, &ev);
-  if (rc < 0 && errno == EEXIST) {
-    rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, reg->fd, &ev);
-  }
-  return rc;
 }
 
 static void __yo_epoll_disarm(int fd) {
   struct epoll_event ev;
   memset(&ev, 0, sizeof(ev));
-  epoll_ctl(__yo_epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+  __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_DEL, fd, &ev));
+}
+
+// Make the kernel's single interest for fd equal the union of the slot's
+// live directions. armed says which call that takes; the ENOENT/EEXIST
+// retries cover a descriptor closed behind the runtime's back (the kernel
+// drops the interest with the last reference, and the number can be reused)
+// — they re-establish the interest the slot says should exist.
+static int __yo_epoll_sync_fd(int fd) {
+  __yo_epoll_slot_t* slot = __yo_epoll_slot(fd);
+  if (!slot) return 0;
+  uint32_t mask = (slot->dir[0] ? EPOLLIN : 0u) | (slot->dir[1] ? EPOLLOUT : 0u);
+  if (mask == slot->armed) return 0;
+  if (mask == 0) {
+    __yo_epoll_disarm(fd);
+    slot->armed = 0;
+    return 0;
+  }
+  struct epoll_event ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.events = mask;
+  ev.data.fd = fd;
+  int rc;
+  if (slot->armed == 0) {
+    rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev));
+    if (rc < 0 && errno == EEXIST) rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev));
+  } else {
+    rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev));
+    if (rc < 0 && errno == ENOENT) rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev));
+  }
+  if (rc == 0) slot->armed = mask;
+  return rc;
+}
+
+// A registration whose FIFO drained leaves its slot, and the fd's interest
+// shrinks to what is still parked (a direction with no waiters must never
+// stay armed: level-triggered epoll would report it forever).
+static void __yo_epoll_release_reg(__yo_epoll_reg_t* reg) {
+  int fd = reg->fd;
+  __yo_epoll_slot_t* slot = __yo_epoll_slot(fd);
+  int d = __yo_epoll_dir(reg->events);
+  if (slot && slot->dir[d] == reg) slot->dir[d] = NULL;
+  __yo_epoll_free_reg(reg);
+  __yo_epoll_sync_fd(fd);
 }
 
 static void __yo_epoll_wake(__yo_io_future_t* future) {
@@ -1537,55 +1843,71 @@ static void __yo_epoll_wake(__yo_io_future_t* future) {
   }
 }
 
-// Park one op on a (fd, events) registration, creating and arming the
-// registration on first use. Returns the pending for the CALLER to fill (the
-// union arm), or NULL when arming failed. Takes the reference the
+// Park one op on the (fd, direction) registration, creating it and widening
+// the fd's interest on first use. Returns the pending for the CALLER to fill
+// (the union arm), or NULL when arming failed. Takes the reference the
 // registration holds (the ring's __yo_io_ring_submit has the same contract)
 // and the pending-I/O slot.
 static __yo_epoll_pending_t* __yo_epoll_park(__yo_epoll_op_type op,
                                              __yo_io_future_t* future,
                                              uint32_t events, int fd) {
-  __yo_epoll_reg_t* reg = __yo_epoll_regs;
-  while (reg && !(reg->fd == fd && reg->events == events)) reg = reg->next;
+  __yo_epoll_slot_t* slot = __yo_epoll_slot_grow(fd);
+  if (!slot) return NULL;
+  int d = __yo_epoll_dir(events);
+  __yo_epoll_reg_t* reg = slot->dir[d];
   bool first = false;
   if (!reg) {
     reg = __yo_epoll_alloc_reg();
-    if (!reg) return NULL;
     reg->fd = fd;
     reg->events = events;
     reg->waiters_head = NULL;
     reg->waiters_tail = NULL;
-    reg->next = __yo_epoll_regs;
-    __yo_epoll_regs = reg;
+    slot->dir[d] = reg;
     first = true;
-    if (__yo_epoll_arm(reg) < 0) {
+    if (__yo_epoll_sync_fd(fd) < 0) {
       __yo_epoll_release_reg(reg);
       return NULL;
     }
   }
   __yo_epoll_pending_t* pending = __yo_epoll_alloc_pending();
   if (!pending) {
-    if (first) {
-      __yo_epoll_disarm(fd);
-      __yo_epoll_release_reg(reg);
-    }
+    if (first) __yo_epoll_release_reg(reg);
     return NULL;
   }
   pending->op = op;
   pending->future = future;
+  pending->reg = reg;
   pending->next_waiter = NULL;
+  pending->prev_waiter = reg->waiters_tail;
   if (reg->waiters_tail) {
     reg->waiters_tail->next_waiter = pending;
   } else {
     reg->waiters_head = pending;
   }
   reg->waiters_tail = pending;
+  future->backend_link = pending;
   future->header.ref_count++;
   __yo_pending_io_count++;
   return pending;
 }
 
-// Complete a parked waiter: release the loop's pending-I/O slot, wake the
+// Take a waiter off its registration's FIFO.
+static void __yo_epoll_unlink(__yo_epoll_pending_t* p) {
+  __yo_epoll_reg_t* reg = p->reg;
+  if (p->prev_waiter) {
+    p->prev_waiter->next_waiter = p->next_waiter;
+  } else {
+    reg->waiters_head = p->next_waiter;
+  }
+  if (p->next_waiter) {
+    p->next_waiter->prev_waiter = p->prev_waiter;
+  } else {
+    reg->waiters_tail = p->prev_waiter;
+  }
+  p->future->backend_link = NULL;
+}
+
+// Complete an unlinked waiter: release the loop's pending-I/O slot, wake the
 // continuation, drop the reference the registration held — the same
 // sequence the ring's CQE path runs (count, wake, decr).
 static void __yo_epoll_finish(__yo_epoll_pending_t* pending) {
@@ -1597,17 +1919,16 @@ static void __yo_epoll_finish(__yo_epoll_pending_t* pending) {
 
 // Service a delivered registration: walk waiters FIFO, retrying each op
 // until one would block (a spurious wakeup, or an earlier waiter consuming
-// the readiness). Level-triggered epoll keeps the registration reported
-// while readiness persists, so a would-block waiter simply stays parked —
-// no re-arm. When the list drains, disarm and release: a registration with
-// no waiters must never stay armed.
+// the readiness). Level-triggered epoll keeps the interest reported while
+// readiness persists, so a would-block waiter simply stays parked — no
+// re-arm. When the FIFO drains, the registration is released.
 static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
   while (reg->waiters_head) {
     __yo_epoll_pending_t* pending = reg->waiters_head;
     bool would_block = false;
     switch (pending->op) {
       case __YO_EOP_READ: {
-        ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
+        ssize_t r = __YO_SC(read(pending->read.fd, pending->read.buf, pending->read.size));
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1616,7 +1937,7 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_WRITE: {
-        ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
+        ssize_t r = __YO_SC(write(pending->write.fd, pending->write.buf, pending->write.size));
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1631,8 +1952,8 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
           // POSIX accept(2) does not give the accepted socket the listener's
           // O_NONBLOCK; every socket this runtime creates is nonblocking, so
           // keep the accepted fd the same (the ring CQE path does this too).
-          int fl = fcntl(r, F_GETFL, 0);
-          if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+          int fl = __YO_SC(fcntl(r, F_GETFL, 0));
+          if (fl >= 0) __YO_SC(fcntl(r, F_SETFL, fl | O_NONBLOCK));
           pending->future->result = r;
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
           would_block = true;
@@ -1646,13 +1967,14 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         // would-blocks, so every queued connect completes on this delivery.
         int so_error = 0;
         socklen_t len = sizeof(so_error);
-        getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+        __YO_SC(getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len));
         pending->future->result = (so_error == 0) ? 0 : -so_error;
         break;
       }
       case __YO_EOP_SEND: {
+        __yo_stats_io_syscalls++;
         ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len,
-                         pending->send.flags);
+                         pending->send.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1661,8 +1983,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_RECV: {
+        __yo_stats_io_syscalls++;
         ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len,
-                         pending->recv.flags);
+                         pending->recv.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1671,8 +1994,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_SENDTO: {
+        __yo_stats_io_syscalls++;
         ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
-                           pending->sendto.flags,
+                           pending->sendto.flags | MSG_DONTWAIT,
                            (const struct sockaddr*)&pending->sendto.dest,
                            (socklen_t)pending->sendto.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -1683,8 +2007,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_RECVFROM: {
+        __yo_stats_io_syscalls++;
         ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
-                             pending->recvfrom.flags,
+                             pending->recvfrom.flags | MSG_DONTWAIT,
                              (struct sockaddr*)pending->recvfrom.addr,
                              (socklen_t*)pending->recvfrom.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -1696,14 +2021,10 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
       }
     }
     if (would_block) break;
-    reg->waiters_head = pending->next_waiter;
-    if (!reg->waiters_head) reg->waiters_tail = NULL;
+    __yo_epoll_unlink(pending);
     __yo_epoll_finish(pending);
   }
-  if (!reg->waiters_head) {
-    __yo_epoll_disarm(reg->fd);
-    __yo_epoll_release_reg(reg);
-  }
+  if (!reg->waiters_head) __yo_epoll_release_reg(reg);
 }
 
 // The eventfd wake channel fired: drain it (level-triggered would keep
@@ -1716,20 +2037,25 @@ static void __yo_epoll_process_notify(void) {
   }
 }
 
+// Delivery or cancellation of a timer: its slot and interest go, and the
+// future is no longer cancellable. The future's dispose hook (registered by
+// the common runtime's timer section) closes the timerfd and frees the
+// buffer.
+static void __yo_epoll_timer_detach(__yo_epoll_timer_node_t* node) {
+  __yo_epoll_slot_t* slot = __yo_epoll_slot(node->timerfd);
+  if (slot && slot->timer == node) slot->timer = NULL;
+  __yo_epoll_disarm(node->timerfd);
+  node->future->cancel_fn = NULL;
+  node->future->backend_link = NULL;
+}
+
 // A timerfd fired: perform the 8-byte read the ring backend submits as an
 // IORING_OP_READ and complete the future with the same result shape (8 on
-// success). The future's dispose hook (registered by the timer section in
-// the common runtime) closes the timerfd and frees the buffer.
+// success).
 static void __yo_epoll_process_timer(__yo_epoll_timer_node_t* node) {
-  __yo_epoll_disarm(node->timerfd);
-  __yo_epoll_timer_node_t** pp = &__yo_epoll_timers;
-  while (*pp && *pp != node) pp = &(*pp)->next;
-  if (*pp) *pp = node->next;
+  __yo_epoll_timer_detach(node);
   __yo_io_future_t* future = node->future;
-  // Delivery destroys the only registration naming this timer: the future
-  // is no longer cancellable.
-  future->cancel_fn = NULL;
-  ssize_t r = read(node->timerfd, node->read_buf, sizeof(uint64_t));
+  ssize_t r = __YO_SC(read(node->timerfd, node->read_buf, sizeof(uint64_t)));
   future->result = (r < 0) ? -errno : (int32_t)r;
   __yo_pending_io_count--;
   __yo_epoll_wake(future);
@@ -1737,81 +2063,55 @@ static void __yo_epoll_process_timer(__yo_epoll_timer_node_t* node) {
   __yo_free(node);
 }
 
-// Abort one parked op: search the registrations' waiter lists and the timer
-// list for this future. The found waiter completes with -ECANCELED, exactly
+// Abort one parked op. The found waiter completes with -ECANCELED, exactly
 // what a cancelled ring op's CQE reports.
 static bool __yo_epoll_cancel(__yo_io_future_t* future) {
-  __yo_epoll_reg_t* reg = __yo_epoll_regs;
-  while (reg) {
-    __yo_epoll_pending_t* p = reg->waiters_head;
-    __yo_epoll_pending_t** prev = &reg->waiters_head;
-    while (p) {
-      if (p->future == future) {
-        *prev = p->next_waiter;
-        if (reg->waiters_tail == p) {
-          if (!reg->waiters_head) {
-            reg->waiters_tail = NULL;
-          } else {
-            __yo_epoll_pending_t* t = reg->waiters_head;
-            while (t->next_waiter) t = t->next_waiter;
-            reg->waiters_tail = t;
-          }
-        }
-        future->result = -ECANCELED;
-        __yo_epoll_finish(p);
-        if (!reg->waiters_head) {
-          __yo_epoll_disarm(reg->fd);
-          __yo_epoll_release_reg(reg);
-        }
-        return true;
-      }
-      prev = &p->next_waiter;
-      p = p->next_waiter;
-    }
-    reg = reg->next;
-  }
-  __yo_epoll_timer_node_t* tn = __yo_epoll_timers;
-  while (tn) {
-    if (tn->future == future) {
-      __yo_epoll_disarm(tn->timerfd);
-      __yo_epoll_timer_node_t** pp = &__yo_epoll_timers;
-      while (*pp && *pp != tn) pp = &(*pp)->next;
-      if (*pp) *pp = tn->next;
-      future->cancel_fn = NULL;
-      future->result = -ECANCELED;
-      __yo_pending_io_count--;
-      __yo_epoll_wake(future);
-      __yo_decr_rc((void*)future);
-      __yo_free(tn);
-      return true;
-    }
-    tn = tn->next;
-  }
-  return false;
+  __yo_epoll_pending_t* p = (__yo_epoll_pending_t*)future->backend_link;
+  if (!p) return false;
+  __yo_epoll_reg_t* reg = p->reg;
+  __yo_epoll_unlink(p);
+  future->result = -ECANCELED;
+  __yo_epoll_finish(p);
+  if (!reg->waiters_head) __yo_epoll_release_reg(reg);
+  return true;
 }
 
-// An fd is about to be closed: fail its waiters with -EBADF and disarm. The
-// kernel auto-drops the epoll interest when the last descriptor closes, but
-// a parked waiter would then never be delivered. Also stops a reused fd
-// number from colliding with a stale registration.
+static bool __yo_epoll_timer_cancel(__yo_io_future_t* future) {
+  __yo_epoll_timer_node_t* node = (__yo_epoll_timer_node_t*)future->backend_link;
+  if (!node) return false;
+  __yo_epoll_timer_detach(node);
+  future->result = -ECANCELED;
+  __yo_pending_io_count--;
+  __yo_epoll_wake(future);
+  __yo_decr_rc((void*)future);
+  __yo_free(node);
+  return true;
+}
+
+// An fd is about to be closed: fail its waiters with -EBADF and drop its
+// interest. The kernel auto-drops the interest when the last descriptor
+// closes, but a parked waiter would then never be delivered. Also keeps a
+// reused fd number from inheriting a stale registration.
 static void __yo_epoll_drop_fd(int fd) {
-  __yo_epoll_reg_t** pp = &__yo_epoll_regs;
-  while (*pp) {
-    __yo_epoll_reg_t* reg = *pp;
-    if (reg->fd == fd) {
-      *pp = reg->next;
-      __yo_epoll_pending_t* p = reg->waiters_head;
-      while (p) {
-        __yo_epoll_pending_t* next = p->next_waiter;
-        p->future->result = -EBADF;
-        __yo_epoll_finish(p);
-        p = next;
-      }
-      __yo_epoll_disarm(fd);
-      __yo_epoll_free_reg(reg);
-      continue;  // read and write registrations can both be alive for one fd
+  __yo_epoll_slot_t* slot = __yo_epoll_slot(fd);
+  if (!slot) return;
+  for (int d = 0; d < 2; d++) {
+    __yo_epoll_reg_t* reg = slot->dir[d];
+    if (!reg) continue;
+    slot->dir[d] = NULL;
+    __yo_epoll_pending_t* p = reg->waiters_head;
+    while (p) {
+      __yo_epoll_pending_t* next = p->next_waiter;
+      p->future->backend_link = NULL;
+      p->future->result = -EBADF;
+      __yo_epoll_finish(p);
+      p = next;
     }
-    pp = &reg->next;
+    __yo_epoll_free_reg(reg);
+  }
+  if (slot->armed) {
+    __yo_epoll_disarm(fd);
+    slot->armed = 0;
   }
 }
 
@@ -1852,37 +2152,33 @@ static void __yo_epoll_drive(int timeout_ms, int* count_out) {
   } while (n < 0 && errno == EINTR);
   int count = 0;
   for (int i = 0; i < n; i++) {
-    if (events[i].data.ptr == (void*)(intptr_t)-1) {
+    int fd = events[i].data.fd;
+    uint32_t rev = events[i].events;
+    if (fd == __yo_notify_efd) {
       __yo_epoll_process_notify();
       continue;
     }
-    __yo_epoll_reg_t* reg = __yo_epoll_regs;
-    __yo_epoll_reg_t* found_reg = NULL;
-    __yo_epoll_timer_node_t* found_timer = NULL;
-    while (reg && !found_reg) {
-      if ((void*)reg == events[i].data.ptr) found_reg = reg;
-      reg = reg->next;
+    __yo_epoll_slot_t* slot = __yo_epoll_slot(fd);
+    if (!slot) continue;
+    if (slot->timer) {
+      __yo_epoll_process_timer(slot->timer);
+      count++;
+      continue;
     }
-    if (!found_reg) {
-      __yo_epoll_timer_node_t* tn = __yo_epoll_timers;
-      while (tn) {
-        if ((void*)tn == events[i].data.ptr) {
-          found_timer = tn;
-          break;
-        }
-        tn = tn->next;
+    // Service every direction the event covers; ERR/HUP wake both — the
+    // retried syscall reports the error. The slot is re-read per direction:
+    // servicing one can release it (the table itself never moves during a
+    // drive — only a park grows it, and wakes only queue tasks).
+    bool err = (rev & (EPOLLERR | EPOLLHUP)) != 0;
+    for (int d = 0; d < 2; d++) {
+      __yo_epoll_reg_t* reg = __yo_epoll_slot(fd)->dir[d];
+      if (reg && (err || (rev & reg->events))) {
+        __yo_epoll_process_reg(reg);
+        count++;
       }
     }
-    if (found_timer) {
-      __yo_epoll_process_timer(found_timer);
-      count++;
-    } else if (found_reg) {
-      __yo_epoll_process_reg(found_reg);
-      count++;
-    }
-    // An unknown data.ptr cannot happen: every registration is disarmed
-    // before it is released. If it ever did, ignoring the event is the safe
-    // answer (the loop re-checks its own counters).
+    // An empty slot: an interest an earlier event of this batch released —
+    // level-triggered epoll reports whatever is still armed on the next wait.
   }
   *count_out = count;
 }
@@ -1896,14 +2192,14 @@ static void __yo_epoll_drive(int timeout_ms, int* count_out) {
 static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   struct stat st;
   bool is_regular = false;
-  if (fstat(fd, &st) == 0) {
+  if (__YO_SC(fstat(fd, &st)) == 0) {
     is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
   if (is_regular) {
-    ssize_t r = pread(fd, buffer, size, (off_t)offset);
+    ssize_t r = __YO_SC(pread(fd, buffer, size, (off_t)offset));
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
-  ssize_t r = read(fd, buffer, size);
+  ssize_t r = __YO_SC(read(fd, buffer, size));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -1924,21 +2220,21 @@ static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_
 static __yo_io_future_t* __yo_epoll_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   struct stat st;
   bool is_regular = false;
-  if (fstat(fd, &st) == 0) {
+  if (__YO_SC(fstat(fd, &st)) == 0) {
     is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
   if (is_regular) {
     // For O_APPEND fds use write(), which respects the append flag.
-    int fl = fcntl(fd, F_GETFL);
+    int fl = __YO_SC(fcntl(fd, F_GETFL));
     ssize_t w;
     if (fl != -1 && (fl & O_APPEND)) {
-      w = write(fd, buffer, size);
+      w = __YO_SC(write(fd, buffer, size));
     } else {
-      w = pwrite(fd, buffer, size, (off_t)offset);
+      w = __YO_SC(pwrite(fd, buffer, size, (off_t)offset));
     }
     return __yo_epoll_done_future((w < 0) ? -errno : (int32_t)w);
   }
-  ssize_t r = write(fd, buffer, size);
+  ssize_t r = __YO_SC(write(fd, buffer, size));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2013,10 +2309,10 @@ static __yo_io_future_t* __yo_epoll_ftruncate_start(int32_t fd, int64_t length) 
 }
 
 static __yo_io_future_t* __yo_epoll_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  int r = accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen);
+  int r = __YO_SC(accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen));
   if (r >= 0) {
-    int fl = fcntl(r, F_GETFL, 0);
-    if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+    int fl = __YO_SC(fcntl(r, F_GETFL, 0));
+    if (fl >= 0) __YO_SC(fcntl(r, F_SETFL, fl | O_NONBLOCK));
     return __yo_epoll_done_future(r);
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -2037,11 +2333,19 @@ static __yo_io_future_t* __yo_epoll_accept_start(int32_t sockfd, void* addr, uin
 }
 
 static __yo_io_future_t* __yo_epoll_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  int r = connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  int r = __YO_SC(connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen));
   if (r == 0) {
     return __yo_epoll_done_future(0);
   }
-  if (errno != EINPROGRESS && errno != EAGAIN && errno != EWOULDBLOCK) {
+  // Only EINPROGRESS means "the handshake is under way; writability reports
+  // its outcome". EAGAIN is AF_UNIX's full listen backlog: nothing is in
+  // progress, and an unconnected unix socket polls writable at once, so
+  // parking it would report SO_ERROR == 0 — success for a connection that
+  // was never made. Readiness cannot express "the backlog has room"; the
+  // honest answer for a nonblocking socket is the EAGAIN itself (libuv's
+  // choice too). The ring backend instead retries the connect blocking on
+  // io-wq, so there it succeeds late rather than failing fast.
+  if (errno != EINPROGRESS) {
     return __yo_epoll_done_future(-errno);
   }
   __yo_io_future_t* future = __yo_epoll_new_future();
@@ -2057,7 +2361,7 @@ static __yo_io_future_t* __yo_epoll_connect_start(int32_t sockfd, const void* ad
 }
 
 static __yo_io_future_t* __yo_epoll_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
-  ssize_t r = send(sockfd, buf, len, flags);
+  ssize_t r = __YO_SC(send(sockfd, buf, len, flags | MSG_DONTWAIT));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2077,7 +2381,7 @@ static __yo_io_future_t* __yo_epoll_send_start(int32_t sockfd, const void* buf, 
 }
 
 static __yo_io_future_t* __yo_epoll_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
-  ssize_t r = recv(sockfd, buf, len, flags);
+  ssize_t r = __YO_SC(recv(sockfd, buf, len, flags | MSG_DONTWAIT));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2142,33 +2446,33 @@ static __yo_io_future_t* __yo_epoll_recvfrom_park(int32_t sockfd, void* buf, siz
 }
 
 // The timer arm, called by the common runtime's Linux sleep path after the
-// timerfd is created and set. The node (not the future) is the epoll data:
-// a cancel arrives holding only the future and finds the node through the
-// timer list.
+// timerfd is created and set. The timerfd's slot holds the node; a cancel
+// arrives holding only the future and reaches the node through
+// backend_link.
 static void __yo_epoll_sleep_arm(__yo_io_future_t* future, int timerfd, void* read_buf) {
-  __yo_epoll_timer_node_t* node = (__yo_epoll_timer_node_t*)__yo_rc_alloc(sizeof(__yo_epoll_timer_node_t));
-  if (!node) {
+  __yo_epoll_slot_t* slot = __yo_epoll_slot_grow(timerfd);
+  if (!slot) {
     future->result = -ENOMEM;
     future->state = -1;
     return;
   }
+  __yo_epoll_timer_node_t* node = (__yo_epoll_timer_node_t*)__yo_rc_alloc(sizeof(__yo_epoll_timer_node_t));
   node->future = future;
   node->timerfd = timerfd;
   node->read_buf = read_buf;
-  node->next = __yo_epoll_timers;
-  __yo_epoll_timers = node;
   struct epoll_event ev;
   memset(&ev, 0, sizeof(ev));
   ev.events = EPOLLIN;
-  ev.data.ptr = node;
+  ev.data.fd = timerfd;
   if (epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, timerfd, &ev) < 0) {
-    __yo_epoll_timers = node->next;
     future->result = -errno;
     future->state = -1;
     __yo_free(node);
     return;
   }
-  future->cancel_fn = __yo_epoll_cancel;
+  slot->timer = node;
+  future->cancel_fn = __yo_epoll_timer_cancel;
+  future->backend_link = node;
   future->header.ref_count++;
   __yo_pending_io_count++;
 }
@@ -2179,36 +2483,36 @@ static void __yo_epoll_sleep_arm(__yo_io_future_t* future, int timerfd, void* re
 // does not inherit a permanently-pending number. The free lists stay: their
 // nodes are rc-allocated and pooled like every other runtime node.
 static void __yo_epoll_teardown(void) {
-  __yo_epoll_reg_t* reg = __yo_epoll_regs;
-  while (reg) {
-    __yo_epoll_reg_t* rnext = reg->next;
-    __yo_epoll_pending_t* pw = reg->waiters_head;
-    while (pw) {
-      __yo_epoll_pending_t* nx = pw->next_waiter;
-      pw->future->result = -ECANCELED;
-      pw->future->state = -1;
-      __yo_pending_io_count--;
-      __yo_decr_rc((void*)pw->future);
-      __yo_epoll_free_pending(pw);
-      pw = nx;
+  for (size_t fd = 0; fd < __yo_epoll_slot_cap; fd++) {
+    __yo_epoll_slot_t* slot = &__yo_epoll_slots[fd];
+    for (int d = 0; d < 2; d++) {
+      __yo_epoll_reg_t* reg = slot->dir[d];
+      if (!reg) continue;
+      __yo_epoll_pending_t* pw = reg->waiters_head;
+      while (pw) {
+        __yo_epoll_pending_t* nx = pw->next_waiter;
+        pw->future->backend_link = NULL;
+        pw->future->result = -ECANCELED;
+        pw->future->state = -1;
+        __yo_decr_rc((void*)pw->future);
+        __yo_epoll_free_pending(pw);
+        pw = nx;
+      }
+      __yo_epoll_free_reg(reg);
     }
-    __yo_epoll_disarm(reg->fd);
-    __yo_epoll_free_reg(reg);
-    reg = rnext;
+    __yo_epoll_timer_node_t* tn = slot->timer;
+    if (tn) {
+      tn->future->cancel_fn = NULL;
+      tn->future->backend_link = NULL;
+      tn->future->result = -ECANCELED;
+      tn->future->state = -1;
+      __yo_decr_rc((void*)tn->future);
+      __yo_free(tn);
+    }
   }
-  __yo_epoll_regs = NULL;
-  __yo_epoll_timer_node_t* tn = __yo_epoll_timers;
-  while (tn) {
-    __yo_epoll_timer_node_t* tnext = tn->next;
-    tn->future->cancel_fn = NULL;
-    tn->future->result = -ECANCELED;
-    tn->future->state = -1;
-    __yo_pending_io_count--;
-    __yo_decr_rc((void*)tn->future);
-    __yo_free(tn);
-    tn = tnext;
-  }
-  __yo_epoll_timers = NULL;
+  __yo_free(__yo_epoll_slots);
+  __yo_epoll_slots = NULL;
+  __yo_epoll_slot_cap = 0;
   __yo_pending_io_count = 0;
   close(__yo_epoll_fd);
   __yo_epoll_fd = -1;
@@ -2266,8 +2570,16 @@ static void __yo_io_process_cqe(struct __yo_uring_cqe* cqe) {
   }
   __yo_pending_io_count--;
 
-  // Set the result
+  // Set the result. An fd-bound op cancelled because its descriptor closed
+  // (__yo_ring_drop_fd) reports -EBADF, the kqueue/epoll backends' answer.
+  bool fd_closed = __yo_ring_untrack_fd(future);
   future->result = cqe->res;
+  if (fd_closed && future->result == -ECANCELED) future->result = -EBADF;
+  // A sleep is an IORING_OP_TIMEOUT, which reports expiry as -ETIME; the
+  // timer contract (std/sys/timer.yo) is 8 on success on every platform.
+  if (future->cancel_fn == __yo_timer_future_cancel && future->result == -ETIME) {
+    future->result = 8;
+  }
   
   ASYNC_DEBUG("[Io] Completed I/O: result=%d (pending=%zu)\\n",
               future->result, __yo_pending_io_count);
@@ -2332,9 +2644,6 @@ static int __yo_io_poll(void) {
   if (!__yo_io_initialized) {
     return __yo_poll_and_fs_event_tick();
   }
-  // Flush any queued SQEs so their completions can be reaped.
-  __yo_io_flush_sq();
-
   // The ring runs with __YO_IORING_SETUP_DEFER_TASKRUN (see __yo_io_init): the
   // kernel materialises completions only when this thread enters it with
   // __YO_IORING_ENTER_GETEVENTS. A pure-userspace peek therefore never sees a
@@ -2342,8 +2651,17 @@ static int __yo_io_poll(void) {
   // never reaches __yo_io_wait — a poll-until-finished race spun forever on
   // Linux while macOS (kqueue always syscalls) was fine
   // (issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md).
-  // A zero-timeout wait is that non-blocking enter; it consumes nothing.
-  {
+  // A zero-timeout GETEVENTS enter is that non-blocking entry; it consumes
+  // nothing. Queued SQEs ride the SAME enter: submitting them first in a
+  // separate enter cost every op that completes at issue two syscalls
+  // (issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md).
+  if (__yo_sq_unsubmitted > 0) {
+    int ret;
+    do {
+      ret = __yo_uring_submit_and_wait(&__yo_io_ring, 0);
+    } while (ret == -EINTR);
+    __yo_io_account_submitted(ret);
+  } else {
     (void)__yo_uring_getevents(&__yo_io_ring);
   }
 
@@ -2385,6 +2703,28 @@ static int __yo_io_wait(void) {
       struct timespec ts = {0, 10 * 1000 * 1000};
       nanosleep(&ts, NULL);
       return __yo_poll_and_fs_event_tick();
+    }
+    // Every op here completed at start, so the loop only waits when a
+    // blocking call is running on another thread: block on the wake channel
+    // (the same eventfd wait as the no-ring branch below) instead of
+    // returning at once and spinning the loop until it finishes. Without an
+    // eventfd no wake can reach this thread, and the loop's own re-check is
+    // the only way to observe the blocking call ending — back off 1 ms.
+    if (__yo_notify_efd >= 0) {
+      struct pollfd pfd;
+      pfd.fd = __yo_notify_efd;
+      pfd.events = POLLIN;
+      pfd.revents = 0;
+      int pr;
+      do {
+        pr = poll(&pfd, 1, -1);
+      } while (pr < 0 && errno == EINTR);
+      uint64_t v;
+      while (read(__yo_notify_efd, &v, sizeof(v)) == (ssize_t)sizeof(v)) {
+      }
+    } else {
+      struct timespec ts = {0, 1000 * 1000};
+      nanosleep(&ts, NULL);
     }
     return 0;
   }
@@ -2440,13 +2780,7 @@ static int __yo_io_wait(void) {
       return 0;
     }
     // ret >= 0: that many SQEs were submitted.
-    if ((size_t)ret >= __yo_sq_unsubmitted) {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted = 0;
-    } else {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted -= (size_t)ret;
-    }
+    __yo_io_account_submitted(ret);
     // After submit_and_wait, at least one CQE should be available; peek it.
     if (__yo_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
       // Rare: spurious wake. Fall back to explicit wait.
@@ -2501,7 +2835,9 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   
   __yo_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
   __yo_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  future->cancel_fn = __yo_ring_fd_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, fd);
   
   ASYNC_DEBUG("[Io] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
@@ -2545,7 +2881,9 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   
   __yo_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
   __yo_uring_sqe_set_data(sqe, future);  // Store future pointer directly
+  future->cancel_fn = __yo_ring_fd_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, fd);
   
   ASYNC_DEBUG("[Io] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
               fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
@@ -2609,6 +2947,9 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
   
+  // End the ring operations still pending on fd first (their cancels queue
+  // ahead of the close): the close alone would not — see __yo_ring_drop_fd.
+  __yo_ring_drop_fd(fd);
   struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
@@ -2671,6 +3012,10 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_MKDIRAT)) {
+    return __yo_epoll_mkdirat_start(dirfd, path, mode);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -2706,6 +3051,10 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_UNLINKAT)) {
+    return __yo_epoll_unlinkat_start(dirfd, path, flags);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -2743,6 +3092,10 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_RENAMEAT)) {
+    return __yo_epoll_renameat_start(olddirfd, oldpath, newdirfd, newpath);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -2779,6 +3132,10 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_SYMLINKAT)) {
+    return __yo_epoll_symlinkat_start(target, newdirfd, linkpath);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -2814,6 +3171,10 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_LINKAT)) {
+    return __yo_epoll_linkat_start(olddirfd, oldpath, newdirfd, newpath, flags);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -2920,6 +3281,10 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_FTRUNCATE)) {
+    return __yo_epoll_ftruncate_start(fd, length);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -3060,6 +3425,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   // connection that may never arrive.
   future->cancel_fn = __yo_accept_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
   
   ASYNC_DEBUG("[Io] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
@@ -3094,7 +3460,9 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   
   __yo_uring_prep_connect(sqe, sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
   __yo_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_ring_fd_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
   
   ASYNC_DEBUG("[Io] Started async connect: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
   
@@ -3129,7 +3497,9 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   
   __yo_uring_prep_send(sqe, sockfd, buf, len, flags);
   __yo_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_ring_fd_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
   
   ASYNC_DEBUG("[Io] Started async send: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
@@ -3164,7 +3534,9 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   
   __yo_uring_prep_recv(sqe, sockfd, buf, len, flags);
   __yo_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_ring_fd_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
   
   ASYNC_DEBUG("[Io] Started async recv: sockfd=%d len=%zu (pending=%zu)\\n", sockfd, len, __yo_pending_io_count);
   
@@ -3195,7 +3567,8 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   future->continuation_sm = NULL;
   df->addrlen_out = NULL;
 
-  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
+  __yo_stats_io_syscalls++;
+  ssize_t result = sendto(sockfd, buf, len, flags | MSG_DONTWAIT, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     future->state = -1;
@@ -3239,6 +3612,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_dgram_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
 
   ASYNC_DEBUG("[Io] sendto waiting via io_uring: sockfd=%d len=%zu\\n", sockfd, len);
 
@@ -3270,7 +3644,8 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
 
   // The fast path completes with recvfrom(2) semantics: the sender's address
   // and its length land in the caller's buffers synchronously.
-  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
+  __yo_stats_io_syscalls++;
+  ssize_t result = recvfrom(sockfd, buf, len, flags | MSG_DONTWAIT, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     future->state = -1;
@@ -3304,6 +3679,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_dgram_future_cancel;
   __yo_io_ring_submit(future);
+  __yo_ring_track_fd(future, sockfd);
 
   ASYNC_DEBUG("[Io] recvfrom waiting via io_uring: sockfd=%d len=%zu\\n", sockfd, len);
 

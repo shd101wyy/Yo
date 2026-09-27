@@ -183,6 +183,26 @@ for r in $(gh run list --workflow "<name>" --limit 15 --json databaseId -q '.[].
 done | sort | uniq -c
 ```
 
+## A platform-gated test arm is never type-checked on the other platforms
+
+`if(platform == Platform.Linux, { ... })` is folded at compile time, so on macOS
+the Linux arm is pruned **before evaluation**. A type error in it is invisible
+locally, and on Linux it fails the WHOLE batch ("0 of N tests in this batch
+ran"). Measured 2026-09-27: an epoll twin in `tests/sys/socketpair.test.yo`
+passed an `i32` fd to `std/libc/unistd`'s `write`, whose parameter is C `int`.
+Every local gate was green and the Linux legs were red.
+
+Before pushing a test with such an arm, force the arm on in a scratch copy and
+run it with the tree-built compiler:
+
+```bash
+perl -pe 's/if\(platform == Platform\.Linux, \{/if(true, {/' tests/x.test.yo > tests/zz_forced.test.yo
+./yo-out/<target>/bin/yo test ./tests/zz_forced.test.yo --parallel 1; rm tests/zz_forced.test.yo
+```
+
+Where the arm uses Linux-only runtime behaviour, a forced run on macOS proves
+only that it type-checks.
+
 ## A failing test's own `println` output needs `--verbose`
 
 Without `-v` the runner captures the child's stdout and shows it only for a
@@ -588,6 +608,16 @@ YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-def
 
 Check the diff says only that the line numbers moved. A changed URI, a changed
 character column, or a missing result is a real regression.
+
+## Editing diagnostic prose in `src/diagnostics_registry.yo` changes a cli-case golden
+
+`tests/cli-cases/explain-list` runs `yo explain --list`, and its
+`expected_stdout` embeds every registered diagnostic's English summary verbatim.
+Rewording one therefore turns the self-hosted tier-1 gate (GATE 7) red with a
+one-line GOLDEN-DIFF. In 2026-09 this was E0904 gaining `return(...)`. After
+the reword, re-record that case with a binary built from the SAME tree
+(`scripts/cli-diff-test.sh --record explain-list`). A binary built before a
+merge from `develop` silently drops the other side's new codes.
 
 ## Editing ANY file under `.github/skills/` re-records SEVEN cli-cases
 

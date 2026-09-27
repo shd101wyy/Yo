@@ -949,9 +949,13 @@ expect_expr_to_be_fn_call_of_any :: (
 /// Synthesize a token for a desugared node, inheriting position and
 /// provenance from `ref_tok` so errors keep pointing at the source site.
 _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Token)(
+  _synth_desugar_tok_s(kind, String.from(value), ref_tok)
+);
+/// `_synth_desugar_tok` for a name built at desugar time.
+_synth_desugar_tok_s :: (fn(kind : TokenKind, value : String, ref_tok : Token) -> Token)(
   Token(
     kind : kind,
-    value : String.from(value),
+    value : value,
     row : ref_tok.row,
     column : ref_tok.column,
     character : ref_tok.character,
@@ -1046,6 +1050,9 @@ _contains_desugar_target :: (fn(e : AstExpr) -> bool)(
       if(_is_extern_decl_call(e), {
         return(true);
       });
+      if(_is_return_of_await(e), {
+        return(true);
+      });
       if(recur(func_box), {
         return(true);
       });
@@ -1064,6 +1071,39 @@ _contains_desugar_target :: (fn(e : AstExpr) -> bool)(
     }
   )
 );
+/// A `<recv>.await(...)` method call — `io.await(f, io)`, an effect bundle's
+/// `e.io.await(f, e.io)`, `handle.await(io)`: the shapes the await analysis
+/// recognises, matched syntactically (the parser has no types).
+_is_await_method_call :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, callee, _, _, _) => match(
+      callee,
+      .Atom(_, _) => false,
+      .FnCall(_, dot, dargs, is_infix, _) => (
+        is_infix && (dargs.len() == usize(2)) && (
+          match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
+            dargs.get(usize(1)),
+            .Some(m) => ast_expr_is_atom_of(m, "await"),
+            .None => false
+          )
+        )
+      )
+    )
+  )
+);
+/// `return(<recv>.await(...))`.
+_is_return_of_await :: (fn(e : AstExpr) -> bool)({
+  if(!ast_expr_is_fn_call_of(e, "return", Option(usize).Some(usize(1))), {
+    return(false);
+  });
+  match(
+    e,
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(arg) => _is_await_method_call(arg), .None => false),
+    .Atom(_, _) => false
+  )
+});
 /// A `c_include(...)` or `extern(...)` call — the two declaration forms that
 /// evaluate to a MODULE VALUE (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md).
 _is_extern_decl_call :: (fn(e : AstExpr) -> bool)(
@@ -1181,6 +1221,43 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
           );
         });
       });
+      // `return(x.await(...))` → `begin(t := x.await(...), return(t))`. The two
+      // mean the same thing everywhere, and the second is the form an
+      // `io.async` state machine can split at: its await is the value of a
+      // `:=` binding, a state boundary in every position, while an await
+      // nested inside `return(...)` has no state to resume into (E0904,
+      // issues/fixed/return-of-an-await-is-rejected-inside-io-async.md). The
+      // temp is a compiler-minted `__yo_` name, unique per node.
+      if(_is_return_of_await(e), {
+        awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+        tmp_name := String.from("__yo_return_await_");
+        tmp_name.push_string(alloc_global_expr_id().to_string());
+        bind_args := ArrayList(AstExpr).new();
+        bind_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, tmp_name.clone(), tok)));
+        bind_args.push(awaited);
+        bind := AstExpr.FnCall(
+          alloc_global_expr_id(),
+          AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, BK_INIT_ASSIGN, tok)),
+          bind_args,
+          true,
+          tok
+        );
+        ret_args := ArrayList(AstExpr).new();
+        ret_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok_s(TokenKind.Identifier, tmp_name, tok)));
+        ret := AstExpr.FnCall(id, func_box, ret_args, is_infix, tok);
+        block_args := ArrayList(AstExpr).new();
+        block_args.push(bind);
+        block_args.push(ret);
+        return(
+          AstExpr.FnCall(
+            alloc_global_expr_id(),
+            AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_BEGIN, tok)),
+            block_args,
+            false,
+            tok
+          )
+        );
+      });
       // Every argument of a `begin` block is a statement: a bare
       // `c_include(...)` / `extern(...)` there is the glob-destructure sugar.
       is_begin := ast_expr_is_fn_call_of(e, BK_BEGIN, .None);
@@ -1203,8 +1280,9 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
   )
 );
 /// Desugar every top-level statement of a freshly parsed program: `if` →
-/// `cond` throughout, and a bare `c_include(...)` / `extern(...)` statement →
-/// its glob destructure. Returns a new statement list (ArrayList has no
+/// `cond` throughout, `return(x.await(...))` → `begin(t := x.await(...),
+/// return(t))`, and a bare `c_include(...)` / `extern(...)` statement → its
+/// glob destructure. Returns a new statement list (ArrayList has no
 /// in-place `set`).
 desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();

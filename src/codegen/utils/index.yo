@@ -235,6 +235,18 @@ CodeGenContext :: ref(
     /// re-keyed emissions was retracted for renumbering the type table — see
     /// issues/fixed/dyn-async-future-trait-body-emitted-twice.md).
     on_demand_body_cnames : HashSet(String),
+    /// Set once generate_type_declarations has run every pass. Before that, a
+    /// Future interface first seen by the hook gets only its forward typedef:
+    /// the body names its result type BY VALUE (`result`), and the pass that
+    /// declares that type may not have run yet — the body waits for pass 5,
+    /// which runs after every other declaration pass
+    /// (issues/fixed/future-interface-body-emitted-before-its-result-type.md).
+    type_declaration_passes_done : bool,
+    /// Future interfaces whose forward typedef the hook emitted while the
+    /// passes were still running, by C name: pass 5 emits their bodies, and
+    /// generate_type_declarations emits any pass 5 did not reach (one the hook
+    /// met DURING pass 5, after its key walk passed it).
+    on_demand_fwd_only : HashMap(String, TypeValue),
     /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
     /// phase's box pass and the function phase's ctor pass: dyn impls register
     /// LAZILY (at use sites during body generation), so a box first seen by
@@ -361,6 +373,8 @@ impl(
       type_id_statics : HashMap(String, String).new(),
       type_id_static_names : HashSet(String).new(),
       on_demand_body_cnames : HashSet(String).new(),
+      type_declaration_passes_done : false,
+      on_demand_fwd_only : HashMap(String, TypeValue).new(),
       dyn_box_typedefs : HashSet(String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       dyn_upcasts : HashMap(String, ArrayList(TypeValue)).new(),
