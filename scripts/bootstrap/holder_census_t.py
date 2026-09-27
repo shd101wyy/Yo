@@ -39,86 +39,11 @@ from pathlib import Path
 src_path, out_path, dump_path = sys.argv[1], sys.argv[2], sys.argv[3]
 src = Path(src_path).read_text()
 
-# Linux has no malloc-zone introspection (the mach block below is #if'd out
-# there), so the heap scan enumerates a registry maintained by wrappers the
-# transform injects in place of the emitted C's six allocator macros — every
-# Yo allocation (RC objects via __yo_rc_alloc -> __yo_malloc, buffers,
-# aligned) goes through them, and census-side tables use libc calloc directly
-# so they never enter the registry.
-if sys.platform == "linux":
-    # Only the FIRST allocator block counts: the emitted C also carries the
-    # other allocators' runtime sources as embedded string literals, whose
-    # in-text #define lines must not be captured (they name functions this
-    # emission never defines).
-    blk = re.search(r"// Using \w+ allocator\n(#define __yo_\w+ \w+\n)+", src)
-    defs = dict(re.findall(r"#define (__yo_(?:malloc|calloc|realloc|free|aligned_alloc|aligned_free)) (\w+)", blk.group(0))) if blk else {}
-    want = {"__yo_malloc", "__yo_calloc", "__yo_realloc", "__yo_free", "__yo_aligned_alloc", "__yo_aligned_free"}
-    if set(defs) != want:
-        raise SystemExit("holder census on Linux needs the emitted C's allocator #define block "
-                         "(system or mimalloc spelling); found: %r" % sorted(defs))
-    rhs_m, rhs_c = defs["__yo_malloc"], defs["__yo_calloc"]
-    rhs_r, rhs_f = defs["__yo_realloc"], defs["__yo_free"]
-    rhs_aa, rhs_af = defs["__yo_aligned_alloc"], defs["__yo_aligned_free"]
-    blk_end = blk.end()
-    assert re.search(r"#define __yo_aligned_free \w+\n$", src[:blk_end]), "allocator block must end on the __yo_aligned_free define"
-    trk = """
-#if !defined(__APPLE__)
-/* Linux heap enumeration for the holder census: the emitted C defines the six
-   __yo_* allocator macros at the top of the file; these wrappers replace them
-   and record every live block with its exact size. */
-#include <stddef.h>
-#define __HO_TCAP (1u << 27)
-#define __HO_TRK_TOMB ((void*)1)
-static void** __ho_trk_k; static size_t* __ho_trk_v; static size_t __ho_trk_n, __ho_trk_t;
-static int __ho_trk_degraded;   /* live set alone fills the table: stop tracking new blocks */
-static size_t __ho_trk_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (size_t)(x >> 37) & (__HO_TCAP - 1); }
-static void __ho_trk_init(void) { if (!__ho_trk_k) { __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t)); } }
-static void __ho_trk_put(void* p, size_t sz);
-/* Deletion leaves tombstones (linear probing), so a long alloc/free churn
-   fills the table with them even at a small live count; rebuild from the
-   live entries then. An unbounded probe on a full table is how the first
-   Linux census run spun for 40 CPU-minutes. And a rebuild only helps when
-   TOMBSTONES were the load: when the live entries alone fill the table,
-   rehashing per put is O(table) per allocation — the full-tree census burned
-   5 CPU-hours on exactly that — so degrade ONCE (new blocks go untracked,
-   the dump header says so) instead. */
-static void __ho_trk_rehash(void) {
-  void** ok = __ho_trk_k; size_t* ov = __ho_trk_v;
-  __ho_trk_k = (void**)calloc(__HO_TCAP, sizeof(void*)); __ho_trk_v = (size_t*)calloc(__HO_TCAP, sizeof(size_t));
-  __ho_trk_n = 0; __ho_trk_t = 0;
-  if (ok) {
-    for (size_t j = 0; j < (size_t)__HO_TCAP; j++) { void* k = ok[j]; if (k && k != __HO_TRK_TOMB) __ho_trk_put(k, ov[j]); }
-    free(ok); free(ov);
-  }
-}
-static void __ho_trk_put(void* p, size_t sz) {
-  if (!p) return; __ho_trk_init();
-  if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) {
-    if (!__ho_trk_degraded) {
-      __ho_trk_rehash();
-      if ((__ho_trk_n + __ho_trk_t) * 4 >= (size_t)__HO_TCAP * 3) __ho_trk_degraded = 1;
-    }
-    if (__ho_trk_degraded) return;
-  }
-  size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_v[i] = sz; return; } i = (i + 1) & (__HO_TCAP - 1); }
-  __ho_trk_k[i] = p; __ho_trk_v[i] = sz; __ho_trk_n++;
-}
-static void __ho_trk_del(void* p) { if (!p || !__ho_trk_k) return; size_t i = __ho_trk_h(p); while (__ho_trk_k[i]) { if (__ho_trk_k[i] == p) { __ho_trk_k[i] = __HO_TRK_TOMB; __ho_trk_v[i] = 0; __ho_trk_n--; __ho_trk_t++; return; } i = (i + 1) & (__HO_TCAP - 1); } }
-#undef __yo_malloc
-#undef __yo_calloc
-#undef __yo_realloc
-#undef __yo_free
-#undef __yo_aligned_alloc
-#undef __yo_aligned_free
-static void* __yo_malloc(size_t n) { void* p = %s(n); __ho_trk_put(p, n); return p; }
-static void* __yo_calloc(size_t a, size_t b) { void* p = %s(a, b); __ho_trk_put(p, a * b); return p; }
-static void* __yo_realloc(void* q, size_t n) { void* p = %s(q, n); if (p) { if (p != q) __ho_trk_del(q); __ho_trk_put(p, n); } else if (n == 0) __ho_trk_del(q); return p; }
-static void __yo_free(void* q) { __ho_trk_del(q); %s(q); }
-static void* __yo_aligned_alloc(size_t a, size_t n) { void* p = %s(a, n); __ho_trk_put(p, n); return p; }
-static void __yo_aligned_free(void* q) { __ho_trk_del(q); %s(q); }
-#endif
-""" % (rhs_m, rhs_c, rhs_r, rhs_f, rhs_aa, rhs_af)
-    src = src[:blk_end] + trk + src[blk_end:]
+# Linux enumeration: no per-allocation tracking — the scan walks glibc malloc
+# chunks from /proc/self/maps at exit time (see __ho_linux_chunks in the code
+# block); zero runtime overhead, unlike the macro-wrapping registry this file
+# used to inject (which cost 7x on evaluation and wedged at full-tree scale
+# while a small-module check ran fine — 2026-09-27).
 
 tyname = {}
 for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // ([^\n]*)", src):
@@ -249,6 +174,76 @@ static void __ho_walk_from(int r, void* p) {
 #include <mach-o/dyld.h>
 #endif
 #include <pthread.h>
+#include <string.h>
+/* Linux: enumerate in-use malloc blocks by walking glibc chunks from
+   /proc/self/maps — no per-allocation tracking, zero evaluation overhead.
+   For each anonymous rw region, try a chunk chain at successive 16-byte
+   offsets (thread arenas carry a heap_info + malloc_state header before the
+   first chunk; the offset scan finds it); a chain validates only when it
+   covers the region exactly, so non-heap anon regions (census tables,
+   stacks, OpenSSL buffers) are skipped. Large mmap'd chunks are single-chunk
+   regions with page-rounded tails — accepted when one chunk covers the
+   region within a page. In-use = the next chunk's PREV_INUSE bit; chunks
+   sitting in tcache/fastbins keep that bit set and are overcounted (bounded
+   by bin capacity). */
+static unsigned long long __ho_linux_nchunks, __ho_linux_nbytes;
+static void __ho_linux_chunks(void (*cb)(char*, size_t)) {
+  FILE* mf = fopen("/proc/self/maps", "r");
+  if (!mf) return;
+  char mline[1024];
+  while (fgets(mline, sizeof(mline), mf)) {
+    unsigned long long rs, re; char perms[8]; char path[600] = "";
+    int n = sscanf(mline, "%%llx-%%llx %%7s %%*s %%*s %%*s %%599s", &rs, &re, perms, path);
+    if (n < 3) continue;
+    if (perms[0] != 'r' || perms[1] != 'w' || perms[2] != '-') continue;
+    if (path[0] == '/') continue;
+    unsigned long long rlen = re - rs;
+    if (rlen < 4096) continue;
+    int dbg = (getenv("HOLDER_DEBUG_REGIONS") != NULL);
+    if (dbg) fprintf(stderr, "[holders] region %%llx-%%llx %%s len=%%llu\n", rs, re, perms, rlen);
+    /* Candidate starts: offset 0 (main brk heap; single mmap'd chunks) and a
+       small window after every 64 KiB boundary (thread arenas are 64 MiB
+       reservations whose heap_info+malloc_state header precedes the first
+       chunk; /proc/self/maps COALESCES adjacent anonymous mappings, so a
+       chain can rarely end exactly at a region end — validate a PREFIX and
+       accept it when it is long or covers most of the region). */
+    {
+      unsigned long long first_b = (rs & 65535) ? (65536 - (rs & 65535)) : 0;
+      /* candidate starts: offset 0, then a small window after EVERY 64 KiB
+         boundary (thread arenas are 64 MiB-aligned heap_info+malloc_state
+         followed by chunks; coalesced regions hide where the arena begins) */
+      unsigned long long nb = (rlen - first_b) / 65536 + 1;
+      for (unsigned long long bi = 0; bi <= nb; bi++) {
+        unsigned long long base_off = (bi == 0 && first_b == 0) ? 0 : first_b + (bi == 0 ? 0 : (bi - (first_b == 0 ? 1 : 0)) * 65536);
+        unsigned long long limit_off = base_off + ((bi == 0 && first_b == 0) ? 16 : 8192);
+        if (base_off >= rlen) break;
+        for (unsigned long long off = base_off; off + 64 <= rlen && off < limit_off; off += 16) {
+        char* c = (char*)(rs + off);
+        char* end = (char*)re;
+        char* w = c; int nch = 0; unsigned long long covered = 0;
+        while (w + 16 <= end) {
+          size_t sz = *((size_t*)(w + 8)) & ~(size_t)7;
+          if (sz < 32 || (sz & 15) || w + sz > end) break;
+          w += sz; covered += sz; nch++;
+        }
+        int accept = (nch >= 64) || (w == end && nch >= 1) || (nch >= 1 && off == 0 && nch == 1 && covered + 4095 >= rlen);
+        if (dbg && nch >= 4) fprintf(stderr, "[holders]   off=%%llu nch=%%d covered=%%llu rlen=%%llu accept=%%d\n", off, nch, covered, rlen, accept);
+        if (!accept) continue;
+        for (char* c2 = c; c2 + 16 <= w; ) {
+          size_t sz = *((size_t*)(c2 + 8)) & ~(size_t)7;
+          int inuse = 1;
+          if (c2 + sz + 8 <= w) inuse = (int)(*((size_t*)(c2 + sz + 8)) & 1);
+          if (inuse) { cb((char*)(c2 + 16), (size_t)(sz - 16)); __ho_linux_nchunks++; __ho_linux_nbytes += sz; }
+          c2 += sz;
+        }
+        break;
+      }
+      }
+    }
+  }
+  fclose(mf);
+}
+
 static void* __ho_scan_skip;
 static long long* __ho_hold_by; static long long* __ho_hist_t;   /* [type] words in RC objects of that type */
 static long long __ho_hold_raw, __ho_hold_internal, __ho_raw_sz[8];
@@ -331,15 +326,8 @@ static void __ho_scan_heap(FILE* f) {
         zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __ho_rec);
     }
 #else
-  /* Linux: no malloc-zone introspection. The registry the tracking wrappers
-     injected at the top of this file IS the in-use block list, with exact
-     sizes; census-side tables use libc calloc directly and never enter it. */
   for (__ho_pass = 0; __ho_pass < 2; __ho_pass++)
-    for (size_t ti = 0; __ho_trk_k && ti < __HO_TCAP; ti++) {
-      void* k = __ho_trk_k[ti];
-      if (!k || k == __HO_TRK_TOMB) continue;
-      __ho_rec_block((char*)k, __ho_trk_v[ti]);
-    }
+    __ho_linux_chunks(__ho_rec_block);
 #endif
   /* Non-heap holders: the exiting thread's live stack (exit() runs deep inside
      the program, so its frames' locals still own references) and the main
@@ -433,6 +421,7 @@ static void __hd_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned
   for (unsigned k = 0; k < n; k++) __hd_rec_block((void*)r[k].address, r[k].size);
 }
 #endif
+static void __ho_hd_chunk_cb(char* b, size_t sz) { __hd_rec_block((void*)b, sz); }
 static int __hd_rc_slot(long bi) { if (bi < 0 || __hd_bs[bi] < 16) return -1; return __ho_slot_peek(*(void**)((char*)__hd_bk[bi] + 8)); }
 static void __hd_push(void* v, int root) {
   if (((size_t)v & 7) || (size_t)v < 4096) return;
@@ -499,11 +488,7 @@ static void __ho_deep(FILE* f) {
       zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __hd_rec);
   }
 #else
-  for (size_t ti = 0; __ho_trk_k && ti < __HO_TCAP; ti++) {
-    void* k = __ho_trk_k[ti];
-    if (!k || k == __HO_TRK_TOMB) continue;
-    __hd_rec_block(k, __ho_trk_v[ti]);
-  }
+  __ho_linux_chunks(__ho_hd_chunk_cb);
 #endif
   /* HOLDER_DEEP_LAST=<substring>: walk the matching roots LAST, so what they
      reach is what ONLY they retain (their exclusive share). */
@@ -624,10 +609,8 @@ static void __ho_census(void* st) {
     if (ext > 0 && s >= 0) { __ho_extn[s]++; __ho_ext[s] += ext; }
   }
   FILE* f = fopen("%(dump)s", "w"); if (!f) return;
-  /* self-describe the Linux registry: degraded=1 means blocks past saturation
-     went untracked and every count below is a lower bound */
-  fprintf(f, "# trk n=%%zu tomb=%%zu degraded=%%d\n", __ho_trk_n, __ho_trk_t, __ho_trk_degraded);
-  fprintf(stderr, "[holders] registry: %%zu live tracked, %%zu tombstones, degraded=%%d\n", __ho_trk_n, __ho_trk_t, __ho_trk_degraded);
+  fprintf(f, "# chunks %%llu %%llu\n", __ho_linux_nchunks, __ho_linux_nbytes);
+  fprintf(stderr, "[holders] linux chunk walk: %%llu in-use blocks, %%llu bytes\n", __ho_linux_nchunks, __ho_linux_nbytes);
   for (int r = 0; r < %(nr)d; r++) for (int t = 0; t < %(nb)d; t++) {
     long long c = __ho_count[(size_t)r * %(nb)d + t];
     if (c) fprintf(f, "H %%lld %%s %%s\n", c, __ho_roots[r], __ho_types[t]);

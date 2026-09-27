@@ -1793,6 +1793,41 @@ CI ratchets, re-baselined): `check src/main.yo` max RSS **1,381,732 → 1,191,99
 (−13.7 %)**, and the whole compiler build under the 8 GB cgroup **4,062,412 →
 3,527,328 kB** (3.87 → 3.36 GiB).
 
+### 0.18 The Linux holder census lands; the LEAK group on the 2026-09-27 tree (2026-09-27)
+
+The census tooling now runs on Linux end-to-end (zero-overhead: the eval-side
+allocator-wrapping registry cost 7x and WEDGED at full-tree scale — a
+`check src/token.yo` ran fine while `check src/main.yo` spun at 100 % CPU
+with frozen RSS for 80+ CPU-min; an uninstrumented control completed in ~5
+min, so the wrappers were the pathology). The committed enumeration walks
+glibc malloc chunks from `/proc/self/maps` at exit; coalesced anonymous
+mappings defeat exact chain validation, so HOLDER_SCAN's zero-hit pass is
+gapped on Linux for now — but root+type attribution needs no heap scan.
+
+`check src/main.yo`, develop @ 3f7bbb79b, 5:00 wall / 2.2 GB peak, attribution
+census (`holder_report.py`):
+
+- **1,402,445 objects no root reaches** (U rows): ExprInfo 341,939 ·
+  Variable 208,065 · Environment 199,704 · Frame 56,980 · TypeValue 40,486 ·
+  Pattern 35,119 · ExprInfoRare 32,322 · anonymous 487,820. Same composition
+  as the pre-Phase-3 census (§3.1 of the handover: 2.24 M objects), so the
+  recent fixes shrank the population ~40 % without changing its shape.
+- **105,974 leak roots / 313,451 unexplained refs** (R rows):
+  **Pattern 35,119 with exactly +1 ref each** — one systematic missing
+  release (the old census's "held by Arm" row, unchanged);
+  **TypeValue 23,660 with +123,847 refs (≈5.2 each)** — intern-graph
+  retention; Environment 10,620 (+? refs); anonymous 36,575.
+- Biggest single root: `g_funcval_cap_vars` ≈ 169 K objects reached — still
+  the #1 registry, matching §0.10.
+
+Next levers this re-ranks: (1) the Arm→Pattern single missing release
+(35,119 × Pattern, likely one codegen site — same family as the two live
+missing-drop bugs); (2) TypeValue intern retention (~5 unexplained refs per
+interned node); (3) the two open missing-drop bugs
+(`issues/local-binding-of-an-indexed-read-never-releases-its-element.md` and
+the drop-liburing agent's param-interior fix) land first — each shrinks the
+same ExprInfo/Variable/Environment mass.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.

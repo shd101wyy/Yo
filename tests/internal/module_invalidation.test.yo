@@ -20,6 +20,8 @@
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
+{ register_match_arms, lookup_match_arms, purge_match_arms_owned_by, Arm, Pattern } :: import("../../src/pattern.yo");
+{ AstExpr, make_err_expr } :: import("../../src/expr.yo");
 {
   mm_set_open_document,
   mm_forget_open_document,
@@ -407,4 +409,29 @@ test("owner logs: a one-shot command records none, an invalidating one does", {
   assert(_doc_round(on_path.clone(), String.from(_IMPL_DOC), std_path, io), "the document analyzes clean with owner logs on");
   mm_forget_open_document(on_path);
   assert(owned_id_log_entry_count() > before_on, "owner logs on: analyzing a document records its ids");
+});
+
+test("match-arm registry: purging a module drops its compiled arms", {
+  /// The 2026-09-27 holder census found g_match_arms retaining 18,102 lists
+  /// (≈35 K Pattern IR graphs) at plain-`check` exit; with the owner index,
+  /// mm_invalidate_document retires a module's generation. This exercises the
+  /// registry lifecycle directly: register under an owner nothing else uses,
+  /// purge the owner, and the arms must be gone (before the owner index the
+  /// purge did not exist and the registry only ever grew).
+  arm := Arm(
+    pattern : Pattern.Wildcard,
+    guard : Option(AstExpr).None,
+    body : make_err_expr(),
+    arm_expr : make_err_expr(),
+    pattern_expr : make_err_expr(),
+    classic : true
+  );
+  arms := ArrayList(Arm).new();
+  arms.push(arm);
+  (fake_id : usize) = 900000000001;
+  owner := String.from("file:///tmp/no_such_module_fixture.yo");
+  register_match_arms(fake_id, arms, owner);
+  assert(lookup_match_arms(fake_id).is_some(), "the arm list registered under its owner");
+  purge_match_arms_owned_by(owner);
+  assert(lookup_match_arms(fake_id).is_none(), "purging the owner drops its compiled arms");
 });

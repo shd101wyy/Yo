@@ -87,12 +87,52 @@ Arm :: ref(
 );
 // ---------------------------------------------------------------------------
 // Registry — arms per match node, keyed by the match expression's id.
+//
+// The id carries no owner, so a side index records which module registered
+// it and `mm_invalidate_document` purges that module's entries (a
+// re-evaluation re-registers them). Before the owner index, every
+// watch/LSP edit generation stayed in the map forever — the 2026-09-27
+// holder census measured 18,102 lists (≈35 K Pattern IR graphs, the single
+// biggest `Pattern` population at `check` exit) living in a one-shot process
+// with nothing left to read them.
 // ---------------------------------------------------------------------------
 (g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
-register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
+(g_match_arm_owners : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
+register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm), owner : String) -> unit)({
   _old := g_match_arms.insert(match_id, arms);
+  ids := match(
+    g_match_arm_owners.get(owner),
+    .Some(existing) => existing,
+    .None => {
+      // insert takes ownership of the HANDLE (no clone — a cloned list would
+      // store a detached snapshot the push below never reaches).
+      fresh := ArrayList(usize).new();
+      _ := g_match_arm_owners.insert(owner.clone(), fresh);
+      match(g_match_arm_owners.get(owner), .Some(stored) => stored, .None => fresh)
+    }
+  );
+  ids.push(match_id);
 });
 lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(match_id));
+purge_match_arms_owned_by :: (fn(owner : String) -> unit)({
+  match(
+    g_match_arm_owners.remove(owner),
+    .Some(ids) => {
+      (pi : usize) = usize(0);
+      while(pi < ids.len(), {
+        match(
+          ids.get(pi),
+          .Some(mid) => {
+            _r := g_match_arms.remove(mid);
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // GADT reachability (moved from evaluator/exprs/match.yo so the checker can
 // exclude unreachable variants from an enum's constructor set).
@@ -1504,7 +1544,7 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
     }
   );
 });
-export(Pattern, Arm, register_match_arms, lookup_match_arms);
+export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms_owned_by);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
