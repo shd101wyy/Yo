@@ -288,7 +288,7 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1 引入；本运行时
 - **批处理**：每次系统调用可提交多个 I/O 操作
 - **真正异步**：由内核执行 I/O，而非仅通知
 
-**无库依赖**：环形层（setup/mmap、提交、完成、SQE prep 辅助函数）以内嵌方式生成到 C 代码中，使用 `__yo_uring_*` 命名空间（`plans/DROP_LIBURING.md`）。编译出的程序只链接 libc——无需安装任何东西，是否存在 io_uring 由内核而非构建机器决定。
+**无库依赖**：环形层（setup/mmap、提交、完成、SQE prep 辅助函数）以内嵌方式生成到 C 代码中，使用 `__yo_uring_*` 命名空间（`plans/reference/DROP_LIBURING.md`）。编译出的程序只链接 libc——无需安装任何东西，是否存在 io_uring 由内核而非构建机器决定。
 
 **内核版本要求：**
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The deterministic I/O budgets (plans/DROP_LIBURING.md Phase 6, G3) — the
+# The deterministic I/O budgets (plans/reference/DROP_LIBURING.md Phase 6, G3) — the
 # hard CI gate of the performance guarantees. Counts, not clocks: kernel
 # enters per operation must stay LINEAR (no syscall storms) and a blocked
 # loop must accrue almost nothing (the anti-spin rule that keeps the

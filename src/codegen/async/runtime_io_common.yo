@@ -669,14 +669,14 @@ static void __yo_timer_future_dispose(void* ptr) {
 
 // Async sleep. The ring layer (runtime_io_linux.yo's emission, which lands
 // before this file's output) is always compiled on Linux since
-// plans/DROP_LIBURING.md Phase 1, so this body needs no feature guard.
+// plans/reference/DROP_LIBURING.md Phase 1, so this body needs no feature guard.
 //
 // On the ring a sleep is ONE IORING_OP_TIMEOUT SQE: no descriptor, no
 // syscall of its own. It used to be a timerfd (create + settime + close)
 // with an IORING_OP_READ on it — and a timerfd read cannot be done
 // nonblocking inside io_uring, so every tick was punted to an io-wq worker
 // thread and woke the loop from there
-// (issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
+// (issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
 //
 // Cancel a pending timeout. The kernel still delivers the op's own CQE (with
 // -ECANCELED), and that is what releases the ring's reference — so the

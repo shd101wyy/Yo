@@ -53,7 +53,7 @@ failed job reproduces.
 The FV job compiles `tests/internal/verifier.test.yo` with the SEED, so the
 emitted drop code is the seed's, not the tree's — the leak is a seed-emit
 × current-tree interaction (the `__yo_fs_*` rc path), i.e. the same class
-as the seed-lag table in `plans/DROP_LIBURING.md` §5 but in drop
+as the seed-lag table in `plans/reference/DROP_LIBURING.md` §5 but in drop
 accounting. Prime suspects: the capture-source change (#951) and anything
 in the 15:32–16:52 window that shifted a `std/fs` value's rc shape under
 the newer seed's emit.

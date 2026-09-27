@@ -1,17 +1,51 @@
 # Drop the liburing dependency — vendor the io_uring ring layer, add an epoll fallback
 
-**Status:** ACTIVE — proposed 2026-09-26, extended the same day with the epoll fallback
-and the performance guarantees (Phases 5–6). Phase 0 is this document plus its companion
-issue (`issues/fixed/io-uring-init-failure-exits-the-process.md`).
+**Status:** LANDED — closed 2026-09-27 and moved to `plans/reference/`. The
+landed design, authoritative from here on: **the Linux async runtime is
+self-contained**. It vendors the io_uring ring layer, falls back to epoll behind
+a ring → epoll → degraded ladder, and CI enforces its syscall budgets. That
+supersedes the liburing-trap sections of `PORTABLE_C_DISTRIBUTION.md`.
+
+**Closing outcomes (measured):**
+- **No liburing anywhere.** v0.2.45 is the first release built from Phase 1:
+  - its portable C uses the vendored `__yo_uring_*` layer;
+  - its musl `yo` is fully static, with no `NEEDED` entries;
+  - Phase 4 (#950) removed every install, link flag and assert.
+  - A program built by a v0.2.45+ compiler links only libc. Whether io_uring is
+    used is decided by the running kernel.
+- **Every environment runs.** Docker's default seccomp profile, gVisor and
+  `RLIMIT_MEMLOCK` exhaustion used to `exit(1)` at the first I/O. They now run on
+  the epoll fallback with one stderr line. The fallback is gated by:
+  - CI's "Docker default-seccomp epoll fallback" leg, which parks a socket recv;
+  - the "Forced-epoll async corpus" job, which runs the async/io/net/thread
+    suites on the fallback.
+- **Syscall budgets on stock Linux** (GitHub `ubuntu-latest`, 200-round
+  ping-pongs, 50 timer ticks):
+
+  | budget | ring | epoll |
+  | ------ | ---: | ----: |
+  | A: inline ping-pong | 801 | 800 |
+  | D: parked ping-pong | 400 | 2,400 |
+  | B: timer ticks | 150 | 200 |
+  | C: 150 ms blocked window | 3 | 4 |
+
+  In the blocked window the loop is blocked, not polling, on both backends.
+- **Throughput on the same runner** (epoll/ring ops-per-second ratio): inline
+  ping-pong 1.36, parked ping-pong 0.65, timers 0.97, files 1.17. The ratchet
+  floors in `scripts/bench/io-floors.env` are set from that table.
+- **Released:** Phases 1–2 and 5–6 in v0.2.45, Phase 3 by that release's
+  `SEED_VERSION` bump (9aead9775), and Phase 4 in #950. The audit follow-up
+  below (#964) landed after them.
+
+History (the phase-by-phase record as it was written):
 
 **Landed:** Phase 0 (this doc + the issue), Phase 1 (the vendored ring layer; PR #953 —
 `yo check ./src` 279/279, emit-diff clean, probe binaries link and run with zero
 `io_uring_*` undefined symbols, 5 internal pins), Phase 2 (docs en/zh + the
 PORTABLE_C trap note + the 256→1024 SQE doc fix; PR #947), Phase 5 (the epoll fallback
 + ladder; every gate green incl. the Docker default-seccomp leg — the issue is closed
-and moved to `fixed/`). Open: Phase 3 (waits on the release train), Phase 4 (seed-gated cleanup — the
-gate is `SEED_VERSION` at or past the FIRST release built from Phase 1, which
-is v0.2.45+ since v0.2.44 was cut from develop before this stack merged).
+and moved to `fixed/`), Phase 3 (v0.2.45 shipped; `SEED_VERSION` bumped to it),
+Phase 4 (#950).
 
 **Phase 6 landed** (PR #949): G1 zero-regression (emit-diff + the A/B bench:
 echo identical, timer/file within variance); G2
@@ -69,8 +103,8 @@ above wrong.
 - The kernel floors in §3.5 are corrected per opcode.
 - Records:
   - `issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`
-  - `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
-  - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
+  - `issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
+  - `issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
   - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
   - `issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
   - `issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md`
@@ -123,7 +157,7 @@ interpolations) plus the Linux timer section of `src/codegen/async/runtime_io_co
 thread-local, `IORING_SETUP_SINGLE_ISSUER|COOP_TASKRUN|DEFER_TASKRUN` with a retry
 without flags for older kernels. Lazy ring creation on first submission (the #934
 RLIMIT_MEMLOCK fix). No registered buffers, no buffer rings, no multishot, no SQPOLL, no
-`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`). *(Corrected 2026-09-27: the code did a timerfd `READ`, which io_uring punts to an io-wq worker; a ring sleep is now one `IORING_OP_TIMEOUT` — `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`.)*
+`IORING_OP_TIMEOUT` (sleep is timerfd + `POLL_ADD`). *(Corrected 2026-09-27: the code did a timerfd `READ`, which io_uring punts to an io-wq worker; a ring sleep is now one `IORING_OP_TIMEOUT` — `issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`.)*
 
 Linked (non-inline) liburing symbols used — the complete list:
 
@@ -604,6 +638,24 @@ chosen once per thread); wall-clock performance gates in CI (G3 counts, not cloc
 Stretch goal (post-Phase-6, evidence-gated): a C-level worker pool for file ops on the
 epoll fallback, closing the cold-file loop-stall gap with macOS-parity as the baseline
 to beat.
+
+Considered and rejected (2026-09-27): **keeping an idle fd's EPOLLIN interest
+armed between parks**, libuv style.
+- **Saving:** 2 of the 5 syscalls on a parked epoll op (the ADD and the DEL).
+  Budget D on epoll would go from 12 to 8 per round.
+- **Why rejected:** an epoll interest belongs to the open file *description*,
+  not the fd number.
+  - An interest kept armed with no waiter outlives any `close()` that bypasses
+    the runtime's close hook: a raw libc `close`, or the last close of a
+    dup'd or inherited descriptor.
+  - `EPOLL_CTL_DEL` by number can then no longer reach it, so `epoll_wait`
+    reports it forever and the loop spins.
+  - The eager model has that exposure only while a waiter is parked, which is
+    already a misuse.
+- The parked epoll path runs at 0.65 of the ring's throughput on stock Linux.
+  The measured cost of the fallback is the price of not spinning.
+- **Revisit condition:** only with a registry that can prove every close of a
+  registered description goes through `__yo_io_close_hook`.
 
 ## 11. Lifecycle
 

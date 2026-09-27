@@ -542,7 +542,7 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
 #include <poll.h>
 #include <fcntl.h>
 
-// Deterministic performance budgets (plans/DROP_LIBURING.md Phase 6, G3):
+// Deterministic performance budgets (plans/reference/DROP_LIBURING.md Phase 6, G3):
 // counts, not clocks — a shared CI runner can enforce these. Always on:
 // a thread-local increment per kernel entry costs nothing next to the entry
 // itself. kernel_enters counts every io_uring_enter and epoll_wait;
@@ -569,7 +569,7 @@ unsigned long __yo_io_stats_io_syscalls(void) {
 }
 #define __YO_SC(call) (__yo_stats_io_syscalls++, (call))
 // ============================================================================
-// Vendored io_uring ring layer (plans/DROP_LIBURING.md Phase 1)
+// Vendored io_uring ring layer (plans/reference/DROP_LIBURING.md Phase 1)
 // ============================================================================
 // The kernel UAPI, frozen: the SQE (64 B) / CQE (16 B) layouts and the mmap
 // offsets are stable since 5.1 and append-only since; new ops and flags are
@@ -1238,7 +1238,7 @@ static void __yo_io_notify_init(void) {
   }
 }
 
-// Backend selection (plans/DROP_LIBURING.md 3.6), declared ahead of the
+// Backend selection (plans/reference/DROP_LIBURING.md 3.6), declared ahead of the
 // init ladder that decides it and the machinery below that implements it.
 #define __YO_BACKEND_NONE     0
 #define __YO_BACKEND_URING    1
@@ -1272,7 +1272,7 @@ static void __yo_io_init(void) {
   // hardened kernels; ENOMEM under RLIMIT_MEMLOCK; pre-5.6 kernels), and
   // only if BOTH fail does the loop run DEGRADED — every async op then
   // completes with -__yo_backend_errno instead of the old exit(1)
-  // (plans/DROP_LIBURING.md 3.6, issues/fixed/io-uring-init-failure-exits-the-process.md).
+  // (plans/reference/DROP_LIBURING.md 3.6, issues/fixed/io-uring-init-failure-exits-the-process.md).
   // YO_IO_BACKEND=uring|epoll pins a backend for tests and benchmarks; a
   // pinned backend that fails is a loud error, never a silent ladder step.
   int forced = 0;  // 0 auto, 1 uring, 2 epoll

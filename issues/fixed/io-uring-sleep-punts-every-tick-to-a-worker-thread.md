@@ -1,7 +1,15 @@
 # io_uring: every `sleep` costs three syscalls and a worker-thread round trip
 
-**Status: OPEN — fix written, awaiting the Linux bench.** Filed 2026-09-27 from the
-DROP_LIBURING audit.
+**Status: FIXED (2026-09-27, #964).** Filed the same day from the DROP_LIBURING
+audit.
+
+**Measured after the fix,** on stock Linux (`ubuntu-latest`, the io-budgets job):
+- the ring's timer throughput is at parity with the epoll fallback's timerfd
+  (epoll/ring 0.967, against 20.3× on the WSL2 box with the old code);
+- budget B is 150 syscalls for 50 ticks on the ring, against 200 on epoll.
+
+No stock-Linux run of the old timerfd-READ code exists, so the before/after
+comparison on one machine was not made.
 
 **Provenance:**
 - The **code shape is read from the tree.**
@@ -22,7 +30,7 @@ before the fix:
 3. `IORING_OP_READ` of 8 bytes on the timerfd, which is the punted op
 4. on dispose, `close` of the timerfd
 
-`plans/DROP_LIBURING.md` §2.1 described this as "timerfd + `POLL_ADD`". The code
+`plans/reference/DROP_LIBURING.md` §2.1 described this as "timerfd + `POLL_ADD`". The code
 actually did a `READ`.
 
 ## Fix

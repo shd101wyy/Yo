@@ -288,7 +288,7 @@ io_uring is Linux's modern async I/O interface (introduced in kernel 5.1; this r
 - **Batching**: Multiple I/O operations per syscall
 - **True async**: Kernel performs I/O, not just notification
 
-**No library dependency**: the ring layer (setup/mmap, submission, completion, the SQE prep helpers) is vendored into the emitted C under the `__yo_uring_*` namespace (`plans/DROP_LIBURING.md`). A compiled program links against libc only — nothing to install, and the kernel, not the build box, decides whether io_uring exists.
+**No library dependency**: the ring layer (setup/mmap, submission, completion, the SQE prep helpers) is vendored into the emitted C under the `__yo_uring_*` namespace (`plans/reference/DROP_LIBURING.md`). A compiled program links against libc only — nothing to install, and the kernel, not the build box, decides whether io_uring exists.
 
 **Kernel version requirements:**
 

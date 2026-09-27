@@ -65,5 +65,5 @@ Trace `io_uring_enter`/CQE delivery for the connect SQE on WSL2 (`strace -e
 io_uring_setup,io_uring_enter`). If the CQE never arrives, compare WSL2's
 io_uring TCP connect against mainline; if it arrives late or dropped, audit
 the loop's pending-accounting around teardown-on-idle. The epoll fallback
-(existing behavior, plans/DROP_LIBURING.md Phase 5) is the correct workaround
+(existing behavior, plans/reference/DROP_LIBURING.md Phase 5) is the correct workaround
 ON THIS MACHINE CLASS — not a fix.

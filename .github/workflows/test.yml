@@ -1540,7 +1540,7 @@ jobs:
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/io-budget-check.sh
       # G2's ratio table on a stock Linux runner, for the record: wall-clock
       # varies across shared runners, so the floors are a merge criterion,
-      # not a gate (plans/DROP_LIBURING.md Phase 6) — a BELOW FLOOR here
+      # not a gate (plans/reference/DROP_LIBURING.md Phase 6) — a BELOW FLOOR here
       # annotates the run without failing it.
       - name: Backend bench table (informational)
         continue-on-error: true
@@ -2368,7 +2368,7 @@ jobs:
           '
 
       # A static binary that merely LINKS is not the deliverable; it must
-      # COMPILE. Since plans/DROP_LIBURING.md the async runtime is always
+      # COMPILE. Since plans/reference/DROP_LIBURING.md the async runtime is always
       # compiled in (ring -> epoll -> degraded ladder), so the old
       # "liburing not available, async I/O disabled" failure class cannot
       # occur — what remains worth asserting is that the binary completes a
@@ -2380,7 +2380,7 @@ jobs:
             echo "::error::musl bundle is not statically linked"; exit 1; }
 
           # No seccomp relaxation: Docker's DEFAULT profile blocks
-          # io_uring_setup, and since plans/DROP_LIBURING.md Phase 5 the
+          # io_uring_setup, and since plans/reference/DROP_LIBURING.md Phase 5 the
           # runtime's ladder answers that by selecting the epoll fallback and
           # completing normally — so running this leg under the default
           # profile is itself part of the assertion (the binary works in a

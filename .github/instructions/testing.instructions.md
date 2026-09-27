@@ -1080,7 +1080,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 ## Linux async-backend testing (`YO_IO_BACKEND`)
 
 - The Linux async runtime picks its backend once per thread: io_uring, else the
-  epoll fallback (one stderr line), else degraded (`plans/DROP_LIBURING.md`).
+  epoll fallback (one stderr line), else degraded (`plans/reference/DROP_LIBURING.md`).
   Pin it with `YO_IO_BACKEND=uring|epoll|auto` — a PINNED backend that fails to
   initialize is a hard error, which is exactly what tests want.
 - Run async/io/net tests under BOTH backends when touching
@@ -1100,5 +1100,5 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - Nothing in the Linux pipeline needs liburing: user programs, the `yo`
   binary, stage-1 and the published bundles (seed v0.2.45 on) all carry the
   vendored ring layer. Only a `yo` built by a PRE-v0.2.45 seed links liburing
-  (the seed-lag table in `plans/DROP_LIBURING.md` §5) — rebuild with a current
+  (the seed-lag table in `plans/reference/DROP_LIBURING.md` §5) — rebuild with a current
   seed rather than installing the library.

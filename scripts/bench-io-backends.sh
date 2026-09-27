@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The backend comparison table (plans/DROP_LIBURING.md Phase 6, G2): runs
+# The backend comparison table (plans/reference/DROP_LIBURING.md Phase 6, G2): runs
 # scripts/bench/io_bench.yo under YO_IO_BACKEND=uring and =epoll on THIS box,
 # prints the ratio table, and checks the floors in scripts/bench/io-floors.env
 # (a ratchet: record merged numbers there, never lower one). Wall-clock

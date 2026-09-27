@@ -1,10 +1,17 @@
 # io_uring: closing a descriptor leaves its pending operations running, and an aborted recv cannot be cancelled
 
-**Status: OPEN — fix written, awaiting Linux verification.** Filed 2026-09-27 from
-the DROP_LIBURING audit follow-up. The mechanism was established from the code
-and the kernel's io_uring semantics (**reasoned**, not yet reproduced on Linux).
-The regression tests pass on macOS against kqueue, which already honours both
-contracts (**measured**).
+**Status: FIXED (2026-09-27, #964).** Filed the same day from the DROP_LIBURING
+audit follow-up.
+
+**Provenance:**
+- The mechanism was established from the code and from the kernel's io_uring
+  semantics (**reasoned**).
+- **Measured after the fix:** both regression tests pass on io_uring on Linux
+  x86_64 and arm64 (`test (ubuntu-*)`, run 36341166428), and their epoll twins
+  pass on the Forced-epoll corpus job.
+- **Not measured:** the pre-fix hang on Linux. No run of the old ring code
+  exercised these tests.
+- On macOS the tests pass against kqueue, which already honoured both contracts.
 
 ## Two defects, one root
 

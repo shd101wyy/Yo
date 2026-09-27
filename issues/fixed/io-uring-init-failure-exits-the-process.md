@@ -1,6 +1,6 @@
 # io_uring ring creation failure exits the process — ENOSYS under Docker's default seccomp, EPERM on hardened kernels, ENOMEM under RLIMIT_MEMLOCK
 
-**Status: FIXED** 2026-09-26 by `plans/DROP_LIBURING.md` Phase 5 (the backend
+**Status: FIXED** 2026-09-26 by `plans/reference/DROP_LIBURING.md` Phase 5 (the backend
 ladder): ring creation failure selects the epoll fallback instead of exiting,
 and only if `epoll_create1` also fails does the loop run degraded. The ENOMEM
 leg was reproduced in CI (#934); the seccomp leg was verified end-to-end in a
@@ -40,7 +40,7 @@ line as the only diagnostic. Three real errno families reach this path:
 
 The only graceful-degrade precedent in the runtime is the sleep stub's `-ENOSYS`
 (`std/sys/timer.yo`: "it is the one operation there that degrades instead of
-aborting"). `plans/DROP_LIBURING.md` Phase 1 removes that stub arm (the ring layer
+aborting"). `plans/reference/DROP_LIBURING.md` Phase 1 removes that stub arm (the ring layer
 becomes always-compiled), which makes a general degrade path strictly more
 load-bearing, not less.
 
@@ -70,7 +70,7 @@ Ring-creation failure has exactly one handling path: print and `exit(1)`. There 
 recorded "ring unavailable" state for the op starts to consult, so degradation cannot
 even be expressed today except per-op in stub arms.
 
-## Fix (plans/DROP_LIBURING.md Phase 5) and verification
+## Fix (plans/reference/DROP_LIBURING.md Phase 5) and verification
 
 `__yo_io_init` selects a backend ONCE per thread, never re-deciding: the ring
 first; on ANY init failure one diagnostic line
@@ -119,7 +119,7 @@ errno and its likely cause:
 `YO_IO_BACKEND=auto|uring|epoll` pins the backend for tests and benchmarks (getenv
 precedent: `YO_ASYNC_STRICT`, `YO_MAIN_STACK_MB`); forced and failing is a hard error,
 never a silent ladder step. Performance is guaranteed separately
-(`plans/DROP_LIBURING.md` Phase 6): zero regression on the ring path (emit-diff +
+(`plans/reference/DROP_LIBURING.md` Phase 6): zero regression on the ring path (emit-diff +
 A/B), fallback floors with a ratchet (`scripts/bench-io-backends.sh`), and
 CI-enforced deterministic syscall/behavior budgets.
 
