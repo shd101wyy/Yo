@@ -408,3 +408,84 @@ test("a second closure's list after the first list's push", {
   match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
   assert(hits.load(MemoryOrder.Acquire) == i32(4), "each list called its own closure");
 });
+// ---------------------------------------------------------------------------
+// A closure releases its captures (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md).
+// Every case asserts EXACTLY one dispose: 0 is the leak, 2 an over-release.
+(g_cap_disposed : i32) = i32(0);
+CapPayload :: ref(struct(n : i32));
+impl(
+  CapPayload,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_cap_disposed = (g_cap_disposed + i32(1));
+    })
+  )
+);
+_cap_ignore :: (fn(get : Impl(Fn(x : i32) -> i32)) -> i32)(i32(0));
+_cap_call :: (fn(get : Impl(Fn(x : i32) -> i32)) -> i32)(get(i32(3)));
+_cap_rewrap :: (fn(get : Impl(Fn(x : i32) -> i32)) -> i32)({
+  (again : Impl(Fn(x : i32) -> i32)) = ((x : i32) => get(x));
+  again(i32(3))
+});
+_CapBox :: ref(struct(f : Dyn(Fn(x : i32) -> i32)));
+_cap_boxed :: (fn(get : Impl(Fn(x : i32) -> i32)) -> i32)({
+  b := _CapBox(f : dyn(x => get(x)));
+  b.f(i32(3))
+});
+test("a closure local releases its captures at scope end", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    assert(c(i32(1)) == i32(6), "the closure reads its capture");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+test("a copied closure releases its captures once per owner", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    c2 := c;
+    assert((c(i32(1)) + c2(i32(1))) == i32(12), "both copies read the capture");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+test("a closure literal passed as an argument releases its captures", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    assert(_cap_ignore((x : i32) => (x + p.n)) == i32(0), "an unused closure parameter");
+    assert(_cap_call((x : i32) => (x + p.n)) == i32(8), "a called closure parameter");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+test("a closure local passed as an argument stays owned by the caller", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    assert(_cap_call(c) == i32(8), "the callee calls it");
+    assert(c(i32(1)) == i32(6), "the caller still owns a live closure");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+test("a closure captured by another closure releases the inner captures", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    assert(_cap_rewrap((x : i32) => (x + p.n)) == i32(8), "the outer closure calls the inner");
+    (inner : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    (outer : Impl(Fn(x : i32) -> i32)) = ((x : i32) => inner(x));
+    assert(outer(i32(1)) == i32(6), "a local closure capturing a local closure");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+test("a closure captured by a Dyn closure field releases its captures", {
+  before := g_cap_disposed;
+  {
+    p := CapPayload(n : i32(5));
+    assert(_cap_boxed((x : i32) => (x + p.n)) == i32(8), "the boxed closure calls through");
+  };
+  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
