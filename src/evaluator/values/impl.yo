@@ -121,7 +121,8 @@ pragma(Pragma.AllowUnsafe);
   push_forcing_def,
   pop_forcing_def,
   forcing_depths,
-  truncate_forcing_depths
+  truncate_forcing_depths,
+  call_evaluate_fn_body
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -3187,7 +3188,14 @@ _materialize_default_body :: (
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
-  evaluated := evaluate_expression_raw(body, env, body_ctx, inner_exn);
+  // As a FUNCTION BODY, through the begin machinery like every other
+  // def-time body eval (`_trial_eval_fn_body`, calls/function_type.yo): a
+  // non-begin body is treated as a one-statement begin, so a bare
+  // `(self -> return(...))` default finds `return`, which only a begin
+  // recognises. Evaluated raw, it threw `Variable "return" not found` — once
+  // swallowed (the shared default took over), a compile error since the
+  // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
+  evaluated := call_evaluate_fn_body(body, env, body_ctx, inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the

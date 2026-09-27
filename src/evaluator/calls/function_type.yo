@@ -88,6 +88,7 @@ pragma(Pragma.AllowUnsafe);
 {
   EvalContext,
   set_rerun_pending_def_evals_fn,
+  set_evaluate_fn_body_fn,
   set_in_def_time_trial,
   create_function_body_evaluation_context,
   hard_swallow_diagnostic,
@@ -961,7 +962,12 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
 /// — module-level call statements do not execute at import).
 register_rerun_pending_def_evals :: (fn() -> unit)({
   set_rerun_pending_def_evals_fn(_rerun_pending_def_evals);
+  set_evaluate_fn_body_fn(_evaluate_as_fn_body);
 });
+/// `call_evaluate_fn_body`'s implementation (evaluator/context.yo).
+_evaluate_as_fn_body :: (fn(body : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, exn)
+);
 /// Register a function body expression against a function type, producing a
 /// typed `FuncVal`.
 ///
