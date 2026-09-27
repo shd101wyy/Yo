@@ -199,7 +199,8 @@ of ring mappings, not of who made them.
 
 | Capability | Kernel |
 | --- | --- |
-| The op set the runtime submits (`openat`/`close`/… the existing floor) | 5.6+ |
+| The core op set the runtime submits (`openat`/`close`/`statx`/sockets) | 5.6+ |
+| `renameat`/`unlinkat` · `mkdirat`/`symlinkat`/`linkat` (corrected 2026-09-27 by the audit — below these the op answers `-EINVAL`; `issues/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`) | 5.11 · 5.15 |
 | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` flags | 5.19 / 6.0 / 6.1 — requested together, retried with no flags on rejection (existing logic, preserved verbatim) |
 | Async `ftruncate` (`IORING_OP_FTRUNCATE`) | 6.14+ |
 
