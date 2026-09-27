@@ -11,7 +11,11 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { assert, panic } :: import("std/assert");
-{ DAGNode, DAGNodeKind, build_dag, detect_cycle } :: import("../../src/build_runner.yo");
+{ DAGNode, DAGNodeKind, build_dag, detect_cycle, artifact_input_stamp, set_compiler_identity } :: import("../../src/build_runner.yo");
+{ IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
 { BuildRegistry, BuildArtifact, ArtifactKind } :: import("../../src/evaluator/builtins/build.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildArtifact)(
   BuildArtifact(
@@ -266,4 +270,36 @@ test("detect_cycle: self-loop is detected", {
   dag := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("a"))));
   assert(detect_cycle(dag).is_some(), "a -> a self-loop");
+});
+
+test("artifact stamp: a different compiler binary is a different stamp", {
+  /// The stamp named the compiler only by CURRENT_YO_VERSION, which a
+  /// self-built stage-1 shares with the seed that built it, so `yo build`
+  /// with the second compiler served the first one's artifact
+  /// (issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md).
+  /// The RECORD pass reads only the depfile, so the inputs here are fixed.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_build_stamp_identity_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  depfile := `${dir}/app.deps`;
+  io.await(write_string(Path.new(depfile.clone()), String.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ./src/main.yo\n"), io), ioexn);
+  argv := ArrayList(String).new();
+  argv.push(String.from("compile"));
+  argv.push(String.from("./src/main.yo"));
+  set_compiler_identity(String.from("compiler-A"));
+  a1 := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  set_compiler_identity(String.from("compiler-B"));
+  b := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  set_compiler_identity(String.from("compiler-A"));
+  a2 := io.await(artifact_input_stamp(argv.clone(), dir.clone(), depfile.clone(), true, true, ArrayList(String).new(), io), ioexn);
+  assert(a1.len() > usize(0), "the record pass produced a stamp");
+  assert(!(a1 == b), "a different compiler binary must not match the recorded stamp");
+  assert(a1 == a2, "the same compiler and inputs reproduce the stamp");
 });
