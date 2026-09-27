@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { IntRange, get_integer_type_range, get_integer_type_bits, target_integer_type_range, get_target_pointer_size_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { parse_raw_float, f64_raw_roundtrip } :: import("../utils.yo");
 { parse_raw_int } :: import("../../utils.yo");
 { Exception } :: import("std/error");
@@ -306,7 +306,7 @@ eval_numeric_arg :: (
     exn : Exception
   ) -> ExprInfo
 )({
-  evaluated := evaluate_expression(arg, env, ctx);
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(i) => i,

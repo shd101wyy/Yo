@@ -4,7 +4,7 @@
 //! (_expr.yo) and individual handlers that call back into it.
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { AstExpr, ExprId } :: import("../../expr.yo");
 { ExprInfoTable } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -61,6 +61,51 @@ evaluate_expression :: (
     .Some(f) => f(expr, env, ctx)
   )
 );
+/// The error the most recent `evaluate_expression_guarded` caught (its
+/// handler is capture-free, so a module-level channel).
+(g_guarded_eval_err : ArrayList(AnyError)) = ArrayList(AnyError).new();
+/// Evaluate `expr` so that its error reaches the caller instead of being
+/// swallowed (unlike the 3-argument `evaluate_expression`), but RETURNED
+/// rather than thrown: a caller that set ctx state for the evaluation
+/// (`expected_type`, `self_type`, …) restores it first and then re-raises
+/// with its own `exn`. On success the result is pushed to `out` and `.None`
+/// is returned (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6, census site #16).
+evaluate_expression_guarded :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(AstExpr)
+  ) -> Option(AnyError)
+)({
+  g_guarded_eval_err.clear();
+  _evaluate_expression_guarded_inner(expr, env, ctx, out);
+  if(out.len() > usize(0), {
+    return(Option(AnyError).None);
+  });
+  cond(
+    (g_guarded_eval_err.len() == usize(0)) => Option(AnyError).None,
+    true => g_guarded_eval_err.get(g_guarded_eval_err.len() - usize(1))
+  )
+});
+_evaluate_expression_guarded_inner :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(AstExpr)
+  ) -> unit
+)({
+  guard_exn := Exception(
+    throw : (
+      _g_err -> {
+        g_guarded_eval_err.push(_g_err);
+        unwind(())
+      }
+    )
+  );
+  out.push(evaluate_expression_raw(expr, env, ctx, guard_exn));
+});
 /// Dispatch an expression through the raw evaluator with a custom exception handler.
 /// Use this when you need to catch compilation errors from evaluation (e.g., `comptime_expect_error`).
 /// Panics if the evaluator has not been initialized.
@@ -80,4 +125,4 @@ evaluate_expression_raw :: (
 );
 export(EvaluateExprFn, EvaluateExprRawFn);
 export(set_evaluate_expression_fn, evaluate_expression);
-export(set_evaluate_expression_raw_fn, evaluate_expression_raw);
+export(set_evaluate_expression_raw_fn, evaluate_expression_raw, evaluate_expression_guarded);

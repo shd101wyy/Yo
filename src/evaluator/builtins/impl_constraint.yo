@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { is_trait_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { generate_some_type_id } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_impl_constraint :: (
   fn(
@@ -93,7 +93,7 @@ evaluate_impl_constraint :: (
           false => arg
         );
         // Evaluate the trait expression
-        eval_mod := evaluate_expression(module_expr, cur_env, ctx);
+        eval_mod := evaluate_expression_raw(module_expr, cur_env, ctx, exn);
         mod_info := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mod)),
           .Some(info) => info,

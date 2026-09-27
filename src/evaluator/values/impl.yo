@@ -68,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
   make_capture_variable,
   mint_funcval_env_key,
   set_find_methods_from_generic_impls_fn,
-  set_force_in_flight_field_fn
+  set_force_in_flight_field_fn,
+  capture_env_for
 } :: import("../../env.yo");
 {
   MethodEntry,
@@ -120,11 +121,13 @@ pragma(Pragma.AllowUnsafe);
   push_forcing_def,
   pop_forcing_def,
   forcing_depths,
-  truncate_forcing_depths
+  truncate_forcing_depths,
+  call_evaluate_fn_body
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
-{ format_error_message, render_any_error } :: import("../../error.yo");
+{ format_error_message, render_any_error, reanchor_primary_at, YoError } :: import("../../error.yo");
+{ propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
@@ -3138,6 +3141,9 @@ _substitute_self_in_method_ty :: (
 ///   * `ctx.is_evaluating_function_body_or_async_block`, without which a
 ///     `return(...)` anywhere in a default body evaluates as an ordinary
 ///     identifier and throws `Variable "return" not found`.
+/// The error `_materialize_default_body`'s swallow ate, for the caller's
+/// re-raise (a module-level channel: the handler is capture-free).
+(g_mat_default_err : ArrayList(YoError)) = ArrayList(YoError).new();
 _materialize_default_body :: (
   fn(
     body : AstExpr,
@@ -3154,6 +3160,8 @@ _materialize_default_body :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[mat-default-swallow] ${_err.to_string()}`);
         });
+        g_mat_default_err.clear();
+        match(downcast(_err, YoError), .Some(ye) => g_mat_default_err.push(ye), .None => ());
         unwind(())
       }
     )
@@ -3180,7 +3188,14 @@ _materialize_default_body :: (
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
-  evaluated := evaluate_expression_raw(body, env, body_ctx, inner_exn);
+  // As a FUNCTION BODY, through the begin machinery like every other
+  // def-time body eval (`_trial_eval_fn_body`, calls/function_type.yo): a
+  // non-begin body is treated as a one-statement begin, so a bare
+  // `(self -> return(...))` default finds `return`, which only a begin
+  // recognises. Evaluated raw, it threw `Variable "return" not found` — once
+  // swallowed (the shared default took over), a compile error since the
+  // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
+  evaluated := call_evaluate_fn_body(body, env, body_ctx, inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
@@ -5059,7 +5074,21 @@ evaluate_module_value :: (
                           register_func_type(d_fresh_id.clone(), d_sub_ty.clone());
                           d_saved_self := ctx.self_type;
                           ctx.self_type = Option(TypeValue).Some(receiver_ty.clone());
-                          ___df := env.push_frame(false);
+                          // The default is evaluated in ITS OWN definition scope (the trait's
+                          // module), built the way a call builds it (`capture_env_for`),
+                          // not in the impl's: a default body naming something its
+                          // module imports (`FormatSpec` in std/fmt/format.yo's
+                          // `format`) must not depend on what the implementing module
+                          // happens to import.
+                          d_env := capture_env_for(
+                            d_fvd.*.func_id.clone(),
+                            d_fvd.*.env_key,
+                            d_fvd.*.cap_names,
+                            d_fvd.*.cap_tys,
+                            d_cvs,
+                            ast_expr_token(d_fvd.*.body).module_path
+                          );
+                          ___df := d_env.push_frame(false);
                           d_pts := match(d_sub_ty, .Func({ param_types : d_ppts }) => d_ppts, _ => ArrayList(TypeValue).new());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
@@ -5082,7 +5111,7 @@ evaluate_module_value :: (
                             d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
                             d_pt := match(d_pts.get(d_pi), .Some(t) => t, .None => t_unit());
                             ___dpv := add_variable_to_env(
-                              env,
+                              d_env,
                               d_pn,
                               d_pt,
                               Option(EvalValue).Some(create_unknown_val(d_pt)),
@@ -5090,7 +5119,7 @@ evaluate_module_value :: (
                               false,
                               false,
                               false,
-                              synthetic_token(d_pn, env.module_path)
+                              synthetic_token(d_pn, d_env.module_path)
                             );
                             match(
                               ___dpv,
@@ -5107,10 +5136,43 @@ evaluate_module_value :: (
                           });
                           d_out := ArrayList(AstExpr).new();
                           d_depths := forcing_depths();
-                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), env, ctx, d_out);
+                          g_mat_default_err.clear();
+                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), d_env, ctx, d_out);
                           truncate_forcing_depths(d_depths);
-                          env.pop_frame();
+                          d_env.pop_frame();
                           ctx.self_type = d_saved_self;
+                          // Phase 6 step 2 (census site #14): with `Self` this
+                          // impl's concrete receiver and a signature with no
+                          // type variable left, nothing a call supplies can
+                          // make the default body type-check — its failure is
+                          // this impl's error, not a reason to fall back to the
+                          // shared default (which codegen then emits as an
+                          // abort() stub). A comptime result still waits for
+                          // its call's values.
+                          d_concrete := (
+                            ((get_all_some_types(receiver_ty).len() == usize(0)) && (get_all_some_types(d_sub_ty).len() == usize(0)))
+                            && !(
+                              match(d_sub_ty, .Func({ meta : d_cm }) => d_cm.*.result_is_comptime_only, _ => false)
+                            )
+                          );
+                          if(((d_out.len() == usize(0)) && d_concrete) && !(propagate_def_time_errors()), {
+                            match(
+                              g_mat_default_err.get(usize(0)),
+                              .Some(d_err) => {
+                                g_mat_default_err.clear();
+                                exn.throw(
+                                  dyn(
+                                    reanchor_primary_at(
+                                      d_err,
+                                      ast_expr_token(field_expr),
+                                      `raised in the default body of "${d_label}", which trait ${type_to_string(ctt2)} gives ${type_to_string(receiver_ty)} because this impl does not provide it`
+                                    )
+                                  )
+                                );
+                              },
+                              .None => ()
+                            );
+                          });
                           // Only adopt the clone when its body eval SUCCEEDED
                           // (out non-empty); otherwise rebuild the shared
                           // default from its own fields (EvalValue is not

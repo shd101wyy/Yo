@@ -22,7 +22,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { expr_info_table_get } :: import("../../expr_info.yo");
 evaluate_comptime_list_value :: (
   fn(
@@ -68,7 +68,7 @@ evaluate_comptime_list_value :: (
   (j : usize) = usize(0);
   while(j < n_args, {
     arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
-    evaluated_arg := evaluate_expression(arg, env_loop, ctx);
+    evaluated_arg := evaluate_expression_raw(arg, env_loop, ctx, exn);
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
     // Elements must have a compile-time value.
     has_value := match(

@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { debug_knob } :: import("../../utils.yo");
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
 evaluate_raw_pointer_call :: (
@@ -54,7 +54,7 @@ evaluate_raw_pointer_call :: (
   // If expectedType is a pointer type, the inner type would be passed as expected.
   // Phase 2am: expectedType modification skipped — simplified port.
   // Evaluate the argument
-  evaluated := evaluate_expression(arg_expr, env, ctx);
+  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
   // Read the expr info for the evaluated argument
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(

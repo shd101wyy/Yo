@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, create_unknown_val, is_type_value } :: import("../../value.yo");
 { create_option_type } :: import("./rc_fns.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
 { E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -76,7 +76,7 @@ evaluate_downcast :: (
       return(expr);
     }
   );
-  eval_dyn_expr := evaluate_expression(dyn_expr, cur_env, ctx);
+  eval_dyn_expr := evaluate_expression_raw(dyn_expr, cur_env, ctx, exn);
   dyn_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_dyn_expr));
   if(dyn_info_opt.is_none(), {
     exn.throw(
@@ -109,7 +109,7 @@ evaluate_downcast :: (
       return(expr);
     }
   );
-  eval_type_expr := evaluate_expression(type_expr, cur_env, ctx);
+  eval_type_expr := evaluate_expression_raw(type_expr, cur_env, ctx, exn);
   type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr));
   if(type_info_opt.is_none(), {
     exn.throw(
@@ -192,7 +192,7 @@ evaluate_upcast :: (
       return(expr);
     }
   );
-  eval_dyn_expr := evaluate_expression(dyn_expr, cur_env, ctx);
+  eval_dyn_expr := evaluate_expression_raw(dyn_expr, cur_env, ctx, exn);
   dyn_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_dyn_expr)),
     .Some(i) => i,
@@ -227,7 +227,7 @@ evaluate_upcast :: (
       return(expr);
     }
   );
-  eval_type_expr := evaluate_expression(type_expr, cur_env, ctx);
+  eval_type_expr := evaluate_expression_raw(type_expr, cur_env, ctx, exn);
   type_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr)),
     .Some(i) => i,

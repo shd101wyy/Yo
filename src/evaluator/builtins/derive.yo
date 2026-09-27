@@ -183,7 +183,7 @@ _derive_bind_opt :: (
     },
     .None => `((${tmp} : Option(Expr)) = .None)`
   );
-  _e := evaluate_expression(generate_expr_from_code(opt_code, exn), env, ctx);
+  _e := evaluate_expression_raw(generate_expr_from_code(opt_code, exn), env, ctx, exn);
   tmp_vars := get_variables_from_env(env, tmp.clone());
   match(
     tmp_vars.get(tmp_vars.len() - usize(1)),
@@ -263,7 +263,7 @@ call_registered_derive_rule :: (
   //    registered DeriveContext type (its id gates `ctx.make_impl` resolution).
   ctx_var := `__derive_ctx_${generate_variable_id(caller_env.module_path, String.from("dctx"))}`;
   ctx_code := `DeriveContext(${target_expr_var}, ${forall_expr_var}, ${where_expr_var})`;
-  ctx_result := evaluate_expression(generate_expr_from_code(ctx_code, exn), caller_env, ctx);
+  ctx_result := evaluate_expression_raw(generate_expr_from_code(ctx_code, exn), caller_env, ctx, exn);
   ctx_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(ctx_result)),
     .Some(i) => i,
@@ -300,7 +300,7 @@ call_registered_derive_rule :: (
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
-    list_result := evaluate_expression(generate_expr_from_code(list_code, exn), caller_env, ctx);
+    list_result := evaluate_expression_raw(generate_expr_from_code(list_code, exn), caller_env, ctx, exn);
     list_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(list_result)),
       .Some(i) => i,
@@ -606,7 +606,7 @@ evaluate_derive :: (
     }
   );
   target_type_expr := target_expr;
-  evaled_target := evaluate_expression(target_type_expr, env, ctx);
+  evaled_target := evaluate_expression_raw(target_type_expr, env, ctx, exn);
   target_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_target));
   target_info := match(
     target_info_opt,

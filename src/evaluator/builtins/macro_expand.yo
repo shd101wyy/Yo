@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { is_expr_type } :: import("../../types/guards.yo");
 { is_comptime_int_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_function_call } :: import("../calls/function.yo");
 { process_unquotes_in_expr } :: import("./quote.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -73,7 +73,7 @@ evaluate_macro_expand :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -110,7 +110,7 @@ evaluate_macro_expand :: (
         return(expr);
       }
     );
-    eval_level := evaluate_expression(level_arg, cur_env, ctx);
+    eval_level := evaluate_expression_raw(level_arg, cur_env, ctx, exn);
     level_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_level)),
       .Some(i) => i,

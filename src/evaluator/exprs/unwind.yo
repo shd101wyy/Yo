@@ -11,6 +11,7 @@
 //! control there wrongly threw during definition-time body eval of
 //! plain-`:=` handlers.
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 import("std/fmt");
 {
   AstExpr,
@@ -41,7 +42,7 @@ import("std/fmt");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_guarded } :: import("./expr.yo");
 /// Throw the `unwind`-value / enclosing-return-type mismatch — one message
 /// for every `unwind` site (the standalone form here and the statement form
 /// in `begin.yo`).
@@ -151,8 +152,11 @@ evaluate_unwind :: (
   // expected type.
   saved_expected := ctx.expected_type;
   ctx.expected_type = .Some(ExpectedTypeCtx(ty : enclosing_ret, env : env));
-  evaluated := evaluate_expression(arg_expr, env, ctx);
+  evaluated_gout := ArrayList(AstExpr).new();
+  evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_gout);
   ctx.expected_type = saved_expected;
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,

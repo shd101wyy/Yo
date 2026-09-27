@@ -21,7 +21,7 @@ import("std/fmt");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32 } :: import("../../src/types/creators.yo");
-{ set_evaluate_expression_fn, evaluate_expression }
+{ set_evaluate_expression_fn, evaluate_expression, set_evaluate_expression_raw_fn }
 :: import("../../src/evaluator/exprs/expr.yo");
 { evaluate_unwind } :: import("../../src/evaluator/exprs/unwind.yo");
 { Exception } :: import("std/error");
@@ -55,8 +55,12 @@ stub_evaluate_i32 :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// The raw evaluator twin of `stub_evaluate_i32` (the handler is unused): the code under
+/// test evaluates sub-expressions through `evaluate_expression_raw` too.
+stub_evaluate_i32_raw :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(stub_evaluate_i32(expr, env, ctx));
 test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
+  set_evaluate_expression_raw_fn(stub_evaluate_i32_raw);
   exn := Exception(
     throw : (
       err -> {

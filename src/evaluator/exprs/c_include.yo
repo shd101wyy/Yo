@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -206,7 +206,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
   });
   c_header_file_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
-  evaluated_hdr := evaluate_expression(c_header_file_arg, env, ctx);
+  evaluated_hdr := evaluate_expression_raw(c_header_file_arg, env, ctx, exn);
   hdr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_hdr));
   hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
   env.frames = copy_frames(hdr_info.env.frames);

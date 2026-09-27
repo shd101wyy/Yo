@@ -56,7 +56,7 @@
 _did_you_mean :: (fn(lbl : String, labels : ArrayList(String)) -> Option(String))(
   match(suggest_name(lbl, labels), .Some(near) => Option(String).Some(`did you mean "${near}"?`), .None => Option(String).None)
 );
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_guarded } :: import("./expr.yo");
 { Pattern, norm_position_type, variant_field_types } :: import("../../pattern.yo");
 { Exception } :: import("std/error");
 { flow_violation_pending, clear_flow_violation } :: import("../../types/flowability.yo");
@@ -459,8 +459,11 @@ _compile_const_expr :: (
   if(is_named, {
     old_expected := ctx.expected_type;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
-    evaluated := evaluate_expression(e, env, ctx);
+    evaluated_gout := ArrayList(AstExpr).new();
+    evaluated_gerr := evaluate_expression_guarded(e, env, ctx, evaluated_gout);
     ctx.expected_type = old_expected;
+    match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+    evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
     value := _const_value_of(e, evaluated, ctx, exn);
     match(
       _enum_const_to_variant(value, norm_position_type(position_ty)),
@@ -501,8 +504,11 @@ _compile_range :: (
     b := cond((bi == usize(0)) => lo, true => hi);
     old_expected := ctx.expected_type;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
-    ev := evaluate_expression(b, env, ctx);
+    ev_gout := ArrayList(AstExpr).new();
+    ev_gerr := evaluate_expression_guarded(b, env, ctx, ev_gout);
     ctx.expected_type = old_expected;
+    match(ev_gerr, .Some(ev_ge) => exn.throw(ev_ge), .None => ());
+    ev := match(ev_gout.get(usize(0)), .Some(ev_g) => ev_g, .None => make_err_expr());
     known := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev)),
       .Some(binfo) => match(binfo.value, .Some(v) => !is_unknown_val(v), .None => false),

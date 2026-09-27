@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_bool, t_ptr, t_never } :: import("../../types/creators.yo");
 { is_comptime_string_type, is_str_type, is_u8_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { panic, assert } :: import("std/assert");
@@ -109,7 +109,7 @@ evaluate_panic :: (
         return(expr);
       }
     );
-    evaluated := evaluate_expression(msg_expr, cur_env, ctx);
+    evaluated := evaluate_expression_raw(msg_expr, cur_env, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
     match(
       info_opt,

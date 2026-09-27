@@ -59,7 +59,7 @@ import("std/fmt");
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
 { format_error_message, YoError } :: import("../error.yo");
-{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND } :: import("../diagnostics.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, Diagnostic } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Target pointer size
@@ -2357,3 +2357,78 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
 export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+/// `err` with its primary diagnostic marked `generic_independent` when
+/// neither `a` nor `b` contains a type variable: a mismatch between two such
+/// types holds under every instantiation of an enclosing generic, so a
+/// definition-time trial re-raises it instead of swallowing it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 2). `err` unchanged otherwise.
+/// Does `ty` depend on a generic through a VALUE rather than a type
+/// variable — an array whose length is an unresolved expression
+/// (`Array(u8, T.BYTES)` keeps `T.BYTES` in `length_var`)? `get_all_some_types`
+/// does not see those. Depth-limited like the other structural walkers here.
+_type_mentions_generic_length :: (fn(ty : TypeValue, depth : u32) -> bool)(
+  cond(
+    (depth > u32(16)) => false,
+    true => match(
+      ty,
+      .Array(element : el, length : _, length_var : lv) => ((lv.len() > usize(0)) || _type_mentions_generic_length(el, depth + u32(1))),
+      .Pointer(pointee : p) => _type_mentions_generic_length(p, depth + u32(1)),
+      .Tuple(_, fts) => _any_mentions_generic_length(fts, depth),
+      .Struct({ field_types : sfts }) => _any_mentions_generic_length(sfts, depth),
+      .TypeAppT(_, args) => _any_mentions_generic_length(args, depth),
+      .Func({ param_types : pts, result : r }) => (_any_mentions_generic_length(pts, depth) || _type_mentions_generic_length(r, depth + u32(1))),
+      _ => false
+    )
+  )
+);
+_any_mentions_generic_length :: (fn(tys : ArrayList(TypeValue), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), {
+    if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(t, depth + u32(1)), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+mark_generic_independent :: (fn(err : YoError, a : TypeValue, b : TypeValue) -> YoError)({
+  if((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0)), {
+    return(err);
+  });
+  if(_type_mentions_generic_length(a, u32(0)) || _type_mentions_generic_length(b, u32(0)), {
+    return(err);
+  });
+  // `unit` on either side is not evidence: it is the evaluator's stand-in
+  // for a sub-evaluation that degraded (a failed lookup's `t_unit()`
+  // fallback) inside a generic body, and the trial cannot tell it from a
+  // real `()` (issues/generic-trial-degrades-a-failed-evaluation-to-unit.md).
+  if(match(a, .Unit => true, _ => false) || match(b, .Unit => true, _ => false), {
+    return(err);
+  });
+  entries := ArrayList(Diagnostic).new();
+  (i : usize) = usize(0);
+  while(i < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get(i),
+      .Some(d) => entries.push(
+        cond(
+          (i == usize(0)) => Diagnostic(
+            code : d.code,
+            severity : d.severity,
+            message : d.message,
+            span : d.span,
+            source_line : d.source_line,
+            help : d.help,
+            repair : d.repair,
+            generic_independent : true
+          ),
+          true => d
+        )
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
+export(mark_generic_independent);

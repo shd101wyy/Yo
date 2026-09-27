@@ -334,7 +334,16 @@ Diagnostic :: struct(
   span : Span,
   source_line : String,
   (help : Option(String)) ?= Option(String).None,
-  (repair : Option(Repair)) ?= Option(Repair).None
+  (repair : Option(Repair)) ?= Option(Repair).None,
+  /// The error is a mismatch between two types that contain no type
+  /// variable (no SomeT anywhere): no instantiation of an enclosing generic
+  /// can make it go away. A definition-time trial of a generic body, which
+  /// otherwise swallows its errors because a call may resolve them, re-raises
+  /// an error whose primary diagnostic carries this
+  /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 2). Set only by
+  /// `mark_generic_independent` (types/utils.yo), at the raise sites that know
+  /// both types.
+  (generic_independent : bool) ?= false
 );
 _max_usize :: (fn(a : usize, b : usize) -> usize)(
   cond(

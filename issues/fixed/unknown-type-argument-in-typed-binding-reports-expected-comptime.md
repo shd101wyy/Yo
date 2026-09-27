@@ -2,7 +2,7 @@
 
 > Found 2026-09-24 while writing a reproducer for
 > `issues/fixed/match-or-cond-call-argument-result-is-never-released.md`.
-> Open. Belongs to `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4 (diagnostics).
+> FIXED 2026-09-28 (see Resolution). Belonged to `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4 (diagnostics).
 
 ## Reproduction (v0.2.41 seed and develop b9619889b)
 
@@ -42,3 +42,12 @@ Not investigated further. The binding's type annotation is evaluated through
 the comptime-type path; the lookup failure of the argument apparently
 surfaces as an unknown comptime value, and the typed-binding check then
 reports the comptime mismatch instead of the original lookup error.
+
+## Resolution (2026-09-28, branch `tss/p6-generic-reraise`, Phase 6 census site #16)
+
+The lookup error for `Strin` was swallowed by the per-node wrapper (the 3-argument
+`evaluate_expression`) while the type-constructor call evaluated its arguments, and the degraded
+result typed the annotation `Comptime`. With the Phase 6 conversion of the per-node swallow sites
+to `evaluate_expression_raw(…, exn)` / `evaluate_expression_guarded`, the original E0401 reaches
+the user, at the type argument. Test:
+`tests/cli-cases/check-unknown-type-argument-in-a-typed-binding-is-e0401`.

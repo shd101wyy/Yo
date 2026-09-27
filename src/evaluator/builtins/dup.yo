@@ -23,7 +23,7 @@
 { generate_expr_from_code } :: import("../../parser.yo");
 { ArrayList } :: import("std/collections/array_list");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_dup :: (
   fn(
@@ -47,7 +47,7 @@ evaluate_dup :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
   match(
     arg_info_opt,
@@ -148,7 +148,7 @@ evaluate_dup :: (
         });
         dup_code.push_str(")");
         gen_expr := generate_expr_from_code(dup_code, exn);
-        evaluated_gen := evaluate_expression(gen_expr, cur_env, ctx);
+        evaluated_gen := evaluate_expression_raw(gen_expr, cur_env, ctx, exn);
         // Stamp the ORIGINAL `___dup(...)` node with the generated node's
         // info too (the new node is returned, and
         // stamping both keeps id-keyed readers of the original consistent).

@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { judge_function_argument_markers } :: import("../trait_checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
@@ -859,9 +859,13 @@ evaluate_assignment :: (
       rhs_str := type_to_string(prop_rhs_type);
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}${dyn_upcast_note(expected_ty, prop_rhs_type)}`
+          mark_generic_independent(
+            format_error_message(
+              ast_expr_token(lhs),
+              `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}${dyn_upcast_note(expected_ty, prop_rhs_type)}`
+            ),
+            expected_ty,
+            prop_rhs_type
           )
         )
       );
@@ -1509,9 +1513,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
     rhs_ty_str := type_to_string(rhs_type);
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs_resolved),
-          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(variable.ty, rhs_type)}`
+        mark_generic_independent(
+          format_error_message(
+            ast_expr_token(lhs_resolved),
+            `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(variable.ty, rhs_type)}`
+          ),
+          variable.ty,
+          rhs_type
         )
       )
     );
@@ -1685,7 +1693,11 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // (fn arm 14's mutual recursion).
   if(updated_variable.is_compile_time_only && is_function_type(updated_variable.ty), {
     if(match(value_to_store, .Some(vts) => match(vts, .FuncVal(_, _) => true, _ => false), .None => false), {
-      call_rerun_pending_def_evals(env, ctx);
+      match(
+        call_rerun_pending_def_evals(env, ctx),
+        .Some(rp_err) => exn.throw(dyn(rp_err)),
+        .None => ()
+      );
     });
   });
   // Write ExprInfo for the lhs.

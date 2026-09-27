@@ -36,7 +36,7 @@
 } :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
 /// `Exception` whose `throw` unwinds this helper with `true`. If the eval
@@ -297,7 +297,7 @@ evaluate_comptime_expect_error :: (
     match(
       args.get(usize(1)),
       .Some(want_expr) => {
-        want_eval := evaluate_expression(want_expr, env, ctx);
+        want_eval := evaluate_expression_raw(want_expr, env, ctx, exn);
         want_text := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(want_eval)),
           .Some(wi) => match(wi.value, .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(raw), _ => value_to_string(wv)), .None => String.new()),
@@ -334,7 +334,7 @@ evaluate_comptime_expect_error :: (
   match(
     args.get(usize(1)),
     .Some(msg_expr) => {
-      eval_msg := evaluate_expression(msg_expr, env, ctx);
+      eval_msg := evaluate_expression_raw(msg_expr, env, ctx, exn);
       msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
       match(
         msg_info_opt,

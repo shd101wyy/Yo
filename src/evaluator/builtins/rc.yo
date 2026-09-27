@@ -19,7 +19,7 @@
 { t_usize } :: import("../../types/creators.yo");
 { is_rc_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { Exception } :: import("std/error");
 evaluate_rc :: (
@@ -44,7 +44,7 @@ evaluate_rc :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_ast, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_ast, env, ctx, exn);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,

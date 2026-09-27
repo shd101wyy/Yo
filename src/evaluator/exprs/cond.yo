@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
   adopt_never_type
 } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Local struct definitions
@@ -191,8 +191,10 @@ evaluate_cond :: (
     old_expected := ctx.expected_type;
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : case_env));
     evaluated_cond_expr := cond(
+      // Raw, like the begin arm below: an atom condition's own error (an
+      // unbound name) is the diagnostic, not "Failed to evaluate condition".
       ast_expr_is_atom(cond_expr) =>
-        evaluate_expression(cond_expr, case_env, ctx),
+        evaluate_expression_raw(cond_expr, case_env, ctx, exn),
       true =>
         evaluate_begin_expression(cond_expr, case_env, ctx, ArrayList(Variable).new(), false, exn)
     );

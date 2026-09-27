@@ -11,7 +11,8 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ast_expr_token,
   ast_expr_id,
-  BF_ARRAY_FILL
+  BF_ARRAY_FILL,
+  make_err_expr
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -28,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_yo_array_fill :: (
   fn(
@@ -60,7 +61,7 @@ evaluate_yo_array_fill :: (
     }
   );
   // Evaluate the array type argument (no expected type).
-  eval_at_arg := evaluate_expression(array_type_arg, env, ctx);
+  eval_at_arg := evaluate_expression_raw(array_type_arg, env, ctx, exn);
   at_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_at_arg)),
     .Some(i) => i,
@@ -120,8 +121,11 @@ evaluate_yo_array_fill :: (
   // Evaluate the fill value argument with expected element type.
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : element_type, env : cur_env));
-  eval_fv_arg := evaluate_expression(fill_value_arg, cur_env, ctx);
+  eval_fv_arg_gout := ArrayList(AstExpr).new();
+  eval_fv_arg_gerr := evaluate_expression_guarded(fill_value_arg, cur_env, ctx, eval_fv_arg_gout);
   ctx.expected_type = old_expected;
+  match(eval_fv_arg_gerr, .Some(eval_fv_arg_ge) => exn.throw(eval_fv_arg_ge), .None => ());
+  eval_fv_arg := match(eval_fv_arg_gout.get(usize(0)), .Some(eval_fv_arg_g) => eval_fv_arg_g, .None => make_err_expr());
   fv_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_fv_arg)),
     .Some(i) => i,

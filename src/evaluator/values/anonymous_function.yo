@@ -29,7 +29,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   make_err_expr,
   ast_expr_to_string,
-  BK_TUPLE
+  BK_TUPLE,
+  clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -49,6 +50,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_param_default_exprs,
   copy_func_param_type_exprs,
   copy_func_param_comptime,
+  get_func_param_comptime,
   copy_func_param_assigned_values,
   copy_func_return_type_expr,
   copy_func_variadic_param,
@@ -83,8 +85,9 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
-{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
-{ Exception } :: import("std/error");
+{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
+{ Exception, AnyError } :: import("std/error");
 {
   register_definition_site_return,
   register_closure_body_type,
@@ -384,9 +387,29 @@ _flag_anon_swallow :: (fn(msg : String, code : Option(String)) -> unit)({
   g_anon_swallow_code.clear();
   match(code, .Some(c) => g_anon_swallow_code.push(c), .None => ());
 });
+/// The swallowed error's STRUCTURED diagnostics, written and cleared in
+/// lockstep with the text, as calls/function_type.yo's
+/// `g_trial_swallow_diags` is: a re-raise then carries the code, span and
+/// repair to the typed stash instead of a flattened string.
+(g_anon_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+_flag_anon_swallow_diags :: (fn(err : AnyError) -> unit)({
+  g_anon_swallow_diags.clear();
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      (dgi : usize) = usize(0);
+      while(dgi < ye.diagnostics.len(), {
+        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.push(d), .None => ());
+        dgi = (dgi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
 _clear_anon_swallow :: (fn() -> unit)({
   g_anon_swallow_msg.clear();
   g_anon_swallow_code.clear();
+  g_anon_swallow_diags.clear();
 });
 _anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.len() > usize(0));
 _anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.get(usize(0)));
@@ -431,6 +454,7 @@ _trial_eval_anon_body :: (
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
         _flag_anon_swallow(_err.to_string(), primary_diagnostic_code(_err));
+        _flag_anon_swallow_diags(_err);
         unwind(())
       }
     )
@@ -1440,6 +1464,37 @@ evaluate_anonymous_function_implementation :: (
       sd_i = (sd_i + usize(1));
     });
   });
+  // Whether the body types on its own: no forall binder, no SomeT in any
+  // parameter, and no `comptime(x)` value parameter — a comptime parameter's
+  // VALUE comes from the call (`to_comptime_string : (self ->
+  // __yo_expr_to_string(self))` checks against `fn(comptime(self) : Self)`),
+  // so a body that needs it cannot be tried before one. The named-fn path
+  // defers on the same flags (`ft_has_ct_param`, calls/function_type.yo); a
+  // `comptime(T) : Type` parameter is a type binder, not a value, and does
+  // not count there either. Read BEFORE the io.async / ctl forcing below,
+  // which evaluates SomeT-param bodies too; only for this one is a swallowed
+  // error a real type error (Channel 3 below).
+  (body_has_ct_param : bool) = false;
+  {
+    bcp_flags := get_func_param_comptime(func_id.clone());
+    (bcp_i : usize) = usize(0);
+    while((bcp_i < bcp_flags.len()) && !(body_has_ct_param), {
+      bcp_is_typeuni := match(
+        param_types.get(bcp_i),
+        .Some(bcp_pt) => match(bcp_pt, .TypeUni(_) => true, _ => false),
+        .None => false
+      );
+      match(
+        bcp_flags.get(bcp_i),
+        .Some(bcp_f) => if(bcp_f && !(bcp_is_typeuni), {
+          body_has_ct_param = true;
+        }),
+        .None => ()
+      );
+      bcp_i = (bcp_i + usize(1));
+    });
+  };
+  body_params_concrete := (!(should_defer_body) && !(body_has_ct_param));
   // Closure codegen: an io.async closure has its synthesized type's
   // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
   // the body's ExprInfo (types) from def-time eval — otherwise the body emits
@@ -1586,6 +1641,25 @@ Result type: ${type_to_string(decl_result_ty)}`
       },
       .None => ()
     );
+    // Channel 3 (Phase 6 step 2, plans/TYPE_SYSTEM_SOUNDNESS.md): a body
+    // whose parameters are all concrete runtime values has nothing a call
+    // could resolve, so an error its trial swallowed is a type error in the
+    // source. Re-raise it. Before this the body shipped as an `abort()` stub
+    // with no diagnostic
+    // (issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md).
+    // Gated on an EMPTY out, like the named-fn path: a body that succeeded
+    // leaves only a nested trial's leftover flag. Bodies forced for
+    // emission with SomeT parameters (io.async, ctl handlers) keep the
+    // swallow: they are typed again where their parameters resolve.
+    if((body_params_concrete && !(propagate_def_time_errors())) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
+      c3_msg := _anon_swallow_message();
+      c3_diags := g_anon_swallow_diags.clone();
+      _clear_anon_swallow();
+      if(c3_diags.len() > usize(0), {
+        exn.throw(dyn(yo_error_from_diagnostics(c3_diags)));
+      });
+      exn.throw(dyn(c3_msg));
+    });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
@@ -1885,7 +1959,11 @@ Result type: ${type_to_string(decl_result_ty)}`
   // not this fn's own forall is bound by the call site.
   if(should_defer_body, {
     dgc_ret := match(function_type, .Func({ result : dgc_r }) => dgc_r, _ => t_unit());
-    if(get_all_some_types(dgc_ret).len() > usize(0), {
+    // Every deferred generic closure body is trialled (Phase 6 step 2, the
+    // twin of the named-fn deferred trial); the result comparison below
+    // stays limited to a result that mentions a type variable.
+    dgc_check_result := (get_all_some_types(dgc_ret).len() > usize(0));
+    {
       dgc_fv := EvalValue.FuncVal(
         box(
           FuncValData(
@@ -1910,7 +1988,9 @@ Result type: ${type_to_string(decl_result_ty)}`
       dgc_out := ArrayList(AstExpr).new();
       dgc_fv_was := flow_violation_pending();
       dgc_depths := forcing_depths();
-      _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
+      // Diagnostic-only (no result comparison): a fresh-id clone, so the
+      // trial never stamps the real body's nodes (the named-fn twin).
+      _trial_eval_anon_body(if(dgc_check_result, body_for_def_eval.clone(), clone_expr_fresh_ids(body_for_def_eval)), dgc_env, dgc_ctx, dgc_out);
       truncate_forcing_depths(dgc_depths);
       // P0 (§4.6): forward reference — re-raise instead of discarding (the
       // dgc trial is the SILENT swallow otherwise; every other error class
@@ -1926,69 +2006,103 @@ Result type: ${type_to_string(decl_result_ty)}`
           .None => ()
         );
       });
+      // Phase 6 step 2: an error no instantiation can fix (a mismatch
+      // between two types with no type variable) is re-raised — the twin
+      // of the named-fn deferred trial (`generic_trial_independent_error`,
+      // calls/function_type.yo).
+      // A `comptime(x)` value parameter defers the judgment to the calls,
+      // as for concrete-parameter closures above (`body_has_ct_param`).
+      if(!(propagate_def_time_errors()) && !(body_has_ct_param), {
+        (dgc_indep : Option(YoError)) = Option(YoError).None;
+        if(match(g_anon_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.clone()));
+        });
+        if(dgc_indep.is_none() && !(dgc_fv_was), {
+          match(
+            flow_violation_error(),
+            .Some(dgc_fv_err) => if(match(dgc_fv_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+              dgc_indep = Option(YoError).Some(dgc_fv_err);
+            }),
+            .None => ()
+          );
+        });
+        match(
+          dgc_indep,
+          .Some(dgc_err) => {
+            _clear_anon_swallow();
+            if(!(dgc_fv_was), {
+              clear_flow_violation();
+            });
+            exn.throw(dyn(dgc_err));
+          },
+          .None => ()
+        );
+      });
       if(!dgc_fv_was && flow_violation_pending(), {
         clear_flow_violation();
       });
-      match(
-        dgc_out.get(usize(0)),
-        .Some(dgc_body) => match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
-          .Some(dgc_info) => {
-            dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
-            dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
-            dgc_expected := cond(
-              dgc_is_ref => t_ptr(dgc_ret),
-              true => dgc_ret
-            );
-            dgc_own_forall_skip := match(
-              dgc_expected,
-              .SomeT({ name : dgc_sname }) => {
-                (dgc_found : bool) = false;
-                (dgc_fi : usize) = usize(0);
-                while(dgc_fi < forall_labels.len(), {
-                  if(match(forall_labels.get(dgc_fi), .Some(l) => (l == dgc_sname), .None => false), {
-                    dgc_found = true;
-                  });
-                  dgc_fi = (dgc_fi + usize(1));
-                });
-                !dgc_found
-              },
-              _ => false
-            );
-            dgc_trial_ty := dgc_info.ty;
-            dgc_trial_abstract := (get_all_some_types(dgc_trial_ty).len() > usize(0));
-            dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !is_unit_type(dgc_expected));
-            // Parametricity: when the expected return is the fn's OWN forall
-            // SomeT (own_forall_skip false) a CONCRETE trial type can never
-            // satisfy it — only an expression typed T itself can. The exact
-            // compatibility check cannot convict here because an unresolved
-            // SomeT unifies with anything even in exact mode, which is why
-            // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
-            // -> T` used to slip through.
-            dgc_expected_is_some := is_some_type(dgc_expected);
-            if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_invariant(dgc_trial_ty, dgc_expected)), {
-              dgc_exp_str := type_to_string(dgc_expected);
-              dgc_got_str := type_to_string(dgc_trial_ty);
-              // A deliberate user-facing rejection: outside a dry-run, flag
-              // it on the flow-violation channel so the def-time caller
-              // re-raises it via the real exn (the wall otherwise swallows
-              // the throw and the enclosing body silently hollows — same
-              // pattern as helper.yo Step 5b's no-matching-overload flag).
-              raise_flow_violation(
-                format_error_message(
-                  tok,
-                  `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
-                ),
-                ctx,
-                exn
+      if(dgc_check_result, {
+        match(
+          dgc_out.get(usize(0)),
+          .Some(dgc_body) => match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
+            .Some(dgc_info) => {
+              dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
+              dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
+              dgc_expected := cond(
+                dgc_is_ref => t_ptr(dgc_ret),
+                true => dgc_ret
               );
-            });
-          },
+              dgc_own_forall_skip := match(
+                dgc_expected,
+                .SomeT({ name : dgc_sname }) => {
+                  (dgc_found : bool) = false;
+                  (dgc_fi : usize) = usize(0);
+                  while(dgc_fi < forall_labels.len(), {
+                    if(match(forall_labels.get(dgc_fi), .Some(l) => (l == dgc_sname), .None => false), {
+                      dgc_found = true;
+                    });
+                    dgc_fi = (dgc_fi + usize(1));
+                  });
+                  !dgc_found
+                },
+                _ => false
+              );
+              dgc_trial_ty := dgc_info.ty;
+              dgc_trial_abstract := (get_all_some_types(dgc_trial_ty).len() > usize(0));
+              dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !is_unit_type(dgc_expected));
+              // Parametricity: when the expected return is the fn's OWN forall
+              // SomeT (own_forall_skip false) a CONCRETE trial type can never
+              // satisfy it — only an expression typed T itself can. The exact
+              // compatibility check cannot convict here because an unresolved
+              // SomeT unifies with anything even in exact mode, which is why
+              // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
+              // -> T` used to slip through.
+              dgc_expected_is_some := is_some_type(dgc_expected);
+              if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_invariant(dgc_trial_ty, dgc_expected)), {
+                dgc_exp_str := type_to_string(dgc_expected);
+                dgc_got_str := type_to_string(dgc_trial_ty);
+                // A deliberate user-facing rejection: outside a dry-run, flag
+                // it on the flow-violation channel so the def-time caller
+                // re-raises it via the real exn (the wall otherwise swallows
+                // the throw and the enclosing body silently hollows — same
+                // pattern as helper.yo Step 5b's no-matching-overload flag).
+                raise_flow_violation(
+                  format_error_message(
+                    tok,
+                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
+                  ),
+                  ctx,
+                  exn
+                );
+              });
+            },
+            .None => ()
+          ),
           .None => ()
-        ),
-        .None => ()
-      );
-    });
+        );
+      });
+    };
   });
   // -------------------------------------------------------------------------
   // Restore the parameter frame.

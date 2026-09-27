@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { is_comptime_list_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_yo_comptime_list_car :: (
   fn(
@@ -54,7 +54,7 @@ evaluate_yo_comptime_list_car :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -156,7 +156,7 @@ evaluate_yo_comptime_list_cdr :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -264,7 +264,7 @@ evaluate_yo_comptime_list_cons :: (
       return(expr);
     }
   );
-  eval_car := evaluate_expression(car_arg_e, env, ctx);
+  eval_car := evaluate_expression_raw(car_arg_e, env, ctx, exn);
   car_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_car)),
     .Some(i) => i,
@@ -296,7 +296,7 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  eval_cdr := evaluate_expression(cdr_arg_e, cur_env, ctx);
+  eval_cdr := evaluate_expression_raw(cdr_arg_e, cur_env, ctx, exn);
   cdr_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_cdr)),
     .Some(i) => i,
@@ -405,7 +405,7 @@ evaluate_yo_comptime_list_append :: (
       return(expr);
     }
   );
-  eval_first := evaluate_expression(first_arg_e, env, ctx);
+  eval_first := evaluate_expression_raw(first_arg_e, env, ctx, exn);
   first_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_first)),
     .Some(i) => i,
@@ -447,7 +447,7 @@ evaluate_yo_comptime_list_append :: (
       EvalValue.UnitVal
     }
   );
-  eval_second := evaluate_expression(second_arg_e, cur_env, ctx);
+  eval_second := evaluate_expression_raw(second_arg_e, cur_env, ctx, exn);
   second_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_second)),
     .Some(i) => i,
@@ -563,7 +563,7 @@ evaluate_yo_comptime_list_length :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -638,7 +638,7 @@ evaluate_yo_comptime_list_element_type :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_e, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
@@ -722,7 +722,7 @@ evaluate_yo_comptime_list_get :: (
       return(expr);
     }
   );
-  eval_list_arg := evaluate_expression(arg_e, env, ctx);
+  eval_list_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
   list_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_list_arg)),
     .Some(i) => i,
@@ -767,7 +767,7 @@ evaluate_yo_comptime_list_get :: (
             return(expr);
           }
         );
-        eval_idx_arg := evaluate_expression(index_arg_e, cur_env, ctx);
+        eval_idx_arg := evaluate_expression_raw(index_arg_e, cur_env, ctx, exn);
         match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_idx_arg)),
           .Some(idx_info) => {

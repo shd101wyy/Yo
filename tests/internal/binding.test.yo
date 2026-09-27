@@ -25,7 +25,7 @@ import("std/fmt");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32, t_bool, t_unit, t_void } :: import("../../src/types/creators.yo");
-{ set_evaluate_expression_fn } :: import("../../src/evaluator/exprs/expr.yo");
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("../../src/evaluator/exprs/expr.yo");
 { BindingResult, evaluate_binding } :: import("../../src/evaluator/exprs/binding.yo");
 { is_valid_variable_name } :: import("../../src/evaluator/utils.yo");
 { Exception } :: import("std/error");
@@ -100,6 +100,9 @@ stub_evaluate_type :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// The raw evaluator twin of `stub_evaluate_type` (the handler is unused): the code under
+/// test evaluates sub-expressions through `evaluate_expression_raw` too.
+stub_evaluate_type_raw :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(stub_evaluate_type(expr, env, ctx));
 // ---------------------------------------------------------------------------
 // is_valid_variable_name
 // ---------------------------------------------------------------------------
@@ -122,6 +125,7 @@ test("is_valid_variable_name: non-operator FnCall is invalid", {
 // ---------------------------------------------------------------------------
 test("evaluate_binding: (found : bool) — records variable name", {
   set_evaluate_expression_fn(stub_evaluate_type);
+  set_evaluate_expression_raw_fn(stub_evaluate_type_raw);
   exn := Exception(
     throw : (
       err -> {
@@ -139,6 +143,7 @@ test("evaluate_binding: (found : bool) — records variable name", {
 });
 test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
   set_evaluate_expression_fn(stub_evaluate_type);
+  set_evaluate_expression_raw_fn(stub_evaluate_type_raw);
   exn := Exception(
     throw : (
       err -> {
@@ -172,6 +177,7 @@ test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
 });
 test("evaluate_binding: (comptime(n) : i32) — records variable name n", {
   set_evaluate_expression_fn(stub_evaluate_type);
+  set_evaluate_expression_raw_fn(stub_evaluate_type_raw);
   exn := Exception(
     throw : (
       err -> {
@@ -194,6 +200,7 @@ test("evaluate_binding: (comptime(n) : i32) — records variable name n", {
 /// Returns true if an exception was thrown, false otherwise.
 test_binding_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_evaluate_type);
+  set_evaluate_expression_raw_fn(stub_evaluate_type_raw);
   exn := Exception(
     throw : (
       err -> {

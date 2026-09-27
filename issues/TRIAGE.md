@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 192 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 191 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,13 +30,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 13 | 1 |
 | Async / effects | 29 | 7 |
 | Codegen / emitted C | 19 | 3 |
-| Evaluator / types | 22 | 4 |
+| Evaluator / types | 23 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 23 | 4 |
-| **Total** | **192** | **36** |
+| Other | 21 | 4 |
+| **Total** | **191** | **36** |
 
 ## Cross-cutting buckets
 
@@ -197,7 +197,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (22)
+### Evaluator / types (23)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -218,6 +218,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | OPEN | — |
+| [`generic-trial-degrades-a-failed-evaluation-to-unit.md`](./generic-trial-degrades-a-failed-evaluation-to-unit.md) | OPEN | — |
 | [`method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md`](./method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md) | OPEN | — |
 | [`mutual-recursion-between-a-fn-and-a-trait-impl-body.md`](./mutual-recursion-between-a-fn-and-a-trait-impl-body.md) | — | yes |
 | [`same-operator-chain-of-four-or-more-is-not-left-associative.md`](./same-operator-chain-of-four-or-more-is-not-left-associative.md) | — | — |
@@ -330,7 +331,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (23)
+### Other (21)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -340,9 +341,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
-| [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
-| [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`match-arm-registry-retains-every-generation-of-compiled-arms.md`](./match-arm-registry-retains-every-generation-of-compiled-arms.md) | — | — |
@@ -351,7 +350,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
-| [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
+| [`unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md`](./unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md) | OPEN | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |

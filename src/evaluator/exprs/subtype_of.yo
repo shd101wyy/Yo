@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_expression_raw } :: import("./expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver } :: import("../types/function.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 /// Evaluate the `T <: Trait` constraint operator.
@@ -68,7 +68,7 @@ evaluate_subtype_of :: (
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate the LHS (the type parameter or concrete type).
-  evaluated_lhs := evaluate_expression(lhs_expr, env, ctx);
+  evaluated_lhs := evaluate_expression_raw(lhs_expr, env, ctx, exn);
   lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
   lhs_info := match(
     lhs_info_opt,
@@ -200,7 +200,7 @@ evaluate_subtype_of :: (
       .None => make_err_expr()
     );
     is_neg := match(is_neg_arr.get(ti), .Some(b) => b, .None => false);
-    evaluated_te := evaluate_expression(te, env, ctx);
+    evaluated_te := evaluate_expression_raw(te, env, ctx, exn);
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(
       te_info_opt,

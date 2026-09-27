@@ -7,6 +7,7 @@
 //! Note: `synthesizeExprAndType` is a stub in Phase 2; synthesis is skipped.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -23,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_the :: (
   fn(
@@ -55,7 +56,7 @@ evaluate_the :: (
     }
   );
   // Evaluate the type expression.
-  eval_type := evaluate_expression(type_arg, env, ctx);
+  eval_type := evaluate_expression_raw(type_arg, env, ctx, exn);
   type_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type)),
     .Some(i) => i,
@@ -107,8 +108,11 @@ evaluate_the :: (
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
     ExpectedTypeCtx(ty : expected_type, env : cur_env)
   );
-  eval_val := evaluate_expression(value_arg, cur_env, ctx);
+  eval_val_gout := ArrayList(AstExpr).new();
+  eval_val_gerr := evaluate_expression_guarded(value_arg, cur_env, ctx, eval_val_gout);
   ctx.expected_type = saved_expected;
+  match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(eval_val_ge), .None => ());
+  eval_val := match(eval_val_gout.get(usize(0)), .Some(eval_val_g) => eval_val_g, .None => make_err_expr());
   val_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
     .Some(i) => i,

@@ -42,6 +42,8 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
+{ YoError } :: import("../error.yo");
+{ Exception } :: import("std/error");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
@@ -854,17 +856,37 @@ track_variable_usage_resolved :: (
 // fallback then emits the raw identifier. The def-time trial eval is
 // therefore re-run after the forward declaration is FILLED (assignment.yo
 // calls through this hook into function_type.yo's pending table).
-RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> unit);
+/// Returns the first re-run that still fails once every forward declaration
+/// it waited for is filled — the caller, which has `exn`, raises it.
+RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> Option(YoError));
 (g_rerun_pending_def_evals_fn : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
 set_rerun_pending_def_evals_fn :: (fn(f : RerunPendingDefEvalsFn) -> unit)({
   g_rerun_pending_def_evals_fn = Option(RerunPendingDefEvalsFn).Some(f);
   ()
 });
-call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> unit)(
+call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> Option(YoError))(
   match(
     g_rerun_pending_def_evals_fn,
     .Some(f) => f(env, ctx),
-    .None => ()
+    .None => Option(YoError).None
+  )
+);
+// --- function-body evaluation hook -----------------------------------------
+// Evaluate an expression AS A FUNCTION BODY (through the begin machinery, so a
+// bare `return(...)` body resolves `return`), for modules that cannot import
+// exprs/begin.yo without a cycle (values/impl.yo's trait-default
+// materialization). Installed by calls/function_type.yo.
+EvaluateFnBodyFn :: (fn(body : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr);
+(g_evaluate_fn_body_fn : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
+set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
+  g_evaluate_fn_body_fn = Option(EvaluateFnBodyFn).Some(f);
+  ()
+});
+call_evaluate_fn_body :: (fn(body : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  match(
+    g_evaluate_fn_body_fn,
+    .Some(f) => f(body, env, ctx, exn),
+    .None => __yo_panic("call_evaluate_fn_body before set_evaluate_fn_body_fn")
   )
 );
 // --- P0 forward-reference diagnostic plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
@@ -3135,6 +3157,8 @@ export(
   track_variable_usage_resolved,
   set_rerun_pending_def_evals_fn,
   call_rerun_pending_def_evals,
+  set_evaluate_fn_body_fn,
+  call_evaluate_fn_body,
   in_def_time_trial,
   set_in_def_time_trial,
   set_module_walk,

@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("None"));
@@ -73,7 +73,7 @@ _eval_arg :: (
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   arg_expr := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,

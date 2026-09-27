@@ -15,7 +15,7 @@ import("std/fmt");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32 } :: import("../../src/types/creators.yo");
 { type_of_type } :: import("../../src/types/hierarchy.yo");
-{ set_evaluate_expression_fn, evaluate_expression }
+{ set_evaluate_expression_fn, evaluate_expression, set_evaluate_expression_raw_fn }
 :: import("../../src/evaluator/exprs/expr.yo");
 { evaluate_typeof } :: import("../../src/evaluator/exprs/typeof.yo");
 { Exception } :: import("std/error");
@@ -54,8 +54,12 @@ stub_evaluate :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
+/// The raw evaluator twin of `stub_evaluate` (the handler is unused): the code under
+/// test evaluates sub-expressions through `evaluate_expression_raw` too.
+stub_evaluate_raw :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(stub_evaluate(expr, env, ctx));
 test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   set_evaluate_expression_fn(stub_evaluate);
+  set_evaluate_expression_raw_fn(stub_evaluate_raw);
   exn := Exception(
     throw : (
       err -> {

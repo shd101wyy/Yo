@@ -1,6 +1,6 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. **Handover 2026-09-26:** [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) says where each phase stands and what is on which branch. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
+**Status:** ACTIVE, proposed 2026-09-23. **Handover (updated 2026-09-28):** [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) says where each phase stands and what is on which branch. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
 "Landed" notes below); 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
@@ -180,7 +180,7 @@ Verification sections. Two stay open for their other halves: the generic-callee 
 `closure-result-type-is-not-checked-against-the-expected-fn-type` needs step 2.4, and the
 evaluator half of `inout-call-through-a-fn-value-loses-the-mutation` is step 3.5. Found on the way
 and fixed: `issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`. Split out and
-open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
+open (Phase 6): `issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
 
 ### Phase 2: traits and generics (R3, R6)
 
@@ -690,6 +690,54 @@ The largest and last phase, because Phases 1–5 shrink it.
    body that cannot be typed until a SomeT is resolved at a call. Illegitimate: anything else.
 2. A swallowed error whose context has no unresolved SomeT is re-raised immediately. The
    named-fn path already does this through `g_trial_swallow_msg`; generalize it.
+   **Closure bodies landed 2026-09-27** (branch `tss/p6-closure-reraise-v2`): a closure whose
+   parameters are all concrete runtime values re-raises its swallowed error with the structured
+   diagnostics. A `comptime(x)` value parameter makes the body call-dependent, exactly as the
+   named-fn path's `ft_has_ct_param` does: the prelude's `to_comptime_string : (self ->
+   __yo_expr_to_string(self))` checks against `fn(comptime(self) : Self)` and was the false
+   positive that blocked the first build. (A first fix classified that error by a new code,
+   E1104; it was replaced by the parameter rule, which is the actual reason.) Sites #2/#6
+   (the deferred-generic trials) still need the "does the error involve a SomeT?" refinement.
+   **Sites #2/#6, #4, #14, #15 (2026-09-27, branch `tss/p6-generic-reraise`).** A mismatch
+   between two types with no type variable in them is marked `generic_independent` on its
+   primary diagnostic (`mark_generic_independent`, `types/utils.yo`; set by the synthesizer's
+   four unify failures, the argument rule and the GADT arm check), and the deferred-generic
+   trials of fns (#2) and closures (#6) and the specialization-time closure re-eval (#15)
+   re-raise exactly those — no instantiation can fix them. A trait default that fails for a
+   concrete `Self` and a variable-free signature is the impl's error (#14). The forward
+   comptime-fn re-run reports a body that still fails once every forward declaration it waited
+   for is filled (#4, `issues/fixed/a-forward-comptime-fn-body-error-is-dropped-by-the-pending-rerun.md`).
+
+   **Landed 2026-09-28** (branch `tss/p6-generic-reraise`, with sites #2/#4/#5/#6/#14/#15 above):
+   the deferred-generic trials run for EVERY generic fn and closure (a diagnostic-only trial on a
+   fresh-id clone, so it never stamps nodes codegen reads); a `comptime(x)` value parameter
+   defers a generic body's judgment to its calls; `mark_generic_independent` also refuses a
+   value-dependent array length and the `unit` stand-in
+   (`issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`). 116 of the 123 site-#16
+   calls propagate the sub-expression's own error (`evaluate_expression_raw`, or the new
+   `evaluate_expression_guarded` where ctx state is restored first). The seven left are the two
+   deliberate probes, `match`'s scrutinee (already retried raw), and four debug/introspection
+   builtins that no-op on failure (`var_fns.yo` ×3, `comptime_assert.yo`'s validation-mode
+   check). Re-raising surfaced two latent bugs, fixed at their cause: a trait default was
+   materialized in the implementing module's scope
+   (`issues/fixed/a-trait-default-is-materialized-in-the-implementing-modules-scope.md`) and
+   evaluated raw, so a bare `return(...)` default failed.
+
+   **Site #16 census (2026-09-27, develop `862cfc5bb`).** 123 calls of the 3-argument
+   `evaluate_expression` (the per-node swallow), all in `src/evaluator/`, every one with an `exn`
+   in scope. 58 already recover the real cause (`format_eval_failure` reads the
+   swallowed-cause channel); 59 lose it — a generic or wrong message, or a silent degrade; 2 are
+   deliberate probes (`pattern_compile.yo` `_bind_subject_and_eval_test`,
+   `index_trait.yo` `_try_comptime_custom_type_index`); 4 silently no-op (`var_fns.yo` ×3,
+   `comptime_assert.yo`'s validation-mode check). Converting a site to
+   `evaluate_expression_raw(…, exn)` needs no extra ExprInfo bridging (both wrappers bridge) but
+   does need two things: a site that saves/restores ctx state around the call must restore on
+   the throw path too (the stash-then-rethrow shape of `_derive_eval_guarded`), and the raw
+   wrapper's safe-code raw-pointer gate now applies to it. Highest value first: the `<:`
+   operands, `the`, `typeof`, associated-type constraints, `Type` reflection builtins, match
+   guards and atom `cond` conditions, the shared comptime-argument helpers, `Future` effect
+   arguments, `derive`'s target type, and `comptime_expect_error`'s expected-text argument
+   (a failing one silently accepts ANY error — a test-soundness hole).
 3. A swallowed error that *is* SomeT-pending is recorded against the specialization and
    re-raised when the specialization with concrete types fails, with the call site as a note.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.

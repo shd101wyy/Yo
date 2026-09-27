@@ -24,7 +24,7 @@ import("std/string");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_type_id :: (
   fn(
@@ -56,7 +56,7 @@ evaluate_type_id :: (
     }
   );
   // Evaluate the type expression.
-  evaluated_type_expr := evaluate_expression(type_expr, env, ctx);
+  evaluated_type_expr := evaluate_expression_raw(type_expr, env, ctx, exn);
   type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_type_expr));
   type_info := match(
     type_info_opt,
