@@ -808,7 +808,7 @@ static struct __yo_uring_sqe* __yo_uring_get_sqe(struct __yo_uring* ring) {
 }
 
 // Returns what the kernel returned, or -errno — liburing's convention, which
-// every caller's `ret < 0` / `ret == -EINTR` test is written against
+// every caller's ret < 0 / ret == -EINTR test is written against
 // (syscall(2) itself returns -1 with errno set).
 static int __yo_uring_enter(struct __yo_uring* ring, uint32_t to_submit,
                             uint32_t min_complete, uint32_t flags) {
@@ -871,7 +871,7 @@ static int __yo_uring_getevents(struct __yo_uring* ring) {
 // the ring's own floor). io_uring_setup succeeding says nothing about
 // individual ops: renameat/unlinkat arrived in 5.11, mkdirat/symlinkat/
 // linkat in 5.15, ftruncate later still, and an unimplemented op completes
-// with -EINVAL — so on 5.10 LTS `create_dir` would simply fail. Probed once
+// with -EINVAL — so on 5.10 LTS create_dir would simply fail. Probed once
 // per ring; an op the kernel lacks is completed synchronously instead, the
 // same code the epoll fallback runs for it
 // (issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md).
@@ -1718,7 +1718,7 @@ typedef struct __yo_epoll_timer_node_t {
 
 // One slot per descriptor number (descriptors are small dense integers —
 // libuv's watcher array). The kernel holds ONE interest per fd per epoll
-// instance, so the slot is the unit the kernel sees: `armed` is the mask
+// instance, so the slot is the unit the kernel sees: armed is the mask
 // currently registered with it (0 = none), kept equal to the union of the
 // slot's live directions by __yo_epoll_sync_fd. A per-(fd, direction) ADD
 // cannot work — the second direction's ADD fails with EEXIST, and a MOD
@@ -1787,7 +1787,7 @@ static void __yo_epoll_disarm(int fd) {
 }
 
 // Make the kernel's single interest for fd equal the union of the slot's
-// live directions. `armed` says which call that takes; the ENOENT/EEXIST
+// live directions. armed says which call that takes; the ENOENT/EEXIST
 // retries cover a descriptor closed behind the runtime's back (the kernel
 // drops the interest with the last reference, and the number can be reused)
 // — they re-establish the interest the slot says should exist.
