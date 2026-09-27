@@ -615,7 +615,7 @@ int main(int argc, char** argv) {
 
 | 平台    | 后端                                            | 文件                    |
 | ------- | ----------------------------------------------- | ----------------------- |
-| Linux   | `io_uring`（内嵌环形层）                         | `runtime_io_linux.yo`   |
+| Linux   | `io_uring`（内嵌环形层），epoll 回退              | `runtime_io_linux.yo`   |
 | macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `runtime-io-macos.ts`   |
 | Windows | I/O 完成端口（IOCP）                            | `runtime-io-windows.ts` |
 | WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `runtime-io-wasm.ts`    |
@@ -1258,3 +1258,20 @@ r2 := handle2.await(io); // Option(T)
 | 等待多个 Io        | `io.spawn` + `handle.await`         |
 | 消费异步序列       | `Stream` + `for_each`/`collect`（参见[异步迭代](#异步迭代stream-trait)） |
 | 利用多个 CPU 核心  | `Task.spawn`（参见 PARALLELISM.md） |
+
+## Linux 上的后端选择（`YO_IO_BACKEND`）
+
+在 Linux 上，运行时在首次异步操作时为每个线程选择一次后端，且不再更改：
+
+1. **io_uring**（内核允许时的默认选择——5.6+，未被封锁）。
+2. **epoll 回退**——当无法创建环形队列时自动选择（无 io_uring 的内核，或
+   封锁它的沙箱，例如 Docker 的默认 seccomp 配置）。套接字/管道/终端与时
+   钟使用就绪驱动；普通文件以及 epoll 无法表达的操作在 future 中同步完成，
+   与 macOS 后端的行为一致。
+3. **降级（degraded）**——仅当 epoll 也不可用时：每个异步操作以 errno
+   完成，而不是挂起或退出进程。
+
+选择过程从不是静默的：回退会向 stderr 输出一行日志。可通过
+`YO_IO_BACKEND` 环境变量固定后端用于测试或基准测试
+（`auto`（默认）| `uring` | `epoll`）；固定的后端初始化失败时是硬错误，
+而不是静默切换。

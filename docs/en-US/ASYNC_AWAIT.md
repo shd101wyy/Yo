@@ -626,7 +626,7 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 
 | Platform | Backend                                         | File                    |
 | -------- | ----------------------------------------------- | ----------------------- |
-| Linux    | `io_uring` (vendored ring layer)                | `src/codegen/async/runtime_io_linux.yo`   |
+| Linux    | `io_uring` (vendored ring layer), epoll fallback | `src/codegen/async/runtime_io_linux.yo`   |
 | macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `src/codegen/async/runtime_io_macos.yo`   |
 | Windows  | I/O Completion Ports (IOCP)                     | `src/codegen/async/runtime_io_windows.yo` |
 | WASM     | POSIX I/O (NODERAWFS) + timer queue             | `src/codegen/async/runtime_io_wasm.yo`    |
@@ -1313,3 +1313,22 @@ r2 := handle2.await(io); // Option(T)
 | Waiting for multiple IOs       | `io.spawn` + `handle.await`       |
 | Consuming an async sequence    | `Stream` + `for_each`/`collect` (see [Async iteration](#async-iteration-the-stream-trait)) |
 | Utilizing multiple CPU cores   | `Thread(T).spawn` (see PARALLELISM.md) |
+
+## Backend selection on Linux (`YO_IO_BACKEND`)
+
+On Linux the runtime picks its backend once per thread, at the first async
+operation, and never re-decides:
+
+1. **io_uring** (the default wherever the kernel allows it — 5.6+, not blocked).
+2. **epoll fallback** — chosen automatically when the ring cannot be created
+   (a kernel without io_uring, or a sandbox that blocks it, such as Docker's
+   default seccomp profile). Readiness-driven for sockets/pipes/ttys and
+   timers; regular files and the ops epoll cannot express complete
+   synchronously in the future, matching the macOS backend's behavior.
+3. **degraded** — only if epoll is also unavailable: every async operation
+   completes with an errno instead of hanging or exiting the process.
+
+The selection is never silent: a fallback logs one line to stderr. Pin a
+backend for testing or benchmarking with the `YO_IO_BACKEND` environment
+variable (`auto` (default) | `uring` | `epoll`); a pinned backend that fails
+to initialize is a hard error rather than a silent step.

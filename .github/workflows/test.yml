@@ -1522,6 +1522,62 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  docker-seccomp-epoll:
+    # DROP_LIBURING Phase 5 acceptance leg: Docker's default seccomp profile
+    # blocks io_uring_setup (ENOSYS), so an async program run in a stock
+    # container must select the epoll fallback, log it once, and COMPLETE —
+    # the end-to-end proof of issues/fixed/io-uring-init-failure-exits-the-process.md.
+    # NOTE: this job is not in branch protection's required-check list until
+    # someone adds it by hand (that list is manual).
+    name: Docker default-seccomp epoll fallback
+    needs: [changes, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Make the candidate executable
+        run: chmod +x yo-stage1
+      # The stage-1 binary was emitted by the SEED, whose runtime still links
+      # liburing.so.2 (the seed-lag table, plans/DROP_LIBURING.md 5). This
+      # job only RUNS it, so the runtime package is enough — and this whole
+      # step disappears with Phase 4 once SEED_VERSION passes the first
+      # Phase-1-built release.
+      - name: Install liburing runtime (for the seed-built stage 1)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing2
+      - name: Compile the probe on the host (io_uring present)
+        run: |
+          cat > /tmp/probe.yo <<'EOF'
+          { sleep } :: import("std/sys/timer");
+          { write_string } :: import("std/fs/file");
+          { Path } :: import("std/path");
+          { String } :: import("std/string");
+          { Exception, IoExn } :: import("std/error");
+          main :: (fn(io : Io) -> unit)({
+            io.await(sleep(u64(20)), IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(())))));
+            io.await(write_string(Path.new(String.from("/probe-out.txt")), String.from("ok"), io), IoExn(io : io, exn : Exception(throw : ((_e) -> unwind(())))));
+          });
+          export(main);
+          EOF
+          YO_STD="$PWD/std" ./yo-stage1 compile /tmp/probe.yo --optimize 2 -o /tmp/probe-bin
+      - name: Run in a default-seccomp container (io_uring blocked, epoll selected)
+        run: |
+          set -e
+          out="$(docker run --rm -v /tmp/probe-bin:/probe-bin:ro ubuntu:24.04 /probe-bin 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "async I/O running on the epoll fallback"
+          docker run --rm -v /tmp/probe-bin:/probe-bin:ro ubuntu:24.04 sh -c '/probe-bin && test -f /probe-out.txt && test "$(cat /probe-out.txt)" = "ok" && echo FALLBACK-COMPLETED-OK'
+
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
   # stage-2 emit had already churned the box for an hour — "the hosted
