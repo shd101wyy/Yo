@@ -300,7 +300,7 @@ io_uring is Linux's modern async I/O interface (introduced in kernel 5.1; this r
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` setup flags — requested together, retried without flags when the kernel refuses |
 | **6.14+**      | Async `ftruncate` (older kernels answer `-EINVAL` through the future) |
 
-On a kernel that has io_uring but predates an operation's row, that operation completes with `-EINVAL` through its future — io_uring itself initialises, so the epoll fallback is not selected. Where io_uring cannot initialise at all (kernel < 5.6's ring, Docker's default seccomp profile, gVisor, hardened kernels), the runtime runs on the epoll fallback, which completes the name operations synchronously (`docs/en-US/ASYNC_AWAIT.md`, the backend ladder).
+On a kernel that has io_uring but predates an operation's row, the runtime completes that operation synchronously, the way the epoll fallback does. It asks the kernel once, at ring setup (`IORING_REGISTER_PROBE`), which opcodes exist, so the operation still works rather than failing with `-EINVAL`. Where io_uring cannot initialise at all (kernel < 5.6's ring, Docker's default seccomp profile, gVisor, hardened kernels), the runtime runs on the epoll fallback, which completes the name operations synchronously (`docs/en-US/ASYNC_AWAIT.md`, the backend ladder).
 
 ### macOS: kqueue
 

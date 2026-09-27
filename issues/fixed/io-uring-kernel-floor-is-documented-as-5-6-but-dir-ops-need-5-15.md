@@ -1,6 +1,6 @@
 # The documented io_uring kernel floor (5.6) is wrong: rename/unlink need 5.11, mkdir/symlink/link need 5.15
 
-**Status: OPEN.** Filed 2026-09-27 from the DROP_LIBURING audit. The opcode list
+**Status: FIXED (2026-09-27), awaiting Linux CI.** Filed the same day from the DROP_LIBURING audit. The opcode list
 is **read from the code**; the per-opcode kernel versions come from the upstream
 io_uring history and were **not tested here**. The runtime behaviour predates the
 campaign. What is new is that DROP_LIBURING §3.5 and Phase 2's docs present "5.6+"
@@ -30,3 +30,16 @@ init failure as the degradation path that Phase 5 replaced.
 - Correct the tables in both languages and in the plan.
 - Better: on `-EINVAL` from those five ops, redo the op synchronously (the epoll
   backend's behaviour for the same ops). The contract then really is 5.6+.
+
+## Fix (landed)
+
+- **Docs:** the tables list the per-operation floors, in both languages and in the plan.
+- **Runtime:** at ring setup it probes the kernel's opcodes once
+  (`IORING_REGISTER_PROBE`, 5.6: `__yo_uring_probe_ops` in
+  `src/codegen/async/runtime_io_linux.yo`). `renameat`/`unlinkat`/`mkdirat`/
+  `symlinkat`/`linkat`/`ftruncate` complete synchronously when their opcode is
+  missing, through the same implementation the epoll fallback uses. So the
+  contract really is 5.6+: an operation newer than the running kernel is slower,
+  not broken.
+- **When the probe itself fails:** every op is assumed present, which is the old
+  behaviour.

@@ -300,7 +300,7 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1 引入；本运行时
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` 设置标志——一并请求，内核拒绝时自动降级重试 |
 | **6.14+**          | 异步 `ftruncate`（更早的内核通过 future 返回 `-EINVAL`）              |
 
-若内核支持 io_uring 但早于某项操作所在行的版本，该操作会通过其 future 返回 `-EINVAL`——io_uring 本身能够初始化，因此不会切换到 epoll 回退。若 io_uring 完全无法初始化（Docker 默认 seccomp 配置、gVisor、加固内核等），运行时改用 epoll 回退，名称类操作以同步方式完成（见 `docs/zh-CN/ASYNC_AWAIT.md` 中的后端阶梯）。
+若内核支持 io_uring 但早于某项操作所在行的版本，运行时会像 epoll 回退那样同步完成该操作。它在建立环形队列时向内核查询一次支持哪些操作码（`IORING_REGISTER_PROBE`），因此该操作仍然可用，而不会以 `-EINVAL` 失败。若 io_uring 完全无法初始化（Docker 默认 seccomp 配置、gVisor、加固内核等），运行时改用 epoll 回退，名称类操作以同步方式完成（见 `docs/zh-CN/ASYNC_AWAIT.md` 中的后端阶梯）。
 
 ### macOS：kqueue
 

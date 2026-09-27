@@ -65,7 +65,7 @@ above wrong.
   - `issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`
   - `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
   - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
-  - `issues/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
+  - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
   - `issues/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
 
 Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
@@ -241,7 +241,7 @@ of ring mappings, not of who made them.
 | Capability | Kernel |
 | --- | --- |
 | The core op set the runtime submits (`openat`/`close`/`statx`/sockets) | 5.6+ |
-| `renameat`/`unlinkat` · `mkdirat`/`symlinkat`/`linkat` (corrected 2026-09-27 by the audit — below these the op answers `-EINVAL`; `issues/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`) | 5.11 · 5.15 |
+| `renameat`/`unlinkat` · `mkdirat`/`symlinkat`/`linkat` (corrected 2026-09-27 by the audit — below these the op answers `-EINVAL`; `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`) | 5.11 · 5.15 |
 | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` flags | 5.19 / 6.0 / 6.1 — requested together, retried with no flags on rejection (existing logic, preserved verbatim) |
 | Async `ftruncate` (`IORING_OP_FTRUNCATE`) | 6.14+ |
 
