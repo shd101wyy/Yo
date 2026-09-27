@@ -145,7 +145,7 @@ _type_value_cycle_step :: (
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
             ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
-            if(recur(ft, root.clone(), shell.clone(), visited), {
+            if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
             j = (j + usize(1));
@@ -168,7 +168,7 @@ _type_value_cycle_step :: (
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
           ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-          if(recur(ft, root.clone(), shell.clone(), visited), {
+          if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
           i = (i + usize(1));
@@ -181,7 +181,7 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
         ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(recur(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
@@ -193,14 +193,14 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
         ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(recur(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
       });
       hit
     },
-    .Array(element, _, _) => recur(element, root.clone(), shell.clone(), visited),
+    .Array(element, _, _) => _type_reaches_root_by_value(element, root.clone(), shell.clone(), visited),
     _ => false
   )
 );

@@ -839,7 +839,6 @@ test("soundness: a value struct cannot reach itself by value", {
 // `Option(<Env>)` — two C types, clang error. Fixed by the #939–#943 chain;
 // this pins the runtime behavior.
 test("soundness: a ref struct's Option(Self) survives a generic specialization", {
-  { ArrayList } :: import("std/collections/array_list");
   _osf_env :: ref(struct(n : i64, memo : Option(Self)));
   _osf_first :: (fn(l : ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
   l := ArrayList(_osf_env).new();

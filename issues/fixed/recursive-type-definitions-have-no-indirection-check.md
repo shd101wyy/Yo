@@ -1,6 +1,6 @@
 # A recursive type definition has no indirection check — `check` is green and the C compiler reports the cycle
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-27 (branch `tss/option-self-field`)
 **Found:** 2026-09-26, while re-verifying `issues/fixed/option-self-field-on-environment-splits-into-two-c-types.md`
 (fixed on develop) — probing the neighbouring shapes.
 
@@ -50,3 +50,34 @@ a `ref(struct)` goes through `Box(Self)` (`Variable`'s
 a bare nullable pointer — the evaluator split behind
 `option-self-field-on-environment-splits-into-two-c-types` is gone, but a
 VALUE type has no such collapse to hide behind.
+
+## Resolution
+
+**Fixed 2026-09-27** (branch `tss/option-self-field`), in two parts:
+
+1. **The struct twin of the enum check**: `evaluate_struct_type`
+   (`src/evaluator/types/struct.yo`) runs `_type_reaches_root_by_value` on every
+   PATCHED field of a value `struct(...)`/`newtype(...)` (`ref(struct)` and
+   `atomic(ref)` are exempt — pointer-sized) and throws
+   `recursive value struct: field '<f>' contains the struct itself by value …`.
+   The struct shell shares the final's `struct_id`, so the walker's Struct arm
+   gained the root comparison the EnumT arm always had — without it, the
+   shell's EMPTY field list hid direct `me : Self` cycles entirely.
+2. **The walker's children now route through the indirection cut**:
+   `_type_value_cycle_step` (`src/evaluator/types/enum.yo`) recursed via
+   `recur`, which is the step function itself — so the
+   `_type_is_ref_indirection` gate only protected the TOP of the walk, and
+   `Box(Self)` inside a payload was cut only BY ACCIDENT (the pre-patch shell
+   has no fields to walk). Every child walk now goes through
+   `_type_reaches_root_by_value`, so a reference-semantics payload cuts BY
+   RULE at every depth — which also makes the enum check's documented
+   "cycles through ArrayList/Box/ref fields are cut" true as stated instead
+   of true by luck of the empty shell.
+
+Measured (all four, a built compiler): `struct(me : Self)` and
+`enum(A(me : Self))` are rejected with their messages; `struct(next :
+Option(Box(Self)))` and `enum(A(b : Box(Self)))` check clean. Gates:
+`tests/type_soundness.test.yo` ("a value struct cannot reach itself by
+value" + "a ref struct's Option(Self) survives a generic specialization"),
+`check ./std` 176/176, `check ./src` 279/279, fixpoint, fast suite, CLI
+corpus, `gates_fast`.
