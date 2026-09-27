@@ -66,7 +66,7 @@ above wrong.
   - `issues/io-uring-close-leaves-pending-ops-on-the-fd-running.md`
   - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
   - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
-  - `issues/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
+  - `issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
 
 Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
 (ring layer net +239), +~800 more with the epoll section; user binaries 0 undefined
