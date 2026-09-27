@@ -79,7 +79,11 @@ test("common runtime: the Linux timer arms through the vendored ring, unguarded"
   c := emit_linux_common();
   assert(c.contains(String.from("__yo_async_sleep_start")), String.from("sleep symbol missing"));
   assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("timer does not arm through the ring"));
-  assert(c.contains(String.from("__yo_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0)")), String.from("timerfd read prep changed"));
+  // A ring sleep is one IORING_OP_TIMEOUT, never a timerfd read (which io_uring
+  // punts to an io-wq worker per tick —
+  // issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
+  assert(c.contains(String.from("__yo_uring_prep_timeout(sqe, &timer_future->ts);")), String.from("ring sleep is not a timeout op"));
+  assert(!c.contains(String.from("__yo_uring_prep_read(sqe, tfd")), String.from("timerfd read prep is back"));
   assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("timer feature guard leaked back"));
   assert(!c.contains(String.from("No liburing: same symbol")), String.from("timer -ENOSYS stub arm leaked back"));
 });

@@ -13,21 +13,22 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 YO="${YO:?set YO to the yo binary}"
 : "${YO_STD:?set YO_STD to the std directory}"
-BIN="$(mktemp -u /tmp/yo_io_budget.XXXXXX)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+BIN="${WORK}/io_budget"
 
 "${YO}" compile "${HERE}/bench/io_budget.yo" --optimize 2 -o "${BIN}" >/dev/null
 
 fail=0
 for backend in uring epoll; do
   echo "=== io budgets: YO_IO_BACKEND=${backend} ==="
-  if YO_IO_BACKEND="${backend}" "${BIN}" | tee /tmp/yo_io_budget_out.txt; then
-    grep -q "ALL BUDGETS OK" /tmp/yo_io_budget_out.txt || fail=1
+  if YO_IO_BACKEND="${backend}" "${BIN}" | tee "${WORK}/out.txt"; then
+    grep -q "ALL BUDGETS OK" "${WORK}/out.txt" || fail=1
   else
     echo "budget program failed under ${backend}" >&2
     fail=1
   fi
 done
-rm -f "${BIN}" /tmp/yo_io_budget_out.txt
 if [ "${fail}" -ne 0 ]; then
   echo "IO BUDGETS: FAIL" >&2
   exit 1

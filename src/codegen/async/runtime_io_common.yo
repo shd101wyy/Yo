@@ -644,11 +644,15 @@ generate_async_runtime_io_common :: (
 // ============================================================================
 #include <sys/timerfd.h>
 
-// Extended future for timer that holds timerfd and buffer for cleanup
+// Extended future for a timer. The ring backend sleeps with IORING_OP_TIMEOUT
+// (ts is its relative deadline, read by the kernel at submission); the epoll
+// fallback has no timeout op and waits on a timerfd (timerfd + read_buf,
+// released by the dispose hook).
 typedef struct {
   __yo_io_future_t base;
   int timerfd;
   uint64_t* read_buf;
+  struct __yo_uring_timespec ts;
 } __yo_timer_future_t;
 
 static void __yo_timer_future_dispose(void* ptr) {
@@ -663,14 +667,21 @@ static void __yo_timer_future_dispose(void* ptr) {
   }
 }
 
-// Async sleep using timerfd + the vendored io_uring ring. The ring layer
-// (runtime_io_linux.yo's emission, which lands before this file's output) is
-// always compiled on Linux since plans/DROP_LIBURING.md Phase 1, so this body
-// needs no feature guard.
-// Cancel a pending timerfd read. The kernel still delivers the read's own CQE
-// (with -ECANCELED), and that is what releases the ring's reference and frees
-// the timerfd through the dispose hook — so the retention window becomes one
-// poll turn instead of the whole remaining deadline.
+// Async sleep. The ring layer (runtime_io_linux.yo's emission, which lands
+// before this file's output) is always compiled on Linux since
+// plans/DROP_LIBURING.md Phase 1, so this body needs no feature guard.
+//
+// On the ring a sleep is ONE IORING_OP_TIMEOUT SQE: no descriptor, no
+// syscall of its own. It used to be a timerfd (create + settime + close)
+// with an IORING_OP_READ on it — and a timerfd read cannot be done
+// nonblocking inside io_uring, so every tick was punted to an io-wq worker
+// thread and woke the loop from there
+// (issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
+//
+// Cancel a pending timeout. The kernel still delivers the op's own CQE (with
+// -ECANCELED), and that is what releases the ring's reference — so the
+// retention window becomes one poll turn instead of the whole remaining
+// deadline.
 static bool __yo_timer_future_cancel(__yo_io_future_t* future) {
   return __yo_io_ring_submit_cancel(future);
 }
@@ -691,58 +702,53 @@ ${timer_dispose_init}
   timer_future->timerfd = -1;
   timer_future->read_buf = NULL;
   
-  // Create a timerfd
-  int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
-  if (tfd < 0) {
-    future->result = -errno;
-    atomic_store(&future->state, -1);
-    return future;
-  }
-  timer_future->timerfd = tfd;
-  
-  // Set timer to expire after milliseconds
-  struct itimerspec its = {0};
-  its.it_value.tv_sec = (time_t)(milliseconds / 1000);
-  its.it_value.tv_nsec = (long)((milliseconds % 1000) * 1000000);
-  if (milliseconds == 0) {
-    // POSIX defines a zero it_value as DISARMING the timer, so sleep(0)
-    // would never fire. Arm for 1 ns instead — completes on the next loop
-    // turn like the kqueue/Windows/wasm runtimes.
-    its.it_value.tv_nsec = 1;
-  }
-
-  if (timerfd_settime(tfd, 0, &its, NULL) < 0) {
-    int err = errno;
-    future->result = -err;
-    atomic_store(&future->state, -1);
-    return future;
-  }
-  
-  // Allocate the timerfd read buffer (8 bytes): BOTH backends read the
-  // timerfd into it when the timer fires, and the dispose hook frees it.
-  uint64_t* buf = (uint64_t*)__yo_rc_alloc(sizeof(uint64_t));
-  timer_future->read_buf = buf;
-
-  if (__yo_backend == __YO_BACKEND_EPOLL) {
-    // The epoll fallback registers the timerfd itself; delivery performs
-    // the same 8-byte read the ring op below submits.
-    __yo_epoll_sleep_arm(future, tfd, buf);
-    return future;
-  }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     future->result = -__yo_backend_errno;
     atomic_store(&future->state, -1);
     return future;
   }
 
-  // Use the ring to read from timerfd (fires when timer expires)
+  if (__yo_backend == __YO_BACKEND_EPOLL) {
+    // No timeout op: a timerfd, registered with the epoll set; delivery
+    // performs the 8-byte read (the source of the "8 on success" contract).
+    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+    if (tfd < 0) {
+      future->result = -errno;
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    timer_future->timerfd = tfd;
+    struct itimerspec its = {0};
+    its.it_value.tv_sec = (time_t)(milliseconds / 1000);
+    its.it_value.tv_nsec = (long)((milliseconds % 1000) * 1000000);
+    if (milliseconds == 0) {
+      // POSIX defines a zero it_value as DISARMING the timer, so sleep(0)
+      // would never fire. Arm for 1 ns instead — completes on the next loop
+      // turn like the kqueue/Windows/wasm runtimes.
+      its.it_value.tv_nsec = 1;
+    }
+    if (timerfd_settime(tfd, 0, &its, NULL) < 0) {
+      future->result = -errno;
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    uint64_t* buf = (uint64_t*)__yo_rc_alloc(sizeof(uint64_t));
+    timer_future->read_buf = buf;
+    __yo_epoll_sleep_arm(future, tfd, buf);
+    return future;
+  }
+
+  // The ring: one relative IORING_OP_TIMEOUT. A zero timeout completes on the
+  // next reap, like the other runtimes' sleep(0).
+  timer_future->ts.tv_sec = (int64_t)(milliseconds / 1000);
+  timer_future->ts.tv_nsec = (long long)((milliseconds % 1000) * 1000000);
   struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     atomic_store(&future->state, -1);
     return future;
   }
-  __yo_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
+  __yo_uring_prep_timeout(sqe, &timer_future->ts);
   __yo_uring_sqe_set_data(sqe, future);
   future->cancel_fn = __yo_timer_future_cancel;
   __yo_io_ring_submit(future);
