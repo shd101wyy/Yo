@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+A :: trait(a : (fn(self : Self) -> i32));
+B :: trait(b : (fn(self : Self) -> i32));
+C :: ref(struct(n : i32));
+impl(C, A(a : (self -> self.n)));
+impl(C, B(b : (self -> (self.n + i32(100)))));
+take :: (fn(d : Dyn(B, A)) -> i32)((d.a() + (d.b() * i32(1000))));
+main :: (fn() -> unit)({
+  (x : Dyn(A, B)) = dyn(C(n : i32(1)));
+  r := take(x);
+  println(`${r}`);
+});
+export(main);

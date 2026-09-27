@@ -607,6 +607,25 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
   em.emit_declaration_line("// === Dyn Static Vtables ===");
   em.emit_declaration_line("// Static vtables for dynamic dispatch");
   em.emit_declaration_line("");
+  // A vtable with `upcast` targets points at the payload's target vtables
+  // (`__yo_up_<Tgt>`), which may be emitted after it: declare every instance
+  // first. Only when the program upcasts, so no other output changes.
+  if(!context.base.dyn_upcasts.is_empty(), {
+    (fi : usize) = usize(0);
+    while(fi < nk, {
+      fkey := match(keys.get(fi), .Some(k) => k, .None => String.from(""));
+      match(
+        context.base.dyn_impls.get(fkey.clone()),
+        .Some(fentry) => {
+          f_dyn_c := match(context.base.get_type_c_name(type_key(fentry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(fentry.dyn_type.clone())}`);
+          em.emit_declaration_string_line(`static const ${f_dyn_c}_vtable __yo_vtable_${fkey};`);
+        },
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    em.emit_declaration_line("");
+  });
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
@@ -717,6 +736,31 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
             .None => ()
           );
           mi = (mi + usize(1));
+        });
+        // `__yo_up_<Tgt>`: this payload's vtable for each upcast target
+        // (`register_dyn_upcast_targets` registered the entry).
+        up_targets := context.base.dyn_upcast_targets(impl_entry.dyn_type.clone());
+        (ui : usize) = usize(0);
+        while(ui < up_targets.len(), {
+          ut := match(up_targets.get(ui), .Some(t) => t, .None => TypeValue.Unit);
+          ut_key := type_key(ut.clone());
+          ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn, .None => get_type_string(ut.clone(), context.base));
+          concrete_key := type_key(impl_entry.concrete_type.clone());
+          (uk : usize) = usize(0);
+          (u_found : bool) = false;
+          while((uk < nk) && !u_found, {
+            cand := match(keys.get(uk), .Some(k) => k, .None => String.from(""));
+            match(
+              context.base.dyn_impls.get(cand.clone()),
+              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key), {
+                em.emit_declaration_string_line(`  .__yo_up_${ut_c} = &__yo_vtable_${cand},`);
+                u_found = true;
+              }),
+              .None => ()
+            );
+            uk = (uk + usize(1));
+          });
+          ui = (ui + usize(1));
         });
         em.emit_declaration_line("};");
         em.emit_declaration_line("");

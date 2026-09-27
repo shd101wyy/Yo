@@ -2254,8 +2254,9 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
   )
 );
 /// The note a type mismatch appends when a `Dyn` with more traits is given
-/// where one with a subset is expected (`Dyn(Sp, Ot)` for `Dyn(Sp)`): Yo does
-/// not upcast `Dyn` values (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7,
+/// where one with a subset is expected (`Dyn(Sp, Ot)` for `Dyn(Sp)`): flow
+/// never converts a `Dyn`, and the explicit conversion is `upcast`
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phases 2.7 and 2.8,
 /// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
 dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
   match(
@@ -2276,7 +2277,7 @@ dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
           all_in = hit;
           i = (i + usize(1));
         });
-        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits (Yo does not upcast Dyn): call dyn(...) on the concrete value with the traits the destination needs."), String.new())
+        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits implicitly: write upcast(value, Dyn(...)) to drop the extra traits."), String.new())
       },
       _ => String.new()
     ),

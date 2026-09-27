@@ -38,7 +38,10 @@ import("std/fmt");
 { is_trait_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
+{ dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
 /// Returns the canonical id of a trait type for duplicate detection.
@@ -56,6 +59,64 @@ trait_id_for_dedup :: (fn(t : TypeValue) -> String)(
     _ => type_to_string(t)
   )
 );
+/// The vtable slot names one trait gives a `Dyn`: `call` for an `Fn` trait,
+/// else every member a `Dyn` can call (`dyn_member_is_method` and no
+/// `dyn_member_unsafe_reason`) — exactly the members codegen gives a slot.
+_dyn_trait_slot_names :: (fn(t : TypeValue) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  match(
+    t,
+    .FnTraitT(_, _, _, _, _, _, _, _) => out.push(String.from("call")),
+    .TraitT({ field_labels : fls, field_types : fts }) => {
+      (i : usize) = usize(0);
+      while(i < fls.len(), {
+        ft := match(fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+          match(fls.get(i), .Some(l) => out.push(l), .None => ());
+        });
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// E0616 when two traits of one `Dyn` give it a vtable slot of the same name.
+_reject_dyn_slot_name_clash :: (fn(traits : ArrayList(TypeValue), tok : Token, exn : Exception) -> unit)({
+  seen_names := ArrayList(String).new();
+  seen_owner := ArrayList(String).new();
+  (ti : usize) = usize(0);
+  while(ti < traits.len(), {
+    tt := match(traits.get(ti), .Some(x) => x, .None => TypeValue.Unit);
+    names := _dyn_trait_slot_names(tt);
+    (ni : usize) = usize(0);
+    while(ni < names.len(), {
+      nm := match(names.get(ni), .Some(x) => x, .None => String.new());
+      (si : usize) = usize(0);
+      while(si < seen_names.len(), {
+        if(match(seen_names.get(si), .Some(x) => (x == nm), .None => false), {
+          other := match(seen_owner.get(si), .Some(x) => x, .None => String.new());
+          exn.throw(
+            dyn(
+              with_code(
+                format_error_message(
+                  tok,
+                  `A Dyn cannot hold two methods named "${nm}": both ${other} and ${type_to_string(tt)} declare one. A Dyn calls its methods by name, so the call could not say which trait it means.\nUse one of the traits in this Dyn, or rename one of the methods.`
+                ),
+                E_AMBIGUOUS_METHOD
+              )
+            )
+          );
+        });
+        si = (si + usize(1));
+      });
+      seen_names.push(nm);
+      seen_owner.push(type_to_string(tt));
+      ni = (ni + usize(1));
+    });
+    ti = (ti + usize(1));
+  });
+});
 evaluate_dyn_type :: (
   fn(
     expr : AstExpr,
@@ -261,7 +322,12 @@ evaluate_dyn_type :: (
     });
     qi = (qi + usize(1));
   });
-  // Phase 2aq deferred: function-name conflict check across required traits.
+  // A vtable dispatches by slot NAME (`d.vtable->get(...)`), so two of the
+  // traits may not both give the Dyn a slot with one name: the call could not
+  // say which impl it means, and the vtable could hold only one of them
+  // (issues/fixed/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md).
+  // Only SLOTS count — a method a Dyn cannot call (E0614) has none.
+  _reject_dyn_slot_name_clash(required_traits, ast_expr_token(expr), exn);
   // Phase 2aq deferred: reserved function-name check.
   // Phase 2aq deferred: addRcFunctionsToDynType ARC injection.
   dyn_ty := t_dyn(required_traits, required_levels, negative_traits, negative_levels);

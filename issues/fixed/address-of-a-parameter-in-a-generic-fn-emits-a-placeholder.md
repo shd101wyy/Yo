@@ -1,6 +1,6 @@
 # `&param` inside a GENERIC function emits `/* skip generating value */`
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-27 (branch `tss/dyn-upcast`; see Resolution)
 **Found:** 2026-09-08, implementing `black_box` for `plans/archive/STD_API_STABILIZATION.md` §4 Core.
 
 ## Reproducer (8 lines)
@@ -67,3 +67,18 @@ same family as the `own`-parameter flags that
 two call-time binders hardcoding a flag the def-time binder sets. Worth
 checking the three parameter-binding sites named in AGENTS.md before anything
 in codegen.
+
+## Resolution (2026-09-27)
+
+**Cause (measured with v0.2.44):** the argument's *value*, not the generic. `_t(u64(6))` fails,
+`_t(x)` with a runtime `x` emits `(&v)`. A specialization binds each parameter with the call's
+argument value (`bind_parameter`, `src/env.yo`), so a CTFE execution of the body can read it; a
+runtime parameter's `Variable` therefore holds `6` in its value cell. `evaluate_address_call`
+(`src/evaluator/builtins/ptr_fns.yo`) turns `&x` of any variable with a non-empty cell into a
+compile-time place (`PtrVal`), which is right for a comptime local and wrong for a C parameter:
+codegen could not render the comptime pointer and wrote its placeholder.
+
+**Fix:** the place arm skips a runtime parameter (`is_parameter && !is_compile_time_only`)
+unless the evaluation is executing (CTFE). Test: `tests/ptr.test.yo`, "&param in a generic fn
+called with a literal". `std/testing/bench.yo`'s `black_box` keeps its local copy until the seed
+carries this fix (std compiles with the seed).

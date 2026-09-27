@@ -99,8 +99,10 @@ What flow no longer accepts:
 - a `newtype` or a `ref` object in place of an anonymous value record, and the reverse;
 - a union by name alone: its fields are compared.
 - a `Dyn` with a different trait set, in either direction: `Dyn(A, B)` is not a `Dyn(A)` (no
-  upcast, Phase 2.7: the vtables differ and the concrete type is erased) and `Dyn(A)` is not a
-  `Dyn(A, B)`.
+  implicit upcast, Phase 2.7: the vtables differ, so the conversion is the explicit
+  `upcast(d, Dyn(A))` of Phase 2.8) and `Dyn(A)` is not a `Dyn(A, B)`. The trait list is a set:
+  every `Dyn` is built in one canonical order (`t_dyn`), so `Dyn(A, B)` and `Dyn(B, A)` are one
+  type to flow, identity and codegen.
 
 ## Why the CTFE memo needed this
 

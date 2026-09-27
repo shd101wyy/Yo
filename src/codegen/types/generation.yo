@@ -1444,6 +1444,21 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
     },
     _ => ()
   );
+  // One pointer per `upcast(d, Dyn(Tgt))` target of this Dyn: the payload's
+  // vtable for the target (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8).
+  up_targets := context.dyn_upcast_targets(type.clone());
+  (ui : usize) = usize(0);
+  while(ui < up_targets.len(), {
+    match(
+      up_targets.get(ui),
+      .Some(ut) => {
+        ut_c := get_type_string(ut.clone(), context);
+        members.push(`  const ${ut_c}_vtable* __yo_up_${ut_c}; // upcast to ${type_to_string(ut)}`);
+      },
+      .None => ()
+    );
+    ui = (ui + usize(1));
+  });
   em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
   // The payload's RC functions, in `__yo_vtable_prefix_t`'s layout

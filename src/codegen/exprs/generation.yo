@@ -74,6 +74,7 @@
   BF_SIZEOF,
   BF_TYPEID,
   BF_DOWNCAST,
+  BF_UPCAST,
   BK_WHILE,
   BK_FN,
   BF_CONSUME,
@@ -121,7 +122,7 @@
 { generate_recur } :: import("./recur.yo");
 { generate_sizeof } :: import("./sizeof.yo");
 { generate_typeid } :: import("./typeid.yo");
-{ generate_downcast } :: import("./downcast.yo");
+{ generate_downcast, generate_upcast } :: import("./downcast.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { generate_while_loop } :: import("./while_loop.yo");
 { generate_consume } :: import("./consume.yo");
@@ -817,6 +818,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_SIZEOF, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_TYPEID, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2))), return(generate_upcast(expr, indent.clone(), context)));
   if(is_builtin_yo_inline_function(_func_name(expr)), return(_generate_inline_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), return(generate_while_loop(expr, indent.clone(), context)));
   // Anonymous function `fn(x) -> body` → its function value.
