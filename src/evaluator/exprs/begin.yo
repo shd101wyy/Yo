@@ -68,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_struct_type, is_tuple_type, is_dyn_type, is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_newtype_type, can_optimize_as_nullable_pointer, is_array_type } :: import("../../types/guards.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { HashSet } :: import("std/collections/hash_set");
 { is_io_async_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
@@ -1404,6 +1405,47 @@ _optimize_dup_drop_pairs :: (
     });
   });
 });
+/// True for a type whose `___drop` lowers to a PER-FIELD/variant switch —
+/// the value composites (tagged enums like JsonValue, rc-field structs like
+/// MapEntry, arrays, tuples) — and false for the HANDLE forms whose drop is
+/// a single decr of the value itself (reference structs/enums, Iso, Dyn,
+/// Future SomeTs, nullable-pointer enums). The dispatch mirrors
+/// generate_drop_code_for_value's arms exactly, via the same guards
+/// predicates: reading `is_reference_semantics` raw misclassifies String
+/// (flag-false in its recorded shape, true via the predicate), and the
+/// newtype recursion matters — String is a newtype over a nullable-pointer
+/// enum, so the inner decision is the handle one.
+_param_type_needs_interior_drop :: (fn(ty : TypeValue) -> bool)({
+  t := resolve_enum_shell(resolve_struct_shell(ty));
+  if(!type_contains_rc_type(t), {
+    return(false);
+  });
+  cond(
+    is_reference_struct_type(t) => false,
+    is_reference_enum_type(t) => false,
+    is_dyn_type(t) => false,
+    is_iso_type(t) => false,
+    is_atomic_reference_struct_type(t) => false,
+    is_atomic_reference_enum_type(t) => false,
+    is_some_type(t) => false,
+    can_optimize_as_nullable_pointer(t).is_some() => false,
+    is_newtype_type(t) => match(
+      t,
+      .Struct({ field_types : nt_fts }) => match(
+        nt_fts.get(usize(0)),
+        .Some(nt_ft) => _param_type_needs_interior_drop(nt_ft),
+        .None => false
+      ),
+      _ => false
+    ),
+    is_array_type(t) => true,
+    is_tuple_type(t) => true,
+    is_enum_type(t) => true,
+    is_struct_type(t) => true,
+    true => false
+  )
+});
+
 _schedule_scope_end_drops :: (
   fn(
     frame : Frame,
@@ -1457,7 +1499,29 @@ _schedule_scope_end_drops :: (
         // every store by +1 and cycle collection never reclaimed HashMap
         // cycles (issues/fixed/yo-self-compound-literal-rc-overcount.md).
         e0 := (!params_only || v.is_parameter);
-        e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        // A by-value COMPOSITE parameter (a value enum/struct whose fields
+        // carry rc — JsonValue, MapEntry(K, V)) owns its interior references
+        // however it was declared: the caller's arg temp is consumed by the
+        // call, and a container store in the body (ArrayList(T).push's
+        // element retain for composites) dups the interiors, leaving the
+        // parameter copy's references to the callee to release — the
+        // documented dup/drop pairing has no cancellable dup for the
+        // unpairable temp these stores mint. Missing this drop orphaned one
+        // interior reference per heap-carrying struct argument everywhere
+        // (issues/fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md).
+        // The discriminator mirrors generate_drop_code_for_value's
+        // classification: composites are exactly the types whose drop LOWERS
+        // to a per-field/variant switch. HANDLE params (reference
+        // structs/enums — String, ArrayList: single decr of the value
+        // itself) are excluded — their container stores are move-ins with no
+        // dup, so a scope-end drop would double-release the stored element
+        // (ArrayList(String).push's value param). RECEIVER params are
+        // excluded by the `self` name: the codebase's universal borrowed-
+        // receiver convention (the caller keeps its container live across
+        // the call — the synthesized contents helpers' emitted
+        // __yo_borrow_assert_unborrowed(self) prelude is that borrow).
+        param_by_value_owns := (params_only && _param_type_needs_interior_drop(v.ty) && !(v.name == "self"));
+        e1 := (e0 && (v.is_owning_the_rc_value || param_by_value_owns) && type_contains_rc_type(v.ty));
         e2 := (e1 && !v.is_module_level);
         e3 := (e2 && !v.is_ref);
         // Skip only UNRESOLVED SomeTypes with no required traits (no concrete

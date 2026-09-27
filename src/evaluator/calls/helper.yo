@@ -75,7 +75,8 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_ptr, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, clone_some_fresh, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
@@ -88,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
   same_name_note,
   type_contains_some_type_deep
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_reference_struct_type, is_reference_enum_type, is_dyn_type, is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_newtype_type, can_optimize_as_nullable_pointer, is_array_type, is_tuple_type, is_enum_type, is_struct_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -795,6 +796,43 @@ argument_is_aliased_by_inout :: (fn(arg : AstExpr, param_is_ref : bool, inout_ro
 ///   leaked into the real pass.
 /// - 4c: an RC-typed field PROJECTION passed to a BORROWING parameter gets a
 ///   caller-owned +1 for the call (Aliasing Stage 0). Returns that drop.
+/// Mirror of _param_type_needs_interior_drop (exprs/begin.yo): true when the
+/// type's drop lowers to a per-field/variant switch (value composites). Used
+/// at the call boundary to transfer +1 into by-value composite parameters,
+/// whose callees drop the copy's interiors at scope end. Kept in textual
+/// lockstep with the drop emitter's classification (generate_drop_code_
+/// for_value's arms) — the guards predicates, never the raw
+/// is_reference_semantics flag (String reads flag-false but predicate-true).
+_param_type_needs_interior_dup :: (fn(ty : TypeValue) -> bool)({
+  t := resolve_enum_shell(resolve_struct_shell(ty));
+  if(!type_contains_rc_type(t), {
+    return(false);
+  });
+  cond(
+    is_reference_struct_type(t) => false,
+    is_reference_enum_type(t) => false,
+    is_dyn_type(t) => false,
+    is_iso_type(t) => false,
+    is_atomic_reference_struct_type(t) => false,
+    is_atomic_reference_enum_type(t) => false,
+    is_some_type(t) => false,
+    can_optimize_as_nullable_pointer(t).is_some() => false,
+    is_newtype_type(t) => match(
+      t,
+      .Struct({ field_types : nt_fts }) => match(
+        nt_fts.get(usize(0)),
+        .Some(nt_ft) => _param_type_needs_interior_dup(nt_ft),
+        .None => false
+      ),
+      _ => false
+    ),
+    is_array_type(t) => true,
+    is_tuple_type(t) => true,
+    is_enum_type(t) => true,
+    is_struct_type(t) => true,
+    true => false
+  )
+});
 consume_argument_for_parameter :: (
   fn(
     evaled_arg : AstExpr,
@@ -809,7 +847,15 @@ consume_argument_for_parameter :: (
     exn : Exception,
     /// `argument_is_aliased_by_inout`: the argument is a whole variable that
     /// the same call also passes `inout`.
-    (aliased_by_inout : bool) ?= false
+    (aliased_by_inout : bool) ?= false,
+    /// The resolved parameter type's drop lowers to a per-field/variant
+    /// switch (a value composite — see _param_type_needs_interior_drop in
+    /// exprs/begin.yo, mirrored here): the callee's params-frame pass drops
+    /// the parameter copy's interiors, so the call boundary must transfer
+    /// +1 (the same mark the `own` path uses). Without it every composite
+    /// argument double-released (the callee's drop took the caller's only
+    /// reference).
+    (param_type_needs_interior_dup : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
@@ -843,6 +889,16 @@ consume_argument_for_parameter :: (
   });
   if(((((!(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && (aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env)), {
     return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout));
+  });
+  // A by-value COMPOSITE parameter (non-own, non-ref): the callee's
+  // params-frame scope-drop releases the copy's interiors, so the boundary
+  // transfers +1 via the deferred-dup mark — the caller's own local keeps
+  // its reference and releases it at ITS scope end; a temp argument's +1 is
+  // released by the temp's deferred drop. Handle arguments are excluded:
+  // their callees get no param drop (move-in container stores), and duping
+  // them would strand a reference nothing releases.
+  if((((param_type_needs_interior_dup && !(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern), {
+    set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
   });
   Option(AstExpr).None
 });
@@ -1042,7 +1098,7 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
-  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn, aliased_by_inout);
+  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn, aliased_by_inout, _param_type_needs_interior_dup(resolved_pt));
   s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
@@ -8253,4 +8309,4 @@ export(compute_compile_time_signature);
 export(create_specialized_function_inline);
 export(_type_has_array_len_var);
 export(_trial_eval_ret_type_expr);
-export(evaluate_ctl_function_body_inline);
+export(evaluate_ctl_function_body_inline, _param_type_needs_interior_dup);
