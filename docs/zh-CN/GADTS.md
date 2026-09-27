@@ -143,8 +143,8 @@ GADTs 具有**与普通枚举相同的 C 表示**。所有类型细化都纯粹�
 
 - **不支持存在类型**：构造器不能引入不在枚举参数中的新类型变量。
 - 类型细化仅适用于 `match` 表达式，不适用于 `cond`。
-- `generic` 函数的函数体在被调用时才做类型检查，因此某个分支只有在某个调用方实例化了该分支的索引后，才会按其细化类型被检查：
-  一个类型错误的 `.BoolVal(b) => i32(7)` 分支在有调用方传入 `Value(bool)` 之前都能通过 `yo check`
-  （`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`）。
+- 每个分支都会在定义时按其细化类型检查，即使它位于没有任何调用方的 `generic` 函数中：类型错误的 `.BoolVal(b) => i32(7)`
+  分支会在 `yo check` 时报错，因为两个具体类型之间的不匹配无法通过任何实例化消除
+  （`issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`）。
 
 嵌套模式在 GADT 值上与普通枚举一样可用（`.Wrap(.PairVal(a, true))`），穷尽性过滤在每一层都生效。

@@ -146,10 +146,10 @@ GADTs have the **same C representation as regular enums**. All type refinement i
 
 - **No existential types**: Constructors cannot introduce new type variables not in the enum's parameters.
 - Type refinement only applies in `match` expressions, not in `cond`.
-- A `generic` function's body is type-checked when it is called, so an arm is checked under its
-  refinement only once some caller instantiates that arm's index: an ill-typed `.BoolVal(b) => i32(7)`
-  arm passes `yo check` until a caller passes a `Value(bool)`
-  (`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`).
+- Every arm is checked under its refinement at definition, even in a `generic` function nothing
+  calls: an ill-typed `.BoolVal(b) => i32(7)` arm is an error at `yo check`, because a mismatch
+  between two concrete types cannot be fixed by any instantiation
+  (`issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`).
 
 Nested patterns work on GADT values like on any enum (`.Wrap(.PairVal(a, true))`), and the
 exhaustiveness filter applies at every level.
