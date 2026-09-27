@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 25 | 5 |
-| **Total** | **197** | **37** |
+| Other | 25 | 4 |
+| **Total** | **197** | **36** |
 
 ## Cross-cutting buckets
 
@@ -351,7 +351,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
-| [`p37-registry-retirement-blocked-by-codegen-readers.md`](./p37-registry-retirement-blocked-by-codegen-readers.md) | OPEN (blocker for Phase 3 step 7 part 2, bran | yes |
+| [`p37-registry-retirement-blocked-by-codegen-readers.md`](./p37-registry-retirement-blocked-by-codegen-readers.md) | OPEN (blocker for Phase 3 step 7 part 2, bran | — |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |

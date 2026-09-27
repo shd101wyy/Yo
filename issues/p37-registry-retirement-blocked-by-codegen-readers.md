@@ -1,10 +1,35 @@
 # The `g_some_resolved_concrete` retirement is blocked: `some_resolution`'s registry fallback is load-bearing for codegen's SomeT lowering
 
-**Status:** OPEN (blocker for Phase 3 step 7 part 2, branch `tss/p37-registry`)
+**Status:** OPEN (blocker for Phase 3 step 7 part 2, branch `tss/p37-registry`; CORRECTED 2026-09-27 — see the update at the bottom)
 **Found:** 2026-09-27, building the branch for the first time (it had been written unbuilt).
-**Repro:** `issues/repros/array-fill-spec-stays-hollow-under-p37.yo` — `Array(i32, 4).fill(i32(7))`
+**Repro (corrected):** `tests/async/channel.test.yo` — the `Stream` combinators test (`ch.filter(...).map(...)`) fails E0905 at `std/async/stream.yo:141`
 
 ## Symptom
+
+**CORRECTION 2026-09-27 (second build session):** the `Array.fill` FATAL below was
+an artifact of MY probe edits, not the branch — a clean rebuild of the parked tip
+(`b9ae26fe8`) checks `Array(i32, 4).fill(i32(7))` GREEN. The REAL, reproduced-on-clean
+blocker is narrower: `tests/async/channel.test.yo` (the Stream combinators test,
+`ch.filter(x => ((x % i32(2)) == i32(1))).map(x => (x * i32(10)))`) fails with
+
+```
+error[E0905]: This `io.async` closure's body was never fully evaluated
+    --> std/async/stream.yo:141:29
+```
+
+and the swallow trace pins the owner: the trials run stream.yo:409 → 140 → 168,
+then `[anon-swallow] error[E0601]: Cannot unify incompatible types: "bool" and
+"i32"` — **`StreamFilter.next`'s spec-time body eval (stream.yo:168) fails
+bool-vs-i32**: the filter's `A` (i32, the item type) meets the predicate's `bool`
+somewhere it should not — a cross-closure/cross-slot pollutions between the
+filter closure (`-> bool`) and the map closure (`-> i32`) that value-stamped
+resolutions now route wrongly. `check ./std`/`check ./src` stay green
+(176/176, 279/279); only the compiled compiler's async corpus breaks.
+Start there: `closure_type.yo`'s value-stamping and the combinator spec mint.
+
+---
+Original write-up (the `Array.fill` part superseded by the correction above;
+the registry/codegen-reader analysis stands):
 
 The branch passes `yo check ./std` (176/176) and `yo check ./src` (279/279), and its
 compiled self-build succeeds — but programs that use a generic impl method whose
