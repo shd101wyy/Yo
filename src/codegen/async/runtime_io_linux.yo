@@ -841,8 +841,9 @@ static int __yo_uring_submit(struct __yo_uring* ring) {
   return __yo_uring_enter(ring, to_submit, 0, 0);
 }
 
-// The loop's main batching win in one syscall: publish the SQEs and block for
-// the first completion together.
+// The loop's main batching win in one syscall: publish the SQEs and wait for
+// wait_nr completions together. wait_nr == 0 does not block: it is the poll's
+// submit-and-reap, which also runs the deferred task work.
 static int __yo_uring_submit_and_wait(struct __yo_uring* ring,
                                       uint32_t wait_nr) {
   uint32_t mask = *ring->sq.ring_mask;
@@ -1618,25 +1619,29 @@ static void __yo_io_notify(__yo_loop_t* loop) {
   (void)w;
 }
 
-// Flush any queued SQEs to the kernel if non-empty. Returns the number
-// submitted, or -errno.
+// Retire the deferred-SQE bookkeeping for an enter that submitted ret SQEs.
 // On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
 // is left unchanged -- the next submit attempt (via poll/wait) will retry them.
+static inline void __yo_io_account_submitted(int ret) {
+  if (ret <= 0) return;
+  if ((size_t)ret >= __yo_sq_unsubmitted) {
+    __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
+    __yo_sq_unsubmitted = 0;
+  } else {
+    __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
+    __yo_sq_unsubmitted -= (size_t)ret;
+  }
+}
+
+// Flush any queued SQEs to the kernel if non-empty. Returns the number
+// submitted, or -errno.
 static inline int __yo_io_flush_sq(void) {
   if (__yo_sq_unsubmitted == 0) return 0;
   int ret;
   do {
     ret = __yo_uring_submit(&__yo_io_ring);
   } while (ret == -EINTR);
-  if (ret > 0) {
-    if ((size_t)ret >= __yo_sq_unsubmitted) {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted = 0;
-    } else {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted -= (size_t)ret;
-    }
-  }
+  __yo_io_account_submitted(ret);
   return ret;
 }
 
@@ -2639,9 +2644,6 @@ static int __yo_io_poll(void) {
   if (!__yo_io_initialized) {
     return __yo_poll_and_fs_event_tick();
   }
-  // Flush any queued SQEs so their completions can be reaped.
-  __yo_io_flush_sq();
-
   // The ring runs with __YO_IORING_SETUP_DEFER_TASKRUN (see __yo_io_init): the
   // kernel materialises completions only when this thread enters it with
   // __YO_IORING_ENTER_GETEVENTS. A pure-userspace peek therefore never sees a
@@ -2649,8 +2651,17 @@ static int __yo_io_poll(void) {
   // never reaches __yo_io_wait — a poll-until-finished race spun forever on
   // Linux while macOS (kqueue always syscalls) was fine
   // (issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md).
-  // A zero-timeout wait is that non-blocking enter; it consumes nothing.
-  {
+  // A zero-timeout GETEVENTS enter is that non-blocking entry; it consumes
+  // nothing. Queued SQEs ride the SAME enter: submitting them first in a
+  // separate enter cost every op that completes at issue two syscalls
+  // (issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md).
+  if (__yo_sq_unsubmitted > 0) {
+    int ret;
+    do {
+      ret = __yo_uring_submit_and_wait(&__yo_io_ring, 0);
+    } while (ret == -EINTR);
+    __yo_io_account_submitted(ret);
+  } else {
     (void)__yo_uring_getevents(&__yo_io_ring);
   }
 
@@ -2769,13 +2780,7 @@ static int __yo_io_wait(void) {
       return 0;
     }
     // ret >= 0: that many SQEs were submitted.
-    if ((size_t)ret >= __yo_sq_unsubmitted) {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted = 0;
-    } else {
-      __yo_sq_deferred_head = (__yo_sq_deferred_head + (unsigned)ret) % __YO_IO_RING_ENTRIES;
-      __yo_sq_unsubmitted -= (size_t)ret;
-    }
+    __yo_io_account_submitted(ret);
     // After submit_and_wait, at least one CQE should be available; peek it.
     if (__yo_uring_peek_cqe(&__yo_io_ring, &cqe) != 0) {
       // Rare: spurious wake. Fall back to explicit wait.

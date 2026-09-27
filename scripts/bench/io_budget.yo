@@ -37,11 +37,12 @@ main :: (fn(io : Io) -> unit)({
 
   // --- Budget A: an N-round socketpair ping-pong whose every op can complete
   // at once (each send precedes its recv) is LINEAR in the syscall total —
-  // no storms, batching preserved. Expected: the ring submits and reaps each
-  // op through its CQE (about 2 enters per op); the epoll fallback does each
-  // op as one inline syscall. 10 per round (4 ops) + 64 bounds both with
-  // headroom while still catching any per-op storm (a spin or re-submit
-  // loop blows past it by 10x+).
+  // no storms, batching preserved. Expected: ONE syscall per op on both
+  // backends — the ring submits and reaps each op in a single enter, the
+  // epoll fallback does it as one inline syscall. 6 per round (4 ops) + 64
+  // leaves headroom and still catches the ring's old two-enters-per-op poll
+  // (8 per round; issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md)
+  // as well as any per-op storm.
   sv := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
   if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) != i32(0), {
     panic(String.from("socketpair failed"));
@@ -61,7 +62,7 @@ main :: (fn(io : Io) -> unit)({
     i = (i + usize(1));
   });
   a_delta := (_syscalls() - before);
-  budget_a := ((u64(N_ECHO) * u64(10)) + u64(64));
+  budget_a := ((u64(N_ECHO) * u64(6)) + u64(64));
   println(`budget A (inline ping-pong, ${N_ECHO} rounds): syscalls=${a_delta} <= ${budget_a}`);
   if(a_delta > budget_a, {
     panic(String.from("BUDGET A VIOLATED"));

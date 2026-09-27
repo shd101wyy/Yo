@@ -47,6 +47,12 @@ above wrong.
   - Epoll registrations cost O(n) per park, event and cancel.
   - §2.1's "sleep is timerfd + `POLL_ADD`" was wrong: it was timerfd + `READ`,
     punted to an io-wq worker per tick. It is now one `IORING_OP_TIMEOUT`.
+  - The ring's poll submitted and then probed in two `io_uring_enter` calls.
+    Phase 6's "ring 2 enters/op" was that defect, not a floor: on stock Linux
+    it made the ring lose the inline ping-pong to epoll 1.74×. It is now one
+    enter per op.
+  - `io-floors.env` keyed the echo floor `echo_min_ratio` after the bench had
+    renamed the metric, so that floor checked nothing.
 - **Phase 6's numbers above were not like-for-like:**
   - "echo" was an AF_UNIX socketpair that never parked.
   - Timings were whole milliseconds.
@@ -67,6 +73,7 @@ above wrong.
   - `issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`
   - `issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md`
   - `issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`
+  - `issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md`
 
 Measurement notes from the Phase 1/5 gates: probe program C 5,189 → 5,428 lines
 (ring layer net +239), +~800 more with the epoll section; user binaries 0 undefined

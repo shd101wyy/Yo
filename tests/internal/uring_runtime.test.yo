@@ -74,6 +74,8 @@ test("linux runtime: the DEFER_TASKRUN probe is the plain GETEVENTS enter", {
   c := emit_linux_runtime();
   assert(c.contains(String.from("(void)__yo_uring_getevents(&__yo_io_ring);")), String.from("zero-timeout probe not replaced by getevents"));
   assert(!c.contains(String.from("__kernel_timespec")), String.from("timeout probe leftover"));
+  // Queued SQEs ride the probe's enter (issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md).
+  assert(c.contains(String.from("ret = __yo_uring_submit_and_wait(&__yo_io_ring, 0);")), String.from("poll no longer submits and reaps in one enter"));
 });
 test("common runtime: the Linux timer arms through the vendored ring, unguarded", {
   c := emit_linux_common();
