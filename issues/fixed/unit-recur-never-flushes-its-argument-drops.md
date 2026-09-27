@@ -75,6 +75,8 @@ fix itself is gated by `tests/recur_inline_arg.test.yo`'s
 "unit recur releases the dup of a composite argument" (an `rc()` check, so it runs
 without LSan). That test fails under the v0.2.44 seed and passes with the fix.
 
+(Reverted to `recur` in DROP_LIBURING Phase 4, once `SEED_VERSION` reached v0.2.45, the first seed carrying the fix.)
+
 ## Not the mechanism (for the record)
 
 - **"Only under the v0.2.44 seed"**: no. Any compiler with the recur emitter leaks.

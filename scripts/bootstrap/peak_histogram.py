@@ -10,7 +10,7 @@ technique from holder_census_t.py).
 
 Usage:
   python3 scripts/bootstrap/peak_histogram.py IN.c OUT.c peak_dump.txt
-  clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 $(pkg-config --cflags --libs openssl liburing) \\
+  clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 $(pkg-config --cflags --libs openssl) \\
         OUT.c -o yo_peak -lm
   ./yo_peak check src/main.yo --std-path ./std       # writes peak_dump.txt
 Dump rows:

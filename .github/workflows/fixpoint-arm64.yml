@@ -75,12 +75,12 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing and GNU time
+      - name: Install GNU time
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config time
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -123,10 +123,10 @@ jobs:
         run: |
           # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
           # into the emitted C — flags via pkg-config, libssl-dev installed
-          # with liburing above.
+          # with the packages above.
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/yo-stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -I vendor/mimalloc/include -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           /tmp/yo-stage2 check std/assert.yo
