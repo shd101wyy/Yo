@@ -49,6 +49,8 @@ pragma(Pragma.AllowUnsafe);
   aligned_derived_capture_handles,
   fv_capture_count,
   fv_capture_val,
+  fv_source_count,
+  fv_source_val,
   register_funcval_cap_slices,
   cap_slices_with_list,
   CaptureSlice,
@@ -1861,11 +1863,11 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
     fv,
     .FuncVal(__fvs1, cvs) => {
       csrc := fv_capture_source(__fvs1.*);
-      n := fv_capture_count(__fvs1.*, cvs);
+      n := fv_source_count(csrc, cvs);
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          fv_capture_val(__fvs1.*, cvs, i),
+          fv_source_val(csrc, cvs, i),
           .Some(cv) => match(
             cv,
             .TypeVal(tv) => {
@@ -3959,7 +3961,7 @@ create_specialized_function_inline :: (
                                   cw_benv := Environment.new(callee_env.module_path);
                                   (cw_cvi : usize) = usize(0);
                                   cw_src := fv_capture_source(cc_fvd.*);
-                                  (n_cw : usize) = fv_capture_count(cc_fvd.*, cc_capvals);
+                                  (n_cw : usize) = fv_source_count(cw_src, cc_capvals);
                                   while(cw_cvi < n_cw, {
                                     cw_cn := fv_source_name(cw_src, cw_cvi);
                                     cw_ct := fv_source_ty(cw_src, cw_cvi);
@@ -3973,7 +3975,7 @@ create_specialized_function_inline :: (
                                     (cw_cv : Option(EvalValue)) = Option(EvalValue).Some(EvalValue.UnknownVal(cw_ct.clone(), true));
                                     (cw_has_cv : bool) = false;
                                     match(
-                                      fv_capture_val(cc_fvd.*, cc_capvals, cw_cvi),
+                                      fv_source_val(cw_src, cc_capvals, cw_cvi),
                                       .Some(x) => match(
                                         x,
                                         .TypeVal(_) => {

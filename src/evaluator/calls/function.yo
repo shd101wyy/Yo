@@ -78,8 +78,8 @@ pragma(Pragma.AllowUnsafe);
   fv_capture_source,
   fv_source_name,
   fv_source_ty,
-  fv_capture_count,
-  fv_capture_val,
+  fv_source_count,
+  fv_source_val,
   bind_parameter
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -2562,7 +2562,6 @@ _funcval_bind_foralls :: (
     param_type_names : ArrayList(String),
     evaled_arg_infos : ArrayList(ExprInfo),
     cap_src : FvCaptureSource,
-    cap_data : FuncValData,
     cap_vals : ArrayList(EvalValue),
     recv_type_args : ArrayList(TypeValue),
     fresh_env : Environment,
@@ -2858,11 +2857,11 @@ _funcval_bind_foralls :: (
     // issues/fixed/generic-impl-fromjson-container-decode-failures.md.
     if(!(fa_bound), {
       (fcap_i : usize) = usize(0);
-      (n_fcap : usize) = fv_capture_count(cap_data, cap_vals);
+      (n_fcap : usize) = fv_source_count(cap_src, cap_vals);
       while((fcap_i < n_fcap) && !(fa_bound), {
         if(fv_source_name(cap_src, fcap_i) == fa_name, {
           match(
-            fv_capture_val(cap_data, cap_vals, fcap_i),
+            fv_source_val(cap_src, cap_vals, fcap_i),
             .Some(cvv) => match(
               cvv,
               // VALUE binder capture (`generic(U : usize)` := IntLit, injected
@@ -4734,11 +4733,11 @@ _evaluate_function_call_unanchored :: (
             op_pnames := __fvm4.*.params;
             op_csrc := fv_capture_source(__fvm4.*);
             (oci : usize) = usize(0);
-            (n_oc : usize) = fv_capture_count(__fvm4.*, op_cvals);
+            (n_oc : usize) = fv_source_count(op_csrc, op_cvals);
             while(oci < n_oc, {
               ocn := fv_source_name(op_csrc, oci);
               oct := fv_source_ty(op_csrc, oci);
-              ocv := fv_capture_val(__fvm4.*, op_cvals, oci);
+              ocv := fv_source_val(op_csrc, op_cvals, oci);
               _oac := add_variable_to_env(op_env, ocn, oct, ocv, match(ocv, .Some(_) => true, .None => false), false, false, false, synthetic_token(ocn, op_env.module_path));
               oci = (oci + usize(1));
             });
@@ -6892,7 +6891,6 @@ Fix: wrap the call:
           param_type_names,
           evaled_arg_infos,
           fv_capture_source(__fvm7.*),
-          __fvm7.*,
           cap_vals,
           recv_type_args,
           fresh_env,
@@ -8294,11 +8292,11 @@ Fix: wrap the call:
                 m_pnames := __fvm5.*.params;
                 m_csrc := fv_capture_source(__fvm5.*);
                 (mci : usize) = usize(0);
-                (n_mc : usize) = fv_capture_count(__fvm5.*, m_cvals);
+                (n_mc : usize) = fv_source_count(m_csrc, m_cvals);
                 while(mci < n_mc, {
                   mcn := fv_source_name(m_csrc, mci);
                   mct := fv_source_ty(m_csrc, mci);
-                  mcv := fv_capture_val(__fvm5.*, m_cvals, mci);
+                  mcv := fv_source_val(m_csrc, m_cvals, mci);
                   _mac := add_variable_to_env(m_env, mcn, mct, mcv, match(mcv, .Some(_) => true, .None => false), false, false, false, synthetic_token(mcn, m_env.module_path));
                   mci = (mci + usize(1));
                 });
