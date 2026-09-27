@@ -1328,7 +1328,28 @@ operation, and never re-decides:
 3. **degraded** — only if epoll is also unavailable: every async operation
    completes with an errno instead of hanging or exiting the process.
 
-The selection is never silent: a fallback logs one line to stderr. Pin a
-backend for testing or benchmarking with the `YO_IO_BACKEND` environment
-variable (`auto` (default) | `uring` | `epoll`); a pinned backend that fails
-to initialize is a hard error rather than a silent step.
+The selection is never silent: a fallback logs one line to stderr per I/O
+thread, naming the errno (and, for `ENOSYS`, the likely cause — a seccomp
+filter such as Docker's default profile). Pin a backend for testing or
+benchmarking with the `YO_IO_BACKEND` environment variable (`auto` (default)
+| `uring` | `epoll`); a pinned backend that fails to initialize is a hard
+error rather than a silent step, and any other value is an error too, so a
+typo can never quietly mean `auto`.
+
+### Operation lifetimes are the same on every backend
+
+- **Closing a descriptor ends the operations still pending on it**: they
+  complete with `-EBADF` (kqueue, epoll and io_uring alike — the ring cancels
+  its requests, because an io_uring request holds its own file reference and
+  would otherwise outlive the descriptor).
+- **Aborting a task cancels the operation it is suspended in**, so an aborted
+  `recv` never consumes data a later `recv` should see.
+- **Sockets may be blocking or nonblocking** for `send`/`recv`/`sendto`/
+  `recvfrom`: the readiness backends attempt them with `MSG_DONTWAIT`.
+  `accept`, `connect` and `read`/`write` on a pipe or tty need a nonblocking
+  descriptor on the macOS and epoll backends (every socket and pipe std
+  creates is one); a blocking descriptor there blocks the loop thread for the
+  duration of the call. io_uring handles either mode.
+- A Unix-domain `connect` to a listener whose backlog is full is retried by
+  io_uring until it connects; the epoll fallback reports `EAGAIN` instead —
+  readiness cannot express "the backlog has room".
