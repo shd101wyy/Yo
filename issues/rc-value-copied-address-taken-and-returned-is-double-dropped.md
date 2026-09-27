@@ -72,4 +72,4 @@ Use `ArrayList(u8)` directly, or read the Linux ASan leg.
 needs no copy and no address and so cannot hit this. That restricts it to
 primitive numeric / pointer / bool — enforced by the compiler — and the doc
 says so. Supporting aggregates needs this bug AND
-`issues/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md` fixed.
+`issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md` fixed.

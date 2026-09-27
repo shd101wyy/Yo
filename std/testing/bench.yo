@@ -123,9 +123,10 @@ _NO_INLINE_ASM :: (
 /// benchmark body normally produces. An aggregate or RC type would have to go
 /// in by ADDRESS, and that route is blocked twice over:
 ///
-/// - `&param` inside a generic fn emits a placeholder into the C
-///   (issues/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md), so
-///   the address has to be taken of a local copy; and
+/// - `&param` inside a generic fn called with a literal emitted a placeholder
+///   into the C (issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md;
+///   fixed, but std compiles with the seed until the seed carries the fix), so
+///   the address is taken of a local copy; and
 /// - copying an RC value into a local, taking its address, and returning it
 ///   DOUBLE-DROPS the inner buffer — found by CI's Linux ASan leg on the first
 ///   cut of this function, `heap-use-after-free in __yo_decr_rc`
