@@ -37,13 +37,17 @@ byte-identical to develop's (`cmp`, 121,089,132 bytes).
 
 ## Root cause found (2026-09-27, same session)
 
-`_verdict_to_json`'s result flows through `vi := list(i)`-shaped reads inside
-`_stringify_into`'s Object arm; the underlying compiler bug is documented in
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`:
-a `:=` binding of an indexed read of a value-type element with RC fields leaks
-one reference per binding (the deferred dup is emitted, then discarded; the
-binding takes the pre-dup temp and gets no scope-end drop). Fix belongs there;
-this issue closes with it.
+`_verdict_to_json(verdict)` receives the composite `VerifyVerdict` BY VALUE —
+the caller's argument temp is consumed and the callee's copy becomes the last
+owner of the interior references; the callee never releases them. That site is
+owned by the drop-liburing agent (branch `fv-param-interior-drop`, their issue
+`issues/fv-z3-self-test-leaks-under-the-v0244-seed.md`). A SECOND missing-drop
+site in the same family (local `:=` binding of an indexed read whose only use
+DCEs to the argument-atom tail) is documented in
+`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`; this
+issue closes when the param-interior fix lands. The run-history "seed"
+correlation is disproven — z3 5.1.0 reproduces the leak under v0.2.43-built
+compilers locally.
 
 ## Next steps
 

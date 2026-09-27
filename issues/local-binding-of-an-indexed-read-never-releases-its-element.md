@@ -3,6 +3,18 @@
 Found 2026-09-27 root-causing `issues/verifier-z3-harness-self-test-leaks-40-bytes.md`
 (Linux CI's "Formal verification (pinned Z3)" job, red on develop's tip). **Open.**
 
+COORDINATION 2026-09-27: the CI z3 case itself is being fixed by the
+drop-liburing agent (branch `fv-param-interior-drop`: by-value COMPOSITE
+params own their interior RC references — `_verdict_to_json(verdict)`'s
+VerifyVerdict — a different missing-drop site in the same family; their issue
+is `issues/fv-z3-self-test-leaks-under-the-v0244-seed.md`). Their fix does not
+obviously cover THIS issue's local-binding/DCE-tail site; this repro gets
+verified against their fix once pushed and this issue closes or follows up
+accordingly. The CI "v0.2.44 seed" correlation is disproven: the leak
+reproduces under v0.2.43-seed compilers with the pinned z3 5.1.0
+(`YO_Z3_PATH` + `YO_TEST_Z3=1`); z3 4.16 passes — the solver's verdict/core
+shapes route different payloads through the leaking path.
+
 ## Minimal reproducer (leaks 33 B: one String + its 1-byte buffer)
 
 ```rust
