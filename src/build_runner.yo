@@ -12,7 +12,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { HashMap } :: import("std/collections/hash_map");
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
-{ cwd, chdir } :: import("std/env");
+{ cwd, chdir, current_exe } :: import("std/env");
 // Imported under an alias: `args` collides with the `args` parameter/field used
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 { args : proc_args } :: import("std/env");
@@ -1123,7 +1123,8 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 // ---------------------------------------------------------------------------
 // Artifact input cache (plans/reference/INCREMENTAL_COMPILATION.md Phase A).
 // A compile is SKIPPED when the sha256 over (child argv + compiler version +
-// every project/std `.yo` file + yo.lock) matches the stamp recorded next to
+// the compiler binary's own sha256 + every project/std `.yo` file + yo.lock)
+// matches the stamp recorded next to
 // the output on the last successful compile. Approximations, documented:
 // the system C compiler and vendor C sources are NOT stamped (the compiler
 // version + argv covers the yo side); delete yo-out or set
@@ -1429,6 +1430,37 @@ _stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
   });
   dst.push(u8(10));
 });
+/// The running compiler's identity for the artifact stamp: the sha256 of its
+/// own executable (`current_exe`, `/proc/self/exe` on Linux), hashed once per
+/// process. `CURRENT_YO_VERSION` alone cannot tell a self-built compiler from
+/// the seed that built it, since both report the same version. So
+/// `<stage-1> yo build` on an unchanged tree served the artifact the seed had
+/// compiled, and a "stage-2" was the stage-1 binary again
+/// (issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md).
+(g_compiler_identity : Option(String)) = Option(String).None;
+/// Pin the identity instead of hashing the executable (tests).
+set_compiler_identity :: (fn(id : String) -> unit)({
+  g_compiler_identity = Option(String).Some(id);
+});
+_compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    match(
+      g_compiler_identity,
+      .Some(known) => {
+        return(known);
+      },
+      .None => ()
+    );
+    exe_path := match(current_exe(), .Ok(exe) => exe.to_string(), .Err(_) => String.new());
+    if(exe_path.len() == usize(0), {
+      return(String.from("unknown"));
+    });
+    exe_bytes := e.io.await(_cache_read_file(exe_path, e.io), e);
+    id := match(exe_bytes, .Some(bytes) => sha256_hex(bytes), .None => String.from("unreadable"));
+    g_compiler_identity = Option(String).Some(id.clone());
+    id
+  })
+);
 /// Split a depfile line `<sha256> <path>` at the FIRST space. Returns
 /// `("", line)` when the line has no hash prefix — a legacy or malformed
 /// depfile, which the record pass treats as unusable.
@@ -1509,7 +1541,7 @@ _manifest_stamp_entries :: (
 /// window, so the caller hashes them ONCE before the compile and passes the
 /// same values to both passes. Empty means "compute them from disk" (the
 /// decision pass's own call).
-_artifact_input_stamp :: (
+artifact_input_stamp :: (
   fn(
     argv : ArrayList(String),
     project_dir : String,
@@ -1526,6 +1558,8 @@ _artifact_input_stamp :: (
     });
     acc := ArrayList(u8).new();
     _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
+    compiler_id := e.io.await(_compiler_identity(e.io), e);
+    _stamp_push_str(acc, `yo-binary ${compiler_id}`);
     sep := String.from(" ");
     _stamp_push_str(acc, `argv ${sep.join(argv)}`);
     // §5.4: every `build.env` read the build file made. The invoking shell is
@@ -2085,7 +2119,7 @@ compile_artifact :: (
     // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
     manifest_entries := e.io.await(_manifest_stamp_entries(ctx.project_dir.clone(), e.io), e);
     stamp_raw := e.io.await(
-      _artifact_input_stamp(
+      artifact_input_stamp(
         stamp_inputs,
         ctx.project_dir.clone(),
         depfile_path.clone(),
@@ -2184,7 +2218,7 @@ compile_artifact :: (
     // stale artifact was served forever
     // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
     post_stamp := e.io.await(
-      _artifact_input_stamp(
+      artifact_input_stamp(
         stamp_inputs,
         ctx.project_dir.clone(),
         depfile_path.clone(),
@@ -3355,6 +3389,7 @@ run_build :: (
 );
 // ---------------------------------------------------------------------------
 export(BuildOptions);
+export(artifact_input_stamp, set_compiler_identity);
 export(DAGNodeKind);
 export(DAGNode);
 export(StepResult);
