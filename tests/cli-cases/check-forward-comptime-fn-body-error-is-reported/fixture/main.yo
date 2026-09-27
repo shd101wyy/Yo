@@ -1,0 +1,12 @@
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  comptime(is_even) : (fn(n : i32) -> bool);
+  comptime(is_odd) : (fn(n : i32) -> bool);
+  is_even = _({
+    (z : bool) = i32(3);
+    cond((n == 0) => true, true => is_odd(n - 1))
+  });
+  is_odd = _(cond((n == 0) => false, true => is_even(n - 1)));
+  println(`${is_even(10)}`);
+});
+export(main);

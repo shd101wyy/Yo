@@ -1685,7 +1685,11 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // (fn arm 14's mutual recursion).
   if(updated_variable.is_compile_time_only && is_function_type(updated_variable.ty), {
     if(match(value_to_store, .Some(vts) => match(vts, .FuncVal(_, _) => true, _ => false), .None => false), {
-      call_rerun_pending_def_evals(env, ctx);
+      match(
+        call_rerun_pending_def_evals(env, ctx),
+        .Some(rp_err) => exn.throw(dyn(rp_err)),
+        .None => ()
+      );
     });
   });
   // Write ExprInfo for the lhs.

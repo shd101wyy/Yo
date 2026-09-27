@@ -182,7 +182,11 @@ PendingDefEval :: ref(
     where_entries : ArrayList(WhereConstraintEntry),
     function_type : TypeValue,
     strip_outer : bool,
-    attempts : usize
+    attempts : usize,
+    /// The valueless forward-declared comptime fn variables this body saw.
+    /// Once every one is filled, a re-run that still fails is a real error
+    /// in the body (Phase 6 step 2, census site #4), not a forward reference.
+    fwd_vars : ArrayList(Variable)
   )
 );
 (g_pending_def_evals : ArrayList(PendingDefEval)) = ArrayList(PendingDefEval).new();
@@ -857,10 +861,11 @@ _build_def_time_body_env :: (
 /// comptime fn variable is FILLED — the re-run rebuilds the body env from the
 /// CURRENT caller env (fills visible) and refreshes the original body nodes'
 /// ExprInfos via the id-preserving clone.
-_rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> unit)({
+_rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> Option(YoError))({
   if(g_rerunning_def_evals || (g_pending_def_evals.len() == usize(0)), {
-    return(());
+    return(Option(YoError).None);
   });
+  (rp_failure : Option(YoError)) = Option(YoError).None;
   g_rerunning_def_evals = true;
   kept := ArrayList(PendingDefEval).new();
   (rp_i : usize) = usize(0);
@@ -906,10 +911,43 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
         _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out);
         truncate_forcing_depths(rp_depths);
         ___rp_tr := set_in_def_time_trial(rp_prev_trial);
-        if(pd.attempts > usize(1), {
-          pd.attempts = (pd.attempts - usize(1));
-          kept.push(pd);
+        // Every forward declaration this body saw is filled now?
+        (rp_all_filled : bool) = true;
+        (rp_fi : usize) = usize(0);
+        while(rp_fi < pd.fwd_vars.len(), {
+          match(
+            pd.fwd_vars.get(rp_fi),
+            .Some(fv) => if(match(fv.value.get(usize(0)), .Some(fvv) => is_unknown_val(fvv), .None => true), {
+              rp_all_filled = false;
+            }),
+            .None => ()
+          );
+          rp_fi = (rp_fi + usize(1));
         });
+        rp_failed := (_trial_swallow_pending() && (rp_out.len() == usize(0)));
+        cond(
+          // The body typed with its forward declarations filled: done.
+          (!(rp_failed) && rp_all_filled) => (),
+          // Still failing with nothing left to wait for: the body's own
+          // error, which the first trial could not tell from a forward
+          // reference. Reported through the filling assignment's `exn`.
+          (rp_failed && rp_all_filled) => {
+            if(rp_failure.is_none() && !(propagate_def_time_errors()), {
+              rp_failure = Option(YoError).Some(
+                match(
+                  _trial_swallow_diagnostics(),
+                  .Some(rp_ds) => yo_error_from_diagnostics(rp_ds),
+                  .None => format_error_message(rp_tok, _trial_swallow_message())
+                )
+              );
+            });
+          },
+          true => if(pd.attempts > usize(1), {
+            pd.attempts = (pd.attempts - usize(1));
+            kept.push(pd);
+          })
+        );
+        _clear_trial_swallow();
       },
       .None => ()
     );
@@ -917,6 +955,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
   });
   g_pending_def_evals = kept;
   g_rerunning_def_evals = false;
+  rp_failure
 });
 /// Install the deferred-def-eval hook (called from register_evaluate_expression
 /// — module-level call statements do not execute at import).
@@ -1062,6 +1101,9 @@ Result type: ${type_to_string(result_box)}`
       // see the twin in evaluator/values/anonymous_function.yo).
       cap_slices := ArrayList(CaptureSlice).new();
       (has_fwd_comptime_fn_cap : bool) = false;
+      // The forward declarations themselves: the re-run judges its failure
+      // only once every one of them is filled.
+      fwd_cap_vars := ArrayList(Variable).new();
       n_cap_fr := caller_env.frames.len();
       (cap_fi : usize) = usize(0);
       while(cap_fi < n_cap_fr, {
@@ -1119,6 +1161,7 @@ Result type: ${type_to_string(result_box)}`
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });
                       has_fwd_comptime_fn_cap = true;
+                      fwd_cap_vars.push(cv);
                     });
                   });
                 },
@@ -1672,7 +1715,8 @@ Result type: ${type_to_string(result_box)}`
                 where_entries : def_where_entries,
                 function_type : function_type,
                 strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
-                attempts : usize(3)
+                attempts : usize(3),
+                fwd_vars : fwd_cap_vars
               )
             );
           });

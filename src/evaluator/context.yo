@@ -42,6 +42,7 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
+{ YoError } :: import("../error.yo");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
@@ -854,17 +855,19 @@ track_variable_usage_resolved :: (
 // fallback then emits the raw identifier. The def-time trial eval is
 // therefore re-run after the forward declaration is FILLED (assignment.yo
 // calls through this hook into function_type.yo's pending table).
-RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> unit);
+/// Returns the first re-run that still fails once every forward declaration
+/// it waited for is filled — the caller, which has `exn`, raises it.
+RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> Option(YoError));
 (g_rerun_pending_def_evals_fn : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
 set_rerun_pending_def_evals_fn :: (fn(f : RerunPendingDefEvalsFn) -> unit)({
   g_rerun_pending_def_evals_fn = Option(RerunPendingDefEvalsFn).Some(f);
   ()
 });
-call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> unit)(
+call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> Option(YoError))(
   match(
     g_rerun_pending_def_evals_fn,
     .Some(f) => f(env, ctx),
-    .None => ()
+    .None => Option(YoError).None
   )
 );
 // --- P0 forward-reference diagnostic plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
