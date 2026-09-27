@@ -566,6 +566,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id
     _ => ()
   );
 });
+(g_debug_fn_origin : bool) = debug_knob(`YO_DEBUG_FN_ORIGIN`).is_some();
 generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
   match(
     function_value,
@@ -653,6 +654,13 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // accumulated buffer char-indexed, making the emit O(code x
       // functions). `sample` attributed 75% of a stage2 emit to that one
       // substring call.
+      // `YO_DEBUG_FN_ORIGIN=1`: name each emitted definition's source position,
+      // so a profile or rc-event log over the emitted C maps `yo_id_…` frames
+      // back to Yo functions (.github/instructions/debugging.instructions.md).
+      if(g_debug_fn_origin, {
+        origin_tok := ast_expr_token(body_box);
+        em.emit_string_line(`/* yo-origin ${origin_tok.module_path}:${(origin_tok.row + usize(1)).to_string()} ${c_function_name} */`);
+      });
       stub_mark_b := em.code.as_bytes().len();
       em.emit_string_line(open);
       _maybe_emit_method_entry_borrow_assert(function_type, func_id.clone(), body_box, em, context);

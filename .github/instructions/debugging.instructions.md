@@ -146,6 +146,20 @@ matches a `SomeT` on **(name, frame_level)** and the declaration's
 matters. Identical `before-ids` and `after-ids` is that bug; identical emitted
 C is the same bug seen later and more expensively.
 
+## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
+
+Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a
+`sample` profile or an rc-event log (`scripts/bootstrap/alloc_site_census_t.py
+--rc-events` + `rc_event_report.py`) prints frames nobody can read.
+`scripts/bootstrap/fid_name_map.py` rehashes source positions, but it predates the
+anchored ids of `stable_func_id` (#914) and maps nothing on the current tree.
+Instead, emit the C with `YO_DEBUG_FN_ORIGIN=1`: every definition is preceded by
+`/* yo-origin <module>:<line> <c name> */`. Build the map from those comments,
+using the nearest `name ::` at or above the line as the name, and pass it as the
+report's `fidmap.tsv` (`<c name>\t<file>:<line>\t<name>`). That is how the
+Phase 3 scrutinee leak was found
+(`issues/fixed/nullable-pointer-match-never-releases-its-scrutinee.md`).
+
 ## GDB for generated C code
 
 - Run `gdb` on `./a.out` to debug generated C code.
