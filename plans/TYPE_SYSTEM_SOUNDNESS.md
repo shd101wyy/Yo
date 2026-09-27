@@ -1,6 +1,6 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. **Handover 2026-09-26:** [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) says where each phase stands and what is on which branch. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
+**Status:** ACTIVE, proposed 2026-09-23. **Handover (updated 2026-09-28):** [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) says where each phase stands and what is on which branch. Phases 0, 1 and 2 LANDED 2026-09-24/25 (the per-phase
 "Landed" notes below); 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
@@ -707,6 +707,21 @@ The largest and last phase, because Phases 1–5 shrink it.
    concrete `Self` and a variable-free signature is the impl's error (#14). The forward
    comptime-fn re-run reports a body that still fails once every forward declaration it waited
    for is filled (#4, `issues/fixed/a-forward-comptime-fn-body-error-is-dropped-by-the-pending-rerun.md`).
+
+   **Landed 2026-09-28** (branch `tss/p6-generic-reraise`, with sites #2/#4/#5/#6/#14/#15 above):
+   the deferred-generic trials run for EVERY generic fn and closure (a diagnostic-only trial on a
+   fresh-id clone, so it never stamps nodes codegen reads); a `comptime(x)` value parameter
+   defers a generic body's judgment to its calls; `mark_generic_independent` also refuses a
+   value-dependent array length and the `unit` stand-in
+   (`issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`). 116 of the 123 site-#16
+   calls propagate the sub-expression's own error (`evaluate_expression_raw`, or the new
+   `evaluate_expression_guarded` where ctx state is restored first). The seven left are the two
+   deliberate probes, `match`'s scrutinee (already retried raw), and four debug/introspection
+   builtins that no-op on failure (`var_fns.yo` ×3, `comptime_assert.yo`'s validation-mode
+   check). Re-raising surfaced two latent bugs, fixed at their cause: a trait default was
+   materialized in the implementing module's scope
+   (`issues/fixed/a-trait-default-is-materialized-in-the-implementing-modules-scope.md`) and
+   evaluated raw, so a bare `return(...)` default failed.
 
    **Site #16 census (2026-09-27, develop `862cfc5bb`).** 123 calls of the 3-argument
    `evaluate_expression` (the per-node swallow), all in `src/evaluator/`, every one with an `exn`
