@@ -643,7 +643,8 @@ await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitP
   expr_is_bare_await(cond_arg, await_point)
 });
 /// True when this await sits somewhere in `expr` that the state machine cannot
-/// split at: a `cond`/`if` branch condition, or a `match` scrutinee.
+/// split at: a `cond`/`if` branch condition, a `match` scrutinee, or the value
+/// of a `return`.
 await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
@@ -665,6 +666,14 @@ await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPo
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
     // The scrutinee is evaluated exactly once, before any arm, so hoisting it
     // is always exact — subject to the same "must BE the await" limit.
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    return(expr_is_bare_await(args.get(usize(0)), await_point));
+  });
+  if(ast_expr_is_fn_call_of(expr, "return", Option(usize).Some(usize(1))), {
+    // `return(io.await(f, io))`: the returned value IS the await — evaluated
+    // exactly once, before the return — so ending the state at it and
+    // returning `sm->await_result_N` from the next one is exact
+    // (issues/return-of-an-await-is-rejected-inside-io-async.md).
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     return(expr_is_bare_await(args.get(usize(0)), await_point));
   });
