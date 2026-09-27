@@ -719,10 +719,28 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Check if an enum can be optimized as a nullable pointer. Returns the
 /// pointer variant's field type if so, `.None` otherwise. Requires exactly
-/// two variants: one fieldless and one carrying a single pointer field.
+/// two variants: one fieldless and one carrying a single field that is a raw
+/// pointer or a (non-atomic) reference-semantics handle: `ref(struct)` /
+/// `ref(enum)` objects are heap pointers that are never NULL, so `Option(T)`
+/// of one (`String` is `Option(ArrayList(u8))`) is the bare handle with NULL
+/// as `.None` — 8 B instead of a 16 B tagged payload
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3).
 /// Codegen lowers such an enum to the bare pointer (NULL = the empty variant),
 /// and the size/alignment model (`types/utils.yo`) must agree, so the rule
 /// lives here, where both can reach it.
+/// A field type whose C value is a pointer that is never NULL: a raw pointer
+/// or a non-atomic reference handle. Atomic handles (`atomic(ref(...))`) and
+/// `Iso` keep the tagged layout.
+_is_nullable_payload_type :: (fn(t : TypeValue) -> bool)(
+  cond(
+    is_pointer_type(t) => true,
+    is_atomic_reference_struct_type(t) => false,
+    is_atomic_reference_enum_type(t) => false,
+    is_reference_struct_type(t) => true,
+    is_reference_enum_type(t) => true,
+    true => false
+  )
+);
 can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
   match(
     t,
@@ -748,7 +766,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
           (fc == usize(1)) => {
             child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
             cond(
-              is_pointer_type(child) => {
+              _is_nullable_payload_type(child) => {
                 match(
                   pointer_type,
                   .Some(_) => {

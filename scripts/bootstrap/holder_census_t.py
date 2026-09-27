@@ -130,6 +130,7 @@ static void __ho_count_internal(void* p) {
   if (!p || !__ho_un_k) return;
   size_t i = __ho_uh(p); while (__ho_un_k[i]) { if (__ho_un_k[i] == p) { __ho_un_c[i]++; return; } i = (i + 1) & (__HO_UCAP - 1); }
 }
+static void __ho_count_internal_v(void* p, void* _child_traverse) { (void)_child_traverse; __ho_count_internal(p); }
 static size_t __ho_seen_n;
 static int __ho_seen_add(void* p) {
   if (__ho_seen_n * 4 >= (size_t)__HO_CAP * 3) return 0; /* 75%% full: treat as seen (walk stays finite) */
@@ -144,7 +145,7 @@ static void __ho_push(void* p) {
   if (__ho_sp == __ho_scap) { __ho_scap = __ho_scap ? __ho_scap * 2 : 1 << 20; __ho_stack = (void**)realloc(__ho_stack, __ho_scap * sizeof(void*)); }
   __ho_stack[__ho_sp++] = p;
 }
-static void __ho_visit(void* p) { __ho_push(p); }
+static void __ho_visit(void* p, void* _child_traverse) { (void)_child_traverse; __ho_push(p); }
 static void __ho_walk_from(int r, void* p) {
   __ho_push(p);
   while (__ho_sp) {
@@ -322,7 +323,7 @@ static void __hd_push(void* v, int root) {
   __hd_st[__hd_sp++] = (void*)(size_t)i;
 }
 static int __hd_root;
-static void __hd_visit(void* p) { __hd_push(p, __hd_root); }
+static void __hd_visit(void* p, void* _child_traverse) { (void)_child_traverse; __hd_push(p, __hd_root); }
 static void __hd_scan_range(void* lo, size_t bytes, int root) {
   void** w = (void**)lo; size_t nw = bytes / sizeof(void*);
   for (size_t j = 0; j < nw; j++) __hd_push(w[j], root);
@@ -476,7 +477,7 @@ static void __ho_census(void* st) {
      sees (an untracked holder, or a missing release). */
   for (size_t i = 0; i < __HO_UCAP; i++) if (__ho_un_k[i]) {
     __yo_ref_header_t* h = (__yo_ref_header_t*)__ho_un_k[i];
-    if (h->traverse_fn) h->traverse_fn(h, __ho_count_internal);
+    if (h->traverse_fn) h->traverse_fn(h, __ho_count_internal_v);
   }
   __ho_ext = (long long*)calloc(%(nb)d, sizeof(long long));
   __ho_extn = (long long*)calloc(%(nb)d, sizeof(long long));

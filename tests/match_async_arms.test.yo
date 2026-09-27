@@ -93,3 +93,75 @@ test("positional twin of the labeled case still works", {
   io.await(task, io);
   assert(result.* == i32(20), "positional binds unchanged");
 });
+// The await-carrying twin of the synchronous nullable-pointer match: a `_` arm
+// on an `Option(<ref>)` was a pattern atom the classifier skipped, so the
+// `.None` path ran no arm at all.
+Parcel :: ref(struct(v : i32));
+test("a wildcard arm on a nullable-pointer Option with awaits", {
+  n := runtime_int();
+  empty := cond((n == i32(-1)) => Option(Parcel).Some(Parcel(v : i32(1))), true => Option(Parcel).None);
+  full := Option(Parcel).Some(Parcel(v : n));
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    a := match(
+      full,
+      .Some(p) => {
+        io.await(yield(io), io);
+        p.v
+      },
+      _ => i32(-5)
+    );
+    b := match(
+      empty,
+      .Some(p) => {
+        io.await(yield(io), io);
+        p.v
+      },
+      _ => {
+        io.await(yield(io), io);
+        i32(-5)
+      }
+    );
+    result.* = (a + b);
+  });
+  io.await(task, io);
+  assert(result.* == (n - i32(5)), ".Some binds the payload and .None takes the wildcard, inside async");
+});
+// The await-carrying twin: a nullable-pointer user enum matched with labeled,
+// curly and bare-variant arms inside an async body.
+Tote :: enum(Bare, Holding(parcel : Parcel));
+test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
+  n := runtime_int();
+  holding := Tote.Holding(parcel : Parcel(v : (n + i32(2))));
+  bare := cond((n == i32(-1)) => Tote.Holding(parcel : Parcel(v : i32(0))), true => Tote.Bare);
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    a := match(
+      holding,
+      .Holding(parcel : p) => {
+        io.await(yield(io), io);
+        p.v
+      },
+      .Bare => i32(-100)
+    );
+    b := match(
+      holding,
+      .Holding({ parcel }) => {
+        io.await(yield(io), io);
+        parcel.v
+      },
+      .Bare => i32(-100)
+    );
+    c := match(
+      bare,
+      .Holding => {
+        io.await(yield(io), io);
+        i32(-100)
+      },
+      .Bare => i32(1)
+    );
+    result.* = (a + b + c);
+  });
+  io.await(task, io);
+  assert(result.* == (((n + i32(2)) * i32(2)) + i32(1)), "labeled and curly bind the payload, a bare arm selects by variant name");
+});
