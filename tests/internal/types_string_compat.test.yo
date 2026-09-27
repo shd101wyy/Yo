@@ -124,11 +124,12 @@ test("compatibility — DynT subset rule", {
   a := t_dyn_simple(rtt_a);
   e := t_dyn_simple(rtt_e);
   assert(are_types_compatible(a, e), "dyn(i32) ~ dyn(i32)");
-  // dyn(i32+i64) is compatible with dyn(i32) — actual is a superset
+  // dyn(i32+i64) is NOT compatible with dyn(i32): Dyn flow is the exact trait
+  // set — no upcast, the vtable layouts differ (TYPE_SYSTEM_SOUNDNESS 2.7, #952)
   rtt_b := ArrayList(TypeValue).new();
   rtt_b.push(t_i32());
   rtt_b.push(t_i64());
-  assert(are_types_compatible(t_dyn_simple(rtt_b), e), "dyn(i32+i64) ~ dyn(i32)");
+  assert(!are_types_compatible(t_dyn_simple(rtt_b), e), "dyn(i32+i64) !~ dyn(i32)");
   // dyn(i32) is NOT compatible with dyn(i64) — missing trait
   rtt_c := ArrayList(TypeValue).new();
   rtt_c.push(t_i64());
