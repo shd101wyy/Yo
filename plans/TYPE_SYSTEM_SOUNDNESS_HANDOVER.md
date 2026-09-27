@@ -13,7 +13,7 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 | 3 type identity | Steps 1–6 and 8 landed; step 7 part 1 landed. **Step 7 part 2 is blocked** (§3.1). |
 | 4 diagnostics | 4.1, 4.3, 4.4, 4.5 landed. **4.2 open** (§3.2), best landed as Phase 6.4. |
 | 5 ownership | Landed (3 and 4 via `archive/PARALLELISM_SOUNDNESS.md`). |
-| 6 swallow policy | Step 1 (census) and **step 2 landed (the Phase 6 step 2 PR)** for sites #2, #4, #5, #6, #14, #15, #16. Open: site #8, step 3, step 4 (§3.2, §3.3). |
+| 6 swallow policy | Step 1 (census) and **step 2 landed (#968)** for sites #2, #4, #5, #6, #14, #15, #16. Open: site #8, step 3, step 4 (§3.2, §3.3). |
 | 7 docs | Done; each phase updates its docs as it lands. |
 
 ## 2. Landed in this stretch
@@ -26,7 +26,7 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
   `a-method-call-two-trait-impls-supply-silently-picks-one`,
   `dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c`,
   `address-of-a-parameter-in-a-generic-fn-emits-a-placeholder`.
-- **the Phase 6 step 2 PR — Phase 6 step 2.** Replaces the closed #962 (its E1104 code classified a symptom; its
+- **#968 — Phase 6 step 2.** Replaces the closed #962 (its E1104 code classified a symptom; its
   last commit deleted E0607's `yo explain` entry). What landed, per census site:
   - #5 closures with concrete runtime parameters re-raise; a `comptime(x)` value parameter
     defers, as the named-fn path's `ft_has_ct_param` does;
