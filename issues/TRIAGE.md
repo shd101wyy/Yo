@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 198 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 199 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 26 | 4 |
-| **Total** | **198** | **36** |
+| Other | 27 | 4 |
+| **Total** | **199** | **36** |
 
 ## Cross-cutting buckets
 
@@ -333,7 +333,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (26)
+### Other (27)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -352,6 +352,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
+| [`p6-closure-reraise-blocked-by-value-dependence-errors.md`](./p6-closure-reraise-blocked-by-value-dependence-errors.md) | OPEN (blocker for branch `tss/p6-closure-rera | — |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
