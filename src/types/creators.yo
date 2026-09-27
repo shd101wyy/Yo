@@ -220,12 +220,16 @@ t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeV
 t_iso :: (fn(child : TypeValue) -> TypeValue)(
   .IsoT(child)
 );
-/// The sort key of one trait in a `Dyn`'s trait list: its printed form, then
-/// its declaration id, so two same-named traits from two modules still order
-/// deterministically.
+/// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
+/// which is fixed when the trait is built. NOT its printed name: a trait is
+/// named by its binding AFTER construction, so a `Dyn(SelfTrait)` captured
+/// while the trait is being defined sees it nameless, and a name key sorted
+/// the one `Dyn` two ways (two C types; tests/error_source_chain.test.yo).
+/// The printed form breaks ties between instances of one generic trait and
+/// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
   tid := match(t, .TraitT(id : i) => i, _ => String.new());
-  `${type_to_string(t)}#${tid}`
+  `${tid}#${type_to_string(t)}`
 });
 /// Reorder `types` (and its parallel `levels`, when it has one entry per
 /// type) into the canonical order. A `Dyn`'s trait list is a SET —
