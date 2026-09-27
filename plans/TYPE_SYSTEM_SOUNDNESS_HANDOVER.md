@@ -1,14 +1,27 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-09-27 by the session that resumed it. **#952 merged**
-(every flow-relation caller passes `(actual, expected)`; `Dyn` flow is the exact
-trait set; the extern-opaque coercion does not compose into compound types).
-**#959 merged** (`option-self-field` closed — fixed on develop; the struct
-value-cycle check landed). **`tss/p37-registry` and `tss/p6-closure-reraise` are
-BLOCKED, not abandoned** — each is pushed with a blocker issue
-(`issues/p37-registry-retirement-blocked-by-codegen-readers.md`,
-`issues/p6-closure-reraise-blocked-by-value-dependence-errors.md`); read those
-before touching the branches. Originally written 2026-09-26 by the session that drove
+**Status:** FINAL update 2026-09-27 (session handed over; read this paragraph, then the
+two blocker issues, before touching anything).
+
+- **Merged**: **#952** (`tss/flow-orientation` — every flow-relation caller passes
+  `(actual, expected)`; `Dyn` flow is the exact trait set; the extern-opaque coercion
+  does not compose into compound types), **#959** (`tss/option-self-field` — the issue
+  was already fixed on develop; the struct value-cycle check + the walker's
+  indirection-cut-for-children landed), **#960** (this doc's first update).
+- **`tss/p6-closure-reraise` is READY: PR #962 is open and unmerged only because a
+  patch release was being cut — merge it after the release.** The value-dependence
+  blocker is fixed on the branch (E1104 `E_COMPTIME_EXPRESSION_VALUE`, carried by the
+  seven `expr_fns.yo` raise sites; the gate skips it); `check ./std` 176/176,
+  `check ./src` 279/279, both CLI goldens recorded and re-scored PASS, fixpoint HOLDS.
+- **`tss/p37-registry` stays BLOCKED** (pushed `ad3a06686`) — read
+  `issues/p37-registry-retirement-blocked-by-codegen-readers.md` INCLUDING its
+  2026-09-27 CORRECTION: the `Array.fill` repro was a probe artifact; the real,
+  clean-tip-reproduced blocker is `tests/async/channel.test.yo`'s Stream-combinator
+  E0905 at `std/async/stream.yo:141`, with `[anon-swallow] E0601 bool-vs-i32` owned by
+  `StreamFilter.next`'s spec (stream.yo:168) — start at `closure_type.yo`'s
+  value-stamping and the combinator spec mint.
+
+Originally written 2026-09-26 by the session that drove
 [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) through Phases 2–5 and most of Phase 3.
 The plan is the roadmap and stays authoritative for *what* each phase means. This doc says *where
 the work stands*: what landed, what is written but unverified on four pushed branches, and what
