@@ -60,7 +60,12 @@ resolved as stated. Filed 2026-09-27. None of them was a crash on the default
    - The ring timer really was punted to io-wq and is now an
      `IORING_OP_TIMEOUT` (`issues/io-uring-sleep-punts-every-tick-to-a-worker-thread.md`).
    - The table runs, informationally, in CI's I/O budgets job. `io-floors.env`
-     is tightened from those measurements, not before them.
+     is tightened from those measurements, not before them: pingpong 1.00,
+     parked 0.50, timer 0.90, from the 2026-09-27 stock-Linux table.
+   - Its echo floor had been keyed `echo_min_ratio` after the metric was
+     renamed, so it checked nothing; the keys are now the metric names.
+   - That table exposed the ring's two-enters-per-op poll
+     (`issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md`).
 8. **Fixed.** Epoll registrations are an fd-indexed table: park, dispatch, cancel
    and close are O(1). `epoll_event.data` carries the fd, never a pointer.
 

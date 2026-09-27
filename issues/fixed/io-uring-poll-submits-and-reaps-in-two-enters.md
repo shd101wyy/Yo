@@ -8,8 +8,10 @@ budget and bench jobs (PR #964, run 36334993270, `ubuntu-latest` x86_64).
   rounds of 4 ops, i.e. 8 per round and 2 per op. The epoll fallback's total
   was 800.
 - The cause is **read from the code**.
-- The after-fix count is the budget itself, now 6 per round, which CI enforces
-  on both backends.
+- The after-fix counts are **measured** in run 36337258876, same runner class:
+  - budget A: ring 801, epoll 800;
+  - budget D (parked): ring 400, down from 800;
+  - budget B (timers): ring 150, down from 200.
 
 ## Symptom
 
@@ -21,6 +23,17 @@ On stock Linux the ring lost to the epoll fallback on the inline ping-pong:
 | parked    |     534,295 |     402,799 |       0.754 |
 
 The ping-pong is a socketpair on which every op can complete at once.
+
+After the fix:
+
+| benchmark | uring ops/s | epoll ops/s | epoll/uring |
+| --------- | ----------: | ----------: | ----------: |
+| pingpong  |     680,214 |     926,033 |       1.361 |
+| parked    |     614,015 |     400,260 |       0.652 |
+
+Epoll still wins the inline ping-pong, where both backends now make one
+syscall per op. A plain `recv`/`send` is simply cheaper than an
+`io_uring_enter` that allocates and completes a request.
 
 ## Root cause
 
