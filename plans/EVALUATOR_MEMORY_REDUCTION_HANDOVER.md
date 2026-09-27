@@ -146,7 +146,34 @@ A user-visible note is also worth adding to `docs/*/` (en + zh-CN): `String` and
 `Option` of a handle are one pointer in size, and `sizeof(Option(*T))` is the
 pointer's.
 
-### 2.2 The #932 slowdown fix (branch `perf/capture-val-lookups`, pushed, no PR)
+### 2.2 The #932 slowdown fix — DONE 2026-09-27: PR #951 (merged gate: v0.2.44 published; CI green minus the develop-side FV red below)
+
+Rebased onto 6af426bbc; stage-1 A/B by the same seed v0.2.43; **4 simultaneous
+pinned reps (alternating disjoint core sets — the only design that survives a
+contended box): wall and user CPU median −2.9 %, 4/4 for the fix; max RSS flat
+(1,365–1,367 MB, 11 runs); emitted C byte-identical (121,089,132 B).** Full
+local battery green (fixpoint HOLDS after the liburing fix that rides in the
+PR; the ~674 leak-report failures and the 2 fast-suite stragglers are WSL2
+artifacts bisected one-for-one against the develop binary; the five `doc-*`
+goldens are this box's git wording). Also in the PR:
+`issues/fixed/fixpoint-only-links-no-liburing-on-linux.md`.
+
+### 2.2b NEW (2026-09-27): `vi := list(i)` leaks one reference per binding — likely a large slice of §3.1
+
+Root-caused from the Linux CI "Formal verification" red (develop-side, both
+binaries), and the mechanism is now PROBE-VERIFIED (2026-09-27): when a
+block's trailing PURE CALL is DCE'd, the elided call leaves its last
+argument atom as the block tail (`vi;` in the emitted C); the scope-end
+scheduler's "bare-atom tail = moved out, never drop" rule then skips the
+binding's scope drop while the deferred dup on the index read survives —
+net +1 per binding. No trailing statement or a LIVE use: clean. Full table,
+`[sd]`/`[sd-fl]` probe transcripts and two fix directions (DCE a pure call
+statement to unit, not its argument atom; or scope the tail-atom exclusion
+to consumed block results) in
+`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`.
+`YO_DEBUG_SCOPE_DROPS=1` now ships on `mem/leak-group` (cached knobs). Fix
+must pass the dup/drop emit-diff gate + over-cancellation canary.
+
 
 #932 read every capture value through `fv_capture_val`, which does a registry
 lookup (`get_funcval_cap_slices`) plus a slice walk per element. Loops over a

@@ -51,6 +51,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [指针运算符参考](#指针运算符参考)
   - [consume 函数](#consume-函数)
   - [可空指针](#可空指针)
+  - [句柄的 `Option` 就是一个指针](#句柄的-option-就是一个指针)
   - [RAII（资源获取即初始化）](#raii资源获取即初始化)
 - [元组](#元组)
 - [数组与区间](#数组与区间)
@@ -1098,6 +1099,19 @@ match(
 ```
 
 **注意**：裸指针是不安全的。请尽可能使用引用语义类型来进行安全的内存管理。
+
+### 句柄的 `Option` 就是一个指针
+
+当 `T` 是裸指针**或**引用语义句柄（`ref(struct(...))` / `ref(enum(...))`，包括每个 `String` —— 它的字节存放在一个句柄 `Option` 的 newtype 之后）时，`Option(T)` 直接编译为裸指针，用 `NULL` 表示 `.None`。同样的 niche 优化也适用于「一个无字段变体 + 一个单字段句柄载荷」的二变体枚举。没有 tag 字、没有额外填充：`sizeof` 就是指针本身的大小，对这类值的 `match` 编译为一次 NULL 判断。
+
+```rust
+pragma(Pragma.AllowUnsafe); // 仅为让 sizeof 能写出指针类型
+
+sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) —— 就是指针本身
+sz_str :: sizeof(String);       // == sizeof(*u8)   —— 就是句柄本身
+Tree :: enum(Empty, Node(child : Box(Self)));
+sz_tree :: sizeof(Tree);        // == sizeof(*u8)   —— NULL 即 Empty
+```
 
 ### 内存安全
 

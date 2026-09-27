@@ -77,7 +77,12 @@ for k, (label, base) in enumerate(zip(labels, bases)):
 
 label_list = ",".join('"%s"' % l.replace('"', "'") for l in labels)
 table = r"""
+#if defined(__APPLE__)
 #include <mach-o/dyld.h>
+#else
+#include <unistd.h>
+#include <string.h>
+#endif
 #include <stdio.h>
 #define __HS_PRESENT 1
 #define __HS_NEV 8
@@ -161,7 +166,25 @@ __attribute__((destructor)) static void __hs_dump(void) {
   }
   { size_t live = 0; for (size_t j = 0; j < __HS_CAP; j++) if (__hs_t[j].k && __hs_t[j].k != __HS_TOMB) live++; fprintf(stderr, "[holders] alloc-site table: %%zu live entries\n", live); }
   FILE* f = fopen("%(dump)s", "w"); if (!f) return;
+#if defined(__APPLE__)
   fprintf(f, "# base %%p\n", (void*)_dyld_get_image_header(0));
+#else
+  /* Linux: the first /proc/self/maps mapping of the executable (offset 0) is
+     the PIE load base rc_event_report.py shifts runtime addresses by. */
+  {
+    char exe[512] = {0}; ssize_t ne = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    FILE* mf = fopen("/proc/self/maps", "r"); char mline[1024];
+    while (ne > 0 && mf && fgets(mline, sizeof(mline), mf)) {
+      unsigned long long s, off; char perms[8]; char path[600] = "";
+      if (sscanf(mline, "%%llx-%%*x %%7s %%llx %%*s %%*s %%599s", &s, perms, &off, path) >= 3 &&
+          off == 0 && path[0] == '/' && strncmp(path, exe, (size_t)ne) == 0) {
+        fprintf(f, "# base %%llx\n", s);
+        break;
+      }
+    }
+    if (mf) fclose(mf);
+  }
+#endif
   for (size_t i = 0; i < __HS_SCAP; i++) if (__hs_sites[i].n)
     fprintf(f, "S %%lld %%s %%d %%p %%p %%lld %%p %%p %%p\n", __hs_sites[i].n, __hs_labels[__hs_sites[i].ty], __hs_sites[i].tag, __hs_sites[i].a0, __hs_sites[i].a1, __hs_sites[i].cap, __hs_sites[i].a2, __hs_sites[i].a3, __hs_sites[i].a4);
   if (getenv("HS_ONLY_MARKED")) {

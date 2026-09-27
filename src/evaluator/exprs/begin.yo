@@ -79,7 +79,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
@@ -634,6 +635,11 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
 _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
   match(opt, .Some(n) => (name == n), .None => false)
 );
+/// YO_DEBUG_SCOPE_DROPS=1 prints every frame variable's scope-drop eligibility
+/// (`[sd]` rows) and every flushed deferred-drop target (`[sd-fl]` rows) — the
+/// channel that isolated the DCE'd-tail leak
+/// (issues/local-binding-of-an-indexed-read-never-releases-its-element.md).
+(g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// M1 (plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
 /// for owning named-local bindings declared in `frame`, so a begin block's owning
 /// locals are reclaimed at scope exit (previously NO scope-end drops were
@@ -1466,6 +1472,9 @@ _schedule_scope_end_drops :: (
         e5 := (e4 && v.consumed_at_token.is_none());
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
         e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
+        if(g_debug_scope_drops, {
+          eprintln(`[sd] var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} e7=${e7.to_string()}`);
+        });
         if(e7, {
           to_drop.push(v);
         });

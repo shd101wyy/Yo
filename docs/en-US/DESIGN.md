@@ -51,6 +51,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Pointer Operations Reference](#pointer-operations-reference)
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
+  - [`Option` of a handle is one pointer](#option-of-a-handle-is-one-pointer)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Ranges](#array--ranges)
@@ -1122,6 +1123,19 @@ match(
 ```
 
 **Note**: Raw pointers are unsafe. Use reference-semantics types for safe memory management whenever possible.
+
+### `Option` of a handle is one pointer
+
+`Option(T)` where `T` is a raw pointer OR a reference-semantics handle (`ref(struct(...))` / `ref(enum(...))`, including every `String`, whose bytes live behind an `Option` of a handle newtype) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `sizeof` is the pointer's own, and a `match` on such a value compiles to a NULL test.
+
+```rust
+pragma(Pragma.AllowUnsafe); // only so sizeof may name a pointer type
+
+sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) — the pointer itself
+sz_str :: sizeof(String);       // == sizeof(*u8)   — the handle itself
+Tree :: enum(Empty, Node(child : Box(Self)));
+sz_tree :: sizeof(Tree);        // == sizeof(*u8)   — NULL is Empty
+```
 
 ### Memory Safety
 
