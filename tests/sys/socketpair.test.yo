@@ -86,9 +86,9 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
     (filled : i64) = i64(0);
     (full : bool) = false;
     while(!full, {
-      n := unsafe(write(fd0, (*void)(chunk), usize(4096)));
+      n := i64(unsafe(write(int(fd0), (*void)(chunk), usize(4096))));
       if(n > i64(0), {
-        filled = (filled + i64(n));
+        filled = (filled + n);
       }, {
         full = true;
       });
