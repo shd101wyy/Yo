@@ -705,6 +705,20 @@ instruments durable and answer the three questions the ranking depends on.
    (`YO_DEBUG_WALKS=1`) that panics if `finished_walk_for` returns a slim
    record and the caller touches `.ctx`/`.env`; run `check ./src`,
    `check ./std`, `compile src/main.yo --skip-c-compiler`, the fast suite.
+   **CLOSED 2026-09-28, with no build flag needed.** The shape Phase 1 step 1
+   landed makes this an always-on invariant:
+   - `ModuleWalk.ctx` is an `Option`, so no reader can touch a released
+     context without handling `.None`;
+   - the one reader that needs it, `_force_pending_def_impl`
+     (`src/evaluator/values/anonymous_module.yo`), turns `.None` into
+     `internal error: forcing … after module … finished its walk and released
+     its evaluation context`, rather than falling back.
+
+   Every one-shot gate is therefore the proof, and all of them are green on
+   the §0.19 tree: `check ./src` 279/279, `check ./std`, the fixpoint's
+   `compile src/main.yo`, and the fast suite. `ModuleWalk.env` stays on the
+   record: `module_walk_force_env` and the revalidation planner read it, and
+   it is the live walker's env, not a copy.
 3. **LSP: retain only open documents.** `mm_forget_open_document` drops that
    document's walk `ctx` (keeping the slim record); `mm_set_open_document`
    restores full retention on the next walk. Gate with the LSP tests under

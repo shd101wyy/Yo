@@ -191,12 +191,9 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
   walk. Snapshot the live-chunk composition by size class when RSS crosses a
   growth mark (poll `/proc/self/statm` from a timer thread; walk the heap
   under the malloc lock), instead of wrapping every allocation.
-- **Phase 1 step 2**: the `YO_DEBUG_WALKS` assertion is moot.
-  `ModuleWalk.ctx`/`.env` are `Option`s, so a reader cannot touch a released
-  context without handling `.None`. What is left to prove is that the
-  one-shot path never takes the `.None` fallback. A counter behind
-  `YO_DEBUG_WALKS=1` printed at exit settles it: close the step with that
-  measurement.
+- **Phase 1 step 2**: CLOSED 2026-09-28 (plan text). `ModuleWalk.ctx` is an
+  `Option`, and `_force_pending_def_impl` turns forcing a released walk into
+  an internal error, so every green one-shot gate proves the invariant.
 - **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
   plateau gate still fails:
   `issues/lsp-memory-grows-per-open-edit-close-round.md`.
