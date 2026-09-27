@@ -18,10 +18,12 @@
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+(g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
@@ -118,6 +120,9 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
             // without breaking the pending path's node-list-membership
             // contract. Checked before the gates so their state (the
             // short-circuit set) is untouched for an already-emitted drop.
+            if(g_debug_scope_drops, {
+              eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(drop_expr), .Some(n) => n, .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)).to_string()}`);
+            });
             if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
               skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
               // Skip a drop whose target TEMP was never emitted as a C

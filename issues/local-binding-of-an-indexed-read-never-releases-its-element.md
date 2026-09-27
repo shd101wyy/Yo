@@ -65,6 +65,55 @@ over-cancellation canary per the standing rules.
 `tests/internal/verifier.test.yo`, the CI red), and any user code doing
 `v := list_of_value_enums(i)`.
 
+## ROOT CAUSE (2026-09-27, probe-verified with YO_DEBUG_SCOPE_DROPS)
+
+The trigger is narrower than "any := of an index read" — it needs the block's
+trailing statement to be a PURE CALL that DCEs:
+
+| shape (straight-line, `vs : ArrayList(JsonValue)`, one `.Str` pushed) | verdict |
+| --- | --- |
+| `vi := vs(0);` (nothing else) | **clean** — `vi`'s scope drop IS emitted |
+| `vi := vs(0); consume(vi);` with `consume` pure → DCE'd to the bare atom `vi;` | **LEAKS** — no `vi` drop |
+| `vi := vs(0);` + a live (non-pure) use | clean |
+| `(vi : JsonValue) = vs(0);` (no use) | clean |
+
+Mechanism, confirmed by the `[sd]` scheduler probe: when the trailing pure
+call is DCE'd, the block's LAST EXPRESSION becomes the bare atom `vi`
+(the emitted C literally ends the block with `  vi;`). The scope-end
+scheduler (`_schedule_scope_end_drops`, `src/evaluator/exprs/begin.yo`)
+deliberately excludes the tail atom — "A bare-atom block result is a named
+local moved out (returned) — never drop it":
+
+```
+[sd] var=vi owning=false ... e7=false      // e7 excludes the tail atom
+```
+
+so `vi` gets no scope-end drop, while the DEFERRED DUP on the index read
+(`temp_dup_enum_0` + field `__yo_incr_rc`s) survives at the binding. Net +1,
+never released. With no trailing statement (or a live one) the tail is not a
+bare atom and the drop is emitted (`[sd-fl] target=vi` present).
+
+The "moved out" premise is false for a DISCARDED block result: a
+statement-position begin (or a unit block) whose tail DCE'd to an atom moves
+nothing — the value dies with the block and its drop must run.
+
+## Fix directions (either, with the dup/drop emit-diff gate + canary)
+
+1. **DCE shape**: a pure call statement should DCE to unit/nothing, not to
+   its bare-argument atom (find where the elided call leaves the argument
+   atom as the statement value; `vi;` in the C is that artifact).
+2. **Tail-atom exclusion scope**: apply `tail_atom_name` exclusion only when
+   the block's result is actually CONSUMED by the enclosing context
+   (expression position / function-body return); a discarded/unit-tail block
+   keeps the drop. The caller of `_schedule_scope_end_drops` knows the
+   context.
+
+`YO_DEBUG_SCOPE_DROPS=1` now ships (gated, module-cached knobs): `[sd]` rows
+(scheduler eligibility), `[sd-fl]` rows (flushed drop targets),
+`[sd-emq]` rows (begin-path emission queue).
+
+## Earlier analysis (superseded by the above, kept for the C evidence)
+
 ## Pinpointed sites (2026-09-27, traced to the end)
 
 1. `emit_deferred_dup_or_code` (`src/codegen/exprs/drop_dup.yo`, the
