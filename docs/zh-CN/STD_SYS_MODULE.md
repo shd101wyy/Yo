@@ -280,7 +280,7 @@ int __yo_io_wait(void);   // 阻塞，等待至少一个完成
 
 ### Linux：io_uring
 
-io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1+）：
+io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1 引入；本运行时的版本下限见下表）：
 
 - **提交队列 (SQ)**：用于提交 I/O 请求的环形缓冲区
 - **完成队列 (CQ)**：用于已完成 I/O 结果的环形缓冲区
@@ -294,9 +294,13 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1+）：
 
 | 内核版本            | 功能                                                                |
 | ------------------- | ------------------------------------------------------------------- |
-| **5.6+**           | 本运行时提交的操作集（openat/close/名称操作）                        |
+| **5.6+**           | 核心操作集：read/write、openat/close/statx/fsync、socket（accept/connect/send/recv/sendmsg/recvmsg） |
+| **5.11+**          | `renameat` / `unlinkat`（重命名、删除文件或目录）                    |
+| **5.15+**          | `mkdirat` / `symlinkat` / `linkat`（创建目录、符号链接、硬链接）      |
 | **5.19 / 6.0 / 6.1** | `COOP_TASKRUN` / `SINGLE_ISSUER` / `DEFER_TASKRUN` 设置标志——一并请求，内核拒绝时自动降级重试 |
 | **6.14+**          | 异步 `ftruncate`（更早的内核通过 future 返回 `-EINVAL`）              |
+
+若内核支持 io_uring 但早于某项操作所在行的版本，该操作会通过其 future 返回 `-EINVAL`——io_uring 本身能够初始化，因此不会切换到 epoll 回退。若 io_uring 完全无法初始化（Docker 默认 seccomp 配置、gVisor、加固内核等），运行时改用 epoll 回退，名称类操作以同步方式完成（见 `docs/zh-CN/ASYNC_AWAIT.md` 中的后端阶梯）。
 
 ### macOS：kqueue
 
