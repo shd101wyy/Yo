@@ -5731,3 +5731,43 @@ test("Test io.await of a string-literal task into a str destination", {
   (s : str) = io.await(task, io);
   assert(s == "bound", "typed binding");
 });
+// ---------------------------------------------------------------------------
+// `return(io.await(...))` inside an io.async block returns the awaited value.
+// It was rejected with E0904 ("hoist it into a local first") although the
+// await is return's only argument, evaluated exactly once before the return
+// (issues/return-of-an-await-is-rejected-inside-io-async.md).
+// ---------------------------------------------------------------------------
+test("return(io.await(...)) inside io.async returns the awaited value", {
+  inner := io.async((io : Io) => {
+    return(i32(7));
+  });
+  outer := io.async((io : Io) => {
+    return(io.await(inner, io));
+  });
+  assert(io.await(outer, io) == i32(7), "the awaited value is returned");
+});
+test("return(io.await(...)) of an RC value inside io.async", {
+  inner := io.async((io : Io) => {
+    return(`seven`);
+  });
+  outer := io.async((io : Io) => {
+    return(io.await(inner, io));
+  });
+  s := io.await(outer, io);
+  assert(s == `seven`, "the awaited string is returned intact");
+});
+test("return(io.await(...)) in a cond branch inside io.async", {
+  pick := (fn(flag : bool, io : Io) -> Impl(Future(i32)))(
+    io.async((io : Io) => {
+      cond(
+        flag => {
+          return(io.await(io.async((io : Io) => i32(1)), io));
+        },
+        true => ()
+      );
+      return(i32(2));
+    })
+  );
+  assert(io.await(pick(true, io), io) == i32(1), "taken branch returns the awaited value");
+  assert(io.await(pick(false, io), io) == i32(2), "fallthrough returns the tail value");
+});
