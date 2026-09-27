@@ -12,6 +12,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { HashMap } :: import("std/collections/hash_map");
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
+{ metadata } :: import("std/fs/metadata");
 { cwd, chdir, current_exe } :: import("std/env");
 // Imported under an alias: `args` collides with the `args` parameter/field used
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
@@ -1430,9 +1431,11 @@ _stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
   });
   dst.push(u8(10));
 });
-/// The running compiler's identity for the artifact stamp: the sha256 of its
-/// own executable (`current_exe`, `/proc/self/exe` on Linux), hashed once per
-/// process. `CURRENT_YO_VERSION` alone cannot tell a self-built compiler from
+/// The running compiler's identity for the artifact stamp: its executable's
+/// path, size and modification time (`current_exe`, `/proc/self/exe` on
+/// Linux), read once per process. A stat, not a content hash: hashing an
+/// 11 MB binary in pure Yo cost 0.1–0.5 s on every cached no-op build, and a
+/// rebuilt or copied compiler always has a new mtime. `CURRENT_YO_VERSION` alone cannot tell a self-built compiler from
 /// the seed that built it, since both report the same version. So
 /// `<stage-1> yo build` on an unchanged tree served the artifact the seed had
 /// compiled, and a "stage-2" was the stage-1 binary again
@@ -1455,8 +1458,9 @@ _compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
     if(exe_path.len() == usize(0), {
       return(String.from("unknown"));
     });
-    exe_bytes := e.io.await(_cache_read_file(exe_path, e.io), e);
-    id := match(exe_bytes, .Some(bytes) => sha256_hex(bytes), .None => String.from("unreadable"));
+    md := e.io.await(metadata(Path.new(exe_path.clone()), e.io), e);
+    mt := md.modified();
+    id := `${exe_path}:${md.size().to_string()}:${mt.secs.to_string()}.${mt.nanos.to_string()}`;
     g_compiler_identity = Option(String).Some(id.clone());
     id
   })
