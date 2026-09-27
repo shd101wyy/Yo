@@ -602,6 +602,9 @@ unsigned long __yo_io_stats_io_syscalls(void) {
 #ifndef __NR_io_uring_enter
 #define __NR_io_uring_enter 426
 #endif
+#ifndef __NR_io_uring_register
+#define __NR_io_uring_register 427
+#endif
 
 #define __YO_IORING_SETUP_COOP_TASKRUN   (1U << 8)
 #define __YO_IORING_SETUP_SINGLE_ISSUER  (1U << 12)
@@ -862,6 +865,58 @@ static int __yo_uring_submit_and_wait(struct __yo_uring* ring,
 // that makes them visible (it consumes nothing).
 static int __yo_uring_getevents(struct __yo_uring* ring) {
   return __yo_uring_enter(ring, 0, 0, __YO_IORING_ENTER_GETEVENTS);
+}
+
+// Which opcodes this kernel implements (IORING_REGISTER_PROBE, kernel 5.6 —
+// the ring's own floor). io_uring_setup succeeding says nothing about
+// individual ops: renameat/unlinkat arrived in 5.11, mkdirat/symlinkat/
+// linkat in 5.15, ftruncate later still, and an unimplemented op completes
+// with -EINVAL — so on 5.10 LTS `create_dir` would simply fail. Probed once
+// per ring; an op the kernel lacks is completed synchronously instead, the
+// same code the epoll fallback runs for it
+// (issues/fixed/io-uring-kernel-floor-is-documented-as-5-6-but-dir-ops-need-5-15.md).
+#define __YO_IORING_REGISTER_PROBE 8
+#define __YO_IO_URING_OP_SUPPORTED (1U << 0)
+#define __YO_IORING_PROBE_OPS 64
+struct __yo_uring_probe_op {
+  uint8_t op;
+  uint8_t resv;
+  uint16_t flags;
+  uint32_t resv2;
+};
+struct __yo_uring_probe {
+  uint8_t last_op;
+  uint8_t ops_len;
+  uint16_t resv;
+  uint32_t resv2[3];
+  struct __yo_uring_probe_op ops[__YO_IORING_PROBE_OPS];
+};
+static _Thread_local bool __yo_uring_ops_probed = false;
+static _Thread_local uint8_t __yo_uring_op_ok_table[__YO_IORING_PROBE_OPS];
+
+static void __yo_uring_probe_ops(struct __yo_uring* ring) {
+  struct __yo_uring_probe probe;
+  memset(&probe, 0, sizeof(probe));
+  long r = syscall(__NR_io_uring_register, ring->ring_fd, __YO_IORING_REGISTER_PROBE,
+                   &probe, __YO_IORING_PROBE_OPS);
+  __yo_stats_io_syscalls++;
+  if (r < 0) {
+    // No probe: assume every op the runtime uses exists, which is what the
+    // runtime did before probing; an unimplemented one reports -EINVAL.
+    __yo_uring_ops_probed = false;
+    return;
+  }
+  for (int i = 0; i < __YO_IORING_PROBE_OPS; i++) {
+    __yo_uring_op_ok_table[i] =
+        (i <= probe.last_op && i < probe.ops_len &&
+         (probe.ops[i].flags & __YO_IO_URING_OP_SUPPORTED)) ? 1 : 0;
+  }
+  __yo_uring_ops_probed = true;
+}
+
+static inline bool __yo_uring_op_ok(int op) {
+  if (!__yo_uring_ops_probed) return true;
+  return op >= 0 && op < __YO_IORING_PROBE_OPS && __yo_uring_op_ok_table[op];
 }
 
 // Returns 0 and sets *cqe_ptr, or -EAGAIN when the CQ ring is empty.
@@ -1258,6 +1313,7 @@ static void __yo_io_init(void) {
       __yo_tsan_ring_mapped(&__yo_io_ring);
       __yo_io_initialized = true;
       __yo_io_close_hook = __yo_ring_drop_fd;
+      __yo_uring_probe_ops(&__yo_io_ring);
       __yo_io_notify_init();
       if (__yo_notify_efd >= 0) {
         __yo_io_arm_notify();
@@ -2951,6 +3007,10 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_MKDIRAT)) {
+    return __yo_epoll_mkdirat_start(dirfd, path, mode);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -2986,6 +3046,10 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_UNLINKAT)) {
+    return __yo_epoll_unlinkat_start(dirfd, path, flags);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -3023,6 +3087,10 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_RENAMEAT)) {
+    return __yo_epoll_renameat_start(olddirfd, oldpath, newdirfd, newpath);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -3059,6 +3127,10 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
   }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_SYMLINKAT)) {
+    return __yo_epoll_symlinkat_start(target, newdirfd, linkpath);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -3094,6 +3166,10 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_LINKAT)) {
+    return __yo_epoll_linkat_start(olddirfd, oldpath, newdirfd, newpath, flags);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -3200,6 +3276,10 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_epoll_done_future(-__yo_backend_errno);
+  }
+  // An op this kernel's ring lacks completes synchronously (the probe).
+  if (!__yo_uring_op_ok(__YO_IORING_OP_FTRUNCATE)) {
+    return __yo_epoll_ftruncate_start(fd, length);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
