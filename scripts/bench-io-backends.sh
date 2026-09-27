@@ -12,21 +12,27 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 YO="${YO:?set YO to the yo binary}"
 : "${YO_STD:?set YO_STD to the std directory}"
-BIN="$(mktemp -u /tmp/yo_io_bench.XXXXXX)"
 OUT="$(mktemp -d)"
+trap 'rm -rf "${OUT}"' EXIT
+BIN="${OUT}/io_bench"
 
 "${YO}" compile "${HERE}/bench/io_bench.yo" --optimize 2 -o "${BIN}" >/dev/null
 
 run() { # <backend> -> writes <backend>.metrics
   local backend="$1"
-  YO_IO_BACKEND="${backend}" "${BIN}" > "${OUT}/${backend}.raw" 2> "${OUT}/${backend}.err" || {
+  YO_IO_BACKEND="${backend}" YO_BENCH_DIR="${OUT}" "${BIN}" > "${OUT}/${backend}.raw" 2> "${OUT}/${backend}.err" || {
     echo "bench failed under ${backend}:" >&2; cat "${OUT}/${backend}.err" >&2; exit 1;
   }
-  # metric = inverse ms (ops per ms); higher is better, so ratio = epoll/uring.
-  for key in echo timer file; do
-    ms=$(sed -n "s/^${key}_ms \([0-9]*\) .*/\1/p" "${OUT}/${backend}.raw")
-    if [ -z "${ms}" ] || [ "${ms}" = "0" ]; then ms=1; fi
-    echo "${key} $(awk "BEGIN{print 1000000/${ms}}")" >> "${OUT}/${backend}.metrics"
+  # metric = operations per second from MICROSECOND timings (the old whole-
+  # millisecond readings of ~7 ms runs, with 0 replaced by 1, could not
+  # resolve a 2x difference); higher is better, so ratio = epoll/uring.
+  for key in pingpong parked timer file; do
+    us=$(sed -n "s/^${key}_us \([0-9]*\) ops \([0-9]*\).*/\1/p" "${OUT}/${backend}.raw")
+    ops=$(sed -n "s/^${key}_us \([0-9]*\) ops \([0-9]*\).*/\2/p" "${OUT}/${backend}.raw")
+    if [ -z "${us}" ] || [ "${us}" -le 0 ]; then
+      echo "bench under ${backend}: no usable ${key} timing" >&2; exit 1
+    fi
+    echo "${key} $(awk "BEGIN{print ${ops}*1000000/${us}}")" >> "${OUT}/${backend}.metrics"
   done
 }
 
@@ -48,7 +54,6 @@ while read -r key u_val; do
 done < "${OUT}/uring.metrics"
 
 cat "${OUT}/uring.raw"
-rm -rf "${OUT}" "${BIN}"
 if [ "${fail}" -ne 0 ]; then
   echo "BACKEND BENCH: BELOW FLOOR" >&2
   exit 1

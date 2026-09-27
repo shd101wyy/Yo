@@ -557,6 +557,17 @@ unsigned long __yo_io_stats_kernel_enters(void) {
 unsigned long __yo_io_stats_zero_timeout_enters(void) {
   return __yo_stats_zero_timeout_enters;
 }
+// io_syscalls counts every OTHER syscall the runtime issues on an operation's
+// behalf — the epoll fallback's inline and retried read/write/send/recv/
+// accept/connect/getsockopt/fstat/fcntl and its epoll_ctl calls, and the
+// inline datagram attempts both backends make. kernel_enters alone made the
+// fallback look free ("0 enters per op") while it was doing every syscall
+// inline; a budget over the SUM compares the backends honestly.
+static _Thread_local unsigned long __yo_stats_io_syscalls = 0;
+unsigned long __yo_io_stats_io_syscalls(void) {
+  return __yo_stats_io_syscalls;
+}
+#define __YO_SC(call) (__yo_stats_io_syscalls++, (call))
 // ============================================================================
 // Vendored io_uring ring layer (plans/DROP_LIBURING.md Phase 1)
 // ============================================================================
@@ -606,6 +617,7 @@ unsigned long __yo_io_stats_zero_timeout_enters(void) {
 // include/uapi/linux/io_uring.h):
 #define __YO_IORING_OP_FSYNC         3
 #define __YO_IORING_OP_POLL_ADD      6
+#define __YO_IORING_OP_TIMEOUT       11
 #define __YO_IORING_OP_SENDMSG       9
 #define __YO_IORING_OP_RECVMSG       10
 #define __YO_IORING_OP_ACCEPT        13
@@ -908,6 +920,12 @@ static inline void* __yo_uring_cqe_get_data(const struct __yo_uring_cqe* cqe) {
 // argument shapes mirror liburing's so the call sites keep their review
 // history; the field placements (which UAPI slot carries which argument) are
 // liburing's, verified against the kernel's opcode handlers.
+// The kernel's struct __kernel_timespec (64-bit on every ABI).
+struct __yo_uring_timespec {
+  int64_t tv_sec;
+  long long tv_nsec;
+};
+
 static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
                                       int32_t fd, const void* addr,
                                       uint32_t len, uint64_t off) {
@@ -923,6 +941,15 @@ static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
   sqe->buf_index = 0;
   sqe->personality = 0;
   memset(sqe->__pad, 0, sizeof(sqe->__pad));
+}
+
+// A relative timeout (IORING_OP_TIMEOUT, kernel 5.4): count 0 makes it a
+// pure timer that other completions never satisfy; it completes with -ETIME
+// on expiry. The kernel copies *ts when the SQE is submitted, so ts must
+// live until then — the deferred-submit batch, so it lives in the future.
+static inline void __yo_uring_prep_timeout(struct __yo_uring_sqe* sqe,
+                                           struct __yo_uring_timespec* ts) {
+  __yo_uring_prep_rw(__YO_IORING_OP_TIMEOUT, sqe, -1, ts, 1, 0);
 }
 
 static inline void __yo_uring_prep_read(struct __yo_uring_sqe* sqe, int32_t fd,
@@ -1171,6 +1198,9 @@ static void __yo_epoll_drop_fd(int fd);
 static void __yo_ring_drop_fd(int32_t fd);
 static bool __yo_ring_untrack_fd(__yo_io_future_t* future);
 static void __yo_ring_fd_teardown(void);
+// The Linux timer section (runtime_io_common.yo, always emitted after this
+// file on Linux) defines it; its identity tags a timer future in the CQE path.
+static bool __yo_timer_future_cancel(__yo_io_future_t* future);
 static bool __yo_epoll_cancel(__yo_io_future_t* future);
 static void __yo_epoll_drive(int timeout_ms, int* count_out);
 static void __yo_epoll_teardown(void);
@@ -1697,7 +1727,7 @@ static void __yo_epoll_free_reg(__yo_epoll_reg_t* r) {
 static void __yo_epoll_disarm(int fd) {
   struct epoll_event ev;
   memset(&ev, 0, sizeof(ev));
-  epoll_ctl(__yo_epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+  __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_DEL, fd, &ev));
 }
 
 // Make the kernel's single interest for fd equal the union of the slot's
@@ -1721,11 +1751,11 @@ static int __yo_epoll_sync_fd(int fd) {
   ev.data.fd = fd;
   int rc;
   if (slot->armed == 0) {
-    rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev);
-    if (rc < 0 && errno == EEXIST) rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+    rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev));
+    if (rc < 0 && errno == EEXIST) rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev));
   } else {
-    rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-    if (rc < 0 && errno == ENOENT) rc = epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+    rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_MOD, fd, &ev));
+    if (rc < 0 && errno == ENOENT) rc = __YO_SC(epoll_ctl(__yo_epoll_fd, EPOLL_CTL_ADD, fd, &ev));
   }
   if (rc == 0) slot->armed = mask;
   return rc;
@@ -1837,7 +1867,7 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
     bool would_block = false;
     switch (pending->op) {
       case __YO_EOP_READ: {
-        ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
+        ssize_t r = __YO_SC(read(pending->read.fd, pending->read.buf, pending->read.size));
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1846,7 +1876,7 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_WRITE: {
-        ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
+        ssize_t r = __YO_SC(write(pending->write.fd, pending->write.buf, pending->write.size));
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1861,8 +1891,8 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
           // POSIX accept(2) does not give the accepted socket the listener's
           // O_NONBLOCK; every socket this runtime creates is nonblocking, so
           // keep the accepted fd the same (the ring CQE path does this too).
-          int fl = fcntl(r, F_GETFL, 0);
-          if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+          int fl = __YO_SC(fcntl(r, F_GETFL, 0));
+          if (fl >= 0) __YO_SC(fcntl(r, F_SETFL, fl | O_NONBLOCK));
           pending->future->result = r;
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
           would_block = true;
@@ -1876,13 +1906,14 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         // would-blocks, so every queued connect completes on this delivery.
         int so_error = 0;
         socklen_t len = sizeof(so_error);
-        getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+        __YO_SC(getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len));
         pending->future->result = (so_error == 0) ? 0 : -so_error;
         break;
       }
       case __YO_EOP_SEND: {
+        __yo_stats_io_syscalls++;
         ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len,
-                         pending->send.flags);
+                         pending->send.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1891,8 +1922,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_RECV: {
+        __yo_stats_io_syscalls++;
         ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len,
-                         pending->recv.flags);
+                         pending->recv.flags | MSG_DONTWAIT);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
         } else {
@@ -1901,8 +1933,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_SENDTO: {
+        __yo_stats_io_syscalls++;
         ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
-                           pending->sendto.flags,
+                           pending->sendto.flags | MSG_DONTWAIT,
                            (const struct sockaddr*)&pending->sendto.dest,
                            (socklen_t)pending->sendto.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -1913,8 +1946,9 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
         break;
       }
       case __YO_EOP_RECVFROM: {
+        __yo_stats_io_syscalls++;
         ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
-                             pending->recvfrom.flags,
+                             pending->recvfrom.flags | MSG_DONTWAIT,
                              (struct sockaddr*)pending->recvfrom.addr,
                              (socklen_t*)pending->recvfrom.addrlen);
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -1960,7 +1994,7 @@ static void __yo_epoll_timer_detach(__yo_epoll_timer_node_t* node) {
 static void __yo_epoll_process_timer(__yo_epoll_timer_node_t* node) {
   __yo_epoll_timer_detach(node);
   __yo_io_future_t* future = node->future;
-  ssize_t r = read(node->timerfd, node->read_buf, sizeof(uint64_t));
+  ssize_t r = __YO_SC(read(node->timerfd, node->read_buf, sizeof(uint64_t)));
   future->result = (r < 0) ? -errno : (int32_t)r;
   __yo_pending_io_count--;
   __yo_epoll_wake(future);
@@ -2097,14 +2131,14 @@ static void __yo_epoll_drive(int timeout_ms, int* count_out) {
 static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   struct stat st;
   bool is_regular = false;
-  if (fstat(fd, &st) == 0) {
+  if (__YO_SC(fstat(fd, &st)) == 0) {
     is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
   if (is_regular) {
-    ssize_t r = pread(fd, buffer, size, (off_t)offset);
+    ssize_t r = __YO_SC(pread(fd, buffer, size, (off_t)offset));
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
-  ssize_t r = read(fd, buffer, size);
+  ssize_t r = __YO_SC(read(fd, buffer, size));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2125,21 +2159,21 @@ static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_
 static __yo_io_future_t* __yo_epoll_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   struct stat st;
   bool is_regular = false;
-  if (fstat(fd, &st) == 0) {
+  if (__YO_SC(fstat(fd, &st)) == 0) {
     is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
   }
   if (is_regular) {
     // For O_APPEND fds use write(), which respects the append flag.
-    int fl = fcntl(fd, F_GETFL);
+    int fl = __YO_SC(fcntl(fd, F_GETFL));
     ssize_t w;
     if (fl != -1 && (fl & O_APPEND)) {
-      w = write(fd, buffer, size);
+      w = __YO_SC(write(fd, buffer, size));
     } else {
-      w = pwrite(fd, buffer, size, (off_t)offset);
+      w = __YO_SC(pwrite(fd, buffer, size, (off_t)offset));
     }
     return __yo_epoll_done_future((w < 0) ? -errno : (int32_t)w);
   }
-  ssize_t r = write(fd, buffer, size);
+  ssize_t r = __YO_SC(write(fd, buffer, size));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2214,10 +2248,10 @@ static __yo_io_future_t* __yo_epoll_ftruncate_start(int32_t fd, int64_t length) 
 }
 
 static __yo_io_future_t* __yo_epoll_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  int r = accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen);
+  int r = __YO_SC(accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen));
   if (r >= 0) {
-    int fl = fcntl(r, F_GETFL, 0);
-    if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+    int fl = __YO_SC(fcntl(r, F_GETFL, 0));
+    if (fl >= 0) __YO_SC(fcntl(r, F_SETFL, fl | O_NONBLOCK));
     return __yo_epoll_done_future(r);
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -2238,7 +2272,7 @@ static __yo_io_future_t* __yo_epoll_accept_start(int32_t sockfd, void* addr, uin
 }
 
 static __yo_io_future_t* __yo_epoll_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
-  int r = connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  int r = __YO_SC(connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen));
   if (r == 0) {
     return __yo_epoll_done_future(0);
   }
@@ -2266,7 +2300,7 @@ static __yo_io_future_t* __yo_epoll_connect_start(int32_t sockfd, const void* ad
 }
 
 static __yo_io_future_t* __yo_epoll_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
-  ssize_t r = send(sockfd, buf, len, flags);
+  ssize_t r = __YO_SC(send(sockfd, buf, len, flags | MSG_DONTWAIT));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2286,7 +2320,7 @@ static __yo_io_future_t* __yo_epoll_send_start(int32_t sockfd, const void* buf, 
 }
 
 static __yo_io_future_t* __yo_epoll_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
-  ssize_t r = recv(sockfd, buf, len, flags);
+  ssize_t r = __YO_SC(recv(sockfd, buf, len, flags | MSG_DONTWAIT));
   if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     return __yo_epoll_done_future((r < 0) ? -errno : (int32_t)r);
   }
@@ -2480,6 +2514,11 @@ static void __yo_io_process_cqe(struct __yo_uring_cqe* cqe) {
   bool fd_closed = __yo_ring_untrack_fd(future);
   future->result = cqe->res;
   if (fd_closed && future->result == -ECANCELED) future->result = -EBADF;
+  // A sleep is an IORING_OP_TIMEOUT, which reports expiry as -ETIME; the
+  // timer contract (std/sys/timer.yo) is 8 on success on every platform.
+  if (future->cancel_fn == __yo_timer_future_cancel && future->result == -ETIME) {
+    future->result = 8;
+  }
   
   ASYNC_DEBUG("[Io] Completed I/O: result=%d (pending=%zu)\\n",
               future->result, __yo_pending_io_count);
@@ -3443,7 +3482,8 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   future->continuation_sm = NULL;
   df->addrlen_out = NULL;
 
-  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
+  __yo_stats_io_syscalls++;
+  ssize_t result = sendto(sockfd, buf, len, flags | MSG_DONTWAIT, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     future->state = -1;
@@ -3519,7 +3559,8 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
 
   // The fast path completes with recvfrom(2) semantics: the sender's address
   // and its length land in the caller's buffers synchronously.
-  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
+  __yo_stats_io_syscalls++;
+  ssize_t result = recvfrom(sockfd, buf, len, flags | MSG_DONTWAIT, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
   if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
     future->result = (result < 0) ? -errno : (int32_t)result;
     future->state = -1;
