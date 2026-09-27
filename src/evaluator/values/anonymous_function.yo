@@ -2007,7 +2007,9 @@ Result type: ${type_to_string(decl_result_ty)}`
       // between two types with no type variable) is re-raised — the twin
       // of the named-fn deferred trial (`generic_trial_independent_error`,
       // calls/function_type.yo).
-      if(!(propagate_def_time_errors()), {
+      // A `comptime(x)` value parameter defers the judgment to the calls,
+      // as for concrete-parameter closures above (`body_has_ct_param`).
+      if(!(propagate_def_time_errors()) && !(body_has_ct_param), {
         (dgc_indep : Option(YoError)) = Option(YoError).None;
         if(match(g_anon_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
           dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.clone()));

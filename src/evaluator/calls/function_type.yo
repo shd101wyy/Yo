@@ -2072,7 +2072,24 @@ Result type: ${type_to_string(result_box)}`
             // fix is a type error in the source, raised now instead of at a
             // call that may never come (the GADT arm checked only under
             // refinement, issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md).
-            if(!(propagate_def_time_errors()), {
+            // A `comptime(x)` VALUE parameter (not a `comptime(T) : Type`
+            // binder) makes the body depend on the call's value too — a
+            // comptime `str` forwards into a `*(char)` extern parameter only
+            // as the literal it is at the call (std/fmt/to_string.yo's
+            // `_snprintf_to_string`) — so such a body waits for its calls,
+            // exactly as a closure with one does (values/anonymous_function.yo).
+            (dg_has_ct_value : bool) = false;
+            {
+              (dgcv_i : usize) = usize(0);
+              while(dgcv_i < dg_ct_flags.len(), {
+                dgcv_typeuni := match(param_types.get(dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, .TypeUni(_) => true, _ => false), .None => false);
+                if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !(dgcv_typeuni), {
+                  dg_has_ct_value = true;
+                });
+                dgcv_i = (dgcv_i + usize(1));
+              });
+            };
+            if(!(propagate_def_time_errors()) && !(dg_has_ct_value), {
               match(
                 generic_trial_independent_error(dg_fv_was),
                 .Some(dg_indep) => {
