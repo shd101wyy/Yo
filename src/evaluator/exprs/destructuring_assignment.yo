@@ -21,7 +21,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../../expr.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ Token } :: import("../../token.yo");
+{ Token, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 {
@@ -135,9 +136,23 @@ _reject_private_destructure :: (
 /// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
 /// and a `c_include` re-declaring a Yo name were all silently accepted
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
-_reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, exn : Exception) -> unit)({
+_reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx : EvalContext, exn : Exception) -> unit)({
   if(var_name == String.from("__yo_self"), {
     return(());
+  });
+  // Plain-named BUILTIN dispatch names cannot be destructured into (or
+  // renamed to): every call spelled with the name dispatches to the builtin,
+  // so the binding could never run (twin of binding.yo's gate; the choke
+  // point both destructuring branches already pass through).
+  if(is_reserved_builtin_binding_name(var_name.clone()), {
+    raise_flow_violation(
+      format_error_message(
+        at,
+        `"${var_name}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+      ),
+      ctx,
+      exn
+    );
   });
   existing := get_variables_from_env(env, var_name.clone());
   n := existing.len();
@@ -369,7 +384,7 @@ handle_member_destructuring :: (
           });
           // An adopted C type is already bound under this name — leave it.
           if(!_is_adopted_extern_c_field(rhs_type, fval_opt), {
-            _reject_shadowing(env, flab.clone(), ast_expr_token(lhs_field), exn);
+            _reject_shadowing(env, flab.clone(), ast_expr_token(lhs_field), ctx, exn);
             add_variable_to_env(
               env,
               flab.clone(),
@@ -577,7 +592,7 @@ handle_member_destructuring :: (
           // leave it; under a NEW name it is an ordinary alias of the type.
           adopted_in_place := (_is_adopted_extern_c_field(rhs_type, field_value_opt) && (var_name == rhs_field_label));
           if(!adopted_in_place, {
-            _reject_shadowing(env, var_name.clone(), ast_expr_token(var_tok_expr), exn);
+            _reject_shadowing(env, var_name.clone(), ast_expr_token(var_tok_expr), ctx, exn);
             _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), rhs_field_type);
             added_var_opt := add_variable_to_env(
               env,

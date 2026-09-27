@@ -201,4 +201,22 @@ caller's reference when the call is ELIDED). Implementing the caller-side
 gate concurrently would collide in the same function — per the standing
 coordination (PR #950 comments), their fix lands first, this issue's fix
 rebases on it and re-verifies both shapes plus the original matrix.
+## RESOLUTION (2026-09-27, user decision): reserve the plain-named builtins
+
+Rather than adjudicating user-vs-builtin at call sites, the user decided to
+**prohibit user definitions of the plain-named builtin keywords outright** —
+no bare function, no variable, no destructuring rename may bind
+`consume`/`runtime`/`recur`/`dyn` (the probed hijack set; `as` defers
+correctly, `the`/`quote` reject at parse, `unwind` was already reserved).
+Landed on branch `mem/builtin-name-reservation` (stacked on PR #957):
+`is_reserved_builtin_binding_name` in `src/token.yo`, enforced at the binder
+(`binding.yo`), the initializer's atom gate
+(`initialization_assignment.yo`), and the destructuring choke point
+(`_reject_shadowing`), all through `raise_flow_violation` so the rejection
+survives the def-time trial wall. Verified red (seed and gate-stashed tree:
+`comptime_expect_error` unfired) → green (3/3 in `tests/basic.test.yo`;
+`yo compile` rejects all four binding shapes with the positioned diagnostic;
+`check ./src` 279/279). Known follow-up: plain `yo check` swallows the
+rejection (pre-existing check-driver diagnostics gap for trial-swallowed
+rejections) — `yo compile` and the test runner both enforce.
 

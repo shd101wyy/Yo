@@ -110,6 +110,17 @@ is_operator_char :: (fn(c : rune) -> bool)(
 is_reserved_operator_name :: (fn(name : String) -> bool)(
   (name == "=") || ((name == ":=") || ((name == "::") || ((name == ":") || ((name == "=>") || ((name == "->") || ((name == "<:") || ((name == "?=") || ((name == "&&") || ((name == "||") || ((name == "#") || ((name == "...#") || ((name == "..") || ((name == "..=") || ((name == "...") || (name == "==>")))))))))))))))
 );
+/// Plain-named BUILTIN dispatch names. Any call spelled with one of these
+/// names routes to the builtin in the evaluator AND codegen, so a user
+/// binding of the same name is silently hijacked — the definition can never
+/// run: `consume(x)` marked x consumed and leaked its reference, and
+/// `runtime`/`recur`/`dyn` calls mis-evaluated to type errors. They are
+/// therefore reserved for bindings, exactly like the reserved operators.
+/// (`unwind` is an existing reserved word; `the`/`quote` reject at parse;
+/// `as` defers to user definitions.)
+is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
+  (name == "consume") || ((name == "runtime") || ((name == "recur") || (name == "dyn")))
+);
 is_identifier_start :: (fn(c : rune) -> bool)(
   (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))
 );
@@ -303,6 +314,7 @@ export(
   Token,
   is_operator_char,
   is_reserved_operator_name,
+  is_reserved_builtin_binding_name,
   is_identifier_start,
   is_identifier_continue,
   string_is_operator,

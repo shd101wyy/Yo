@@ -2639,3 +2639,23 @@ test("assignment to the result of a function call is a check error", {
   arr(0) = i32(5);
   assert(arr(0) == i32(5), "an Index-trait place must still be assignable");
 });
+
+test("a plain-named builtin cannot be bound: consume as a function", {
+  // `consume(...)` dispatches to the builtin in the evaluator AND codegen — a
+  // user definition would be silently hijacked (its argument was also marked
+  // consumed and leaked its reference before these rejections existed).
+  comptime_expect_error(
+    consume :: (fn(x : i32) -> i32)(x),
+    "names a builtin"
+  );
+});
+test("a plain-named builtin cannot be bound: runtime/recur/dyn as variables", {
+  comptime_expect_error((runtime : i32) = 1, "names a builtin");
+  comptime_expect_error(recur := 2, "names a builtin");
+  comptime_expect_error(dyn := 3, "names a builtin");
+});
+test("a plain-named builtin cannot be destructured into, even renamed", {
+  P :: struct(a : i32);
+  p := P(a : 1);
+  comptime_expect_error({ a : consume } := p, "names a builtin");
+});
