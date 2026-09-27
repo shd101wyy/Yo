@@ -452,16 +452,27 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    - #939 already removed one shared-id registry write, `_resolve_some_types_deep`'s carrier
      registrations, which a second specialization read back.
 
-   **Remaining (part 2):** `g_some_resolved_concrete` itself. Its live writers are:
-   - the opaque-return hidden type, keyed by declaration;
-   - io.async's future output, keyed by a per-call id;
-   - the forwarded Future-wrapper param;
-   - the closure-capture channels: `closure_type.yo`, the struct-field `Impl(Fn)` and the
-     capbind entries;
-   - the shared-id Fn-bound result binder, with its unregister reset;
-   - codegen's two composite-key channels (`<output>@@<block>`).
-
-   The shared-id entries are last-write-wins and go first.
+   **Part 2 landed 2026-09-26** (branch `tss/p37-registry`, stacked on
+   `tss/flow-orientation`): `g_some_resolved_concrete` is RETIRED, together with
+   `register/lookup/unregister_some_resolved_concrete`, the compatibility hook
+   (`set_compat_lookup_some_resolved_fn`) and the guards hook
+   (`set_lookup_some_resolved_concrete`). Every writer now travels on the value
+   (`some_resolution` reads `SomeT.resolution` only):
+   - io.async's future output carries the closure's concrete result
+     (`_with_future_output_resolution`);
+   - a closure value carries its capture struct as its wrapper's resolution
+     (`closure_type.yo`);
+   - the forwarded Future-wrapper param is a per-specialization REBUILD of the
+     declared wrapper carrying the argument's wrapper, bound as the parameter's
+     type (the capbind analog);
+   - the shared-id Fn-bound result binder is a TYPE BINDING of the enclosing
+     generic in the specialization's env, recording the binder it resolves
+     (`_record_prebound_binder`, #939's mechanism) instead of a global write;
+   - codegen's per-block result memo is its own map
+     (`g_async_block_result_types`);
+   - the Step-6 unregister loop, the await/Step-8 registry fallbacks and the
+     "skip E" guard in `_resolve_some_types_deep` (it existed only because the
+     registry was poisoned by prior IoExn registrations) are deleted.
 8. **Unblocks** `plans/backlog/TYPEVALUE_HASH_CONSING.md`. Its measured blocker is "the intern key
    must equal codegen's `_type_key_at`". Once steps 1–4 make the evaluator's identity equal to
    the codegen key, hash-consing is a memory project, not a soundness risk. It is also where the
