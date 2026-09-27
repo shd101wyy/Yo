@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 197 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 196 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 25 | 4 |
-| **Total** | **197** | **36** |
+| Other | 24 | 4 |
+| **Total** | **196** | **36** |
 
 ## Cross-cutting buckets
 
@@ -333,7 +333,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (25)
+### Other (24)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -344,7 +344,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
-| [`epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md`](./epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md) | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md`](./linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md) | — | — |

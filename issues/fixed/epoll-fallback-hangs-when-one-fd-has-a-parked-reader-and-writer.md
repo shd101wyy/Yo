@@ -1,8 +1,9 @@
 # The epoll fallback hangs when one fd has both a parked reader and a parked writer
 
-**Status: OPEN.** Filed 2026-09-27 from the DROP_LIBURING audit. The mechanism was
-**read from the code**. It has **not been run**: the audit box has no Linux or
-Docker. Introduced by Phase 5 (#948). It does not regress v0.2.44, where the same
+**Status: FIXED** (2026-09-27). Filed the same day from the DROP_LIBURING audit.
+The mechanism was **read from the code**; the audit box has no Linux or Docker.
+The regression test (`tests/sys/socketpair.test.yo`, "epoll fallback: a parked
+reader and writer on one fd both complete") runs only on the Linux CI legs. Introduced by Phase 5 (#948). It does not regress v0.2.44, where the same
 environments `exit(1)` at the first I/O.
 
 ## Mechanism
@@ -51,3 +52,12 @@ Nothing in CI parks an op on the epoll backend:
    (use a runner deadline).
 3. Add the forced-epoll corpus as a CI leg, and give the Docker probe a real socket
    accept/recv.
+
+## Fix (landed)
+
+`__yo_epoll_sync_fd(fd)` keeps the fd's single kernel interest equal to the union
+of its live registrations. It uses MOD, or ADD on ENOENT, and DEL when none are
+left; `data.ptr` names one of the fd's registrations. The per-direction
+`__yo_epoll_arm` is gone. Dispatch services every registration of the event's fd
+that `revents` covers, and ERR/HUP wake both. `tests/internal/uring_runtime.test.yo`
+pins `__yo_epoll_sync_fd` and the absence of the per-direction arm.
