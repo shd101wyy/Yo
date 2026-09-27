@@ -166,6 +166,13 @@ E_COMPTIME_ARGUMENT :: "E1101";
 E_COMPTIME_OVERFLOW :: "E1102";
 /// A compile-time `/` or `%` whose divisor is zero.
 E_COMPTIME_DIVISION_BY_ZERO :: "E1103";
+/// A comptime AST builtin needs an expression VALUE the current evaluation
+/// cannot supply — the def-time trials of bodies like
+/// `to_comptime_string : (self -> __yo_expr_to_string(self))` hit this with
+/// `self` still valueless; a call resolves it. The value-DEPENDENCE family: a
+/// swallowed error carrying this code is NOT a type error a re-raise should
+/// surface (the closure-body gate excludes it).
+E_COMPTIME_EXPRESSION_VALUE :: "E1104";
 /// The severity of a diagnostic entry. The FIRST entry of an error group is
 /// the primary (`Error`, or `Warning` once a warnings channel exists);
 /// secondary entries ("value moved here", "Defined here:") are `Note`s.
@@ -941,4 +948,4 @@ export(
 export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_NO_MATCHING_CALL);
 export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE, E_ARGUMENT_LABEL_MISMATCH, E_AMBIGUOUS_METHOD);
 export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_AWAIT_PLACEMENT, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW);
-export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO);
+export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO, E_COMPTIME_EXPRESSION_VALUE);

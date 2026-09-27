@@ -1,6 +1,6 @@
 # The closure-body re-raise is blocked: it cannot tell a type error from a value-dependence error
 
-**Status:** OPEN (blocker for branch `tss/p6-closure-reraise`, Phase 6 step 2)
+**Status:** FIXED 2026-09-27 (branch `tss/p6-closure-reraise`; E1104 + gate exclusion)
 **Found:** 2026-09-27, building the branch for the first time (written unbuilt).
 
 ## Symptom
@@ -39,3 +39,19 @@ text channel), two CLI cases whose goldens are NOT yet recorded
 `check-ctl-handler-return-type-error-is-reported`), and the
 `YO_DEBUG_SWALLOW` `[reeval-swallow]` census trace. All written, none built
 green.
+
+## Resolution
+
+**Fixed 2026-09-27, same branch**: the value-dependence family got its own
+code — `E1104` (`E_COMPTIME_EXPRESSION_VALUE`, `src/diagnostics.yo`), carried
+`with_code` by the seven raise sites in `src/evaluator/builtins/expr_fns.yo`
+("Expected expression value for an AST builtin argument"), with a bilingual
+`yo explain` registry entry. The closure-body gate skips a swallowed error
+whose code is E1104: a call can supply the value, so it is not a type error.
+
+With the exclusion: `yo check ./std` 176/176 and `yo check ./src` 279/279
+(the prelude's `to_comptime_string : (self -> __yo_expr_to_string(self))` and
+every other value-dependent body defer as before), while both CLI fixtures
+(`check-closure-body-type-error-is-reported`,
+`check-ctl-handler-return-type-error-is-reported`) still report E0601 at the
+closure at check time — the re-raise's whole point.

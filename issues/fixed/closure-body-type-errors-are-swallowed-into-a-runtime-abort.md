@@ -1,7 +1,7 @@
 # Type errors inside a closure body are swallowed at `check` and become a runtime FATAL
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
-**Status:** OPEN. Green `yo check`, green `yo compile`, the binary aborts.
+**Status:** FIXED 2026-09-27 (branch `tss/p6-closure-reraise`). Green `yo check`, green `yo compile`, the binary aborts.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro 1: a closure body that does not type-check
@@ -72,3 +72,17 @@ named-fn path does. Separately, make any reachable FTT stub a compile error, not
 `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`,
 `issues/swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md` (same swallow policy,
 other entry points).
+
+## Resolution
+
+**Fixed 2026-09-27** (branch `tss/p6-closure-reraise`, Phase 6 step 2):
+`_trial_eval_anon_body`'s callers re-raise a swallowed error when the closure's
+parameters are all concrete (`body_params_concrete`, read before the io.async /
+ctl-handler forcing) and the body produced nothing — except the
+VALUE-DEPENDENCE family (E1104), which a call resolves. The structured
+diagnostics travel in lockstep with the text (`g_anon_swallow_diags`), so the
+re-raise keeps the raise site's span, code and notes. Two check-level CLI
+cases pin the class (`check-closure-body-type-error-is-reported`,
+`check-ctl-handler-return-type-error-is-reported`): their goldens record E0601
+at the closure. A `[reeval-swallow]` census trace (`YO_DEBUG_SWALLOW=1`) covers
+census site #15 for the next step.

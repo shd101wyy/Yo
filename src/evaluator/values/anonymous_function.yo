@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
 { format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
-{ Diagnostic } :: import("../../diagnostics.yo");
+{ Diagnostic, E_COMPTIME_EXPRESSION_VALUE } :: import("../../diagnostics.yo");
 { Exception, AnyError } :: import("std/error");
 {
   register_definition_site_return,
@@ -1622,7 +1622,18 @@ Result type: ${type_to_string(decl_result_ty)}`
     // leaves only a nested trial's leftover flag. Bodies forced for
     // emission with SomeT parameters (io.async, ctl handlers) keep the
     // swallow: they are typed again where their parameters resolve.
-    if((body_params_concrete && !(propagate_def_time_errors())) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
+    // A swallowed error of the VALUE-DEPENDENCE family (E1104: a comptime
+    // AST builtin needs an argument VALUE the trial cannot supply —
+    // `self -> __yo_expr_to_string(self)` in the prelude) is NOT a type
+    // error: the enclosing call resolves it, so the re-raise skips it
+    // (issues/fixed/p6-closure-reraise-blocked-by-value-dependence-errors.md
+    // records the class; the gate fires only when no call could help).
+    c3_value_dep := match(
+      _anon_swallow_code(),
+      .Some(c3c) => (c3c == E_COMPTIME_EXPRESSION_VALUE),
+      .None => false
+    );
+    if((((body_params_concrete && !(propagate_def_time_errors())) && !c3_value_dep)) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
       c3_msg := _anon_swallow_message();
       c3_has_diags := (g_anon_swallow_diags.len() > usize(0));
       c3_err := yo_error_from_diagnostics(g_anon_swallow_diags.clone());
