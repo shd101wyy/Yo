@@ -1,6 +1,14 @@
 # Type-system soundness: handover
 
-**Status:** ACTIVE handover, written 2026-09-26 by the session that drove
+**Status:** updated 2026-09-27 by the session that resumed it. **#952 merged**
+(every flow-relation caller passes `(actual, expected)`; `Dyn` flow is the exact
+trait set; the extern-opaque coercion does not compose into compound types).
+**#959 merged** (`option-self-field` closed — fixed on develop; the struct
+value-cycle check landed). **`tss/p37-registry` and `tss/p6-closure-reraise` are
+BLOCKED, not abandoned** — each is pushed with a blocker issue
+(`issues/p37-registry-retirement-blocked-by-codegen-readers.md`,
+`issues/p6-closure-reraise-blocked-by-value-dependence-errors.md`); read those
+before touching the branches. Originally written 2026-09-26 by the session that drove
 [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) through Phases 2–5 and most of Phase 3.
 The plan is the roadmap and stays authoritative for *what* each phase means. This doc says *where
 the work stands*: what landed, what is written but unverified on four pushed branches, and what
