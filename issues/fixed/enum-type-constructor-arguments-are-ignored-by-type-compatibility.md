@@ -5,7 +5,7 @@
 enum instantiation's type arguments are part of its identity, and a GADT variant constructs only
 the instantiation its index names. The fourth finding (a GADT arm body checked under its
 refinement only when some caller instantiates that index) is split out as
-`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`, because it is the
+`issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`, because it is the
 deferred-generic trial's swallow (Phase 6), not a compatibility question.
 Originally: OPEN, **critical soundness hole**: GADT indices and phantom enum parameters were not
 part of type identity, so a program could read an `i32` through a `bool`-typed binding.

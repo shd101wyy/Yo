@@ -180,7 +180,7 @@ Verification sections. Two stay open for their other halves: the generic-callee 
 `closure-result-type-is-not-checked-against-the-expected-fn-type` needs step 2.4, and the
 evaluator half of `inout-call-through-a-fn-value-loses-the-mutation` is step 3.5. Found on the way
 and fixed: `issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`. Split out and
-open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
+open (Phase 6): `issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
 
 ### Phase 2: traits and generics (R3, R6)
 

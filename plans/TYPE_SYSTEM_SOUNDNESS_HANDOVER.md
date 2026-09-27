@@ -281,7 +281,7 @@ first; that number is Phase 6's progress metric.
 From the census (§5): sites #2/#6 (the deferred-generic trials in `calls/function_type.yo` and
 `values/anonymous_function.yo`) need a finer test than "the body has SomeTs", namely "the error
 does not involve one", and they currently *clear* flow violations raised inside the trial;
-`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md` goes through them. Site #4
+`issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md` goes through them. Site #4
 (the forward-comptime-fn re-run) drops the error on its last attempt. Site #8 (test bodies) is
 strict only under `--test-bodies`; making it the default needs a false-positive census first
 (`yo check --test-bodies` over every `tests/**/*.test.yo`). Site #14
@@ -300,7 +300,7 @@ site as a note, when the concrete specialization fails) has no code yet.
   (`_force_field_eval`, `values/impl.yo`), not a swallow.
 - `issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`,
   `issues/emitted-c-identifiers-collide-with-header-macros.md`,
-  `issues/unknown-type-argument-in-typed-binding-reports-expected-comptime.md`,
+  `issues/fixed/unknown-type-argument-in-typed-binding-reports-expected-comptime.md`,
   `issues/yo-self-where-clause-full-enforcement.md`: untouched this session.
 
 ## 5. Phase 6 swallow census (2026-09-26, develop `36ec17b8c`)

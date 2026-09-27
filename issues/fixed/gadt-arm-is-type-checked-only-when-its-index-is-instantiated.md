@@ -3,7 +3,7 @@
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1.1); split out
 of `issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md` on
 2026-09-24 when that issue's identity and construction halves were fixed.
-**Status:** OPEN. Fix belongs to Phase 6 (the deferred-generic trial's swallow), not to
+**Status:** FIXED 2026-09-28 (see Resolution)
 compatibility.
 **Measured:** develop `251522b21` + the Phase 1.1 fix: `yo check` rc=0.
 
@@ -57,3 +57,13 @@ Checking the arm at the `T = i32` specialization instead would be unsound: every
 
 A check-level cli-case (the error is a swallowed def-time error, which `comptime_expect_error`
 observes even on the broken compiler).
+
+## Resolution (2026-09-28, branch `tss/p6-generic-reraise`, Phase 6 step 2)
+
+The arm check already raised "GADT type mismatch in branch" in the deferred-generic trial; the
+trial swallowed it. That raise now marks its error `generic_independent` when the refined
+expected type and the arm's type contain no type variable (`mark_generic_independent`,
+`src/types/utils.yo`), and the trial re-raises exactly such errors
+(`generic_trial_independent_error`, `calls/function_type.yo`). The trial also runs for every
+deferred generic now, not only when the result mentions a type variable. Test:
+`tests/cli-cases/check-gadt-arm-mismatch-is-reported-without-a-call` (E0605 at the arm).
