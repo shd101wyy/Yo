@@ -698,6 +698,31 @@ The largest and last phase, because Phases 1–5 shrink it.
    positive that blocked the first build. (A first fix classified that error by a new code,
    E1104; it was replaced by the parameter rule, which is the actual reason.) Sites #2/#6
    (the deferred-generic trials) still need the "does the error involve a SomeT?" refinement.
+   **Sites #2/#6, #4, #14, #15 (2026-09-27, branch `tss/p6-generic-reraise`).** A mismatch
+   between two types with no type variable in them is marked `generic_independent` on its
+   primary diagnostic (`mark_generic_independent`, `types/utils.yo`; set by the synthesizer's
+   four unify failures, the argument rule and the GADT arm check), and the deferred-generic
+   trials of fns (#2) and closures (#6) and the specialization-time closure re-eval (#15)
+   re-raise exactly those — no instantiation can fix them. A trait default that fails for a
+   concrete `Self` and a variable-free signature is the impl's error (#14). The forward
+   comptime-fn re-run reports a body that still fails once every forward declaration it waited
+   for is filled (#4, `issues/fixed/a-forward-comptime-fn-body-error-is-dropped-by-the-pending-rerun.md`).
+
+   **Site #16 census (2026-09-27, develop `862cfc5bb`).** 123 calls of the 3-argument
+   `evaluate_expression` (the per-node swallow), all in `src/evaluator/`, every one with an `exn`
+   in scope. 58 already recover the real cause (`format_eval_failure` reads the
+   swallowed-cause channel); 59 lose it — a generic or wrong message, or a silent degrade; 2 are
+   deliberate probes (`pattern_compile.yo` `_bind_subject_and_eval_test`,
+   `index_trait.yo` `_try_comptime_custom_type_index`); 4 silently no-op (`var_fns.yo` ×3,
+   `comptime_assert.yo`'s validation-mode check). Converting a site to
+   `evaluate_expression_raw(…, exn)` needs no extra ExprInfo bridging (both wrappers bridge) but
+   does need two things: a site that saves/restores ctx state around the call must restore on
+   the throw path too (the stash-then-rethrow shape of `_derive_eval_guarded`), and the raw
+   wrapper's safe-code raw-pointer gate now applies to it. Highest value first: the `<:`
+   operands, `the`, `typeof`, associated-type constraints, `Type` reflection builtins, match
+   guards and atom `cond` conditions, the shared comptime-argument helpers, `Future` effect
+   arguments, `derive`'s target type, and `comptime_expect_error`'s expected-text argument
+   (a failing one silently accepts ANY error — a test-soundness hole).
 3. A swallowed error that *is* SomeT-pending is recorded against the specialization and
    re-raised when the specialization with concrete types fails, with the call site as a note.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.
