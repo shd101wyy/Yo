@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
+{ t_dyn } :: import("./creators.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
@@ -639,7 +640,8 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             new_ntt.push(recur(s, elem, false));
             i = (i + usize(1));
           });
-          .DynT(new_rtt, rtl, new_ntt, ntl)
+          // Re-sorted: substituting a trait argument can change its key.
+          t_dyn(new_rtt, rtl, new_ntt, ntl)
         },
         .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, implicit_spreads : isps, call_param_is_ref : cprf) => {
           new_cpts := ArrayList(TypeValue).new();

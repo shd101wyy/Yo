@@ -579,3 +579,17 @@ test("Test an ArrayList of trait objects reads its elements back", {
   assert(got == String.from("9"), "index 1 reads back the second trait object");
   assert(xs.len() == usize(2), "both elements are held");
 });
+// issues/fixed/dyn-trait-order-is-part-of-its-c-type.md: a Dyn's trait list
+// is a set, so `Dyn(A, B)` flows into a `Dyn(B, A)` parameter and both
+// spellings are one C type with one vtable layout.
+_OrdA :: trait(a : (fn(self : Self) -> i32));
+_OrdB :: trait(b : (fn(self : Self) -> i32));
+_OrdC :: ref(struct(n : i32));
+impl(_OrdC, _OrdA(a : (self -> self.n)));
+impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
+_ord_take :: (fn(d : Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
+test("Dyn: the trait order is not part of the type", {
+  (x : Dyn(_OrdA, _OrdB)) = dyn(_OrdC(n : i32(1)));
+  assert(_ord_take(x) == i32(101001), "both slots dispatch to their own impl");
+  assert(Type.eq(Dyn(_OrdA, _OrdB), Dyn(_OrdB, _OrdA)), "one type");
+});

@@ -18,6 +18,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
+{ type_to_string } :: import("./string.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
 // ---------------------------------------------------------------------------
@@ -219,6 +220,47 @@ t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeV
 t_iso :: (fn(child : TypeValue) -> TypeValue)(
   .IsoT(child)
 );
+/// The sort key of one trait in a `Dyn`'s trait list: its printed form, then
+/// its declaration id, so two same-named traits from two modules still order
+/// deterministically.
+_dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
+  tid := match(t, .TraitT(id : i) => i, _ => String.new());
+  `${type_to_string(t)}#${tid}`
+});
+/// Reorder `types` (and its parallel `levels`, when it has one entry per
+/// type) into the canonical order. A `Dyn`'s trait list is a SET —
+/// `Dyn(A, B)` is `Dyn(B, A)` to flow, `Type.eq` and the registry — so every
+/// `Dyn` is built in one order, and the C type, the vtable layout and the
+/// printed type agree for every spelling
+/// (issues/fixed/dyn-trait-order-is-part-of-its-c-type.md). Insertion sort:
+/// the lists are a handful of traits.
+_sort_dyn_traits :: (fn(types : ArrayList(TypeValue), levels : ArrayList(usize)) -> unit)({
+  if(types.len() < usize(2), {
+    return(());
+  });
+  has_levels := (levels.len() == types.len());
+  keys := ArrayList(String).new();
+  (ki : usize) = usize(0);
+  while(ki < types.len(), {
+    keys.push(match(types.get(ki), .Some(t) => _dyn_trait_sort_key(t), .None => String.new()));
+    ki = (ki + usize(1));
+  });
+  (i : usize) = usize(1);
+  while(i < types.len(), {
+    (j : usize) = i;
+    while((j > usize(0)) && (match(keys.get(j - usize(1)), .Some(k) => k, .None => String.new()) > match(keys.get(j), .Some(k) => k, .None => String.new())), {
+      keys.swap(j - usize(1), j);
+      types.swap(j - usize(1), j);
+      if(has_levels, {
+        levels.swap(j - usize(1), j);
+      });
+      j = (j - usize(1));
+    });
+    i = (i + usize(1));
+  });
+});
+/// Every `Dyn` type is built here (or by `t_dyn_simple`), so its trait lists
+/// are in the canonical order (`_sort_dyn_traits`).
 t_dyn :: (
   fn(
     required_trait_types : ArrayList(TypeValue),
@@ -226,11 +268,17 @@ t_dyn :: (
     negative_trait_types : ArrayList(TypeValue),
     negative_trait_levels : ArrayList(usize)
   ) -> TypeValue
-)(
-  .DynT(required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels)
-);
+)({
+  rtt := required_trait_types.clone();
+  rtl := required_trait_levels.clone();
+  ntt := negative_trait_types.clone();
+  ntl := negative_trait_levels.clone();
+  _sort_dyn_traits(rtt, rtl);
+  _sort_dyn_traits(ntt, ntl);
+  .DynT(rtt, rtl, ntt, ntl)
+});
 t_dyn_simple :: (fn(required_trait_types : ArrayList(TypeValue)) -> TypeValue)(
-  .DynT(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
+  t_dyn(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
 );
 t_fn_trait :: (
   fn(
