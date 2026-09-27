@@ -1,6 +1,6 @@
 # `Dyn(A, B)` and `Dyn(B, A)` are one type to the checker and two C types to codegen
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-27 (branch `tss/dyn-upcast`; see Resolution)
 **Found:** 2026-09-27, Dyn upcast feasibility audit (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.8).
 **Measured:** yo 0.2.44 seed. `yo check` rc=0; `yo compile --optimize 2` fails in clang.
 **Repro:** `issues/repros/dyn-trait-order-is-part-of-its-c-type.yo`
@@ -41,3 +41,12 @@ wrong order.
 
 One canonical order for a `Dyn`'s trait list, established where the type is built, so every
 consumer (type_key, the vtable layout, `type_to_string`) sees the same list.
+
+## Resolution (2026-09-27, branch `tss/dyn-upcast`)
+
+`t_dyn` (`src/types/creators.yo`) is the one constructor every `Dyn` goes through — the Impl→Dyn
+conversion in `values/dyn.yo` and the substitution rebuild in `types/substitution.yo` now call it
+too — and it sorts the required and negative trait lists by printed form, then declaration id
+(`_sort_dyn_traits`, with the levels permuted alongside). So `Dyn(A, B)` and `Dyn(B, A)` have one
+`type_key`, one C struct and one vtable layout. Measured: the repro prints `101001`. Test:
+`tests/dyn.test.yo`, "Dyn: the trait order is not part of the type".

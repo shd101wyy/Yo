@@ -1,6 +1,6 @@
 # `dyn(<a Dyn value>)` emits an error COMMENT into the C instead of failing the compile
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-27 (branch `tss/dyn-upcast`; see Resolution)
 **Found:** 2026-09-05, building the over-rejection canary set for
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`
 (re-boxing an `AnyError` was one of the canary shapes; it turned out never to
@@ -78,3 +78,12 @@ unreachable codegen paths so the compiler reports the error itself.
 
 `tests/dyn.test.yo`: `comptime_expect_error` on the re-dyn if option 2 is taken,
 or a round-trip assertion through the widened Dyn if option 1 is.
+
+## Resolution (2026-09-27, branch `tss/dyn-upcast`)
+
+Option 2 for `dyn(d)`, option 1 as its own builtin. `dyn(d)` of a value that is already a `Dyn` is
+an evaluator error (E0605) naming `upcast` (`_reject_dyn_of_dyn`, `src/evaluator/values/dyn.yo`,
+on both the validating and the executing path). Converting to a `Dyn` with fewer traits is the new
+`upcast(d, Dyn(...))` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the source vtable carries a
+pointer to the payload's target vtable. Test: `tests/dyn.test.yo`, "an upcast cannot add a trait,
+and dyn() of a Dyn is rejected".

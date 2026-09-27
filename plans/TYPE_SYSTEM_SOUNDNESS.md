@@ -350,17 +350,17 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
      checked statically (the target's traits ⊆ the source's, after supertrait expansion), so it
      returns the Dyn, not an `Option`. Flow stays exact (`TYPE_IDENTITY.md`): the conversion is
      explicit, like every other representation change. `dyn(d)` of a value that is already a
-     `Dyn` is an error pointing at `upcast` (`issues/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`).
+     `Dyn` is an error pointing at `upcast` (`issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`).
    - **Lowering:** `{ .data = __yo_dyn_retain(d.data, d.vtable), .vtable = d.vtable->__yo_up_<Tgt> }`.
      The collection pass records every (source Dyn, target Dyn) pair; for every `dyn_impls`
      entry of the source it registers the (concrete, target) entry, so the target vtable exists,
      and the source vtable gets one `__yo_up_<Tgt>` slot per target. Retain/release stay per
      concrete payload, so the shared box is released by the right (atomic or plain) pair.
    - **Prerequisites (found by the audit, each its own issue):** one canonical trait order per
-     `Dyn` (`issues/dyn-trait-order-is-part-of-its-c-type.md`); vtable slots keyed by (trait,
+     `Dyn` (`issues/fixed/dyn-trait-order-is-part-of-its-c-type.md`); vtable slots keyed by (trait,
      method), with an ambiguity error for an unqualified call two traits supply
-     (`issues/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md`,
-     `issues/a-method-call-two-trait-impls-supply-silently-picks-one.md`).
+     (`issues/fixed/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md`,
+     `issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md`).
    - **Not covered:** a `Dyn` crossing a Yo static-library boundary, where the consumer cannot
      emit a vtable for a library-internal type; `downcast` has the same limit today.
 

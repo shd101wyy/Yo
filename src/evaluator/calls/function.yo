@@ -186,7 +186,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL } :: import("../../diagnostics.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -997,8 +997,50 @@ _build_receiver_call_args :: (
 /// real call surfaces the genuine error. The prior "first hit wins" threw
 /// "Cannot unify String and str" on
 /// `s.starts_with("-")` because it committed to the inherent `Self`=String hit.
+/// A trait's name for a diagnostic, from its id: the variable in `env` bound
+/// to that trait type, else the id itself.
+_trait_display_name :: (fn(tid : String, env : Environment) -> String)({
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(v) => match(
+              v.value.get(usize(0)),
+              .Some(vv) => match(
+                vv,
+                .TypeVal(tt) => match(
+                  tt,
+                  .TraitT(_, _, _, _, t_id, _, _, _, _, _) => if(t_id == tid, {
+                    return(v.name.clone());
+                  }),
+                  _ => ()
+                ),
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  tid
+});
+/// The receiver's type, printed, for a diagnostic.
+_receiver_type_display :: (fn(recv : AstExpr, ctx : EvalContext) -> String)(
+  match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(ri.ty), .None => String.from("the receiver"))
+);
 _select_matching_overload :: (
-  fn(base : ReceiverMethodResult, args : ArrayList(AstExpr), func_expr : AstExpr, env : Environment, ctx : EvalContext) -> ReceiverMethodResult
+  fn(base : ReceiverMethodResult, args : ArrayList(AstExpr), func_expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> ReceiverMethodResult
 )({
   // Collect EVERY candidate whose trial passes (not just the first) so the
   // comptime-priority rule below can run — filter to type-matching
@@ -1055,6 +1097,7 @@ _select_matching_overload :: (
   // compiler's spec binds the receiver concrete so the SomeT walk's trait
   // filter no longer applies (impl.test.yo use_trait_a/use_trait_b).
   aw_ids := active_where_trait_ids();
+  (aw_chosen : bool) = false;
   if((aw_ids.len() > usize(0)) && (matching.len() > usize(1)), {
     (aw_mi : usize) = usize(0);
     (aw_done : bool) = false;
@@ -1067,6 +1110,7 @@ _select_matching_overload :: (
           if(match(aw_ids.get(aw_wi), .Some(w) => (w == aw_src), .None => false), {
             winner_hi = aw_idx;
             aw_done = true;
+            aw_chosen = true;
           });
           aw_wi = (aw_wi + usize(1));
         });
@@ -1096,32 +1140,99 @@ _select_matching_overload :: (
         .Some(mc) => match(mc.ty, .Func({ meta : __smm1 }) => __smm1.*.result_is_comptime_only, _ => false),
         .None => false
       );
-      if(m_ct, {
+      // One entry per trait: the same comptime impl can be registered
+      // twice (prelude `neg`), and a duplicate is not a second candidate.
+      m_tid := match(base.all_hits.get(m_idx), .Some(mc) => mc.source_trait_id.clone(), .None => String.new());
+      (m_dup : bool) = false;
+      (mdi : usize) = usize(0);
+      while(mdi < ct_matches.len(), {
+        prev_tid := match(base.all_hits.get(match(ct_matches.get(mdi), .Some(i) => i, .None => usize(0))), .Some(pc) => pc.source_trait_id.clone(), .None => String.new());
+        if((prev_tid == m_tid) && (m_tid != ""), {
+          m_dup = true;
+        });
+        mdi = (mdi + usize(1));
+      });
+      if(m_ct && !(m_dup), {
         ct_matches.push(m_idx);
       });
       mi = (mi + usize(1));
     });
   });
+  (ct_chosen : bool) = false;
   if(ct_matches.len() == usize(1), {
     winner_hi = match(ct_matches.get(usize(0)), .Some(i) => i, .None => winner_hi);
+    ct_chosen = true;
   });
-  // TEMP census (tss/dyn-upcast): every call with 2+ matching candidates.
-  if((matching.len() > usize(1)) && debug_knob(`YO_DEBUG_AMBIG`).is_some(), {
-    amb_line := String.new();
+  // Between several matching candidates that no tie-breaker above settled:
+  // an INHERENT method wins over trait methods (as in Rust — a type's own
+  // `read` is not ambiguous with the `Reader` impl it also has); otherwise
+  // two different traits supplying the call is E0616, since impl
+  // registration order is not a meaning
+  // (issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md).
+  // A comptime-only candidate counts only for a concrete comptime receiver:
+  // it cannot apply to a runtime one.
+  if((matching.len() > usize(1)) && !(aw_chosen) && !(ct_chosen), {
+    (inh_hi : Option(usize)) = Option(usize).None;
+    amb_traits := ArrayList(String).new();
     (ami : usize) = usize(0);
     while(ami < matching.len(), {
       am_idx := match(matching.get(ami), .Some(i) => i, .None => usize(0));
       match(
         base.all_hits.get(am_idx),
         .Some(amc) => {
-          amb_line = `${amb_line} [${amc.label} trait=${amc.source_trait_id} owner=${amc.owner} ct=${match(amc.ty, .Func({ meta : __amm }) => __amm.*.result_is_comptime_only, _ => false).to_string()}]`;
+          am_ct := match(amc.ty, .Func({ meta : __amm }) => __amm.*.result_is_comptime_only, _ => false);
+          cond(
+            (amc.source_trait_id == "") => if(inh_hi.is_none(), {
+              inh_hi = Option(usize).Some(am_idx);
+            }),
+            (am_ct && !(recv_concrete)) => (),
+            true => {
+              (seen_t : bool) = false;
+              (ti2 : usize) = usize(0);
+              while(ti2 < amb_traits.len(), {
+                if(match(amb_traits.get(ti2), .Some(t) => (t == amc.source_trait_id), .None => false), {
+                  seen_t = true;
+                });
+                ti2 = (ti2 + usize(1));
+              });
+              if(!(seen_t), {
+                amb_traits.push(amc.source_trait_id.clone());
+              });
+            }
+          );
         },
         .None => ()
       );
       ami = (ami + usize(1));
     });
-    tok_a := ast_expr_token(func_expr);
-    eprintln(`[ambig] ${tok_a.module_path}:${tok_a.row.to_string()} n=${matching.len().to_string()} aw=${aw_ids.len().to_string()} ct=${ct_matches.len().to_string()} recv_concrete=${recv_concrete.to_string()}${amb_line}`);
+    match(
+      inh_hi,
+      .Some(ih) => {
+        winner_hi = ih;
+      },
+      .None => if(amb_traits.len() > usize(1), {
+        amb_name := match(base.all_hits.get(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
+        amb_list := String.new();
+        (an : usize) = usize(0);
+        while(an < amb_traits.len(), {
+          tn := _trait_display_name(match(amb_traits.get(an), .Some(t) => t, .None => String.new()), env);
+          amb_list = cond((an == usize(0)) => tn, true => `${amb_list} and ${tn}`);
+          an = (an + usize(1));
+        });
+        recv_ty_s := match(base.receiver_value, .Some(_) => _receiver_type_display(base.receiver_expr, ctx), .None => String.from("the receiver"));
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message(
+                ast_expr_token(func_expr),
+                `The call to "${amb_name}" is ambiguous: ${amb_list} both supply a "${amb_name}" for ${recv_ty_s}, and nothing says which one is meant.\nName the trait: (T <: Trait).${amb_name}(value, ...), or call it where a where(T <: Trait) bound selects one.`
+              ),
+              E_AMBIGUOUS_METHOD
+            )
+          )
+        );
+      })
+    );
   });
   match(
     base.all_hits.get(winner_hi),
@@ -8029,7 +8140,7 @@ Fix: wrap the call:
       method_info_opt := match(
         method_info_opt0,
         .Some(mi0) => cond(
-          (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(mi0, args, evaluated_callee, callee_env, ctx)),
+          (mi0.all_hits.len() > usize(1)) => Option(ReceiverMethodResult).Some(_select_matching_overload(mi0, args, evaluated_callee, callee_env, ctx, exn)),
           true => Option(ReceiverMethodResult).Some(mi0)
         ),
         .None => Option(ReceiverMethodResult).None

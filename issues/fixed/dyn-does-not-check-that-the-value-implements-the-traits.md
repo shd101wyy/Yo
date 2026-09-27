@@ -256,7 +256,7 @@ declared trait bound (symptom 2). One std site was in the second category
   — `dyn(String.from("…"))` as a fn's BARE TAIL types the payload as
   `fn(T : Type) -> Type` and pastes that text into C identifiers. Pre-existing;
   the new check deliberately does not fire (the payload reads as undecidable).
-- `issues/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`
+- `issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`
   — `dyn(<a Dyn value>)` is accepted by the evaluator and refused by codegen with
   an `/* Error: … */` comment written into an expression position.
 - `issues/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`

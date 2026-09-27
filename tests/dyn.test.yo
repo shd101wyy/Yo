@@ -571,7 +571,7 @@ test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
 // behind a Dyn with fewer traits. The source vtable carries the target
 // vtable, so each concrete type dispatches to its own impl.
 _UpDog :: ref(struct(n : i32));
-impl(_UpDog, _OsSp(speak : (self -> (self.n * i32(10)))));
+impl(_UpDog, _OsSp(speak : (self -> (self.n * i32(10))), me : (self -> self), same : ((self, other) -> (self.n == other.n))));
 impl(_UpDog, _OsOt(other_n : (self -> i32(2))));
 _up_both :: (fn(k : i32) -> Dyn(_OsSp, _OsOt))(
   cond((k == i32(0)) => dyn(_OsCat(n : i32(3))), true => dyn(_UpDog(n : i32(4))))
@@ -641,4 +641,16 @@ test("Dyn: the trait order is not part of the type", {
   (x : Dyn(_OrdA, _OrdB)) = dyn(_OrdC(n : i32(1)));
   assert(_ord_take(x) == i32(101001), "both slots dispatch to their own impl");
   assert(Type.eq(Dyn(_OrdA, _OrdB), Dyn(_OrdB, _OrdA)), "one type");
+});
+// issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md:
+// an unqualified call two trait impls both supply is E0616; the qualified
+// form names the trait.
+_ClC :: ref(struct(n : i32));
+impl(_ClC, _ClA(get : (self -> i32(1))));
+impl(_ClC, _ClB(get : (self -> i32(2))));
+test("an unqualified call two trait impls supply is ambiguous (E0616)", {
+  c := _ClC(n : i32(0));
+  comptime_expect_error(c.get(), "is ambiguous");
+  assert((_ClC <: _ClA).get(c) == i32(1), "qualified: A");
+  assert((_ClC <: _ClB).get(c) == i32(2), "qualified: B");
 });
