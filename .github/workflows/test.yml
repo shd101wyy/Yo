@@ -1592,13 +1592,6 @@ jobs:
         run: |
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
-      # The stage-1 binary was emitted by the SEED, whose runtime still links
-      # liburing.so.2 (plans/DROP_LIBURING.md 5); removed with Phase 4.
-      - name: Install liburing runtime (for the seed-built stage 1)
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing2
       - name: Run the async/io/net/thread corpus on the epoll backend
         env:
           YO_IO_BACKEND: epoll
