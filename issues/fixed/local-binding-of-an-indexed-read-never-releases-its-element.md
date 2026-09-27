@@ -1,7 +1,18 @@
 # `vi := list(i)` of a value-type element with RC fields leaks one reference per binding
 
 Found 2026-09-27 root-causing `issues/fixed/verifier-z3-harness-self-test-leaks-40-bytes.md`
-(Linux CI's "Formal verification (pinned Z3)" job, red on develop's tip). **Open.**
+(Linux CI's "Formal verification (pinned Z3)" job, red on develop's tip).
+
+> **FIXED 2026-09-27 (PR #958) — and not the leak it looked like.** Every leaking
+> repro below calls a user function named `consume`. That name is a builtin:
+> the call was dispatched to it, never ran, and marked the argument consumed.
+> That is the stranded reference. A by-name call of the same shape is
+> leak-free. The CI z3 red had an unrelated cause
+> (`issues/fixed/unit-recur-never-flushes-its-argument-drops.md`). The fix is the
+> reservation in the RESOLUTION section: binding any plain-named builtin is now an
+> error. The list is `is_reserved_builtin_binding_name` in `src/token.yo`, which
+> covers the whole plain-named builtin surface, not only the four names
+> first probed. The `__yo` prefix is not reserved.
 
 COORDINATION 2026-09-27: the CI z3 case itself is being fixed by the
 drop-liburing agent (branch `fv-param-interior-drop`: by-value COMPOSITE

@@ -36,7 +36,7 @@ and the 2026-09-27 tree — every `Pattern` allocated for a match arm retains
 exactly one reference nobody releases. 35,119 × (a Pattern + its fields) is
 a modest byte count, but it is ONE systematic codegen site, the same family
 as the two open missing-drop bugs
-(`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`,
+(`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`,
 the drop-liburing agent's param-interior fix).
 
 ## Likely shape

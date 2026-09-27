@@ -182,7 +182,7 @@ Remaining, re-ranked by the §0.18 census: §3.2 type_intern hash+verify
 (TypeValue 23,660 × ≈5.2 unexplained refs), §3.3 Phase 4 specialization
 population, §3.4 token diet, §3.5 leftovers, HOLDER_SCAN's Linux chunk-walk
 gap (coalesced anon regions defeat exact chain validation). Open issues:
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`
+`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`
 (KNOWN follow-up: plain `yo check` swallows the reservation rejection —
 compile and the test runner enforce), the match-arm registry purge test
 exists; Pattern retention FIXED (#957). Peer sessions: drop-liburing's #961
@@ -198,7 +198,7 @@ net +1 per binding. No trailing statement or a LIVE use: clean. Full table,
 `[sd]`/`[sd-fl]` probe transcripts and two fix directions (DCE a pure call
 statement to unit, not its argument atom; or scope the tail-atom exclusion
 to consumed block results) in
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`.
+`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`.
 `YO_DEBUG_SCOPE_DROPS=1` now ships on `mem/leak-group` (cached knobs). Fix
 must pass the dup/drop emit-diff gate + over-cancellation canary.
 

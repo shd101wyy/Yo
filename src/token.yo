@@ -2,7 +2,6 @@
 { rune, String } :: import("std/string");
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
 TokenKind :: enum(
   Operator,
   Dot,
@@ -127,20 +126,6 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
 /// rule). The `__yo` runtime prefix is NOT reserved yet: src/ binds 133
 /// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
 /// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules.
-/// Idempotence for the reservation gates: a binding node can be evaluated
-/// MORE THAN ONCE (a `:=` inside comptime_expect_error is caught cleanly on
-/// the first evaluation, then a later pass re-evaluates the same node with
-/// error propagation off — the flagged re-raise then escapes the
-/// expect-error context and kills the whole batch). The gates note the
-/// binding's position here and only raise on the first visit.
-(g_rejected_builtin_bindings : HashSet(String)) = HashSet(String).new();
-note_builtin_binding_rejected :: (fn(key : String) -> bool)({
-  if(g_rejected_builtin_bindings.contains(key.clone()), {
-    return(true);
-  });
-  g_rejected_builtin_bindings.insert(key.clone());
-  false
-});
 is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
   (
     ((name == "typeof") || ((name == "sizeof") || ((name == "alignof") || (name == "typeid")))) ||
@@ -350,7 +335,6 @@ export(
   is_operator_char,
   is_reserved_operator_name,
   is_reserved_builtin_binding_name,
-  note_builtin_binding_rejected,
   is_identifier_start,
   is_identifier_continue,
   string_is_operator,

@@ -21,9 +21,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../../expr.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ Token, is_reserved_builtin_binding_name, note_builtin_binding_rejected } :: import("../../token.yo");
+{ Token, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ ToString } :: import("std/fmt");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 {
@@ -146,9 +145,6 @@ _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx :
   // so the binding could never run (twin of binding.yo's gate; the choke
   // point both destructuring branches already pass through).
   if(is_reserved_builtin_binding_name(var_name.clone()) && !at.module_path.ends_with(String.from("std/prelude.yo")), {
-    if(note_builtin_binding_rejected(`${at.module_path}:${at.row.to_string()}:${at.column.to_string()}`), {
-      return(());
-    });
     raise_flow_violation(
       format_error_message(
         at,

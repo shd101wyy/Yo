@@ -77,9 +77,8 @@
 { is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
-{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, note_builtin_binding_rejected } :: import("../../token.yo");
+{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ ToString } :: import("std/fmt");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -762,9 +761,6 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     // user binding is silently hijacked and can never run. This covers `::`
     // definitions (including bare functions), typed `(x : T) =` and `:=`.
     if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo")), {
-      if(note_builtin_binding_rejected(`${res_tok.module_path}:${res_tok.row.to_string()}:${res_tok.column.to_string()}`), {
-        return(expr);
-      });
       raise_flow_violation(
         format_error_message(
           res_tok,
