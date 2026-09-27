@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
   is_function_type_and_returns_comptime_value,
   is_never_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, mark_generic_independent } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -836,9 +836,13 @@ evaluate_match :: (
                 if(!(are_types_compatible(body_info.ty, refined)), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(evaluated_body),
-                        `GADT type mismatch in branch "${pattern_to_string(pat)}":\n- Expected: ${type_to_string(refined)}\n- Actual  : ${type_to_string(body_info.ty)}`
+                      mark_generic_independent(
+                        format_error_message(
+                          ast_expr_token(evaluated_body),
+                          `GADT type mismatch in branch "${pattern_to_string(pat)}":\n- Expected: ${type_to_string(refined)}\n- Actual  : ${type_to_string(body_info.ty)}`
+                        ),
+                        refined,
+                        body_info.ty
                       )
                     )
                   );

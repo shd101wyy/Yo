@@ -86,7 +86,8 @@ pragma(Pragma.AllowUnsafe);
   type_requires_comptime_modifier,
   dyn_upcast_note,
   same_name_note,
-  type_contains_some_type_deep
+  type_contains_some_type_deep,
+  mark_generic_independent
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -852,6 +853,12 @@ consume_argument_for_parameter :: (
 _arg_rule_throw :: (fn(tok : Token, msg : String, ctx : EvalContext, exn : Exception) -> unit)({
   raise_flow_violation(format_error_message(tok, msg), ctx, exn);
 });
+/// `_arg_rule_throw` for a mismatch between the two types `a` and `b`
+/// (`mark_generic_independent`: a generic body's trial re-raises it when
+/// neither contains a type variable).
+_arg_rule_throw_types :: (fn(tok : Token, msg : String, a : TypeValue, b : TypeValue, ctx : EvalContext, exn : Exception) -> unit)({
+  raise_flow_violation(mark_generic_independent(format_error_message(tok, msg), a, b), ctx, exn);
+});
 /// The argument-side value/type rule. Returns the argument's type as this
 /// parameter's value: a comptime literal is lowered to a runtime type unless
 /// the parameter (or its type) is comptime — to the DECLARED type when the
@@ -901,7 +908,7 @@ check_argument_for_parameter :: (
   // (`comptime(n) : u8` given `300`); only the lowering below skips it.
   if(arg_is_comptime_lit && !(pt_is_comptime), {
     if(lit_concrete && !(are_types_compatible(arg_ty, resolved_pt)), {
-      _arg_rule_throw(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"${same_name_note(resolved_pt, arg_ty)}`, ctx, exn);
+      _arg_rule_throw_types(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"${same_name_note(resolved_pt, arg_ty)}`, resolved_pt, arg_ty, ctx, exn);
     });
     if(lit_concrete && is_comptime_int_type(arg_ty), {
       match(

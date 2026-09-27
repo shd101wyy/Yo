@@ -277,6 +277,28 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
     }
   )
 );
+/// The error a GENERIC body's definition-time trial must not swallow, if it
+/// raised one: its primary diagnostic is `generic_independent` — a mismatch
+/// between two types with no type variable in them, which no instantiation
+/// can fix (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 2). Checks the
+/// swallowed error, then a flow violation THIS trial raised (`fv_was` is
+/// whether one was pending before it). Everything else stays swallowed: a
+/// call may still resolve it.
+generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
+  if(match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+    return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
+  });
+  if(!(fv_was), {
+    match(
+      flow_violation_error(),
+      .Some(fv_err) => if(match(fv_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+        return(Option(YoError).Some(fv_err));
+      }),
+      .None => ()
+    );
+  });
+  Option(YoError).None
+});
 // P0 forward-reference diagnostic (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6):
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
@@ -1991,6 +2013,23 @@ Result type: ${type_to_string(result_box)}`
                   fwd_code := _trial_swallow_code();
                   _clear_trial_swallow();
                   exn.throw(dyn(with_code_carried(format_error_message(ast_expr_token(body_expr), fwd_msg), fwd_code)));
+                },
+                .None => ()
+              );
+            });
+            // Phase 6 step 2: an error no instantiation of this generic can
+            // fix is a type error in the source, raised now instead of at a
+            // call that may never come (the GADT arm checked only under
+            // refinement, issues/fixed/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md).
+            if(!(propagate_def_time_errors()), {
+              match(
+                generic_trial_independent_error(dg_fv_was),
+                .Some(dg_indep) => {
+                  _clear_trial_swallow();
+                  if(!(dg_fv_was), {
+                    clear_flow_violation();
+                  });
+                  exn.throw(dyn(dg_indep));
                 },
                 .None => ()
               );

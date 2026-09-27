@@ -59,7 +59,7 @@ import("std/fmt");
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
 { format_error_message, YoError } :: import("../error.yo");
-{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND } :: import("../diagnostics.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, Diagnostic } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Target pointer size
@@ -2357,3 +2357,39 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
 export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+/// `err` with its primary diagnostic marked `generic_independent` when
+/// neither `a` nor `b` contains a type variable: a mismatch between two such
+/// types holds under every instantiation of an enclosing generic, so a
+/// definition-time trial re-raises it instead of swallowing it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 2). `err` unchanged otherwise.
+mark_generic_independent :: (fn(err : YoError, a : TypeValue, b : TypeValue) -> YoError)({
+  if((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0)), {
+    return(err);
+  });
+  entries := ArrayList(Diagnostic).new();
+  (i : usize) = usize(0);
+  while(i < err.diagnostics.len(), {
+    match(
+      err.diagnostics.get(i),
+      .Some(d) => entries.push(
+        cond(
+          (i == usize(0)) => Diagnostic(
+            code : d.code,
+            severity : d.severity,
+            message : d.message,
+            span : d.span,
+            source_line : d.source_line,
+            help : d.help,
+            repair : d.repair,
+            generic_independent : true
+          ),
+          true => d
+        )
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
+export(mark_generic_independent);
