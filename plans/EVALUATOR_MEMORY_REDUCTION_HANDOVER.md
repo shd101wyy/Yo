@@ -161,13 +161,18 @@ goldens are this box's git wording). Also in the PR:
 ### 2.2b NEW (2026-09-27): `vi := list(i)` leaks one reference per binding — likely a large slice of §3.1
 
 Root-caused from the Linux CI "Formal verification" red (develop-side, both
-binaries): a `:=` binding of an INDEXED READ of a value-type element with RC
-fields (`JsonValue`, and by shape `EvalValue`) emits the deferred dup, then
-discards the dup'd temp as a bare statement, binds the pre-dup read, and
-registers no scope-end drop. 7-line repro + emitted-C evidence in
-`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`
-(open; fix sketch inside, must pass the dup/drop emit-diff gate). The
-argument form `consume(vs(i))` is CLEAN — only bindings leak.
+binaries), and the mechanism is now PROBE-VERIFIED (2026-09-27): when a
+block's trailing PURE CALL is DCE'd, the elided call leaves its last
+argument atom as the block tail (`vi;` in the emitted C); the scope-end
+scheduler's "bare-atom tail = moved out, never drop" rule then skips the
+binding's scope drop while the deferred dup on the index read survives —
+net +1 per binding. No trailing statement or a LIVE use: clean. Full table,
+`[sd]`/`[sd-fl]` probe transcripts and two fix directions (DCE a pure call
+statement to unit, not its argument atom; or scope the tail-atom exclusion
+to consumed block results) in
+`issues/local-binding-of-an-indexed-read-never-releases-its-element.md`.
+`YO_DEBUG_SCOPE_DROPS=1` now ships on `mem/leak-group` (cached knobs). Fix
+must pass the dup/drop emit-diff gate + over-cancellation canary.
 
 
 #932 read every capture value through `fv_capture_val`, which does a registry
