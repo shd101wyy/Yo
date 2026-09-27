@@ -6,6 +6,11 @@ pragma(Pragma.AllowUnsafe);
 socketpair_io :: import("std/sys/socketpair");
 tcp :: import("std/sys/tcp");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+fcntl :: import("std/sys/fcntl");
+{ O_NONBLOCK } :: import("std/sys/constants");
+{ write } :: import("std/libc/unistd");
+{ env } :: import("std/env");
+{ platform, Platform } :: import("std/process");
 test("socketpair create and close", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
@@ -51,4 +56,59 @@ test("socketpair bidirectional send and recv", {
   c1 := io.await(tcp.close(fd1), io);
   assert(c0 == i32(0), "closing socketpair fd0 should succeed after transfer");
   assert(c1 == i32(0), "closing socketpair fd1 should succeed after transfer");
+});
+// The epoll fallback keeps ONE kernel interest per fd: a reader and a writer
+// parked on the same socket share it. Before the fix each direction ADDed its
+// own interest; the second ADD failed with EEXIST and its MOD replaced the
+// first direction's interest, so when the writer drained, the fd was DELeted
+// and the parked reader was never woken — this test hung at the last await
+// (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md).
+// Linux only: YO_IO_BACKEND picks the Linux backend; each test runs in its own
+// process, so pinning it before the first I/O selects epoll for this test.
+test("epoll fallback: a parked reader and writer on one fd both complete", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    sv := (*i32)(sv_uninit.as_ptr());
+    assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
+    fd0 := (sv.add(usize(0))).*;
+    fd1 := (sv.add(usize(1))).*;
+    assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
+    assert(fcntl.setfl(fd1, fcntl.getfl(fd1) | O_NONBLOCK) == i32(0), "fd1 nonblocking");
+    // Park a reader on fd0 (nothing to read yet).
+    rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    rbuf := (*u8)(rbuf_uninit.as_ptr());
+    r_fut := tcp.recv(fd0, rbuf, usize(16), i32(0));
+    // Fill fd0's send buffer, then park a writer on the same fd.
+    chunk_uninit := MaybeUninit(Array(u8, usize(4096))).new();
+    chunk := (*u8)(chunk_uninit.as_ptr());
+    (filled : i64) = i64(0);
+    (full : bool) = false;
+    while(!full, {
+      n := unsafe(write(fd0, (*void)(chunk), usize(4096)));
+      if(n > i64(0), {
+        filled = (filled + i64(n));
+      }, {
+        full = true;
+      });
+    });
+    w_fut := tcp.send(fd0, (*u8)("W"), usize(1), i32(0));
+    // Drain from the peer until the writer's byte has arrived: the writer
+    // completes only if fd0's EPOLLOUT interest is live.
+    big_uninit := MaybeUninit(Array(u8, usize(65536))).new();
+    big := (*u8)(big_uninit.as_ptr());
+    (got : i64) = i64(0);
+    while(got < (filled + i64(1)), {
+      n := io.await(tcp.recv(fd1, big, usize(65536), i32(0)), io);
+      assert(n > i32(0), "peer drain");
+      got = (got + i64(n));
+    });
+    assert(io.await(w_fut, io) == i32(1), "parked writer completed");
+    // Wake the reader: its EPOLLIN interest must have survived the writer.
+    assert(io.await(tcp.send(fd1, (*u8)("R"), usize(1), i32(0)), io) == i32(1), "peer send");
+    assert(io.await(r_fut, io) == i32(1), "parked reader completed");
+    assert(rbuf.* == u8(82), "reader got 'R'");
+    io.await(tcp.close(fd0), io);
+    io.await(tcp.close(fd1), io);
+  });
 });
