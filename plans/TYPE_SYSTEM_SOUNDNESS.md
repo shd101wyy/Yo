@@ -452,12 +452,22 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    - #939 already removed one shared-id registry write, `_resolve_some_types_deep`'s carrier
      registrations, which a second specialization read back.
 
-   **Part 2 landed 2026-09-26** (branch `tss/p37-registry`, stacked on
-   `tss/flow-orientation`): `g_some_resolved_concrete` is RETIRED, together with
-   `register/lookup/unregister_some_resolved_concrete`, the compatibility hook
-   (`set_compat_lookup_some_resolved_fn`) and the guards hook
-   (`set_lookup_some_resolved_concrete`). Every writer now travels on the value
-   (`some_resolution` reads `SomeT.resolution` only):
+   **Part 2 BLOCKED 2026-09-27** (branch `tss/p37-registry`, pushed, not mergeable —
+   `issues/p37-registry-retirement-blocked-by-codegen-readers.md`): the writer
+   conversions are all written (io.async output on the value, closure captures on
+   the value, the Future-wrapper param as a per-spec rebuild, the Fn-bound result
+   binder as a recorded env binding, the async per-block memo in its own map, the
+   three experiment deletions), and `check ./std` + `check ./src` pass — but the
+   compiled compiler MISSES def-time-swallowed bodies' spec-time re-checks
+   (`Array(T, U).fill`'s spec stays hollow: an order-dependent abort stub or
+   E0905 across the async corpus). Root cause diagnosed but not yet fixed:
+   `some_resolution`'s registry fallback is LOAD-BEARING for the ~37 codegen
+   readers that lower a SomeT through it (`get_type_string`'s SomeT→concrete),
+   and the experiment deletions removed entries those readers consumed; a
+   value-scoped stamp does not reach the TypeValue copies a later eval
+   generation reads. The retirement needs those readers handed the SomeT VALUE
+   (or per-spec rebuilds at every mint), one writer at a time under a built
+   compiler. Original plan of record for the writers:
    - io.async's future output carries the closure's concrete result
      (`_with_future_output_resolution`);
    - a closure value carries its capture struct as its wrapper's resolution
