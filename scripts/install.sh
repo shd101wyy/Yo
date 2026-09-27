@@ -344,7 +344,6 @@ zypper_install() {
 MISSING_CC=""
 MISSING_GIT=""
 MISSING_PKGCONFIG=""
-MISSING_LIBURING=""
 
 compute_missing_deps() {
   MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""

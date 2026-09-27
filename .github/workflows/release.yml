@@ -1030,6 +1030,7 @@ jobs:
       - name: "C -> static stage-1 binary, inside Alpine (musl)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            apk add --no-cache build-base linux-headers openssl-dev openssl-libs-static
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
             # emitted C. Alpine splits the archives out of openssl-dev (headers +
             # .so) into openssl-libs-static — without it the assert below fires
@@ -1045,7 +1046,7 @@ jobs:
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-g1.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lssl -lcrypto -lpthread -lm \
+              -static -lssl -lcrypto -lpthread -lm \
               -o yo-g1
           '
           file yo-g1 | tee file.txt
@@ -1077,7 +1078,7 @@ jobs:
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lssl -lcrypto -lpthread -lm \
+              -static -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
           file yo-musl | tee file.txt
@@ -1154,14 +1155,16 @@ jobs:
       # compiling Yo programs has; the BUNDLE itself is static and needs
       # neither.
       #
-      # seccomp=unconfined is REQUIRED, not a convenience: Docker's default
-      # profile blocks io_uring_setup, so it fails exactly the binaries that
-      # have io_uring correctly compiled in, and would pass a stubbed-out one.
+      # No seccomp relaxation: Docker's DEFAULT profile blocks io_uring_setup,
+      # and since plans/DROP_LIBURING.md Phase 5 the runtime's ladder answers
+      # that by selecting the epoll fallback and completing — so smoking the
+      # bundle under the default profile is itself part of the assertion (it
+      # works in a stock container; one fallback line on stderr is expected).
       - name: Smoke-test the bundle on Alpine
         run: |
           mkdir -p smoke
           printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
-          docker run --rm --security-opt seccomp=unconfined \
+          docker run --rm \
             -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
               apk add --no-cache build-base
               YO=/w/$BUNDLE/bin/yo
