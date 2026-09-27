@@ -364,6 +364,14 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    - **Not covered:** a `Dyn` crossing a Yo static-library boundary, where the consumer cannot
      emit a vtable for a library-internal type; `downcast` has the same limit today.
 
+   **Landed 2026-09-28** (branch `tss/dyn-upcast`): `upcast` as designed above, with its three
+   prerequisites fixed — the canonical order sorts by trait id, not by the late-bound name (a
+   `Dyn(SelfTrait)` sees its trait nameless; the name key split `tests/error_source_chain` into
+   two C types on the first battery), E0616 covers both the `Dyn` slot clash and an unqualified
+   call two trait impls supply (a census of every multi-candidate call in `check ./std` and
+   `check ./src` found no genuine cross-trait ambiguity, so the rule rejects nothing there), and
+   `dyn(d)` of a `Dyn` is an error naming `upcast`. Tests: `tests/dyn.test.yo` (31).
+
 Exit: each issue's test flips; `check ./std` and `check ./src` are green with coherence enabled.
 
 **Landed 2026-09-24: steps 1–3.** Conformance (E0602 "does not implement required trait … as
