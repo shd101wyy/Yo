@@ -49,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_param_default_exprs,
   copy_func_param_type_exprs,
   copy_func_param_comptime,
+  get_func_param_comptime,
   copy_func_param_assigned_values,
   copy_func_return_type_expr,
   copy_func_variadic_param,
@@ -84,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
 { format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
-{ Diagnostic, E_COMPTIME_EXPRESSION_VALUE } :: import("../../diagnostics.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
 { Exception, AnyError } :: import("std/error");
 {
   register_definition_site_return,
@@ -1462,11 +1463,37 @@ evaluate_anonymous_function_implementation :: (
       sd_i = (sd_i + usize(1));
     });
   });
-  // Whether the body types on its own: no forall binder and no SomeT in any
-  // parameter. Read BEFORE the io.async / ctl forcing below, which evaluates
-  // SomeT-param bodies too; only for this one is a swallowed error a real
-  // type error (Channel 3 below).
-  body_params_concrete := !should_defer_body;
+  // Whether the body types on its own: no forall binder, no SomeT in any
+  // parameter, and no `comptime(x)` value parameter — a comptime parameter's
+  // VALUE comes from the call (`to_comptime_string : (self ->
+  // __yo_expr_to_string(self))` checks against `fn(comptime(self) : Self)`),
+  // so a body that needs it cannot be tried before one. The named-fn path
+  // defers on the same flags (`ft_has_ct_param`, calls/function_type.yo); a
+  // `comptime(T) : Type` parameter is a type binder, not a value, and does
+  // not count there either. Read BEFORE the io.async / ctl forcing below,
+  // which evaluates SomeT-param bodies too; only for this one is a swallowed
+  // error a real type error (Channel 3 below).
+  (body_has_ct_param : bool) = false;
+  {
+    bcp_flags := get_func_param_comptime(func_id.clone());
+    (bcp_i : usize) = usize(0);
+    while((bcp_i < bcp_flags.len()) && !(body_has_ct_param), {
+      bcp_is_typeuni := match(
+        param_types.get(bcp_i),
+        .Some(bcp_pt) => match(bcp_pt, .TypeUni(_) => true, _ => false),
+        .None => false
+      );
+      match(
+        bcp_flags.get(bcp_i),
+        .Some(bcp_f) => if(bcp_f && !(bcp_is_typeuni), {
+          body_has_ct_param = true;
+        }),
+        .None => ()
+      );
+      bcp_i = (bcp_i + usize(1));
+    });
+  };
+  body_params_concrete := (!(should_defer_body) && !(body_has_ct_param));
   // Closure codegen: an io.async closure has its synthesized type's
   // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
   // the body's ExprInfo (types) from def-time eval — otherwise the body emits
@@ -1614,32 +1641,21 @@ Result type: ${type_to_string(decl_result_ty)}`
       .None => ()
     );
     // Channel 3 (Phase 6 step 2, plans/TYPE_SYSTEM_SOUNDNESS.md): a body
-    // whose parameters are all concrete has nothing a call could resolve, so
-    // an error its trial swallowed is a type error in the source. Re-raise
-    // it. Before this the body shipped as an `abort()` stub with no
-    // diagnostic (issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md).
+    // whose parameters are all concrete runtime values has nothing a call
+    // could resolve, so an error its trial swallowed is a type error in the
+    // source. Re-raise it. Before this the body shipped as an `abort()` stub
+    // with no diagnostic
+    // (issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md).
     // Gated on an EMPTY out, like the named-fn path: a body that succeeded
     // leaves only a nested trial's leftover flag. Bodies forced for
     // emission with SomeT parameters (io.async, ctl handlers) keep the
     // swallow: they are typed again where their parameters resolve.
-    // A swallowed error of the VALUE-DEPENDENCE family (E1104: a comptime
-    // AST builtin needs an argument VALUE the trial cannot supply —
-    // `self -> __yo_expr_to_string(self)` in the prelude) is NOT a type
-    // error: the enclosing call resolves it, so the re-raise skips it
-    // (issues/fixed/p6-closure-reraise-blocked-by-value-dependence-errors.md
-    // records the class; the gate fires only when no call could help).
-    c3_value_dep := match(
-      _anon_swallow_code(),
-      .Some(c3c) => (c3c == E_COMPTIME_EXPRESSION_VALUE),
-      .None => false
-    );
-    if((((body_params_concrete && !(propagate_def_time_errors())) && !c3_value_dep)) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
+    if((body_params_concrete && !(propagate_def_time_errors())) && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
       c3_msg := _anon_swallow_message();
-      c3_has_diags := (g_anon_swallow_diags.len() > usize(0));
-      c3_err := yo_error_from_diagnostics(g_anon_swallow_diags.clone());
+      c3_diags := g_anon_swallow_diags.clone();
       _clear_anon_swallow();
-      if(c3_has_diags, {
-        exn.throw(dyn(c3_err));
+      if(c3_diags.len() > usize(0), {
+        exn.throw(dyn(yo_error_from_diagnostics(c3_diags)));
       });
       exn.throw(dyn(c3_msg));
     });

@@ -1,6 +1,6 @@
 # The closure-body re-raise is blocked: it cannot tell a type error from a value-dependence error
 
-**Status:** FIXED 2026-09-27 (branch `tss/p6-closure-reraise`; E1104 + gate exclusion)
+**Status:** FIXED 2026-09-27 (branch `tss/p6-closure-reraise-v2`: a `comptime(x)` parameter makes the body call-dependent)
 **Found:** 2026-09-27, building the branch for the first time (written unbuilt).
 
 ## Symptom
@@ -42,16 +42,19 @@ green.
 
 ## Resolution
 
-**Fixed 2026-09-27, same branch**: the value-dependence family got its own
-code — `E1104` (`E_COMPTIME_EXPRESSION_VALUE`, `src/diagnostics.yo`), carried
-`with_code` by the seven raise sites in `src/evaluator/builtins/expr_fns.yo`
-("Expected expression value for an AST builtin argument"), with a bilingual
-`yo explain` registry entry. The closure-body gate skips a swallowed error
-whose code is E1104: a call can supply the value, so it is not a type error.
+**Root cause:** the gate's notion of "concrete parameters" looked only at SomeTs and forall
+binders. `to_comptime_string`'s trait member is `fn(comptime(self) : Self) -> comptime(comptime_str)`
+(`std/prelude.yo`), so `self` is a COMPTIME VALUE parameter: its value arrives with the call, and a
+definition-time trial has none. The named-fn path already defers on exactly this
+(`ft_has_ct_param` in `calls/function_type.yo`, from `get_func_param_comptime`, not counting a
+`comptime(T) : Type` binder).
 
-With the exclusion: `yo check ./std` 176/176 and `yo check ./src` 279/279
-(the prelude's `to_comptime_string : (self -> __yo_expr_to_string(self))` and
-every other value-dependent body defer as before), while both CLI fixtures
-(`check-closure-body-type-error-is-reported`,
-`check-ctl-handler-return-type-error-is-reported`) still report E0601 at the
-closure at check time — the re-raise's whole point.
+**Fix:** `body_params_concrete` (`values/anonymous_function.yo`) is false when any parameter is
+a comptime value parameter, read from the same side table (`get_func_param_comptime`, re-keyed
+onto the closure's id by `copy_func_param_comptime` a few lines earlier).
+
+**Superseded first attempt (2026-09-27, PR #962):** a new code E1104 (`E_COMPTIME_EXPRESSION_VALUE`)
+on the seven "Expected expression value" raise sites in `builtins/expr_fns.yo`, which the gate
+skipped. It classified the symptom rather than the cause (any other error inside such a body
+would still have been re-raised wrongly), it dropped the builtin names from the seven messages, and
+the commit that removed its `yo explain` entry also deleted E0607's. It was reverted in full.
