@@ -22,7 +22,7 @@ before the fix:
 3. `IORING_OP_READ` of 8 bytes on the timerfd, which is the punted op
 4. on dispose, `close` of the timerfd
 
-`plans/DROP_LIBURING.md` §2.1 described this as "timerfd + `POLL_ADD`". The code
+`plans/reference/DROP_LIBURING.md` §2.1 described this as "timerfd + `POLL_ADD`". The code
 actually did a `READ`.
 
 ## Fix

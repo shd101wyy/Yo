@@ -9,7 +9,7 @@ as the contract.
 ## What is wrong
 
 `docs/en-US/STD_SYS_MODULE.md` and `docs/en-US/INSTALL_LINUX.md` (and their zh-CN
-twins) and `plans/DROP_LIBURING.md` §3.5 say the op set the runtime submits needs
+twins) and `plans/reference/DROP_LIBURING.md` §3.5 say the op set the runtime submits needs
 5.6+. The Linux runtime also submits:
 
 | Opcode | Kernel |

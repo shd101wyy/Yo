@@ -287,7 +287,7 @@ sudocmd() {
 #     Compiling works without it; dependency management does not.
 #   * pkg-config on Linux — how a project's declared system libraries are
 #     resolved. (liburing used to live here too; the emitted runtime vendors
-#     the io_uring ring layer since plans/DROP_LIBURING.md Phase 1, so async
+#     the io_uring ring layer since plans/reference/DROP_LIBURING.md Phase 1, so async
 #     I/O needs no library at all.)
 #---------------------------------------------------------
 

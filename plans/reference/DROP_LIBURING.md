@@ -1,17 +1,51 @@
 # Drop the liburing dependency — vendor the io_uring ring layer, add an epoll fallback
 
-**Status:** ACTIVE — proposed 2026-09-26, extended the same day with the epoll fallback
-and the performance guarantees (Phases 5–6). Phase 0 is this document plus its companion
-issue (`issues/fixed/io-uring-init-failure-exits-the-process.md`).
+**Status:** LANDED — closed 2026-09-27 and moved to `plans/reference/`. The
+landed design, authoritative from here on: **the Linux async runtime is
+self-contained**. It vendors the io_uring ring layer, falls back to epoll behind
+a ring → epoll → degraded ladder, and CI enforces its syscall budgets. That
+supersedes the liburing-trap sections of `PORTABLE_C_DISTRIBUTION.md`.
+
+**Closing outcomes (measured):**
+- **No liburing anywhere.** v0.2.45 is the first release built from Phase 1:
+  - its portable C uses the vendored `__yo_uring_*` layer;
+  - its musl `yo` is fully static, with no `NEEDED` entries;
+  - Phase 4 (#950) removed every install, link flag and assert.
+  - A program built by a v0.2.45+ compiler links only libc. Whether io_uring is
+    used is decided by the running kernel.
+- **Every environment runs.** Docker's default seccomp profile, gVisor and
+  `RLIMIT_MEMLOCK` exhaustion used to `exit(1)` at the first I/O. They now run on
+  the epoll fallback with one stderr line. The fallback is gated by:
+  - CI's "Docker default-seccomp epoll fallback" leg, which parks a socket recv;
+  - the "Forced-epoll async corpus" job, which runs the async/io/net/thread
+    suites on the fallback.
+- **Syscall budgets on stock Linux** (GitHub `ubuntu-latest`, 200-round
+  ping-pongs, 50 timer ticks):
+
+  | budget | ring | epoll |
+  | ------ | ---: | ----: |
+  | A: inline ping-pong | 801 | 800 |
+  | D: parked ping-pong | 400 | 2,400 |
+  | B: timer ticks | 150 | 200 |
+  | C: 150 ms blocked window | 3 | 4 |
+
+  In the blocked window the loop is blocked, not polling, on both backends.
+- **Throughput on the same runner** (epoll/ring ops-per-second ratio): inline
+  ping-pong 1.36, parked ping-pong 0.65, timers 0.97, files 1.17. The ratchet
+  floors in `scripts/bench/io-floors.env` are set from that table.
+- **Released:** Phases 1–2 and 5–6 in v0.2.45, Phase 3 by that release's
+  `SEED_VERSION` bump (9aead9775), and Phase 4 in #950. The audit follow-up
+  below (#964) landed after them.
+
+History (the phase-by-phase record as it was written):
 
 **Landed:** Phase 0 (this doc + the issue), Phase 1 (the vendored ring layer; PR #953 —
 `yo check ./src` 279/279, emit-diff clean, probe binaries link and run with zero
 `io_uring_*` undefined symbols, 5 internal pins), Phase 2 (docs en/zh + the
 PORTABLE_C trap note + the 256→1024 SQE doc fix; PR #947), Phase 5 (the epoll fallback
 + ladder; every gate green incl. the Docker default-seccomp leg — the issue is closed
-and moved to `fixed/`). Open: Phase 3 (waits on the release train), Phase 4 (seed-gated cleanup — the
-gate is `SEED_VERSION` at or past the FIRST release built from Phase 1, which
-is v0.2.45+ since v0.2.44 was cut from develop before this stack merged).
+and moved to `fixed/`), Phase 3 (v0.2.45 shipped; `SEED_VERSION` bumped to it),
+Phase 4 (#950).
 
 **Phase 6 landed** (PR #949): G1 zero-regression (emit-diff + the A/B bench:
 echo identical, timer/file within variance); G2
