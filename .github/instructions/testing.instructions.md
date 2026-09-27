@@ -609,6 +609,16 @@ YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-def
 Check the diff says only that the line numbers moved. A changed URI, a changed
 character column, or a missing result is a real regression.
 
+## Editing diagnostic prose in `src/diagnostics_registry.yo` changes a cli-case golden
+
+`tests/cli-cases/explain-list` runs `yo explain --list`, and its
+`expected_stdout` embeds every registered diagnostic's English summary verbatim.
+Rewording one therefore turns the self-hosted tier-1 gate (GATE 7) red with a
+one-line GOLDEN-DIFF. In 2026-09 this was E0904 gaining `return(...)`. After
+the reword, re-record that case with a binary built from the SAME tree
+(`scripts/cli-diff-test.sh --record explain-list`). A binary built before a
+merge from `develop` silently drops the other side's new codes.
+
 ## Editing ANY file under `.github/skills/` re-records SEVEN cli-cases
 
 `yo skills install` (restored in #412) copies the skill tree into a project, and
