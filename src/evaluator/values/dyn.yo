@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, with_code } :: import("../../error.yo");
+{ E_TYPE_MISMATCH } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
@@ -509,6 +510,27 @@ _generic_impl_method_for_dyn :: (
     .None => Option(EvalValue).None
   )
 });
+/// `dyn(d)` of a value that is already a `Dyn` is an error: the payload
+/// behind `d` is erased, so there is no concrete type to build a vtable from.
+/// Converting to a `Dyn` with fewer traits is `upcast(d, Dyn(...))`
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
+/// accepted it and codegen wrote its refusal into the C as a comment
+/// (issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md).
+_reject_dyn_of_dyn :: (fn(ty : TypeValue, tok : Token, exn : Exception) -> unit)({
+  if(is_dyn_type(ty), {
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message(
+            tok,
+            `dyn(...) of a value that is already a Dyn (${type_to_string(ty)}): its concrete type is erased, so there is nothing to build a new vtable from.\nUse the value as it is, or upcast(value, Dyn(...)) to keep fewer of its traits.`
+          ),
+          E_TYPE_MISMATCH
+        )
+      )
+    );
+  });
+});
 _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   // Resolve trait methods on the UNDERLYING type when the payload is a Box.
@@ -783,6 +805,7 @@ evaluate_dyn_value :: (
     // the trait bound against it would report "unit does not implement …" on top
     // of whatever really failed inside the inner.
     ne_have_inner_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(_) => true, .None => false);
+    _reject_dyn_of_dyn(ne_value_type.clone(), expr_tok, exn);
     // Auto-box a non-object, non-dyn payload (always boxed), evaluating the
     // synthetic `box(value)` with the EXPECTED
     // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
@@ -918,6 +941,7 @@ evaluate_dyn_value :: (
     }
   );
   (value_type : TypeValue) = inner_info.ty;
+  _reject_dyn_of_dyn(value_type.clone(), expr_tok, exn);
   (cur_env : Environment) = expr_info_adopt_env(inner_info);
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType

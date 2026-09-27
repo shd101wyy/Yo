@@ -11,6 +11,104 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { CodeGenContext, DynImplEntry, type_key } :: import("./index.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ EvalValue } :: import("../../value.yo");
+{ are_types_compatible_exact } :: import("../../types/compatibility.yo");
+/// Does this required trait carry one trait value in a `DynImplEntry`?
+/// (`_resolve_dyn_trait_values`, evaluator/values/dyn.yo, pushes one per
+/// `TraitT` / `FnTraitT` and none for anything else.)
+_carries_trait_value :: (fn(t : TypeValue) -> bool)(
+  match(t, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, .FnTraitT(_, _, _, _, _, _, _, _) => true, _ => false)
+);
+/// The trait values of `entry` for the traits `tgt` requires, in `tgt`'s
+/// order. Every target trait is one of the source's (the evaluator checked
+/// the upcast), so each is found.
+_upcast_trait_values :: (fn(entry : DynImplEntry, tgt : TypeValue) -> ArrayList(EvalValue))({
+  out := ArrayList(EvalValue).new();
+  src_req := match(entry.dyn_type.clone(), .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  tgt_req := match(tgt, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  (ti : usize) = usize(0);
+  while(ti < tgt_req.len(), {
+    tt := match(tgt_req.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+    if(_carries_trait_value(tt.clone()), {
+      (si : usize) = usize(0);
+      (vi : usize) = usize(0);
+      (found : bool) = false;
+      while((si < src_req.len()) && !found, {
+        st := match(src_req.get(si), .Some(t) => t, .None => TypeValue.Unit);
+        if(_carries_trait_value(st.clone()), {
+          if(are_types_compatible_exact(st, tt.clone()), {
+            match(entry.trait_values.get(vi), .Some(v) => out.push(v), .None => ());
+            found = true;
+          });
+          vi = (vi + usize(1));
+        });
+        si = (si + usize(1));
+      });
+    });
+    ti = (ti + usize(1));
+  });
+  out
+});
+/// For every `upcast(src, tgt)` the program contains and every (concrete,
+/// src) impl, register the (concrete, tgt) impl: the target vtable the
+/// source vtable's `__yo_up_<Tgt>` slot points at
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Runs before
+/// `fixup_dyn_impl_keys`, on the id-keyed map, so the new entries are
+/// re-keyed with the rest. Iterates until no entry is added, so a chain
+/// (`Dyn(A, B, C)` → `Dyn(A, B)` → `Dyn(A)`) reaches every link.
+register_dyn_upcast_targets :: (fn(context : CodeGenContext) -> unit)({
+  if(context.dyn_upcasts.is_empty(), {
+    return(());
+  });
+  (changed : bool) = true;
+  while(changed, {
+    changed = false;
+    keys := ArrayList(String).new();
+    kit := context.dyn_impls.keys();
+    (kdone : bool) = false;
+    while(!kdone, {
+      match(
+        kit.next(),
+        .Some(k) => {
+          keys.push(k);
+        },
+        .None => {
+          kdone = true;
+        }
+      );
+    });
+    (i : usize) = usize(0);
+    while(i < keys.len(), {
+      key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+      match(
+        context.dyn_impls.get(key),
+        .Some(entry) => {
+          targets := context.dyn_upcast_targets(entry.dyn_type.clone());
+          (t : usize) = usize(0);
+          while(t < targets.len(), {
+            tgt := match(targets.get(t), .Some(x) => x, .None => TypeValue.Unit);
+            tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
+            if(context.dyn_impls.get(tkey.clone()).is_none(), {
+              context.register_dyn_impl(
+                tkey,
+                DynImplEntry(
+                  dyn_type : tgt.clone(),
+                  concrete_type : entry.concrete_type.clone(),
+                  data_type : entry.data_type.clone(),
+                  trait_values : _upcast_trait_values(entry, tgt)
+                )
+              );
+              changed = true;
+            });
+            t = (t + usize(1));
+          });
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  });
+});
 /// Fix up dyn impl keys to use C names instead of ids.
 fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
   new_map := HashMap(String, DynImplEntry).new();
@@ -57,4 +155,4 @@ fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
   });
   context.dyn_impls = new_map;
 });
-export(fixup_dyn_impl_keys);
+export(fixup_dyn_impl_keys, register_dyn_upcast_targets);

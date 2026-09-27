@@ -1,4 +1,4 @@
-//! `downcast(dyn_value, T)` emitter.
+//! `downcast(dyn_value, T)` and `upcast(dyn_value, Dyn(Tgt))` emitters.
 //!
 //! Safe downcast returning `Option(T)`. Dyn only wraps object types, so the
 //! result is an owned RC reference (we dup, since the Dyn also holds one). The
@@ -255,4 +255,43 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     }
   )
 });
-export(generate_downcast);
+/// Is `s` one plain C identifier (a local, a temp) — safe to name twice?
+_is_plain_c_identifier :: (fn(s : String) -> bool)({
+  if(s.len() == usize(0), {
+    return(false);
+  });
+  bytes := s.as_bytes();
+  (i : usize) = usize(0);
+  while(i < bytes.len(), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    ok := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)));
+    if(!(ok), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// Generate code for `upcast(dyn_value, Dyn(Tgt...))`
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the same payload, retained
+/// through the source vtable's RC slot (the result is owned, like a
+/// downcast's), behind the payload's vtable for the target, which the source
+/// vtable carries as `__yo_up_<Tgt>`.
+generate_upcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
+  dyn_ei := match(context.base.get_expr_info(dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
+  dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
+  tgt_c := get_type_string(ei.ty, context.base);
+  // Name the source once: a call operand must not run twice.
+  src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
+    src_c := get_type_string(dyn_ei.ty, context.base);
+    uid := fresh_local_name(String.from("u"), context.base.current_function_name);
+    src_var := `__yo_uc_src_${uid}`;
+    context.base.emitter.emit_string_line(`${indent.clone()}${src_c} ${src_var} = ${dyn_code};`);
+    src_var
+  });
+  `((${tgt_c}){ .data = __yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable), .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
+});
+export(generate_downcast, generate_upcast);

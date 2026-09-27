@@ -564,8 +564,57 @@ impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : Dyn(_OsSp)) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
-  comptime_expect_error(_os_takes_sp(both), "Yo does not upcast Dyn");
+  comptime_expect_error(_os_takes_sp(both), "write upcast(value, Dyn(...))");
   assert(both.speak() == i32(3), "the value itself is fine");
+});
+// Explicit upcast (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the same payload
+// behind a Dyn with fewer traits. The source vtable carries the target
+// vtable, so each concrete type dispatches to its own impl.
+_UpDog :: ref(struct(n : i32));
+impl(_UpDog, _OsSp(speak : (self -> (self.n * i32(10)))));
+impl(_UpDog, _OsOt(other_n : (self -> i32(2))));
+_up_both :: (fn(k : i32) -> Dyn(_OsSp, _OsOt))(
+  cond((k == i32(0)) => dyn(_OsCat(n : i32(3))), true => dyn(_UpDog(n : i32(4))))
+);
+test("Dyn: upcast drops traits and keeps each payload's impls", {
+  (cat : Dyn(_OsSp, _OsOt)) = _up_both(i32(0));
+  (dog : Dyn(_OsSp, _OsOt)) = _up_both(i32(1));
+  (cs : Dyn(_OsSp)) = upcast(cat, Dyn(_OsSp));
+  (ds : Dyn(_OsSp)) = upcast(dog, Dyn(_OsSp));
+  (dot : Dyn(_OsOt)) = upcast(dog, Dyn(_OsOt));
+  assert(_os_takes_sp(cs) == i32(3), "the cat's speak");
+  assert(_os_takes_sp(ds) == i32(40), "the dog's speak");
+  assert(dot.other_n() == i32(2), "the dog's other_n");
+  assert(cat.other_n() == i32(1), "the source is still usable");
+  // The payload is shared: the upcast Dyn downcasts back to it.
+  assert(downcast(ds, _UpDog).is_some(), "the payload behind the upcast Dyn");
+  assert(downcast(cs, _UpDog).is_none(), "a cat is not a dog");
+  // A call operand is evaluated once.
+  (tmp_s : Dyn(_OsSp)) = upcast(_up_both(i32(1)), Dyn(_OsSp));
+  assert(tmp_s.speak() == i32(40), "upcast of a call result");
+});
+test("Dyn: upcast of an AnyError to its ToString supertrait", {
+  (e : AnyError) = dyn(_UpErr.Bad);
+  (ts : Dyn(ToString)) = upcast(e, Dyn(ToString));
+  assert(ts.to_string() == String.from("bad"), "the supertrait's slot");
+});
+_UpErr :: enum(Bad);
+impl(_UpErr, ToString(to_string : (self -> String.from("bad"))));
+impl(_UpErr, Error());
+test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {
+  (one : Dyn(_OsSp)) = dyn(_OsCat(n : i32(3)));
+  comptime_expect_error(upcast(one, Dyn(_OsSp, _OsOt)), "upcast cannot add a trait");
+  comptime_expect_error({
+    (again : Dyn(_OsSp)) = dyn(one);
+  }, "already a Dyn");
+  assert(one.speak() == i32(3), "the value itself is fine");
+});
+// issues/fixed/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md
+_ClA :: trait(get : (fn(self : Self) -> i32));
+_ClB :: trait(get : (fn(self : Self) -> i32));
+test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
+  comptime_expect_error(Dyn(_ClA, _ClB), "cannot hold two methods named");
+  assert(true, "rejected");
 });
 // issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md: this module
 // imports `std/libc/stdio`, whose `Option(*(FILE))` instance the CTFE memo used

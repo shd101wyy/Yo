@@ -49,6 +49,7 @@ json :: import("std/encoding/json");
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
   E_ARGUMENT_LABEL_MISMATCH,
+  E_AMBIGUOUS_METHOD,
   E_NEVER_FULLY_EVALUATED,
   E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
@@ -706,6 +707,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(x : i32(1), y : i32(2));\n",
       "The first parameter is `x`; the label `y` does not move the argument to `y`.",
       "第一个形参是 `x`；标签 `y` 不会把实参挪到 `y`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_AMBIGUOUS_METHOD,
+      "two traits supply a method of the same name",
+      "两个 trait 提供了同名方法",
+      "Two traits both supply a method with this name, and nothing says which one is meant.",
+      "两个 trait 都提供了这个名字的方法，而代码没有说明指的是哪一个。",
+      "A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name: `d.get()` could not say which trait's `get` it means. Keep only one of the two traits in the `Dyn`, or rename one of the methods.",
+      "`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 不能同时带有两个都声明了同名可调用方法的 trait：`d.get()` 无法说明它指的是哪个 trait 的 `get`。请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
+      "`A` and `B` both give `Dyn(A, B)` a `get` slot; renaming `B`'s method removes the clash.",
+      "`A` 和 `B` 都给 `Dyn(A, B)` 提供了 `get` 槽位；给 `B` 的方法改名即可消除冲突。"
     )
   );
   out

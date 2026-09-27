@@ -1,9 +1,17 @@
-//! evaluator/builtins/downcast — implements evaluate_downcast.
+//! evaluator/builtins/downcast — the two `Dyn` conversions.
 //!
-//! Evaluates `downcast(dyn_value, T)`:
+//! `downcast(dyn_value, T)`:
 //!   - Checks the first argument has a Dyn type.
 //!   - Checks the second argument is a type value.
 //!   - Returns Option(T) as a runtime unknown value.
+//!
+//! `upcast(dyn_value, Dyn(Tgt...))` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8):
+//!   - Checks the first argument has a Dyn type and the second is a Dyn type.
+//!   - Checks every trait the target requires is one the source carries, and
+//!     every trait the target excludes is one the source excludes: an upcast
+//!     only drops traits, so it cannot fail at run time.
+//!   - Returns the target Dyn as a runtime unknown value (an owned Dyn that
+//!     shares the source's payload; codegen retains it).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 {
@@ -12,7 +20,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_id,
   make_err_expr,
   expect_expr_to_be_fn_call_of,
-  BF_DOWNCAST
+  BF_DOWNCAST,
+  BF_UPCAST
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -30,7 +39,10 @@ pragma(Pragma.AllowUnsafe);
 { create_option_type } :: import("./rc_fns.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
+{ are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
 /// Evaluate `downcast(dyn_value, T)`.
 ///
@@ -140,4 +152,158 @@ evaluate_downcast :: (
   attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });
-export(evaluate_downcast);
+/// Is `t` one of `list` (the identity relation on trait types)?
+_trait_in :: (fn(t : TypeValue, list : ArrayList(TypeValue)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    if(match(list.get(i), .Some(x) => are_types_compatible_exact(x, t), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Evaluate `upcast(dyn_value, Dyn(Tgt...))`: the same payload behind a Dyn
+/// with fewer traits. Checked here, so it returns the Dyn (no `Option`).
+/// Codegen reads the target vtable out of the source vtable
+/// (`__yo_up_<Tgt>`, filled per concrete type at every `dyn()` site of the
+/// source Dyn).
+evaluate_upcast :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  (cur_env : Environment) = env;
+  expect_expr_to_be_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2)), exn);
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  dyn_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  eval_dyn_expr := evaluate_expression(dyn_expr, cur_env, ctx);
+  dyn_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_dyn_expr)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_eval_failure(
+            ast_expr_token(dyn_expr),
+            String.from("Failed to evaluate dyn value argument for upcast.")
+          )
+        )
+      );
+      return(expr);
+    }
+  );
+  cur_env = expr_info_adopt_env(dyn_info);
+  src_type := dyn_info.ty;
+  if(!is_dyn_type(src_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(dyn_expr),
+          `upcast expects a Dyn value as first argument, got ${type_to_string(src_type)}.`
+        )
+      )
+    );
+  });
+  type_expr := match(
+    args.get(usize(1)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  eval_type_expr := evaluate_expression(type_expr, cur_env, ctx);
+  type_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_eval_failure(
+            ast_expr_token(type_expr),
+            String.from("Failed to evaluate type argument for upcast.")
+          )
+        )
+      );
+      return(expr);
+    }
+  );
+  cur_env = expr_info_adopt_env(type_info);
+  target_type := match(
+    type_info.value,
+    .Some(v) => match(v, .TypeVal(ty_box) => ty_box, _ => TypeValue.Unit),
+    .None => TypeValue.Unit
+  );
+  if(!is_dyn_type(target_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(type_expr),
+          `upcast expects a Dyn type as second argument, got ${type_to_string(type_info.ty)}.`
+        )
+      )
+    );
+  });
+  src_req := match(src_type, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  src_neg := match(src_type, .DynT({ negative_trait_types : n }) => n, _ => ArrayList(TypeValue).new());
+  tgt_req := match(target_type, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  tgt_neg := match(target_type, .DynT({ negative_trait_types : n }) => n, _ => ArrayList(TypeValue).new());
+  (ri : usize) = usize(0);
+  while(ri < tgt_req.len(), {
+    rt := match(tgt_req.get(ri), .Some(t) => t, .None => TypeValue.Unit);
+    if(!_trait_in(rt, src_req), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message(
+              ast_expr_token(expr),
+              `upcast cannot add a trait: ${type_to_string(target_type)} requires ${type_to_string(rt)}, which ${type_to_string(src_type)} does not carry.\nAn upcast only drops traits. Call dyn(...) on the concrete value with the traits the destination needs, or downcast(...) first.`
+            ),
+            E_TRAIT_NOT_IMPLEMENTED
+          )
+        )
+      );
+    });
+    ri = (ri + usize(1));
+  });
+  (ni : usize) = usize(0);
+  while(ni < tgt_neg.len(), {
+    nt := match(tgt_neg.get(ni), .Some(t) => t, .None => TypeValue.Unit);
+    if(!_trait_in(nt, src_neg), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message(
+              ast_expr_token(expr),
+              `upcast cannot add an exclusion: ${type_to_string(target_type)} excludes ${type_to_string(nt)}, which ${type_to_string(src_type)} does not exclude, so the payload might implement it.`
+            ),
+            E_TRAIT_NOT_IMPLEMENTED
+          )
+        )
+      );
+    });
+    ni = (ni + usize(1));
+  });
+  result_value := create_unknown_val(target_type);
+  out_info := new_expr_info(cur_env, target_type);
+  out_info.value = Option(EvalValue).Some(result_value);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  attach_temp_variable_to_expr(expr, true, ctx);
+  expr
+});
+export(evaluate_downcast, evaluate_upcast);
