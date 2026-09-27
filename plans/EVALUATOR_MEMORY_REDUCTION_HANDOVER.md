@@ -41,8 +41,10 @@ sections, and several of its claims did not survive review (see §1.1).
   CI jobs "Evaluator memory ratchet" and "Compiler build inside 8 GB"). A win
   turns CI red: read the measured kB from those two job logs and lower the
   baselines in the same PR. Current baselines: `check_src_main_max_rss_kb
-  1191996` and `compile_src_main_peak_kb 3527328` (§0.19's PR lowers the
-  first; read its CI log).
+  1071836` (lowered by §0.19's PR, from CI's own reading) and
+  `compile_src_main_peak_kb 3527328`. The compile peak did not move with
+  §0.19 (3,525,848 kB measured): that job's peak is not the evaluator's
+  exit retention.
 - **Measuring.**
   - On macOS, footprint noise is about ±180 MB for one binary. Use three or
     more interleaved pairs on a quiet machine.
