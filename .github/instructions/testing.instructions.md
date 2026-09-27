@@ -1097,6 +1097,8 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   that is NOT a codegen change. Compile both sides with the same
   `YO_STD=<abs>/std` before diffing; then all diff hunks must sit inside the
   runtime region (`Platform-specific sync helpers (Linux)` .. `__yo_main_thread_entry`).
-- A user program compiled on Linux needs no liburing anywhere in the pipeline;
-  a `yo` built by a pre-`DROP_LIBURING` seed still links that seed's liburing
-  runtime (the seed-lag table in `plans/DROP_LIBURING.md` §5) — not a bug.
+- Nothing in the Linux pipeline needs liburing: user programs, the `yo`
+  binary, stage-1 and the published bundles (seed v0.2.45 on) all carry the
+  vendored ring layer. Only a `yo` built by a PRE-v0.2.45 seed links liburing
+  (the seed-lag table in `plans/DROP_LIBURING.md` §5) — rebuild with a current
+  seed rather than installing the library.
