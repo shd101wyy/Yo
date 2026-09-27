@@ -264,8 +264,8 @@ _is_plain_c_identifier :: (fn(s : String) -> bool)({
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
-    ok := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)));
-    if(!(ok), {
+    ok := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))));
+    if(!ok, {
       return(false);
     });
     i = (i + usize(1));
@@ -289,7 +289,9 @@ generate_upcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     src_c := get_type_string(dyn_ei.ty, context.base);
     uid := fresh_local_name(String.from("u"), context.base.current_function_name);
     src_var := `__yo_uc_src_${uid}`;
-    context.base.emitter.emit_string_line(`${indent.clone()}${src_c} ${src_var} = ${dyn_code};`);
+    line := `${indent.clone()}${src_c} ${src_var} = ${dyn_code};`;
+    em := context.base.emitter;
+    em.emit_string_line(line);
     src_var
   });
   `((${tgt_c}){ .data = __yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable), .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
