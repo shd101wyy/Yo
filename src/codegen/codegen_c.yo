@@ -111,6 +111,15 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
         od_is_future => true,
         true => false
       );
+      // A Future interface met while the declaration passes are still
+      // running: forward typedef only (every use of the interface is through
+      // a pointer); pass 5 emits the body after the pass that declares its
+      // result type. Emitting it here put `String result;` ahead of String's
+      // typedef (issues/fixed/future-interface-body-emitted-before-its-result-type.md).
+      od_defer_body := (od_is_future && !context.type_declaration_passes_done);
+      if(od_defer_body && context.on_demand_fwd_only.contains_key(od_cn.clone()), {
+        return(());
+      });
       if(od_need_fwd, {
         od_l := String.from("typedef struct ");
         od_l.push_string(od_cn.clone());
@@ -122,6 +131,10 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
       // Record the body emission so the declaration passes skip this C name
       // (they may not have reached it yet — the hook can fire DURING a pass).
       // Mark before emitting, matching type_id_static_names' stance.
+      if(od_defer_body, {
+        _r := context.on_demand_fwd_only.insert(od_cn.clone(), od_ty);
+        return(());
+      });
       if(od_is_struct || od_is_enum || od_is_tuple || od_is_union || od_is_future, {
         context.on_demand_body_cnames.insert(od_cn.clone());
       });

@@ -2169,6 +2169,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
     );
   });
   // Fifth pass: dyn / union / future-trait declarations.
+  pass5_futures := HashSet(String).new();
   okeys := context.types.keys();
   (go : bool) = true;
   while(go, {
@@ -2185,7 +2186,10 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             cond(
               is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
               (is_union_type(ty) && !od_done) => generate_union_declaration(ty, entry.c_name.clone(), context),
-              (is_future_trait_type(ty) && !od_done) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
+              (is_future_trait_type(ty) && !od_done) => {
+                pass5_futures.insert(entry.c_name.clone());
+                generate_future_trait_declaration(ty, entry.c_name.clone(), context);
+              },
               true => ()
             )
           );
@@ -2197,6 +2201,31 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       }
     );
   });
+  // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
+  // walk did not reach (the hook met them DURING pass 5).
+  fwd_keys := context.on_demand_fwd_only.keys();
+  (g_fwd : bool) = true;
+  while(g_fwd, {
+    match(
+      fwd_keys.next(),
+      .Some(fcn) => if(!pass5_futures.contains(fcn.clone()) && !context.on_demand_body_cnames.contains(fcn.clone()), {
+        match(
+          context.on_demand_fwd_only.get(fcn.clone()),
+          .Some(fty) => {
+            context.on_demand_body_cnames.insert(fcn.clone());
+            generate_future_trait_declaration(fty, fcn.clone(), context);
+          },
+          .None => ()
+        );
+      }),
+      .None => {
+        g_fwd = false;
+      }
+    );
+  });
+  // Every declaration pass has run: an on-demand Future interface from here
+  // on gets its body at once (see CodeGenContext.type_declaration_passes_done).
+  context.type_declaration_passes_done = true;
 });
 export(
   generate_str_type_declaration,
