@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val
 } :: import("../../value.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -191,8 +191,11 @@ try_to_convert_to_numeric_type :: (
   // Evaluate the argument with no expectedType (let it resolve its natural type).
   saved_expected := ctx.expected_type;
   ctx.expected_type = .None;
-  evaluated := evaluate_expression(arg_expr, caller_env, ctx);
+  evaluated_gout := ArrayList(AstExpr).new();
+  evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, evaluated_gout);
   ctx.expected_type = saved_expected;
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   if(info_opt.is_none(), {
     exn.throw(

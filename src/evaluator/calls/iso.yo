@@ -8,7 +8,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { set_variable_as_consumed } :: import("../builtins/consume.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
@@ -463,8 +463,11 @@ evaluate_iso_value_call :: (
   // Evaluate with expected type = iso_child_type.
   saved_expected := ctx.expected_type;
   ctx.expected_type = .Some(ExpectedTypeCtx(ty : iso_child_type, env : env));
-  evaluated_arg := evaluate_expression(arg_expr, env, ctx);
+  evaluated_arg_gout := ArrayList(AstExpr).new();
+  evaluated_arg_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_arg_gout);
   ctx.expected_type = saved_expected;
+  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
+  evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
   if(arg_info_opt.is_none(), {
     exn.throw(

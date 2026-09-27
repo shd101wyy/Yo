@@ -47,7 +47,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
 // Local comptime-only check covering the primitive cases the evaluator
 // actually hits for tuple element types today.
 is_comptime_only_type_local :: (fn(t : TypeValue) -> bool)(
@@ -151,8 +151,11 @@ evaluate_tuple_element_value :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : env)),
     .None => Option(ExpectedTypeCtx).None
   );
-  evaluated_rhs := evaluate_expression(expr, env, ctx);
+  evaluated_rhs_gout := ArrayList(AstExpr).new();
+  evaluated_rhs_gerr := evaluate_expression_guarded(expr, env, ctx, evaluated_rhs_gout);
   ctx.expected_type = saved_expected;
+  match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
+  evaluated_rhs := match(evaluated_rhs_gout.get(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
   // Mark the field value copy-semantics: a named RC value moved into the
   // tuple literal gets a deferred `___dup` (without it the literal aliased
   // the element's refcount and scope-end drops over-released, rc layer 4).

@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 {
   generate_expr_from_code,
   generate_exprs_from_code
@@ -218,9 +218,12 @@ evaluate_yo_are_types_compatible :: (
   saved_self := ctx.self_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
-  eval_0 := evaluate_expression(arg0, env, ctx);
+  eval_0_gout := ArrayList(AstExpr).new();
+  eval_0_gerr := evaluate_expression_guarded(arg0, env, ctx, eval_0_gout);
   ctx.expected_type = saved_expected;
   ctx.self_type = saved_self;
+  match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
+  eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
     .Some(i) => i,
@@ -251,9 +254,12 @@ evaluate_yo_are_types_compatible :: (
   // Evaluate given type.
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
-  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  eval_1_gout := ArrayList(AstExpr).new();
+  eval_1_gerr := evaluate_expression_guarded(arg1, cur_env, ctx, eval_1_gout);
   ctx.expected_type = saved_expected;
   ctx.self_type = saved_self;
+  match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
+  eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
   info_1 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
     .Some(i) => i,
@@ -323,9 +329,12 @@ evaluate_yo_are_types_equal :: (
   saved_self := ctx.self_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
-  eval_0 := evaluate_expression(arg0, env, ctx);
+  eval_0_gout := ArrayList(AstExpr).new();
+  eval_0_gerr := evaluate_expression_guarded(arg0, env, ctx, eval_0_gout);
   ctx.expected_type = saved_expected;
   ctx.self_type = saved_self;
+  match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
+  eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
     .Some(i) => i,
@@ -345,9 +354,12 @@ evaluate_yo_are_types_equal :: (
   cur_env := expr_info_adopt_env(info_0);
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
-  eval_1 := evaluate_expression(arg1, cur_env, ctx);
+  eval_1_gout := ArrayList(AstExpr).new();
+  eval_1_gerr := evaluate_expression_guarded(arg1, cur_env, ctx, eval_1_gout);
   ctx.expected_type = saved_expected;
   ctx.self_type = saved_self;
+  match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
+  eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
   info_1 := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
     .Some(i) => i,
@@ -689,8 +701,11 @@ _ti_eval_code :: (
   code_expr := generate_expr_from_code(code.clone(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
-  result_ast := evaluate_expression(code_expr, env_ptr, ctx);
+  result_ast_gout := ArrayList(AstExpr).new();
+  result_ast_gerr := evaluate_expression_guarded(code_expr, env_ptr, ctx, result_ast_gout);
   ctx.force_compile_time_bindings = old_force;
+  match(result_ast_gerr, .Some(result_ast_ge) => exn.throw(result_ast_ge), .None => ());
+  result_ast := match(result_ast_gout.get(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
     .Some(i) => i,
@@ -724,8 +739,11 @@ _ti_bind_comptime_list :: (
     type_ast := generate_expr_from_code(type_name.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
-    type_result_ast := evaluate_expression(type_ast, env_ptr, ctx);
+    type_result_ast_gout := ArrayList(AstExpr).new();
+    type_result_ast_gerr := evaluate_expression_guarded(type_ast, env_ptr, ctx, type_result_ast_gout);
     ctx.force_compile_time_bindings = old_force;
+    match(type_result_ast_gerr, .Some(type_result_ast_ge) => exn.throw(type_result_ast_ge), .None => ());
+    type_result_ast := match(type_result_ast_gout.get(usize(0)), .Some(type_result_ast_g) => type_result_ast_g, .None => make_err_expr());
     type_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(type_result_ast)),
       .Some(i) => i,
@@ -1138,8 +1156,11 @@ evaluate_yo_type_get_info :: (
     unit_ast := generate_expr_from_code(String.from("TypeInfo.Unit"), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
-    unit_result := evaluate_expression(unit_ast, local_env, ctx);
+    unit_result_gout := ArrayList(AstExpr).new();
+    unit_result_gerr := evaluate_expression_guarded(unit_ast, local_env, ctx, unit_result_gout);
     ctx.force_compile_time_bindings = old_force;
+    match(unit_result_gerr, .Some(unit_result_ge) => exn.throw(unit_result_ge), .None => ());
+    unit_result := match(unit_result_gout.get(usize(0)), .Some(unit_result_g) => unit_result_g, .None => make_err_expr());
     unit_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(unit_result)),
       .Some(i) => i,
@@ -1366,8 +1387,11 @@ evaluate_yo_type_get_info :: (
   info_expr := generate_expr_from_code(code.clone(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
-  result_ast := evaluate_expression(info_expr, local_env, ctx);
+  result_ast_gout := ArrayList(AstExpr).new();
+  result_ast_gerr := evaluate_expression_guarded(info_expr, local_env, ctx, result_ast_gout);
   ctx.force_compile_time_bindings = old_force;
+  match(result_ast_gerr, .Some(result_ast_ge) => exn.throw(result_ast_ge), .None => ());
+  result_ast := match(result_ast_gout.get(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
     .Some(i) => i,
@@ -1457,8 +1481,11 @@ evaluate_comptime_eval :: (
     code_expr := match(code_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = false;
-    ce_result := evaluate_expression(code_expr, local_env, ctx);
+    ce_result_gout := ArrayList(AstExpr).new();
+    ce_result_gerr := evaluate_expression_guarded(code_expr, local_env, ctx, ce_result_gout);
     ctx.force_compile_time_bindings = old_force;
+    match(ce_result_gerr, .Some(ce_result_ge) => exn.throw(ce_result_ge), .None => ());
+    ce_result := match(ce_result_gout.get(usize(0)), .Some(ce_result_g) => ce_result_g, .None => make_err_expr());
     ce_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(ce_result)),
       .Some(i) => i,
@@ -1810,9 +1837,12 @@ evaluate_type_join_fields :: (
     old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
-    call_result := evaluate_expression(call_ast, local_env, ctx);
+    call_result_gout := ArrayList(AstExpr).new();
+    call_result_gerr := evaluate_expression_guarded(call_ast, local_env, ctx, call_result_gout);
     ctx.force_compile_time_bindings = old_force;
     ctx.expected_type = old_expected;
+    match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
+    call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,
@@ -2042,9 +2072,12 @@ evaluate_type_map_variants :: (
     old_expected := ctx.expected_type;
     ctx.force_compile_time_bindings = true;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
-    call_result := evaluate_expression(call_ast, local_env, ctx);
+    call_result_gout := ArrayList(AstExpr).new();
+    call_result_gerr := evaluate_expression_guarded(call_ast, local_env, ctx, call_result_gout);
     ctx.force_compile_time_bindings = old_force;
     ctx.expected_type = old_expected;
+    match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
+    call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
       .Some(i) => i,

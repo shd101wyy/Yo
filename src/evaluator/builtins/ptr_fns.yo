@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 {
   ExprInfo,
   ComptimeRef,
@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
@@ -99,8 +99,11 @@ evaluate_address_call :: (
     },
     .None => ()
   );
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  eval_arg_gout := ArrayList(AstExpr).new();
+  eval_arg_gerr := evaluate_expression_guarded(arg_expr, env, ctx, eval_arg_gout);
   ctx.expected_type = old_expected;
+  match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());
+  eval_arg := match(eval_arg_gout.get(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
   match(
     arg_info_opt,

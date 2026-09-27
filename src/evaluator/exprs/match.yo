@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
   Pattern,
   Arm,
@@ -561,8 +561,11 @@ evaluate_match :: (
         // dispatch against an expected `bool`.
         old_expected_g := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).None;
-        evaluated_g := evaluate_expression(g, env, ctx);
+        evaluated_g_gout := ArrayList(AstExpr).new();
+        evaluated_g_gerr := evaluate_expression_guarded(g, env, ctx, evaluated_g_gout);
         ctx.expected_type = old_expected_g;
+        match(evaluated_g_gerr, .Some(evaluated_g_ge) => exn.throw(evaluated_g_ge), .None => ());
+        evaluated_g := match(evaluated_g_gout.get(usize(0)), .Some(evaluated_g_g) => evaluated_g_g, .None => make_err_expr());
         match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_g)),
           .Some(gi) => {
