@@ -188,7 +188,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_ARGUMENT_LABEL_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
@@ -2064,9 +2064,13 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
 /// call site in create_specialized_function_inline): the swallow handler is a
 /// capture-free `->` unwind, which exits THIS fn only — same pattern as
 /// function_type.yo's `_trial_eval_fn_body`.
+/// The error `_reeval_closure_body_swallow` ate (capture-free handler, so a
+/// module-level channel), for its caller's re-raise.
+(g_reeval_closure_err : ArrayList(YoError)) = ArrayList(YoError).new();
 _reeval_closure_body_swallow :: (
   fn(body : AstExpr, benv : Environment, ctx : EvalContext) -> unit
 )({
+  g_reeval_closure_err.clear();
   // YO_DEBUG_SWALLOW=1 prints `[reeval-swallow] <err>` (Phase 6 census: this
   // swallow runs with the closure's parameter types already substituted).
   rcb_exn := Exception(
@@ -2075,6 +2079,7 @@ _reeval_closure_body_swallow :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[reeval-swallow] ${_rcb_e.to_string()}`);
         });
+        match(downcast(_rcb_e, YoError), .Some(ye) => g_reeval_closure_err.push(ye), .None => ());
         unwind(())
       }
     )
@@ -4045,6 +4050,19 @@ create_specialized_function_inline :: (
                                     cw_pvi = (cw_pvi + usize(1));
                                   });
                                   _reeval_closure_body_swallow(cc_fvd.*.body, cw_benv, ctx);
+                                  // Phase 6 step 2 (census site #15): the
+                                  // parameters are this specialization's
+                                  // concrete types now, so a mismatch
+                                  // between two variable-free types in the
+                                  // closure body is the program's error.
+                                  match(
+                                    g_reeval_closure_err.get(usize(0)),
+                                    .Some(rc_err) => if(!(propagate_def_time_errors()) && match(rc_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+                                      g_reeval_closure_err.clear();
+                                      exn.throw(dyn(rc_err));
+                                    }),
+                                    .None => ()
+                                  );
                                 });
                               },
                               _ => ()
