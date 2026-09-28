@@ -15,6 +15,7 @@ pragma(Pragma.SkipWasm32Wasi); // no AF_UNIX in standalone WASI
 { remove_file } :: import("std/fs/dir");
 { platform, Platform } :: import("std/process");
 { temp_dir } :: import("std/env");
+{ sleep } :: import("std/sys/timer");
 
 _sock :: (fn(name : str) -> Path)(
   Path.new(temp_dir() + `/yo_unix_`.to_string() + String.from(name))
@@ -153,8 +154,9 @@ _unix_write_until_error :: (fn(s : UnixStream, io : Io) -> bool)({
   );
   e := IoExn(io : io, exn : exn);
   (i : i32) = i32(0);
-  while(i < i32(8), i = (i + i32(1)), {
+  while(i < i32(50), i = (i + i32(1)), {
     io.await(s.write_str("x", io), e);
+    io.await(sleep(u64(2)), e);
   });
   false
 });
