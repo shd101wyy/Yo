@@ -32,6 +32,7 @@
 { TokenKind } :: import("../../token.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
+{ _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder } :: import("../utils/index.yo");
@@ -2077,6 +2078,13 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
           matched_value_code.clone()
         );
         context.base.declared_c_var_names.insert(subject_var_name.clone());
+        // Inside a state machine the subject temp may also have an
+        // `sm->var_<id>` field (its scope-end drop lands in the completion
+        // state, which reads the field): store the value there too, or the
+        // drop releases calloc zero and the scrutinee leaks — the `match`
+        // after a hoisted `io.await` scrutinee is emitted by THIS generator
+        // (issues/fixed/an-awaited-match-scrutinee-is-never-released.md).
+        _store_temp_var_to_state_machine_if_needed(subject_var_name.clone(), indent.clone(), context);
         matched_value_code = subject_var_name;
       });
       // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
