@@ -2307,8 +2307,28 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     cp2 = (cp2 + usize(1));
   });
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(merged_aliases);
-  // Resume function (returns local-var drops).
+  // Resume function (returns local-var drops). It is its own C function, so
+  // it gets its own declared-name set and block-scope stack, seeded with its
+  // one parameter `sm`, exactly as generate_function does for a body. The
+  // drop gates read them (`_keep_pending_drop`, generate_deferred_drop_
+  // expressions): without its own stack, a temp the resume function declares
+  // was never on the stack the gate reads, so its scope-end drop was skipped
+  // (issues/fixed/an-awaited-match-scrutinee-is-never-released.md).
+  prev_declared := context.base.declared_c_var_names;
+  prev_scopes := context.base.declared_scopes;
+  prev_declared_ref := em.declared_ref;
+  prev_scope_ref := em.scope_ref;
+  context.base.declared_c_var_names = HashSet(String).new();
+  context.base.declared_c_var_names.insert(String.from("sm"));
+  context.base.declared_scopes = ArrayList(String).new();
+  context.base.declared_scopes.push(String.from("sm"));
+  em.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
+  em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
   local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
+  em.declared_ref = prev_declared_ref;
+  em.scope_ref = prev_scope_ref;
+  context.base.declared_c_var_names = prev_declared;
+  context.base.declared_scopes = prev_scopes;
   em.emit_string_line(String.from(""));
   // set_effect impl (emitted while SM vars are still in context).
   sync_param_slot := match(

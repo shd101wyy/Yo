@@ -3091,6 +3091,77 @@ test("Test await as the scrutinee of a bound match on a handle Option", {
   r := io.await(task, io);
   assert(r == usize(3), "the Some arm binds the awaited payload");
 });
+// An awaited scrutinee is released exactly once
+// (issues/fixed/an-awaited-match-scrutinee-is-never-released.md): 0 is the leak
+// (the value stayed in a C local while the completion state dropped its
+// never-assigned `sm->` field), 2 an over-release.
+(g_scrut_disposed : i32) = i32(0);
+ScrutPayload :: ref(struct(n : usize));
+impl(
+  ScrutPayload,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_scrut_disposed = (g_scrut_disposed + i32(1));
+    })
+  )
+);
+future_opt_payload :: (fn(n : usize, io : Io) -> Impl(Future(Option(ScrutPayload), Io)))({
+  count := Box(usize)(n);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(Option(ScrutPayload).Some(ScrutPayload(n : count.*)));
+  })
+});
+test("Test an awaited match scrutinee is released (statement form)", {
+  before := g_scrut_disposed;
+  task := io.async((io : Io) => {
+    (n : usize) = usize(0);
+    match(
+      io.await(future_opt_payload(usize(3), io), io),
+      .Some(p) => {
+        n = p.n;
+      },
+      .None => {
+        n = usize(99);
+      }
+    );
+    return(n);
+  });
+  r := io.await(task, io);
+  assert(r == usize(3), "the Some arm reads the awaited payload");
+  assert((g_scrut_disposed - before) == i32(1), "the awaited scrutinee is released exactly once");
+});
+test("Test an awaited match scrutinee is released (bound form)", {
+  before := g_scrut_disposed;
+  task := io.async((io : Io) => {
+    n := match(
+      io.await(future_opt_payload(usize(4), io), io),
+      .Some(p) => p.n,
+      .None => usize(99)
+    );
+    return(n);
+  });
+  r := io.await(task, io);
+  assert(r == usize(4), "the Some arm reads the awaited payload");
+  assert((g_scrut_disposed - before) == i32(1), "the awaited scrutinee is released exactly once");
+});
+test("Test an awaited match scrutinee whose payload escapes is released once", {
+  /// The arm moves the payload into a state-machine local; the completion
+  /// state must release it
+  /// (issues/fixed/a-state-machine-binding-from-a-match-arm-payload-is-released-only-on-escape.md).
+  before := g_scrut_disposed;
+  task := io.async((io : Io) => {
+    kept := match(
+      io.await(future_opt_payload(usize(5), io), io),
+      .Some(p) => p,
+      .None => ScrutPayload(n : usize(0))
+    );
+    return(kept.n);
+  });
+  r := io.await(task, io);
+  assert(r == usize(5), "the payload moved out of the arm");
+  assert((g_scrut_disposed - before) == i32(1), "the payload is released once, by its new owner");
+});
 test("Test await as the condition of a bound cond", {
   task := io.async((io : Io) => {
     v := cond(

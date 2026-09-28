@@ -208,6 +208,36 @@ _variable_initialized_after_cleanup_point :: (fn(init_token : Token, cleanup_exp
   !_token_is_at_or_before(init_token, cleanup_point)
 });
 /// Whether a pending drop should be emitted at this return's cleanup point.
+/// True when `v` is a state-machine local stored in the SM struct
+/// (`sm->var_<id>`): its storage is in scope for the whole resume function,
+/// so the block-scope stack, which only sees C declarations, cannot vouch
+/// for it. Resolved the way `_generate_sm_atom` renders the read (owner id
+/// for an alias binding, then the SSA remap; a match-arm destructure is a C
+/// local). Only the env path (a completion) asks: on an escape the SM's
+/// dispose releases these fields at `state == -2`
+/// (issues/fixed/a-state-machine-binding-from-a-match-arm-payload-is-released-only-on-escape.md).
+_drop_target_is_state_machine_field :: (fn(v : Variable, var_name : String, context : FunctionGenerationContext) -> bool)({
+  if(context.in_async_state_machine.is_none(), {
+    return(false);
+  });
+  if(match(context.local_shadowed_variables, .Some(ls) => ls.contains(var_name), .None => false), {
+    return(false);
+  });
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(false));
+  (var_id : String) = match(v.is_owning_the_same_rc_value_as, .Some(owner_box) => owner_box.*.id.to_string(), .None => v.id.to_string());
+  match(
+    context.variable_id_remapping,
+    .Some(rm) => match(
+      rm.get(var_id.clone()),
+      .Some(mapped) => {
+        var_id = mapped;
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(smv.get(var_id), .Some(cv) => match(cv.kind, .Local => true, .Outer => false), .None => false)
+});
 _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
   if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
@@ -316,7 +346,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // reference an out-of-scope identifier. A target absent from the stack holds
   // no C value here, so skipping its drop cannot double-free or leak.
   c_name := sanitize_for_c_identifier(var_name, false);
-  if(!scope_stack_contains(context.base.declared_scopes, c_name), {
+  if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes, c_name), {
     return(false);
   });
   match(
