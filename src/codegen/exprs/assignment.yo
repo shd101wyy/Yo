@@ -99,6 +99,10 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     });
   });
   lhs_type := lhs_ei.ty;
+  // Read and clear at once: only THIS assignment is the consumed one, never
+  // one nested in its operands.
+  save_by_bytes := context.consume_assignment_saves_by_bytes;
+  context.consume_assignment_saves_by_bytes = false;
   lhs_code := _call_generate_expr(lhs, indent.clone(), context);
   em := context.base.emitter;
   // Save the old value into the result temp (for a deferred drop of it).
@@ -111,9 +115,21 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         if(!is_unit_type(lhs_type), {
           save := indent.clone();
           save.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
-          save.push_str(" = ");
-          save.push_string(lhs_code.clone());
-          save.push_str("; // Save old value for later use");
+          if(save_by_bytes, {
+            // `consume(p.* = v)`: copy the bytes, never a typed load of a slot
+            // that may be uninitialized (see consume_assignment_saves_by_bytes).
+            save.push_str("; memcpy(&");
+            save.push_string(temp_var_name.clone());
+            save.push_str(", &(");
+            save.push_string(lhs_code.clone());
+            save.push_str("), sizeof(");
+            save.push_string(temp_var_name.clone());
+            save.push_str(")); // Save old value by bytes (consumed assignment)");
+          }, {
+            save.push_str(" = ");
+            save.push_string(lhs_code.clone());
+            save.push_str("; // Save old value for later use");
+          });
           em.emit_string_line(save);
         }),
         // The LHS is an sm-> slot. When the old-value temp was itself lowered

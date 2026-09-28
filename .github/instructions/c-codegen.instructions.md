@@ -240,6 +240,7 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
 - `--sanitize address` — AddressSanitizer for memory error and leak detection
 - `--sanitize leak` — LeakSanitizer for leak detection only
 - `--sanitize undefined` — UBSan, non-recovering (`-fno-sanitize-recover=all`): the first UB aborts
+- **A UBSan run on macOS misses reads of uninitialized HEAP memory that Linux reports**, because a fresh macOS allocation happens to be zeroed and a zero is a valid `bool`. Run the binary (or `yo test`) with `MallocScribble=1`, which fills every allocation with 0xAA, to reproduce Linux's `load of value N, which is not a valid value for type 'bool'` deterministically. Two emission patterns read uninitialized memory this way, and both are fixed: a by-value copy of `MaybeUninit(T).new()`, and the old-value save of `consume(p.* = v)`, which now uses `memcpy` (`issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md`). A new emitter that SAVES or COPIES a value it has not written must not load it as its type.
 - Example: `yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test`
 
 ## Debug flags

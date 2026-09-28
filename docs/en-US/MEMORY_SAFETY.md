@@ -62,6 +62,7 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 | `extern(...)` / `c_include(...)` declaration                 | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                  |
 | Pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`) | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                         |
 | `consume(p.* = v)` on a pointer                              | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                      |
+| Reading a `union(...)` member (`u.x`, `{ x } := u`)           | "Reading union member `x` of `U` requires `pragma(Pragma.AllowUnsafe);` in this file" | an `enum` with `match`: a union does not record which member was written, and reading another member's bytes as a `bool`, enum or reference is UB. Constructing a union and writing a member stay legal |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
 

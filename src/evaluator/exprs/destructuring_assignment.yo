@@ -18,8 +18,10 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   BK_COLON,
   BK_TUPLE,
-  make_err_expr
+  make_err_expr,
+  ast_expr_to_string
 } :: import("../../expr.yo");
+{ is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { Token, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -270,7 +272,11 @@ handle_member_destructuring :: (
       )
     );
   });
-  // Union destructuring requires exactly one field.
+  // Union destructuring requires exactly one field, and is a member READ:
+  // the same safe-mode gate as `u.x` (property_access.yo).
+  if(is_union_type(rhs_type) && !(is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.clone()), ctx.unsafe_context)), {
+    exn.throw(dyn(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type)))));
+  });
   if(is_union_type(rhs_type), {
     if(!(lhs_fields.len() == usize(1)), {
       exn.throw(

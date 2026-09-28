@@ -264,7 +264,7 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           .None => cond(id.ends_with(`__self_shell`) => String.from("Self"), true => `<enum:${id}>`)
         )
       ),
-      .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
+      .Union(name, _, _) => if(name.len() > usize(0), match(type_display_name(name.clone()), .Some(d) => d, .None => name), `<union>`),
       .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
         // Prefer the trait's NAME whenever it has one (print "Send", not the
         // trait's field dump) — the

@@ -1,7 +1,8 @@
 # Safe code can read an inactive union member (undefined behavior)
 
-**Status: OPEN, needs a language decision** (found 2026-09-28 by the first
-full-suite UBSan run, `plans/SAFE_MODE.md` D6/§14 R6).
+**Status: FIXED 2026-09-28** (found the same day by the first full-suite UBSan
+run, `plans/SAFE_MODE.md` D6/§14 R6). Ruling: option 1, gate the reads.
+Branch `safe-mode/union-read-gate`.
 
 ## Symptom
 
@@ -61,3 +62,34 @@ treats a union member read as unsafe. The pragma-gated list (raw pointers,
 Whichever lands, it needs a fails-before/passes-after cli-case (the repro
 above: rc 0 today, a compile error after) and a `docs/*/MEMORY_SAFETY.md`
 entry in both languages.
+
+## Fix (option 1)
+
+A union member READ in a file without `pragma(Pragma.AllowUnsafe)` is a compile
+error: `Reading union member \`y\` of \`U\` requires
+\`pragma(Pragma.AllowUnsafe);\` in this file.` The message also points at
+`enum` + `match` for a checked sum type.
+
+- The predicate is `is_union_member_read_capable` in
+  `src/evaluator/memory_safety.yo`: an `unsafe(...)` region or an unsafe-capable
+  file (the pragma, or compiler-synthesized `auto-generated://` code). The
+  message is `union_member_read_error_message`.
+- Two gate sites share them. The union arm of `src/evaluator/exprs/property_access.yo`
+  gates a field label read, and is skipped while
+  `ctx.is_lhs_of_assignment` so `u.x = v` stays legal. A method on a union
+  value is not a member and is not gated.
+  `src/evaluator/exprs/destructuring_assignment.yo` gates union destructuring
+  (`{ y : b } := u`).
+- Construction (`U(x : 12)`) is unaffected.
+
+No in-tree code needed migrating. std defines no unions, and the only union
+reads (`tests/basic.test.yo`) sit in an `AllowUnsafe` file. That file's
+deliberate cross-member read now reads an `i32`.
+
+## Verification
+
+- cli-cases `safe-mode-union-read-rejected` (property read, with a member write
+  before it that stays legal) and `safe-mode-union-destructure-rejected`:
+  rc 0 under the v0.2.45 seed, rc 1 with the diagnostic after.
+- cli-case `safe-mode-union-read-allowed-with-pragma`: property and
+  destructuring reads in an `AllowUnsafe` file build and run.

@@ -73,7 +73,7 @@
   dyn_upcast_note
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ type_to_string, register_type_display_name } :: import("../../types/string.yo");
+{ type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
@@ -984,7 +984,16 @@ ${rhs_str}`
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
                 TypeValue.Union(binding_name, un_fls, un_fts)
               ),
-              true => Option(TypeValue).None
+              // A union's `name` is its identity (`union_<module>_<binding>_r…`),
+              // so it is never renamed. The FIRST binding becomes its display
+              // name instead (an alias `V :: U` keeps `U`), and diagnostics
+              // print `U`.
+              true => {
+                if(type_display_name(un_name.clone()).is_none(), {
+                  register_type_display_name(un_name.clone(), binding_name.clone());
+                });
+                Option(TypeValue).None
+              }
             ),
             // Traits too: `Send :: trait(id := "Send")` names the trait
             // "Send". Identity is

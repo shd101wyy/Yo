@@ -528,6 +528,12 @@ FunctionGenerationContext :: ref(
     /// dropping both double-frees) — the END-of-scope envs list the
     /// not-yet-defined temp, so the skip needs this explicit flag.
     current_assignment_save_temp : Option(String),
+    /// Set by `consume(p.* = v)` for its assignment only: save the old value
+    /// by bytes (`memcpy`), not by a typed load. The consumed destination is
+    /// typically uninitialized memory (a container's next slot), and a typed
+    /// load of it is undefined behavior for a `bool` or enum; UBSan reported it
+    /// in `ArrayList(bool).push` (issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md).
+    consume_assignment_saves_by_bytes : bool,
     /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
     /// emitted-once guard for the node-list drop flushes (drop_dup.yo
     /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
@@ -593,6 +599,7 @@ impl(
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
       current_assignment_save_temp : Option(String).None,
+      consume_assignment_saves_by_bytes : false,
       emitted_deferred_drop_ids : HashSet(usize).new()
     )
   )
