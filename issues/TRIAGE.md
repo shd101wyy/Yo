@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 188 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 187 open bug
 docs in `issues/` root and the 13 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 15 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 32 | 14 |
-| **Total** | **188** | **47** |
+| Other | 31 | 13 |
+| **Total** | **187** | **46** |
 
 ## Counts by severity
 
@@ -45,7 +45,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 46 |
+| S1 | 45 |
 | S2 | 93 |
 | S3 | 49 |
 
@@ -347,7 +347,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (32)
+### Other (31)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -370,7 +370,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md`](./primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md) | S1 | — | yes |
 | [`reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md`](./reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md) | S1 | — | yes |
-| [`reassigning-a-heap-local-from-an-await-leaks-the-old-value.md`](./reassigning-a-heap-local-from-an-await-leaks-the-old-value.md) | S1 | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
 | [`three-deep-nested-while-never-resumes-the-middle-loop.md`](./three-deep-nested-while-never-resumes-the-middle-loop.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |

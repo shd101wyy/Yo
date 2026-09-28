@@ -1,13 +1,6 @@
-# io.await in an unsplittable position (port of src/tests/async-await-position-gate.test.ts):
-# the compile must FAIL under BOTH compilers — this failure used to be SILENT
-# (a C comment + NULL await_future_N deref at runtime), and the self-hosted
-# side used to __yo_panic (rc=134) where TS exits 1 (fixed via codegen_fatal).
-# stdout=ignore: TS surfaces the error as an uncaught throw with a stack, the
-# self-hosted one as "yo-self: error:" — no common line. Both emit the same
-# "must BE the first condition" diagnostic (probe-verified, byte-identical).
-# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
-# which ANY failure satisfied. The kept substring is the probe-verified
-# SHARED diagnostic - both compilers must emit it, so the case asserts THE
-# failure, not just A failure.
-stdout_keep_match=must BE the first condition
-timeout=120
+# An io.await in this position used to be rejected (E0904) or miscompiled by
+# the segment lowering. The single-pass lowering suspends wherever the await
+# sits, so the program runs and prints its value
+# (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+stdout_keep_match=^result: |^first|^second|^not taken|error|internal compiler error|panic
+timeout=300

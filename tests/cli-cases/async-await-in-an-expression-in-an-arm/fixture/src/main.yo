@@ -1,3 +1,4 @@
+{ println } :: import("std/fmt");
 leaf :: (fn(x : i32, io : Io) -> Impl(Future(i32)))(io.async((io2 : Io) => (x + i32(1))));
 run :: (fn(k : i32, io : Io) -> Impl(Future(i32)))(
   io.async((io : Io) => {
@@ -9,6 +10,7 @@ run :: (fn(k : i32, io : Io) -> Impl(Future(i32)))(
   })
 );
 main :: (fn(io : Io) -> unit)({
-  _v := io.await(run(i32(1), io), io);
+  v := io.await(run(i32(1), io), io);
+  println(`result: ${v}`);
 });
 export(main);
