@@ -20,8 +20,7 @@
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
-{ register_match_arms, lookup_match_arms, purge_match_arms_owned_by, Arm, Pattern } :: import("../../src/pattern.yo");
-{ AstExpr, make_err_expr } :: import("../../src/expr.yo");
+{ match_arms_entry_count } :: import("../../src/pattern.yo");
 {
   mm_set_open_document,
   mm_forget_open_document,
@@ -43,6 +42,7 @@
 { specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count } :: import("../../src/evaluator/calls/helper.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
+_MATCH_DOC :: "Shape :: enum(Dot, Line(n : i32));\nlen_of :: (fn(s : Shape) -> i32)(match(s, .Dot => i32(0), .Line(n) => n));\nmain :: (fn() -> unit)({\n  _a := len_of(Shape.Line(n : i32(2)));\n  _b := match(_a, i32(2) => true, _ => false);\n});\nexport(main);\n";
 _LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
 _LIB_V2 :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
 _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
@@ -411,27 +411,31 @@ test("owner logs: a one-shot command records none, an invalidating one does", {
   assert(owned_id_log_entry_count() > before_on, "owner logs on: analyzing a document records its ids");
 });
 
-test("match-arm registry: purging a module drops its compiled arms", {
-  /// The 2026-09-27 holder census found g_match_arms retaining 18,102 lists
-  /// (≈35 K Pattern IR graphs) at plain-`check` exit; with the owner index,
-  /// mm_invalidate_document retires a module's generation. This exercises the
-  /// registry lifecycle directly: register under an owner nothing else uses,
-  /// purge the owner, and the arms must be gone (before the owner index the
-  /// purge did not exist and the registry only ever grew).
-  arm := Arm(
-    pattern : Pattern.Wildcard,
-    guard : Option(AstExpr).None,
-    body : make_err_expr(),
-    arm_expr : make_err_expr(),
-    pattern_expr : make_err_expr(),
-    classic : true
+test("match-arm registry: re-analysis keeps it flat", {
+  /// The compiled arms of every `match` are keyed by the match node's id,
+  /// which each re-evaluation mints fresh. They are logged under the
+  /// document's owner and purged with the other ExprId-keyed tables, so the
+  /// count must be flat across rounds (before the purge each round added the
+  /// doc's matches again).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
   );
-  arms := ArrayList(Arm).new();
-  arms.push(arm);
-  (fake_id : usize) = 900000000001;
-  owner := String.from("file:///tmp/no_such_module_fixture.yo");
-  register_match_arms(fake_id, arms, owner);
-  assert(lookup_match_arms(fake_id).is_some(), "the arm list registered under its owner");
-  purge_match_arms_owned_by(owner);
-  assert(lookup_match_arms(fake_id).is_none(), "purging the owner drops its compiled arms");
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b2_match_arms_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/match_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_MATCH_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  assert(_doc_round(doc_path.clone(), String.from(_MATCH_DOC), std_path.clone(), io), "round 1 should analyze clean");
+  m1 := match_arms_entry_count();
+  assert(_doc_round(doc_path.clone(), String.from(_MATCH_DOC), std_path.clone(), io), "round 2 should analyze clean");
+  m2 := match_arms_entry_count();
+  assert(_doc_round(doc_path.clone(), String.from(_MATCH_DOC), std_path.clone(), io), "round 3 should analyze clean");
+  m3 := match_arms_entry_count();
+  assert(m2 == m1, `match-arm registry leaked: ${m1} -> ${m2}`);
+  assert(m3 == m2, `match-arm registry leaked: ${m2} -> ${m3}`);
 });

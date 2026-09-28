@@ -1,8 +1,10 @@
 # A closure-typed slot never releases its captures
 
-**Status:** PARTIALLY FIXED 2026-09-12. The spawn-wrapper half landed on
-`fix/zst-closure-fn-result`; the capture-struct TEMP half is still open — see
-"What is left" below.
+**Status:** FIXED 2026-09-28 (see "The complete fix" at the end). The
+spawn-wrapper half landed 2026-09-12 on `fix/zst-closure-fn-result`. The rest
+was found again by the evaluator memory campaign: 38 leaked `ExprInfoTable`s
+pinned 129 MB of `check src/main.yo` (`plans/EVALUATOR_MEMORY_REDUCTION.md`
+§0.19).
 **Found:** 2026-09-12, measured on the published **v0.2.31** compiler and std —
 this is not a regression, it has always been there.
 **Class:** the empty-string drop fallback
@@ -145,3 +147,67 @@ the dispose counters.
 
 `tests/thread.test.yo`'s three existing spawn dispose-counter tests cover the
 `Thread(T)` wrapper shape.
+
+## The complete fix (2026-09-28)
+
+The memory campaign's exact Linux heap census (§0.19) found the unreachable
+LEAK group at `check src/main.yo` exit: 1.49 M objects, 129.5 MB. It was 38
+whole `ExprInfoTable` maps, with everything their `ExprInfo`s pin. A new
+refcount-balance trace (`alloc_site_census_t.py --rc-balance`,
+`rc_balance_report.py`) showed two sites taking a table reference that no
+freed table ever passed through:
+- `evaluate_anonymous_function_implementation`: the closure
+  `(e) => expr_info_table_get(info_tbl, …)` passed to `analyze_await_points`;
+- `analyze_await_points`: the `dyn((expr, …) => detect_await_expr_(…, get_info))`
+  that captures that closure.
+
+This is the defect recorded above, in the compiler's own code. The minimal
+repro (`Payload` with a `Dispose` counter, and
+`(c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n))` in an inner
+block) reads 0 disposes on every published seed from v0.2.29 to v0.2.44.
+
+Three defects, each fixed:
+
+1. **Closure values were invisible to drop and dup.** A closure's static type
+   is its `Impl(Fn)` SomeT. `generate_drop_code_for_value` /
+   `generate_dup_code_for_value` fell to their `true => ""` arm for it, while
+   the evaluator did schedule the closure local's scope-end drop
+   (`owning=true`). Both now resolve a bound closure identity to its capture
+   struct (`_closure_value_type`, `src/codegen/exprs/drop_dup.yo`), so a
+   closure releases and retains field by field like any value struct. Both
+   walks change together. The 2026-09-12 attempt changed only the drop, so a
+   copy (`closure2 := closure`) had two releasing owners and one reference,
+   which is the heap-use-after-free ASan caught then. There is no
+   "synthesized capture-dispose": the declaration hooks for one are no-ops.
+2. **Each capture was retained twice when the closure was bound.**
+   `emit_deferred_dup_or_code` recognised a closure construction, whose dups
+   the closure emitter already writes into the capture struct's initializer,
+   but still emitted them a second time as statements. It now returns the
+   construction's code.
+3. **A closure literal passed as an argument had no owner.** The capture
+   struct temp was a raw C declaration outside the deferred-drop
+   bookkeeping. A sync closure whose capture struct holds RC now gets an
+   owning temp typed as that struct (`attach_temp_variable_to_expr`, at the
+   end of `evaluate_anonymous_function_implementation`), and the capture
+   temp takes that name (`generate_closure_construction`). A borrowed argument
+   is released at the scope end; a binding, owning parameter or return
+   consumes it. io.async closures keep their state-machine ownership.
+
+That third change made the MOVE described under "Why it is not a one-liner"
+unsound. `_generate_spawn_call`'s heap copy inherited the call-site struct's
+references, and ASan reported a heap-use-after-free on every
+`tests/thread.test.yo` case. The heap copy is now a second owner: it retains
+its fields (field-wise when the struct has no dup method), and the spawn
+wrapper's `_emit_capture_drop_lines` releases them when the thread ends.
+
+Tests (`tests/closure.test.yo`, all asserting exactly one dispose, so a leak
+and an over-release both fail): a closure local, a copied closure, a closure
+literal passed as an argument (unused and called), a closure local passed as
+an argument, a closure captured by another closure (local and through a
+parameter), and a closure captured by a `Dyn` closure field. All six fail on
+the develop compiler. After the fix they pass under ASan, and so do six
+older tests in the same file that LeakSanitizer had been failing on this
+defect ("anonymous closure value with Impl that captures Rc object", both
+generic-impl-method capturing-closure tests, "a container of a closure
+type…", and the two closure-list tests): 24/24.
+`tests/thread.test.yo` stays 19/19 under ASan.

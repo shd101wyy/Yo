@@ -27,7 +27,7 @@
 { get_type_string, get_variable_name_for_codegen, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr_info.yo");
-{ get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { HashSet } :: import("std/collections/hash_set");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
@@ -155,24 +155,11 @@ _emit_capture_drop_lines :: (
   prev_scope := em.scope_ref;
   em.declared_ref = Option(HashSet(String)).None;
   em.scope_ref = Option(ArrayList(String)).None;
-  // Field by field, rather than one call on the whole struct — for ONE field
-  // type the two differ, and it is the one `Thread(T).spawn` has: a captured
-  // CLOSURE arrives as its bare `Impl(Fn(...))` SomeT, for which
-  // `type_contains_rc_type` is false, so the struct walk inside
-  // `generate_drop_code_for_value` skips the field and everything the inner
-  // closure captured is never released. `Thread(T).spawn` wraps the user's
-  // callback in a result-relaying closure, so `cb` becomes exactly such a
-  // field, and `tests/thread.test.yo`'s dispose counters read 0 against a
-  // required 1.
-  //
-  // Resolving is done HERE and not in `generate_drop_code_for_value`, which
-  // would look like the more general fix: doing it there releases a
-  // closure-typed slot at EVERY drop site, including ones whose captures are
-  // already released by a synthesized capture-dispose — a heap-use-after-free
-  // in `__yo_decr_rc`, caught by the Linux ASan leg on
-  // `tests/closure.test.yo`'s "closure with Impl that captures Rc object".
-  // The spawn wrapper is the one place that owns a heap COPY of the capture
-  // struct and is the only thing that will ever release it.
+  // Field by field over the heap copy of the capture struct: the spawn
+  // wrapper owns that copy (`_generate_spawn_call` retains its fields) and is
+  // the only thing that releases it. A captured CLOSURE field (the user's
+  // callback inside `Thread(T).spawn`'s result-relaying wrapper) resolves to
+  // its own capture struct, so what it captured is released too.
   (tail : String) = String.new();
   cd_fields := get_runtime_struct_fields(capture_type);
   (cd_i : usize) = usize(0);
@@ -352,7 +339,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   copy_line.push_string(cb_var);
   copy_line.push_str(";");
   em.emit_string_line(copy_line);
-  // <dupFn>(*<heapVar>);
+  // The heap copy is a second owner of every captured reference: the
+  // call-site capture struct is released where it dies (its own temp or
+  // binding), and the spawn wrapper releases the copy when the thread ends
+  // (`_emit_capture_drop_lines`). So the copy retains its fields: through the
+  // struct's dup method when one exists, else field by field.
   match(
     get_dup_function_for_type(capture_type, context),
     .Some(dup_fn) => {
@@ -363,7 +354,14 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
       dup_line.push_str(");");
       em.emit_string_line(dup_line);
     },
-    .None => ()
+    .None => {
+      // The dup walk returns the retained copy (a temp whose fields it has
+      // incremented); store it back so the heap slot is that copy.
+      fd := generate_dup_code_for_value(`(*${heap_var})`, capture_type, context);
+      if((fd.len() > usize(0)) && !(fd == `(*${heap_var})`), {
+        em.emit_string_line(`${indent}(*${heap_var}) = ${fd};`);
+      });
+    }
   );
   if(is_worker, {
     // __yo_worker_spawn returns void (unit).

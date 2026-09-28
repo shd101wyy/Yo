@@ -1,363 +1,281 @@
-# Evaluator memory reduction — handover (2026-09-26)
+# Evaluator memory reduction — handover (2026-09-28)
 
 **Status: ACTIVE handover.** Written for the agent who picks up
-`plans/EVALUATOR_MEMORY_REDUCTION.md`. It records what landed in the 2026-09-24…26
-session, the state of the in-flight work, and every remaining item in enough
-detail to start without re-reading the whole plan. The plan stays
-authoritative for design and history (§0.x sections); this file is the
-to-do list.
+`plans/EVALUATOR_MEMORY_REDUCTION.md`. The plan is authoritative for design
+and history (its §0.x sections). This file is the current state and the to-do
+list. Rewritten 2026-09-28: the 2026-09-26/27 version had grown contradictory
+sections, and several of its claims did not survive review (see §1.1).
 
 ## 0. Rules that bind every change here
 
-- **Never trade speed for memory.** User directive, 2026-09-26: keep or improve
-  `check`/`compile` wall time while cutting footprint. Every memory PR reports
-  interleaved wall time next to footprint, from the same A/B pairs. A slowdown
-  beyond noise (about 1–2 %) blocks the merge: profile it (`sample <pid>`, frames
-  named with `YO_DEBUG_FN_ORIGIN=1`) and remove the cost.
-- **Admin-merge once local gates pass** (user directive). The local battery is:
-  - `yo check ./src --std-path ./std` (score by rc; `grep "error in"` is always 0 on today's output);
+- **Never trade speed for memory.** User directive, 2026-09-26: keep or
+  improve `check`/`compile` wall time while cutting footprint.
+  - Every memory PR reports wall time next to footprint, from the same A/B
+    pairs.
+  - A slowdown beyond noise (about 1–2 %) blocks the merge: find its cost.
+  - On Linux, callgrind instruction counts are the noise-free tool
+    (`valgrind --tool=callgrind`, about 50× slower; `check src/types/intern.yo`
+    takes 5 s natively).
+  - A correctness fix (a leak) whose instruction count is flat is not a trade.
+- **Admin-merge once local gates pass** (user directive), and never while a
+  release is being cut. The local battery:
+  - `yo check ./src --std-path ./std` (score by rc);
   - `S1=<stage1> P=<tag> bash scripts/bootstrap/gates_fast.sh`;
-  - `S1=<stage1> P=<tag> bash scripts/bootstrap/fixpoint_only.sh` (must print `FIXPOINT_HOLDS`);
-  - the fast suite: `<bin> test ./tests --std-path ./std --exclude tests/internal --exclude tests/cli-cases`;
+  - `S1=<stage1> P=<tag> bash scripts/bootstrap/fixpoint_only.sh` (must print
+    `FIXPOINT_HOLDS`);
+  - the fast suite:
+    `<bin> test ./tests --std-path ./std --exclude tests/internal --exclude tests/cli-cases`;
   - `<bin> test ./std --std-path ./std`;
   - the CLI corpus: `YO_SELF_BIN=<bin> bash scripts/cli-diff-test.sh`;
-  - `tests/internal/{diagnostics_registry_examples,parser,module_invalidation}.test.yo`, one file per invocation, `--parallel 1`.
+  - `tests/internal/{diagnostics_registry_examples,parser,module_invalidation}.test.yo`,
+    one file per invocation, `--parallel 1`.
+- **On the Linux box, score the fast suite by DIFF against develop, not by the
+  count.** Develop itself fails about 560 tests there on LeakSanitizer reports
+  (668 before §0.19 fixed 109 of them). They are real leaks, not WSL2
+  artifacts (§3.1). Run develop's binary on a develop worktree in the same
+  window and `comm` the two `✗` lists. The gate is "nothing new fails".
+  Network tests (`tests/crypto`, `tests/http`) sometimes hang in
+  `io_uring_enter` on a socket; kill the stuck batch binary and re-run that
+  file alone.
 - **Memory ratchets fail both ways at ±10 %** (`scripts/bootstrap/memory-ratchet.tsv`;
   CI jobs "Evaluator memory ratchet" and "Compiler build inside 8 GB"). A win
-  turns CI red: open the PR, read the measured kB from those two job logs, and
-  lower the baselines in the same PR. Baselines at hand-off (after Phase 3) are
-  `check_src_main_max_rss_kb 1191996` and `compile_src_main_peak_kb 3527328`.
-- **Measuring on macOS:** footprint noise is about ±180 MB for the same binary.
-  - Use interleaved pairs (three or more) on a quiet machine (no suite or build running).
-  - Build the baseline from the exact merge-base, with the same builder.
-  - An emitted-C A/B must have both compilers emit the SAME tree.
-  - Below about 100 MB, use the holder census or the Linux ratchet.
+  turns CI red: read the measured kB from those two job logs and lower the
+  baselines in the same PR. Current baselines: `check_src_main_max_rss_kb
+  1071836` (lowered by §0.19's PR, from CI's own reading) and
+  `compile_src_main_peak_kb 3527328`. The compile peak did not move with
+  §0.19 (3,525,848 kB measured): that job's peak is not the evaluator's
+  exit retention.
+- **Measuring.**
+  - On macOS, footprint noise is about ±180 MB for one binary. Use three or
+    more interleaved pairs on a quiet machine.
+  - On this Linux box, run the pairs simultaneously. Max RSS is repeatable to
+    about 1 MB.
+  - Build the baseline from the exact merge-base with the same builder.
+  - A codegen change only shows its effect in a stage-2 compiler: use
+    `fixpoint_only.sh`'s `/tmp/<P>_s2` from both trees.
 - **Every bug found gets an `issues/fixed/<name>.md` doc and a test that fails
-  first.** Docs go in en-US and zh-CN.
-- **Known environmental noise on this Mac:**
-  - Seven CLI cases (`build-stamp-dotted-dir`, `init`, `init-build-test`, `init-cwd`,
-    `init-existing`, `skills-install`, `skills-install-zh`) differ with any
-    locally built binary, develop's included: they need an installed-bundle layout.
-  - `tests/thread.test.yo` can die with "Capture type not found for closure"
-    depending on the checkout directory. That is yo-16's path-dependent ICE, not a
-    memory change; run the file in another worktree to confirm.
-  - macOS `--sanitize thread` segfaults every test (not a signal).
+  first.** User-visible docs go in en-US and zh-CN.
+- The Linux release bundles stay static musl. On this box they check about
+  14 % slower than a locally built glibc compiler; that gap is accepted (user
+  decision).
 
-## 1. What landed this session (all merged on `develop`)
+## 1. State of `develop`
+
+### 1.1 Review of the 2026-09-27 session (#954, #957, #958)
+
+A second agent's work was re-reviewed on 2026-09-28. What held up and what
+did not:
+
+- **#957's `g_match_arms` purge** found a real registry, but the fix had three
+  problems:
+  - it added a parallel owner index keyed by the entry module's as-typed path,
+    which never matched the `file://` purge key;
+  - it recorded in one-shot commands;
+  - its test bypassed the real invalidation path.
+
+  Reworked onto `record_owned_expr_id` / `take_owned_expr_ids`
+  (`issues/fixed/match-arm-registry-retains-every-generation-of-compiled-arms.md`).
+- **The Linux census of #954/#957** used a heuristic chunk walk. The deep walk
+  segfaulted, and the zero-hit scan was unreliable, so none of §0.18's byte
+  figures exist. Its "Pattern +1 is a missing release" and "the `:=`
+  indexed-read leak is a large slice of §3.1" were both wrong (plan §0.18
+  corrections). The census is exact now (§0.19).
+- **`peak_histogram.py` (claimed to close Phase 0 step 2)** injects the
+  allocator-wrapping registry that #957 itself removed from the census for
+  costing 7× and wedging at full scale. It has never completed a
+  `check src/main.yo` run. Its per-mark rows carry size classes and sites
+  only for the top N; the exit rows duplicate the census. **Not done** (§3.5).
+- **#958, the builtin-name reservation**, is sound and merged. Its handover
+  text claimed the `__yo` prefix was reserved, which the PR itself dropped.
+
+### 1.2 Landed since the last handover
 
 | PR | Change | Measured |
 | --- | --- | --- |
-| #908 | `compile` runs the C compiler in a fresh image (`__cc-plan`); 8 GB CI job | build 9.7 → 6.35 GB |
-| #912 | chunk-job memory cap; `--emit-c-to` help | — |
-| #913 | executed CTFE clones drop their metadata | build 6.35 → 4.85 GiB |
-| #915 | synthesized tokens share their module's source text | check 2,504 → 2,159 MB |
-| #920 | derived FuncVals take their parent's aligned handles | check 2,069 → 1,551 MB |
-| #921 | 8 GB swapfiles; `BUILD_ON_8GB_MACHINES` closed | — |
-| #922 | capture handles are slices of the frames' own lists | check ≈ −170 MB |
-| #923 | `http_limits` tests on loopback | — |
-| #929 | one-shot commands record no owner logs (§0.15) | ≈ 62 MB (census) |
-| #931 | CONTRIBUTING refresh (en + zh-CN) | — |
-| #932 | a handle-backed FuncVal keeps no capture value snapshot (§0.16) | check ≈ −310 MB; Linux check 1,664,136 → 1,381,732 kB, build 4.31 → 3.87 GiB; **wall +3 % — see §2.2** |
-| #935 | expression ids start at 1; `compile` reports the safe-code rejection | — |
-| #937 | `sizeof`/`alignof` of a nullable-pointer Option; one niche predicate in `src/types/guards.yo` | — |
+| #951 | capture values read through the fetched capture source | wall −2.9 % (pays back #932) |
+| #954 | Linux census tooling (heuristic), `YO_DEBUG_SCOPE_DROPS`, docs: `Option` of a handle is one pointer | — |
+| #957 | holder_report.py, `g_match_arms` purge (reworked by §0.19's PR) | — |
+| #958 | plain-named builtin dispatch names are reserved for bindings | — |
+| (this PR) | exact Linux census; `--rc-balance`; **closures release their captures**; #957 rework | stage-2 `check src/main.yo` max RSS 1,282 → 1,165 MB (−9.2 %); exit census 942 → 763 MB; LEAK 129.5 → 17.8 MB |
 
-Release v0.2.43 was cut mid-session (the seed is v0.2.43).
+Release v0.2.45 is published and is the seed.
 
 ## 2. In flight
 
-### 2.1 Phase 3 — the `Option(ref)` niche (this PR, branch `mem/option-ref-niche`)
+The PR for plan §0.19, branch `mem/review-957`. It holds the census fixes, the
+closure-capture fix and the #957 rework. The PR description carries its gate
+results.
 
-**What it does.** `can_optimize_as_nullable_pointer` (`src/types/guards.yo`)
-also accepts a non-atomic reference handle (`ref(struct)`, `ref(enum)`), so
-`Option(Ref)`, every `String` (`newtype(_bytes : Option(ArrayList(u8)))`) and any
-two-variant enum with one fieldless variant and one handle payload (e.g.
-`Tree :: enum(Leaf, Node(child : Box(Self)))`) lower to the bare pointer, with
-NULL for the fieldless variant. `Token` 107 → 76 B and `ExprInfo` 214 → 153 B
-in the census, and the stage-2 compiler is about 6 % faster (≈ 110 → 103 s on
-`check src/main.yo`).
+## 3. Remaining work, ranked by the §0.19 census
 
-**Bugs it exposed and this PR fixes** (each with an `issues/fixed/` doc and a
-test that fails first):
+The fixed stage-2 compiler keeps **763 MB** of RC objects at
+`check src/main.yo` exit. First-reach attribution gives the shared program
+graph to whichever root is walked first (now `g_type_intern`, 281 MB), so read
+the per-root rows only as exclusive shares (`HOLDER_DEEP_LAST`). By type, the
+retained set is:
 
-| Issue doc | Fix |
-| --- | --- |
-| `nullable-pointer-arm-binding-stores-into-a-same-named-hoisted-slot.md` | slot resolution via the pattern atom's env |
-| `nullable-pointer-match-wildcard-arm-overwrites-the-some-arm.md` | first-match classification; `_` claims the unclaimed case (sync + async) |
-| (in the same doc's tests) labeled/curly payloads, bare `.Variant` arms | arms classified by VARIANT NAME (`nullable_arm_selects_payload`), binder via `nullable_arm_payload_binder` (`src/codegen/utils/index.yo`) |
-| `nullable-pointer-match-never-releases-its-scrutinee.md` | `_gen_nullable_ptr_match` / `_gen_simple_enum_match` emit the match's deferred drops |
-| (codegen) `JoinHandle.await` built a tagged Option literal | niche branch in `src/codegen/exprs/await.yo` |
-| (codegen) `Type.Variant` of a niche enum built a tagged literal | `NULL` in `src/codegen/exprs/property_access.yo` |
-
-`compile-allocator-fixed-oom` was re-recorded: the fixed-heap OOM now requests
-72 B instead of 80, because an object shrank.
-
-**Results:** §2.1.1.
-
-#### 2.1.1 Final battery (fill in when it completes)
-
-Measured on the branch (4de9111bc, base 3eec8bd22). Both are stage-2 compilers
-built by their own tree (`fixpoint_only.sh`), measured with three interleaved
-`check src/main.yo` pairs:
-
-| | base | Phase 3 |
+| type | MB | what |
 | --- | --- | --- |
-| peak footprint | 1,228 / 1,223 / 1,238 MB | **1,086 / 1,086 / 1,092 MB** (≈ −142 MB, −11.5 %) |
-| wall | 108.3 / 108.4 / 108.2 s | **102.5 / 102.4 / 102.5 s** (−5.4 %) |
-| census retained at exit | 1,086 MB | 970 MB |
-| `LEAK` group | 2.24 M objects / 249 MB | 2.24 M objects / 209 MB (the same population, smaller objects) |
-| Linux CI `check` max RSS | 1,381,732 kB | **1,191,996 kB** (−13.7 %) |
-| Linux CI whole build (8 GB cgroup) | 4,062,412 kB | **3,527,328 kB** (3.87 → 3.36 GiB) |
+| `AstExpr` | 189 | the AST, including specialization clones |
+| `ArrayList(u8)` | 185 | strings |
+| `Token` | 139 | 76 B each |
+| `ArrayList(Self)` | 94 | mostly `ArrayList(AstExpr)` argument lists |
+| `ArrayList(Variable)` + `Variable` | 44 | |
+| `TypeValue` | 12.5 | |
 
-Also on the branch: `FIXPOINT_HOLDS`, and the targeted tests pass
-(`match_catch_all` 8/8, `match_async_arms` 6/6, `match_curly` 11/11). The rest of
-the battery is re-run on the tree rebased onto develop before merge; that run
-goes in the PR description. Earlier full runs of this branch (before the last
-fix): fast suite 4,479 passed, std 3/3, internal 63/63, and the CLI corpus clean
-apart from the seven environmental cases.
+`ExprInfo` has left the top of the table: the per-module tables are released
+now that closures stop pinning them.
 
-**If the A/B still shows no footprint win after the leak fix,** re-take the
-holder census on the new stage-2 C (recipe in §4.1) and compare the `LEAK`
-group and the unreached-root (`R`) rows against the base census
-(`/tmp/claude-501/hc3_p3base/holders_dump.txt` on this machine; re-create it from
-the merge-base otherwise). Any group that grows is another niche path with a
-missing release or retain: find it with the rc-event pipeline (§4.2).
+### 3.1 Leaks
 
-**Sites to audit if anything else misbehaves under the niche** (all consult
-`can_optimize_as_nullable_pointer`):
-- `codegen/types/generation.yo` (typedefs);
-- `functions/constructors.yo` (dispose/traverse);
-- `exprs/drop_dup.yo` (inline drop/dup);
-- `exprs/match.yo` / `async/state_code_gen.yo` (matches);
-- `exprs/other_fn_call.yo` (runtime enum construction);
-- `exprs/comptime_value.yo` (comptime literals);
-- `exprs/downcast.yo`, `exprs/property_access.yo`, `exprs/await.yo`, `exprs/async.yo` (slot types);
-- `codegen_c.yo` (on-demand declaration).
+- **The LEAK residue (17.8 MB).**
+  - `Variable` 43 K (6 MB);
+  - zero-hit `Token` 9 K and `HashMap(String, unit)` 4.3 K (both below 1 MB);
+  - `TypeValue` 20.8 K with about 5.7 references each from untracked holders.
 
-A site that emits `.tag` / `.data.` for an enum without asking the predicate
-first is the bug class.
+  Method: `alloc_site_census_t.py <C> a.c d.txt <Type> --rc-balance`, then
+  `rc_balance_report.py` (§4.2).
+- **549 LeakSanitizer reports in the fast suite on Linux**, all pre-existing
+  on develop. They are the same missing-release families in user-shaped
+  programs, not WSL2 artifacts.
+  - Examples: `tests/rc.test.yo` "Rc with Iso"; three `tests/dyn.test.yo`
+    downcast / Future-vtable cases.
+  - Group them by file (`grep -B1 "Memory leak detected"` on the fast-suite
+    log) and fix the largest families first. Each fix gets a Dispose-counter
+    test.
+  - They pass CI only because CI does not arm LeakSanitizer on these legs.
+    Check `test.yml` before assuming that.
 
-**Docs to write when it merges:**
-- plan §0.17 (numbers from §2.1.1);
-- the status line at the top of `EVALUATOR_MEMORY_REDUCTION.md`;
-- the Phase 3 section marked LANDED;
-- the ratchet re-baseline from CI.
+### 3.2 Strings: `ArrayList(u8)`, 185 MB
 
-A user-visible note is also worth adding to `docs/*/` (en + zh-CN): `String` and
-`Option` of a handle are one pointer in size, and `sizeof(Option(*T))` is the
-pointer's.
+The exclusive holders measured before §0.19 (re-measure with
+`HOLDER_DEEP_LAST`):
+- `g_type_intern` keys, about 35 MB (24 K keys of 1.4–3.6 KB);
+- `g_token_intern`, 22 MB;
+- `g_ifc_memo` keys, 18 MB;
+- `g_func_type_registry`, 14 MB;
+- `g_specialized_base`, 10 MB;
+- `g_stable_occurrence`, 11 MB;
+- `g_method_callee_values`, 37 MB first-reach.
 
-### 2.2 The #932 slowdown fix — DONE 2026-09-27: PR #951 (merged gate: v0.2.44 published; CI green minus the develop-side FV red below)
-
-Rebased onto 6af426bbc; stage-1 A/B by the same seed v0.2.43; **4 simultaneous
-pinned reps (alternating disjoint core sets — the only design that survives a
-contended box): wall and user CPU median −2.9 %, 4/4 for the fix; max RSS flat
-(1,365–1,367 MB, 11 runs); emitted C byte-identical (121,089,132 B).** Full
-local battery green (fixpoint HOLDS after the liburing fix that rides in the
-PR; the ~674 leak-report failures and the 2 fast-suite stragglers are WSL2
-artifacts bisected one-for-one against the develop binary; the five `doc-*`
-goldens are this box's git wording). Also in the PR:
-`issues/fixed/fixpoint-only-links-no-liburing-on-linux.md`.
-
-### 2.2b RESOLVED 2026-09-27 (evening): the leak class was eliminated by RESERVING the builtin names (PR #958)
-
-The hijack root cause (see the issue for the full probe history): ANY user fn
-named `consume` has its calls silently replaced by the builtin — codegen emits
-only the argument, the evaluator marks the argument's variable CONSUMED, and
-the binding's scope drop is skipped while the boundary dup still emits: +1 per
-call site, in every program that defines a `consume` helper. Probing the whole
-builtin surface found the same hijack for every plain-named builtin except
-`as`/`clone` (fragile deferral). Per the user's decision, ALL of them plus the
-`__yo` prefix are now RESERVED for bindings (`is_reserved_builtin_binding_name`,
-`src/token.yo`; enforced at binder/initializer/destructure via
-`raise_flow_violation`; trusted `std/` exempt — it declares the runtime's own
-`__yo_*` externs and the `unsafe` namespace). markdown_yo v0.0.8 renamed its
-`consume` locals (the compiler's own dependency was the one ecosystem hit).
-The FV z3 red itself was fixed by the drop-liburing agent's #961.
-
-### 2.2c SESSION CLOSE (2026-09-27 night) — state for the next agent
-
-Landed this session: #951, #954, #955, #961(peer), #957 (census + g_match_arms
-owner purge + DynT exact-set test fix), #958 (builtin-name reservation).
-Remaining, re-ranked by the §0.18 census: §3.2 type_intern hash+verify
-(TypeValue 23,660 × ≈5.2 unexplained refs), §3.3 Phase 4 specialization
-population, §3.4 token diet, §3.5 leftovers, HOLDER_SCAN's Linux chunk-walk
-gap (coalesced anon regions defeat exact chain validation). Open issues:
-`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`
-(KNOWN follow-up: plain `yo check` swallows the reservation rejection —
-compile and the test runner enforce), the match-arm registry purge test
-exists; Pattern retention FIXED (#957). Peer sessions: drop-liburing's #961
-landed (develop FV green expected).
-
-Root-caused from the Linux CI "Formal verification" red (develop-side, both
-binaries), and the mechanism is now PROBE-VERIFIED (2026-09-27): when a
-block's trailing PURE CALL is DCE'd, the elided call leaves its last
-argument atom as the block tail (`vi;` in the emitted C); the scope-end
-scheduler's "bare-atom tail = moved out, never drop" rule then skips the
-binding's scope drop while the deferred dup on the index read survives —
-net +1 per binding. No trailing statement or a LIVE use: clean. Full table,
-`[sd]`/`[sd-fl]` probe transcripts and two fix directions (DCE a pure call
-statement to unit, not its argument atom; or scope the tail-atom exclusion
-to consumed block results) in
-`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`.
-`YO_DEBUG_SCOPE_DROPS=1` now ships on `mem/leak-group` (cached knobs). Fix
-must pass the dup/drop emit-diff gate + over-cancellation canary.
-
-
-#932 read every capture value through `fv_capture_val`, which does a registry
-lookup (`get_funcval_cap_slices`) plus a slice walk per element. Loops over a
-FuncVal's ~1,760 captures did this per element:
-- `_impl_type_captures_sig`;
-- the closure re-evaluation in `helper.yo`;
-- the operator/method CTFE env builders in `function.yo`;
-- codegen trace specialization;
-- `fv_capture_vals`.
-
-`check src/main.yo` got 3 % slower (99.6 → 102.8 s).
-
-The branch (one commit on 0e6f2500b) adds `fv_source_count` / `fv_source_val`
-(`src/env.yo`), which read through the `FvCaptureSource` the callers already
-hold, and makes `fv_capture_vals` one sequential pass over the slices.
-`check ./src` is clean. **Not yet done:**
-1. Rebase onto develop.
-2. Build a stage 1 from it and one from its merge-base, with the same builder (`yo`).
-3. Run four interleaved `check src/main.yo` pairs on a quiet machine. The wall time
-   must be back at or below the pre-#932 level, and the footprint unchanged.
-4. Emit `src/main.yo` with both compilers on the same tree and `cmp`: the C
-   must be byte-identical.
-5. Run the full local battery, then open the PR and merge.
-
-If the time is still over, the next suspect is the per-element slice walk
-(`cap_slices_get`, O(#slices)) in the same loops; walk the slices sequentially
-(the `fv_capture_vals` shape) instead of indexing.
-
-## 3. Remaining plan items, in suggested order
-
-Numbers are from the holder census of the develop compiler at hand-off: 1,086 MB
-retained at `check src/main.yo` exit (the peak is the retained set plus about 150 MB).
-
-### 3.1 The `LEAK` group (~250 MB, pre-existing on develop)
-
-About 2.24 M objects no root reaches but whose refcount stays above what the
-unreached set explains:
-- `ExprInfo` 76 MB;
-- `Variable` 40 MB;
-- `Environment` 26 MB;
-- `ArrayList(Frame)` 16 MB;
-- …
-
-Unreached-root rows: `Pattern` (35 K, one external ref each, held by `Arm`),
-`TypeValue` (24 K / 124 K refs), `Environment` (10.6 K), `EvalValue`, and 38
-`HashMap(usize, ExprInfo)` held by raw buffers.
-
-- Either an untracked holder retains them, or they are missing releases.
-- `S hits-per-unreached-object 0:672 K` says most have NO pointer anywhere, which
-  means missing releases.
-- Method (§4.2): `alloc_site_census_t.py <C> a.c dump.txt ExprInfo --rc-events` →
-  `holder_census_t.py a.c b.c h.txt` → `clang -g` → run with
-  `HOLDER_MIN=1000 HOLDER_SCAN=1 HOLDER_COLLECT=1 HS_ONLY_MARKED=1 HS_MIN=999999999999` →
-  `rc_event_report.py dump.txt <bin> <fidmap>`.
-
-This is likely the single largest lever left, and it is leak-fixing (no speed
-cost).
-
-### 3.2 `ArrayList(u8)` — 216 MB of strings
-
-Exclusive holders:
-- `g_type_intern` keys: 35 MB, 24 K keys of 1.4–3.6 KB each;
-- `g_token_intern`: 21 MB;
-- `g_ifc_memo` keys: 18 MB;
-- `g_func_type_registry`: 12 MB;
-- `g_specialized_base`: 11 MB;
-- `g_stable_occurrence`: 11 MB;
-- `g_method_callee_values`: 10 MB.
-
-Designs:
-- (a) **`type_intern` keys:** store a 64-bit hash plus the canonical node and verify
-  on hit. This needs a structural-equality function exactly as fine as
-  `type_intern_key` (never coarser: `src/types/intern.yo`'s header explains the
-  2026-07-02 wrong-merge). Do NOT use a probabilistic 128-bit-only key without
-  the user's agreement. Measure the CPU cost: interning is on `substitute`'s hot
-  path.
-- (b) The other memo keys: check whether each key can be a numeric id (fid index,
+The designs:
+- (a) **`type_intern` keys:** a 64-bit hash plus the canonical node, verified
+  on hit by a structural equality exactly as fine as `type_intern_key`, never
+  coarser (`src/types/intern.yo`'s header explains the 2026-07-02 wrong-merge).
+  No probabilistic 128-bit-only key without the user's agreement. The verifier
+  mirrors a ~500-line renderer, and interning sits on `substitute`'s hot path,
+  so measure instructions before and after.
+- (b) The other memo keys: check whether each can be a numeric id (fid index,
   type id) instead of a rendered string.
 
-### 3.3 The AST population — `AstExpr` 191 MB (3.1 M nodes) + `ArrayList(AstExpr)` 88 MB + `Token` (149 MB after Phase 3)
+### 3.3 The AST population: `AstExpr` 189 MB + argument lists 94 MB + `Token` 139 MB
 
-This is Phase 4 of the plan ("the specialization population"). Design 1:
+This is Phase 4 of the plan, now the largest lever. Design 1:
 - key `ExprInfoTable` by `(spec_id, ExprId)`;
 - stop `clone_expr_fresh_ids` per specialization;
 - keep fresh ids for synthesized nodes only.
 
-§0.2d measured 1.30 M cloned nodes as its target. It is a large, cross-cutting
-change: every id-keyed walk (`_optimize_dup_drop_pairs`, deferred-drop lists)
-must be listed first. Prototype on `create_specialized_function_inline`
-(`calls/helper.yo`) and measure the `AstExpr` count.
+§0.2d measured 1.30 M cloned nodes. It is a large, cross-cutting change: list
+every id-keyed walk first (`_optimize_dup_drop_pairs`, the deferred-drop
+lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
+`create_specialized_function_inline` (`calls/helper.yo`) and measure the
+`AstExpr` count.
 
-Speed: fewer clones should be faster, but verify.
+### 3.4 Token diet (76 B × about 1.9 M)
 
-### 3.4 Token diet (after Phase 3: 76 B × 1.95 M)
+`row`/`column`/`character`/`byte_offset` are four `usize` fields; `u32` saves
+16 B a token. `module_path` + `input` could share one source-record handle
+(−8 B). The edit is big but mechanical.
 
-`row`/`column`/`character`/`byte_offset` are four `usize` fields; `u32` would save
-16 B per token (≈ 31 MB). `module_path` + `input` could be one handle to a shared
-source record (−8 B). Every consumer of `tok.row` etc. changes type, so this is a
-big but mechanical edit. Weigh it against 3.1–3.3 first.
+### 3.5 Plan steps still open
 
-### 3.5 Plan steps still open (see the plan for full text)
+- **Phase 0 step 2**: the peak histogram (§1.1). Rebuild it on the exact chunk
+  walk. Snapshot the live-chunk composition by size class when RSS crosses a
+  growth mark (poll `/proc/self/statm` from a timer thread; walk the heap
+  under the malloc lock), instead of wrapping every allocation.
+- **Phase 1 step 2**: CLOSED 2026-09-28 (plan text). `ModuleWalk.ctx` is an
+  `Option`, and `_force_pending_def_impl` turns forcing a released walk into
+  an internal error, so every green one-shot gate proves the invariant.
+- **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
+  plateau gate still fails:
+  `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+- **Phase 1 step 5**: the table is written (plan §0.20,
+  `scripts/bootstrap/registry_table.py`). Its four levers are open:
+  1. a "codegen will run" flag that skips codegen-only tables in `check`,
+     `verify`, `doc` and the LSP (about 28 MB);
+  2. truncating the whole-compile branch-init log at function end (about
+     16 MB);
+  3. owner-purging the per-module registries the LSP purge misses;
+  4. recording `g_specialized_base` only when verification will run.
+- **Phase 5b**: `Symbol`, interned identifier strings (feeds §3.2 and §3.4).
+- **Phase 6**: the RC header / `Variable` diet.
 
-- **Phase 0 step 2** — `scripts/bootstrap/peak_histogram.py`: allocator-boundary
-  histogram of live bytes by 16 B size class at each high-water mark, with return
-  addresses. It gives the PEAK composition (the census gives exit retention).
-- **Phase 1 step 2** — a `YO_DEBUG_WALKS=1` assertion build proving the one-shot
-  walk is dead.
-- **Phase 1 step 3** — the LSP retains only open documents' walk contexts.
-- **Phase 1 step 5** — the registry sweep table: classify the ~288 module-level
-  globals {bounded, per-module, per-function, process}, and owner-tag the
-  per-function `g_func_*` tables so `mm_invalidate_document` purges them.
-  Measure with a long `yo lsp` session.
-- **Phase 5b** — `Symbol` (interned identifier strings).
-- **Phase 6** — the RC header / `Variable` diet: a 56 B cycle header on
-  cycle-capable types. `Variable` is 45 MB for 250 K objects.
+### 3.6 Speed levers found while measuring (not memory, but the same gate)
+
+- The cycle collector costs about 2 % of `check src/main.yo` wall time and
+  reclaims nothing measurable. `YO_GC_THRESHOLD=0` gives 251 s instead of
+  256 s at identical RSS. The runtime comment on `YO_GC_THRESHOLD` already
+  suggests disabling it for the compiler. It needs a measurement on
+  `compile` and on the LSP, where cycles may matter, before any default
+  changes.
+- `__yo_decr_rc` is 19 % of all instructions in `check`, and one `__yo_fs_…`
+  function is 9.5 % (callgrind, §0.19). Name that function with
+  `YO_DEBUG_FN_ORIGIN=1` before optimizing anything.
 
 ## 4. Tools and recipes (all in `scripts/bootstrap/`)
 
-### 4.1 Holder census (exit retention by root and type)
+### 4.1 Holder census: exit retention by root and type
 
 ```bash
-python3 scripts/bootstrap/holder_census_t.py <stage2>.c holders.c holders_dump.txt
-clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 -I$(brew --prefix openssl@3)/include \
-  -o yo_holders holders.c -L$(brew --prefix openssl@3)/lib -lssl -lcrypto -lm
-HOLDER_DEEP=1 HOLDER_SCAN=1 ./yo_holders check src/main.yo --std-path ./std
-grep '^D ' holders_dump.txt   # D <objects> <bytes> <root> : <type>
+yo compile src/main.yo --emit-c --skip-c-compiler --allocator system --std-path ./std -o s2   # or fixpoint_only.sh's /tmp/<P>_stage2.c
+python3 scripts/bootstrap/holder_census_t.py s2.c holders.c holders_dump.txt
+clang -std=c11 -D_GNU_SOURCE -fno-strict-aliasing -fwrapv -w -O1 -o yo_holders holders.c \
+  $(pkg-config --cflags --libs openssl) -lm -lpthread        # macOS: the brew openssl flags
+HOLDER_MIN=1000 HOLDER_SCAN=1 HOLDER_DEEP=1 HOLDER_COLLECT=1 ./yo_holders check src/main.yo --std-path ./std
+python3 scripts/bootstrap/holder_report.py holders_dump.txt
+awk '$1=="D" && $4=="LEAK"' holders_dump.txt | sort -k3 -n -r | head   # the unreachable group
 ```
 
-`HOLDER_DEEP_LAST=<root>` walks one root last, which gives its exclusive share.
-The visitors were updated this session for the two-argument `traverse_fn`
-visitor (#902).
+- On Linux the binary re-executes itself under walkable glibc tunables. The
+  dump's `# chunks … exact 1` line confirms it; `HOLDER_NO_REEXEC=1` opts out.
+- `HOLDER_MIN` defaults to 1,000,000 tracked objects. Since §0.19 a full
+  `check` ends with about 634 K, so pass it explicitly.
+- `HOLDER_DEEP_LAST=<root>` walks that root last and gives its exclusive
+  share.
 
-### 4.2 Finding a missing release: the rc-event log
+### 4.2 Finding a missing release
 
-1. Emit the stage-2 C with `YO_DEBUG_FN_ORIGIN=1` (a debug knob added this session:
-   every definition gets `/* yo-origin <module>:<line> <c name> */`).
-2. Build the fid map from those comments: for each, the nearest `name ::` at or
-   above the line in the source is the Yo name. That takes ten lines of Python;
-   see `.github/instructions/debugging.instructions.md` "Naming `yo_id_…`
-   frames". (`fid_name_map.py` predates #914's anchored ids and maps nothing.)
-3. `alloc_site_census_t.py IN.c a.c dump.txt <Type> --rc-events`, then
-   `holder_census_t.py a.c b.c h.txt`, then `clang -g -fno-omit-frame-pointer -O1`,
-   then run with `HOLDER_MIN=1000 HOLDER_SCAN=1 HOLDER_COLLECT=1 HS_ONLY_MARKED=1 HS_MIN=999999999999`.
-4. `rc_event_report.py dump.txt <bin> <fidmap> 4`. An increment with no matching
-   decrement across a window is the leak. Read the emitted C of that function
-   next to the source shape.
+- **An object dup'd many times (a table, an env):** `--rc-balance`.
 
-### 4.3 Stage-2 A/B for layout changes
+  ```bash
+  YO_DEBUG_FN_ORIGIN=1 yo compile src/main.yo --emit-c --skip-c-compiler --allocator system --std-path ./std -o origin
+  python3 scripts/bootstrap/fid_name_map.py origin.c fidmap.tsv
+  python3 scripts/bootstrap/alloc_site_census_t.py origin.c bal.c bal_dump.txt "HashMap(usize, ExprInfo)" --rc-balance
+  clang … -O1 -g -fno-omit-frame-pointer -o yo_bal bal.c …
+  ./yo_bal check src/main.yo --std-path ./std
+  python3 scripts/bootstrap/rc_balance_report.py bal_dump.txt yo_bal fidmap.tsv
+  ```
 
-A codegen change that alters data layout (Phase 3) only shows its memory effect
-in a compiler BUILT by the new compiler. Use `fixpoint_only.sh`'s `/tmp/<P>_s2`
-from both trees and compare `check src/main.yo` on those.
+  A function with a positive live net and about 0 freed net is where the
+  missing release belongs.
+- **An object with few events:** `--rc-events` plus `rc_event_report.py`, the
+  first and last 8 events per leak root (the plan §0.8 recipe).
+- Either way, reproduce in a 15-line program with a `Dispose` counter
+  asserting exactly one dispose, and read the emitted C.
+
+### 4.3 Stage-2 A/B
+
+`fixpoint_only.sh` leaves `/tmp/<P>_stage2.c` and `/tmp/<P>_s2`. Build one from
+each tree and run `check src/main.yo` on the SAME tree, both at once:
+
+```bash
+for s in base fix; do /usr/bin/time -f "$s wall=%e rss=%MkB" /tmp/${s}_s2 check src/main.yo --std-path ./std & done; wait
+```
 
 ## 5. Coordination
 
-Peer sessions yo-16 (type-system soundness) and yo-ca (parallelism) merge into
-the same files, especially `calls/*.yo`, `env.yo`, `types/*.yo` and `codegen/*`.
-Rebase before gating, never merge a docs-only PR while a develop battery you
-wait on is pending, and tell them when you touch shared files.
+- Peer sessions (type-system soundness, parallelism, drop-liburing) merge into
+  the same files, especially `calls/*.yo`, `env.yo`, `types/*.yo` and
+  `codegen/*`. Rebase before gating.
+- Never merge a docs-only PR while a develop battery you wait on is pending.
+- Never merge while a release is being cut.

@@ -227,12 +227,23 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       fi = (fi + usize(1));
     });
     data.push_str(" }");
-    // Unique stack temp.
-    temp := String.from("__capture_");
-    temp.push_string(fid.clone());
-    temp.push_str("_");
-    temp.push_string(g_closure_capture_counter.to_string());
-    g_closure_capture_counter = (g_closure_capture_counter + usize(1));
+    // The stack temp: the evaluator's owning temp for the closure value when
+    // it attached one (its scope-end drop releases the captures), else a
+    // unique name. Registered as declared either way, so a deferred drop
+    // naming it is emitted.
+    temp := match(
+      ei.variable_name,
+      .Some(cvn) => get_variable_name_for_codegen(cvn, Option(Environment).Some(ei.env)),
+      .None => {
+        t := String.from("__capture_");
+        t.push_string(fid.clone());
+        t.push_str("_");
+        t.push_string(g_closure_capture_counter.to_string());
+        g_closure_capture_counter = (g_closure_capture_counter + usize(1));
+        t
+      }
+    );
+    context.base.declared_c_var_names.insert(temp.clone());
     decl := indent.clone();
     decl.push_string(capture_c_name.clone());
     decl.push_str(" ");
