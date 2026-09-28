@@ -2394,6 +2394,22 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         cast.push_string(ret_str);
         cast.push_str(" (*)(");
         npt := param_types.len();
+        // Spell each parameter through its SomeT resolution. An effect-row
+        // parameter (`e : E`, `E` a spread generic) is still the SomeT here,
+        // whose erased spelling is `void*`, while the specialized callee takes
+        // the resolved handler type. Calling `int (*)(int (*)(T))` through
+        // `int (*)(void*)` is a call through an incompatible function type
+        // (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+        cast_param_types := ArrayList(TypeValue).new();
+        (cpt_i : usize) = usize(0);
+        while(cpt_i < npt, {
+          match(
+            param_types.get(cpt_i),
+            .Some(cpt_t) => cast_param_types.push(resolve_some_type_to_concrete(cpt_t)),
+            .None => ()
+          );
+          cpt_i = (cpt_i + usize(1));
+        });
         (pi : usize) = usize(0);
         while(pi < npt, {
           if(pi > usize(0), {
@@ -2406,7 +2422,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // and called an `int32_t*` function through a by-value pointer type,
           // truncating the address
           // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-          cast.push_string(_fn_pointer_param_type_string(param_types, param_is_ref, pi, context));
+          cast.push_string(_fn_pointer_param_type_string(cast_param_types, param_is_ref, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2427,7 +2443,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 fa_out.push_str(", ");
               });
               // In lockstep with the fn-pointer cast above.
-              fa_pt := _fn_pointer_param_type_string(param_types, param_is_ref, fa_i, context);
+              fa_pt := _fn_pointer_param_type_string(cast_param_types, param_is_ref, fa_i, context);
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(fa_pt);

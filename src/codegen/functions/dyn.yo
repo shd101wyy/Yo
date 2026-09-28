@@ -213,23 +213,43 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
 /// Emit the wrapper-call statement for an impl method: unwraps the boxed/
 /// concrete receiver (already declared) and forwards the remaining args.
 /// `n_params` is the impl method's full parameter count (incl. self).
-_emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_params : usize, is_void : bool) -> unit)({
+/// `arg_casts(j - 1)` is the C cast for `arg<j>` ("" for none) and
+/// `ret_cast` the cast of the result ("" for none): the wrapper is defined
+/// with the vtable slot's signature, and these convert to and from the impl
+/// method's own C types where the two spellings differ.
+_emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_params : usize, is_void : bool, arg_casts : ArrayList(String), ret_cast : String) -> unit)({
   call := String.from("");
   call.push_string(cname.clone());
   call.push_str("(");
   call.push_string(first_arg);
   (j : usize) = usize(1);
   while(j < n_params, {
-    call.push_str(", arg");
+    call.push_str(", ");
+    match(
+      arg_casts.get(j - usize(1)),
+      .Some(c) => if(c.len() > usize(0), {
+        call.push_str("(");
+        call.push_string(c.clone());
+        call.push_str(")");
+      }),
+      .None => ()
+    );
+    call.push_str("arg");
     call.push_string(j.to_string());
     j = (j + usize(1));
   });
-  call.push_str(");");
+  call.push_str(")");
   line := String.from("  ");
   if(!is_void, {
     line.push_str("return ");
+    if(ret_cast.len() > usize(0), {
+      line.push_str("(");
+      line.push_string(ret_cast.clone());
+      line.push_str(")");
+    });
   });
   line.push_string(call);
+  line.push_str(";");
   em.emit_declaration_string_line(line);
 });
 /// Resolve a boxed dyn payload type's SomeT fields/type-arguments through
@@ -470,26 +490,32 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     label_reserved := _is_reserved_dyn_label(label.clone());
                     // A wrapper only for a vtable slot (the typedef's rule):
                     // a member a Dyn cannot call has no slot to fill.
-                    is_slot := match(
+                    // The slot's member type is also the wrapper's C signature:
+                    // the runtime calls the wrapper through the slot, and a
+                    // call through an incompatible function type is UB.
+                    (slot_ty : Option(TypeValue)) = match(
                       req_traits.get(mi),
                       .Some(rt) => match(
                         rt,
                         .TraitT({ field_labels : tfl, field_types : tft }) => {
-                          (sl_found : bool) = false;
+                          (sl_found : Option(TypeValue)) = Option(TypeValue).None;
                           (sl_j : usize) = usize(0);
-                          while((sl_j < tfl.len()) && !sl_found, {
+                          while((sl_j < tfl.len()) && sl_found.is_none(), {
                             if(match(tfl.get(sl_j), .Some(l) => (l == label), .None => false), {
                               sl_ty := match(tft.get(sl_j), .Some(t) => t, .None => TypeValue.Unit);
-                              sl_found = (dyn_member_is_method(sl_ty) && dyn_member_unsafe_reason(sl_ty).is_none());
+                              if(dyn_member_is_method(sl_ty) && dyn_member_unsafe_reason(sl_ty).is_none(), {
+                                sl_found = Option(TypeValue).Some(sl_ty);
+                              });
                             });
                             sl_j = (sl_j + usize(1));
                           });
                           sl_found
                         },
-                        _ => false
+                        _ => Option(TypeValue).None
                       ),
-                      .None => false
+                      .None => Option(TypeValue).None
                     );
+                    is_slot := slot_ty.is_some();
                     is_reserved := ((label == "Self") || label_reserved || !is_slot);
                     if(!is_reserved, {
                       match(
@@ -507,8 +533,25 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   impl_cname := entry.c_name;
                                   wrapper := `__yo_wrap_${impl_key}_${label}`;
                                   return_str := get_type_string(result, context.base);
-                                  params := _wrapper_params(param_types.clone(), usize(1), context);
-                                  em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
+                                  // Defined with the SLOT's signature (the vtable
+                                  // initializer below takes it uncast); the impl's
+                                  // own C types are reached by casts inside. A
+                                  // Future-returning method is the case that
+                                  // differs: the impl returns its concrete future,
+                                  // the trait the Future interface pointer.
+                                  slot_params_tys := match(slot_ty, .Some(.Func({ param_types : spt })) => spt, _ => param_types.clone());
+                                  slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(sres, context.base), _ => return_str.clone());
+                                  params := _wrapper_params(slot_params_tys.clone(), usize(1), context);
+                                  arg_casts := ArrayList(String).new();
+                                  (ac_j : usize) = usize(1);
+                                  while(ac_j < param_types.len(), {
+                                    impl_pt := match(param_types.get(ac_j), .Some(t) => get_type_string(t, context.base), .None => String.new());
+                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => get_type_string(t, context.base), .None => String.new());
+                                    arg_casts.push(if(impl_pt == slot_pt, String.new(), impl_pt));
+                                    ac_j = (ac_j + usize(1));
+                                  });
+                                  ret_cast := if(slot_ret == return_str, String.new(), slot_ret.clone());
+                                  em.emit_declaration_string_line(`static ${slot_ret} ${wrapper}(${params}) {`);
                                   pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
                                   (first_arg : String) = String.from("");
                                   if(is_boxed, {
@@ -530,7 +573,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), entry.value, context.base), {
                                     em.emit_declaration_string_line(`  abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
                                   }, {
-                                    _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result));
+                                    _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result), arg_casts, ret_cast);
                                   });
                                   em.emit_declaration_line("}");
                                   em.emit_declaration_line("");
@@ -652,30 +695,10 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
           match(
             req_traits.get(mi),
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
-              // Cast to the vtable's declared member type: the wrapper's C
-              // return type is the IMPL's registered result (a Future-returning
-              // method's own sync-future/state-machine struct), while the
-              // member is declared with the trait's generic interface type —
-              // layout-compatible (the SM begins with the future header) but
-              // distinct C types, and clang rejects the bare initializer
-              // ("incompatible function pointer types").
-              match(
-                rt,
-                .FnTraitT({ call_param_labels : cpl2, call_param_types : cpt2, call_result : cres2 }) => {
-                  cast_ret := get_type_string(cres2, context.base);
-                  cast_params := String.from("void*");
-                  (cpi : usize) = usize(0);
-                  while(cpi < cpl2.len(), {
-                    cast_params.push_str(", ");
-                    cast_params.push_string(match(cpt2.get(cpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
-                    cpi = (cpi + usize(1));
-                  });
-                  em.emit_declaration_string_line(`  .call = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_call,`);
-                },
-                _ => {
-                  em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
-                }
-              );
+              // Uncast: the wrapper is defined from the same FnTraitT as the
+              // member, so a mismatch is a C compile error, never a call
+              // through an incompatible function type.
+              em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
               processed.insert(String.from("call"));
             }, {
               match(
@@ -701,30 +724,10 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                         .None => false
                       );
                       if(has_self, {
-                        // Same cast as `.call` above: member type = the
-                        // TRAIT's declared signature, wrapper type = the
-                        // impl's registered one.
-                        match(
-                          field_types.get(fi),
-                          .Some(mft) => match(
-                            mft,
-                            .Func({ param_types : mpt, result : mres }) => {
-                              cast_ret := get_type_string(mres, context.base);
-                              cast_params := String.from("void*");
-                              (mpi : usize) = usize(1);
-                              while(mpi < mpt.len(), {
-                                cast_params.push_str(", ");
-                                cast_params.push_string(match(mpt.get(mpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
-                                mpi = (mpi + usize(1));
-                              });
-                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_${label},`);
-                            },
-                            _ => {
-                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
-                            }
-                          ),
-                          .None => ()
-                        );
+                        // Uncast, like `.call` above: the wrapper is defined
+                        // with this member's own signature (the TRAIT's), and
+                        // casts to the impl's types inside.
+                        em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
                       });
                     });
                     fi = (fi + usize(1));
