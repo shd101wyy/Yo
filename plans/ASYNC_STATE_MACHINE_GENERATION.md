@@ -785,8 +785,15 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   - the `__yo_rc_alloc` calloc-fusion barrier;
   - inline continue after a synchronous completion (budget 1024);
   - the same-step handoff.
-  - Tests: `tests/async/sm_protocol.test.yo`. 2e (unwind identity) is deferred
-    to its own PR.
+  - Tests: `tests/async/sm_protocol.test.yo`.
+- 2026-09-29: phase 0/1 merged (#989).
+- 2026-09-29: phase 2 item 4 (unwind identity) joins the phase 2/3 PR:
+  - an `unwind` carries its handler literal's id (`__yo_unwind_target`);
+  - a frame catches exactly the handlers written in its own body, and the
+    catch in an `io.async` block resolves its future;
+  - the task-abort registry transports the target and value between tasks;
+  - a statement-level spawn's handle is materialized, so it is dropped.
+  - All six phase-2 issues are closed, with tests.
 - 2026-09-29: phase 5 in progress on `async-sm-p5` (stacked on p2). The
   single-pass emitter sits behind `YO_ASYNC_LOWERING=inline`, and the
   generated shape corpus is `tests/async/sm_shapes_{1..4}.test.yo` (129

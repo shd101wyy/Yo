@@ -2,7 +2,7 @@
 
 **Severity:** S1 — unwinding from a handler inside io.async silently exits main with rc 0 (or segfaults) — the emitted C jumps somewhere it should not
 
-**Status: OPEN.** Found 2026-09-06 while looking for a way to catch a framing
+**Status: FIXED (2026-09-29).** Found 2026-09-06 while looking for a way to catch a framing
 error per connection in `HttpServer.serve` (`plans/archive/STD_API_STABILIZATION.md`
 §3 item 18).
 

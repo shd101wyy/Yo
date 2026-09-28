@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `JoinHandle.abort()` never resumes a task parked awaiting the aborted future — the program hangs indefinitely (rc 124)
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -42,6 +42,13 @@ resumed.
 ## Fix direction
 
 Abort must be a completion: set `-2`, wake every waiter (see
-`issues/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md`),
+`issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md`),
 then release. Do it in one runtime helper that all three paths call, so
 the paths cannot drift apart again.
+
+## Fix (2026-09-29, async state-machine plan phase 2)
+
+`__yo_future_abort` marks the future -2 and calls its abort hook, which
+cancels what the task is suspended on and wakes its waiters. An awaiting task
+observes -2 and is aborted in turn. Test: `tests/async/sm_protocol.test.yo`
+"aborting a task wakes the task awaiting it".
