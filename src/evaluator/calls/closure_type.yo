@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_set_closure_function_value,
   expr_info_capture_type,
-  expr_info_set_capture_type
+  expr_info_set_capture_type,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { Token } :: import("../../token.yo");
 {
@@ -72,7 +73,8 @@ pragma(Pragma.AllowUnsafe);
   validate_capture_trait_requirements,
   validate_send_closure_global_reach,
   FuncCapturedVarInfo,
-  record_closure_capture_verdicts
+  record_closure_capture_verdicts,
+  generate_captured_variable_dup_expressions
 } :: import("../utils/closure.yo");
 /// Convert a closure body expression into a typed closure value against
 /// `fn_module_type` (an FnTrait type) wrapped in `wrapper_type` (Some or Dyn).
@@ -306,6 +308,14 @@ try_to_implement_closure_by_fn_module_type :: (
         Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
       }, Option(HashMap(String, FuncCapturedVarInfo)).None)
   );
+  // The capture struct holds its OWN reference to each RC-typed capture: the
+  // evaluated `___dup(name)` exprs are the capture-field initializers codegen
+  // emits (the same as an `=>` closure, anonymous_function.yo). The closure
+  // value types as its capture struct, so its copies are dup'd and its scope
+  // end drops each capture; without the dup at construction that drop is one
+  // too many (a heap use-after-free of the captured `MyBox`, caught by ASan on
+  // Linux in tests/closure.test.yo).
+  capture_dups := generate_captured_variable_dup_expressions(captured_vars_with_values_opt, caller_env, ctx, exn);
   // Create the capture struct type.
   cap_result := create_capture_type_and_value(
     Option(TypeValue).None,
@@ -346,6 +356,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(env, final_ty);
   expr_info_set_capture_type(info, capture_ty);
+  expr_info_set_deferred_dup_expressions(info, capture_dups.dup_exprs);
   expr_info_set_closure_function_value(info, Option(EvalValue).Some(func_val_pre));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   Option(AstExpr).Some(expr)
