@@ -1,7 +1,7 @@
 # A cond arm's SECOND await of a field-held future frees the field's future (heap-use-after-free)
 
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
-(`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and develop
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and develop
 `af62bdb28`.
 
 ## Symptom

@@ -74,6 +74,6 @@ version is preserved in this branch's history —
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE.** The described shape was rebuilt: a recursive plain helper that awaits internally, an outer `if` assigning `stamp`, then a nested `if` with an await. It prints `inner branch ran … hits=1`, which is correct. Without the original code this cannot go further. Candidate for `retired/` if nothing turns up by the next audit.

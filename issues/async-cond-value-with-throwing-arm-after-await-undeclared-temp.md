@@ -83,7 +83,7 @@ the bare `ft`.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `error: use of undeclared identifier '_file____tmp__temp_…'` in the else arm (`… = <undeclared>`) after the throwing arm's escape check. This implicates the final-expression path of `generate_state_segment_code` ("Store final expression result") into the value-cond emitter: the non-throwing arm's operand temp is never emitted.
 

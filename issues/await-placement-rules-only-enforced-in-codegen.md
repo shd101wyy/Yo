@@ -1,7 +1,7 @@
 # `io.await` placement rules (E0904) are enforced only in codegen: `yo check` and the LSP accept the program
 
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
-(`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
 
 ## Symptom

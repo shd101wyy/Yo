@@ -79,6 +79,6 @@ sync-future emit path asserts. A regression test belongs next to
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED.** No longer an ICE: `yo compile` now reports the coded `E0905` (#917), and `yo check` still exits 0. `YO_DEBUG_SWALLOW=1 yo check` shows that the swallowed cause is a real user error in the repro (`E0601 Cannot unify "String" and "dyn(ToString + Error)"`: it throws a bare string). The valid form `e.exn.throw(dyn(IoError.from_errno(2)))` compiles and prints `caught`/`after`. What remains is the def-time swallow hiding the real message (R2 in `plans/TYPE_SYSTEM_SOUNDNESS.md`).

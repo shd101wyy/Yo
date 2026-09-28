@@ -1,0 +1,219 @@
+//! State-machine ownership regressions from the async state-machine audit
+//! (plans/ASYNC_STATE_MACHINE_GENERATION.md, phase 1). Each test is one issue's
+//! repro. Leaks are observed through a `Dispose` counter (CI runs with
+//! detect_leaks=0); use-after-frees are caught by the test runner's ASan.
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
+pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+{ sleep } :: import("std/sys/timer");
+{ String } :: import("std/string");
+{ __yo_async_yield_start } :: import("std/sys/externs");
+{ IoFuture } :: import("std/sys/future");
+
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+
+_leaf :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    v
+  })
+);
+
+// issues/fixed/async-second-cond-arm-await-of-a-field-future-frees-it.md
+Holder :: ref(struct(fut : IoFuture));
+_second_arm_await_of_field :: (fn(h : Holder, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (out : i32) = i32(0);
+    cond(
+      (out == i32(0)) => {
+        a := e.await(_leaf(i32(1), e), e);
+        b := e.await(h.fut, e);
+        out = (a + b);
+      },
+      true => {
+        out = i32(5);
+      }
+    );
+    out
+  })
+);
+test("a cond arm's second await of a field-held future leaves the field's reference alone", {
+  h := Holder(fut : unsafe(__yo_async_yield_start()));
+  r := io.await(_second_arm_await_of_field(h, io), io);
+  assert(r == i32(1), "the arm's awaits both ran");
+  // Read the field's future again: it used to be freed by the arm's await.
+  r2 := io.await(h.fut, io);
+  assert(r2 == i32(0), "the field's future is still alive");
+});
+
+// issues/fixed/named-future-awaited-in-a-while-emits-missing-await-future-field.md
+_named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
+  io.async((io : Io) => {
+    f := _leaf(i32(2), io);
+    (acc : i64) = i64(0);
+    (i : i64) = i64(0);
+    while(runtime(i < n), {
+      v := io.await(f, io);
+      acc = (acc + i64(v));
+      i = (i + i64(1));
+    });
+    acc
+  })
+);
+test("a named future awaited inside a while loop", {
+  r := io.await(_named_future_in_loop(i64(3), io), io);
+  assert(r == i64(6), "every iteration reads the same completed future");
+});
+
+// issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md
+test("awaiting an already-running future from a state machine releases it", {
+  before := g_disposed;
+  {
+    f := io.async((io : Io) => {
+      io.await(sleep(u64(5)), io);
+      Thing(n : i32(7))
+    });
+    hf := io.spawn(f, io);
+    a := io.async((io : Io) => {
+      v := io.await(f, io);
+      v.n
+    });
+    r := io.await(a, io);
+    assert(r == i32(7), "the awaiter read the running future's result");
+    _rf := hf.await(io);
+  };
+  assert(g_disposed == (before + i32(1)), "the future (and its Thing result) is disposed");
+});
+
+// issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md
+Pair :: struct(t : Thing, label : String);
+test("an aborted task drops its Option and value-struct locals", {
+  before := g_disposed;
+  {
+    task := io.async((io : Io) => {
+      o := Option(Thing).Some(Thing(n : i32(1)));
+      p := Pair(t : Thing(n : i32(2)), label : String.from("pair"));
+      s := `held ${i32(3)}`;
+      io.await(yield(io), io);
+      match(o, .Some(q) => q.n, .None => i32(0)) + p.t.n + i32(s.len())
+    });
+    h := io.spawn(task, io);
+    h.abort();
+    r := h.await(io);
+    assert(r.is_none(), "the task was aborted");
+    io.await(yield(io), io);
+  };
+  assert(g_disposed == (before + i32(2)), "the Option's and the struct's Things are dropped");
+});
+
+// issues/fixed/nested-io-async-string-capture-is-not-retained.md
+test("a nested io.async capturing a state machine's String retains it", {
+  before := g_disposed;
+  outer := io.async((io : Io) => {
+    s := String.from("abcdef");
+    t := Thing(n : i32(3));
+    io.await(yield(io), io);
+    r := io.await(
+      io.async((io : Io) => {
+        io.await(yield(io), io);
+        s.len() + usize(t.n)
+      }),
+      io
+    );
+    r + s.len()
+  });
+  r := io.await(outer, io);
+  assert(r == usize(15), "the outer machine's String survives the inner future");
+  assert(g_disposed == (before + i32(1)), "the captured Thing is released exactly once");
+});
+
+// issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md
+_mk_thing :: (fn(n : i32, io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    Thing(n : n)
+  })
+);
+test("reassigning a heap local from an await releases the old value", {
+  before := g_disposed;
+  {
+    task := io.async((io : Io) => {
+      t := Thing(n : i32(1));
+      t = io.await(_mk_thing(i32(2), io), io);
+      t = io.await(_mk_thing(i32(3), io), io);
+      t.n
+    });
+    r := io.await(task, io);
+    assert(r == i32(3), "the last reassignment wins");
+  };
+  assert(g_disposed == (before + i32(3)), "all three Things are disposed");
+});
+
+// issues/fixed/tail-primitive-match-with-three-arms-redefines-continuation-fn.md
+_tail_match :: (fn(k : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async(
+    (io : Io) => match(
+      k,
+      0 => i32(10),
+      1 => io.await(_leaf(i32(20), io), io),
+      _ => i32(30)
+    )
+  )
+);
+test("a primitive match with three arms as the body's tail", {
+  a := io.await(_tail_match(i32(0), io), io);
+  b := io.await(_tail_match(i32(1), io), io);
+  c := io.await(_tail_match(i32(2), io), io);
+  assert((a == i32(10)) && (b == i32(20)) && (c == i32(30)), "each arm's value");
+});
+
+// issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md
+_classify_cond :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (total : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(runtime(i < n), {
+      v := cond(
+        (i == i32(0)) => i32(1),
+        (i == i32(2)) => e.await(_leaf(i32(100), e), e),
+        true => i32(10)
+      );
+      total = (total + v);
+      i = (i + i32(1));
+    });
+    total
+  })
+);
+_classify_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (total : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(runtime(i < n), {
+      v := match(
+        i,
+        0 => i32(1),
+        2 => e.await(_leaf(i32(100), e), e),
+        _ => i32(10)
+      );
+      total = (total + v);
+      i = (i + i32(1));
+    });
+    total
+  })
+);
+test("a value-position cond or match with an awaiting arm inside a while", {
+  // 1 + 10 + 100 + 10
+  assert(io.await(_classify_cond(i32(4), io), io) == i32(121), "cond value");
+  assert(io.await(_classify_match(i32(4), io), io) == i32(121), "match value");
+});

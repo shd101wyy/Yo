@@ -1,8 +1,8 @@
 # Async state-machine generation: the 2026-09-28 audit and the improvement plan
 
-**Status:** BACKLOG. The audit is complete, and phases 0–2 start immediately
-(move this doc to `plans/` root when phase 0 lands). Written 2026-09-28
-against develop `af62bdb28` (seed v0.2.45).
+**Status:** ACTIVE (since 2026-09-29). The audit is complete (#985), and
+phases 0 and 1 are in progress. The per-phase progress log is §9. Written
+2026-09-28 against develop `af62bdb28` (seed v0.2.45).
 
 **Scope.** How the compiler turns an `io.async` body into a C state machine,
 and the runtime protocol the generated code relies on: the future header,
@@ -682,3 +682,16 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   - recursive self-await 1M deep at `-O0` and 5M at `-O2`;
   - 1M sequential awaits (flat 4 MB RSS);
   - 100k spawned tasks with `join_all` (all disposed).
+
+## 9. Progress log
+
+- 2026-09-28: audit landed (#985).
+- 2026-09-29: phase 0/1 batch in progress on `async-sm-p0p1`:
+  - the ASan probe fix;
+  - store sites via `emit_await_future_store`, including named futures in
+    loops;
+  - the running-task reference taken only on cold start;
+  - the retain/drop inline fallbacks;
+  - `=`-reassign release;
+  - braced primitive-match cases;
+  - no silent fall-through in the cond-branch and while-body emitters.

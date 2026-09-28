@@ -75,6 +75,6 @@ moves the payload into a value that outlives the abort) + ASan on Linux.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: now a LEAK, not a double drop** (tree build). The doc had no runnable repro. `issues/repros/async-abort-dispose-leaks-local-slots.yo` builds the shape: a `match` on an SM-held `Result` whose `.Err(msg)` arm throws `dyn(msg)` without a clone, and the handler unwinds. ASan reports no double-free or UAF. LSan reports `171 byte(s) leaked in 5 allocation(s)`: the moved `msg`, `content`, their String headers, and the 64 B `__yo_task_abort_register` array. The emitted `_state_dispose` drops the captures and, only when `state == -1`, the result. It drops no local slot on abort (`local_var_drops` is empty for this body; `generate_async_block_state_dispose_function`, `src/codegen/exprs/async.yo`). Per-state drop tables (plan phase 4) are the structural fix.

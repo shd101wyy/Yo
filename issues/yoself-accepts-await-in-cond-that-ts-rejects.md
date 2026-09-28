@@ -81,6 +81,6 @@ divergence itself is untouched.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: the divergence is gone.** The compiler now rejects the doc's shape with E0904, matching the old TS. The rejection is itself wrong for this shape, though: the await IS the first condition, and the same `if` outside a match arm compiles and runs. That is filed separately as `issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`. This doc can be retired once that one is fixed.
