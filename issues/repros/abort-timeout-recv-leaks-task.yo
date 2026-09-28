@@ -1,0 +1,26 @@
+{ eprintln } :: import("std/fmt");
+{ sleep } :: import("std/sys/timer");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ Channel } :: import("std/async/channel");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(Thing, Dispose(dispose : (fn(self : Self) -> unit)({ g_disposed = (g_disposed + i32(1)); })));
+main :: (fn(io : Io) -> unit)({
+  ch := Channel(i32).new(usize(4));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    f := io.async((io : Io) => {
+      a := Thing(n : i32(1));
+      v := io.await(ch.recv(io), io);
+      (a.n + match(v, .Some(x) => x, .None => i32(0)))
+    });
+    h := io.spawn(f, io);
+    r := timeout(h, Duration.from_millis(i64(5)), io);
+    eprintln(`iter ${i}: is_err=${r.is_err()}`);
+    i = (i + i32(1));
+  });
+  io.await(sleep(u64(10)), io);
+  eprintln(`disposed=${g_disposed} (expect 3)`);
+});
+export(main);

@@ -1,0 +1,21 @@
+{ eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ String } :: import("std/string");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(Thing, Dispose(dispose : (fn(self : Self) -> unit)({ g_disposed = (g_disposed + i32(1)); })));
+main :: (fn(io : Io) -> unit)({
+  outer := io.async((io : Io) => {
+    s := String.from("abcdef");
+    t := Thing(n : i32(3));
+    io.await(yield(io), io);
+    r := io.await(io.async((io : Io) => {
+      io.await(yield(io), io);
+      (s.len() + usize(t.n))
+    }), io);
+    (r + s.len())
+  });
+  r := io.await(outer, io);
+  eprintln(`r=${r} (expect 15) disposed=${g_disposed}`);
+});
+export(main);

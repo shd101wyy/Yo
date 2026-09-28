@@ -1,0 +1,22 @@
+// clang: expected expression (sm->var_t1 = ;)
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => {
+(i : i32) = i32(0);
+(acc : i32) = i32(0);
+while((i < n), i = e.await(_v((i + i32(1)), e), e), {
+  t1 := e.await(_v(i, e), e);
+  acc = ((acc * i32(10)) + t1);
+});
+(acc + (i * i32(1000)))
+
+}));
+main :: (fn(io : Io) -> unit)({
+  println(io.await(_run(i32(0), io), io));
+  println(io.await(_run(i32(1), io), io));
+  println(io.await(_run(i32(3), io), io));
+});
+export(main);

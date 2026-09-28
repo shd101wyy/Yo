@@ -64,3 +64,9 @@ and the state machine has a `_state_dispose` function. Either that dispose does
 not drop the capture record's `ref` fields, or it is not called on the
 completed future's release. `src/codegen/async/` and the state-machine
 dispose emitter are the places to start.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**FIXED, not yet moved.** `io.async: created=50 disposed=50` on both binaries. The repro's `main(io, exn)` signature no longer compiles, so `exn` was moved into the body for the check. This duplicates `issues/fixed/io-async-closure-captures-never-released.md`, whose regression test is in `tests/async_await.test.yo` (~line 5686). Next step: move this doc to `fixed/` with a pointer to that test.

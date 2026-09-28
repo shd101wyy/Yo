@@ -72,3 +72,9 @@ remaining direct call-through (currently only the sync-await bridge and
 - Related cluster:
   issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md (same
   state-machine argument plumbing).
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**FIXED by rejection.** `main(io, exn : Exception)` is now a compile error ("main accepts at most an `io : Io` parameter…", #828, `da73f420c`). With a local `exn`, the ENOENT `create_dir` exits cleanly. Candidate for `retired/` (its subject was removed rather than fixed).

@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+_b :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => true));
+_run :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    if(!(e.await(_b(e), e)), { return(i32(1)); });
+    i32(2)
+  })
+);
+main :: (fn(io : Io) -> unit)({ println(io.await(_run(io), io)); });
+export(main);

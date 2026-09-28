@@ -1,0 +1,23 @@
+{ eprintln } :: import("std/fmt");
+{ sleep } :: import("std/sys/timer");
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    i32(7)
+  });
+  hf := io.spawn(f, io);
+  a := io.async((io : Io) => {
+    eprintln(`a: awaiting f`);
+    v := io.await(f, io);
+    eprintln(`a: got ${v}`);
+    v
+  });
+  ha := io.spawn(a, io);
+  hf.abort();
+  eprintln(`main: aborted f`);
+  ra := ha.await(io);
+  eprintln(`main: ra is_none=${ra.is_none()}`);
+  rf := hf.await(io);
+  eprintln(`main: done`);
+});
+export(main);

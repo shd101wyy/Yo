@@ -50,3 +50,9 @@ compile — and made this ownership hole reachable.
 
 Option 1 is the honest minimum; option 2 is what a future `Drop`-correct
 IoFuture story needs.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**NOT REPRODUCED on Linux** (seed and tree build). The doc's probe shape (bind `sleep(5)`, read its state, drop it, then sleep 50 ms) is ASan-clean. In the tree, `__yo_timer_arm` now takes a heap reference (`future->header.ref_count++`, #982). The tree build leaks the 128 B timer-heap array at exit (a leak, not a UAF). The macOS kqueue path still keeps `ctx->future` as a bare borrow, which could not be tested here.

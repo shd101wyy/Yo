@@ -66,3 +66,9 @@ propagation problem solved for `comptime_expect_error`
 (`[[yo-self-comptime-expect-error-disabled]]`). Fold into the broader def-eval-
 propagation faithfulness work rather than band-aiding the count check (which is
 correct as-is). Tracked under Phase 5 / post-FSM faithfulness.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**FIXED.** `yo check` reports `E0603 Argument count mismatch: expected 2 arguments, got 1` for `io.await(f)`, both inside `io.async` and in `main`, and for the struct field-fn `o.add(i32(1))`. Next step: confirm a test pins this, then move to `fixed/`.

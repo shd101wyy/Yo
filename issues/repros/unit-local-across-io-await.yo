@@ -1,0 +1,18 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+_id :: (fn(x : unit) -> unit)(x);
+_t :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    (u : unit) = ();
+    io.await(yield(io), io);
+    w := _id(u);
+    io.await(yield(io), io);
+    _v := _id(w);
+    i32(5)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  r := io.await(_t(io), io);
+  println(`r=${r}`);
+});
+export(main);
