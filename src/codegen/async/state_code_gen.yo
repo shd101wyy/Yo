@@ -8,7 +8,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, BF_DOT, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
-{ lookup_match_arms } :: import("../../pattern.yo");
+{ lookup_match_arms, Pattern, Arm } :: import("../../pattern.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
@@ -16,17 +16,19 @@
 { is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_case_executed } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
-{ arm_value_with_dups } :: import("../exprs/drop_dup.yo");
+{ arm_value_with_dups, generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
+{ _variant_test_code, _variant_field_code, _position_is_ptrish, _struct_pattern_labels, _struct_pattern_field_tys, _collect_bind_decls } :: import("../exprs/match.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
-{ is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type, is_pointer_type } :: import("../../types/guards.yo");
+{ resolve_enum_shell } :: import("../../types/creators.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards, nullable_arm_selects_payload, nullable_arm_payload_binder } :: import("../utils/index.yo");
+{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -3470,6 +3472,335 @@ _emit_match_case_await_or_value :: (
     });
   });
 });
+/// A per-match label counter for the general dispatch's goto labels
+/// (ArrayList has no element setter; a one-field ref struct does the job).
+_AwLabelCtr :: ref(struct(next : usize));
+/// Bind `name` (of Yo type `ty`) to the C expression `path` inside an async
+/// match arm. A name the suspension analysis hoisted into the state machine
+/// (`_find_sm_var_id_by_name`) writes the SM field — the resume reads it
+/// there; every other name is an arm-local C declaration (or, for
+/// or-alternatives, an assignment to the declaration the alternatives share).
+_aw_bind_pattern_name :: (
+  fn(name : String, ty : TypeValue, path : String, indent : String, assign : bool, context : FunctionGenerationContext) -> unit
+)({
+  if(is_unit_type(ty), {
+    return(());
+  });
+  em := context.base.emitter;
+  cname := sanitize_for_c_identifier(name.clone(), false);
+  match(
+    _find_sm_var_id_by_name(context, name.clone()),
+    .Some(vid) => {
+      fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+      em.emit_string_line(`${indent}sm->${fname} = ${path};`);
+    },
+    .None => {
+      if(assign, {
+        em.emit_string_line(`${indent}${cname} = ${path};`);
+      }, {
+        em.emit_string_line(`${indent}${get_type_string(ty, context.base)} ${cname} = ${path};`);
+      });
+    }
+  );
+});
+/// Emit the tests and bindings of compiled pattern `p` at C expression `path`
+/// (of Yo type `ty`) for the async GENERAL dispatch — the twin of the sync
+/// `_emit_pattern_chain` (`codegen/exprs/match.yo`), with bindings routed
+/// through `_aw_bind_pattern_name` (SM field or C local) instead of always a
+/// C local. `fail_label` receives control on the first failed test;
+/// `emit_tests` false skips refutable tests for the last arm of an exhaustive
+/// match (control reaching it means it matched).
+_aw_emit_general_pattern :: (
+  fn(
+    p : Pattern,
+    path : String,
+    ty : TypeValue,
+    fail_label : String,
+    assign_binds : bool,
+    emit_tests : bool,
+    indent : String,
+    label_prefix : String,
+    label_ctr : _AwLabelCtr,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(name, _) => {
+      _aw_bind_pattern_name(name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
+    },
+    .Const(_, _, _, subject, test) => {
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        em.emit_string_line(`${indent}${get_type_string(ty, context.base)} ${cname} = ${path};`);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        em.emit_string_line(`${indent}if (!(${test_code})) goto ${fail_label};`);
+      });
+    },
+    .Range(_, subject, test, _, _, _, _) => {
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        em.emit_string_line(`${indent}${get_type_string(ty, context.base)} ${cname} = ${path};`);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        em.emit_string_line(`${indent}if (!(${test_code})) goto ${fail_label};`);
+      });
+    },
+    .Variant(vname, vidx, field_idx, subs, enum_ty0, _, _) => {
+      enum_ty := resolve_enum_shell(enum_ty0);
+      is_raw_ptr := is_pointer_type(ty);
+      ptrish := _position_is_ptrish(ty);
+      if(emit_tests, {
+        t := _variant_test_code(enum_ty, vidx, vname.clone(), path.clone(), ptrish, is_raw_ptr, context);
+        em.emit_string_line(`${indent}if (!(${t})) goto ${fail_label};`);
+      });
+      labels_v := match(
+        enum_ty,
+        .EnumT({ variant_field_labels : vfls }) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()),
+        _ => ArrayList(String).new()
+      );
+      ftys := match(
+        enum_ty,
+        .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
+        _ => ArrayList(TypeValue).new()
+      );
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t2) => t2, .None => TypeValue.Unit);
+        flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
+        fcode := _variant_field_code(enum_ty, vname.clone(), flabel, path.clone(), ptrish, is_raw_ptr);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fcode, fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), label_prefix.clone(), label_ctr, context);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      // The alternatives bind the same names: declare the local ones once,
+      // then try each alternative in its own block, assigning on match.
+      if(!assign_binds, {
+        names := ArrayList(String).new();
+        types := ArrayList(TypeValue).new();
+        match(
+          alts.get(usize(0)),
+          .Some(a0) => {
+            _collect_bind_decls(a0, ty, names, types);
+          },
+          .None => ()
+        );
+        (ni : usize) = usize(0);
+        while(ni < names.len(), {
+          nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
+          nt := match(types.get(ni), .Some(t3) => t3, .None => TypeValue.Unit);
+          if(!is_unit_type(nt), {
+            // An SM-hoisted name needs no declaration (the field exists).
+            if(_find_sm_var_id_by_name(context, nm.clone()).is_none(), {
+              em.emit_string_line(`${indent}${get_type_string(nt, context.base)} ${sanitize_for_c_identifier(nm.clone(), false)};`);
+            });
+          });
+          ni = (ni + usize(1));
+        });
+      });
+      or_n := label_ctr.next;
+      label_ctr.next = (or_n + usize(1));
+      done_label := `${label_prefix}_or${or_n.to_string()}`;
+      inner := `${indent}  `;
+      (ai : usize) = usize(0);
+      while(ai < alts.len(), {
+        alt_is_final := (!emit_tests && ((ai + usize(1)) == alts.len()));
+        alt_n := label_ctr.next;
+        label_ctr.next = (alt_n + usize(1));
+        alt_fail := `${label_prefix}_alt${alt_n.to_string()}`;
+        em.emit_string_line(`${indent}{`);
+        match(
+          alts.get(ai),
+          .Some(alt) => {
+            recur(alt, path.clone(), ty, alt_fail, true, !alt_is_final, inner.clone(), label_prefix.clone(), label_ctr, context);
+          },
+          .None => ()
+        );
+        em.emit_string_line(`${inner}goto ${done_label};`);
+        em.emit_string_line(`${indent}}`);
+        if(!alt_is_final, {
+          em.emit_string_line(`${indent}${alt_fail}: ;`);
+        });
+        ai = (ai + usize(1));
+      });
+      if(emit_tests, {
+        em.emit_string_line(`${indent}goto ${fail_label};`);
+      });
+      em.emit_string_line(`${indent}${done_label}: ;`);
+    },
+    .At(name, _, sub) => {
+      _aw_bind_pattern_name(name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
+      recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, label_prefix, label_ctr, context);
+    },
+    .ThroughBox(box_ty, inner_ty, sub) => {
+      fields := get_runtime_struct_fields(box_ty);
+      blabel := match(
+        fields.get(usize(0)),
+        .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
+        .None => String.from("_u42_")
+      );
+      fcode := `${path}->${blabel}`;
+      recur(sub, fcode, inner_ty, fail_label, assign_binds, emit_tests, indent, label_prefix, label_ctr, context);
+    },
+    .Tuple(subs, elem_tys) => {
+      base := path.clone();
+      if(is_pointer_type(ty), {
+        base = `(*${path})`;
+      });
+      (i2 : usize) = usize(0);
+      while(i2 < subs.len(), {
+        ety := match(elem_tys.get(i2), .Some(t4) => t4, .None => TypeValue.Unit);
+        match(
+          subs.get(i2),
+          .Some(sub) => {
+            recur(sub, `${base}._${i2.to_string()}`, ety, fail_label.clone(), assign_binds, emit_tests, indent.clone(), label_prefix.clone(), label_ctr, context);
+          },
+          .None => ()
+        );
+        i2 = (i2 + usize(1));
+      });
+    },
+    .Struct(struct_ty, field_idx, subs, _) => {
+      ptrish2 := _position_is_ptrish(ty);
+      flabels := _struct_pattern_labels(struct_ty);
+      ftys2 := _struct_pattern_field_tys(struct_ty);
+      (i3 : usize) = usize(0);
+      while(i3 < subs.len(), {
+        fi3 := match(field_idx.get(i3), .Some(k3) => k3, .None => usize(0));
+        flabel3 := match(flabels.get(fi3), .Some(l3) => l3, .None => String.from(""));
+        fty3 := match(ftys2.get(fi3), .Some(t5) => t5, .None => TypeValue.Unit);
+        fcode3 := `${path}${cond(ptrish2 => "->", true => ".")}${sanitize_for_c_identifier(flabel3.clone(), false)}`;
+        match(
+          subs.get(i3),
+          .Some(sub) => {
+            recur(sub, fcode3, fty3, fail_label.clone(), assign_binds, emit_tests, indent.clone(), label_prefix.clone(), label_ctr, context);
+          },
+          .None => ()
+        );
+        i3 = (i3 + usize(1));
+      });
+    }
+  );
+});
+/// The general pattern dispatch for `match` arms in an async body: an ordered
+/// test chain over the COMPILED arms (`lookup_match_arms`), the async twin of
+/// the sync `_gen_general_match` lowering. Each arm's pattern tests and
+/// bindings run on the INITIAL pass; the arm body then goes through
+/// `_emit_match_case_await_or_value` exactly as a classic arm does, so the
+/// suspension/resume machinery (cond_branch codes, SM fields, remaining
+/// exprs) is unchanged — only the dispatch derivation differs
+/// (plans/MATCH_PATTERN_MATCHING.md §4.9).
+_aw_generate_general_match :: (
+  fn(
+    match_expr : AstExpr,
+    arms : ArrayList(Arm),
+    matched_value_code : String,
+    match_value_type : TypeValue,
+    await_point : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    target_variable_id : Option(String),
+    target_assignment_code : Option(String),
+    cond_branch_base : usize,
+    idx_s : String
+  ) -> unit
+)({
+  em := context.base.emitter;
+  prefix := `__yo_am${ast_expr_id(match_expr).to_string()}`;
+  end_label := `${prefix}_end`;
+  label_ctr := _AwLabelCtr(next : usize(0));
+  // The arms still live at runtime (comptime-eliminated arms keep no
+  // case_executed stamp, exactly what the sync emitter's `_case_executed`
+  // reads).
+  live := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  while(i < arms.len(), {
+    match(
+      arms.get(i),
+      .Some(a) => {
+        executed := match(
+          context.base.get_expr_info(a.pattern_expr),
+          .Some(ei) => match(expr_info_case_executed(ei), .Some(b) => b, .None => true),
+          .None => true
+        );
+        if(executed, {
+          live.push(i);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (v : usize) = usize(0);
+  while(v < live.len(), {
+    k := match(live.get(v), .Some(x) => x, .None => usize(0));
+    arm := match(arms.get(k), .Some(a) => a, .None => return(()));
+    next_k := match(live.get((v + usize(1))), .Some(x2) => x2, .None => usize(0));
+    fail_label := cond(
+      ((v + usize(1)) < live.len()) => `${prefix}_a${next_k.to_string()}`,
+      true => end_label.clone()
+    );
+    inner := `${indent}  `;
+    em.emit_string_line(`${indent}{`);
+    // The last live arm of an exhaustive match needs no tests; an
+    // or-pattern keeps its alternative tests (they pick the binder).
+    is_last := ((v + usize(1)) == live.len());
+    _aw_emit_general_pattern(
+      arm.pattern,
+      matched_value_code.clone(),
+      match_value_type,
+      fail_label.clone(),
+      false,
+      !(is_last && arm.guard.is_none()),
+      inner.clone(),
+      prefix.clone(),
+      label_ctr,
+      context
+    );
+    match(
+      arm.guard,
+      .Some(g) => {
+        gcode := _call_generate_expr(g, inner.clone(), context);
+        gn := label_ctr.next;
+        label_ctr.next = (gn + usize(1));
+        gvar := `${prefix}_g${gn.to_string()}`;
+        em.emit_string_line(`${inner}bool ${gvar} = ${gcode};`);
+        // The guard's temps die here, on both paths (the sync twin flushes
+        // the same way).
+        generate_deferred_drop_expressions(g, inner.clone(), context);
+        em.emit_string_line(`${inner}if (!(${gvar})) goto ${fail_label};`);
+      },
+      .None => ()
+    );
+    em.emit_string_line(`${inner}sm->cond_branch_${idx_s} = ${(cond_branch_base + k).to_string()};`);
+    _emit_match_case_await_or_value(
+      match_expr,
+      arm.body,
+      (cond_branch_base + k),
+      await_point,
+      inner.clone(),
+      context,
+      target_variable_id.clone(),
+      target_assignment_code.clone()
+    );
+    em.emit_string_line(`${inner}goto ${end_label};`);
+    em.emit_string_line(`${indent}}`);
+    if(!(fail_label == end_label), {
+      em.emit_string_line(`${indent}${fail_label}: ;`);
+    });
+    v = (v + usize(1));
+  });
+  em.emit_string_line(`${indent}${end_label}: ;`);
+});
 /// Emit a `match(...)` whose branches contain await. Dispatches to the primitive
 /// path (`is_primitive_match`), the nullable-pointer optimization (Option-like
 /// enums → NULL check), or a general `switch (value.tag)` — recording the taken
@@ -3538,12 +3869,13 @@ _generate_match_with_await_impl :: (
         },
         .Some(match_value_type) => {
           is_prim := match(context.base.get_expr_info(match_expr), .Some(ei) => match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), .None => false);
-          // The general pattern forms (nested variants, or-patterns on
-          // variants, guards, ranges, string/typed constants, `(name := p)`,
-          // identifier catch-alls) have no state-machine lowering yet: the
-          // sync emitter's test chain (`codegen/exprs/match.yo`) is not
-          // dispatch-aware. Fail loudly instead of emitting the wrong arms
-          // (plans/MATCH_PATTERN_MATCHING.md §4.9 follow-up).
+          // The general pattern forms (nested variants, or-patterns, guards,
+          // ranges, constants, tuple/struct patterns, whole-value bindings,
+          // identifier catch-alls) dispatch through the compiled-arm test
+          // chain (`_aw_generate_general_match`); the arm bodies then take
+          // the ordinary cond_branch/suspension path. Classic-only matches
+          // keep the switch lowerings below (plans/MATCH_PATTERN_MATCHING.md
+          // §4.9).
           match(
             lookup_match_arms(ast_expr_id(match_expr)),
             .Some(arms) => {
@@ -3554,7 +3886,19 @@ _generate_match_with_await_impl :: (
                 ci = (ci + usize(1));
               });
               if(!all_classic, {
-                codegen_user_error(ast_expr_token(match_expr), `Nested, or-, guard, range, constant and binding patterns are not supported yet in a \`match\` whose arms await inside an \`io.async\` block. Bind the payload with a plain variant pattern and match again inside the arm, or move the \`io.await\` out of the match.`);
+                _aw_generate_general_match(
+                  match_expr,
+                  arms,
+                  matched_value_code.clone(),
+                  match_value_type,
+                  await_point,
+                  indent.clone(),
+                  context,
+                  target_variable_id.clone(),
+                  target_assignment_code.clone(),
+                  cond_branch_base,
+                  idx_s.clone()
+                );
                 return();
               });
             },
