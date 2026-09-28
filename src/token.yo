@@ -2,6 +2,7 @@
 { rune, String } :: import("std/string");
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 TokenKind :: enum(
   Operator,
   Dot,
@@ -258,6 +259,26 @@ is_valid_identifier :: (fn(s : String) -> bool)({
     }
   )
 });
+// Token-text INTERN table: one canonical String instance per
+// distinct token text, so every same-named token shares one buffer and
+// downstream `String ==` hits the interned ptr+len fast path
+// (std/string/string.yo). Identifier-name compares (env frame scans,
+// dispatch conds) are ~38% of a stage2 emit purely from call volume
+// (issues/yo-self-compile-performance-rc-string-eq.md). Safe to share:
+// token value Strings are never mutated in place (audited 2026-07-27);
+// clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
+// the savings on every later compare.
+g_token_intern := HashMap(String, String).new();
+intern_token_str :: (fn(s : String) -> String)(
+  match(
+    g_token_intern.get(s),
+    .Some(canonical) => canonical,
+    .None => {
+      g_token_intern.insert(s, s);
+      s
+    }
+  )
+);
 /// Synthetic placeholder token used as a sentinel position when constructing
 /// AST nodes that have no real source location.
 placeholder_token :: (fn() -> Token)(
@@ -347,5 +368,6 @@ export(
   is_valid_identifier,
   placeholder_token,
   raii_token,
-  find_matching_bracket
+  find_matching_bracket,
+  intern_token_str
 );

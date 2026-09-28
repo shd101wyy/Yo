@@ -224,7 +224,7 @@ impl(
     if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
       return(true);
     });
-    g_ms_in_progress.insert(fid.clone(), true);
+    g_ms_in_progress.insert(fid, true);
     local_touched := ArrayList(String).new();
     mutates := _MsW.walk(body, table, local_touched);
     g_ms_in_progress.remove(fid.clone());
@@ -242,10 +242,10 @@ impl(
       li = (li + usize(1));
     });
     if(mutates, {
-      g_ms_summary_by_fid.insert(fid.clone(), true);
+      g_ms_summary_by_fid.insert(fid, true);
     });
     if((!(mutates)) && (filtered_touched.len() == usize(0)), {
-      g_ms_summary_by_fid.insert(fid.clone(), false);
+      g_ms_summary_by_fid.insert(fid, false);
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {
@@ -1311,7 +1311,7 @@ impl(
       all0.all = true;
       return(_MspAnalysis(mask : all0, ret : _msp_root(MSP_ROOTED)));
     });
-    g_msp_in_progress.insert(fid.clone(), true);
+    g_msp_in_progress.insert(fid, true);
     local_touched := ArrayList(String).new();
     ctx := _MspCtx(
       fid : fid.clone(),
@@ -1411,7 +1411,7 @@ impl(
     });
     result := _MspAnalysis(mask : mask, ret : ret);
     if(mask.all || (filtered.len() == usize(0)), {
-      g_msp_by_fid.insert(fid.clone(), result);
+      g_msp_by_fid.insert(fid, result);
     });
     (ti : usize) = usize(0);
     while(ti < filtered.len(), {
@@ -3551,17 +3551,17 @@ function_reaches_non_send_global :: (
   });
   // A body defined in a pragma'd file is the audited base.
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
-    g_gr_by_fid.insert(fid.clone(), Option(String).None);
+    g_gr_by_fid.insert(fid, Option(String).None);
     return(Option(String).None);
   });
   if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
     return(Option(String).Some(String.from("has a body that was never evaluated (a forward reference?) — a closure that runs on another thread may only call functions whose bodies are known")));
   });
-  g_gr_in_progress.insert(fid.clone(), true);
+  g_gr_in_progress.insert(fid, true);
   ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")));
   r := _gr_walk(body, ctx);
   g_gr_in_progress.remove(fid.clone());
-  g_gr_by_fid.insert(fid.clone(), r);
+  g_gr_by_fid.insert(fid, r);
   r
 });
 /// The memoized reach verdict of function `fid`, if one was computed: the

@@ -96,15 +96,22 @@ did not:
 | #954 | Linux census tooling (heuristic), `YO_DEBUG_SCOPE_DROPS`, docs: `Option` of a handle is one pointer | — |
 | #957 | holder_report.py, `g_match_arms` purge (reworked by §0.19's PR) | — |
 | #958 | plain-named builtin dispatch names are reserved for bindings | — |
-| (this PR) | exact Linux census; `--rc-balance`; **closures release their captures**; #957 rework | stage-2 `check src/main.yo` max RSS 1,282 → 1,165 MB (−9.2 %); exit census 942 → 763 MB; LEAK 129.5 → 17.8 MB |
+| #967 | exact Linux census; `--rc-balance`; **closures release their captures**; #957 rework | stage-2 `check src/main.yo` max RSS 1,282 → 1,165 MB (−9.2 %); exit census 942 → 763 MB; LEAK 129.5 → 17.8 MB |
+| #970 | `yo build` stamps the compiler binary; bound-await scrutinee hoists; async continuation pool freed at thread exit | LeakSanitizer fast suite: 109 → 252 fixed vs develop |
+| #971 | arm windows construct-local; codegen-only tables skipped in `check`/`verify`/`doc`/`lsp` (plan §0.21) | stage-1 max RSS −33.9 MB (−2.8 %) |
+| #972 | `Token` positions are `u32`, 80 → 64 B (plan §0.22); census `HOLDER_DUPSTR` (§0.23) | stage-1 max RSS −30.1 MB (−2.5 %) |
+| #973 | an awaited `match` scrutinee and hoisted state-machine locals are released at completion | 52 more LeakSanitizer failures fixed; `async_await.test.yo` 160/60 → 212/11 |
 
 Release v0.2.45 is published and is the seed.
 
 ## 2. In flight
 
-The PR for plan §0.19, branch `mem/review-957`. It holds the census fixes, the
-closure-capture fix and the #957 rework. The PR description carries its gate
-results.
+Branch `mem/intern-node-strings` (plan §0.23):
+- the lexer interns dot and number tokens and shares fixed punctuation;
+- desugar keywords are interned;
+- function-id registries share the id handle.
+
+Stage-1 max RSS: 1,146,640 → 1,107,468 kB (−3.4 %).
 
 ## 3. Remaining work, ranked by the §0.19 census
 
@@ -135,11 +142,24 @@ now that closures stop pinning them.
 
   Method: `alloc_site_census_t.py <C> a.c d.txt <Type> --rc-balance`, then
   `rc_balance_report.py` (§4.2).
-- **549 LeakSanitizer reports in the fast suite on Linux**, all pre-existing
-  on develop. They are the same missing-release families in user-shaped
-  programs, not WSL2 artifacts.
-  - Examples: `tests/rc.test.yo` "Rc with Iso"; three `tests/dyn.test.yo`
-    downcast / Future-vtable cases.
+- **LeakSanitizer reports in the fast suite on Linux**: 549 at #967, 297
+  after #970 and #973 (fast suite 4,227 passed / 299 failed). They are the
+  same missing-release families in user-shaped programs, not WSL2
+  artifacts.
+  - The largest files now are all I/O:
+    - `http/http` 31, `http/server` 11;
+    - `fs/file` 23, `fs/dir` 13, `fs/fs_convenience` 11;
+    - `async/combinators` 20;
+    - `net/tcp` 19;
+    - `io/bufio` 12;
+    - `async_await` 11;
+    - `process/command` 10.
+  - Coordinate with the Linux async-I/O runtime work: another session owns
+    `runtime_io_*.yo` and `runtime_core.yo`.
+  - The state-machine drop gate was the family behind #973. A body that
+    ends without `return(...)` takes `state_machine.yo`'s separate
+    "Drop local variables before completion" path, which is worth auditing
+    next.
   - Group them by file (`grep -B1 "Memory leak detected"` on the fast-suite
     log) and fix the largest families first. Each fix gets a Dispose-counter
     test.

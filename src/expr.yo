@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("./token.yo");
+{ TokenKind, Token, intern_token_str } :: import("./token.yo");
 { format_error_message } :: import("./error.yo");
 { Exception } :: import("std/error");
 /// The Yo builtin keyword strings used by the parser.
@@ -949,7 +949,9 @@ expect_expr_to_be_fn_call_of_any :: (
 /// Synthesize a token for a desugared node, inheriting position and
 /// provenance from `ref_tok` so errors keep pointing at the source site.
 _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Token)(
-  _synth_desugar_tok_s(kind, String.from(value), ref_tok)
+  // A fixed keyword: intern it, or each desugared `if` keeps its own `cond`,
+  // `=>`, `true` and `tuple` buffers (plans/EVALUATOR_MEMORY_REDUCTION.md §0.23).
+  _synth_desugar_tok_s(kind, intern_token_str(String.from(value)), ref_tok)
 );
 /// `_synth_desugar_tok` for a name built at desugar time.
 _synth_desugar_tok_s :: (fn(kind : TokenKind, value : String, ref_tok : Token) -> Token)(
@@ -1334,7 +1336,7 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
   tok := ast_expr_token(body);
   begin_tok := Token(
     kind : TokenKind.Identifier,
-    value : String.from(BK_BEGIN),
+    value : intern_token_str(String.from(BK_BEGIN)),
     row : tok.row,
     column : tok.column,
     character : tok.character,
