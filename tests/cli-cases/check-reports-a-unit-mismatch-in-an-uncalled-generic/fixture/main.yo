@@ -1,0 +1,15 @@
+// A mismatch between two types that mention no type variable holds under
+// every instantiation, so `check` reports it even in a generic nobody calls.
+// `unit` counts as such a type: the generic trial no longer types a failed
+// sub-evaluation `unit` (a static call on `Array(u8, T.BYTES)` found no method
+// and degraded to it), so a real `()` is evidence again.
+// issues/fixed/generic-trial-degrades-a-failed-evaluation-to-unit.md
+never_called :: (fn(generic(T : Type), x : T, where(T <: (Integer, ByteWidth))) -> Array(u8, T.BYTES))({
+  (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
+  (n : i32) = ();
+  out
+});
+main :: (fn() -> unit)({
+  ();
+});
+export(main);

@@ -2538,13 +2538,6 @@ mark_generic_independent :: (fn(err : YoError, a : TypeValue, b : TypeValue) -> 
   if(_type_mentions_generic_length(a, u32(0)) || _type_mentions_generic_length(b, u32(0)), {
     return(err);
   });
-  // `unit` on either side is not evidence: it is the evaluator's stand-in
-  // for a sub-evaluation that degraded (a failed lookup's `t_unit()`
-  // fallback) inside a generic body, and the trial cannot tell it from a
-  // real `()` (issues/generic-trial-degrades-a-failed-evaluation-to-unit.md).
-  if(match(a, .Unit => true, _ => false) || match(b, .Unit => true, _ => false), {
-    return(err);
-  });
   entries := ArrayList(Diagnostic).new();
   (i : usize) = usize(0);
   while(i < err.diagnostics.len(), {
