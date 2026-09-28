@@ -1,6 +1,6 @@
 # `--sanitize address` is silently dropped when `-o` is a bare file name
 
-**Status: OPEN.** Found 2026-09-28 during the async state-machine audit, when
+**Status: FIXED (2026-09-29).** Found 2026-09-28 during the async state-machine audit, when
 a known heap-use-after-free produced no ASan report. Linux (WSL2, nix
 toolchain), seed v0.2.45.
 
@@ -45,3 +45,7 @@ Pass an absolute path (or prefix `./` when the path has no `/`) as the probe
 binary. Add a CLI case to `tests/cli-cases/` that compiles with
 `--sanitize address -o <bare-name>` and asserts the binary links the ASan
 runtime.
+
+## Fix (2026-09-29)
+
+`_asan_runtime_is_usable` (`src/main.yo`) passes the probe binary as `./<name>` when the path has no directory component, so `sh` runs the file instead of searching `PATH` for it. Regression: `tests/cli-cases/sanitize-address-bare-output-name` compiles with `--sanitize address -o probe` and asserts that no `asan_probe` / `command not found` line appears. That holds whether or not ASan then arms (macOS AMFI refuses it). The case gives a golden diff with the v0.2.45 seed and passes with the fixed build.

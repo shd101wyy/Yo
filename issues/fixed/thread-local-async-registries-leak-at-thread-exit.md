@@ -1,6 +1,6 @@
 # Thread-local async runtime arrays (task-abort registry, timer heap) are never freed at thread exit
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit. Tree build of develop `af62bdb28` (LeakSanitizer, Linux).
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit. Tree build of develop `af62bdb28` (LeakSanitizer, Linux).
 
 ## Symptom
 
@@ -26,3 +26,7 @@ Register both frees in the same thread-exit hook chain (the hook is a
 single pointer today, so it needs to become a small list, or a single
 runtime function that frees every per-thread array). Regression: an LSan
 run of the repro that reports zero bytes.
+
+## Fix (2026-09-29)
+
+`__yo_async_free_cont_pool` (`src/codegen/async/runtime_core.yo`), the thread-exit hook, now also runs the idempotent `__yo_io_cleanup` and frees the effect-unwind abort registry. The Linux `__yo_io_cleanup` tears the timer heap down BEFORE its ring-initialised guard, since the heap is userspace-only and exists without a ring. The x2 repro and every test in `tests/async/sm_ownership.test.yo` that sleeps are LeakSanitizer-clean with a stage-1 build.

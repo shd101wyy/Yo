@@ -524,6 +524,76 @@ and the shadow diff is empty or fully explained.
 
 ### Phase 5: the single-pass resumable emitter
 
+**Implementation design (refined 2026-09-29, from reading the emitters).**
+The seam already exists. Inside an SM, `generate_await`
+(`src/codegen/exprs/await.yo`) emits nothing today and returns a
+substitution. In the new mode it emits the whole suspension INLINE, at the
+point where the ordinary expression generator reaches it, and returns the
+extracted result as the expression's value:
+
+```c
+// await K (analysis index K-1)
+sm->await_future_K = <future>;          // emit_await_future_store; a named future stores nothing
+sm->state = K;
+<ready?  budget: goto __yo_resume_K>    // the §3 fast paths
+<cold start + effect injection>
+__yo_future_add_waiter(<acc>, <resume>, sm);
+return;
+__yo_resume_K: ;
+<aborted? escape>                       // the existing extraction prologue
+<result temp> = <dup of acc->result>;  <release the slot>
+```
+
+The resume function is then:
+
+```c
+if (sm->state == -2) { <aborted-entry guard> }
+switch (sm->state) { case 0: break; case K: goto __yo_resume_K; … default: return; }
+<the body, generated ONCE by generate_begin in SM context>
+<completion with the body's value>
+```
+
+The body is generated into a scratch emitter first, so the dispatch switch
+lists exactly the labels that were emitted. That includes awaits the
+analysis never saw, such as the ones inside user-macro expansions.
+
+This is legal C11 because a `goto` may enter any block except a VLA scope,
+and the audit verified that codegen emits none, nor statement expressions
+or `cleanup` attributes. `match` stays a C `switch`, which is why the
+dispatch is by `goto` and not by `case` labels in the body. What does NOT
+survive the jump is a **C local** written before the suspension and read
+after it. The design rules follow from that:
+
+1. **Slotting.** Every Yo variable, pattern binding and minted temp of the
+   body lives in the SM struct. That is the whole `captured_variables`
+   list; phase 6 narrows it by liveness. Rendering already goes through
+   `state_machine_variables` (`sm->var_…`), and minted temps through
+   `_store_temp_var_to_state_machine_if_needed`. So what changes is the
+   filter (`cross_boundary_ids` = everything), not the renderer.
+2. **Helper locals.** An emitter that declares a C-only local, emits a nested
+   user statement list, and uses the local afterwards must slot it. Known
+   cases: a match scrutinee temp dropped after the arms, and a condition
+   temp dropped after a `cond`. Written-after-resume locals (a begin block's
+   value temp, a cond/match result temp, a result temp) are fine. Each case
+   gets a corpus shape under ASan.
+3. **Evaluation order.** An await nested inside a larger expression is
+   hoisted by construction (its statements are emitted before the enclosing
+   expression's text). That is exact when every operand evaluated before it
+   is a literal or a local variable read. Otherwise the earlier operand must
+   be spilled first, and until that exists it is a coded user error (the
+   E0904 family, which then covers only this one shape). Laziness is free:
+   an await in a later `cond` condition, or on the right of `&&`, is emitted
+   inside the branch that evaluates it.
+4. **One emission per await.** `generate_await` records the await's id and
+   refuses a second emission (`codegen_fatal`). An emitter that generates an
+   expression twice would duplicate a label.
+5. **The analysis follows every macro expansion** (not only `if`), so a body
+   whose awaits all come from a macro becomes a state machine
+   (`io-await-inside-a-macro-expansion-…`).
+
+With emission done this way, the IR of §4 is needed only for phase 6's
+liveness, not for phase 5.
+
 1. Emit from the IR as in §4, behind `YO_ASYNC_LOWERING=ir`. It reuses the
    existing expression generator, SM-variable naming
    (`state_machine_naming.yo`) and `emit_await_future_store`. Loops are C
