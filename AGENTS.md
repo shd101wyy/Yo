@@ -201,7 +201,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 
 Three views of one rule: the only question is "does the battery I am about to trust cover the code I am about to act on".
 
-- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs, the newest running `develop` battery, and **every `Release` run**; cancel the rest:
+- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs, the newest running `develop` battery, **every `Release` run**, and every run of the scheduled/dispatched workflows `UndefinedBehaviorSanitizer (language suite)` (`ubsan.yml`) and `Bootstrap fixpoint (linux-arm64)` (`fixpoint-arm64.yml`). Those run on `develop` by construction, so a `headBranch` filter selects them too, and each takes one to two hours to redo (a sweep cancelled `ubsan.yml` run 36386258094 44 minutes in, 2026-09-28). Cancel the rest:
 
   ```bash
   # workflowName is NOT optional here — see the Release rule below.
