@@ -963,7 +963,8 @@ Curly destructuring rules:
   need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
   `tests/match_bind_nothing.test.yo` is the spec.
 - Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
-- Nested curly `.Foo({a: {b}})` is rejected (struct patterns are not supported yet) — but a nested VARIANT pattern in a curly slot is fine: `.Foo({ a : .Some(x) })`.
+- Nested curly `.Foo({a: {b}})` inside a VARIANT curly slot is rejected — but a nested VARIANT pattern in a curly slot is fine: `.Foo({ a : .Some(x) })`, and so are tuple sub-patterns (`.V((0, y))`) and named struct sub-patterns (`.V(Point(x : 0, y))`).
+- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A `Box(T)` payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches through `tail : Box(Self)` (a binding at a Box position still binds the box; use `b.*` on it).
 
 The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
 
