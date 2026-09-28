@@ -1271,14 +1271,25 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   return (fd < 0) ? -errno : fd;
 }
 
+// Defined in the async runtime section emitted below: drops a closing fd's
+// handle from the per-thread IOCP-association cache (handle values are reused
+// by the kernel, so a stale cached entry would hang future operations on the
+// reused value).
+static void __yo_win_unassociate_handle(int32_t fd);
+
 static void __yo_file_close(int32_t fd) {
   // Registry-driven, not closesocket-probed: see __yo_win_sock_fds above.
   if (__yo_win_fd_is_socket(fd)) {
+    // Un-associate BEFORE the registry unmark and the close: the association
+    // cache consults the registry to know a socket fd IS its handle value,
+    // and after closesocket the value is gone from it.
     __yo_wsa_init();
+    __yo_win_unassociate_handle(fd);
     closesocket((SOCKET)(uintptr_t)(uint32_t)fd);
     __yo_win_fd_unmark_socket(fd);
     return;
   }
+  __yo_win_unassociate_handle(fd);
   _close(fd);
 }
 
@@ -2045,7 +2056,14 @@ generate_async_runtime_io_windows :: (fn(emitter : Emitter) -> unit)({
 // __yo_io_initialized is defined in runtime-core
 static __declspec(thread) size_t __yo_pending_io_count = 0;
 static __declspec(thread) HANDLE __yo_io_iocp = NULL;
-static CRITICAL_SECTION __yo_dir_state_mutex;
+// Guards the process-global __yo_dir_state_head list. SRWLOCK with the static
+// initializer — the previous CRITICAL_SECTION was initialized in __yo_io_init
+// and deleted in __yo_io_cleanup, which are PER-LOOP: two threads with event
+// loops re-initialized it while in use and tore it down under each other
+// (issues/windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md).
+// The list itself stays process-global on purpose: a dir fd, like a socket,
+// is a plain value that can move to another thread.
+static SRWLOCK __yo_dir_state_mutex = SRWLOCK_INIT;
 
 typedef struct __yo_win_timer_entry_t {
   uint64_t due_ms;
@@ -2074,6 +2092,8 @@ typedef struct __yo_win_pipe_read_s {
 
 static __declspec(thread) __yo_win_pipe_read_t* __yo_win_pipe_reads = NULL;
 
+struct __yo_fs_event_s;
+
 typedef struct {
   OVERLAPPED overlapped;
   __yo_io_future_t* future;
@@ -2101,6 +2121,19 @@ typedef struct {
   // back through out_fromlen.
   uint32_t* out_fromlen;
   int from_len;
+  // fs.watch bookkeeping (is_fs_event): the owning watch. An fs-event
+  // overlapped is LONG-LIVED — every completion re-arms the same struct — and
+  // is freed exactly once, by whoever observes the last transition:
+  //   * the completion path frees it when the watch has stopped
+  //     (stop_pending; __yo_fs_event_stop never frees, because the kernel may
+  //     still write the OVERLAPPED until the cancelled op's packet is
+  //     dequeued) or when its own re-arm failed (no packet can follow);
+  //   * everything else re-arms and keeps it.
+  // fse is nulled by stop; a completion that sees NULL or stop_pending must
+  // not deliver or re-arm, only recycle.
+  bool is_fs_event;
+  bool stop_pending;
+  struct __yo_fs_event_s* fse;
 } __yo_win_overlapped_t;
 
 // AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
@@ -2145,6 +2178,7 @@ static void __yo_win_load_connectex(SOCKET s) {
 // out, and the socket joins the completion port exactly like the old
 // synchronous path did; on failure the pre-created socket is closed and the
 // WSA error is the result.
+static bool __yo_win_associate_handle(HANDLE handle);
 static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
   if (!ok) {
     DWORD flags = 0;
@@ -2171,8 +2205,7 @@ static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
     }
   }
   if (__yo_io_iocp) {
-    CreateIoCompletionPort((HANDLE)ov->accept_sock, __yo_io_iocp, 0, 0);
-    SetFileCompletionNotificationModes((HANDLE)ov->accept_sock, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    __yo_win_associate_handle((HANDLE)ov->accept_sock);
   }
   __yo_win_fd_mark_socket((int32_t)(uintptr_t)ov->accept_sock);
   ov->future->result = (int32_t)(uintptr_t)ov->accept_sock;
@@ -2191,9 +2224,159 @@ static void __yo_io_loop_start(void) {
   __yo_io_init();
 }
 
+// 1 ms wait resolution for this loop. GetQueuedCompletionStatusEx's timeout —
+// which drives every sleep and deadline on this backend — rounds up to the
+// system timer interrupt (15.6 ms by default): a 1 ms sleep averaged ~17 ms,
+// and two dues 1 ms and 5 ms apart both fired in the same 15.6 ms batch.
+// winmm's timeBeginPeriod(1) moves this process's waits onto a 1 ms tick
+// (since Windows 10 2004 it no longer forces the whole system off its idle
+// tick). Resolved dynamically: the link line carries ws2_32/bcrypt/... but
+// not winmm, and one LoadLibraryW per process beats a new default library on
+// every Yo program. The pointer race between two loop threads is benign —
+// every racer resolves the same address and calls the same idempotent entry
+// point (same shape as __yo_win_now_ms's QPC frequency below).
+typedef UINT (WINAPI *__yo_win_time_period_fn)(UINT);
+static __yo_win_time_period_fn __yo_win_time_begin_period = NULL;
+static __yo_win_time_period_fn __yo_win_time_end_period = NULL;
+
+static void __yo_win_acquire_timer_resolution(void) {
+  if (__yo_win_time_begin_period) {
+    __yo_win_time_begin_period(1);
+    return;
+  }
+  HMODULE winmm = LoadLibraryW(L"winmm.dll");
+  if (!winmm) return;
+  __yo_win_time_period_fn begin =
+    (__yo_win_time_period_fn)GetProcAddress(winmm, "timeBeginPeriod");
+  __yo_win_time_period_fn end =
+    (__yo_win_time_period_fn)GetProcAddress(winmm, "timeEndPeriod");
+  if (!begin || !end) return;
+  __yo_win_time_begin_period = begin;
+  __yo_win_time_end_period = end;
+  begin(1);
+}
+
+static void __yo_win_release_timer_resolution(void) {
+  if (__yo_win_time_end_period) {
+    __yo_win_time_end_period(1);
+  }
+}
+
+// Handles already associated with this loop's IOCP, so the per-op associate in
+// read/write/send/recv/... is a table probe instead of two syscalls (a failing
+// CreateIoCompletionPort attempt + re-setting the sticky completion mode).
+// KEYED BY HANDLE VALUE with removal at every close funnel: the kernel reuses
+// handle values, and a reused value wrongly cached would mean operations that
+// never join the port — their completions never arrive and the awaiting task
+// hangs. The funnels are __yo_file_close, __yo_async_close_start, and the
+// openat error path after a successful association; a handle closed behind
+// the runtime's back was never associated through it either. Thread-local on
+// purpose: association binds a handle to THIS loop's port.
+static __declspec(thread) HANDLE* __yo_win_assoc_handles = NULL;
+static __declspec(thread) size_t __yo_win_assoc_cap = 0;   // power of two, or 0
+static __declspec(thread) size_t __yo_win_assoc_count = 0;
+
+static size_t __yo_win_assoc_hash(HANDLE h) {
+  uintptr_t v = (uintptr_t)h;
+  v ^= v >> (sizeof(uintptr_t) * 4);
+  return (size_t)(v * 0x9E3779B97F4A7C15ULL);
+}
+
+static bool __yo_win_assoc_contains(HANDLE h) {
+  if (__yo_win_assoc_cap == 0) return false;
+  size_t mask = __yo_win_assoc_cap - 1;
+  size_t i = __yo_win_assoc_hash(h) & mask;
+  for (size_t probe = 0; probe < __yo_win_assoc_cap; probe++) {
+    if (__yo_win_assoc_handles[i] == h) return true;
+    if (__yo_win_assoc_handles[i] == NULL) return false;
+    i = (i + 1) & mask;
+  }
+  return false;
+}
+
+static void __yo_win_assoc_insert(HANDLE h) {
+  if ((__yo_win_assoc_count + 1) * 2 > __yo_win_assoc_cap) {
+    size_t new_cap = __yo_win_assoc_cap ? __yo_win_assoc_cap * 2 : 64;
+    HANDLE* table = (HANDLE*)__yo_malloc(new_cap * sizeof(HANDLE));
+    if (table) {
+      memset(table, 0, new_cap * sizeof(HANDLE));
+      HANDLE* old = __yo_win_assoc_handles;
+      size_t old_cap = __yo_win_assoc_cap;
+      __yo_win_assoc_handles = table;
+      __yo_win_assoc_cap = new_cap;
+      __yo_win_assoc_count = 0;
+      for (size_t j = 0; j < old_cap; j++) {
+        if (old && old[j]) {
+          __yo_win_assoc_insert(old[j]);
+        }
+      }
+      __yo_free(old);
+    } else if ((__yo_win_assoc_count + 1) >= __yo_win_assoc_cap) {
+      // Cannot grow and no free slot: leave this handle uncached. The next op
+      // re-attempts the association, so behavior is unchanged — just slower.
+      return;
+    }
+  }
+  size_t mask = __yo_win_assoc_cap - 1;
+  size_t i = __yo_win_assoc_hash(h) & mask;
+  while (__yo_win_assoc_handles[i]) {
+    if (__yo_win_assoc_handles[i] == h) return;
+    i = (i + 1) & mask;
+  }
+  __yo_win_assoc_handles[i] = h;
+  __yo_win_assoc_count++;
+}
+
+// Backward-shift deletion: after emptying slot i, walk the cluster after it
+// and pull back every entry whose home slot reaches i no later than its
+// current slot, so no probe sequence stops at the new hole early.
+static void __yo_win_assoc_remove(HANDLE h) {
+  if (__yo_win_assoc_cap == 0) return;
+  size_t mask = __yo_win_assoc_cap - 1;
+  size_t i = __yo_win_assoc_hash(h) & mask;
+  for (size_t probe = 0; probe < __yo_win_assoc_cap; probe++) {
+    HANDLE cur = __yo_win_assoc_handles[i];
+    if (cur == NULL) return;
+    if (cur != h) {
+      i = (i + 1) & mask;
+      continue;
+    }
+    __yo_win_assoc_handles[i] = NULL;
+    __yo_win_assoc_count--;
+    size_t j = i;
+    for (;;) {
+      j = (j + 1) & mask;
+      if (__yo_win_assoc_handles[j] == NULL) break;
+      size_t home = __yo_win_assoc_hash(__yo_win_assoc_handles[j]) & mask;
+      // Move the entry only if its home's probe passes through the hole
+      // (the hole is closer to its home than its current slot is): leaving
+      // such an entry behind would stop its probe at the NULL too early,
+      // and moving one whose probe does NOT pass the hole would strand it
+      // behind the NULL its old slot becomes.
+      if (((i - home) & mask) < ((j - home) & mask)) {
+        __yo_win_assoc_handles[i] = __yo_win_assoc_handles[j];
+        __yo_win_assoc_handles[j] = NULL;
+        i = j;
+      }
+    }
+    return;
+  }
+}
+
+static void __yo_win_unassociate_handle(int32_t fd) {
+  HANDLE h;
+  if (__yo_win_fd_is_socket(fd)) {
+    h = (HANDLE)(uintptr_t)(uint32_t)fd;
+  } else {
+    intptr_t osf = _get_osfhandle(fd);
+    if (osf == (intptr_t)-1) return;
+    h = (HANDLE)osf;
+  }
+  __yo_win_assoc_remove(h);
+}
+
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
-  InitializeCriticalSection(&__yo_dir_state_mutex);
   __yo_io_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
   if (!__yo_io_iocp) {
     ASYNC_DEBUG("[Io] CreateIoCompletionPort failed: %lu\\n", GetLastError());
@@ -2204,6 +2387,8 @@ static void __yo_io_init(void) {
   if (wsa_result != 0) {
     ASYNC_DEBUG("[Io] WSAStartup failed: %d\\n", wsa_result);
   }
+
+  __yo_win_acquire_timer_resolution();
 
   // Cross-thread wakeup channel (plans/archive/WAKER_BASED_SCHEDULING.md step 5): a
   // posted completion packet with a NULL OVERLAPPED. The wait loop already
@@ -2245,21 +2430,30 @@ static void __yo_io_cleanup(void) {
     __yo_win_timer_head = node->next;
     __yo_free(node);
   }
-  DeleteCriticalSection(&__yo_dir_state_mutex);
+  if (__yo_win_assoc_handles) {
+    __yo_free(__yo_win_assoc_handles);
+    __yo_win_assoc_handles = NULL;
+    __yo_win_assoc_cap = 0;
+    __yo_win_assoc_count = 0;
+  }
+  __yo_win_release_timer_resolution();
   WSACleanup();
   __yo_io_initialized = false;
 }
 
 static bool __yo_win_associate_handle(HANDLE handle) {
   if (!__yo_io_iocp) return false;
+  if (__yo_win_assoc_contains(handle)) return true;
   HANDLE res = CreateIoCompletionPort(handle, __yo_io_iocp, 0, 0);
   if (res != NULL) {
     SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    __yo_win_assoc_insert(handle);
     return true;
   }
   if (GetLastError() == ERROR_INVALID_PARAMETER) {
     // Already associated -- ensure skip-on-success mode is set.
     SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    __yo_win_assoc_insert(handle);
     return true;
   }
   return false;
@@ -2293,8 +2487,8 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
 // QPC is boot-relative and sub-microsecond; the multiply keeps ~290 years
 // of headroom in u64 at the usual 10 MHz frequency.
 static uint64_t __yo_win_now_ms(void) {
-  static LARGE_INTEGER qpc_freq = {0};
-  static BOOL freq_ok = FALSE;
+  static __declspec(thread) LARGE_INTEGER qpc_freq = {0};
+  static __declspec(thread) BOOL freq_ok = FALSE;
   if (!qpc_freq.QuadPart) {
     freq_ok = QueryPerformanceFrequency(&qpc_freq);
     if (!qpc_freq.QuadPart) return (uint64_t)GetTickCount64();
@@ -2400,9 +2594,22 @@ static int __yo_win_try_pipe_read(HANDLE handle, int32_t fd, void* buffer, uint3
 // functions but called by __yo_win_process_completion which comes first.
 static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset);
 static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov);
+static void __yo_win_finish_fs_event(__yo_win_overlapped_t* ov, DWORD bytes);
 
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
+  if (ov->is_fs_event) {
+    __yo_pending_io_count--;   // the arm this packet completes
+    if (ov->stop_pending || !ov->fse) {
+      // The watch stopped before this packet was dequeued: __yo_fs_event_stop
+      // does not free the struct (the kernel owned it until now), so THIS is
+      // the only remaining owner — recycle it here.
+      __yo_win_free_overlapped(ov);
+      return;
+    }
+    __yo_win_finish_fs_event(ov, bytes);
+    return;
+  }
   if (ov->is_accept) {
     __yo_win_finish_accept(ov, ((NTSTATUS)ov->overlapped.Internal) == 0);
     __yo_io_wake_continuation(ov->future);
@@ -2464,9 +2671,18 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
 static int __yo_io_poll(void) {
   if (!__yo_io_iocp) return 0;
 
-  OVERLAPPED_ENTRY entries[64];
+  // Nothing this backend can dequeue and nothing the tick below services: a
+  // step with only runnable tasks skips the syscall. Stale cross-thread wake
+  // packets (NULL overlapped) are allowed to linger — the next real poll
+  // drops them, and one costs a spurious iteration, never a hang.
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count == 0
+      && __yo_win_pipe_reads == NULL) {
+    return 0;
+  }
+
+  OVERLAPPED_ENTRY entries[128];
   ULONG count = 0;
-  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, 0, FALSE);
+  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 128, &count, 0, FALSE);
   // An empty completion port (WAIT_TIMEOUT) or a failed poll must STILL run
   // the poll/fs-event tick: a yield-driven wait loop (Watcher.next, the
   // is_finished races) keeps the ready queue non-empty, so __yo_io_wait —
@@ -2493,6 +2709,9 @@ static int __yo_io_poll(void) {
 
 static int __yo_io_wait(void) {
   if (!__yo_io_iocp) return 0;
+  // Tick-driven watches only (single-file FindFirstChangeNotification, poll
+  // handles): a directory RDCW watch is pending I/O and wakes the GQCS wait
+  // below by its completion packet, so it never lands here.
   if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
     Sleep(10);
     return __yo_poll_and_fs_event_tick();
@@ -2519,9 +2738,9 @@ static int __yo_io_wait(void) {
   // ready at the same time. This is the Windows analogue of Linux's
   // io_uring_submit_and_wait + peek_batch_cqe pattern and matters a lot
   // for HTTP-style workloads where many sockets become ready together.
-  OVERLAPPED_ENTRY entries[64];
+  OVERLAPPED_ENTRY entries[128];
   ULONG count = 0;
-  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, timeout_ms, FALSE);
+  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 128, &count, timeout_ms, FALSE);
   if (!ok) {
     return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
@@ -2839,6 +3058,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   }
   int fd = _open_osfhandle((intptr_t)handle, osfhandle_flags);
   if (fd < 0) {
+    __yo_win_assoc_remove(handle);
     CloseHandle(handle);
     future->result = -errno;
     atomic_init(&future->state, -1);
@@ -2869,12 +3089,16 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
 
   // Registry-driven close (see __yo_win_sock_fds): a socket fd goes to
   // closesocket, everything else to _close. __yo_io_init above guarantees
-  // Winsock is started for the closesocket arm.
+  // Winsock is started for the closesocket arm. The association cache is
+  // dropped FIRST, while the registry entry and (for CRT fds) the
+  // _get_osfhandle mapping still exist to name the handle.
   if (__yo_win_fd_is_socket(fd)) {
+    __yo_win_unassociate_handle(fd);
     closesocket((SOCKET)(uintptr_t)(uint32_t)fd);
     __yo_win_fd_unmark_socket(fd);
     future->result = 0;
   } else {
+    __yo_win_unassociate_handle(fd);
     int result = _close(fd);
     future->result = (result < 0) ? -errno : 0;
   }
@@ -3202,11 +3426,11 @@ typedef struct __yo_win_dir_state_t {
 static __yo_win_dir_state_t* __yo_dir_state_head = NULL;
 
 static __yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
-  EnterCriticalSection(&__yo_dir_state_mutex);
+  AcquireSRWLockExclusive(&__yo_dir_state_mutex);
   __yo_win_dir_state_t* node = __yo_dir_state_head;
   while (node) {
     if (node->fd == fd) {
-      LeaveCriticalSection(&__yo_dir_state_mutex);
+      ReleaseSRWLockExclusive(&__yo_dir_state_mutex);
       return node;
     }
     node = node->next;
@@ -3221,12 +3445,12 @@ static __yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
   node->pattern = NULL;
   node->next = __yo_dir_state_head;
   __yo_dir_state_head = node;
-  LeaveCriticalSection(&__yo_dir_state_mutex);
+  ReleaseSRWLockExclusive(&__yo_dir_state_mutex);
   return node;
 }
 
 static void __yo_win_cleanup_dir_state(int32_t fd) {
-  EnterCriticalSection(&__yo_dir_state_mutex);
+  AcquireSRWLockExclusive(&__yo_dir_state_mutex);
   __yo_win_dir_state_t** pp = &__yo_dir_state_head;
   while (*pp) {
     if ((*pp)->fd == fd) {
@@ -3239,12 +3463,12 @@ static void __yo_win_cleanup_dir_state(int32_t fd) {
         __yo_free(node->pattern);
       }
       __yo_free(node);
-      LeaveCriticalSection(&__yo_dir_state_mutex);
+      ReleaseSRWLockExclusive(&__yo_dir_state_mutex);
       return;
     }
     pp = &((*pp)->next);
   }
-  LeaveCriticalSection(&__yo_dir_state_mutex);
+  ReleaseSRWLockExclusive(&__yo_dir_state_mutex);
 }
 
 static size_t __yo_win_dirent_write(char* buf, size_t buf_size, const char* name, uint8_t dtype) {
@@ -3391,8 +3615,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
     future->result = -(int32_t)WSAGetLastError();
   } else {
     if (__yo_io_iocp) {
-      CreateIoCompletionPort((HANDLE)s, __yo_io_iocp, 0, 0);
-      SetFileCompletionNotificationModes((HANDLE)s, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+      __yo_win_associate_handle((HANDLE)s);
     }
     __yo_win_fd_mark_socket((int32_t)(uintptr_t)s);
     future->result = (int32_t)(uintptr_t)s;
@@ -3519,8 +3742,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   } else {
     *addrlen = (uint32_t)len;
     if (__yo_io_iocp) {
-      CreateIoCompletionPort((HANDLE)result, __yo_io_iocp, 0, 0);
-      SetFileCompletionNotificationModes((HANDLE)result, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+      __yo_win_associate_handle((HANDLE)result);
     }
     __yo_win_fd_mark_socket((int32_t)(uintptr_t)result);
     future->result = (int32_t)(uintptr_t)result;
@@ -4126,40 +4348,56 @@ typedef struct __yo_process_handle_entry {
 } __yo_process_handle_entry;
 
 static __yo_process_handle_entry* __yo_process_handles = NULL;
+// Process-global list, process-global lock: two threads can each spawn and
+// wait commands (a ThreadPool worker driving Command.output, two spawned
+// loops), and an unlocked push/unlink race loses a HANDLE or walks a freed
+// node (issues/windows-process-handle-list-is-an-unlocked-process-global.md).
+// SRWLOCK_INIT is a static initializer, so there is no init race and nothing
+// to tear down. Nodes are freed OUTSIDE the lock, mirroring the socket-fd
+// registry's __yo_win_fd_unmark_socket.
+static SRWLOCK __yo_process_handles_lock = SRWLOCK_INIT;
 
 static void __yo_process_add_handle(int32_t pid, HANDLE handle) {
   __yo_process_handle_entry* entry = (__yo_process_handle_entry*)__yo_rc_alloc(sizeof(__yo_process_handle_entry));
   entry->pid = pid;
   entry->handle = handle;
+  AcquireSRWLockExclusive(&__yo_process_handles_lock);
   entry->next = __yo_process_handles;
   __yo_process_handles = entry;
+  ReleaseSRWLockExclusive(&__yo_process_handles_lock);
 }
 
 static HANDLE __yo_process_get_handle(int32_t pid) {
-  __yo_process_handle_entry* cur = __yo_process_handles;
-  while (cur) {
-    if (cur->pid == pid) return cur->handle;
-    cur = cur->next;
-  }
-  return NULL;
-}
-
-static void __yo_process_remove_handle(int32_t pid) {
-  __yo_process_handle_entry* prev = NULL;
+  HANDLE found = NULL;
+  AcquireSRWLockShared(&__yo_process_handles_lock);
   __yo_process_handle_entry* cur = __yo_process_handles;
   while (cur) {
     if (cur->pid == pid) {
-      if (prev) {
-        prev->next = cur->next;
-      } else {
-        __yo_process_handles = cur->next;
-      }
-      if (cur->handle) CloseHandle(cur->handle);
-      __yo_free(cur);
-      return;
+      found = cur->handle;
+      break;
     }
-    prev = cur;
     cur = cur->next;
+  }
+  ReleaseSRWLockShared(&__yo_process_handles_lock);
+  return found;
+}
+
+static void __yo_process_remove_handle(int32_t pid) {
+  __yo_process_handle_entry* removed = NULL;
+  AcquireSRWLockExclusive(&__yo_process_handles_lock);
+  __yo_process_handle_entry** link = &__yo_process_handles;
+  while (*link) {
+    if ((*link)->pid == pid) {
+      removed = *link;
+      *link = removed->next;
+      break;
+    }
+    link = &(*link)->next;
+  }
+  ReleaseSRWLockExclusive(&__yo_process_handles_lock);
+  if (removed) {
+    if (removed->handle) CloseHandle(removed->handle);
+    __yo_free(removed);
   }
 }
 
@@ -4493,11 +4731,15 @@ typedef struct __yo_fs_event_s {
   int active;
   char* path;
   int is_dir;
-  OVERLAPPED overlapped;
+  // The long-lived IOCP overlapped for this watch's ReadDirectoryChangesW
+  // cycle (NULL when use_rdcw is false, or after a failed re-arm). While it
+  // is non-NULL exactly one RDCW is armed and exactly one completion packet
+  // is destined for the port — the invariant __yo_fs_event_stop relies on.
+  __yo_win_overlapped_t* rdcw_ov;
   char notify_buf[4096];
   int use_rdcw;
   // The caller's recursive choice, replayed on every ReadDirectoryChangesW
-  // rearm in __yo_poll_and_fs_event_tick. Hard-coding FALSE there armed the
+  // rearm in __yo_win_finish_fs_event. Hard-coding FALSE there armed the
   // re-watch for the top directory only, silently narrowing a recursive
   // watch after its first delivered batch
   // (issues/fixed/windows-fs-watch-rearm-drops-recursive-flag.md).
@@ -4506,6 +4748,73 @@ typedef struct __yo_fs_event_s {
 } __yo_fs_event_t;
 
 static __declspec(thread) __yo_fs_event_t* __yo_active_fs_events = NULL;
+
+// Deliver one ReadDirectoryChangesW batch and re-arm the same overlapped
+// struct. Runs from __yo_win_process_completion on the loop thread — the
+// context the tick's probe used to deliver in — so the callback contract
+// (runs on the event loop thread; std/fs/watch.yo) is unchanged. The bytes
+// count comes from the IOCP entry and the NTSTATUS from OVERLAPPED.Internal,
+// the same fields GetOverlappedResult used to read on the poll path.
+static void __yo_win_finish_fs_event(__yo_win_overlapped_t* ov, DWORD bytes) {
+  __yo_fs_event_t* fse = ov->fse;
+  NTSTATUS status = (NTSTATUS)ov->overlapped.Internal;
+  if (status == 0 && bytes > 0 && fse->callback) {
+    char* ptr = fse->notify_buf;
+    while (1) {
+      FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
+      int __yo_event = 0;
+      switch (info->Action) {
+        case FILE_ACTION_ADDED:
+        case FILE_ACTION_REMOVED:
+        case FILE_ACTION_RENAMED_OLD_NAME:
+        case FILE_ACTION_RENAMED_NEW_NAME:
+          __yo_event = 1;
+          break;
+        case FILE_ACTION_MODIFIED:
+          __yo_event = 2;
+          break;
+      }
+      if (__yo_event != 0 && fse->callback && fse->active) {
+        char name_buf[MAX_PATH];
+        int name_len = WideCharToMultiByte(CP_UTF8, 0,
+          info->FileName, (int)(info->FileNameLength / sizeof(wchar_t)),
+          name_buf, MAX_PATH - 1, NULL, NULL);
+        if (name_len > 0) {
+          name_buf[name_len] = '\\0';
+        } else {
+          name_buf[0] = '\\0';
+        }
+        fse->callback((uint8_t*)name_buf, __yo_event, fse->user_data);
+      }
+      if (info->NextEntryOffset == 0) break;
+      ptr += info->NextEntryOffset;
+    }
+  }
+  // A callback above may have stopped the watch (a handler disposing its
+  // watcher synchronously): stop has already marked this overlapped and no
+  // further packet can follow this one — recycle it here, exactly once.
+  if (ov->stop_pending) {
+    __yo_win_free_overlapped(ov);
+    return;
+  }
+  // Re-arm: the same overlapped goes straight back to the kernel. A failed
+  // re-arm queues no completion packet, so the block is recycled here and
+  // the watch goes silent-but-registered — the same outcome as the old
+  // tick's unchecked re-arm, minus the leak.
+  BOOL ok = ReadDirectoryChangesW(fse->dir_handle,
+    fse->notify_buf, sizeof(fse->notify_buf),
+    fse->watch_subtree ? TRUE : FALSE,
+    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+    FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+    FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION,
+    NULL, &ov->overlapped, NULL);
+  if (ok) {
+    __yo_pending_io_count++;
+  } else {
+    fse->rdcw_ov = NULL;
+    __yo_win_free_overlapped(ov);
+  }
+}
 
 static void* __yo_fs_event_init(void) {
   __yo_fs_event_t* handle = (__yo_fs_event_t*)__yo_rc_alloc(sizeof(__yo_fs_event_t));
@@ -4559,10 +4868,38 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     }
     handle->use_rdcw = 1;
 
-    memset(&handle->overlapped, 0, sizeof(OVERLAPPED));
-    handle->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
     handle->watch_subtree = (flags & 4) ? 1 : 0;
+
+    // IOCP delivery, not GetOverlappedResult polling: associate the directory
+    // with this loop's port so a change wakes the loop the moment the kernel
+    // completes the read, instead of the tick probing every wait (with the
+    // 50 ms wait cap and the Sleep(10) watch-only poll that probing forced).
+    // No FILE_SKIP_COMPLETION_PORT_ON_SUCCESS — RDCW never completes
+    // synchronously — and the handle stays OUT of the per-op association
+    // cache: its lifetime is this watch's, not an fd's.
+    if (!__yo_io_iocp
+        || CreateIoCompletionPort(handle->dir_handle, __yo_io_iocp, 0, 0) == NULL) {
+      int err = __yo_win_last_error_to_errno();
+      CloseHandle(handle->dir_handle);
+      handle->dir_handle = INVALID_HANDLE_VALUE;
+      __yo_free(wpath);
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return (err != 0) ? -err : -EIO;
+    }
+
+    __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(NULL, handle->dir_handle, 0);
+    if (!ov) {
+      CloseHandle(handle->dir_handle);
+      handle->dir_handle = INVALID_HANDLE_VALUE;
+      __yo_free(wpath);
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -ENOMEM;
+    }
+    ov->is_fs_event = true;
+    ov->fse = handle;
+
     BOOL watch_subtree = handle->watch_subtree ? TRUE : FALSE;
     DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
                    FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
@@ -4570,11 +4907,11 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
 
     BOOL ok = ReadDirectoryChangesW(handle->dir_handle,
       handle->notify_buf, sizeof(handle->notify_buf),
-      watch_subtree, filter, NULL, &handle->overlapped, NULL);
+      watch_subtree, filter, NULL, &ov->overlapped, NULL);
 
     if (!ok) {
       int err = __yo_win_last_error_to_errno();
-      CloseHandle(handle->overlapped.hEvent);
+      __yo_win_free_overlapped(ov);
       CloseHandle(handle->dir_handle);
       handle->dir_handle = INVALID_HANDLE_VALUE;
       __yo_free(wpath);
@@ -4582,6 +4919,8 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
       handle->path = NULL;
       return -err;
     }
+    __yo_pending_io_count++;
+    handle->rdcw_ov = ov;
   } else {
     // Bounded copy: wpath is caller-supplied and can exceed MAX_PATH, and an
     // unbounded wcscpy here smashed the stack.
@@ -4617,7 +4956,13 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
   handle->active = 1;
   handle->next = __yo_active_fs_events;
   __yo_active_fs_events = handle;
-  __yo_active_watch_count++;
+  // An RDCW watch is pending I/O now — its completions arrive on the port and
+  // the loop's wait wakes on them. Only the tick-driven kinds (single-file
+  // FindFirstChangeNotification, poll handles) keep the legacy watch count
+  // that caps the wait timeout and drives the Sleep(10) poll.
+  if (!handle->use_rdcw) {
+    __yo_active_watch_count++;
+  }
   return 0;
 }
 
@@ -4627,14 +4972,26 @@ static int32_t __yo_fs_event_stop(void* h) {
   if (!handle->active) return 0;
 
   handle->active = 0;
-  __yo_active_watch_count--;
+  if (!handle->use_rdcw) {
+    __yo_active_watch_count--;
+  }
 
   if (handle->use_rdcw) {
     if (handle->dir_handle != INVALID_HANDLE_VALUE) {
-      CancelIo(handle->dir_handle);
-      if (handle->overlapped.hEvent) {
-        CloseHandle(handle->overlapped.hEvent);
-        handle->overlapped.hEvent = NULL;
+      // While rdcw_ov was non-NULL, exactly one RDCW was armed and exactly one
+      // completion packet is destined for the port (the re-arm on a failed
+      // ReadDirectoryChangesW clears rdcw_ov and queues nothing). Mark that
+      // packet's overlapped stopped and DO NOT free it here: the kernel may
+      // still write the OVERLAPPED until the packet is dequeued, and its
+      // dequeue — on this loop's next poll — is what recycles the block.
+      // CancelIoEx failing with ERROR_NOT_FOUND is fine: it means the op
+      // already completed, which is the same one-packet guarantee.
+      __yo_win_overlapped_t* ov = handle->rdcw_ov;
+      if (ov) {
+        ov->stop_pending = true;
+        ov->fse = NULL;
+        handle->rdcw_ov = NULL;
+        CancelIoEx(handle->dir_handle, &ov->overlapped);
       }
       CloseHandle(handle->dir_handle);
       handle->dir_handle = INVALID_HANDLE_VALUE;
@@ -4758,65 +5115,16 @@ static int __yo_poll_and_fs_event_tick(void) {
     }
   }
 
-  // --- Tick FS event handles ---
+  // --- Tick FS event handles (single-file FindFirstChangeNotification only) ---
+  // Directory watches (ReadDirectoryChangesW) are IOCP ops now: their
+  // completions arrive as packets and are delivered by
+  // __yo_win_finish_fs_event, not probed here.
   {
     __yo_fs_event_t* fse = __yo_active_fs_events;
     while (fse) {
       __yo_fs_event_t* next = fse->next;
       if (fse->active) {
-        if (fse->use_rdcw && fse->dir_handle != INVALID_HANDLE_VALUE) {
-          DWORD bytes_returned = 0;
-          BOOL ok = GetOverlappedResult(fse->dir_handle, &fse->overlapped, &bytes_returned, FALSE);
-          if (ok && bytes_returned > 0) {
-            char* ptr = fse->notify_buf;
-            while (1) {
-              FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
-              int __yo_event = 0;
-              switch (info->Action) {
-                case FILE_ACTION_ADDED:
-                case FILE_ACTION_REMOVED:
-                case FILE_ACTION_RENAMED_OLD_NAME:
-                case FILE_ACTION_RENAMED_NEW_NAME:
-                  __yo_event = 1;
-                  break;
-                case FILE_ACTION_MODIFIED:
-                  __yo_event = 2;
-                  break;
-              }
-              if (__yo_event != 0 && fse->callback && fse->active) {
-                char name_buf[MAX_PATH];
-                int name_len = WideCharToMultiByte(CP_UTF8, 0,
-                  info->FileName, (int)(info->FileNameLength / sizeof(wchar_t)),
-                  name_buf, MAX_PATH - 1, NULL, NULL);
-                if (name_len > 0) {
-                  name_buf[name_len] = '\\0';
-                } else {
-                  name_buf[0] = '\\0';
-                }
-                fse->callback((uint8_t*)name_buf, __yo_event, fse->user_data);
-                count++;
-              }
-              if (info->NextEntryOffset == 0) break;
-              ptr += info->NextEntryOffset;
-            }
-
-            HANDLE old_event = fse->overlapped.hEvent;
-            memset(&fse->overlapped, 0, sizeof(OVERLAPPED));
-            if (old_event) {
-              ResetEvent(old_event);
-              fse->overlapped.hEvent = old_event;
-            } else {
-              fse->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-            }
-            ReadDirectoryChangesW(fse->dir_handle,
-              fse->notify_buf, sizeof(fse->notify_buf),
-              fse->watch_subtree ? TRUE : FALSE,
-              FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
-              FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
-              FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION,
-              NULL, &fse->overlapped, NULL);
-          }
-        } else if (!fse->use_rdcw && fse->change_handle != INVALID_HANDLE_VALUE) {
+        if (!fse->use_rdcw && fse->change_handle != INVALID_HANDLE_VALUE) {
           DWORD wait_result = WaitForSingleObject(fse->change_handle, 0);
           if (wait_result == WAIT_OBJECT_0) {
             if (fse->callback && fse->active) {

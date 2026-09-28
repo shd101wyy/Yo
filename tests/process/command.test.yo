@@ -10,6 +10,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { platform, Platform } :: import("std/process");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
+{ Thread } :: import("std/thread");
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
@@ -568,4 +569,52 @@ test("take_stderr reads a child's stderr as a Reader", {
   text := io.await(r.read_to_string(io), e);
   assert(text == `to stderr`, `stderr came through: ${text}`);
   io.await(child.wait(io), e);
+});
+// One thread's share of a spawn/wait stress against the runtime's pid→HANDLE
+// registry, which used to be an UNLOCKED process-global list on Windows: two
+// threads spawning and waiting children raced the push/unlink, losing a
+// HANDLE (waitpid then answered ESRCH for a live child) or walking a freed
+// node (issues/windows-process-handle-list-is-an-unlocked-process-global.md).
+// A pass on an unfixed build proves nothing — the race is undefined behavior
+// — but a wrong exit status, an ESRCH-flavored error, or a crash here is this
+// bug's signature.
+_spawn_wait_rounds :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  task := io.async((io : Io) => {
+    (n : i64) = i64(0);
+    while(runtime(n < i64(12)), {
+      cmd := cond(
+        (platform == Platform.Windows) => {
+          c := Command.new(`cmd.exe`);
+          c.arg(`/C`);
+          c.arg(`echo`);
+          c.arg(`hi`);
+          c
+        },
+        true => {
+          c := Command.new(`echo`);
+          c.arg(`hi`);
+          c
+        }
+      );
+      st := io.await(cmd.status(io), e);
+      assert(st.success(), `round ${n.to_string()}: echo should succeed`);
+      n = (n + i64(1));
+    });
+  });
+  io.await(task, io);
+});
+test("concurrent spawn and wait on two threads", {
+  t1 := Thread(unit).spawn(io => _spawn_wait_rounds(io));
+  t2 := Thread(unit).spawn(io => _spawn_wait_rounds(io));
+  t1.join();
+  t2.join();
 });

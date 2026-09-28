@@ -6,6 +6,7 @@ import("std/string");
 { sleep, sleep_blocking, interval, Interval } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
+{ platform, Platform } :: import("std/process");
 // ============================================================================
 // sleep_blocking — parks the calling thread
 // ============================================================================
@@ -148,6 +149,34 @@ test("interval bursts to catch up after an overrun", {
   advanced := t.next_tick().duration_since(before_overrun);
   assert(
     advanced.as_millis() == i64(90),
-    `three owed ticks advanced the schedule by 3 periods, got ${advanced.as_millis()}ms`
+    `three owed ticks advanced the schedule by 3 periods, got ${advanced.as_millis().to_string()}ms`
+  );
+});
+test("sub-tick sleeps honor their deadline on Windows (1 ms wait resolution)", {
+  // Regression oracle for the event loop's wait resolution. On Windows the
+  // loop's GetQueuedCompletionStatusEx timeout used to round every deadline
+  // up to the ~15.6 ms system timer interrupt, so a 4 ms sleep landed anywhere
+  // in 4–19.6 ms (phase-dependent, ~12 ms average over many samples). The
+  // loop now calls timeBeginPeriod(1) at init, putting the average at ~4.5 ms.
+  // The average over 30 samples removes the phase; 9 ms sits between the two
+  // regimes — the broken one never averages below ~11 ms on an idle box, and
+  // the fixed one tolerates ~1.8x runner dilation before touching the bound.
+  // Windows-only: the other platforms' timers were already kernel-armed and
+  // this test measures the Windows fix, not sleep's general contract.
+  (total_ms : i64) = i64(0);
+  (i : i64) = i64(0);
+  while(runtime(i < i64(30)), {
+    t := Instant.now();
+    io.await(sleep(Duration.from_millis(i64(4)), io), io);
+    total_ms = (total_ms + t.elapsed().as_millis());
+    i = (i + i64(1));
+  });
+  avg := total_ms / i64(30);
+  unsafe(printf("  avg sleep(4ms) = %lld ms over 30 samples\n", avg));
+  cond(
+    (platform == Platform.Windows) => {
+      assert(avg < i64(9), `avg sleep(4ms) must beat 15.6ms tick rounding (avg=${avg.to_string()}ms)`);
+    },
+    true => ()
   );
 });
