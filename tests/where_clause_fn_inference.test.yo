@@ -12,6 +12,8 @@
 //! propagates that env back through where-clause validation.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ String } :: import("std/string");
 LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
@@ -119,4 +121,44 @@ test("where-bound generic over LinkedList then BTreeMap compiles and runs", {
   bt := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   assert(__wb_count(bt) == usize(1), "BTreeMap through the bare bound");
+});
+
+// ---------------------------------------------------------------------------
+// Call-site enforcement of where-clause bounds (issues/fixed/yo-self-where-clause-full-enforcement.md).
+// The callee's function type is re-evaluated with its parameters bound, and
+// every bound whose LHS resolved to a concrete type is checked: method traits,
+// composites, a type constructor's bound, and bounds reached through a generic
+// forwarder or on a type that carried the forwarder's SomeT.
+// ---------------------------------------------------------------------------
+_WcFoo :: trait(wc_foo : (fn(self : Self) -> i32));
+_WcBar :: trait(wc_bar : (fn(self : Self) -> i32));
+_WcQ :: struct(x : i32);
+impl(_WcQ, _WcFoo(wc_foo : (self -> self.x)));
+_WcBoth :: struct(x : i32);
+impl(_WcBoth, _WcFoo(wc_foo : (self -> self.x)), _WcBar(wc_bar : (self -> (self.x + i32(1)))));
+_wc_need_both :: (fn(generic(T : Type), x : T, where(T <: (_WcFoo, _WcBar))) -> i32)(
+  x.wc_foo() + x.wc_bar()
+);
+_WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(v : T));
+_WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+_wc_need_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)(());
+_wc_fwd :: (fn(generic(U : Type), y : U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
+_WcKey :: struct(x : i32);
+impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
+
+test("where-clause bounds are enforced at the call site", {
+  comptime_expect_error(_wc_need_both(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
+  comptime_expect_error(_WcBox(_WcQ), "does not implement required trait _WcBar");
+  comptime_expect_error(_wc_fwd(ArrayList(i32).new()), "does not implement required trait Send");
+  comptime_expect_error(HashMap(_WcKey, i32).new(), "does not implement required trait Hash");
+});
+
+test("where-clause bounds accept the types that satisfy them", {
+  assert(_wc_need_both(_WcBoth(x : i32(2))) == i32(5), "both traits");
+  b := _WcBox(_WcBoth)(v : _WcBoth(x : i32(4)));
+  assert(b.v.wc_bar() == i32(5), "the type constructor's bound holds");
+  _wc_fwd(i32(1));
+  m := HashMap(String, i32).new();
+  m.insert(String.from("k"), i32(1));
+  assert(m.len() == usize(1), "String satisfies (Eq(K), Hash)");
 });

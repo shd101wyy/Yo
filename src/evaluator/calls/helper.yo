@@ -4829,15 +4829,14 @@ evaluate_ctl_function_body_inline :: (
 /// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
 /// the default-args side table).
 ///
-/// DOCUMENTED DIVERGENCE: only MARKER-trait constraints
-/// (traits without methods — Send/Acyclic/user markers) are enforced, and only
-/// against FULLY CONCRETE bound types (no SomeT anywhere in the type) —
-/// `type_implements_trait` still has gaps for (a) method-trait satisfaction
-/// on concrete
-/// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
-/// through generic-instantiation fields that still carry constraint-bearing
-/// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
-/// Widen as the trait checker closes those gaps.
+/// Scope: this is the MARKER channel — traits without methods (Send/Acyclic/
+/// user markers), decided for function values by their captures and reach
+/// (rules D1/D4) and otherwise against fully concrete bound types. Method and
+/// composite bounds (`K <: (Eq(K), Hash)`) are enforced where the callee's
+/// function type is evaluated with its parameters bound
+/// (`apply_single_trait_constraint` → `validate_concrete_type_constraints`,
+/// types/function.yo); a bound type still carrying a SomeT is decided there
+/// at instantiation (issues/fixed/yo-self-where-clause-full-enforcement.md).
 validate_where_constraints_for_call :: (
   fn(
     func_id : String,
