@@ -3347,6 +3347,9 @@ test("comptime_assert validates argument type even in function body", {
   comptime_expect_error(comptime_assert(bool == bool, "should be rejected"));
   // Non-bool argument is also rejected.
   comptime_expect_error(comptime_assert(i32(1), "not a bool"));
+  // A condition that fails to evaluate is its own error: validation mode
+  // evaluated it under a swallowing handler, so an undefined name passed.
+  comptime_expect_error(comptime_assert(_no_such_name_in_scope, "undefined"));
   // Valid forms still work:
   comptime_assert(Type.eq(i32, i32), "Type.eq works");
   comptime_assert(true, "literal true works");
