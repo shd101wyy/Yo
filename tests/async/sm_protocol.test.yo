@@ -1,0 +1,118 @@
+//! The future protocol: waiters, abort, structured cancellation
+//! (plans/ASYNC_STATE_MACHINE_GENERATION.md, phase 2). Each test is one
+//! issue's repro; a hang is caught by the runner's deadline.
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
+pragma(Pragma.SkipWasm32Wasi);
+{ assert } :: import("std/assert");
+{ yield, timeout } :: import("std/async");
+{ sleep } :: import("std/sys/timer");
+{ Duration } :: import("std/time/duration");
+{ Channel } :: import("std/async/channel");
+{ Mutex } :: import("std/async/mutex");
+
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(Thing, Dispose(
+  dispose : (fn(self : Self) -> unit)({
+    g_disposed = (g_disposed + i32(1));
+  })
+));
+
+// issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md
+test("two tasks awaiting one pending future both resume", {
+  shared := io.async((io : Io) => {
+    io.await(sleep(u64(5)), io);
+    i32(7)
+  });
+  a := io.async((io : Io) => io.await(shared, io));
+  b := io.async((io : Io) => io.await(shared, io));
+  ha := io.spawn(a, io);
+  hb := io.spawn(b, io);
+  ra := ha.await(io);
+  rb := hb.await(io);
+  assert(match(ra, .Some(v) => (v == i32(7)), .None => false), "the first waiter resumed");
+  assert(match(rb, .Some(v) => (v == i32(7)), .None => false), "the second waiter resumed");
+});
+
+// issues/fixed/aborting-a-task-never-wakes-its-awaiter.md
+test("aborting a task wakes the task awaiting it", {
+  f := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    i32(7)
+  });
+  hf := io.spawn(f, io);
+  a := io.async((io : Io) => io.await(f, io));
+  ha := io.spawn(a, io);
+  io.await(yield(io), io);
+  hf.abort();
+  ra := ha.await(io);
+  assert(ra.is_none(), "the awaiter observed the abort and was aborted in turn");
+  rf := hf.await(io);
+  assert(rf.is_none(), "the aborted task reads .None");
+});
+
+// issues/fixed/abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md
+test("a cancelled receiver does not consume the next message", {
+  ch := Channel(i32).new(usize(4));
+  f := io.async((io : Io) => {
+    v := io.await(ch.recv(io), io);
+    match(v, .Some(x) => x, .None => i32(-1))
+  });
+  h := io.spawn(f, io);
+  r := timeout(h, Duration.from_millis(i64(5)), io);
+  assert(r.is_err(), "the first receiver timed out");
+  g := io.async((io : Io) => {
+    v := io.await(ch.recv(io), io);
+    match(v, .Some(x) => x, .None => i32(-1))
+  });
+  hg := io.spawn(g, io);
+  io.await(sleep(u64(2)), io);
+  _s := io.await(ch.send(i32(42), io), io);
+  r2 := timeout(hg, Duration.from_millis(i64(200)), io);
+  assert(match(r2, .Ok(v) => (v == i32(42)), .Err(_) => false), "the live receiver got the message");
+});
+
+test("a cancelled locker neither takes the mutex nor swallows its wake", {
+  m := Mutex(i32).new(i32(0));
+  io.await(m.lock(io), io);
+  // b blocks in lock and is cancelled while parked there.
+  b := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(1)
+  });
+  hb := io.spawn(b, io);
+  rb := timeout(hb, Duration.from_millis(i64(5)), io);
+  assert(rb.is_err(), "b timed out while parked on the lock");
+  // c queues behind b's (now dead) waiter.
+  c := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(2)
+  });
+  hc := io.spawn(c, io);
+  io.await(yield(io), io);
+  m.unlock();
+  rc := timeout(hc, Duration.from_millis(i64(200)), io);
+  assert(match(rc, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
+  assert(!m.is_locked(), "nobody holds the mutex");
+});
+
+test("cancelling a task blocked on a channel releases it", {
+  before := g_disposed;
+  ch := Channel(i32).new(usize(1));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    f := io.async((io : Io) => {
+      t := Thing(n : i);
+      v := io.await(ch.recv(io), io);
+      t.n + match(v, .Some(x) => x, .None => i32(0))
+    });
+    h := io.spawn(f, io);
+    r := timeout(h, Duration.from_millis(i64(2)), io);
+    assert(r.is_err(), "the receiver timed out");
+    i = (i + i32(1));
+  });
+  io.await(yield(io), io);
+  assert(g_disposed == (before + i32(3)), "every cancelled task was disposed with its locals");
+});

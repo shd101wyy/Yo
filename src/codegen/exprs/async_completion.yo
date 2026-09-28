@@ -10,7 +10,7 @@
 /// Emits the C code to complete an async Future state machine:
 ///   1. Optionally store the result value
 ///   2. Set state to COMPLETED (-1) with release semantics
-///   3. Check for and spawn any waiting continuation
+///   3. Schedule every waiter (`__yo_future_wake_waiters`)
 ///   4. Release the "running task" reference (decr rc)
 ///   5. Return from the resume function
 ///
@@ -35,23 +35,8 @@ emit_async_future_completion :: (
     .None => ()
   );
   emitter.emit_string_line(`${indent}sm->state = -1;  // -1 = completed`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`);
-  emitter.emit_string_line(`${indent}void* continuation_sm = sm->continuation_sm;`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}if (continuation_fn != NULL) {`);
-  match(
-    debug_label,
-    .Some(dl) => emitter.emit_string_line(`${indent}  ASYNC_DEBUG("${dl}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`),
-    .None => ()
-  );
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}  sm->continuation_fn = NULL;`);
-  emitter.emit_string_line(`${indent}  sm->continuation_sm = NULL;`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`);
-  emitter.emit_string_line(`${indent}}`);
-  emitter.emit_string_line(String.from(""));
+  // Every waiter (one inline, or the dispatcher's list) is scheduled.
+  emitter.emit_string_line(`${indent}__yo_future_wake_waiters((void*)sm);`);
   emitter.emit_string_line(`${indent}__yo_decr_rc((void*)sm);`);
   emitter.emit_string_line(String.from(""));
   emitter.emit_string_line(`${indent}return;`);
@@ -59,7 +44,7 @@ emit_async_future_completion :: (
 /// Emits the C code to mark an async Future state machine as ABORTED (-2):
 ///   1. Optionally store the result value (for proper RC cleanup in dispose)
 ///   2. Set state to UNWOUND (-2) with release semantics
-///   3. Check for and spawn any waiting continuation (so awaiter can detect escape)
+///   3. Schedule every waiter, so each awaiter can observe the escape
 ///   4. Release the "running task" reference (decr rc)
 ///   5. Return from the resume function
 ///
@@ -92,23 +77,8 @@ emit_async_future_escape :: (
   // Cancellation (`JoinHandle.abort()` from race/timeout) reaches -2 through
   // `__yo_task_abort` instead and is never registered.
   emitter.emit_string_line(`${indent}__yo_task_abort_register((void*)sm);`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`);
-  emitter.emit_string_line(`${indent}void* continuation_sm = sm->continuation_sm;`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}if (continuation_fn != NULL) {`);
-  match(
-    debug_label,
-    .Some(dl) => emitter.emit_string_line(`${indent}  ASYNC_DEBUG("${dl}: Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`),
-    .None => ()
-  );
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}  sm->continuation_fn = NULL;`);
-  emitter.emit_string_line(`${indent}  sm->continuation_sm = NULL;`);
-  emitter.emit_string_line(String.from(""));
-  emitter.emit_string_line(`${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`);
-  emitter.emit_string_line(`${indent}}`);
-  emitter.emit_string_line(String.from(""));
+  // Wake every waiter so it can observe the escape.
+  emitter.emit_string_line(`${indent}__yo_future_wake_waiters((void*)sm);`);
   emitter.emit_string_line(`${indent}__yo_decr_rc((void*)sm);`);
   emitter.emit_string_line(String.from(""));
   emitter.emit_string_line(`${indent}return;`);

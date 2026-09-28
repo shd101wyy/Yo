@@ -1607,9 +1607,11 @@ _emit_await_suspension_core :: (
     em.emit_string_line(`${ind}}`);
   });
   em.emit_string_line(``);
-  em.emit_string_line(`${ind}// Still pending — register continuation and suspend`);
-  em.emit_string_line(`${ind}${acc}->continuation_fn = ${resume_function_name};`);
-  em.emit_string_line(`${ind}${acc}->continuation_sm = (void*)sm;`);
+  // Joins the future's waiters rather than taking its single slot: a second
+  // awaiter of one pending future used to evict the first
+  // (issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md).
+  em.emit_string_line(`${ind}// Still pending — register as a waiter and suspend`);
+  em.emit_string_line(`${ind}__yo_future_add_waiter((void*)${acc}, ${resume_function_name}, (void*)sm);`);
   em.emit_string_line(`${ind}return;`);
 });
 /// Dispatch-mode suspension for a shared cond/match await point whose branches
@@ -4300,29 +4302,54 @@ generate_async_block_resume_function :: (
   em.emit_string_line(String.from(""));
   local_var_drop_codes
 });
-/// The `await_future_N` slots that hold an I/O future, deduplicated and in
-/// await order. Only these can be cancelled: a slot holding another task's
-/// state machine is that task's business, and a park/yield future has no
-/// backend registration to take back.
+/// Emit the async block's abort hook (`cancel_pending_fn`), called by
+/// `__yo_future_abort` once the task is marked -2, with the state it was in.
 ///
-/// A DISPATCH-MODE point is excluded even when its representative is an I/O
-/// future: that slot is declared type-erased precisely because sibling
-/// branches store differently-shaped futures into it, so what is in there at
-/// abort time is not decidable here — and reading an async state machine
-/// through `__yo_io_future_t*` would find a `cancel_fn` that is really the
-/// tail of some other field.
-_io_await_future_slots :: (
-  fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(String)
+/// State K resumes after await point K-1, so `prev_state` names the ONE await
+/// the task is suspended on, and the hook cancels exactly that:
+///
+/// - an I/O future in its `await_future_N` slot is deregistered from the
+///   backend (`__yo_async_io_cancel`); when the backend confirms no
+///   completion will arrive, the hook releases the slot and the task's own
+///   reference itself, since no continuation will run the resume's aborted
+///   guard (issues/fixed/timeout-deadline-timer-future-leak.md);
+/// - any other future in that slot — a child task, which the slot owns
+///   exclusively — is aborted in turn (structured cancellation). Its hook
+///   wakes its waiters, which is this task, whose resume then runs the
+///   aborted-entry guard and releases everything. Leaving the child running
+///   let a cancelled `recv` consume the next message and a cancelled `lock`
+///   take the mutex for ever
+///   (issues/fixed/abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md).
+///
+/// Then the task's own waiters are woken so each observes the abort
+/// (issues/fixed/aborting-a-task-never-wakes-its-awaiter.md). A named future
+/// is a value the body holds, not the await's own, so it is not cancelled.
+/// Dispatch-mode slots are type-erased, so they take the generic abort,
+/// which is correct for every future kind (they share the prefix).
+generate_async_block_cancel_pending_function :: (
+  fn(
+    async_block_id : String,
+    struct_name : String,
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> Option(String)
 )({
-  slots := ArrayList(String).new();
-  seen := HashSet(String).new();
+  em := context.base.emitter;
+  fn_name := `${async_block_id.clone()}_cancel_pending`;
+  em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
+  em.emit_declaration_line("");
+  em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()}`);
+  em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  em.emit_string_line(`  switch (prev_state) {`);
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
       analysis.await_points.get(i),
       .Some(ap) => {
-        ffn := get_future_field_name(ap, analysis);
-        if(ffn.starts_with("await_future_") && !(seen.contains(ffn.clone())) && !(cond_await_point_needs_dispatch(ap, context)), {
+        slot := get_future_field_name(ap, analysis);
+        if(slot.starts_with("await_future_"), {
+          dispatch := cond_await_point_needs_dispatch(ap, context);
           fut_ty := match(
             ap.base.expr,
             .FnCall(_, _, a, _, _) => match(
@@ -4332,64 +4359,31 @@ _io_await_future_slots :: (
             ),
             .Atom(_, _) => Option(TypeValue).None
           );
-          if(match(fut_ty, .Some(t) => is_io_future_type(t), .None => false), {
-            seen.insert(ffn.clone());
-            slots.push(ffn);
+          is_io := (!(dispatch) && match(fut_ty, .Some(t) => is_io_future_type(t), .None => false));
+          em.emit_string_line(`    case ${(ap.base.index + usize(1)).to_string()}:  // suspended on await ${ap.base.index.to_string()}`);
+          em.emit_string_line(`      if (sm->${slot.clone()} != NULL) {`);
+          if(is_io, {
+            em.emit_string_line(`        if (__yo_async_io_cancel((void*)sm->${slot.clone()})) {`);
+            em.emit_string_line(`          __yo_decr_rc((void*)sm->${slot.clone()});`);
+            em.emit_string_line(`          sm->${slot.clone()} = NULL;`);
+            em.emit_string_line(`          __yo_future_wake_waiters(sm_ptr);`);
+            em.emit_string_line(`          __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
+            em.emit_string_line(`          return;`);
+            em.emit_string_line(`        }`);
+          }, {
+            em.emit_string_line(`        __yo_future_abort((void*)sm->${slot.clone()});  // structured cancellation`);
           });
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
         });
       },
       .None => ()
     );
   });
-  slots
-});
-/// Emit the async block's `cancel_pending_fn` — the prompt half of
-/// `JoinHandle.abort`. Abort marks the task Aborted and then calls this, which
-/// deregisters the I/O operation the task is suspended in and releases the
-/// suspension's references eagerly, instead of leaving the operation armed
-/// until it completes on its own (issues/fixed/timeout-deadline-timer-future-leak.md).
-///
-/// It does exactly what the resume function's aborted-entry guard does — drop
-/// the `await_future_N` slot and the task's own reference — but only for the
-/// ONE slot whose operation the backend confirms it has taken back
-/// (`__yo_async_io_cancel`). Any other case falls through unchanged and the
-/// guard stays the fallback, so the release still happens exactly once.
-/// Returns the emitted function's name, or `.None` when the block has no
-/// cancellable slot and needs no hook.
-generate_async_block_cancel_pending_function :: (
-  fn(
-    async_block_id : String,
-    struct_name : String,
-    analysis : AwaitAnalysisResult,
-    context : FunctionGenerationContext
-  ) -> Option(String)
-)({
-  slots := _io_await_future_slots(analysis, context);
-  if(slots.len() == usize(0), {
-    return(Option(String).None);
-  });
-  em := context.base.emitter;
-  fn_name := `${async_block_id.clone()}_cancel_pending`;
-  em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr);  // Cancel the pending I/O of an aborted task`);
-  em.emit_declaration_line("");
-  em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()}`);
-  em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr) {`);
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-  (i : usize) = usize(0);
-  while(i < slots.len(), i = (i + usize(1)), {
-    match(
-      slots.get(i),
-      .Some(slot) => {
-        em.emit_string_line(`  if (sm->${slot.clone()} != NULL && __yo_async_io_cancel((void*)sm->${slot.clone()})) {`);
-        em.emit_string_line(`    __yo_decr_rc((void*)sm->${slot.clone()});`);
-        em.emit_string_line(`    sm->${slot.clone()} = NULL;`);
-        em.emit_string_line(`    __yo_decr_rc((void*)sm);  // the suspended task's own reference`);
-        em.emit_string_line(`    return;`);
-        em.emit_string_line(`  }`);
-      },
-      .None => ()
-    );
-  });
+  em.emit_string_line(`    default:`);
+  em.emit_string_line(`      break;`);
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
   em.emit_string_line(`}`);
   em.emit_string_line(String.from(""));
   Option(String).Some(fn_name)
