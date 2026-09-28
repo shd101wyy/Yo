@@ -101,17 +101,14 @@ did not:
 | #971 | arm windows construct-local; codegen-only tables skipped in `check`/`verify`/`doc`/`lsp` (plan §0.21) | stage-1 max RSS −33.9 MB (−2.8 %) |
 | #972 | `Token` positions are `u32`, 80 → 64 B (plan §0.22); census `HOLDER_DUPSTR` (§0.23) | stage-1 max RSS −30.1 MB (−2.5 %) |
 | #973 | an awaited `match` scrutinee and hoisted state-machine locals are released at completion | 52 more LeakSanitizer failures fixed; `async_await.test.yo` 160/60 → 212/11 |
+| #979 | node strings interned (dot/number tokens, fixed punctuation, desugar keywords); function-id registries share the id handle (plan §0.23) | stage-1 max RSS 1,146,640 → 1,107,468 kB (−3.4 %) |
+| #980 (peer) | fixes #973: an early `return` of a hoisted state-machine local read the field after the completion drop zeroed it (stage-2 `yo install` segfault on a cold cache). **#973's local gates never ran `install`.** | — |
 
 Release v0.2.45 is published and is the seed.
 
 ## 2. In flight
 
-Branch `mem/intern-node-strings` (plan §0.23):
-- the lexer interns dot and number tokens and shares fixed punctuation;
-- desugar keywords are interned;
-- function-id registries share the id handle.
-
-Stage-1 max RSS: 1,146,640 → 1,107,468 kB (−3.4 %).
+Nothing. `mem/lsp-type-registry-purge` is parked, not to be merged (§3.5, Phase 1 step 3).
 
 ## 3. Remaining work, ranked by the §0.19 census
 
