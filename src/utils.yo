@@ -558,6 +558,7 @@ export(
   stable_label_id,
   stable_type_id,
   add_type_id_deps,
+  record_type_decl_owner,
   type_id_deps_into,
   take_type_ids_owned_by,
   type_id_owner_entry_count,
@@ -991,6 +992,16 @@ _record_type_id_dep :: (fn(id : String, mod_path : String) -> unit)({
     }
   );
 });
+/// Record a top-level declaration's type id (`struct_decl_…`, `enum_decl_…`,
+/// minted by `stable_position_id`) under its declaring module. Those ids are
+/// STABLE across re-analysis, so without the purge a re-registration found
+/// the previous generation's entry: first-wins tables (`g_struct_finals`)
+/// kept round 1's final after an edit, and the enum-finals list gained a
+/// duplicate per round. Only the declaring module and its dependents can
+/// name the type, so its invalidation is exactly when the entries go.
+record_type_decl_owner :: (fn(id : String, module_path : String) -> unit)(
+  _record_type_id_dep(id, _stable_type_id_owner_key(module_path))
+);
 /// Add `modules` (canonical paths, from `type_dep_modules`) to the owners of
 /// type `id`: a type constructor's result depends on its argument types.
 add_type_id_deps :: (fn(id : String, modules : ArrayList(String)) -> unit)({

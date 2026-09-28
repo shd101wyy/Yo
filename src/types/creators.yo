@@ -928,7 +928,9 @@ purge_type_finals :: (fn(ids : ArrayList(String)) -> unit)({
       ids.get(i),
       .Some(id) => {
         _r := g_struct_finals.remove(id.clone());
-        doomed.insert(id);
+        // An enum's final is keyed by its `__self_shell` id (evaluator/types/enum.yo).
+        _s := doomed.insert(`${id}__self_shell`);
+        _t := doomed.insert(id);
       },
       .None => ()
     );

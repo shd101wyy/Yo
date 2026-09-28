@@ -48,7 +48,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
-{ stable_position_id, stable_type_id, parse_raw_int } :: import("../../utils.yo");
+{ stable_position_id, stable_type_id, parse_raw_int, record_type_decl_owner } :: import("../../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -329,6 +329,10 @@ evaluate_enum_type :: (
   );
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(enum_id.clone(), decl_tok.module_path.clone());
+  // LSP / watch purge: a declaration's stable id belongs to its module.
+  if(ctx.ctfe_depth == usize(0), {
+    record_type_decl_owner(enum_id.clone(), decl_tok.module_path.clone());
+  });
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
   // so self-referential variants like `Some(Self)` work. The shell carries a
   // DISTINCT id: sharing the final's id made EXACT type comparison — the
