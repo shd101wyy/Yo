@@ -1,0 +1,40 @@
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ __yo_async_yield_start } :: import("std/sys/externs");
+{ IoFuture } :: import("std/sys/future");
+
+Holder :: ref(struct(fut : IoFuture));
+
+_mk :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    v
+  })
+);
+
+_run :: (fn(flag : bool, h : Holder, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (out : i32) = i32(0);
+    cond(
+      flag => {
+        a := e.await(_mk(i32(1), e), e);
+        b := e.await(h.fut, e);
+        out = (a + b);
+      },
+      true => {
+        out = i32(5);
+      }
+    );
+    out
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  h := Holder(fut : unsafe(__yo_async_yield_start()));
+  r := io.await(_run(true, h, io), io);
+  println(r);
+  r2 := io.await(h.fut, io);
+  println(r2);
+});
+export(main);
