@@ -15,6 +15,7 @@
 { Emitter } :: import("../../src/emitter.yo");
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
 { generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
+{ generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
 { generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
 { parse_target, host_target, is_target_linux } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
@@ -141,4 +142,17 @@ test("linux runtime: every ring op start carries the backend dispatch", {
 test("macos runtime: the epoll backend is not emitted", {
   c := emit_macos_runtime();
   assert(!c.contains(String.from("__yo_epoll")), String.from("epoll backend leaked into the macOS runtime"));
+});
+// The Windows sys runtime is emitted for EVERY program, the async section only
+// for async ones. A direct call from the former into the latter links only when
+// both are present: #974's __yo_file_close called __yo_win_unassociate_handle
+// directly, and every non-async Windows program (hello-world) failed to link
+// (issues/fixed/windows-non-async-programs-fail-to-link-on-an-async-only-symbol.md).
+// The close path goes through a hook the async init installs.
+test("windows sys runtime: the close path reaches the async section only through its hook", {
+  em := Emitter.new();
+  generate_platform_sys_runtime_windows(em);
+  c := em.print();
+  assert(!c.contains(String.from("__yo_win_unassociate_handle(fd);")), String.from("sys runtime calls an async-section function directly"));
+  assert(c.contains(String.from("if (__yo_win_close_hook) __yo_win_close_hook(fd);")), String.from("close hook call missing"));
 });
