@@ -61,6 +61,7 @@ pragma(Pragma.AllowUnsafe);
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
+  requires_is_runtime_checkable,
   VerifyTask,
   register_verify_task,
   record_verify_task_def_eval_failure,
@@ -1063,13 +1064,22 @@ Result type: ${type_to_string(result_box)}`
         .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
         .Atom(_, _) => String.from("")
       );
+      ck_requires := get_func_requires_exprs(contract_key.clone());
+      ck_requires_checkable := ArrayList(bool).new();
+      (ckr_i : usize) = usize(0);
+      while(ckr_i < ck_requires.len(), {
+        ck_requires_checkable.push(match(ck_requires.get(ckr_i), .Some(ckp) => requires_is_runtime_checkable(ckp, ctx.expr_info_table), .None => false));
+        ckr_i = (ckr_i + usize(1));
+      });
       body_expr := wrap_function_body_with_contracts(
         body_expr_raw,
-        get_func_requires_exprs(contract_key.clone()),
+        ck_requires,
         get_func_ensures_exprs(contract_key.clone()),
         get_func_return_label(contract_key.clone()),
         result_is_comptime_only,
-        is_unit_type(result_box)
+        is_unit_type(result_box),
+        ctx.is_ghost_context,
+        ck_requires_checkable
       );
       // Build param_type_names: for each param type, use the SomeT name (for generic
       // binding at call time) if the param type is a generic type variable, else "".

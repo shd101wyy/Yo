@@ -54,3 +54,9 @@ can corrupt a shared state-struct's field set — so it is possible this
 independent bug. A clean minimal repro (the two-await-if shape WITHOUT any
 co-located FTT) was not distilled; distilling one is the first step of the
 fix, and if it compiles, close this as FTT-cascade noise.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**STILL REPRODUCES** (seed and tree build), and not FTT noise: `no member named 'cond_branch_1'`. The struct declares `cond_branch_0` and `cond_branch_2`, but the second `if` writes `sm->cond_branch_1 = 3`. Repro: `issues/repros/async-postwhile-two-await-ifs.yo`. The field set comes from `needs_own_cond_branch_field` (`src/evaluator/shared/suspension_analysis.yo`), while the index comes from the remaining-body cond emission in `_emit_while_continuation`. The two numberings are computed independently.

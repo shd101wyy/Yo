@@ -153,7 +153,7 @@ object, so a consumer has to strip them.
   and `run_vc_query` consults the cache before it runs the binary. So
   `YO_Z3_PATH=/nonexistent/z3 yo compile` reported
   `1 obligation(s) proved` from a warm cache. Both defects are filed in
-  `issues/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`.
+  `issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`.
   With no override set, a missing solver is `Installable`, and the pass
   returns before any cache lookup.
 
@@ -182,7 +182,7 @@ In `verify` mode a `requires` is not asserted at runtime, and a contract-less
 caller that is outside the subset never proves it. The result is a function
 reported `ok` on an assumption nothing establishes. Today only the
 division's own guard catches the violation. Recorded, with the repro, in
-`issues/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`.
+`issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`.
 Refinement parameters have the same shape: `refine(i32, p)` erases to `i32`
 at runtime (`tests/spec/fixtures/valid/refine_nonzero_runtime.yo`).
 

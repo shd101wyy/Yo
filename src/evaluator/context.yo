@@ -38,7 +38,8 @@
   BK_IMPORT,
   BK_GENERIC,
   BK_BEGIN,
-  BF_DOT
+  BF_DOT,
+  BF_GHOST_FN
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
@@ -1227,6 +1228,42 @@ set_walk_context_retained :: (fn(path : String, keep : bool) -> unit)({
     });
   });
   ()
+});
+/// Is `name` bound by a module-level `name :: ghost_fn(...)` statement of the
+/// module at `path` (either spelling), forced or not? A contract predicate may
+/// name a ghost fn defined LATER in the file, and its side-table nodes carry no
+/// ExprInfo, so `requires_is_runtime_checkable` (builtins/contracts.yo) decides
+/// syntactically from the pending definition instead.
+is_module_ghost_fn_def :: (fn(path : String, name : String) -> bool)({
+  canon := canonical_module_path(path);
+  (wi : usize) = g_module_walks.len();
+  while(wi > usize(0), {
+    wi = (wi - usize(1));
+    match(
+      g_module_walks.get(wi),
+      .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
+        match(
+          _find_def_by_name(w.defs, name.clone(), false),
+          .Some(d) => {
+            return(
+              match(
+                d.expr,
+                .FnCall(_, _, dargs, _, _) => match(
+                  dargs.get(usize(1)),
+                  .Some(rhs) => ast_expr_is_fn_call_of(rhs, BF_GHOST_FN, Option(usize).None),
+                  .None => false
+                ),
+                .Atom(_, _) => false
+              )
+            );
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  false
 });
 /// Whether the finished walk of the module at `path` (either spelling) still
 /// holds its evaluation context; `.None` when that module has no finished walk.
@@ -3102,6 +3139,7 @@ track_variable_usage :: (
 );
 
 export(
+  is_module_ghost_fn_def,
   record_module_member_read,
   record_module_ordered_read,
   rebind_destructured_name,

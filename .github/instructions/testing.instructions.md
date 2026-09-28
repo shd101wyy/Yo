@@ -750,6 +750,15 @@ SYSTEM allocator and plain `clang -O2`. Its wall time is not the shipped
 compiler's: glibc's malloc charges for reusing freed chunks, which mimalloc
 does not.
 
+**Memory verdicts need stage-2 too.** A leak census, an RSS A/B or the LSP
+plateau (`scripts/bootstrap/lsp_plateau.py`) run on the seed-built stage-1
+measures the SEED's codegen, not the tree's. On 2026-09-28 every seed-built
+binary grew ~100 MB per LSP round while stage-2 of the same tree stayed flat.
+The leak was already fixed in the tree's codegen, and allocator and `-O` level
+made no difference
+(`issues/lsp-memory-grows-per-open-edit-close-round.md`). Compare stage-2
+against stage-2.
+
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
 `scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has

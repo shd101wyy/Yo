@@ -1,0 +1,27 @@
+// expected 0,1002,3012 ; actual clang: continue statement not in loop statement
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => {
+(acc : i32) = i32(0);
+(i : i32) = i32(0);
+while((i < (n * i32(2))), {
+  i = (i + i32(1));
+  if(((i % i32(2)) == i32(0)), {
+    t := e.await(_v(i, e), e);
+    acc = (acc + t);
+    continue;
+  });
+  acc = (acc + i32(1000));
+});
+acc
+
+}));
+main :: (fn(io : Io) -> unit)({
+  println(io.await(_run(i32(0), io), io));
+  println(io.await(_run(i32(1), io), io));
+  println(io.await(_run(i32(3), io), io));
+});
+export(main);

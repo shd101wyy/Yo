@@ -80,3 +80,17 @@ merge still writes the assignment that reads them.
 `file_type` predeclares `(ft : FileType) = FileType.Other;`, fills it in a
 statement-form `cond`, throws in a second statement-form `cond`, and ends on
 the bare `ft`.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**STILL REPRODUCES** (seed and tree build): `error: use of undeclared identifier '_file____tmp__temp_…'` in the else arm (`… = <undeclared>`) after the throwing arm's escape check. This implicates the final-expression path of `generate_state_segment_code` ("Store final expression result") into the value-cond emitter: the non-throwing arm's operand temp is never emitted.
+
+**Wider than "a throwing arm" (2026-09-28).** No throw is needed. After an
+await, `q := cond((k == 5) => (r + 100), true => r)`, whose second arm is a
+bare local, fails the same way: `use of undeclared identifier
+'_file____tmp__temp_…'` (`issues/repros/async-value-cond-bare-local-arm-after-await.yo`).
+So the defect is the value-cond lowering in the post-await segment, for any
+arm whose value is a plain operand, and the title's narrowing to a throwing
+arm is wrong.

@@ -1,0 +1,24 @@
+// LeakSanitizer: saved old value never dropped
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ yield } :: import("std/async");
+
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
+_run :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => {
+(i : i32) = i32(0);
+(last : String) = String.from("none");
+while((i < i32(10)), {
+  e.await(_v(i, e), e);
+  if((i == n), { last = String.from("hit"); i = i32(100); }, { i = (i + i32(1)); });
+});
+i32(last.len())
+
+}));
+main :: (fn(io : Io) -> unit)({
+  println(io.await(_run(i32(0), io), io));
+  println(io.await(_run(i32(1), io), io));
+  println(io.await(_run(i32(3), io), io));
+});
+export(main);

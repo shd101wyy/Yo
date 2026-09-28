@@ -1,0 +1,21 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+_sv :: (fn(x : i32) -> i32)(x);
+_svb :: (fn(x : bool) -> bool)(x);
+_svs :: (fn(x : i32) -> String)(x.to_string());
+_srun :: (fn(n : i32) -> i32)({
+(i : i32) = i32(0);
+(acc : i32) = i32(0);
+while((i < n), { t := _sv((i + i32(1))); i = t; }, {
+  acc = ((acc * i32(10)) + i);
+});
+(acc + (i * i32(1000)))
+
+});
+main :: (fn() -> unit)({
+  println(_srun(i32(0)));
+  println(_srun(i32(1)));
+  println(_srun(i32(3)));
+});
+export(main);
