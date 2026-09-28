@@ -132,7 +132,7 @@ _class1_status :: (fn(found : ArrayList(Class1Extraction), receiver : str, metho
 });
 
 test("class-1 scan: gated, comptime, UNGATED and non-panicking methods", {
-  src := String.from(
+  src :=
     `impl(
   generic(T : Type),
   Option(T),
@@ -159,8 +159,7 @@ impl(
   Widget(T),
   unwrap : (fn(self : Self) -> T)(__yo_panic("not an Option"))
 );
-`
-  );
+`;
   found := ArrayList(Class1Extraction).new();
   scan_class1_extractions(String.from("fixture.yo"), src, found);
   assert(found.len() == usize(3), "three panicking Option methods; Widget is not a class-1 receiver");
