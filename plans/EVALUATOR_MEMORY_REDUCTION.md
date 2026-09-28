@@ -2118,6 +2118,53 @@ casts.
 Next on the same object: `module_path` and `input` could share one source
 record (−8 B, a 56 B class on mimalloc).
 
+### 0.23 Strings by content: 37 % are redundant copies (2026-09-28)
+
+`holder_census_t.py` gained `HOLDER_DUPSTR=1` (with `HOLDER_DEEP`). It
+FNV-hashes the contents of every reached `ArrayList(u8)`, groups equal
+contents, and reports the bytes held by the copies beyond the first (object
+block plus buffer block). Run on develop `b097fb448`'s stage-2 (system
+allocator, exact Linux walk), `check src/main.yo`:
+
+| | |
+| --- | --- |
+| live strings | 1,280,821 |
+| bytes | 194.0 MB |
+| distinct contents | 422,527 |
+| **redundant copies** | **71.9 MB (37 %)** |
+
+The top groups are tiny strings minted per AST node rather than interned:
+
+| content | copies | redundant MB |
+| --- | --- | --- |
+| a 1-character string | 198,484 | 9.96 |
+| `tuple` | 48,344 | 2.40 |
+| `begin` | 33,587 | 1.69 |
+| `=>` | 29,597 | 1.45 |
+| `Some`, `None`, `cond`, `true` | ~14,700 each | ~0.73 each |
+
+By first-reaching root, the redundant bytes sit in the registries that clone
+their keys:
+
+| root | redundant MB |
+| --- | --- |
+| `g_funcval_cap_vars` | 12.0 |
+| `g_func_type_registry` | 10.8 |
+| `_type_trait_methods` | 10.4 |
+| `g_specialized_base` | 9.4 |
+| `g_type_intern` | 7.1 |
+| `g_stable_occurrence` | 2.6 |
+| `g_match_arms` | 2.5 (0 in `check` since §0.21) |
+
+`String.clone` is a byte copy (`std/string` Clone impl), so every
+`registry.insert(id.clone(), …)` keeps its own buffer of an id that the
+FuncVal or type already holds. There are two levers, both byte-identical in
+the emitted C:
+1. intern the node strings at their mint sites (the parser's and
+   synthesizer's `String.from("tuple")` family), as the lexer's
+   `intern_token_str` already does for source tokens;
+2. share the handle instead of cloning where the key is never mutated.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.
