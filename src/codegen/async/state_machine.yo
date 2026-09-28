@@ -399,9 +399,13 @@ compute_cross_boundary_variables :: (
     while(ai < captured_variables.len(), ai = (ai + usize(1)), {
       match(
         captured_variables.get(ai),
-        .Some(cv) => match(cv.kind, .Local => {
-          all_ids.insert(cv.base.id.to_string());
-        }, .Outer => ()),
+        .Some(cv) => match(
+          cv.kind,
+          .Local => {
+            all_ids.insert(cv.base.id.to_string());
+          },
+          .Outer => ()
+        ),
         .None => ()
       );
     });
@@ -4443,7 +4447,6 @@ generate_async_block_cancel_pending_function :: (
 // is in. Loops stay C loops, `match` stays a C switch, `break`/`continue`/
 // `return` are the ordinary ones — none of the segment lowering's
 // continuation machinery is involved.
-
 /// Whether the single-pass lowering is selected (`YO_ASYNC_LOWERING=inline`).
 inline_lowering_enabled :: (fn() -> bool)(
   match(debug_knob(`YO_ASYNC_LOWERING`), .Some(v) => (v == "inline"), .None => false)
@@ -4555,7 +4558,11 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
   em.emit_string_line(`${indent}}`);
   rt := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
-  is_unit_rt := (is_unit_type(rt) || (is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)));
+  is_unit_rt := (
+    is_unit_type(rt) || (
+      is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+    )
+  );
   (out : String) = String.from("");
   if(!(is_unit_rt), {
     tmp := `__yo_await_result_${ks}`;
