@@ -26,25 +26,32 @@ The failing sites are the compiler's own async code (`src/build_runner.yo`'s
 `handles.push(e.io.spawn(...))`, `err_task`, `t := e.io.spawn(...)`, …) — the
 spawn/join shapes every `io.spawn` in an `io.async` body takes.
 
-## Root cause
+## Root cause (refined 2026-09-29)
 
-Three emitters still produce the OLD value-struct shapes now that
-`JoinHandle(T)` is reference-semantics (a pointer in C):
+Not three independent emitter bugs — a **seed-gating violation**. #991 added
+to `std/prelude.yo` the extern
 
-1. **Spawn construction** — `src/codegen/exprs/generation.yo`
-   `_generate_io_spawn` returns
-   `` `(${jh}){ .__future = (void*)${spawn_var} }` `` — a compound literal
-   cast; with `jh` now `__yo_t_X*` that is an invalid C initialization. A
-   ref-semantics struct is constructed through its `__yo_new_*` constructor
-   (or the handle must be built another way the new ownership model wants).
-2. **Handle field reads** — the join/await path reads `sm->var_h.__future`
-   with `.` where the SM field now holds a pointer (`->`).
-3. **`__yo_join_handle_release_raw`** — called by the (generated) dispose of
-   the owning handle, but no runtime defines it:
-   `src/codegen/async/runtime_core.yo` has only `__yo_join_handle_state_raw`
-   and `__yo_join_handle_abort_raw`. Either the release helper is missing from
-   the runtime or the dispose should call the shared complete/abort protocol
-   helpers the phase-2 plan prescribes ("one protocol helper per transition").
+```rust
+extern("Yo", __yo_join_handle_release_raw : (fn(fut : *(void)) -> unit));
+```
+
+and `JoinHandle`'s `Dispose` calls it. An `extern("Yo", …)` name is emitted
+by the COMPILING compiler's built-in async runtime — and the SEED (v0.2.45)
+predates #991's runtime, so a seed-compiled build emits the call sites with no
+definition anywhere in the C (Linux gcc/clang reject the implicit declaration;
+the shapes reported above — the `(__yo_t_X*){ .__future = … }` compound
+literal and the `.__future` dot-reads — are the same mismatch seen from the
+call-site side). This is exactly the rule
+`plans/backlog/SEED_VERSION_AUTOMATION.md` / AGENTS.md state for std: std may
+not use a runtime builtin the pinned seed does not carry. A Windows
+seed-build happens to compile (the dispose call sites are not emitted the
+same way there), which is why the breakage surfaced only in the Linux
+battery.
+
+Resolution belongs to the async campaign (#991's follow-up phases): either the
+tree avoids the new extern until a release carries it (a fallback drop), or a
+release with #991's runtime ships and `SEED_VERSION` bumps past it. Until
+then every PR battery on develop inherits this red at stage-1.
 
 ## Note
 

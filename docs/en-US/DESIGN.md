@@ -2199,8 +2199,10 @@ the earlier arms match only together, such as `.Some(_)` after `.Some(true)`
 and `.Some(false)`, is a warning. A trailing `_` or binding arm is always
 accepted. Bindings borrow the matched value for the arm.
 
-Not yet supported: the new forms inside an `io.async` arm that awaits (those
-fail loudly at codegen; bind the payload and match again inside the arm).
+Inside an `io.async` arm that awaits, every pattern form works: the arm's
+tests and bindings run on the state machine's initial pass and the body keeps
+the ordinary suspension/resume machinery (`plans/MATCH_PATTERN_MATCHING.md`
+§4.9).
 
 ## String
 

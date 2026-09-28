@@ -939,7 +939,7 @@ _compile_variant :: (
       curly_bind => {
         bn := _atom_name(sub_ast);
         pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
-        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast))
+        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast), atom : sub_ast)
       },
       true => compile_pattern(sub_ast, fty, fval, pc, env, ctx, exn)
     );
@@ -1198,7 +1198,7 @@ _compile_struct :: (
       bare_bind => {
         bn := _atom_name(sub_ast);
         pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
-        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast))
+        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast), atom : sub_ast)
       },
       true => compile_pattern(sub_ast, fty, fval, pc, env, ctx, exn)
     );
@@ -1263,7 +1263,7 @@ compile_pattern :: (
     nm := _atom_name(name_expr);
     pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
     sub := recur(sub_expr, position_ty, value_opt, pc, env, ctx, exn);
-    return(Pattern.At(name : nm, token : ast_expr_token(name_expr), sub : sub));
+    return(Pattern.At(name : nm, token : ast_expr_token(name_expr), atom : name_expr, sub : sub));
   });
   // A bare identifier that does NOT name a constant in scope is a BINDING of
   // this position (checked before the Box look-through so a Box position
@@ -1273,7 +1273,7 @@ compile_pattern :: (
     nm := _atom_name(e);
     if(!_constant_in_scope(nm.clone(), env), {
       pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
-      return(Pattern.Bind(name : nm, token : ast_expr_token(e)));
+      return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : e));
     });
   });
   // A STRUCTURAL pattern at a `Box(T)` position looks through the box: the
@@ -1442,7 +1442,7 @@ match_value :: (fn(p : Pattern, value_opt : Option(EvalValue), ctx : EvalContext
   match(
     p,
     .Wildcard => Option(bool).Some(true),
-    .Bind(_, _) => Option(bool).Some(true),
+    .Bind(_, _, _) => Option(bool).Some(true),
     .Const(_, _, _, _, test) => match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(test)),
       .Some(ti) => match(
@@ -1524,7 +1524,7 @@ match_value :: (fn(p : Pattern, value_opt : Option(EvalValue), ctx : EvalContext
         true => Option(bool).None
       )
     },
-    .At(_, _, sub) => recur(sub, value_opt, ctx),
+    .At(_, _, _, sub) => recur(sub, value_opt, ctx),
     .ThroughBox(_, _, sub) => match(
       value_opt,
       .Some(v) => match(
@@ -1620,7 +1620,7 @@ _pattern_subs_classic :: (fn(p : Pattern, ast_params : ArrayList(AstExpr)) -> bo
         ok = match(
           sub,
           .Wildcard => true,
-          .Bind(_, _) => true,
+          .Bind(_, _, _) => true,
           .Const(_, _, src, _, _) => {
             // The pre-IR emitters compare only POSITIONAL numeric/bool
             // literals in place; a labeled or curly literal was rejected.

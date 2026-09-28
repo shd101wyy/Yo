@@ -3603,7 +3603,7 @@ _AwLabelCtr :: ref(struct(next : usize));
 /// there; every other name is an arm-local C declaration (or, for
 /// or-alternatives, an assignment to the declaration the alternatives share).
 _aw_bind_pattern_name :: (
-  fn(name : String, ty : TypeValue, path : String, indent : String, assign : bool, context : FunctionGenerationContext) -> unit
+  fn(atom : AstExpr, name : String, ty : TypeValue, path : String, indent : String, assign : bool, context : FunctionGenerationContext) -> unit
 )({
   if(is_unit_type(ty), {
     return(());
@@ -3611,7 +3611,7 @@ _aw_bind_pattern_name :: (
   em := context.base.emitter;
   cname := sanitize_for_c_identifier(name.clone(), false);
   match(
-    _find_sm_var_id_by_name(context, name.clone()),
+    _resolve_pattern_binding_sm_field(atom, name.clone(), context),
     .Some(vid) => {
       fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
       em.emit_string_line(`${indent}sm->${fname} = ${path};`);
@@ -3650,8 +3650,8 @@ _aw_emit_general_pattern :: (
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
-      _aw_bind_pattern_name(name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
+    .Bind(name, _, atom) => {
+      _aw_bind_pattern_name(atom, name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
     },
     .Const(_, _, _, subject, test) => {
       if(emit_tests, {
@@ -3759,8 +3759,8 @@ _aw_emit_general_pattern :: (
       });
       em.emit_string_line(`${indent}${done_label}: ;`);
     },
-    .At(name, _, sub) => {
-      _aw_bind_pattern_name(name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
+    .At(name, _, atom, sub) => {
+      _aw_bind_pattern_name(atom, name.clone(), ty, path.clone(), indent.clone(), assign_binds, context);
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, label_prefix, label_ctr, context);
     },
     .ThroughBox(box_ty, inner_ty, sub) => {

@@ -4,6 +4,7 @@
 //! labeled/curly patterns bind (issues/async-match-arm-labeled-destructure-
 //! binds-nothing.md, audit A3).
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 { args } :: import("std/env");
 { yield } :: import("std/async");
 runtime_int :: (fn() -> i32)(i32(args().len()));
@@ -243,11 +244,12 @@ test("a guard arm with an await", {
 test("a string-constant arm with an await", {
   n := runtime_int();
   tag := String.from("run");
-  (t2 : String) = tag.append_substring(0, usize(n)); // still "run"
+  t2 := tag.clone();
+  (t3 : String) = t2;
   result := Box(i32)(0);
   task := io.async((io : Io) => {
     result.* = match(
-      t2,
+      t3,
       "run" => {
         io.await(yield(io), io);
         i32(1)
