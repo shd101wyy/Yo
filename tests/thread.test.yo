@@ -10,6 +10,11 @@ import("std/libc/stdio");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
 log :: import("std/log");
+{ Path } :: import("std/path");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+{ Exception, IoExn } :: import("std/error");
+{ temp_dir, path_join } :: import("./helper");
 test("Thread spawn and join without captures", {
   thread := Thread(unit).spawn(
     io => () // Thread runs with no captures
@@ -427,4 +432,67 @@ test("Test a spawned thread joins a thread of its own, 5000 times", {
     i = (i + i32(1));
   });
   assert(done.load(MemoryOrder.Acquire) == usize(5000), "every inner thread ran");
+});
+// ============================================================================
+// Cross-thread runtime-registry stress (Windows regression coverage)
+// ============================================================================
+// The Windows per-fd FindFirstFile iteration registry is a process-global
+// list. Its mutex used to be initialized by every thread's first event loop
+// and deleted by every teardown — three threads iterating directories
+// re-initialized the lock under each other's hands, and a finishing thread
+// deleted it while the others were still entering it
+// (issues/windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md).
+// Every round is an open + getdents + close on that one shared registry; the
+// data race is undefined behavior, so a pass on an unfixed build proves
+// nothing, but a hang or crash here is this bug's signature. No captures: the
+// unique directory name comes from get_thread_id().
+// One thread's share of the registry stress: a private directory (named by
+// thread id, so no captures are needed), created, iterated 40 times, removed.
+_dir_iter_roundtrip :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io) => {
+    exn := Exception(
+      throw : (
+        err -> {
+          assert(false, "unexpected exception");
+          unwind(());
+        }
+      )
+    );
+    tmp := temp_dir();
+    base := path_join(tmp, `yo_thread_dir_iter_${get_thread_id()}`);
+    dpath := Path.new(base.clone());
+    io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
+    (i : usize) = usize(0);
+    while(runtime(i < usize(5)), {
+      io.await(
+        fs_file.write_string(Path.new(path_join(base.clone(), `f${i}.txt`)), String.from("x"), io),
+        IoExn(io : io, exn : exn)
+      );
+      i = (i + usize(1));
+    });
+    (n : i64) = i64(0);
+    while(runtime(n < i64(40)), {
+      entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
+      assert(entries.len() == usize(5), "expected the 5 files back");
+      n = (n + i64(1));
+    });
+    (j : usize) = usize(0);
+    while(runtime(j < usize(5)), {
+      io.await(
+        fs_dir.remove_file(Path.new(path_join(base.clone(), `f${j}.txt`)), io),
+        IoExn(io : io, exn : exn)
+      );
+      j = (j + usize(1));
+    });
+    io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+  });
+  io.await(task, io);
+});
+test("concurrent directory iteration on three threads", {
+  t1 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
+  t2 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
+  t3 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
+  t1.join();
+  t2.join();
+  t3.join();
 });
