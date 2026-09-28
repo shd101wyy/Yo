@@ -3249,7 +3249,7 @@ _materialize_default_body :: (
 /// field loop ran inline before P3 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), pulled out
 /// so `force_in_flight_field` can run it OUT OF ORDER when a sibling references
 /// the member before its position. `field_opt` is the member's pending entry
-/// (direct fields only; trait-constructor members always evaluate in place).
+/// (a direct field, or an inner field of the trait entry being evaluated).
 /// Reads and advances the impl env through `st.env`.
 /// `actual` with its receiver's mode taken from `expected`. An impl may spell
 /// a trait method's receiver in any of the forms `docs/en-US/DYN_DESIGN.md`
@@ -3392,30 +3392,7 @@ _c3_eval_colon_pair :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : st.env)),
     .None => Option(ExpectedTypeCtx).None
   );
-  // A trait-constructor member publishes its FuncVal to its in-flight
-  // signature entry the moment the literal mints it, before the body trial
-  // (`publish_in_flight_trait_member`), so a recursive call to this member
-  // from its own body binds the member itself.
-  saved_member_rhs := st.member_rhs_id;
-  saved_member_label := st.member_label.clone();
-  saved_member_trait := st.member_trait_id.clone();
-  match(
-    current_trait_ty,
-    .Some(mt) => match(
-      mt,
-      .TraitT({ id : mt_id }) => {
-        st.member_rhs_id = Option(usize).Some(ast_expr_id(val_expr));
-        st.member_label = method_name.clone();
-        st.member_trait_id = mt_id;
-      },
-      _ => ()
-    ),
-    .None => ()
-  );
   eval_val := evaluate_expression_raw(val_expr, st.env, ctx, exn);
-  st.member_rhs_id = saved_member_rhs;
-  st.member_label = saved_member_label;
-  st.member_trait_id = saved_member_trait;
   ctx.expected_type = saved2;
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
@@ -4320,10 +4297,7 @@ evaluate_module_value :: (
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
-      forall_names : forall_names,
-      member_rhs_id : Option(usize).None,
-      member_label : String.new(),
-      member_trait_id : String.new()
+      forall_names : forall_names
     );
     push_impl_in_flight(c2_rec);
     (fj : usize) = (receiver_arg_idx + usize(1));
@@ -4743,6 +4717,37 @@ evaluate_module_value :: (
       }),
       .None => ()
     );
+    // A trait constructor's members are pending INNER fields, as in Case 2: a
+    // sibling (or a helper a member's body forces) that calls a member of the
+    // SAME trait entry before its position forces it out of order, and a
+    // member calling itself binds its phase-A FuncVal. Evaluated in place
+    // only, a later member reached early resolved to its value-less in-flight
+    // signature, the call had no callee, and codegen emitted `// Failed to
+    // transpile` (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+    match(
+      args.get(c3_pi),
+      .Some(c3_te_outer) => if((ast_expr_is_fn_call(c3_te_outer) && !ast_expr_is_fn_call_of(c3_te_outer, BK_COLON, .Some(usize(2)))) && (!ast_expr_is_fn_call_of(c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c3_te_outer, "!", .Some(usize(1)))), {
+        c3_ta := match(
+          c3_te_outer,
+          .FnCall(_, _, ta, _, _) => ta,
+          .Atom(_, _) => ArrayList(AstExpr).new()
+        );
+        (c3_ti : usize) = usize(0);
+        while(c3_ti < c3_ta.len(), {
+          c3_te := match(c3_ta.get(c3_ti), .Some(e) => e, .None => make_err_expr());
+          c3_ti = (c3_ti + usize(1));
+          if(ast_expr_is_fn_call(c3_te) && ast_expr_is_fn_call_of(c3_te, BK_COLON, .Some(usize(2))), {
+            c3_ilbl := match(
+              c3_te,
+              .FnCall(_, _, c3_ica, _, _) => match(c3_ica.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+              .Atom(_, _) => String.new()
+            );
+            c3_fields.push(make_impl_pending_field(c3_ilbl, c3_te, c3_pi, true));
+          });
+        });
+      }),
+      .None => ()
+    );
     c3_pi = (c3_pi + usize(1));
   });
   c3_rec := ImplInFlight(
@@ -4755,10 +4760,7 @@ evaluate_module_value :: (
     fields : c3_fields,
     current_top_index : usize(0),
     current_trait_ty : Option(TypeValue).None,
-    forall_names : ArrayList(String).new(),
-    member_rhs_id : Option(usize).None,
-    member_label : String.new(),
-    member_trait_id : String.new()
+    forall_names : ArrayList(String).new()
   );
   push_impl_in_flight(c3_rec);
   // Process each field expression: `name : fn_def` or a trait constructor
@@ -5009,12 +5011,21 @@ evaluate_module_value :: (
             method_exprs.get(mj),
             .None => (),
             .Some(meth_expr) => {
-              // A DIRECT member routes through its pending entry (a sibling
-              // may already have forced it — plans/reference/LAZY_TOPLEVEL_BINDINGS.md
-              // P3); trait-constructor members evaluate in place.
+              // Every member routes through its pending entry (a sibling may
+              // already have forced it — plans/reference/LAZY_TOPLEVEL_BINDINGS.md
+              // P3): a direct one by position, a trait constructor's by its
+              // label within this entry.
               c3_pf_opt := cond(
                 current_trait_ty.is_none() => impl_direct_field_at(c3_rec, field_idx),
-                true => Option(ImplPendingField).None
+                true => impl_inner_field_at(
+                  c3_rec,
+                  field_idx,
+                  match(
+                    meth_expr,
+                    .FnCall(_, _, c3_mca, _, _) => match(c3_mca.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+                    .Atom(_, _) => String.new()
+                  )
+                )
               );
               c3_rec.env = local_env;
               match(
