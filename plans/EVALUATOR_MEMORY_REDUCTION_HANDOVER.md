@@ -183,9 +183,10 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
 
 ### 3.4 Token diet (76 B × about 1.9 M)
 
-`row`/`column`/`character`/`byte_offset` are four `usize` fields; `u32` saves
-16 B a token. `module_path` + `input` could share one source-record handle
-(−8 B). The edit is big but mechanical.
+LANDED on branch `mem/token-u32` (plan §0.22): the four positions are `u32`,
+80 → 64 B a token, −30.1 MB max RSS. Still open on the same object:
+`module_path` + `input` could share one source-record handle (−8 B, a 56 B
+class on mimalloc). The edit is big but mechanical.
 
 ### 3.5 Plan steps still open
 

@@ -26,7 +26,8 @@ RC objects from each root (`D <objects> <bytes> <root> <type>`, unreached ones a
 HOLDER_DEEP_LAST=<substr>[,<substr>...] walks the matching roots last, giving the group's
 EXCLUSIVE share. HOLDER_DEEP_PATH=<type> [HOLDER_DEEP_PATH_ROOT=<root>] prints sampled
 discovery chains (`P <root>: <- type <- ...`).
-HOLDER_SCAN=1 adds a
+HOLDER_DUPSTR=1 (with HOLDER_DEEP) groups the reached Strings by content (`ZT`/`ZR`/`Z`
+rows: redundant copies, per root, top groups). HOLDER_SCAN=1 adds a
 conservative heap scan: `X <words> <target> <- <holder>` = RC objects of <holder> (reached or
 untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hit histogram, `Y` = holders of the raw buffers that do
 (`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_MIN=<n> lowers the
@@ -76,10 +77,11 @@ for d, b in sorted(disp.items()):
     body = struct_body.get(b, "")
     st = "struct %s_struct" % b
     if re.search(r"\* _ptr;", body) and re.search(r"\bsize_t _length;", body):
-        al_rows.append("  { (void*)%s, offsetof(%s, _ptr), offsetof(%s, _length), sizeof(*((%s*)0)->_ptr) }" % (d, st, st, st))
+        is_u8 = 1 if tyname.get(b, "").startswith("ArrayList(u8)") else 0
+        al_rows.append("  { (void*)%s, offsetof(%s, _ptr), offsetof(%s, _length), sizeof(*((%s*)0)->_ptr), %d }" % (d, st, st, st, is_u8))
     elif re.search(r"\buint8_t\* ctrl;", body) and re.search(r"\* data;", body) and re.search(r"\bsize_t capacity;", body):
         hm_rows.append("  { (void*)%s, offsetof(%s, ctrl), offsetof(%s, data), offsetof(%s, capacity), sizeof(*((%s*)0)->data) }" % (d, st, st, st, st))
-al_c = ",\n".join(al_rows) or "  { 0, 0, 0, 0 }"
+al_c = ",\n".join(al_rows) or "  { 0, 0, 0, 0, 0 }"
 hm_c = ",\n".join(hm_rows) or "  { 0, 0, 0, 0, 0 }"
 len_c = "\n".join("  { void* p = *(void* const*)__ho_root_addrs[%d]; if (p) fprintf(f, \"L %%lld %%s\\n\", %s, __ho_roots[%d]); }" % (i, e, i) for i, e in len_exprs)
 
@@ -434,7 +436,7 @@ static void __ho_scan_heap(FILE* f) {
    the object's block plus its container storage; RC objects no root
    reaches are attributed to LEAK. */
 #include <stddef.h>
-typedef struct { void* fn; size_t off_ptr, off_len, esz; } __hd_al_t;
+typedef struct { void* fn; size_t off_ptr, off_len, esz; int u8; } __hd_al_t;
 typedef struct { void* fn; size_t off_ctrl, off_data, off_cap, esz; } __hd_hm_t;
 static const __hd_al_t __hd_al[] = {
 %(al_c)s
@@ -534,6 +536,66 @@ static void __hd_drain(int root) {
   }
   __hd_sp = __hd_head = 0;
 }
+/* HOLDER_DUPSTR=1: group every reached ArrayList(u8) (a String) by content.
+   A group of n equal strings holds n - 1 redundant copies: String.clone is a
+   byte copy, so each registry that clones its key keeps its own. Rows:
+   `ZT <strings> <bytes> <groups> <redundant bytes>`, `ZR <redundant bytes>
+   <root>` (bytes of the copies each root first reaches, the first copy
+   excluded), `Z <copies> <len> <redundant bytes> <escaped prefix>` for the top
+   groups. Bytes are the object block plus its buffer block. */
+typedef struct { unsigned long long h; size_t len; long long bytes; int root; long bi; } __hd_zs_t;
+static int __hd_zs_cmp(const void* a, const void* b) {
+  const __hd_zs_t* x = (const __hd_zs_t*)a; const __hd_zs_t* y = (const __hd_zs_t*)b;
+  if (x->h != y->h) return x->h < y->h ? -1 : 1;
+  if (x->len != y->len) return x->len < y->len ? -1 : 1;
+  return x->root - y->root;
+}
+typedef struct { long long waste; long long n; size_t len; long bi; } __hd_zg_t;
+static int __hd_zg_cmp(const void* a, const void* b) { long long x = ((const __hd_zg_t*)a)->waste, y = ((const __hd_zg_t*)b)->waste; return x < y ? 1 : (x > y ? -1 : 0); }
+static void __hd_dupstr(FILE* f) {
+  size_t cap = 1 << 20, n = 0; __hd_zs_t* z = (__hd_zs_t*)malloc(cap * sizeof(__hd_zs_t));
+  for (size_t i = 0; i < __HD_BCAP; i++) {
+    if (!__hd_bk[i] || __hd_br[i] < 0 || __hd_bs[i] < 16) continue;
+    char* b = (char*)__hd_bk[i]; void* fn = *(void**)(b + 8);
+    for (size_t a = 0; a < sizeof(__hd_al) / sizeof(__hd_al[0]); a++) if (__hd_al[a].fn == fn) {
+      if (!__hd_al[a].u8) break;
+      char* ptr = *(char**)(b + __hd_al[a].off_ptr); size_t len = *(size_t*)(b + __hd_al[a].off_len);
+      long pi = ptr ? __hd_find(ptr) : -1;
+      long long bytes = (long long)__hd_bs[i] + (pi >= 0 ? (long long)__hd_bs[pi] : 0);
+      if (pi >= 0 && len > __hd_bs[pi]) len = __hd_bs[pi];
+      unsigned long long h = 1469598103934665603ull;
+      for (size_t k = 0; pi >= 0 && k < len; k++) { h ^= (unsigned char)ptr[k]; h *= 1099511628211ull; }
+      if (pi < 0) len = 0;
+      if (n == cap) { cap *= 2; z = (__hd_zs_t*)realloc(z, cap * sizeof(__hd_zs_t)); }
+      z[n].h = h; z[n].len = len; z[n].bytes = bytes; z[n].root = __hd_br[i]; z[n].bi = (long)i; n++;
+      break;
+    }
+  }
+  qsort(z, n, sizeof(__hd_zs_t), __hd_zs_cmp);
+  long long total = 0, waste = 0, groups = 0;
+  long long* rw = (long long*)calloc(%(nr)d + 2, sizeof(long long));
+  size_t gcap = 1 << 16, gn = 0; __hd_zg_t* g = (__hd_zg_t*)malloc(gcap * sizeof(__hd_zg_t));
+  for (size_t i = 0; i < n; ) {
+    size_t j = i + 1; while (j < n && z[j].h == z[i].h && z[j].len == z[i].len) j++;
+    long long gw = 0;
+    for (size_t k = i; k < j; k++) { total += z[k].bytes; if (k > i) { gw += z[k].bytes; if (z[k].root >= 0 && z[k].root < %(nr)d + 2) rw[z[k].root] += z[k].bytes; } }
+    groups++; waste += gw;
+    if (j - i > 1) { if (gn == gcap) { gcap *= 2; g = (__hd_zg_t*)realloc(g, gcap * sizeof(__hd_zg_t)); } g[gn].waste = gw; g[gn].n = (long long)(j - i); g[gn].len = z[i].len; g[gn].bi = z[i].bi; gn++; }
+    i = j;
+  }
+  fprintf(f, "ZT %%zu %%lld %%lld %%lld\n", n, total, groups, waste);
+  for (int r = 0; r < %(nr)d + 2; r++) if (rw[r] > 65536) fprintf(f, "ZR %%lld %%s\n", rw[r], r < %(nr)d ? __ho_roots[r] : (r == %(nr)d ? "<other-data>" : "LEAK"));
+  qsort(g, gn, sizeof(__hd_zg_t), __hd_zg_cmp);
+  for (size_t k = 0; k < gn && k < 60; k++) {
+    char* b = (char*)__hd_bk[g[k].bi]; void* fn = *(void**)(b + 8); char* ptr = NULL;
+    for (size_t a = 0; a < sizeof(__hd_al) / sizeof(__hd_al[0]); a++) if (__hd_al[a].fn == fn) { ptr = *(char**)(b + __hd_al[a].off_ptr); break; }
+    char esc[128]; size_t e = 0;
+    for (size_t c = 0; ptr && c < g[k].len && e + 4 < sizeof esc; c++) { unsigned char ch = (unsigned char)ptr[c]; esc[e++] = (ch >= 32 && ch < 127 && ch != ' ') ? (char)ch : '.'; }
+    esc[e] = 0;
+    fprintf(f, "Z %%lld %%zu %%lld %%s\n", g[k].n, g[k].len, g[k].waste, e ? esc : "<empty>");
+  }
+  free(z); free(g); free(rw);
+}
 static void __ho_deep(FILE* f) {
   __hd_bk = (void**)calloc(__HD_BCAP, sizeof(void*)); __hd_bs = (size_t*)calloc(__HD_BCAP, sizeof(size_t)); __hd_br = (int*)calloc(__HD_BCAP, sizeof(int)); __hd_par = (long*)calloc(__HD_BCAP, sizeof(long));
   __hd_cnt = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long)); __hd_bytes = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long));
@@ -631,6 +693,7 @@ static void __ho_deep(FILE* f) {
   }
   for (int r = 0; r < %(nr)d + 2; r++) for (int t = 0; t < %(nb)d; t++) if (__hd_cnt[(size_t)r * %(nb)d + t])
     fprintf(f, "D %%lld %%lld %%s %%s\n", __hd_cnt[(size_t)r * %(nb)d + t], __hd_bytes[(size_t)r * %(nb)d + t], r < %(nr)d ? __ho_roots[r] : (r == %(nr)d ? "<other-data>" : "LEAK"), __ho_types[t]);
+  if (getenv("HOLDER_DUPSTR")) __hd_dupstr(f);
 }
 static void __ho_census(void* st) {
   __yo_thread_gc_state_t* gc = (__yo_thread_gc_state_t*)st;

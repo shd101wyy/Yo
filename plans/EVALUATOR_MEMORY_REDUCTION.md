@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-28 — (§0.21) The codegen-only tables are skipped in `check`/`verify`/`doc`/`lsp` and the arm windows are construct-local: −2.8 % max RSS. (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-28 — (§0.22) `Token` positions are `u32`: 80 → 64 B a token, −2.5 % max RSS. (§0.21) The codegen-only tables are skipped in `check`/`verify`/`doc`/`lsp` and the arm windows are construct-local: −2.8 % max RSS. (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -2094,6 +2094,29 @@ entry: the specialized id as the key and the base id as the value.
 key `g_func_type_registry` and the contract tables. The fix is the §3.2
 one (numeric ids or shared handles), not a verify-only flag: `check` runs
 the verifier too.
+
+### 0.22 `Token` positions are `u32` (2026-09-28, handover §3.4)
+
+`row`, `column`, `character` and `byte_offset` were four `usize` fields. As
+`u32` (no source file comes near 4 GiB), a `Token` is 64 B instead of 80:
+- the 16 B header;
+- `kind` (a 4-byte C enum) and its 4 B of padding;
+- `value`, `module_path` and `input` (8 B handles);
+- the four positions, 16 B instead of 32.
+
+Both glibc and mimalloc have a size class that 64 fits, so the 16 B is real
+on each of the ~1.9 M tokens a `check src/main.yo` keeps. Readers widen with
+`usize(tok.row)` where the value meets a `usize`; token-to-token comparisons
+and interpolations need nothing.
+
+Measured on stage-1 binaries built by the v0.2.45 seed, on the same
+`f27762570` tree, `check src/main.yo` max RSS: **1,195,940 → 1,165,796 kB
+(−30.1 MB, −2.5 %)**. User programs' emitted C is unchanged (the corpus
+gate). The compiler's own C changes only in the `Token` struct and its
+casts.
+
+Next on the same object: `module_path` and `input` could share one source
+record (−8 B, a 56 B class on mimalloc).
 
 ## 6. Gates (every phase)
 
