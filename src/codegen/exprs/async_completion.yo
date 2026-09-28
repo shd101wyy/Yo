@@ -6,7 +6,10 @@
 //!   - generate_return (return with/without arg in a state machine)
 //!   - async/state_machine (normal final-state completion)
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { Emitter } :: import("../../emitter.yo");
+{ AstExpr, ast_expr_token, ast_expr_is_fn_call_of, is_function_boundary_arrow, BF_UNWIND, BK_COND, BK_MATCH } :: import("../../expr.yo");
+{ fnv1a64, canonical_module_path } :: import("../../utils.yo");
 /// Emits the C code to complete an async Future state machine:
 ///   1. Optionally store the result value
 ///   2. Set state to COMPLETED (-1) with release semantics
@@ -83,4 +86,178 @@ emit_async_future_escape :: (
   emitter.emit_string_line(String.from(""));
   emitter.emit_string_line(`${indent}return;`);
 });
-export(emit_async_future_completion, emit_async_future_escape);
+/// The identity of an `unwind`'s handler: the C constant `__yo_unwind_target`
+/// holds while that unwind is in flight. `body` is the handler literal's body,
+/// and the id is its source position, so the literal found in its installer's
+/// AST and the function generated from it agree however the two were reached.
+unwind_origin_id :: (fn(body : AstExpr) -> String)({
+  tok := ast_expr_token(body);
+  h := fnv1a64(`${canonical_module_path(tok.module_path)}:${tok.row.to_string()}:${tok.column.to_string()}`);
+  if(h == u64(0), {
+    h = u64(1);
+  });
+  `${h.to_string()}ULL`
+});
+/// A handler literal that `unwind`s to the frame it appears in.
+UnwindCatch :: struct(
+  /// `unwind_origin_id` of the literal's body.
+  id : String,
+  /// The `unwind(...)` calls in the body, for the frame to type-check.
+  unwinds : ArrayList(AstExpr)
+);
+/// The body of a function-boundary node (`is_function_boundary_arrow`):
+/// the last argument of `params -> body` / `=>`, the only one of
+/// `(fn(...) -> T)(body)`.
+_boundary_body :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, func_box, args, _, _) => match(
+      func_box,
+      .Atom(_, _) => if(args.len() > usize(0), args.get(args.len() - usize(1)), Option(AstExpr).None),
+      .FnCall(_, _, _, _, _) => args.get(usize(0))
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// Visit the sub-expressions of `e` that belong to the same function: every
+/// argument, and for `cond`/`match` both halves of each branch arrow (which is
+/// not a function boundary).
+_same_frame_children :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    e,
+    .FnCall(_, func_box, args, _, _) => {
+      out.push(func_box);
+      is_branching := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(is_branching && ast_expr_is_fn_call_of(a, "=>", .None), {
+            match(
+              a,
+              .FnCall(_, _, parts, _, _) => {
+                (j : usize) = usize(0);
+                while(j < parts.len(), {
+                  match(parts.get(j), .Some(pa) => out.push(pa), .None => ());
+                  j = (j + usize(1));
+                });
+              },
+              .Atom(_, _) => ()
+            );
+          }, out.push(a)),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  out
+});
+/// The `unwind(...)` calls of `e` that belong to `e`'s own function.
+_collect_frame_unwinds :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)({
+  if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
+    out.push(e);
+    return(());
+  });
+  if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
+    return(());
+  });
+  kids := _same_frame_children(e);
+  (i : usize) = usize(0);
+  while(i < kids.len(), {
+    match(kids.get(i), .Some(k) => _collect_frame_unwinds(k, out), .None => ());
+    i = (i + usize(1));
+  });
+});
+_collect_unwind_catches :: (fn(e : AstExpr, out : ArrayList(UnwindCatch)) -> unit)({
+  if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
+    match(
+      _boundary_body(e),
+      .Some(body) => {
+        unwinds := ArrayList(AstExpr).new();
+        _collect_frame_unwinds(body, unwinds);
+        if(unwinds.len() > usize(0), {
+          out.push(UnwindCatch(id : unwind_origin_id(body), unwinds : unwinds));
+        });
+      },
+      .None => ()
+    );
+    return(());
+  });
+  kids := _same_frame_children(e);
+  (i : usize) = usize(0);
+  while(i < kids.len(), {
+    match(kids.get(i), .Some(k) => _collect_unwind_catches(k, out), .None => ());
+    i = (i + usize(1));
+  });
+});
+/// The handler literals written directly in the function body `body` (not in
+/// a nested closure) whose `unwind` exits that function. An unwind carries its
+/// handler's id at run time; a frame catches exactly the unwinds whose id is
+/// in its own list, so an unwind is caught by the frame that installed its
+/// handler and typed by that frame, never by whichever frame happens to see
+/// the abort first
+/// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+unwind_catches_of_body :: (fn(body : AstExpr) -> ArrayList(UnwindCatch))({
+  out := ArrayList(UnwindCatch).new();
+  _collect_unwind_catches(body, out);
+  out
+});
+/// `(__yo_unwind_target == id1 || ...)` for `catches`, or `.None` when empty.
+unwind_catch_condition :: (fn(catches : ArrayList(UnwindCatch)) -> Option(String))({
+  if(catches.len() == usize(0), {
+    return(Option(String).None);
+  });
+  c := String.from("(");
+  (i : usize) = usize(0);
+  while(i < catches.len(), {
+    match(
+      catches.get(i),
+      .Some(uc) => {
+        if(i > usize(0), {
+          c.push_str(" || ");
+        });
+        c.push_string(`__yo_unwind_target == ${uc.id}`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  c.push_str(")");
+  Option(String).Some(c)
+});
+/// How the state machine being generated catches an unwind of a handler
+/// installed in its own body: resolve its future with the unwound value.
+SmUnwindCatch :: struct(
+  /// `unwind_catch_condition` of the block's handlers.
+  condition : String,
+  /// The block's `<id>_state_drop_locals`: its locals are released here, as
+  /// the abort dispose would have released them.
+  drop_locals_fn : String,
+  result_is_unit : bool,
+  label : String
+);
+/// At an abort point of a state machine (an awaited child aborted, or a call
+/// escaped): if the in-flight unwind is one of this block's own handlers',
+/// the block completes with the unwound value instead of aborting.
+emit_sm_unwind_catch :: (fn(emitter : Emitter, indent : String, catch : Option(SmUnwindCatch)) -> unit)(
+  match(
+    catch,
+    .Some(c) => {
+      emitter.emit_string_line(`${indent}if ${c.condition} {`);
+      emitter.emit_string_line(`${indent}  // One of this block's handlers unwound: the value resolves the future.`);
+      emitter.emit_string_line(`${indent}  __yo_unwind_target = 0;`);
+      emitter.emit_string_line(`${indent}  __yo_effect_escaped = 0;`);
+      if(!c.result_is_unit, {
+        emitter.emit_string_line(`${indent}  memcpy(&sm->result, __yo_unwind_value, sizeof(sm->result));`);
+      });
+      emitter.emit_string_line(`${indent}  ${c.drop_locals_fn}((void*)sm);`);
+      emit_async_future_completion(emitter, `${indent}  `, Option(String).None, Option(String).Some(c.label.clone()));
+      emitter.emit_string_line(`${indent}}`);
+    },
+    .None => ()
+  )
+);
+export(emit_async_future_completion, emit_async_future_escape, unwind_origin_id, UnwindCatch, unwind_catches_of_body, unwind_catch_condition, SmUnwindCatch, emit_sm_unwind_catch);

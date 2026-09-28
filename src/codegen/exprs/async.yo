@@ -100,6 +100,8 @@
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
+{ SmUnwindCatch, unwind_catches_of_body, unwind_catch_condition } :: import("./async_completion.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -1385,14 +1387,23 @@ generate_async_block_state_dispose_function :: (
   if(local_drop_lines.len() > usize(0), {
     em.emit_line("  // Drop local variables on escape (state == -2)");
     em.emit_line("  if (sm->state == -2) {");
+    em.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
+    em.emit_line("  }");
+  });
+  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  em.emit_line("}");
+  // The locals' drops on their own: the abort dispose above, and a block that
+  // catches one of its own handlers' unwinds before completing
+  // (`emit_sm_unwind_catch`).
+  em.emit_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
+  if(local_drop_lines.len() > usize(0), {
+    em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
     (j : usize) = usize(0);
     while(j < local_drop_lines.len(), {
       match(local_drop_lines.get(j), .Some(line) => em.emit_string_line(line), .None => ());
       j = (j + usize(1));
     });
-    em.emit_line("  }");
-  });
-  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  }, em.emit_line("  (void)sm_ptr;"));
   em.emit_line("}");
 });
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
@@ -2101,6 +2112,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   em := context.base.emitter;
   // Forward declarations.
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
+  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops`);
   em.emit_declaration_line("");
   em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
   em.emit_declaration_line("");
@@ -2240,6 +2252,48 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
 /// Build the filtered captured-variable list + SM-var map + merged field aliases
 /// for one deferred block, registers closure-param slots as SM variables, and emits
 /// the resume + set_effect + dispose + constructor for that block.
+/// How the block catches the unwinds of handlers written in its own body, or
+/// `.None` when it has none. Each such `unwind` must carry the block's result
+/// type: it resolves the block's future
+/// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+_sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> Option(SmUnwindCatch))({
+  catches := unwind_catches_of_body(block.body_expr);
+  cond_opt := unwind_catch_condition(catches);
+  if(cond_opt.is_none(), {
+    return(Option(SmUnwindCatch).None);
+  });
+  result_is_unit := is_unit_type(block.result_type);
+  result_c := get_type_string(block.result_type, context.base);
+  (ci : usize) = usize(0);
+  while(ci < catches.len(), {
+    match(
+      catches.get(ci),
+      .Some(uc) => {
+        (ui : usize) = usize(0);
+        while(ui < uc.unwinds.len(), {
+          match(
+            uc.unwinds.get(ui),
+            .Some(u) => match(
+              context.base.get_expr_info(u),
+              .Some(uei) => {
+                u_unit := is_unit_type(uei.ty);
+                if(!((u_unit && result_is_unit) || (!(u_unit) && !(result_is_unit) && (get_type_string(uei.ty, context.base) == result_c))), {
+                  codegen_user_error(ast_expr_token(u), `this \`unwind\` exits the \`io.async\` block its handler is written in, so its value resolves that block's future: it must be a ${type_to_string(block.result_type)}, not a ${type_to_string(uei.ty)}`);
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          ui = (ui + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  match(cond_opt, .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : result_is_unit, label : block.async_block_id.clone())), .None => Option(SmUnwindCatch).None)
+});
 _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   saved_sm_vars := context.state_machine_variables;
@@ -2370,6 +2424,8 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
   saved_binding_ids := context.state_machine_binding_ids;
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
+  saved_sm_unwind_catch := context.sm_unwind_catch;
+  context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
   local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
@@ -2391,6 +2447,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
   context.state_machine_binding_ids = saved_binding_ids;
+  context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);

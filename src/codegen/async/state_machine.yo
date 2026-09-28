@@ -30,7 +30,7 @@
 { get_type_string, fresh_local_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
-{ emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
+{ emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 /// Information about a generated state machine.
 StateMachineInfo :: ref(
@@ -2269,11 +2269,12 @@ _emit_dispatch_extraction_case :: (
         em.emit_string_line(`          // Check if the awaited Future was aborted`);
         em.emit_string_line(`          if (${acc}->state == -2) {`);
         // The awaiter observes the abort: the escape propagates to it below.
-        em.emit_string_line(`            __yo_task_abort_observed((void*)${acc});`);
+        em.emit_string_line(`            __yo_task_abort_take_unwind((void*)${acc});`);
         if(!(acc_info.is_named), {
           em.emit_string_line(`            __yo_decr_rc((void*)${slot});`);
           em.emit_string_line(`            ${slot} = NULL;`);
         });
+        emit_sm_unwind_catch(em, `            `, context.sm_unwind_catch);
         emit_async_future_escape(em, `            `, Option(String).None, Option(String).Some(async_block_id.clone()));
         em.emit_string_line(`          }`);
         // This branch's result copy.
@@ -2431,9 +2432,12 @@ _emit_prev_await_result_extraction :: (
   em.emit_string_line(`      // Check if the awaited Future was aborted`);
   em.emit_string_line(`      if (sm->${pffn}->state == -2) {`);
   // The awaiter observes the abort: the escape propagates to it below.
-  em.emit_string_line(`        __yo_task_abort_observed((void*)sm->${pffn});`);
+  // It takes over the unwind that aborted the child, if any: caught here when
+  // this block installed the handler, propagated otherwise.
+  em.emit_string_line(`        __yo_task_abort_take_unwind((void*)sm->${pffn});`);
   em.emit_string_line(`        __yo_decr_rc((void*)sm->${pffn});`);
   em.emit_string_line(`        sm->${pffn} = NULL;`);
+  emit_sm_unwind_catch(em, `        `, context.sm_unwind_catch);
   emit_async_future_escape(em, `        `, Option(String).None, Option(String).Some(async_block_id.clone()));
   em.emit_string_line(`      }`);
   // Result is unit when the type is unit, or an unresolved Future SomeType.

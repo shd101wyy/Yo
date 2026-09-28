@@ -31,6 +31,7 @@
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
+{ UnwindCatch, unwind_origin_id, unwind_catches_of_body } :: import("../exprs/async_completion.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
 { eprintln } :: import("std/fmt");
@@ -677,6 +678,12 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // the unwound value into __yo_unwind_value (for retrieval at the install
       // site) rather than returning it directly.
       prev_is_erm := context.is_effect_record_member_function;
+      // Unwind identity: what this function's own `unwind`s target (its body's
+      // origin), and which unwinds it catches (the handlers written in it).
+      prev_unwind_origin := context.current_unwind_origin;
+      prev_unwind_catches := context.unwind_catches;
+      context.current_unwind_origin = Option(String).Some(unwind_origin_id(body_box));
+      context.unwind_catches = Option(ArrayList(UnwindCatch)).Some(unwind_catches_of_body(body_box));
       if(is_effect_record_member(func_id.clone()), {
         context.is_effect_record_member_function = true;
       });
@@ -759,6 +766,8 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       context.current_function_type = prev_type;
       context.override_return_type_str = prev_override;
       context.is_effect_record_member_function = prev_is_erm;
+      context.current_unwind_origin = prev_unwind_origin;
+      context.unwind_catches = prev_unwind_catches;
       em.emit_string_line(String.from("}"));
       // SUPERSEDED-original stub: when EVERY runtime call of this fid produced
       // a call-site specialization (expr_info.yo counters — the callee infos
