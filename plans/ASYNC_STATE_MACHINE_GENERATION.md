@@ -765,3 +765,29 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   - `=`-reassign release;
   - braced primitive-match cases;
   - no silent fall-through in the cond-branch and while-body emitters.
+  - the D1 thread-reach fix: a non-Send closure no longer marks the globals it
+    reads as thread-reached; reads are recorded per fn and promoted only from
+    Send roots;
+  - the cond/match value in a while body routed through the await-carrying
+    emitters, which removes the `std/fs/dir.yo` workaround;
+  - the abort dispose skips pattern-binding slots, which borrow the scrutinee.
+    The String drop fallback exposed this; a `ref` payload binding was already
+    a use-after-free.
+  - Tests: `tests/async/sm_ownership.test.yo` (10). CLI goldens:
+    `sanitize-address-bare-output-name` and the two E0904 cases.
+- 2026-09-29: phase 2/3 batch on `async-sm-p2` (stacked on p0p1):
+  - `__YO_FUTURE_PREFIX` is shared by every future, including the raw I/O one;
+  - the waiter list;
+  - `__yo_future_abort` with structured cancellation through
+    `cancel_pending_fn(fut, prev_state)`;
+  - the park cancel hook, with `Mutex`/`Channel` skipping dead waiters;
+  - an owning `JoinHandle` (detach on drop);
+  - the `__yo_rc_alloc` calloc-fusion barrier;
+  - inline continue after a synchronous completion (budget 1024);
+  - the same-step handoff.
+  - Tests: `tests/async/sm_protocol.test.yo`. 2e (unwind identity) is deferred
+    to its own PR.
+- 2026-09-29: phase 5 in progress on `async-sm-p5` (stacked on p2). The
+  single-pass emitter sits behind `YO_ASYNC_LOWERING=inline`, and the
+  generated shape corpus is `tests/async/sm_shapes_{1..4}.test.yo` (129
+  cases).
