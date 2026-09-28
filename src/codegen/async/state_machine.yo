@@ -401,8 +401,9 @@ compute_cross_boundary_variables :: (
         captured_variables.get(ai),
         .Some(cv) => match(
           cv.kind,
-          // A unit local has no C representation, so it needs no slot.
-          .Local => if(!(_inline_result_is_unit(cv.base.ty)), {
+          // A unit local has no C representation, so it needs no slot. (Only
+          // unit itself: an unresolved `Impl(Future(…))` local is a future.)
+          .Local => if(!(is_unit_type(cv.base.ty)), {
             all_ids.insert(cv.base.id.to_string());
           }),
           .Outer => ()
