@@ -272,6 +272,17 @@ static void __yo_async_free_cont_pool(void) {
     __yo_cont_free_list = node->next;
     __yo_free(node);
   }
+  // The rest of the thread's async state, for the same reason: a program that
+  // awaits synchronously (a test body, a plain main(io)) never ends an event
+  // loop, so __yo_io_cleanup never ran for it and the backend's per-thread
+  // arrays (the timer heap) leaked, as did the effect-unwind abort registry
+  // (issues/fixed/thread-local-async-registries-leak-at-thread-exit.md). Both
+  // are idempotent: the loop drivers call the cleanup themselves too.
+  __yo_io_cleanup();
+  __yo_free(__yo_task_aborts.items);
+  __yo_task_aborts.items = NULL;
+  __yo_task_aborts.len = 0;
+  __yo_task_aborts.cap = 0;
 }
 
 // Enqueue a continuation on the current thread's event loop (no refcount mgmt).

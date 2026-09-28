@@ -57,7 +57,8 @@ test("AwaitPoint base fields accessible", {
     base : make_sp(usize(3)),
     result_type : t_unit(),
     future_type : Option(TypeValue).None,
-    future_variable_id : Option(String).None
+    future_variable_id : Option(String).None,
+    target_is_reassign : false
   );
   assert(ap.base.index == usize(3), "base index");
   has_ftype := match(ap.future_type, .Some(_) => true, .None => false);
@@ -68,7 +69,8 @@ test("AwaitPoint future_type can be set", {
     base : make_sp(usize(0)),
     result_type : t_unit(),
     future_type : Option(TypeValue).Some(t_unit()),
-    future_variable_id : Option(String).Some(String.from("fv0"))
+    future_variable_id : Option(String).Some(String.from("fv0")),
+    target_is_reassign : false
   );
   has_ftype := match(ap.future_type, .Some(_) => true, .None => false);
   assert(has_ftype, "has future_type");
@@ -94,7 +96,8 @@ test("AwaitPoint target_variable_id from parent assign", {
     base : sp,
     result_type : t_unit(),
     future_type : Option(TypeValue).None,
-    future_variable_id : Option(String).None
+    future_variable_id : Option(String).None,
+    target_is_reassign : false
   );
   target := match(ap.base.target_variable_id, .Some(id) => id, .None => String.from(""));
   assert(target == "var_0", "target_variable_id");
@@ -173,7 +176,8 @@ test("AwaitAnalysisResult can hold await points", {
     base : make_sp(usize(0)),
     result_type : t_unit(),
     future_type : Option(TypeValue).None,
-    future_variable_id : Option(String).None
+    future_variable_id : Option(String).None,
+    target_is_reassign : false
   );
   r.await_points.push(ap);
   r.has_awaits = true;

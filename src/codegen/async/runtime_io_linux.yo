@@ -1381,6 +1381,10 @@ static void __yo_io_loop_start(void) {}
 
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
+  // The timer heap is userspace-only, so it exists whether or not the ring
+  // ever did (a program that only sleeps never enters the kernel through it).
+  // Idempotent: it empties the heap and frees the array.
+  __yo_timer_teardown();
   if (!__yo_io_initialized && __yo_notify_efd < 0) return;
   // Clear the loop's wakeup channel under the loop's mutex BEFORE closing the
   // eventfd: a foreign __yo_io_notify loads notify_fd under the same mutex, so

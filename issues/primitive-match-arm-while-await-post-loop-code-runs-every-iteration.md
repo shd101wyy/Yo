@@ -2,7 +2,7 @@
 
 **Severity:** S1 — post-loop code in a primitive-match arm runs on every iteration — silently wrong results (303 instead of 103), check green at -O0 and -O2
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
+**Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom
 

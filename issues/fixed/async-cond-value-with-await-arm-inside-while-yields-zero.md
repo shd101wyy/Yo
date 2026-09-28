@@ -2,7 +2,7 @@
 
 **Severity:** S1 — value-position cond with an awaiting arm silently yields the zero value for every arm
 
-**Status: OPEN.** Found 2026-09-05 fixing `read_dir`'s `DT_UNKNOWN` fallback
+**Status: FIXED (2026-09-29).** Found 2026-09-05 fixing `read_dir`'s `DT_UNKNOWN` fallback
 (`std/fs/dir.yo`, issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md).
 Silent wrong values — `yo check` is green, clang is clean, the binary runs and
 returns `0`/`.<first variant>` for every branch.
@@ -94,7 +94,7 @@ four functions in one program.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `got(0..3) = 0`, expected `1, 2, 103, 9`. Repro: `issues/repros/async-cond-value-with-await-arm-inside-while-yields-zero.yo`. Root cause, visible in the emitted C: the whole `v := cond(...)` statement is dropped. Only `t := tags(i)` is emitted before `while_loop_0_end:`, and `await_future_0` is never created. The `:=`/`=` arm of `generate_while_body_with_await` (`src/codegen/async/state_code_gen.yo`) only handles a DIRECT `io.await` right-hand side. A `cond`/`match` right-hand side is never routed to the cond/match-with-await emitter, and the fall-through path discards the statement without a `codegen_fatal`.
 
@@ -102,3 +102,7 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 arm inside a `while` yields 0 for every arm the same way (expected `0,1,321`,
 got `0,0,0`; `issues/repros/async-shape-b9-match-value-await-arm-in-while-zero.yo`). Same site: the
 while-body binding arm only handled a direct `io.await` right-hand side.
+
+## Fix (2026-09-29)
+
+The binding arm of `generate_while_body_with_await` (`src/codegen/async/state_code_gen.yo`) now routes a `cond`/`match`/`if` right-hand side to its emitter with the binding as the target (`:=` by variable id, `=` by target code). Any other right-hand side holding an await is a coded user error instead of a dropped statement. Regression: `tests/async/sm_ownership.test.yo`, "a value-position cond or match with an awaiting arm inside a while" (both the `cond` and the `match` variant).

@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a tail primitive match with three or more arms emits C that fails to compile ("redefinition of 'continuation_fn'")
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom
 
@@ -25,3 +25,7 @@ Brace every emitted case body (cheap, and worth doing even before phase 5,
 since the completion block is a declaration-bearing snippet that may be
 emitted anywhere). Phase 2's `__yo_future_complete` helper removes the local
 declarations entirely. Regression: the repro.
+
+## Fix (2026-09-29)
+
+`generate_primitive_match_with_await` (`src/codegen/async/state_code_gen.yo`) emits each case body as its own C block, so the declarations in each non-awaiting arm's completion no longer share a scope. Regression: `tests/async/sm_ownership.test.yo`, "a primitive match with three arms as the body's tail".

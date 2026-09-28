@@ -2,7 +2,7 @@
 
 **Severity:** S1 — the second awaiter overwrites the single waiter slot — the first task never resumes and the program hangs forever (documented multi-await semantics broken)
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -35,7 +35,7 @@ So the second waiter silently evicts the first, and completion
 (`emit_async_future_completion`, `src/codegen/exprs/async_completion.yo`)
 wakes only the survivor. Each waiter also took its own "event loop
 reference", so the future leaks too
-(`issues/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`).
+(`issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`).
 
 ## Fix direction
 

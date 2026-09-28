@@ -98,6 +98,6 @@ issue is the struct-FIELD variant, which that file deliberately does not use.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `error: no member named 'é' in 'struct …'` at `sm->__yo_param_0.é = value;`. `access_path` from `_visit_effect_struct_fields` reaches `generate_future_effect_setter` (`src/codegen/exprs/async.yo`) unsanitized.

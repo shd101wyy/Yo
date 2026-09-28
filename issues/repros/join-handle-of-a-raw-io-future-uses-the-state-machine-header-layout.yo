@@ -1,0 +1,13 @@
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ __yo_async_yield_start } :: import("std/sys/externs");
+main :: (fn(io : Io) -> unit)({
+  h := io.spawn(unsafe(__yo_async_yield_start()), io);
+  r := h.await(io);
+  println(`plain: ${match(r, .Some(v) => v, .None => i32(-99))} (want 0)`);
+  h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
+  h2.abort();
+  r2 := h2.await(io);
+  println(`aborted: none=${r2.is_none()}`);
+});
+export(main);

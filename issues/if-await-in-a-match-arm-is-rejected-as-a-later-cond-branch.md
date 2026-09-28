@@ -3,7 +3,7 @@
 **Severity:** S2 — an `if(await(...))` whose await IS the first condition is wrongly rejected with a misleading E0904 when the `if` sits inside a match arm
 
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
-(`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`), while re-checking
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md`), while re-checking
 `issues/questions/yoself-accepts-await-in-cond-that-ts-rejects.md`. Tree build of
 develop `af62bdb28`.
 
@@ -40,7 +40,7 @@ await still in condition position with no substitution and raises the
 generic E0904.
 
 This is one instance of the general limitation in
-`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.1: every rewrite in the
+`plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.1: every rewrite in the
 splitter works on top-level statements only, and nesting falls through to
 a different, less complete path.
 

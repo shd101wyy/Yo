@@ -693,6 +693,6 @@ falsified with probe data 2026-07-20).
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED (items probed).** One probe covered two spawns in one scope, an i32 and a unit task in one fn, a unit await result bound to a name, `Mutex(T)` generic-impl dispose, and `é` length. All print the expected values. The bootstrap-era ledger in the rest of the doc was not probed item by item.

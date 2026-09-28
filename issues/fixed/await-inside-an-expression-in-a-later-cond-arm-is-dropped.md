@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an await nested in a larger expression in an arm or loop body is silently dropped — assignments never run, or a NULL future slot segfaults
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -70,3 +70,7 @@ is on the whitelist.
 The fall-through sites are `generate_cond_branch_with_await` (its `:=`/`=`
 arm acts only on a bare await) and the binding arm of
 `generate_while_body_with_await`.
+
+## Fix (2026-09-29)
+
+The silent drop is gone. Every fall-through in the arm emitter (`generate_cond_branch_with_await`) and the while-body emitter (`generate_while_body_with_await`, `src/codegen/async/state_code_gen.yo`), as well as the tail of `generate_remaining_expr_future` (`src/codegen/async/state_machine.yo`), is now a coded user error (E0904) at the await, instead of emitting nothing. The shape is therefore rejected, like the same shape at the body's top level. Phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the single-pass lowering) makes it legal. Regressions: `tests/cli-cases/async-await-in-an-expression-in-an-arm-is-an-error` and `tests/cli-cases/async-await-in-a-while-body-expression-is-an-error`.

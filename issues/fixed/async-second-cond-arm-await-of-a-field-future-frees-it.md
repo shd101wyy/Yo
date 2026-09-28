@@ -2,8 +2,8 @@
 
 **Severity:** S1 — a second cond-arm await of a field-held future releases the owner's reference — ASan-confirmed heap-use-after-free
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit
-(`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and develop
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and develop
 `af62bdb28`.
 
 ## Symptom
@@ -63,3 +63,7 @@ Route both stores in `generate_remaining_expr_future` through
 `sm->await_future_` assignments should then find no other writers. The
 regression test goes in `tests/async/`: the repro's shape, asserting both
 values and running under the test runner's ASan.
+
+## Fix (2026-09-29)
+
+`generate_remaining_expr_future` (`src/codegen/async/state_machine.yo`) stores both of its future shapes through a new `_emit_remaining_future_store`, which routes anonymous futures through `emit_await_future_store` (the borrowed-place `incr_rc`) and emits no store at all for a named future. Regression: `tests/async/sm_ownership.test.yo`, "a cond arm's second await of a field-held future leaves the field's reference alone" (it awaits the field again after the arm, which read freed memory before).

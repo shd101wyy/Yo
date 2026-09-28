@@ -47,6 +47,6 @@ call) fixes it with identical semantics.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Two reconstructions (an awaiting `while`, then a tail `match` with `.Some => { …; return(kept) }`, then `results`) print the right lengths with no hang. `_emit_last_segment_completion`'s tail-only return check (issues/fixed/build-smoke-hangs-registry-perturbation.md) probably covers it.

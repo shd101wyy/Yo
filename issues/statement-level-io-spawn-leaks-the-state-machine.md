@@ -2,7 +2,7 @@
 
 **Severity:** S1 — every discarded statement-level io.spawn leaks its 152-byte state machine (304 KB per 2000 spawns) — fire-and-forget programs grow without bound
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 

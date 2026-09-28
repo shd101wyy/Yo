@@ -9,7 +9,7 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
-{ function_reaches_non_send_global, d1_reach_memo } :: import("../effects/mutation_summary.yo");
+{ function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -435,6 +435,9 @@ _function_value_offense :: (
       .None => Option(String).None
     )
   );
+  // Judged Send: this code may run on another thread, so what it reads is
+  // thread-reached from here on (rule D1's read-then-write order).
+  d1_note_thread_reach(fid.clone());
   match(
     reach,
     .Some(r) => Option(String).Some(`its code ${r}`),
@@ -623,8 +626,14 @@ validate_send_closure_global_reach :: (
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+    reach := function_reaches_non_send_global(closure_fid.clone(), closure_body, ctx.expr_info_table, env);
+    // Only a closure that really runs on another thread publishes its reads
+    // (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
+    if(wants_send, {
+      d1_note_thread_reach(closure_fid.clone());
+    });
     match(
-      function_reaches_non_send_global(closure_fid, closure_body, ctx.expr_info_table, env),
+      reach,
       .Some(reason) => if(wants_send, {
         _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`);
       }),

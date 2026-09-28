@@ -60,6 +60,6 @@ restrictions (AGENTS.md "check misses async codegen rules").
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES, and it is now minimized to a much more common shape** (seed and tree build): `redefinition of label 'while_loop_2_continue'` and `'after_while_loop_2'`. No cond or match is needed. An outer `while` holding an inner `while` with TWO sequential awaits, plus one statement after the inner loop, is enough: `issues/repros/async-nested-while-two-awaits-duplicate-labels.yo` (expected `r=600`). The labels are emitted once per resume state (states 1 and 2) by `_emit_outer_while_continuation` (`src/codegen/async/state_machine.yo`), which neither deduplicates them nor re-indexes them.

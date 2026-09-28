@@ -53,6 +53,6 @@ main :: (fn(io : Io) -> i32)({
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Five variants all run correctly: the doc's global `Option(F)`, a fn-typed local held across an await, fn-typed struct fields across awaits, and an effectful fn type with `Exception`. The original `run_build` shape (#728) was not rebuilt.

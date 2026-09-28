@@ -3,7 +3,7 @@
 **Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
 
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
-(`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
 
 ## Symptom

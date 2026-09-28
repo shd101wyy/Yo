@@ -2,7 +2,7 @@
 
 **Severity:** S1 — a String captured by a nested io.async is freed while the outer state machine still holds it — verified heap-use-after-free read at resume
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -30,7 +30,7 @@ if (__yo_cap_….t != NULL) __yo_incr_rc(t);      // .t retained, .s not
 
 `_rc_field_retain_line` returns `.None` for String and Option (the same
 missing fallback as `_rc_field_drop_line`, see
-`issues/abort-dispose-never-drops-string-option-and-value-struct-locals.md`),
+`issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md`),
 while the inner machine's dispose drops `sm->__capture.s`. The outer
 machine's `s` is then freed under it.
 
@@ -41,3 +41,7 @@ keeping it an exact mirror of the drop helper. A unit test pins the pair
 over a type matrix (String, Option(String), a value struct with a String
 field, an enum with an RC payload): retain and drop must both be emitted,
 or neither.
+
+## Fix (2026-09-29)
+
+Fixed by the same `_inline_rc_field_line` fallback: `_rc_field_retain_line` now retains a String or Option capture field, the mirror of the drop the inner future's dispose performs. Regression: `tests/async/sm_ownership.test.yo`, "a nested io.async capturing a state machine's String retains it" (ASan UAF before).

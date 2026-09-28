@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid global-reading non-Send async closure is wrongly rejected — an E0610 on an unrelated `JoinHandle.await` while the real D1 error is swallowed
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit, while
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit, while
 re-verifying the open async issues (tree build of develop `af62bdb28`).
 
 ## Symptom
@@ -57,3 +57,7 @@ that a memoized walk for a non-`Send` closure leaves no D1 evidence behind.
 The regression test is the repro's shape, expecting `counter=3`, plus the
 existing D1 tests (a real `Thread.spawn` closure reading a written global
 must still be rejected).
+
+## Fix (2026-09-29)
+
+The reach walk (`src/evaluator/effects/mutation_summary.yo`) no longer writes `g_d1_reached`. It records, per function, the globals it reads (`g_gr_reads_by_fid`) and the functions it calls (`g_gr_callees_by_fid`). A new `d1_note_thread_reach(fid)` publishes the transitive set, and it is called only where code is established to run on another thread: a `Send` closure slot (`validate_send_closure_global_reach`), a `Send` judgement of a function type (`function_value_marker`), and a `Send` dyn's methods (`values/dyn.yo`). Regression: `tests/async/sm_ownership.test.yo`, "two io.async closures that update a module global". The existing D1 CLI cases (`check-global-assignment-rejected`, `check-spawn-reaches-non-send-global-rejected`, `check-function-value-reaching-global-is-not-send`) keep the real violations rejected.

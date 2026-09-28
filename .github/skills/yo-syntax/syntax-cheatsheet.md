@@ -2092,38 +2092,25 @@ Worse, `yo fmt` will then "format" the accidental Yo fragment — inserting the
 spaces you see inside those backticks — so the file no longer matches what you
 typed. Inside any emitted-C template, write `struct stat`, not the quoted form.
 
-## Async value-position `cond`: two shapes miscompile — use the statement form
+## Async value-position `cond` after an await: use the statement form
 
-Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) breaks in
-two ways that `yo check` cannot see:
-
-1. **An arm that awaits, with a `while` around the cond** → the binding is never
-   written and EVERY arm yields the zero value (`0`, or an enum's first
-   variant). No diagnostic, no clang error
-   (issues/async-cond-value-with-await-arm-inside-while-yields-zero.md).
-2. **An arm that `throw`s, after an await in the body**, where a surviving arm's
-   value is a variable read → clang fails with `use of undeclared identifier
-   '_file____User_temp_N'`
-   (issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
-
-Both have the same safe rewrite — predeclare, then assign from STATEMENT-form
-`cond`s:
+Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER an
+await, where one arm's value is a plain variable read, fails in clang with
+`use of undeclared identifier '_file____User_temp_N'` — `yo check` cannot see
+it, and no `throw` is needed to trigger it
+(issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+The safe rewrite: predeclare, then assign from STATEMENT-form `cond`s:
 
 ```rust
-(ft : FileType) = FileType.Other;          // predeclared, mutable
+(q : i32) = r;                              // predeclared, mutable
 cond(
-  (dt == DT_UNKNOWN) => {
-    ft = e.io.await(_file_type_or_other(p, e.io), e.io);   // fine as a statement
+  (k == i32(5)) => {
+    q = (r + i32(100));
   },
   true => ()
 );
-cond(
-  (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(...))),
-  true => ()
-);
-ft                                          // bare tail
 ```
 
-An UNCONDITIONAL await bound in a `while` (`v := e.io.await(...)`) is fine, and
-a value-position `cond` with an awaiting arm and no `while` around it is fine —
-it is the combinations above that break.
+A value-position `cond`/`match` with an AWAITING arm inside a `while` works
+since 2026-09-29 (it used to yield the zero value for every arm,
+issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).

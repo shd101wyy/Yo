@@ -2,7 +2,7 @@
 
 **Severity:** S1 — every await of an already-started (spawned) future from a state machine leaks the future and its result — the common spawn-then-await pattern, unbounded
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -37,3 +37,7 @@ gets this right: it increments only on the cold start.
 Move the `__yo_incr_rc` inside the `if (future_state == 0)` cold-start
 block. Regression test: the repro's dispose count (expect 1), plus the
 existing cold-await tests.
+
+## Fix (2026-09-29)
+
+`_emit_await_suspension_core` (`src/codegen/async/state_machine.yo`) takes the running-task reference inside the `future_state == 0` cold-start block only, matching the synchronous await. A future that is already running already has the one reference its completion releases. Regression: `tests/async/sm_ownership.test.yo`, "awaiting an already-running future from a state machine releases it" (a Dispose counter).
