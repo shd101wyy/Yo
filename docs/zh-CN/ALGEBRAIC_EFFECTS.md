@@ -349,6 +349,22 @@ result := log_and_check(42, my_logger);
   （兄弟处理器、周围的变量）。代码生成通过内联处理器 / 状态机
   线程化实现这一点。
 - `return(value)` 是**一次性**的 — 捕获的续延最多恢复一次。
+- `unwind(value)` 退出**安装**该处理器的那一帧：处理器字面量所在的函数或 `io.async`
+  块。中间的帧（包括异步任务）都会被展开穿过（中间的任务会被中止）。当安装者是一个
+  `io.async` 块时，这个值会**兑现该块的 future**，因此它必须是该块的结果类型：
+
+  ```rust
+  guarded := io.async((e : IoExn) => {
+    local := Exception(throw : (err -> { unwind(Result(String, String).Err(err.to_string())); }));
+    raw := e.io.await(may_fail(e.io), IoExn(io : e.io, exn : local));
+    Result(String, String).Ok(raw)
+  });
+  // may_fail 抛出时得到 .Err("...")：错误按任务被捕获。
+  r := io.await(guarded, e);
+  ```
+
+  只是把处理器传下去的帧永远不会捕获它的 unwind，因此没有哪一帧会把另一帧的值当作
+  自己的结果读取。
 - 没有被任何处理器捕获的 `unwind` **绝不会丢失**。
   - 结束了某个异步任务的 unwind 会中止该任务，且只有在无人观察到这次中止时才会报告。观察是静默的：`JoinHandle.await` 返回 `.None`、等待方的 `io.await`（unwind 会传播到等待方，等待方自身的中止随后以同样方式被跟踪）、`JoinHandle.state()` / `is_finished()`，或 `io.state`。
   - 无人观察的任务会打印一次 `unhandled effect unwind aborted an async task that was never awaited`。打印时机是该任务的最后一个引用被释放时（fire-and-forget 的 spawn），或程序主体返回时（绑定了但从未被 await 的句柄）。

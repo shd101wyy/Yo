@@ -279,6 +279,9 @@ static void __yo_async_free_cont_pool(void) {
   // (issues/fixed/thread-local-async-registries-leak-at-thread-exit.md). Both
   // are idempotent: the loop drivers call the cleanup themselves too.
   __yo_io_cleanup();
+  for (size_t i = 0; i < __yo_task_aborts.len; i++) {
+    if (__yo_task_aborts.items[i].value) __yo_free(__yo_task_aborts.items[i].value);
+  }
   __yo_free(__yo_task_aborts.items);
   __yo_task_aborts.items = NULL;
   __yo_task_aborts.len = 0;
@@ -316,6 +319,28 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
   __yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
+// Same-step hand-off. When a task completes (or aborts) while the loop is
+// running ready tasks, the waiter it wakes runs right after it, in the SAME
+// scheduler step, instead of queueing behind every other ready task and an
+// I/O poll: a chain of N awaiting tasks used to take N+1 steps to finish
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4, 2.2x on a depth-4 chain with
+// I/O pending). One LIFO slot, drained by __yo_async_run_task after the task
+// returns — so the C stack never grows — and capped per task so a long chain
+// still yields. Outside a task run the slot is never used, so nothing else in
+// the loop has to know about it.
+static ${thread_local} void (*__yo_handoff_fn)(void*) = NULL;
+static ${thread_local} void* __yo_handoff_sm = NULL;
+static ${thread_local} int __yo_in_task_run = 0;
+static void __yo_async_wake(void (*fn)(void*), void* sm) {
+  if (__yo_in_task_run > 0 && __yo_handoff_fn == NULL) {
+    __yo_handoff_fn = fn;
+    __yo_handoff_sm = sm;
+    return;
+  }
+  __yo_async_spawn_task(fn, sm);
+}
+
+
 // How many task resume functions are on the C stack right now. Zero at the
 // top level (async main's loop, a synchronous await in main or a test body,
 // JoinHandle.await / the std/async combinators called from there). Non-zero
@@ -326,6 +351,27 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // thread must not make a blocking await on another look nested (the first CI
 // run of the guard aborted tests/thread_pool.test.yo exactly that way).
 static __thread int __yo_async_task_depth = 0;
+
+// Run one dequeued task, then the waiters it handed off.
+static void __yo_async_run_task(__yo_continuation_t* cont) {
+  __yo_async_task_depth++;
+  __yo_in_task_run++;
+  cont->resume_fn(cont->state_machine);
+  int hops = 0;
+  while (__yo_handoff_fn) {
+    void (*f)(void*) = __yo_handoff_fn;
+    void* a = __yo_handoff_sm;
+    __yo_handoff_fn = NULL;
+    __yo_handoff_sm = NULL;
+    if (hops++ >= 64) {
+      __yo_async_spawn_task(f, a);  // a long chain still yields
+      break;
+    }
+    f(a);
+  }
+  __yo_in_task_run--;
+  __yo_async_task_depth--;
+}
 
 // Read by every thread's loop: atomic, so the first reads racing to fill the
 // cache are not a data race (each computes the same value from the same
@@ -370,7 +416,7 @@ static int __yo_async_run_ready_tasks(void) {
       __yo_thread_async_queue.tail = NULL;
     }
     __yo_thread_async_queue.count--;
-    { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+    __yo_async_run_task(cont);
     cont->next = __yo_cont_free_list;
     __yo_cont_free_list = cont;
   }
@@ -484,7 +530,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+      __yo_async_run_task(cont);
       cont->next = __yo_cont_free_list;
       __yo_cont_free_list = cont;
       tasks_run++;
@@ -553,7 +599,7 @@ static void __yo_async_wait_all(void) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+      __yo_async_run_task(cont);
       __yo_free(cont);
       tasks_processed = true;
     }
@@ -661,6 +707,16 @@ static __yo_yield_future_t __yo_async_yield(void) {
 // it holds one), and if every waker for it is dropped then nothing can ever
 // wake it. So this is the right liveness question for the loop to ask, and it
 // is answerable without a dispose hook on the future.
+// A park has no backend registration, so it can always be taken back: a
+// cancelled task's park is aborted (-2), and a later wake finds it terminal
+// and does nothing. That is what lets a waiter list skip a waiter whose task
+// was cancelled instead of spending its one wake on it
+// (issues/fixed/abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md).
+static bool __yo_park_cancel(__yo_io_future_t* f) {
+  (void)f;
+  return true;
+}
+
 // Create a park future: pending, with no backend registration.
 static __yo_io_future_t* __yo_async_park_start(void) {
   __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -670,6 +726,7 @@ static __yo_io_future_t* __yo_async_park_start(void) {
   f->result = 0;
   atomic_init(&f->continuation_fn, NULL);
   atomic_init(&f->continuation_sm, NULL);
+  f->cancel_fn = __yo_park_cancel;
   return f;
 }
 
@@ -845,13 +902,15 @@ static void __yo_waker_wake(void* p) {
   }
 }
 
-// Non-blocking read: has this park future been woken?
+// Non-blocking read: has this park future been woken? A CANCELLED park
+// (its task was aborted) was not: a waiter list that just woke it asks this
+// to learn whether the wake reached a live task, and passes it on if not.
 static bool __yo_waker_is_woken(void* p) {
   if (!p) {
     return true;
   }
   __yo_io_future_t* f = ((__yo_waker_token_t*)p)->future;
-  return !f || atomic_load(&f->state) != 0;
+  return !f || atomic_load(&f->state) == -1;
 }
 
 // Drop a waker token.
@@ -1034,6 +1093,7 @@ static void __yo_async_report_wake_deadlock(void) {
 // more. Every other case returns false having changed nothing, and the resume
 // function's aborted-entry guard stays the fallback: the operation completes
 // as it always did and releases the task then.
+static void __yo_waiters_dispatch(void* p);
 static bool __yo_async_io_cancel(void* p) {
   if (!p) {
     return false;
@@ -1049,6 +1109,12 @@ static bool __yo_async_io_cancel(void* p) {
   if (!cont) {
     return false;  // nobody is suspended on it
   }
+  if (cont == __yo_waiters_dispatch) {
+    // Several tasks wait on this operation: one of them being cancelled is
+    // no reason to take it away from the others.
+    atomic_store(&f->continuation_fn, cont);
+    return false;
+  }
   if (!f->cancel_fn(f)) {
     atomic_store(&f->continuation_fn, cont);  // backend refused — put it back
     return false;
@@ -1058,41 +1124,129 @@ static bool __yo_async_io_cancel(void* p) {
   return true;
 }
 
-// JoinHandle introspection/cancellation — every spawned future starts with
-// this common header (the same layout JoinHandle.await casts to).
+// JoinHandle introspection/cancellation — every future starts with the
+// __yo_future_header_t prefix (types/generation.yo), which is all a handle or
+// an abort ever reads.
+
+// ---------------------------------------------------------------------------
+// Waiters. A future has ONE inline waiter slot (continuation_fn/sm), which is
+// the common case. A second waiter turns the slot into a list: the slot then
+// holds __yo_waiters_dispatch and the list, so whoever completes, aborts or
+// wakes the future fires the slot exactly as before and the dispatcher wakes
+// every waiter, in the order they registered. The inline-only slot let a
+// second awaiter evict the first, which then never resumed
+// (issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md).
+// ---------------------------------------------------------------------------
+typedef struct __yo_waiter_t {
+  void (*fn)(void*);
+  void* sm;
+  struct __yo_waiter_t* next;
+} __yo_waiter_t;
 typedef struct {
-  __yo_ref_header_t header;
-  int state;
-  // Per-async-block hook: cancel the I/O operation the task is suspended in
-  // and release the suspension's references. Emitted beside the resume
-  // function, which knows which fields are await slots; NULL for a future
-  // with no await slot to cancel.
-  void (*cancel_pending_fn)(void*);
-} __yo_spawned_future_header_t;
+  __yo_waiter_t* head;
+  __yo_waiter_t* tail;
+} __yo_waiter_list_t;
+
+static void __yo_waiters_dispatch(void* p) {
+  __yo_waiter_list_t* l = (__yo_waiter_list_t*)p;
+  __yo_waiter_t* w = l->head;
+  __yo_free(l);
+  while (w) {
+    __yo_waiter_t* next = w->next;
+    __yo_async_spawn_task(w->fn, w->sm);
+    __yo_free(w);
+    w = next;
+  }
+}
+
+static void __yo_waiter_list_push(__yo_waiter_list_t* l, void (*fn)(void*), void* sm) {
+  __yo_waiter_t* w = (__yo_waiter_t*)__yo_malloc(sizeof(__yo_waiter_t));
+  w->fn = fn;
+  w->sm = sm;
+  w->next = NULL;
+  if (l->tail) {
+    l->tail->next = w;
+  } else {
+    l->head = w;
+  }
+  l->tail = w;
+}
+
+// Register (fn, sm) to be resumed when the future completes or aborts.
+static void __yo_future_add_waiter(void* fut, void (*fn)(void*), void* sm) {
+  __yo_future_header_t* f = (__yo_future_header_t*)fut;
+  if (f->continuation_fn == NULL) {
+    f->continuation_fn = fn;
+    f->continuation_sm = sm;
+    return;
+  }
+  __yo_waiter_list_t* l;
+  if (f->continuation_fn == __yo_waiters_dispatch) {
+    l = (__yo_waiter_list_t*)f->continuation_sm;
+  } else {
+    l = (__yo_waiter_list_t*)__yo_malloc(sizeof(__yo_waiter_list_t));
+    l->head = NULL;
+    l->tail = NULL;
+    __yo_waiter_list_push(l, f->continuation_fn, f->continuation_sm);
+    f->continuation_fn = __yo_waiters_dispatch;
+    f->continuation_sm = (void*)l;
+  }
+  __yo_waiter_list_push(l, fn, sm);
+}
+
+// Take the waiter slot and schedule it: every awaiter of this future runs.
+static void __yo_future_wake_waiters(void* fut) {
+  __yo_future_header_t* f = (__yo_future_header_t*)fut;
+  void (*fn)(void*) = f->continuation_fn;
+  void* sm = f->continuation_sm;
+  f->continuation_fn = NULL;
+  f->continuation_sm = NULL;
+  if (fn) {
+    __yo_async_wake(fn, sm);
+  }
+}
 
 // Non-blocking FutureState read: positive step indices read as Running (1),
 // matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
 static int32_t __yo_join_handle_state_raw(void* fut) {
-  int s = ((__yo_spawned_future_header_t*)fut)->state;
+  int s = ((__yo_future_header_t*)fut)->state;
   // Reading Aborted through the handle observes an effect-unwind abort.
   if (s == -2) __yo_task_abort_observed(fut);
   return (s > 0) ? 1 : s;
 }
 
-// Cancel a spawned task: mark a non-terminal state machine Aborted. Its
-// pending continuation (if any) fires into the resume function's aborted-entry
-// guard, which releases the resume-path reference instead of resuming.
-// Terminal tasks (Completed/Aborted) are left untouched.
+// Abort a future: mark a non-terminal one Aborted, then let its hook cancel
+// what it is suspended on (recursively — structured cancellation) and wake
+// its waiters, who observe -2. Without the wake, a task awaiting an aborted
+// task hung forever
+// (issues/fixed/aborting-a-task-never-wakes-its-awaiter.md). The hook may
+// drop the future's last suspension reference, so nothing touches f after
+// it. Terminal futures (Completed/Aborted) are left untouched.
+static void __yo_future_abort(void* fut) {
+  __yo_future_header_t* f = (__yo_future_header_t*)fut;
+  int prev = f->state;
+  if (prev < 0) {
+    return;
+  }
+  f->state = -2;
+  if (f->cancel_pending_fn) {
+    f->cancel_pending_fn(fut, prev);
+  } else {
+    __yo_future_wake_waiters(fut);
+  }
+}
+
+// Cancel a spawned task (JoinHandle.abort).
 static void __yo_join_handle_abort_raw(void* fut) {
-  __yo_spawned_future_header_t* h = (__yo_spawned_future_header_t*)fut;
-  if (h->state >= 0) {
-    h->state = -2;
-    // Prompt cancellation: give back what the task was waiting on instead of
-    // outliving it. The hook may drop the task's last suspension reference,
-    // so nothing may touch h afterwards.
-    if (h->cancel_pending_fn) {
-      h->cancel_pending_fn(fut);
-    }
+  __yo_future_abort(fut);
+}
+
+// The last copy of a JoinHandle was dropped: release the reference the handle
+// owns (taken at io.spawn). A running task keeps its own reference and frees
+// itself when it finishes — the detach.
+static void __yo_join_handle_release_raw(void* fut) {
+  if (fut) {
+    __yo_decr_rc(fut);
   }
 }`
   );

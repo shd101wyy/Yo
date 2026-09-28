@@ -1,6 +1,6 @@
 # A `JoinHandle` of a raw I/O future reads it through the state-machine header layout
 
-**Status: OPEN.** Found 2026-09-29 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`, phase 2), reading the emitted C. Tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-29 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`, phase 2), reading the emitted C. Tree build of develop `af62bdb28`.
 
 ## The mismatch
 
@@ -38,3 +38,11 @@ future kind (SM, `sync_fut_t`, I/O, yield, park), with the waiter slot and
 the abort hook at fixed offsets and `result` after them. `JoinHandle` and
 the runtime then read only that prefix. Until then, `io.spawn` of a raw
 I/O future must either wrap it in a state machine or be rejected.
+
+## Fix (2026-09-29, async state-machine plan phase 2)
+
+`__yo_io_future_t` now starts with the same prefix as every other future
+(`_Static_assert`s pin its offsets to `__yo_future_header_t`), and `result`
+comes after it. The handle reads only the prefix: `->__future`, then the
+header's `state`. Test: `tests/async/sm_protocol.test.yo` "a JoinHandle of a
+raw I/O future reads its result and can abort it" (a socket's fd result).

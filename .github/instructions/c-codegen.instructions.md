@@ -539,7 +539,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 2. Check abort state (panic if already aborted)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
-5. Return a `JoinHandle` struct wrapping the future pointer (non-owning, no extra RC)
+5. `__yo_incr_rc` once more and return `__yo_new_<JoinHandle cname>((void*)fut)`: `JoinHandle(T)` is a `ref` struct in the prelude that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`. A dropped, never-awaited handle detaches the task (the running task holds its own reference); `JoinHandle.await` does not consume the handle.
 
 ### `emit_io_spawn_effect_injection`
 
@@ -571,28 +571,48 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 4. On completion (state == -1): return `Option(T).Some(result)`
 5. On abort (state == -2): clear `__yo_effect_escaped`, return `Option(T).None`
 
-The inline header struct assumes the standard state machine layout:
+Every future — async-block state machine, sync-closure future, the generic
+Future interface, and the raw I/O future `__yo_io_future_t` — starts with the
+same prefix, the `__YO_FUTURE_PREFIX` macro (`src/codegen/types/generation.yo`):
 
 ```c
-struct { __yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*); T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
+__yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*, int prev_state); void (*continuation_fn)(void*); void* continuation_sm;
 ```
 
-**That prefix is an ABI, spelled in five places, and they must agree.**
-`__yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*);` is
-the part `JoinHandle`'s type-erased helpers cast to
-(`__yo_spawned_future_header_t` in `src/codegen/async/runtime_core.yo`), so
-`result` — whose type and therefore size varies per future — may never move
-ahead of it. The five emitters are: the async-block struct and the
-sync-closure future struct (`src/codegen/exprs/async.yo`), the generic
-Future-trait interface (`src/codegen/types/generation.yo`), this inline
-`JoinHandle.await` header (`src/codegen/exprs/await.yo`), and the runtime
-header itself. Adding a field to the prefix means editing all five.
+`result` comes AFTER the prefix, because its type and therefore its size
+varies per future. `__yo_future_header_t` is the prefix alone, and it is all
+the type-erased runtime ever reads: the JoinHandle helpers, the waiter list,
+and abort. `__yo_io_future_t` spells the prefix out with `_Atomic` fields, and
+`_Static_assert`s pin its offsets to the header's. Emit a new future struct
+with the macro. Never re-spell the fields, and never put anything ahead of
+them (issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md).
 
-`cancel_pending_fn` is how `abort()` reaches the suspension: codegen emits one
-per async block beside the resume function, and it cancels the I/O operation
-the task is parked in (`__yo_async_io_cancel`, `cancel_fn` on
-`__yo_io_future_t`) rather than waiting for that operation to complete —
-`issues/fixed/timeout-deadline-timer-future-leak.md`.
+The protocol on that prefix lives in `src/codegen/async/runtime_core.yo`:
+
+- **Waiters.** `continuation_fn`/`continuation_sm` is one inline waiter slot.
+  Register with `__yo_future_add_waiter(fut, fn, sm)`, never by storing into
+  the slot directly. A second waiter turns the slot into a list: the slot then
+  holds `__yo_waiters_dispatch`. Complete or wake with
+  `__yo_future_wake_waiters(fut)`, which wakes every waiter in registration
+  order.
+- **Abort.** `__yo_future_abort(fut)` marks a non-terminal future -2 and calls
+  `cancel_pending_fn(fut, prev_state)` with the state it was suspended in.
+  Each async block emits that hook beside its resume function
+  (`generate_async_block_cancel_pending_function`). It switches on
+  `prev_state`: an I/O await cancels the operation (`__yo_async_io_cancel` →
+  the backend's `cancel_fn`, `issues/fixed/timeout-deadline-timer-future-leak.md`),
+  and a child-future await aborts the child, which is what makes the
+  cancellation structured. The hook then wakes the waiters. A park's hook is
+  `__yo_park_cancel`, so a cancelled park reads `is_woken() == false`, and
+  `Mutex`/`Channel` pass the wake to the next waiter.
+- **Wake.** `__yo_async_wake(fn, sm)` hands the first wake made while a task runs to a
+  same-step LIFO slot that `__yo_async_run_task` drains (capped at 64) instead
+  of the run queue. An await that finds its future already complete continues
+  inline, within the inline budget (1024).
+
+`generate_join_handle_await` reads the handle's `->__future` and polls
+`((__yo_future_header_t*)fut)->state`. It does not release the future: the
+handle's `Dispose` does that.
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.
 

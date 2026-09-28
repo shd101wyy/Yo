@@ -23,7 +23,7 @@ Yo has no try/catch; the only recovery primitive is `unwind` from an
 `Exception` handler, and a handler installed INSIDE an `io.async` body does
 not resolve the future with the unwound value — it aborts the task, and the
 program then exits 0 in silence
-(`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`).
+(`issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`).
 So the fix is D13's shape instead: the pure decoder returns `Result`, the
 effect form wraps it.
 
