@@ -23,7 +23,7 @@
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
@@ -1195,18 +1195,13 @@ generate_async_block_resume_function_inline :: (
   p_smv := context.state_machine_variables;
   p_vr := context.variable_id_remapping;
   p_pdd := context.pending_deferred_drops;
-  p_abre := context.async_body_return_expr;
   context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
-  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
-  context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
-  context.await_result_substitutions = Option(HashMap(usize, String)).None;
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
-  context.async_body_return_expr = Option(AstExpr).None;
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
@@ -1271,7 +1266,6 @@ generate_async_block_resume_function_inline :: (
   context.state_machine_variables = p_smv;
   context.variable_id_remapping = p_vr;
   context.pending_deferred_drops = p_pdd;
-  context.async_body_return_expr = p_abre;
   em.emit_string_line(`  return;`);
   em.emit_string_line(`__yo_dispatch:`);
   em.emit_string_line(`  switch (sm->state) {`);

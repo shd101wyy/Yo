@@ -26,7 +26,7 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -308,7 +308,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
           });
           // Self-named atom: its value is its own rendering, which can be a
           // state-machine slot (see handle_atom_deferred_dup in return.yo).
-          v_self := (ast_expr_is_atom(value) && (vvn == ast_expr_token(value).value));
+          v_self := is_self_named_atom(value, vvn.clone());
           if(!is_inout_atom && !v_self && !(vtv == raw_code), {
             dline := value_indent.clone();
             dline.push_string(get_type_string(vei.ty, context.base));
@@ -484,7 +484,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                     );
                   });
                 });
-                f_self := (ast_expr_is_atom(final_expr) && (fvn == ast_expr_token(final_expr).value));
+                f_self := is_self_named_atom(final_expr, fvn.clone());
                 if(!is_inout_atom && !f_self && !(ftv == raw_code), {
                   dline := value_indent.clone();
                   dline.push_string(get_type_string(fei.ty, context.base));

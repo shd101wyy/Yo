@@ -23,7 +23,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
@@ -639,7 +639,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
           // state-machine slot (`sm->var_…`) under the single-pass async
           // lowering, and declaring `T name = sm->var_…` then redefined the
           // binding in its own C scope.
-          self_named := (ast_expr_is_atom(expr) && (saved == ast_expr_token(expr).value));
+          self_named := is_self_named_atom(expr, saved.clone());
           value_var = Option(String).Some(if(self_named, raw_code.clone(), expr_temp_var.clone()));
           if(!self_named && !(expr_temp_var == raw_code), {
             line := indent.clone();
