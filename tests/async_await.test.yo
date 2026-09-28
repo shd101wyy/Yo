@@ -5918,3 +5918,29 @@ test("return(io.await(...)) in a cond branch inside io.async", {
   assert(io.await(pick(true, io), io) == i32(1), "taken branch returns the awaited value");
   assert(io.await(pick(false, io), io) == i32(2), "fallthrough returns the tail value");
 });
+// An early `return(out)` of a local that lives across an `io.await` (so it is
+// hoisted into the state machine as `sm->var_<id>`) completes with the value:
+// the completion drop releases and zeroes that field, and the result was read
+// from it after the drop, so the future completed with NULL (the stage-2
+// `yo install` segfault on a cold cache,
+// issues/fixed/an-early-return-of-a-hoisted-state-machine-local-completes-with-null.md).
+_sm_ret_ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io : Io) => true));
+_sm_ret_list :: (fn(early : bool, io : Io) -> Impl(Future(ArrayList(i32), Io)))(
+  io.async((io : Io) => {
+    out := ArrayList(i32).new();
+    out.push(i32(7));
+    _ready := io.await(_sm_ret_ready(io), io);
+    if(early, {
+      return(out);
+    });
+    out.push(i32(8));
+    out
+  })
+);
+test("an early return of an awaited-across local completes with the value", {
+  early := io.await(_sm_ret_list(true, io), io);
+  assert(early.len() == usize(1), "the early return hands back the list");
+  assert(early(usize(0)) == i32(7), "with its contents");
+  late := io.await(_sm_ret_list(false, io), io);
+  assert(late.len() == usize(2), "the tail return still works");
+});

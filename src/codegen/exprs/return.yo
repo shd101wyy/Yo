@@ -23,7 +23,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
@@ -996,6 +996,37 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         },
         .None => ()
       );
+      // A state-machine return takes its value into a C temp BEFORE the
+      // scope-end drops below. The returned local's storage is its
+      // `sm->var_<id>` field, and the completion drop releases and zeroes that
+      // field, so reading the value after the drops completed an early
+      // `return(out)` with NULL (the stage-2 `yo install` segfault on a cold
+      // cache,
+      // issues/fixed/an-early-return-of-a-hoisted-state-machine-local-completes-with-null.md).
+      (sm_result_snapshot : Option(String)) = Option(String).None;
+      match(
+        context.in_async_state_machine,
+        .Some(snap_sm) => {
+          snap_child := match(
+            extract_future_trait_from_type(snap_sm.future_type),
+            .Some(snap_ftt) => match(snap_ftt, .FutureTraitT({ output : snap_o }) => snap_o.clone(), _ => t_unit()),
+            .None => t_unit()
+          );
+          if(!is_unit_type(snap_child), {
+            snap_value := match(
+              return_temp_var,
+              .Some(snap_rtv) => resolve_var_name_in_context(snap_rtv, context),
+              .None => arg_code.clone()
+            );
+            snap := fresh_local_name(String.from("__yo_sm_ret"), context.base.current_function_name.clone());
+            snap_em := context.base.emitter;
+            snap_em.emit_string_line(`${indent.clone()}${return_type.clone()} ${snap.clone()} = ${snap_value};`);
+            context.base.declared_c_var_names.insert(snap.clone());
+            sm_result_snapshot = Option(String).Some(snap);
+          });
+        },
+        .None => ()
+      );
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
       // Async state-machine return: complete the Future instead of emitting a
@@ -1028,9 +1059,13 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             Option(String).None,
             Option(String).Some(
               match(
-                return_temp_var,
-                .Some(rtv2) => resolve_var_name_in_context(rtv2, context),
-                .None => arg_code.clone()
+                sm_result_snapshot,
+                .Some(snap2) => snap2,
+                .None => match(
+                  return_temp_var,
+                  .Some(rtv2) => resolve_var_name_in_context(rtv2, context),
+                  .None => arg_code.clone()
+                )
               )
             )
           );
