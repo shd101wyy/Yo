@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   has_any_control_flow,
   merge_control_flows,
   branch_init_log_len,
-  register_arm_init_range,
+  push_arm_init_range,
   push_branch_group,
   begin_branch_group_arm,
   branch_group_stack_len,
@@ -335,11 +335,8 @@ evaluate_cond :: (
           expr_info_set_case_executed(ci, Option(bool).Some(true));
         }
       );
-      // Evaluate the body (branch-init window recorded for the cross-branch
-      // type checks in merge_and_check_envs).
-      bir_start_t := branch_init_log_len();
+      // Evaluate the body. One arm, no join: no branch-init window to record.
       evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
-      register_arm_init_range(ast_expr_id(evaluated_body), bir_start_t, branch_init_log_len());
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
       body_cf := match(body_info_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
@@ -428,6 +425,8 @@ evaluate_cond :: (
       bg_depth := branch_group_stack_len();
       group_log_start := branch_init_log_len();
       push_branch_group();
+      // Each arm's window into the branch-init log, for merge_and_check_envs.
+      arm_ranges := ArrayList(usize).new();
       // The arm evaluated last (see `reset_sibling_flow_state`).
       (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
       while(nb_i < evaluated_conds.len(), {
@@ -476,7 +475,7 @@ evaluate_cond :: (
                 false,
                 exn
               );
-              register_arm_init_range(ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
+              push_arm_init_range(arm_ranges, ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
               prev_arm_body = Option(AstExpr).Some(ec_item.case_body_expr);
               if(arm_untaken_ct, {
                 ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
@@ -723,7 +722,7 @@ evaluate_cond :: (
             ir_i = (ir_i + usize(1));
           });
         };
-        env = merge_and_check_envs(env, filtered_bodies, group_log_start, ctx, exn);
+        env = merge_and_check_envs(env, filtered_bodies, group_log_start, arm_ranges, ctx, exn);
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
         // `T :: cond(b => i32, true => i64)` with a runtime `b` has no

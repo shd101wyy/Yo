@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_origin_type,
   expr_info_set_origin_type,
-  get_arm_init_range,
+  arm_init_range_in,
   get_branch_init_record,
   sibling_first_flow_records,
   record_branch_consume,
@@ -1374,12 +1374,14 @@ find_variable_by_id :: (fn(env : Environment, id : usize) -> Option(Variable))({
 });
 /// Join the arms of a `cond`/`match` into `env`. `bodies` are the arms that
 /// reach the join; `group_log_start` is the flow log's length when the
-/// branch began (its arms' records follow it).
+/// branch began (its arms' records follow it); `arm_ranges` holds each
+/// evaluated arm's window into the log (`push_arm_init_range`).
 merge_and_check_envs :: (
   fn(
     env : Environment,
     bodies : ArrayList(AstExpr),
     group_log_start : usize,
+    arm_ranges : ArrayList(usize),
     ctx : EvalContext,
     exn : Exception
   ) -> Environment
@@ -1634,10 +1636,10 @@ merge_and_check_envs :: (
             while(cb_i < bodies.len(), {
               cb_body := match(bodies.get(cb_i), .Some(b) => b, .None => make_err_expr());
               match(
-                get_arm_init_range(ast_expr_id(cb_body)),
-                .Some(cb_rng) => {
-                  cb_s := match(cb_rng.get(usize(0)), .Some(x) => x, .None => usize(0));
-                  cb_e := match(cb_rng.get(usize(1)), .Some(x) => x, .None => usize(0));
+                arm_init_range_in(arm_ranges, ast_expr_id(cb_body)),
+                .Some(cb_p) => {
+                  cb_s := match(arm_ranges.get(cb_p + usize(1)), .Some(x) => x, .None => usize(0));
+                  cb_e := match(arm_ranges.get(cb_p + usize(2)), .Some(x) => x, .None => usize(0));
                   // LAST record per arm wins (an arm may assign repeatedly).
                   (cb_found : bool) = false;
                   (cb_ri : usize) = cb_s;
@@ -1760,10 +1762,10 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 match(
                   bodies.get(fl_bi),
                   .Some(fl_body) => match(
-                    get_arm_init_range(ast_expr_id(fl_body)),
-                    .Some(fl_rng) => {
-                      fl_s := match(fl_rng.get(usize(0)), .Some(x) => x, .None => usize(0));
-                      fl_e := match(fl_rng.get(usize(1)), .Some(x) => x, .None => usize(0));
+                    arm_init_range_in(arm_ranges, ast_expr_id(fl_body)),
+                    .Some(fl_p) => {
+                      fl_s := match(arm_ranges.get(fl_p + usize(1)), .Some(x) => x, .None => usize(0));
+                      fl_e := match(arm_ranges.get(fl_p + usize(2)), .Some(x) => x, .None => usize(0));
                       match(
                         last_flow_record_in(base_var.id, fl_s, fl_e),
                         .Some(fl_last) => {

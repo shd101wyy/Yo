@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-28 — (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-28 — (§0.21) The codegen-only tables are skipped in `check`/`verify`/`doc`/`lsp` and the arm windows are construct-local: −2.8 % max RSS. (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -2009,9 +2009,11 @@ Hand corrections to the heuristic for the rows that matter:
 - `g_finished_walks` is per command with context-free records outside watch
   and LSP (Phase 1 step 1).
 
-**What the table re-ranks** (levers, none implemented yet):
+**What the table re-ranks** (levers; §0.21 has what became of 1, 2 and 4):
 1. **Codegen-only tables in a command without codegen.** `check`, `verify`,
-   `doc` and the LSP never read these, and `check` still keeps them:
+   `doc` and the LSP never read these, and `check` still keeps them
+   (correction, §0.21: `g_arm_init_ranges` is read by the evaluator's join,
+   and is now construct-local instead):
    - `g_match_arms`, 18.7 MB;
    - `g_arm_init_ranges`, 7.1 MB;
    - `g_closure_await_analysis`, 2.3 MB.
@@ -2035,6 +2037,63 @@ Hand corrections to the heuristic for the rows that matter:
 4. **`g_specialized_base`** (9.7 MB) is read only by the verifier's
    mutual-recursion cliques. Recording it only when verification will run is
    the same flag as (1).
+
+### 0.21 Levers 1 and 2 of the sweep table (2026-09-28)
+
+**Lever 1, corrected and landed.** §0.20 listed `g_arm_init_ranges` as
+codegen-only, but it is not. The evaluator's own `merge_and_check_envs`
+reads it. It reads it only for the arms of the `cond` / `match` being
+joined, though, and only before that construct returns. So:
+- **The arm windows are local to the construct.** `cond` / `match` fill a
+  flat `[arm_id, start, end]` list (`push_arm_init_range`) and pass it to
+  `merge_and_check_envs` (`arm_init_range_in`). The global table, its LSP
+  purge entry and its owner-log entries are gone. The compile-time-true
+  `cond` path registered a window that nothing read; it records none now.
+- **Codegen-only tables are skipped when no code is generated.**
+  `set_codegen_tables_enabled(false)` (`src/utils.yo`) is set by `check`
+  (watch or not), `verify`, `doc` and `lsp`. It skips `g_match_arms` and
+  `g_closure_await_analysis`. The match compilation, exhaustiveness, and
+  the await analysis with its errors all still run; only the recording is
+  skipped.
+
+Measured on stage-1 binaries built by the v0.2.45 seed, `check src/main.yo`
+max RSS: **1,198,268 → 1,164,304 kB (−33.9 MB, −2.8 %)**. That matches the
+§0.20 first-reach sizes (18.7 + 7.1 + 2.3 MB) plus the list headers.
+
+**Lever 2, not taken.** `g_branch_init_log` (13.8 MB) cannot simply be
+truncated "at function end":
+- **Absolute indices.** Readers hold absolute indices into the log on the
+  native stack: `cond` / `match`'s `group_log_start`, while's
+  `LoopBodyCtx.log_start`, and the branch-group stack. A nested function
+  evaluation (a lazy top-level force, a specialization, a demand-loaded
+  module) runs *inside* those frames, so its end is not a quiescent point.
+- **No pin counter survives exceptions.** A counter would have to be
+  restored at every exception catch site. There are about 40 in the
+  evaluator (trial evaluations in `trait.yo`, `function_type.yo`,
+  `impl.yo`, …), and only `comptime_expect_error` restores the branch-group
+  stack. A counter stranded by one caught throw disables compaction for the
+  rest of the run.
+- **`has_dominating_branch_init` reads the whole history of a variable.** A
+  module-level variable's records span functions, so dropping records per
+  function changes the Impl-reassignment verdict.
+
+A sound version needs:
+1. a pin stack restored by the same save/restore helper at every catch site
+   (the `forcing_depths` pattern);
+2. at a quiescent point, folding the surviving `Assign` records into a
+   per-variable "assigned" bit;
+3. a base offset, so stale indices read `None` instead of a wrong record.
+
+That is a lot of machinery for about 16 MB (1.4 %). It stays open, below
+§3.2 and Phase 4.
+
+**Lever 4, folded into §3.2.** `g_specialized_base` holds two deep copies per
+entry: the specialized id as the key and the base id as the value.
+`String.clone` is a byte copy. The base is always a prefix of the key
+(`${func_id}_${sig}`, `calls/helper.yo`). The same duplicated id strings
+key `g_func_type_registry` and the contract tables. The fix is the §3.2
+one (numeric ids or shared handles), not a verify-only flag: `check` runs
+the verifier too.
 
 ## 6. Gates (every phase)
 

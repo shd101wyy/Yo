@@ -261,6 +261,19 @@ static void __yo_async_scheduler_init(void) {
   ASYNC_DEBUG("[ASYNC] Scheduler initialized\\n");
 }
 
+// Free this thread's recycled continuation nodes. The pool is thread-local, so
+// a node still in it when the thread exits is unreachable: LeakSanitizer
+// reported one for every program that awaited synchronously (a test body, a
+// plain main(io)), where no event loop ends to free it. Installed as the
+// thread-exit hook the first time a node is allocated.
+static void __yo_async_free_cont_pool(void) {
+  while (__yo_cont_free_list) {
+    __yo_continuation_t* node = __yo_cont_free_list;
+    __yo_cont_free_list = node->next;
+    __yo_free(node);
+  }
+}
+
 // Enqueue a continuation on the current thread's event loop (no refcount mgmt).
 static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Enqueueing continuation: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
@@ -270,6 +283,7 @@ static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* stat
     __yo_cont_free_list = cont->next;
   } else {
     cont = (__yo_continuation_t*)__yo_rc_alloc(sizeof(__yo_continuation_t));
+    __yo_async_thread_exit_hook = __yo_async_free_cont_pool;
   }
   cont->resume_fn = resume_fn;
   cont->state_machine = state_machine;
@@ -484,11 +498,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
   }
   __yo_async_loop_quiesce();
   __yo_io_cleanup();
-  while (__yo_cont_free_list) {
-    __yo_continuation_t* node = __yo_cont_free_list;
-    __yo_cont_free_list = node->next;
-    __yo_free(node);
-  }
+  __yo_async_free_cont_pool();
   ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", future->state);
   if (future->state == -2) {
     fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
@@ -534,11 +544,7 @@ static void __yo_async_wait_all(void) {
       break;
     }
   }
-  while (__yo_cont_free_list) {
-    __yo_continuation_t* node = __yo_cont_free_list;
-    __yo_cont_free_list = node->next;
-    __yo_free(node);
-  }
+  __yo_async_free_cont_pool();
 }
 
 // ============================================================================
