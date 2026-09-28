@@ -787,7 +787,10 @@ _inline_binding_sm_field :: (fn(tok : Token, context : FunctionGenerationContext
 _bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token) -> unit)(
   match(
     _inline_binding_sm_field(tok, context),
-    .Some(field) => context.base.emitter.emit_string_line(`${indent}sm->${field} = ${cname};`),
+    .Some(field) => {
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}sm->${field} = ${cname};`);
+    },
     .None => _shadow_add(context, cname)
   )
 );
