@@ -316,6 +316,28 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
   __yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
+// Same-step hand-off. When a task completes (or aborts) while the loop is
+// running ready tasks, the waiter it wakes runs right after it, in the SAME
+// scheduler step, instead of queueing behind every other ready task and an
+// I/O poll: a chain of N awaiting tasks used to take N+1 steps to finish
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4, 2.2x on a depth-4 chain with
+// I/O pending). One LIFO slot, drained by __yo_async_run_task after the task
+// returns — so the C stack never grows — and capped per task so a long chain
+// still yields. Outside a task run the slot is never used, so nothing else in
+// the loop has to know about it.
+static ${thread_local} void (*__yo_handoff_fn)(void*) = NULL;
+static ${thread_local} void* __yo_handoff_sm = NULL;
+static ${thread_local} int __yo_in_task_run = 0;
+static void __yo_async_wake(void (*fn)(void*), void* sm) {
+  if (__yo_in_task_run > 0 && __yo_handoff_fn == NULL) {
+    __yo_handoff_fn = fn;
+    __yo_handoff_sm = sm;
+    return;
+  }
+  __yo_async_spawn_task(fn, sm);
+}
+
+
 // How many task resume functions are on the C stack right now. Zero at the
 // top level (async main's loop, a synchronous await in main or a test body,
 // JoinHandle.await / the std/async combinators called from there). Non-zero
@@ -326,6 +348,27 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // thread must not make a blocking await on another look nested (the first CI
 // run of the guard aborted tests/thread_pool.test.yo exactly that way).
 static __thread int __yo_async_task_depth = 0;
+
+// Run one dequeued task, then the waiters it handed off.
+static void __yo_async_run_task(__yo_continuation_t* cont) {
+  __yo_async_task_depth++;
+  __yo_in_task_run++;
+  cont->resume_fn(cont->state_machine);
+  int hops = 0;
+  while (__yo_handoff_fn) {
+    void (*f)(void*) = __yo_handoff_fn;
+    void* a = __yo_handoff_sm;
+    __yo_handoff_fn = NULL;
+    __yo_handoff_sm = NULL;
+    if (hops++ >= 64) {
+      __yo_async_spawn_task(f, a);  // a long chain still yields
+      break;
+    }
+    f(a);
+  }
+  __yo_in_task_run--;
+  __yo_async_task_depth--;
+}
 
 // Read by every thread's loop: atomic, so the first reads racing to fill the
 // cache are not a data race (each computes the same value from the same
@@ -370,7 +413,7 @@ static int __yo_async_run_ready_tasks(void) {
       __yo_thread_async_queue.tail = NULL;
     }
     __yo_thread_async_queue.count--;
-    { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+    __yo_async_run_task(cont);
     cont->next = __yo_cont_free_list;
     __yo_cont_free_list = cont;
   }
@@ -484,7 +527,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+      __yo_async_run_task(cont);
       cont->next = __yo_cont_free_list;
       __yo_cont_free_list = cont;
       tasks_run++;
@@ -553,7 +596,7 @@ static void __yo_async_wait_all(void) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
+      __yo_async_run_task(cont);
       __yo_free(cont);
       tasks_processed = true;
     }
@@ -1156,7 +1199,7 @@ static void __yo_future_wake_waiters(void* fut) {
   f->continuation_fn = NULL;
   f->continuation_sm = NULL;
   if (fn) {
-    __yo_async_spawn_task(fn, sm);
+    __yo_async_wake(fn, sm);
   }
 }
 
@@ -1193,6 +1236,15 @@ static void __yo_future_abort(void* fut) {
 // Cancel a spawned task (JoinHandle.abort).
 static void __yo_join_handle_abort_raw(void* fut) {
   __yo_future_abort(fut);
+}
+
+// The last copy of a JoinHandle was dropped: release the reference the handle
+// owns (taken at io.spawn). A running task keeps its own reference and frees
+// itself when it finishes — the detach.
+static void __yo_join_handle_release_raw(void* fut) {
+  if (fut) {
+    __yo_decr_rc(fut);
+  }
 }}`
   );
 });

@@ -1600,7 +1600,15 @@ _emit_await_suspension_core :: (
     em.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
     em.emit_string_line(`${ind}  future_state = ${acc}->state;`);
     em.emit_string_line(`${ind}  if (future_state == -1 || future_state == -2) {`);
-    em.emit_string_line(`${ind}    // Completed or aborted synchronously — yield for fairness`);
+    // Continue inline, exactly as for a future that was already complete: the
+    // child's running reference is already released, and a round trip through
+    // the scheduler (a kernel entry once any I/O is pending) bought nothing
+    // but fairness, which the budget still provides
+    // (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4: 330 → 100 ns with I/O pending).
+    em.emit_string_line(`${ind}    if (__yo_inline_budget > 0) {`);
+    em.emit_string_line(`${ind}      __yo_inline_budget--;`);
+    em.emit_string_line(`${ind}      goto state_${next_s};`);
+    em.emit_string_line(`${ind}    }`);
     em.emit_string_line(`${ind}    __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
     em.emit_string_line(`${ind}    return;`);
     em.emit_string_line(`${ind}  }`);
@@ -4173,7 +4181,12 @@ generate_async_block_resume_function :: (
   em.emit_string_line(`    __yo_decr_rc((void*)sm);`);
   em.emit_string_line(`    return;`);
   em.emit_string_line(`  }`);
-  em.emit_string_line(`  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`);
+  // Bounded inline fast path for awaits that are already (or synchronously)
+  // complete: a resume that runs this many of them in a row yields once, so a
+  // loop over ready futures cannot starve the loop. 32 made such a loop take a
+  // scheduler round trip every 33rd iteration (16.5 → 8.8 ns an await at 1024,
+  // plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4).
+  em.emit_string_line(`  int __yo_inline_budget = 1024;  // bounded inline fast-path for sync-completed awaits`);
   em.emit_string_line(`  switch (sm->state) {`);
   local_var_drop_codes := ArrayList(String).new();
   (seg_idx : usize) = usize(0);

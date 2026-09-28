@@ -717,7 +717,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   var_decl := get_variable_type_string(option_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}${var_decl};`);
   em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}.__future;`);
+  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}->__future;`);
   em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
   em.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
   em.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
@@ -762,14 +762,9 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // Release the reference the handle took at io.spawn (see _generate_io_spawn's
-  // ownership comment). AFTER the result is read and dup'd above, since this
-  // may be the last reference and free the state machine. Pairing the two is
-  // what keeps the fix leak-free; it does mean a handle must be awaited AT MOST
-  // ONCE, which is how every spawn site in the corpus uses it (verified: 18
-  // handles, zero double-awaits) and is the same single-use contract Rust's
-  // JoinHandle::join enforces by taking self by value.
-  em.emit_string_line(`${indent.clone()}  __yo_decr_rc(${fut_var.clone()});  // release the JoinHandle's reference`);
+  // The future stays referenced by the handle itself (a `ref` struct whose
+  // Dispose releases it), so awaiting neither consumes the handle nor
+  // releases the task: a handle awaited twice reads the same result.
   em.emit_string_line(`${indent.clone()}}`);
   result_var
 });
