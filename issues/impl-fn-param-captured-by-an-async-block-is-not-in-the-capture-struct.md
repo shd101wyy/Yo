@@ -78,3 +78,9 @@ park — which is both the better semantics (Rust's `spawn_blocking` starts the
 work immediately rather than on first poll) and outside the shape above. Any
 API that wants to call a closure PARAMETER from inside its own async block hits
 this.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**STILL REPRODUCES for the committed repro, but at a different site** (seed and tree build): `error: use of undeclared identifier 'cb'` in `.cb = cb`. It now fires in the SYNC-future closure (`closure_yo_id_…`, a body with no await), which never reads `closure_context`. With an `io.await` added (the resume-function shape the doc describes), it works (`n=42`). What remains: `generate_io_async_sync_call` plus the capture-init fallback, i.e. the io.async closure's transitive capture of an `Impl(Fn)` parameter.

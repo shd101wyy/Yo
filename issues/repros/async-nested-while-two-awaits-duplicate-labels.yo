@@ -1,0 +1,26 @@
+{ println } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+_f :: (fn(v : i32, io : Io) -> Impl(Future(i32, IoExn)))(io.async(e => (v * i32(10))));
+_walk :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (total : i32) = i32(0);
+    (outer : i32) = i32(0);
+    while(runtime(outer < i32(2)), {
+      (j : i32) = i32(0);
+      while(runtime(j < i32(3)), {
+        a := e.io.await(_f(j, e.io), e);
+        b := e.io.await(_f(a, e.io), e);
+        total = (total + b);
+        j = (j + i32(1));
+      });
+      outer = (outer + i32(1));
+    });
+    total
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> { unwind(()); }));
+  r := io.await(_walk(io), IoExn(io : io, exn : exn));
+  println(`r=${r} expected=600`);
+});
+export(main);

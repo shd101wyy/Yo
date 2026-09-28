@@ -1,0 +1,53 @@
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio");
+leaf :: (fn(x : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((io2 : Io) => (x + i32(1)))
+);
+// three arms, each awaiting; arms 2 and 3 use the await inside `+`
+branchy :: (fn(k : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((io : Io) => {
+    (out : i32) = i32(0);
+    cond(
+      (k == i32(0)) => {
+        out = io.await(leaf(k, io), io);
+      },
+      (k == i32(1)) => {
+        out = (io.await(leaf(k, io), io) + i32(10));
+      },
+      true => {
+        out = (io.await(leaf(k, io), io) + i32(20));
+      }
+    );
+    return(out);
+  })
+);
+// same, but the await is bound first
+branchy2 :: (fn(k : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((io : Io) => {
+    (out : i32) = i32(0);
+    cond(
+      (k == i32(0)) => {
+        out = io.await(leaf(k, io), io);
+      },
+      (k == i32(1)) => {
+        t := io.await(leaf(k, io), io);
+        out = (t + i32(10));
+      },
+      true => {
+        t := io.await(leaf(k, io), io);
+        out = (t + i32(20));
+      }
+    );
+    return(out);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  a0 := io.await(branchy(i32(0), io), io);
+  a1 := io.await(branchy(i32(1), io), io);
+  a2 := io.await(branchy(i32(2), io), io);
+  b0 := io.await(branchy2(i32(0), io), io);
+  b1 := io.await(branchy2(i32(1), io), io);
+  b2 := io.await(branchy2(i32(2), io), io);
+  unsafe(printf("branchy: %d %d %d (want 1 12 23)\nbranchy2: %d %d %d (want 1 12 23)\n", a0, a1, a2, b0, b1, b2));
+});
+export(main);

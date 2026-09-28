@@ -1,0 +1,14 @@
+{ eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+t1 :: (fn(k : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => {
+  io.await(yield(io), io);
+  r := (k + i32(1));
+  q := cond((k == i32(5)) => (r + i32(100)), true => r);
+  q
+}));
+main :: (fn(io : Io) -> unit)({
+  r1 := io.await(t1(i32(5), io), io);
+  r2 := io.await(t1(i32(6), io), io);
+  eprintln(`r1=${r1} r2=${r2}`);
+});
+export(main);

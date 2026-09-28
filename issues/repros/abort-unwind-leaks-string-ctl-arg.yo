@@ -1,0 +1,27 @@
+{ eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ String } :: import("std/string");
+Raise :: (ctl(msg : String) -> i32);
+Ctx :: struct(io : Io, raise : Raise);
+main :: (fn(io : Io) -> unit)({
+  (raise : Raise) = (msg -> { unwind(()); });
+  task := io.async((ctx : Ctx) => {
+    ctx.io.await(yield(ctx.io), ctx.io);
+    _x := ctx.raise(`boom`);
+    i32(1)
+  });
+  h := io.spawn(task, Ctx(io : io, raise : raise));
+  r := h.await(io);
+  eprintln(`unwind: none=${r.is_none()}`);
+  sd :: (fn(raise : Raise) -> i32)({
+    _y := raise(`sync boom`);
+    i32(2)
+  });
+  g :: (fn() -> unit)({
+    (raise2 : Raise) = (msg -> { unwind(()); });
+    _z := sd(raise2);
+  });
+  g();
+  eprintln(`sync done`);
+});
+export(main);

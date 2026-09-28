@@ -1,0 +1,27 @@
+{ eprintln } :: import("std/fmt");
+{ yield, join_all } :: import("std/async");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(Thing, Dispose(dispose : (fn(self : Self) -> unit)({ g_disposed = (g_disposed + i32(1)); })));
+job :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => {
+  t := Thing(n : n);
+  io.await(yield(io), io);
+  t.n
+}));
+main :: (fn(io : Io) -> unit)({
+  N := i32(2000);
+  // fire-and-forget: unbound spawns
+  {
+    (i : i32) = i32(0);
+    while(runtime(i < N), {
+      io.spawn(job(i, io), io);
+      i = (i + i32(1));
+    });
+  };
+  io.await(yield(io), io);
+  io.await(yield(io), io);
+  eprintln(`disposed=${g_disposed} (expect ${(N * i32(2))})`);
+});
+export(main);

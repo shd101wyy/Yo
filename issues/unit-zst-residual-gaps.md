@@ -81,3 +81,9 @@ does, so a generic whose type argument RESOLVES to unit is invisible to every
 `src/codegen/exprs/await.yo` compensate with a literal `cty == "void"` string
 test; those are load-bearing and undocumented. Either document them or give
 `is_unit_type` a resolving variant and use it consistently.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+The "unit local across `io.await`" row **STILL REPRODUCES** (tree build): `error: field has incomplete type 'void'` at `void var_u_…; // u`, plus `sm->var_w_… = ;`. Repro: `issues/repros/unit-local-across-io-await.yo`. `emit_async_block_struct_definition` (`src/codegen/exprs/async.yo`) emits a field for a unit-typed cross-boundary local.
