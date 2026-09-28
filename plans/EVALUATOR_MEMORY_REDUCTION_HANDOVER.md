@@ -259,17 +259,28 @@ class on mimalloc). The edit is big but mechanical.
 - The cycle collector costs about 2 % of `check src/main.yo` wall time and
   reclaims nothing measurable. `YO_GC_THRESHOLD=0` gives 251 s instead of
   256 s at identical RSS. The runtime comment on `YO_GC_THRESHOLD` already
-  suggests disabling it for the compiler. MEASURED 2026-09-28 (stage-2 of
-  `59ef41250`, `YO_GC_THRESHOLD=0`):
-  - `compile src/main.yo --skip-c-compiler`: user 375.9 → 369.4 s (−1.7 %),
-    max RSS 3,245 → 3,248 MB, emitted C byte-identical;
-  - LSP plateau, 10 std files × 6 rounds: 230.3 vs 230.5 MB, same round
-    times.
+  suggests disabling it for the compiler. Measured 2026-09-28 (stage-2 of
+  `59ef41250`); NOT established:
+  - `YO_GC_THRESHOLD=0` turns off only the incremental (Bacon-Rajan)
+    trigger. The allocation-driven full-heap scans (2× live) still run;
+    `YO_GC_FULL_PCT=100000` turns those off.
+  - `compile src/main.yo --skip-c-compiler`, one run each: user 375.9 →
+    369.4 s, max RSS 3,245 → 3,248 MB, emitted C byte-identical.
+  - LSP plateau (10 std files × 6 rounds): 230.3 vs 230.5 MB, same round
+    times. The collector reclaims nothing measurable.
+  - `check src/main.yo`, default / incremental off / both off, user seconds:
+    - forward order: 218 / 265 / 284;
+    - reverse order, with the load average rising from 2 to 20: 613 / 414 /
+      477.
 
-  The collector reclaims nothing measurable anywhere in the compiler.
-  Turning it off needs a runtime entry the compiler calls at startup; the
-  env knob is read before `main` runs. It is seed-gated: `src/main.yo` can
-  call the entry only once a release carries it.
+    Whichever run came later was slower. On a shared box the noise is
+    about ±30 %, which swamps a ~2 % lever.
+
+  Next step: an instruction count (cachegrind on a smaller input, or an
+  idle machine), with the incremental and full triggers measured
+  separately. A switch would need a runtime entry, because the env knob is
+  read before `main` runs. It is also seed-gated: `src/main.yo` can call it
+  only once a release carries it.
 - `__yo_decr_rc` is 19 % of all instructions in `check`, and one `__yo_fs_…`
   function is 9.5 % (callgrind, §0.19). Name that function with
   `YO_DEBUG_FN_ORIGIN=1` before optimizing anything.
