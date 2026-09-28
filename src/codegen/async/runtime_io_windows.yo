@@ -1815,7 +1815,7 @@ static uint64_t __yo_statfs_ffree(void* buf) { return ((__yo_win_statfs_t*)buf)-
 // Signal Operations (Windows)
 // ============================================================================
 
-static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void (*__yo_signal_handlers[32])(uint8_t*) = {NULL};
 static void* __yo_signal_handler_data[32] = {NULL};
 static bool __yo_signal_use_crt[32] = {false};
 
@@ -1850,14 +1850,14 @@ static bool __yo_win_signal_supported_by_crt(int32_t signum) {
 
 static void __yo_win_signal_trampoline(int signum) {
   if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
-    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+    __yo_signal_handlers[signum]((uint8_t*)__yo_signal_handler_data[signum]);
   }
 }
 
 static int32_t __yo_signal_start(int32_t signum, void* handler) {
   if (signum < 0 || signum >= 32) return -EINVAL;
 
-  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+  __yo_signal_handlers[signum] = (void (*)(uint8_t*))handler;
   __yo_signal_handler_data[signum] = NULL;
 
   if (__yo_win_signal_supported_by_crt(signum)) {
@@ -1894,7 +1894,7 @@ static int32_t __yo_win_deliver_local_signal(int32_t signum) {
   if (signum < 0 || signum >= 32) return -EINVAL;
 
   if (__yo_signal_handlers[signum]) {
-    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+    __yo_signal_handlers[signum]((uint8_t*)__yo_signal_handler_data[signum]);
     return 0;
   }
 
@@ -4488,7 +4488,7 @@ static int32_t __yo_process_term_signal(int32_t status) {
 typedef struct __yo_fs_event_s {
   HANDLE dir_handle;
   HANDLE change_handle;
-  void (*callback)(const char*, int, void*);
+  void (*callback)(uint8_t*, int32_t, uint8_t*);
   void* user_data;
   int active;
   char* path;
@@ -4521,7 +4521,7 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
 
   handle->path = (char*)__yo_rc_alloc(strlen(path) + 1);
   strcpy(handle->path, path);
-  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->callback = (void (*)(uint8_t*, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
 
   wchar_t* wpath = __yo_win_utf8_to_wide(path);
@@ -4677,7 +4677,7 @@ static void __yo_fs_event_close(void* h) {
 typedef struct __yo_poll_s {
   int fd;
   int events;
-  void (*callback)(int, int, void*);
+  void (*callback)(int32_t, int32_t, uint8_t*);
   void* user_data;
   int active;
   struct __yo_poll_s* next;
@@ -4697,7 +4697,7 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
   if (!handle || !callback) return -EINVAL;
 
   handle->events = events;
-  handle->callback = (void (*)(int, int, void*))callback;
+  handle->callback = (void (*)(int32_t, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
 
@@ -4793,7 +4793,7 @@ static int __yo_poll_and_fs_event_tick(void) {
                 } else {
                   name_buf[0] = '\\0';
                 }
-                fse->callback(name_buf, __yo_event, fse->user_data);
+                fse->callback((uint8_t*)name_buf, __yo_event, fse->user_data);
                 count++;
               }
               if (info->NextEntryOffset == 0) break;
@@ -4820,7 +4820,7 @@ static int __yo_poll_and_fs_event_tick(void) {
           DWORD wait_result = WaitForSingleObject(fse->change_handle, 0);
           if (wait_result == WAIT_OBJECT_0) {
             if (fse->callback && fse->active) {
-              fse->callback("", 2, fse->user_data);
+              fse->callback((uint8_t*)"", 2, fse->user_data);
               count++;
             }
             FindNextChangeNotification(fse->change_handle);

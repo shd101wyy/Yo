@@ -123,7 +123,8 @@ dispose_fn_thunk :: (fn(dispose_c_name : String, context : FunctionGenerationCon
   thunk := `__yo_dispose_thunk_${dispose_c_name}`;
   if(!context.base.dispose_thunks.contains(thunk.clone()), {
     context.base.dispose_thunks.insert(thunk.clone());
-    context.base.emitter.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
+    em := context.base.emitter;
+    em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
   });
   thunk
 });
