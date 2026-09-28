@@ -68,6 +68,16 @@ test("workaround B: struct generic over closure type", {
   assert(result == i32(12), "4 * 3 = 12");
   assert(obj.value == i32(7), "value preserved");
 });
+test("workaround B: each construction keeps its own closure", {
+  // One `Impl(Fn)` annotation, two closures: each construction is the struct
+  // instantiated over ITS closure (an id-keyed registry entry under the
+  // field's SomeT served the last closure to both).
+  k := i32(100);
+  times := GenericCb(Impl(Fn(x : i32) -> i32))(value : i32(1), cb : (x => (x * i32(3))));
+  plus := GenericCb(Impl(Fn(x : i32) -> i32))(value : i32(2), cb : (x => (x + k)));
+  assert(times.cb(i32(4)) == i32(12), "the first construction calls its own closure");
+  assert(plus.cb(i32(4)) == i32(104), "the second calls the capturing one");
+});
 // --- Argument position (C67) ---
 apply_cb :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
 Holder :: ref(struct(n : i32));

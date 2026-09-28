@@ -10,7 +10,7 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 | --- | --- |
 | 0 ratchet, 1 missing comparisons | Landed. |
 | 2 traits and generics | Landed, including **2.8 explicit Dyn upcast (#965)**. |
-| 3 type identity | Steps 1–6 and 8 landed; step 7 part 1 landed. **Step 7 part 2 is blocked** (§3.1). |
+| 3 type identity | Landed, including **step 7 part 2 (the SomeT registry retirement)**. |
 | 4 diagnostics | 4.1, 4.3, 4.4, 4.5 landed. **4.2 open** (§3.2), best landed as Phase 6.4. |
 | 5 ownership | Landed (3 and 4 via `archive/PARALLELISM_SOUNDNESS.md`). |
 | 6 swallow policy | Step 1 (census) and **step 2 landed (#968)** for sites #2, #4, #5, #6, #14, #15, #16. Open: site #8, step 3, step 4 (§3.2, §3.3). |
@@ -26,6 +26,15 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
   `a-method-call-two-trait-impls-supply-silently-picks-one`,
   `dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c`,
   `address-of-a-parameter-in-a-generic-fn-emits-a-placeholder`.
+- **Phase 3 step 7 part 2 — the SomeT registry retirement.** `g_some_resolved_concrete` is
+  gone. Its first build broke compiled programs five ways, each fixed at its cause
+  (`issues/fixed/p37-registry-retirement-blocked-by-codegen-readers.md`): a `Concrete(...)`
+  wrapper's own resolution adopted by a name-keyed deep resolve (two `Park` C structs); a
+  `(name, level)` substitution crossing binders that share a spelling (`map(f).filter(g)` →
+  E0905); `stable_type_identity` spelling a SomeT by its binder (two closures' capture structs
+  aliased); the Fn-result pre-binding typed as the result instead of `Type` (`map_values`); and
+  a struct built with a closure in an `Impl(Fn)`-typed field, now instantiated over that closure
+  identity instead of an id-keyed registry write.
 - **#968 — Phase 6 step 2.** Replaces the closed #962 (its E1104 code classified a symptom; its
   last commit deleted E0607's `yo explain` entry). What landed, per census site:
   - #5 closures with concrete runtime parameters re-raise; a `comptime(x)` value parameter
@@ -49,20 +58,13 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 
 ## 3. Open work, in order
 
-### 3.1 Phase 3 step 7 part 2: retire `g_some_resolved_concrete` (branch `tss/p37-registry-v2`)
+### 3.1 Stream combinator used twice in one chain
 
-Rebased onto develop 2026-09-27, not rebuilt since. Read the branch's
-`issues/p37-registry-retirement-blocked-by-codegen-readers.md` first (it exists only on that
-branch; its CORRECTION section is the current state).
-The real blocker: `tests/async/channel.test.yo`'s Stream combinators
-(`ch.filter(...).map(...)`) fail E0905 at `std/async/stream.yo:141`, with the swallowed error
-`E0601 bool vs i32` in `StreamFilter.next`'s spec. Working hypothesis (not measured): the
-struct-field capture write removed by commit "drop the struct-field capture registry write"
-(`calls/type.yo`) was load-bearing — `StreamFilter(S, F)` and `StreamMap(S, B, F)` store the
-closure in a field typed `F`, and without the write the field's `Impl(Fn)` SomeT resolves to
-the wrong closure's capture. The handover's original advice stands: instantiate the struct over
-the closure identity (as #930 did for containers) rather than restore the write. Start by
-re-adding the write on the branch to confirm or refute the hypothesis in one build.
+`issues/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`
+(`ch.map(f).map(g)`, `filter(...).filter(...)`) fails in the C compiler on develop too. The
+`map` specialization's C signature keeps SomeT type arguments while the value it builds is
+keyed by concrete ones. Both calls of `map` share binder ids. Start by finding the site that
+builds the specialization's declared result type.
 
 ### 3.2 Phase 6 steps 3–4 and Phase 4.2 (the FTT-stub backstop)
 
