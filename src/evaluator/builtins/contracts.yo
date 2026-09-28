@@ -2488,6 +2488,11 @@ wrap_function_body_with_contracts :: (
   // The ensures clauses that get runtime asserts: all of them, except in
   // `verify` mode (below).
   (splice_ensures : ArrayList(AstExpr)) = ensures_exprs;
+  // Whether the requires-only splice may flatten a block body into its own
+  // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
+  // node and needs its ExprInfo, which a flattened body never gets (its
+  // statements are evaluated under the new begin instead).
+  (flatten_body : bool) = true;
   // V3 mode dispatch (plans/backlog/FORMAL_VERIFICATION.md §"The
   // assert-splice interaction"). Effects apply only when this module is a
   // VERIFICATION TARGET (the `yo verify` file set): a non-target file — the
@@ -2515,6 +2520,7 @@ wrap_function_body_with_contracts :: (
         return(body);
       });
       splice_ensures = ArrayList(AstExpr).new();
+      flatten_body = false;
     });
   });
   bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
@@ -2563,7 +2569,7 @@ wrap_function_body_with_contracts :: (
       );
       ai = (ai + usize(1));
     });
-    if(ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
+    if(flatten_body && ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
       body_args := match(
         body,
         .FnCall(_, _, ba, _, _) => ba,

@@ -210,7 +210,7 @@ a hover computation (they need the solver).
 | Mode | How to select | Behavior |
 | --- | --- | --- |
 | `runtime` (default) | no pragma | Contracts lower to runtime `assert(...)` — today's behavior |
-| `verify` | `pragma(Pragma.Verify);` | Proof obligations replace asserts; refuted/unprovable ⇒ compile error |
+| `verify` | `pragma(Pragma.Verify);` | Proofs replace the `ensures` asserts; refuted/unprovable ⇒ compile error. `requires` keeps its runtime entry check, because a caller the verifier never sees (outside the subset, an exported symbol's foreign caller, a call through a function value) proves nothing |
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | Prove when possible; budget-exhausted falls back to the runtime assert |
 | `ignore` | `pragma(Pragma.NoContracts);` | Contracts erased entirely |
 
