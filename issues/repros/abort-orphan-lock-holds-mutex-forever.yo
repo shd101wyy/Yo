@@ -1,0 +1,44 @@
+{ eprintln } :: import("std/fmt");
+{ sleep } :: import("std/sys/timer");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ Mutex } :: import("std/async/mutex");
+main :: (fn(io : Io) -> unit)({
+  m := Mutex(i32).new(i32(0));
+  a := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    io.await(sleep(u64(30)), io);
+    m.unlock();
+    i32(1)
+  });
+  ha := io.spawn(a, io);
+  b := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(2)
+  });
+  hb := io.spawn(b, io);
+  rb := timeout(hb, Duration.from_millis(i64(5)), io);
+  eprintln(`b timed out: ${rb.is_err()}`);
+  ra := ha.await(io);
+  eprintln(`a done, locked=${m.is_locked()} (expect false)`);
+  c := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(3)
+  });
+  hc := io.spawn(c, io);
+  rc := timeout(hc, Duration.from_millis(i64(100)), io);
+  eprintln(`c acquired: ${rc.is_ok()} (expect true)`);
+  io.await(sleep(u64(5)), io);
+  eprintln(`after c: locked=${m.is_locked()} waiters=${m.waiter_count()} (expect false 0)`);
+  d := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(4)
+  });
+  hd := io.spawn(d, io);
+  rd := timeout(hd, Duration.from_millis(i64(100)), io);
+  eprintln(`d acquired: ${rd.is_ok()} (expect true)`);
+});
+export(main);

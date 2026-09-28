@@ -155,3 +155,9 @@ it meaningful.
 Add a codegen guard too: a test (or a CI grep) asserting that no emitted C
 produced by the suite contains `/* Error:` — the marker class is meant to be
 extinct.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**LATENT.** The source trigger `io.async({…})` is now `E0606 … not callable` (#924). The defects remain in the code: `/* Error: … */` returns in `generate_io_async_sync_call` and `generate_async_block` (`src/codegen/exprs/async.yo`, 37 such markers under `src/codegen/`), plus the unconditional forward typedef. Plan phase 0 turns these into `codegen_fatal`.

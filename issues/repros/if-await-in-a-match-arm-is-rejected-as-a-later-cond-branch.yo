@@ -1,0 +1,19 @@
+{ println } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+_f :: (fn(d : i32, io : Io) -> Impl(Future(bool, Io)))(io.async(io => (d > i32(1))));
+_t :: (fn(opt : Option(i32), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    (hits : i32) = i32(0);
+    match(opt, .Some(d) => { if(e.io.await(_f(d, e.io), e.io), { hits = (hits + i32(10)); }); }, .None => ());
+    hits
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> { unwind(()); }));
+  b := IoExn(io : io, exn : exn);
+  a := io.await(_t(.Some(i32(5)), io), b);
+  c := io.await(_t(.Some(i32(0)), io), b);
+  d := io.await(_t(.None, io), b);
+  println(`a=${a} (10) c=${c} (100) d=${d} (0)`);
+});
+export(main);

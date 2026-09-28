@@ -1,0 +1,21 @@
+{ eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+main :: (fn(io : Io) -> unit)({
+  outer := io.async((io : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(runtime(i < i32(4)), {
+      f := io.async((io : Io) => {
+        io.await(yield(io), io);
+        i32(2)
+      });
+      r := io.await(f, io);
+      acc = (acc + r);
+      i = (i + i32(1));
+    });
+    acc
+  });
+  r := io.await(outer, io);
+  eprintln(`r=${r} (expect 8)`);
+});
+export(main);

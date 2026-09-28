@@ -30,3 +30,9 @@ Two defects on the self side:
 
 Repro: scratchpad fsprobe emit-diff (see the GATE 3 issue's method
 section).
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**FIXED.** `exists`' SM completion now drops the `path.to_string()` temp (an SM field), with no phantom Option fields. 10 calls under LSan: the seed shows only the 24 B continuation-pool leak, and the tree build is clean.
