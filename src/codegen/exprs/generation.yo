@@ -409,7 +409,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     .Some(jh) => {
       // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
       jh_base := jh.trim_end_matches("*").trim();
-      `__yo_new_${jh_base}(${spawn_var.clone()})`
+      `__yo_new_${jh_base}((void*)${spawn_var.clone()})`
     },
     .None => `(void*)${spawn_var.clone()}`
   )
