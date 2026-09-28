@@ -7121,6 +7121,31 @@ try_to_call_function_with_arguments :: (
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(v_evaled)),
             .Some(vinfo) => {
               caller_env_m = expr_info_adopt_env(vinfo);
+              // A unit expression has no C representation, and codegen emits
+              // NOTHING for one in an argument slot — `printf("%d\n", ())`
+              // reached the C compile as `printf("%d\n", )`. An extern's
+              // variadic slots have no declared type to catch this, so the
+              // check lives here (Yo-level quote/comptime variadics are
+              // exempt: they build Yo values, where a unit element is legal).
+              // The common arrival: a block tail followed by ";" yields unit
+              // by design, so an awaited task ending in `cond(...);` (rather
+              // than `return(...)`) hands its consumer a unit.
+              if(callee_is_extern, {
+                match(
+                  vinfo.ty,
+                  .Unit => {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(v_evaled),
+                          `A unit value cannot be passed as a variadic argument (a block tail followed by ";" yields unit — end the block with the value, or return(...))`
+                        )
+                      )
+                    );
+                  },
+                  _ => ()
+                );
+              });
             },
             .None => ()
           );
