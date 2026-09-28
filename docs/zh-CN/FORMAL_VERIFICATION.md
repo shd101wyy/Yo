@@ -329,6 +329,22 @@ refuted  fn@src/math.yo:8 [verify]
     fn@src/math.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
 ```
 
+### 由证明移除的守卫
+
+安全模式会给每个定长数组下标、整数除法和移位加上运行期守卫。当 `yo compile`
+构建一个 `verify` 或 `verify+` 入口文件时，义务已被证明的守卫会直接生成为裸运算，
+编译会报告 `verify: N guard(s) elided (proved safe)`。只有同时满足以下条件，守卫才会被移除：
+
+- 函数的结果是 `ok`（每条义务都已证明）；
+- 证明路径上没有运行期不检查的假设：没有入口检查的 `requires`（调用了 `ghost_fn`
+  的，或 `ghost_fn` 内部的任何 `requires`）、`refine` 参数，或被调用函数的 `ensures`；
+- 目标平台是 64 位。
+
+目前覆盖下标、无符号 `/` 与 `%`，以及移位，且只在入口文件中生效；有符号 `/`
+在 `MIN / -1` 情形也被证明之前仍保留守卫。没有求解器时什么都证明不了，因此什么也不移除。
+`--no-guard-elision` 保留所有守卫，`scripts/check-guard-elision.py` 检查每个被移除的守卫
+都有一条指明其位置的证明（plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md）。
+
 ## 可验证子集（当前状态）
 
 验证定义在一个随阶段增长的 Yo 子集上；使用了子集外构造的函数会得到

@@ -12,6 +12,10 @@ and checks three things:
    one of those removed guards, and the line counts match.
 3. Firing: a fixture whose header says `// expect-elided: N` has exactly N
    guards removed, and the compiler reported the same N.
+4. Twins, for a fixture that elides something: with `--target
+   wasm32-wasip1` (rule 4: no elision off 64-bit) and with no solver on a
+   cold cache (an empty `YO_CACHE_DIR`, no `YO_Z3_PATH`), both builds must
+   agree on the exit status and, when they compile, emit identical C.
 
 Usage: scripts/check-guard-elision.py [--bin yo] [FILE_OR_DIR ...]
 Default inputs: tests/spec/fixtures/elision/ and tests/spec/fixtures/valid/.
@@ -45,9 +49,9 @@ def guards(c_text):
     return out
 
 
-def compile_c(binary, src, out_base, extra):
+def compile_c(binary, src, out_base, extra, env=None):
     cmd = [binary, "compile", src, "--emit-c", "--skip-c-compiler", "-o", out_base] + extra
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     c_path = out_base + ".c"
     c_text = open(c_path).read() if (p.returncode == 0 and os.path.exists(c_path)) else None
     return p.returncode, c_text, p.stdout + p.stderr
@@ -109,7 +113,31 @@ def check(binary, src, work):
         fails.append(f"compiler reported {n_reported} elided, C lost {len(removed)} guard(s)")
     if header is not None and int(header.group(1)) != len(removed):
         fails.append(f"expected {header.group(1)} elided, got {len(removed)}")
+    if removed:
+        fails += twins(binary, src, work)
     return fails, f"{len(removed)} elided"
+
+
+def twins(binary, src, work):
+    """Rule 4 and the no-solver rule: these builds must elide nothing."""
+    fails = []
+    cold = os.path.join(work, "cold-cache")
+    os.mkdir(cold)
+    no_solver = {k: v for k, v in os.environ.items() if k != "YO_Z3_PATH"}
+    no_solver["YO_CACHE_DIR"] = cold
+    for name, extra, env in [
+        ("wasm32", ["--target", "wasm32-wasip1"], None),
+        ("no-solver", [], no_solver),
+    ]:
+        rc_a, c_a, log_a = compile_c(binary, src, os.path.join(work, name + "-elided"), extra, env)
+        rc_b, c_b, _ = compile_c(binary, src, os.path.join(work, name + "-reference"), extra + ["--no-guard-elision"], env)
+        if (rc_a == 0) != (rc_b == 0):
+            fails.append(f"{name}: only one variant compiled (elided rc {rc_a}, reference rc {rc_b})")
+        elif rc_a == 0 and c_a != c_b:
+            fails.append(f"{name}: the C differs from --no-guard-elision")
+        elif ELIDED_LINE.search(log_a):
+            fails.append(f"{name}: the compiler reported an elision")
+    return fails
 
 
 def main():
