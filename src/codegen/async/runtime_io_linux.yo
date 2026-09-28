@@ -1185,6 +1185,9 @@ static _Thread_local unsigned __yo_sq_unsubmitted = 0;
 static _Thread_local unsigned __yo_sq_deferred_head = 0;
 static _Thread_local __yo_io_future_t* __yo_sq_deferred_futures[__YO_IO_RING_ENTRIES];
 static struct __yo_uring_sqe* __yo_io_get_sqe(void);
+// The socket ops' inline attempt yields to a forming batch at this many
+// queued SQEs (see __yo_async_send_start).
+#define __YO_IO_INLINE_MAX_QUEUED 8u
 
 // I/O Future types - __yo_io_future_t is defined in types/generation.yo
 // It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
@@ -3682,7 +3685,14 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   // enter, the CQE, the resume — which is what made the ring lose the inline
   // ping-pong to epoll. Only a would-block send arms the ring op, and never
   // ahead of an earlier send still queued on the same socket.
-  if (!__yo_ring_fd_busy(sockfd, 1)) {
+  //
+  // Not while a real batch is forming, either (__YO_IO_INLINE_MAX_QUEUED
+  // SQEs already queued this tick): then the send rides the enter that
+  // submits them, and the kernel makes the same nonblocking attempt at
+  // submission — sixty-four connections sending in one tick cost one enter,
+  // not sixty-four send calls. A queue of one or two (a parked ping-pong's
+  // recv) does not count: batching behind it costs a second enter.
+  if (__yo_sq_unsubmitted < __YO_IO_INLINE_MAX_QUEUED && !__yo_ring_fd_busy(sockfd, 1)) {
     ssize_t r = __YO_SC(send(sockfd, buf, len, flags | MSG_DONTWAIT));
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
@@ -3729,9 +3739,11 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   // an earlier queued recv on the same socket (the inline one would take its
   // bytes), and for MSG_WAITALL, which MSG_DONTWAIT would cut short.
   // And skipped on a socket whose last inline recv would have blocked
-  // (__YO_RING_FD_RECV_PARKS): the ring's RECV makes the same nonblocking
-  // attempt inside the enter, so nothing is lost by going straight there.
-  if (!(flags & MSG_WAITALL) && !(__yo_ring_fd_flags(sockfd) & __YO_RING_FD_RECV_PARKS)
+  // (__YO_RING_FD_RECV_PARKS), or while a batch is forming (see there): the
+  // ring's RECV makes the same nonblocking attempt inside the enter, so
+  // nothing is lost by going straight there.
+  if (__yo_sq_unsubmitted < __YO_IO_INLINE_MAX_QUEUED && !(flags & MSG_WAITALL)
+      && !(__yo_ring_fd_flags(sockfd) & __YO_RING_FD_RECV_PARKS)
       && !__yo_ring_fd_busy(sockfd, 0)) {
     ssize_t r = __YO_SC(recv(sockfd, buf, len, flags | MSG_DONTWAIT));
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
