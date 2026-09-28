@@ -103,3 +103,99 @@ test("overload gate: other Windows std files are not", {
   );
   assert(!ok, "only prelude may define overload sets");
 });
+
+// ---------------------------------------------------------------------------
+// Class-1 governance (plans/SAFE_MODE.md §3 0c, §14 R7): the ban is a NAME
+// list, so a new or renamed Option/Result extraction that traps would be a
+// silent hole. `scan_class1_extractions` lists every Option/Result method whose
+// body reaches `__yo_panic`; the prelude test below fails on any UNGATED one.
+// `Result.expect_err` was exactly such a hole
+// (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
+// Assumes the runner's cwd is the repo root (how `yo test` and CI run).
+// ---------------------------------------------------------------------------
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+fs_file :: import("std/fs/file");
+{ scan_class1_extractions, Class1Extraction } :: import("../../src/public_safe_report.yo");
+_class1_status :: (fn(found : ArrayList(Class1Extraction), receiver : str, method : str) -> String)({
+  (i : usize) = usize(0);
+  while(i < found.len(), {
+    c := found(i);
+    if((c.receiver == receiver) && (c.method == method), {
+      return(c.status.clone());
+    });
+    i = (i + usize(1));
+  });
+  String.from("absent")
+});
+
+test("class-1 scan: gated, comptime, UNGATED and non-panicking methods", {
+  src :=
+    `impl(
+  generic(T : Type),
+  Option(T),
+  unwrap : (fn(self : Self) -> T)(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  ),
+  expect_some : (fn(self : Self) -> T)(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  ),
+  is_some : (fn(self : Self) -> bool)(
+    match(self, .Some(_) => true, .None => false)
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Comptime),
+  Option(T),
+  comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
+    match(self, .Some(v) => v, .None => __yo_panic("none"))
+  )
+);
+impl(
+  generic(T : Type),
+  Widget(T),
+  unwrap : (fn(self : Self) -> T)(__yo_panic("not an Option"))
+);
+`;
+  found := ArrayList(Class1Extraction).new();
+  scan_class1_extractions(String.from("fixture.yo"), src, found);
+  assert(found.len() == usize(3), "three panicking Option methods; Widget is not a class-1 receiver");
+  assert(_class1_status(found, "Option", "unwrap") == "gated", "unwrap is gated");
+  assert(_class1_status(found, "Option", "expect_some") == "UNGATED", "an unknown trapping extraction is UNGATED");
+  assert(_class1_status(found, "Option", "comptime_unwrap") == "comptime", "a comptime(self) method is comptime");
+  assert(_class1_status(found, "Option", "is_some") == "absent", "a method that cannot panic is not listed");
+});
+
+test("class-1 scan: every trapping Option/Result extraction in the prelude is gated", {
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`  unexpected io error: ${err}`);
+        assert(false, "reading std/prelude.yo failed");
+        unwind(());
+      }
+    )
+  );
+  src := io.await(fs_file.read_to_string(Path.new(String.from("std/prelude.yo")), io), IoExn(io : io, exn : exn));
+  found := ArrayList(Class1Extraction).new();
+  scan_class1_extractions(String.from("std/prelude.yo"), src, found);
+  (ungated : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < found.len(), {
+    c := found(i);
+    if(c.status == "UNGATED", {
+      println(`  UNGATED: ${c.receiver}.${c.method} (std/prelude.yo:${c.line})`);
+      ungated = (ungated + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  assert(ungated == usize(0), "a trapping Option/Result extraction is missing from is_class1_panic_method_name (see above)");
+  // The scan must SEE the known methods, or a zero above is vacuous.
+  assert(_class1_status(found, "Option", "unwrap") == "gated", "Option.unwrap found and gated");
+  assert(_class1_status(found, "Result", "unwrap_err") == "gated", "Result.unwrap_err found and gated");
+  assert(_class1_status(found, "Result", "expect_err") == "gated", "Result.expect_err found and gated");
+  assert(_class1_status(found, "Option", "comptime_unwrap") == "comptime", "Option.comptime_unwrap found as comptime");
+});

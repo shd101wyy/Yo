@@ -1385,7 +1385,7 @@ generate_async_block_constructor :: (
     em.emit_line("  sm->header.gc_prev = NULL;");
   });
   if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`  sm->header.dispose_fn = (void(*)(void*))${dispose_function_name.clone()};`);
+    em.emit_string_line(`  sm->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
     type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
     em.emit_string_line(`  sm->header.type_id = ${type_id.to_string()};`);
@@ -1422,7 +1422,7 @@ generate_async_block_constructor :: (
   });
   em.emit_line("");
   // Resume + set_effect fn pointers (lazy start at await/spawn).
-  em.emit_string_line(`  sm->__yo_resume_fn = (void(*)(void*))${resume_function_name.clone()};`);
+  em.emit_string_line(`  sm->__yo_resume_fn = ${resume_function_name.clone()};`);
   em.emit_string_line(`  sm->__yo_set_effect_fn = ${set_effect_function_name.clone()};`);
   em.emit_line("");
   em.emit_line("  return sm;");
@@ -2058,7 +2058,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Forward declarations.
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
   em.emit_declaration_line("");
-  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(${struct_name.clone()}* sm);`);
+  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
   em.emit_declaration_line("");
   em.emit_declaration_string_line(`void ${set_effect_function_name.clone()}(void* ptr, const char* field, void* value);`);
   em.emit_declaration_line("");
@@ -2985,7 +2985,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_prev = NULL;`);
   });
   if(context.base.needs_cycle_gc, {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = (void(*)(void*))${dispose_function_name.clone()};`);
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
     type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${type_id.to_string()};`);

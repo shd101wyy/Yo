@@ -1,0 +1,30 @@
+impl(
+  generic(T : Type),
+  Option(T),
+  unwrap : (fn(self : Self) -> T)(
+    match(
+      self,
+      .Some(v) => v,
+      .None => __yo_panic("none")
+    )
+  ),
+  expect_some : (fn(self : Self) -> T)(
+    match(
+      self,
+      .Some(v) => v,
+      .None => __yo_panic("none")
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Comptime),
+  Option(T),
+  comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
+    match(
+      self,
+      .Some(v) => v,
+      .None => __yo_panic("none")
+    )
+  )
+);

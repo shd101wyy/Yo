@@ -67,7 +67,7 @@ The principle: **anything that could let a user write UB is gated.** If the user
 
 ## The Optimistic Panic Vocabulary: `unwrap` Is Banned in Safe Code
 
-`.unwrap()`, `.expect(...)`, and `.unwrap_err()` on an `Option`/`Result` are **compile errors in safe files**. The receiver's type already says "this might fail"; the call throws that information away and aborts the program on the failure case. Handle the failure instead:
+`.unwrap()`, `.expect(...)`, `.unwrap_err()`, and `.expect_err(...)` on an `Option`/`Result` are **compile errors in safe files**. The receiver's type already says "this might fail"; the call throws that information away and aborts the program on the failure case. Handle the failure instead:
 
 ```rust
 // COMPILE ERROR — the None case is unhandled:

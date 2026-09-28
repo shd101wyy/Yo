@@ -2,7 +2,7 @@ $ yo public-safe-report .
 Public stdlib safety report
 ===========================
 
-Scanned 1 .yo file(s); 2 public top-level fn declaration(s) inspected.
+Scanned 2 .yo file(s); 2 public top-level fn declaration(s) inspected.
   raw-pointer leaks: 2
 
 Findings (file:line:col):
@@ -10,6 +10,14 @@ Findings (file:line:col):
   lib/api.yo:3:36: leaky return exposes *u8 — *u8
 
 These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract.
+
+Class-1 extraction methods (Option/Result methods that trap on the failure case):
+  lib/opt.yo:4: Option.unwrap — gated
+  lib/opt.yo:11: Option.expect_some — UNGATED
+  lib/opt.yo:23: Option.comptime_unwrap — comptime
+  ungated: 1
+
+An UNGATED method traps on the failure case its receiver's type already carries, and a safe file can call it. Add its name to is_class1_panic_method_name (src/evaluator/memory_safety.yo), or make it return the failure instead.
 rc=0
 $ yo public-safe-report . --json
 {
@@ -33,10 +41,34 @@ $ yo public-safe-report . --json
       "snippet": "*u8"
     }
   ],
+  "class1Extractions": [
+    {
+      "file": "lib/opt.yo",
+      "line": 4,
+      "receiver": "Option",
+      "method": "unwrap",
+      "status": "gated"
+    },
+    {
+      "file": "lib/opt.yo",
+      "line": 11,
+      "receiver": "Option",
+      "method": "expect_some",
+      "status": "UNGATED"
+    },
+    {
+      "file": "lib/opt.yo",
+      "line": 23,
+      "receiver": "Option",
+      "method": "comptime_unwrap",
+      "status": "comptime"
+    }
+  ],
   "totals": {
-    "filesScanned": 1,
+    "filesScanned": 2,
     "publicDeclsScanned": 2,
-    "findings": 2
+    "findings": 2,
+    "class1Ungated": 1
   }
 }
 rc=0

@@ -1659,7 +1659,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           if(context.needs_cycle_gc, {
             em.emit_string_line(String.from("  iso->header.gc_mark = __YO_GC_UNMARKED;"));
             em.emit_string_line(String.from("  iso->header.gc_flags = 0;"));
-            em.emit_string_line(`  iso->header.dispose_fn = (void(*)(void*))__yo_dispose_iso_${iso_name.clone()};`);
+            em.emit_string_line(`  iso->header.dispose_fn = __yo_dispose_iso_${iso_name.clone()};`);
           }, {
             tid := context.dispose_type_id_for(`__yo_dispose_iso_${iso_name.clone()}`);
             em.emit_string_line(`  iso->header.type_id = ${tid.to_string()};`);

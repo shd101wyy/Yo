@@ -1392,7 +1392,7 @@ jobs:
 
   # Seed auto-bump (plans/backlog/SEED_VERSION_AUTOMATION.md): once the
   # release is public with a complete bundle matrix, the just-published
-  # version becomes the new bootstrap seed in all three workflows, pushed
+  # version becomes the new bootstrap seed in all four workflows, pushed
   # DIRECTLY to develop with RELEASE_PAT and deliberately WITHOUT
   # [skip ci] — the push exercises the new seed on develop immediately, so
   # a bad seed is a visible red plus a one-line revert.
@@ -1429,17 +1429,17 @@ jobs:
             echo "SEED_VERSION is already ${new} — nothing to bump."
             exit 0
           fi
-          for f in test.yml release.yml fixpoint-arm64.yml; do
+          for f in test.yml release.yml fixpoint-arm64.yml ubsan.yml; do
             sed -i "s|^\([[:space:]]*SEED_VERSION:\) ${old}\$|\1 ${new}|" ".github/workflows/$f"
           done
           changed=$(git diff --name-only | wc -l)
-          if [ "$changed" -ne 3 ]; then
-            echo "::error::seed bump expected to touch exactly 3 workflows, touched ${changed} — did a pin move or diverge? Bump manually (see test.yml's SEED_VERSION comment)."
+          if [ "$changed" -ne 4 ]; then
+            echo "::error::seed bump expected to touch exactly 4 workflows, touched ${changed} — did a pin move or diverge? Bump manually (see test.yml's SEED_VERSION comment)."
             exit 1
           fi
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml
+          git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml .github/workflows/ubsan.yml
           git commit -m "ci: bump SEED_VERSION to ${new} (release-pipeline auto-bump)"
           git push || { echo "::error::Seed-bump push to develop failed — RELEASE_PAT must be fine-grained with Contents AND Workflows read/write (this push modifies .github/workflows/*, refused as GH013 without the workflow permission), and unexpired."; exit 1; }
           echo "SEED_VERSION ${old} -> ${new} pushed to develop."

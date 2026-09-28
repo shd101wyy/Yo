@@ -73,7 +73,7 @@ text := match(parsed,
 );
 ```
 
-`.unwrap()`, `.expect(...)` and `.unwrap_err()` are compile errors (E0611)
+`.unwrap()`, `.expect(...)`, `.unwrap_err()` and `.expect_err(...)` are compile errors (E0611)
 outside `*.test.yo` and `pragma(Pragma.AllowUnsafe)` files: the type already
 says the value can be missing, so handle that case with `match`,
 `unwrap_or` / `unwrap_or_else`, or by returning the Option/Result. At compile

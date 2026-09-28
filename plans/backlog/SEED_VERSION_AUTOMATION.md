@@ -7,7 +7,7 @@ lands.
 ## Problem
 
 `SEED_VERSION` (the previous-release bootstrap root) is hand-duplicated in
-THREE workflows — `test.yml`, `release.yml`, `fixpoint-arm64.yml` — each
+FOUR workflows — `test.yml`, `release.yml`, `fixpoint-arm64.yml`, `ubsan.yml` (added 2026-09-28) — each
 with a copy of the same justification comment. Divergence would silently
 split the trust chain (PRs validated against one seed, release artifacts
 built from another). Bumping is manual and lags: v0.2.14 is published but

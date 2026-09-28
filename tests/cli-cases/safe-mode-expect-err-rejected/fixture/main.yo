@@ -1,0 +1,16 @@
+{ println } :: import("std/fmt");
+
+parse :: (fn(ok : bool) -> Result(i32, i32))({
+  return(
+    cond(
+      ok => Result(i32, i32).Ok(i32(7)),
+      true => Result(i32, i32).Err(i32(3))
+    )
+  );
+});
+
+main :: (fn() -> unit)({
+  e := parse(false).expect_err("expected a failure");
+  println(`e=${e}`);
+});
+export(main);

@@ -21,6 +21,7 @@
 { FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
 { generate_atomic_gc_runtime_functions } :: import("../../src/codegen/functions/gc_runtime.yo");
 { generate_parallelism_runtime } :: import("../../src/codegen/parallelism/runtime.yo");
+{ dispose_fn_thunk } :: import("../../src/codegen/functions/constructors.yo");
 { assert, panic } :: import("std/assert");
 /// Build a fresh per-function generation context over an empty program,
 /// mirroring codegen_c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
@@ -157,4 +158,24 @@ test("every full-GC visitor tests TRACKED through the prefix before a full-heade
   assert_tracked_first(c, "static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {");
   assert_tracked_first(c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
   assert_tracked_first(c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
+});
+/// Pin: a cycle-GC `dispose_fn` slot holds a `void*` thunk, never the typed
+/// `___dispose` behind a cast. The runtime calls the slot as `void (*)(void*)`,
+/// and a typed function called that way is UB, which UBSan's
+/// `-fsanitize=function` aborts on at the first release
+/// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+test("a dispose_fn slot holds a void* thunk, emitted once per dispose function", {
+  ctx := mk_context(true);
+  first := dispose_fn_thunk(String.from("yo_id_7"), ctx);
+  second := dispose_fn_thunk(String.from("yo_id_7"), ctx);
+  other := dispose_fn_thunk(String.from("yo_id_8"), ctx);
+  assert(first == "__yo_dispose_thunk_yo_id_7", "the thunk is named after its dispose function");
+  assert(second == first, "a second request returns the same thunk");
+  assert(other == "__yo_dispose_thunk_yo_id_8", "each dispose function gets its own thunk");
+  em := ctx.base.emitter;
+  c := em.print();
+  thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
+  at := must_find(c, thunk, usize(0));
+  assert(match(c.index_of(thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
+  assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
 });

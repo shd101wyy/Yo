@@ -1,0 +1,96 @@
+name: UndefinedBehaviorSanitizer (language suite)
+
+# plans/SAFE_MODE.md D6 / §14 R6: the standing check of Promise A ("safe Yo
+# code cannot execute C-level undefined behavior"). Every language test runs
+# as a binary built with `--sanitize undefined`, which is
+# `-fsanitize=undefined -fno-sanitize-recover=all`: the first UB report aborts
+# the test with its source location.
+#
+# It includes clang's `-fsanitize=function` (C, clang >= 17), the class the
+# first acceptance run could not get past. Every RC dispose function, async
+# resume function and dyn vtable wrapper was called through a function-pointer
+# type it was not defined with
+# (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+#
+# SCHEDULED + dispatchable, like fixpoint-arm64.yml: it costs a stage-1 build
+# plus the whole suite, and the classes it guards regress rarely. It is NOT a
+# required status check. An unlisted job does not gate, and promoting it is a
+# manual branch-protection edit (AGENTS.md).
+#
+# No `paths:` filter, for the reason fixpoint-arm64.yml gives.
+
+on:
+  schedule:
+    # Weekly, Saturdays 05:23 UTC, off the fixpoint-arm64 slot.
+    - cron: "23 5 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: ubsan
+  cancel-in-progress: true
+
+env:
+  # THE FOURTH PIN, guarded by test.yml's `changes` job and bumped by
+  # release.yml's publish-release like the other three. Full rationale:
+  # test.yml's SEED_VERSION comment.
+  SEED_VERSION: v0.2.45
+  # See test.yml's APT_OPTS comment.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
+jobs:
+  ubsan:
+    name: UBSan (language suite, Linux/Clang)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # A stage-1 build does not fit a swapless 16 GB runner (test.yml's
+      # stage1 job carries the same step).
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 8G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+      - name: "Stage 1: build the compiler from this tree"
+        # --std-path ./std: see test.yml's stage1 job.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+      # A UBSan runtime that is missing or not linked would make every test
+      # pass vacuously. This probe must ABORT: an out-of-range shift that no
+      # safe-mode guard covers, written through C directly.
+      - name: Vacuity probe (the UBSan runtime must fire)
+        run: |
+          printf 'int main(int c, char** v) { (void)v; return 1 << (c + 40); }\n' > /tmp/ubsan-probe.c
+          clang -fsanitize=undefined -fno-sanitize-recover=all /tmp/ubsan-probe.c -o /tmp/ubsan-probe
+          if /tmp/ubsan-probe; then
+            echo "::error::the UBSan runtime did not fire on a known-UB shift; this job would pass vacuously"
+            exit 1
+          fi
+      # Both excludes are the fast suite's (AGENTS.md): tests/internal compiles
+      # the compiler ~60 times, and tests/cli-cases fixtures include a
+      # .test.yo harness input that MUST fail.
+      - name: Run the language suite under UBSan
+        env:
+          YO_MAIN_STACK_MB: "4096"
+          YO_STD: ${{ github.workspace }}/std
+          YO_TEST_SANITIZE: undefined
+          UBSAN_OPTIONS: print_stacktrace=1
+          # Leak verdicts come from the ASan legs; UBSan links no LSan.
+          YO_TEST_LEAK_VERDICT: "0"
+        run: /tmp/yo-stage1 test ./tests --exclude tests/internal --exclude tests/cli-cases --c-compiler clang --verbose

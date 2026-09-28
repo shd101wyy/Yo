@@ -416,19 +416,19 @@ static uint64_t __yo_statfs_ffree(void* buf) {
 // ============================================================================
 #include <signal.h>
 
-static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void (*__yo_signal_handlers[32])(uint8_t*) = {NULL};
 static void* __yo_signal_handler_data[32] = {NULL};
 
 static void __yo_signal_trampoline(int signum) {
   if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
-  __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+  __yo_signal_handlers[signum]((uint8_t*)__yo_signal_handler_data[signum]);
   }
 }
 
 static int32_t __yo_signal_start(int32_t signum, void* handler) {
   if (signum < 0 || signum >= 32) return -EINVAL;
   
-  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+  __yo_signal_handlers[signum] = (void (*)(uint8_t*))handler;
   
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
@@ -1386,7 +1386,7 @@ ${macos_entry}
 typedef struct __yo_fs_event_s {
   int fd;
   int watch_fd;
-  void (*callback)(const char*, int, void*);
+  void (*callback)(uint8_t*, int32_t, uint8_t*);
   void* user_data;
   int active;
 ${macos_fields}
@@ -1487,7 +1487,7 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
           __yo_fs_event_free_entries(handle->entries);
           handle->entries = NULL;
           if (handle->callback && handle->active) {
-            handle->callback("", 1, handle->user_data);
+            handle->callback((uint8_t*)"", 1, handle->user_data);
             emitted++;
           }
         }
@@ -1501,7 +1501,7 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
       // recreated non-empty directory also reports its entries as created.
       handle->exists = 1;
       if (handle->callback && handle->active) {
-        handle->callback("", 1, handle->user_data);
+        handle->callback((uint8_t*)"", 1, handle->user_data);
         emitted++;
       }
     }
@@ -1518,7 +1518,7 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
         ev = 2;
       }
       if (ev != 0 && handle->callback && handle->active) {
-        handle->callback(ne->name, ev, handle->user_data);
+        handle->callback((uint8_t*)ne->name, ev, handle->user_data);
         emitted++;
       }
       ne = ne->next;
@@ -1528,7 +1528,7 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     while (oe) {
       if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
         if (handle->callback && handle->active) {
-          handle->callback(oe->name, 1, handle->user_data);
+          handle->callback((uint8_t*)oe->name, 1, handle->user_data);
           emitted++;
         }
       }
@@ -1610,7 +1610,7 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     return -err;
   }
 
-  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->callback = (void (*)(uint8_t*, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
 
@@ -1705,7 +1705,7 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     return -err;
   }
 
-  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->callback = (void (*)(uint8_t*, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
 
@@ -1822,7 +1822,7 @@ static void __yo_fs_event_close(void* h) {
 typedef struct __yo_poll_s {
   int fd;
   int events;
-  void (*callback)(int, int, void*);
+  void (*callback)(int32_t, int32_t, uint8_t*);
   void* user_data;
   int active;
   struct __yo_poll_s* next;
@@ -1842,7 +1842,7 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
   if (!handle || !callback) return -EINVAL;
 
   handle->events = events;
-  handle->callback = (void (*)(int, int, void*))callback;
+  handle->callback = (void (*)(int32_t, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
 
@@ -1903,7 +1903,7 @@ static void __yo_poll_close(void* h) {
             }
             const char* name = (event->len > 0) ? event->name : "";
             if (fse->callback && fse->active) {
-              fse->callback(name, __yo_event, fse->user_data);
+              fse->callback((uint8_t*)name, __yo_event, fse->user_data);
               count++;
             }
             ptr += sizeof(struct inotify_event) + event->len;
@@ -1955,7 +1955,7 @@ static void __yo_poll_close(void* h) {
               const char* slash = strrchr(fse->path, '/');
               own = slash ? slash + 1 : fse->path;
             }
-            fse->callback(own, __yo_event, fse->user_data);
+            fse->callback((uint8_t*)own, __yo_event, fse->user_data);
             count++;
           }
         }

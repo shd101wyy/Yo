@@ -278,6 +278,9 @@ CodeGenContext :: ref(
     /// dispatch switch (deferred) reads the same map.
     dispose_type_ids : HashMap(String, usize),
     next_dispose_type_id : usize,
+    /// Cycle-GC `void*` dispose thunks already emitted, by thunk C name
+    /// (`dispose_fn_thunk`, functions/constructors.yo).
+    dispose_thunks : HashSet(String),
     /// C variable names actually emitted as declarations (recorded by
     /// get_variable_type_string, the choke-point for every `<Type> <name>`
     /// declaration). Read by generate_deferred_drop_expressions to skip a drop
@@ -382,6 +385,7 @@ impl(
       exported_function_labels : HashMap(String, String).new(),
       dispose_type_ids : HashMap(String, usize).new(),
       next_dispose_type_id : usize(1),
+      dispose_thunks : HashSet(String).new(),
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
