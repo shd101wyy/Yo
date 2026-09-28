@@ -1,5 +1,7 @@
 # Early `return` inside a nested arm emitted the scope-end drop of a LATER local through a same-named pattern variable
 
+**Severity:** S2 — an early return emits a later local's drop through a shadowing pattern name — C compile errors on valid code
+
 **Status: OPEN (2026-09-07). Not yet minimized — two direct reproduction attempts
 compile and run correctly; the shape below is the one that failed, verbatim from
 the branch's build log.** Worked around in `src/evaluator/effects/mutation_summary.yo`

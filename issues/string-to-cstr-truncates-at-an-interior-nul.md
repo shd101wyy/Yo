@@ -1,5 +1,7 @@
 # `String.to_cstr` silently truncates at an interior NUL, so fs/env/net calls target something other than what they were given
 
+**Severity:** S1 — `to_cstr` silently truncates at an interior NUL across 49 syscall sites — reads the wrong file, acts on attacker-chosen prefixes
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row
 (the row asks "should `Path.new` be fallible?"; it should not — but chasing the
 only genuinely invalid path input landed here). **Status**: OPEN.

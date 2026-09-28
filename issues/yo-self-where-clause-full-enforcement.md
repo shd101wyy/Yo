@@ -1,5 +1,7 @@
 # yo-self: full call-site where-clause enforcement blocked by trait-checker gaps
 
+**Severity:** S2 — where-clause bounds are under-enforced at call sites (marker-trait subset) — programs violating method-trait or SomeT-derived bounds can be accepted
+
 **Status:** partially implemented (marker-trait subset live since `7a67b961`); the
 remainder is blocked on two `type_implements_trait` gaps documented below.
 

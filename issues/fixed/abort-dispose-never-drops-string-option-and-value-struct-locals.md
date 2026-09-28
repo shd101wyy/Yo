@@ -1,5 +1,7 @@
 # On abort or unwind, a state machine never drops its String / Option / value-struct cross-boundary locals (leak)
 
+**Severity:** S1 — every abort/unwind of a task holding String/Option/value-struct locals leaks them — unbounded leak in generated code
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom

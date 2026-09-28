@@ -1,5 +1,7 @@
 # `std/encoding/percent.yo` fails `yo check` on its own — `str.to_string()` with no `std/fmt` import
 
+**Severity:** S2 — a valid unmodified module fails `yo check` standalone — its `to_string` impl lives outside its import closure
+
 **Status:** open, and **PRE-EXISTING on `develop`** (verified against HEAD, see
 below). Found while writing `///` docs for `std/encoding/percent.yo` (the
 2026-09-11 std doc sweep). Documentation-only PR — filed, not fixed.

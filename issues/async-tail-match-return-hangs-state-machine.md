@@ -1,5 +1,7 @@
 # A `match` arm with a mid-body `return(...)` at an async body's TAIL hangs the state machine
 
+**Severity:** S1 — a mid-body `return` in a tail match makes the state machine hang forever at runtime, even off the arm
+
 **Found**: 2026-08-28 adding the walk-pattern filter to `std/fs/walker.yo`
 (branch `p1/glob-expansion`). **Status**: OPEN — std avoids the shape (the
 filter moved into a sync helper called as the tail expression); the shape

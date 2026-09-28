@@ -1,5 +1,7 @@
 # A body-less HTTP response reaches the socket and the client's read never completes — Linux and macOS, timing-dependent
 
+**Severity:** S1 — inner io.async completes but the parent continuation never fires, so a served response stalls the task to its deadline and is misreported as Timeout
+
 **Found**: 2026-09-11, by the server-side checkpoints added to
 `tests/http/http.test.yo` for #556. **Class**: a lost wake-up in the async
 runtime, visible as a ten-second `HttpError.Timeout` on an exchange that

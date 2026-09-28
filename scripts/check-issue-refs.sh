@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Two assertions over issues/:
-#   1. no doc exists in more than one of root/, fixed/, retired/
+# Three assertions over issues/:
+#   1. no doc exists in more than one of root/, fixed/, retired/, questions/
 #   2. every cited issues/** path resolves
+#   3. root docs carry a **Severity:** verdict; questions/ docs a Recommendation
 #
 # CHECK 2 -- references to issues/**.md that do not resolve.
 #
@@ -30,7 +31,8 @@ cd "$(dirname "$0")/.."
 fail=0
 
 # ---------------------------------------------------------------------------
-# CHECK 1: no doc exists in more than one of root/, fixed/, retired/.
+# CHECK 1: no doc exists in more than one of root/, fixed/, retired/,
+# questions/.
 #
 # A resolves/doesn't-resolve check is BLIND to this: both paths resolve, and
 # the tree simply lies about the open count. Found 2026-09-14 with three docs
@@ -45,7 +47,7 @@ fail=0
 for f in issues/*.md; do
   b=$(basename "$f")
   [ "$b" = "README.md" ] || [ "$b" = "TRIAGE.md" ] && continue
-  for d in fixed retired; do
+  for d in fixed retired questions; do
     if [ -f "issues/$d/$b" ]; then
       printf 'DUPLICATE: %s exists in BOTH issues/ and issues/%s/\n' "$b" "$d"
       printf '    the open count is wrong until one copy is removed; compare them before deleting\n'
@@ -84,16 +86,50 @@ for f in issues/fixed/*.md; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# CHECK 3: every open bug doc carries a Severity verdict, and every doc under
+# questions/ carries a Recommendation.
+#
+# Severity is the triage vocabulary defined in issues/README.md (S1 trust of
+# output, S2 bounded functional defect, S3 quality). A root doc without one
+# cannot be sorted against the rest of the pile, so "what to fix first" has to
+# be re-derived from prose by every reader. Added 2026-09-28 together with
+# the initial severity pass over every then-open doc.
+#
+# questions/ docs are design decisions, not defects: they carry no Severity,
+# but each must carry a ## Recommendation section so the queue is always in a
+# decidable state rather than an open-ended list of options.
+# ---------------------------------------------------------------------------
+for f in issues/*.md; do
+  b=$(basename "$f")
+  [ "$b" = "README.md" ] || [ "$b" = "TRIAGE.md" ] && continue
+  if ! grep -qE '^\*\*Severity:\*\* S[123]' "$f"; then
+    printf '%s: open bug doc with no **Severity:** S1|S2|S3 line (scale: issues/README.md)\n' "$f"
+    fail=1
+  fi
+done
+for f in issues/questions/*.md; do
+  [ -f "$f" ] || continue
+  if ! grep -q '^## Recommendation' "$f"; then
+    printf '%s: design question with no ## Recommendation section (state a position for the maintainer)\n' "$f"
+    fail=1
+  fi
+  if grep -qE '^\*\*Severity:\*\* S[123]' "$f"; then
+    printf '%s: questions/ doc carries a Severity line — design decisions are not bugs; drop it\n' "$f"
+    fail=1
+  fi
+done
+
 while IFS= read -r hit; do
   file=${hit%%:*}; rest=${hit#*:}; line=${rest%%:*}; text=${rest#*:}
   # case 3 heuristic: a quoted shell command naming the path
   case "$text" in *"git mv"*|*"grep -rn"*|*"ls issues"*) continue;; esac
-  for p in $(printf '%s\n' "$text" | grep -ohE "issues/(fixed/|retired/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)"); do
+  for p in $(printf '%s\n' "$text" | grep -ohE "issues/(fixed/|retired/|questions/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)"); do
     [ -e "$p" ] && continue
     printf '%s:%s: does not resolve -> %s\n    %s\n' "$file" "$line" "$p" "$(printf '%s' "$text" | sed 's/^[[:space:]]*//' | cut -c1-100)"
     fail=1
   done
-done < <(grep -rnE "issues/(fixed/|retired/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)" \
+done < <(grep -rnE "issues/(fixed/|retired/|questions/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)" \
            --exclude-dir=.git --exclude-dir=yo-out --exclude-dir=node_modules . 2>/dev/null)
-if [ $fail -eq 0 ]; then echo "issues/: no duplicated docs, and all cited paths resolve"; fi
+if [ $fail -eq 0 ]; then echo "issues/: no duplicated docs, all cited paths resolve, every open doc triaged"; fi
 exit $fail

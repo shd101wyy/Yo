@@ -15,6 +15,10 @@
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
 { default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous, verify_outcome_names, is_verify_outcome_name, verify_report_is_failure, verify_report_is_degraded, summarize_verify_reports, verify_summary_count } :: import("../../src/verifier/driver.yo");
 { display_module_path, canonical_module_path } :: import("../../src/utils.yo");
+{ _pointer_width } :: import("../../src/verifier/vc.yo");
+{ run_vc_query, verify_cache_dir } :: import("../../src/verifier/driver.yo");
+{ _z3_exists_sync } :: import("../../src/verifier/z3.yo");
+{ set_current_target, parse_target, host_target } :: import("../../src/target.yo");
 { cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
 // Small term-construction helpers (shared by the golden tests below)
@@ -553,4 +557,61 @@ test("summarize_verify_reports: counts, vacuous, queries and cache hits", {
   assert(sum.queries == usize(3), "three obligations went through the pipeline");
   assert(sum.cached == usize(2), "two of them came from the cache");
   assert(verify_summary_count(sum, String.from("nonsense")) == usize(0), "an unknown outcome name counts zero");
+});
+
+// ---------------------------------------------------------------------------
+// 5b Phase 0 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §2.5–2.6)
+// ---------------------------------------------------------------------------
+test("usize/isize width follows the compilation target (32 on wasm32)", {
+  // The codegen guards test `usize` against the TARGET's width, so a proof
+  // over 64 bits does not discharge wasm32's 32-bit guard.
+  match(
+    parse_target(String.from("wasm32-wasip1")),
+    .Ok(t) => {
+      set_current_target(t);
+      assert(_pointer_width() == usize(32), "wasm32 usize is 32 bits");
+    },
+    .Err(e) => {
+      assert(false, `parse_target(wasm32-wasip1) failed: ${e}`);
+    }
+  );
+  set_current_target(host_target());
+  assert(_pointer_width() == usize(host_target().pointer_size_bits), "the host width is restored");
+});
+/// A query no other test runs: its default-budget key must stay unused.
+_budget_query :: (fn() -> VcQuery)({
+  q := new_vc_query(String.from("budget-isolation"));
+  q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
+  q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(5)), _bv32_lit(u64(5)))));
+  q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(10)));
+  q
+});
+test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_TEST_Z3=1)", {
+  if(match(env.get(String.from("YO_TEST_Z3")), .Some(v) => (v != "1"), .None => true), {
+    return(());
+  });
+  base := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(base),
+    .Resolved(path) => path,
+    _ => {
+      assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3");
+      String.new()
+    }
+  );
+  cfg := default_verify_run_config();
+  cfg.encode_opts.rlimit = usize(7777777);
+  q := _budget_query();
+  r := run_vc_query(q, cfg, binary);
+  match(
+    r.verdict,
+    .Proved(_) => (),
+    _ => {
+      assert(false, "5 + 5 == 10 proves");
+    }
+  );
+  own := `${verify_cache_dir()}/${verify_cache_key(q, cfg)}.json`;
+  default_slot := `${verify_cache_dir()}/${verify_cache_key(q, base)}.json`;
+  assert(_z3_exists_sync(own), "the verdict is cached under the run's own budget");
+  assert(!_z3_exists_sync(default_slot), "and NOT under the default budget's key, where a default run would reuse it");
 });

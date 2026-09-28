@@ -101,17 +101,14 @@ did not:
 | #971 | arm windows construct-local; codegen-only tables skipped in `check`/`verify`/`doc`/`lsp` (plan §0.21) | stage-1 max RSS −33.9 MB (−2.8 %) |
 | #972 | `Token` positions are `u32`, 80 → 64 B (plan §0.22); census `HOLDER_DUPSTR` (§0.23) | stage-1 max RSS −30.1 MB (−2.5 %) |
 | #973 | an awaited `match` scrutinee and hoisted state-machine locals are released at completion | 52 more LeakSanitizer failures fixed; `async_await.test.yo` 160/60 → 212/11 |
+| #979 | node strings interned (dot/number tokens, fixed punctuation, desugar keywords); function-id registries share the id handle (plan §0.23) | stage-1 max RSS 1,146,640 → 1,107,468 kB (−3.4 %) |
+| #980 (peer) | fixes #973: an early `return` of a hoisted state-machine local read the field after the completion drop zeroed it (stage-2 `yo install` segfault on a cold cache). **#973's local gates never ran `install`.** | — |
 
 Release v0.2.45 is published and is the seed.
 
 ## 2. In flight
 
-Branch `mem/intern-node-strings` (plan §0.23):
-- the lexer interns dot and number tokens and shares fixed punctuation;
-- desugar keywords are interned;
-- function-id registries share the id handle.
-
-Stage-1 max RSS: 1,146,640 → 1,107,468 kB (−3.4 %).
+Nothing. `mem/lsp-type-registry-purge` is parked, not to be merged (§3.5, Phase 1 step 3).
 
 ## 3. Remaining work, ranked by the §0.19 census
 
@@ -233,9 +230,14 @@ class on mimalloc). The edit is big but mechanical.
 - **Phase 1 step 2**: CLOSED 2026-09-28 (plan text). `ModuleWalk.ctx` is an
   `Option`, and `_force_pending_def_impl` turns forcing a released walk into
   an internal error, so every green one-shot gate proves the invariant.
-- **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
-  plateau gate still fails:
-  `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+- **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24.
+  Plateau on stage-2, 2026-09-28: editing leaf documents is flat (196 → 231 MB
+  over 4 rounds). Editing std modules the cached prelude imports still grows
+  ~19 MB a round, led by `g_struct_finals`. An owner purge of the type-id
+  registries was tried and rejected because it was slower and fatter: the
+  prelude keeps the old generation alive
+  (`issues/lsp-memory-grows-per-open-edit-close-round.md`). Measure on
+  stage-2 only; seed-built binaries show the seed's leaks.
 - **Phase 1 step 5**: the table is written (plan §0.20,
   `scripts/bootstrap/registry_table.py`). Its four levers (plan §0.21):
   1. LANDED (branch `mem/arm-ranges-local`): the codegen-only tables are
@@ -245,7 +247,8 @@ class on mimalloc). The edit is big but mechanical.
   2. NOT TAKEN: the branch-init log's indices are held across nested
      evaluations and ~40 catch sites. §0.21 has the sound design (about
      16 MB).
-  3. Open: owner-purging the per-module registries the LSP purge misses.
+  3. Tried 2026-09-28 for the type-id registries and rejected (see Phase 1
+     step 3 above). The prelude-imported std modules need a different design.
   4. Folded into §3.2: `check` runs the verifier too, so the cost is the
      duplicated id strings, not the recording.
 - **Phase 5b**: `Symbol`, interned identifier strings (feeds §3.2 and §3.4).
@@ -256,9 +259,28 @@ class on mimalloc). The edit is big but mechanical.
 - The cycle collector costs about 2 % of `check src/main.yo` wall time and
   reclaims nothing measurable. `YO_GC_THRESHOLD=0` gives 251 s instead of
   256 s at identical RSS. The runtime comment on `YO_GC_THRESHOLD` already
-  suggests disabling it for the compiler. It needs a measurement on
-  `compile` and on the LSP, where cycles may matter, before any default
-  changes.
+  suggests disabling it for the compiler. Measured 2026-09-28 (stage-2 of
+  `59ef41250`); NOT established:
+  - `YO_GC_THRESHOLD=0` turns off only the incremental (Bacon-Rajan)
+    trigger. The allocation-driven full-heap scans (2× live) still run;
+    `YO_GC_FULL_PCT=100000` turns those off.
+  - `compile src/main.yo --skip-c-compiler`, one run each: user 375.9 →
+    369.4 s, max RSS 3,245 → 3,248 MB, emitted C byte-identical.
+  - LSP plateau (10 std files × 6 rounds): 230.3 vs 230.5 MB, same round
+    times. The collector reclaims nothing measurable.
+  - `check src/main.yo`, default / incremental off / both off, user seconds:
+    - forward order: 218 / 265 / 284;
+    - reverse order, with the load average rising from 2 to 20: 613 / 414 /
+      477.
+
+    Whichever run came later was slower. On a shared box the noise is
+    about ±30 %, which swamps a ~2 % lever.
+
+  Next step: an instruction count (cachegrind on a smaller input, or an
+  idle machine), with the incremental and full triggers measured
+  separately. A switch would need a runtime entry, because the env knob is
+  read before `main` runs. It is also seed-gated: `src/main.yo` can call it
+  only once a release carries it.
 - `__yo_decr_rc` is 19 % of all instructions in `check`, and one `__yo_fs_…`
   function is 9.5 % (callgrind, §0.19). Name that function with
   `YO_DEBUG_FN_ORIGIN=1` before optimizing anything.

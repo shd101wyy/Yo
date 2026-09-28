@@ -1,5 +1,7 @@
 # `io.async`'s sync-future emitter returns a C COMMENT in `return` position and leaves its future struct forward-declared but never defined
 
+**Severity:** S3 — the failing sync-future emitter returns a `/* Error */` C comment — seven clang errors instead of a Yo diagnostic
+
 **Status:** OPEN
 **Severity:** papercut in its observed face — the build fails loudly, but with
 seven clang errors that name compiler temporaries instead of the source mistake,

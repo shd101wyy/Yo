@@ -1,5 +1,7 @@
 # Emitted C flipped between modes ONCE under extreme load — unexplained (Z3 ruled out)
 
+**Severity:** S3 — emitted C differed byte-wise once in ~8 runs under extreme load — reproducibility unproven, mechanism unexplained
+
 > Found 2026-09-10 while gating the fixed-region allocator PR locally on
 > Windows. **OPEN — the mechanism is not identified.** The original Z3 theory
 > was DISPROVEN while investigating; the corrected evidence is below so the

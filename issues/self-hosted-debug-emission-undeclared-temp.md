@@ -1,5 +1,7 @@
 # Self-hosted DEBUG-mode emission of the compiler produces undeclared temps
 
+**Severity:** S2 — -O0 emission assigns to never-declared temps — valid large programs fail C compilation
+
 **Status: OPEN** (found 2026-08-10 by P2.2's first `yo build` self-build).
 Not on the P2 critical path — the canonical self-build compiles at
 `--release`, which is clean (stage-2/stage-3 fixpoint holds) — but debug

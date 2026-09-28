@@ -1,5 +1,7 @@
 # A literal backslash immediately before `${…}` in a template string eats the backslash AND silently disables interpolation
 
+**Severity:** S1 — a `\\` immediately before `${...}` silently produces literal `${n}` text — wrong string content, no diagnostic
+
 **Status: OPEN.** Found 2026-08-25 while writing `RegexError`'s `ToString`
 messages for `std/regex` (STD_API_AUDIT D8). Silent wrong output — no error, no
 warning; the message shipped as `backreference '${group}' exceeds …` instead of

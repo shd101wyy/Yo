@@ -1,5 +1,7 @@
 # An async state machine cannot carry a fn-typed local across a suspension point
 
+**Severity:** S2 — fn-typed local across a suspension point emits an undeclared identifier — C compile failure (once broke self-compile)
+
 OPEN (2026-09-16). Surfaced by §7 step 2 of
 plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md (in-process watch compiles):
 `run_build`'s async body read a global `Option(InProcessCompileFn)` (a

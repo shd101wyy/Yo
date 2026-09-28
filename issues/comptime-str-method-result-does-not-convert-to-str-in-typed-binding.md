@@ -1,5 +1,7 @@
 # A comptime_str METHOD RESULT does not convert to `str` in a typed binding — a `::`-bound value does
 
+**Severity:** S2 — comptime method result rejected in a typed `str` binding ("Cannot unify comptime_str and str")
+
 Found while writing the D4 PR 7 comptime-basis tests (2026-08-26). Not a D4
 regression — the same shapes behave identically before and after the basis
 flip; this is about the comptime→runtime conversion, not the index basis.

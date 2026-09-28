@@ -1,8 +1,10 @@
 # `if(io.await(…), …)` inside a `match` arm is rejected with E0904 although the await IS the first condition
 
+**Severity:** S2 — an `if(await(...))` whose await IS the first condition is wrongly rejected with a misleading E0904 when the `if` sits inside a match arm
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`), while re-checking
-`issues/yoself-accepts-await-in-cond-that-ts-rejects.md`. Tree build of
+`issues/questions/yoself-accepts-await-in-cond-that-ts-rejects.md`. Tree build of
 develop `af62bdb28`.
 
 ## Symptom

@@ -1,5 +1,7 @@
 # `asm()` ships none of the target/register validation its manual promises — wasm silently aborts at run time, MSVC and every non-x86 register emit uncompilable C
 
+**Severity:** S2 — documented asm validations absent: wasm compiles then aborts at runtime, MSVC gets `__asm__`, register names unvalidated
+
 **Found**: 2026-09-04, by the std-API audit re-measurement, while checking
 whether `asm("", in(reg, x))` (Rust's `black_box`) is a portable mechanism for
 `std/testing/bench`. **Class**: api-lie — four separate claims in

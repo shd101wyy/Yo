@@ -1,5 +1,7 @@
 # A non-`Send` closure that reads a global marks it "reached by another thread", so a later write is rejected
 
+**Severity:** S2 — a valid global-reading non-Send async closure is wrongly rejected — an E0610 on an unrelated `JoinHandle.await` while the real D1 error is swallowed
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit, while
 re-verifying the open async issues (tree build of develop `af62bdb28`).
 

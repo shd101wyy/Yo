@@ -1,5 +1,7 @@
 # S3 fs wrappers on Windows: hard child crash + no Windows-semantics story
 
+**Severity:** S3 — fs/process/net wrappers unverified on Windows; `fs_file.copy` crashes the test child outright
+
 **Found**: 2026-08-27, PR #309 run 4 — both Windows test legs died at
 `tests/fs/fs_convenience.test.yo`'s S3-wrapper section with the RUNNER
 reporting `yo: error: unknown I/O error` (the test child dies hard mid-run,

@@ -1,5 +1,7 @@
 # `vendor/markdown_yo` defines and exports a shared UTF-8 codec with zero callers while six files open-code the same thing
 
+**Severity:** S3 — the exported shared UTF-8 codec has zero callers while six open-coded copies drift — the dedup that would have prevented the over-read
+
 **Status:** OPEN (upstream — `vendor/markdown_yo`, submodule pinned
 `9f9340f606572f049f8d568a47ef55af525cfd5d`, `v0.0.4-8-g9f9340f`). Found
 2026-09-04 during the std-API-audit re-measurement of the D4 PR 9 row.

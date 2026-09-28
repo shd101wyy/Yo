@@ -1,5 +1,7 @@
 # The live TLS/HTTP tests turn a runner DNS outage into a red battery
 
+**Severity:** S3 — live TLS tests gate on `CI` alone — a runner DNS outage blocks the merge queue with ~80-minute reruns
+
 **Status:** open — **THREE occurrences in one day; now repeatedly blocking the merge queue**
 **Found:** 2026-09-15, on PR #695 and PR #692 simultaneously; again on PR #697
 

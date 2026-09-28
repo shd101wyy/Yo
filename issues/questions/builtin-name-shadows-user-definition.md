@@ -1,5 +1,7 @@
 # Builtin names silently shadow same-named user definitions (OPEN-DESIGN)
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **PRODUCTION CASUALTY (2026-08-30):** a local named `short` in
 `src/version_cache.yo`'s `download_version` resolved to the prelude C-interop
 integer type inside a template interpolation; the def-eval failure was
@@ -76,3 +78,17 @@ resolution), or declaring a binding whose name collides with an in-scope
 type/builtin is REJECTED with a diagnostic that says so. The silent
 middle — declaration legal, use broken — is the worst option and is what
 ships today.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Land option 3 (a shadowing diagnostic) immediately — it is release-gating per
+the casualty banner above and changes no semantics. Then adopt option 2 (resolve
+identifiers env-first, builtins as fallback) as the target rule: it matches user
+intuition and Rust's precedent (user scope shadows prelude names), and the only
+obstacle is the prelude audit the doc names. Treat option 1 (reserve the names)
+as the fallback if that audit finds builtin-first dispatch load-bearing in the
+prelude. The third face (a local shadowing an in-scope type name as a method
+receiver) should follow the same decision — env-first fixes it; until then the
+diagnostic must name the collision, which today's error does not.

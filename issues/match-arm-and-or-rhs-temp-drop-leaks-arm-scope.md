@@ -1,5 +1,7 @@
 # A `&&` right operand inside a non-begin match arm leaks its temp's drop out of the arm's C scope
 
+**Severity:** S2 — a `&&`-RHS temp's drop is emitted outside its C scope — undeclared-identifier error on valid code
+
 ## Status
 
 **OPEN** — root cause fully mapped, three fix designs built and rejected (each

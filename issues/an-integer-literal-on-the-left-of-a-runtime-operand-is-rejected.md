@@ -1,5 +1,7 @@
 # An integer literal on the LEFT of a runtime operand is rejected
 
+**Severity:** S2 — valid `0..n` / `3 == n` forms rejected with diagnostics naming a phantom compile-time parameter
+
 **Status:** OPEN
 **Found:** 2026-09-19, during the LLM authoring audit
 (`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.4)

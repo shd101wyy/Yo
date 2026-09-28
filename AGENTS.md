@@ -68,7 +68,7 @@ Building it needs an existing `yo`: a **seed release** (the previous published v
 | `tests/cli-cases/`, `scripts/cli-diff-test.sh` | CLI subcommand goldens: each case runs in a sandbox (own project dir, own `HOME`) comparing rc + stdout + trees; `--record` writes goldens |
 | `scripts/bootstrap/`              | Gate batteries: `gates_fast.sh`, `fixpoint_only.sh`, `hollow_sweep69.sh`, `known-failing.tsv`                                                        |
 | `plans/`                          | Design docs. Root = active, `reference/` = landed decisions (authoritative), `backlog/` = written-not-started, `archive/` = closed. Index: `plans/README.md`; roadmap: `plans/ROADMAP.md` |
-| `issues/`                         | Root = open bugs; `fixed/`, `retired/`, `repros/`, `patches/` (see `issues/README.md`)                                                               |
+| `issues/`                         | Root = open bugs, each with a `**Severity:**` line; `questions/` = design decisions awaiting a verdict; `fixed/`, `retired/`, `repros/`, `patches/` (see `issues/README.md`)                                          |
 | `docs/en-US/`, `docs/zh-CN/`      | User docs, always in both languages                                                                                                                  |
 
 ### Design decisions you must know before writing Yo
@@ -181,11 +181,11 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
 - Do not create new `.yo` files unless told to.
-- Never skip a bug discovered during implementation. Every bug gets an `issues/` entry and a test that fails before the fix and passes after, added to `tests/`.
+- Never skip a bug discovered during implementation. Every bug gets an `issues/` entry carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
 - **Run `yo fmt <file.yo>` on every `.yo` file you create or modify** (`yo fmt --check` verifies). There is no pre-commit hook.
 - Review `git diff` before considering work done: leftover debug code, unused imports, consistency across files.
 - After any change, check whether instruction files (`.github/instructions/`), skill files (`.github/skills/`), plans or docs need updating. **Whenever you learn something about Yo syntax, semantics or pitfalls by trial and error, update the cheatsheets and instruction files immediately.**
-- Plans go in `plans/` (taxonomy in `plans/README.md`); bugs in `issues/` (taxonomy in `issues/README.md`). Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. Use ` ```rust ` for Yo code blocks in Markdown.
+- Plans go in `plans/` (taxonomy in `plans/README.md`); bugs in `issues/` with a severity; design questions in `issues/questions/` (taxonomy in `issues/README.md`). Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. Use ` ```rust ` for Yo code blocks in Markdown.
 - There is no JavaScript runtime at the repo root. The one exception is `vscode-extension/`, a deliberate npm-only island (`npm ci`, `npm run package`).
 - If you have not modified code, do not re-run commands.
 
@@ -281,7 +281,7 @@ The format (modeled on v0.2.38 — read it with `gh release view v0.2.38 --json 
 
 ## Debugging codegen / C compilation issues
 
-1. Document the issue in `issues/<name>.md`: the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
+1. Document the issue in `issues/<name>.md` with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
 2. Fix the codegen in `src/codegen/`.
 3. Verify: the repro compiles, the full project's error count decreases.
 4. Move the doc to `issues/fixed/` and commit.

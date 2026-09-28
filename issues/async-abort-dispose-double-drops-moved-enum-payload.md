@@ -1,5 +1,7 @@
 # Async abort-dispose double-drops: moved-into-dyn payloads (open) and awaitless-match bindings (FIXED)
 
+**Severity:** S1 — abort-dispose double-frees a moved enum payload (ASan-confirmed heap-use-after-free)
+
 **Status: the binding pair is FIXED in TS (2026-08-11); the move-out pair
 remains band-aided by a call-site clone.** Found by the new
 `tests/internal/version.test.yo` "read_yo_version: throws on invalid

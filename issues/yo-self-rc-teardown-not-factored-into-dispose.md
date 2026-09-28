@@ -1,5 +1,7 @@
 # yo-self emits 1.55x the C bytes of TS — RC teardown is inlined, never factored into `___dispose` functions (OPEN)
 
+**Severity:** S3 — RC teardown is inlined at every drop site instead of factored into dispose — 1.55× C bytes, +13% binaries (perf, not correctness)
+
 **Measured 2026-08-05** on the same input (`yo-self/main.yo`, `--release --emit-c`),
 comparing the TS-emitted stage-1 C against the yo-self-emitted stage-2 C.
 

@@ -1,5 +1,7 @@
 # A `Failed to transpile` marker in a LIVE closure falls off a value-returning C function
 
+**Severity:** S1 — failed-transpile statements are silently dropped from live closures — programs run with missing side effects
+
 **Status: PARTIALLY FIXED — still OPEN for the `unit`-returning case.**
 
 The half described below, where the enclosing C function RETURNS A VALUE, is

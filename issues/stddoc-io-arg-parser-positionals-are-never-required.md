@@ -1,5 +1,7 @@
 # `add_positional` marks an argument required and `parse` never checks; and there is no `--` separator
 
+**Severity:** S2 — a missing "required" positional parses `.Ok`, and without a `--` separator a `-5` value is unusable
+
 Found during the `std/` `///` doc sweep while documenting
 `std/cli/arg_parser.yo`. **Not fixed.** Two defects in the same scan loop, both
 about which argument shapes `parse` accepts.

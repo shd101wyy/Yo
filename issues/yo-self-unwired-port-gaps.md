@@ -6,6 +6,8 @@
 
 # yo-self: three PORT GAPS found by import-closure comparison (1 FIXED, 2 OPEN)
 
+**Severity:** S3 — the fully-ported build_runner and version_cache modules are unwired — the self-hosted CLI lacks `yo build`/version while compile/check/test/fmt work
+
 **Found:** 2026-08-05, by classifying every `.yo` file under `yo-self/` by its
 import closure from `main.yo`, then asking the discriminating question: **is the
 TypeScript counterpart also unused?**

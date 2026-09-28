@@ -1,5 +1,7 @@
 # The Windows dir-state mutex is re-initialized and deleted per loop, but the list it guards is process-global
 
+**Severity:** S1 — per-loop init/delete of the lock guarding a process-global dir-state list — use-after-free, crashes, or silent list corruption under concurrent loops
+
 Status: OPEN (found by the 2026-09-28 Windows async-I/O audit; pre-existing
 since the dir-state registry landed).
 

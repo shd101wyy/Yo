@@ -1,5 +1,7 @@
 # `io.await` placement rules (E0904) are enforced only in codegen: `yo check` and the LSP accept the program
 
+**Severity:** S2 — `check` and the LSP report clean what codegen rejects with E0904 — the await-placement rule surfaces only in a ~3-minute compile
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
@@ -28,7 +30,7 @@ The repro is `if(!(e.await(_b(e), e)), { return(i32(1)); })` inside
 - AGENTS.md already works around it: "async state-machine rules are enforced
   in codegen, so gate those with `yo compile src/main.yo --skip-c-compiler`".
   That rule costs about 3 minutes per check of the compiler tree.
-- `issues/yoself-accepts-await-in-cond-that-ts-rejects.md` is a related
+- `issues/questions/yoself-accepts-await-in-cond-that-ts-rejects.md` is a related
   earlier symptom of the same split (the rule's location decided which
   compiler rejected the program).
 

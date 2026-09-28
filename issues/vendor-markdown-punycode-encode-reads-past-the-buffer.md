@@ -1,5 +1,7 @@
 # `vendor/markdown_yo`'s `punycode_encode` reads up to 3 bytes past its buffer — a heap over-read reachable from ordinary ASCII markdown
 
+**Severity:** S1 — `punycode_encode` reads past its heap buffer from plain ASCII markdown — the over-read bytes land in the rendered HTML
+
 **Status:** OPEN (upstream — `vendor/markdown_yo`, submodule pinned
 `9f9340f606572f049f8d568a47ef55af525cfd5d`, `v0.0.4-8-g9f9340f`). Found
 2026-09-04 during the std-API-audit re-measurement of the D4 PR 9 row, while

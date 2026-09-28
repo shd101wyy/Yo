@@ -1,5 +1,7 @@
 # Refined-parameter signatures emit malformed C (`// Unknown type:` inside the prototype)
 
+**Severity:** S2 — a `refine(...)` parameter or return type emits a malformed C prototype — valid programs fail to compile
+
 ## Symptom
 
 Any function whose parameter (or return) type is a refinement —

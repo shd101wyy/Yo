@@ -210,7 +210,7 @@ a hover computation (they need the solver).
 | Mode | How to select | Behavior |
 | --- | --- | --- |
 | `runtime` (default) | no pragma | Contracts lower to runtime `assert(...)` — today's behavior |
-| `verify` | `pragma(Pragma.Verify);` | Proof obligations replace asserts; refuted/unprovable ⇒ compile error |
+| `verify` | `pragma(Pragma.Verify);` | Proofs replace the `ensures` asserts; refuted/unprovable ⇒ compile error. `requires` keeps its runtime entry check, because a caller the verifier never sees (outside the subset, an exported symbol's foreign caller, a call through a function value) proves nothing |
 | `verify+` | `pragma(Pragma.VerifyOrAssert);` | Prove when possible; budget-exhausted falls back to the runtime assert |
 | `ignore` | `pragma(Pragma.NoContracts);` | Contracts erased entirely |
 
@@ -336,7 +336,14 @@ Each function entry (`functions[]`) carries `fn_id`, `mode`, `outcome`,
 one object per obligation with `name`, `verdict` (`proved` / `refuted` /
 `unproven` / `solver-error`), `cached`, `folded`, `goal` (the obligation
 rendered as SMT-LIB — what the solver was asked), and `model` (the
-counter-example bindings, `refuted` only).
+counter-example bindings, `refuted` only), and `site`. An obligation that
+discharges a runtime guard (`divisor-nonzero`, `shift-in-width`,
+`index-in-bounds`) names it: `"site": {"module", "row", "column", "class"}`,
+1-based like the guard's own `(at file:row:col)` message. Contract, loop and
+assert obligations have `"site": null`. Names are unique within a function: a
+guard obligation carries its position (`…/divisor-nonzero@12:9`), and a name
+that repeats anyway (two calls of one callee's `requires#0`) gets `~2`, `~3`,
+… in walk order.
 
 `--explain <pattern>` narrows the report to functions whose id matches
 (substring — a bare name or a `file:line` both work) and forces the

@@ -1,5 +1,7 @@
 # `--sanitize address` is silently dropped when `-o` is a bare file name
 
+**Severity:** S2 — `--sanitize address` is silently dropped for a bare `-o` name — an uninstrumented binary plus a warning blaming the toolchain, so memory-bug tests falsely pass
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 during the async state-machine audit, when
 a known heap-use-after-free produced no ASan report. Linux (WSL2, nix
 toolchain), seed v0.2.45.

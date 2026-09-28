@@ -1,5 +1,7 @@
 # An `Impl(Fn)` parameter captured by an `io.async` block is not in its capture struct
 
+**Severity:** S2 — an Impl(Fn) param captured in io.async is emitted as a bare identifier — undeclared-identifier C error
+
 **Status:** open
 **Found:** 2026-09-12, writing `spawn_blocking` for waker step 5
 (`plans/archive/WAKER_BASED_SCHEDULING.md`).

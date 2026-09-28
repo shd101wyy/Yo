@@ -1,5 +1,7 @@
 # yo-self compiles itself 5× slower than the TS compiler — 91% of CPU is RC churn + String equality
 
+**Severity:** S3 — self-compile took ~55 min with ~91% of CPU in refcount churn and String equality — every gate chain slowed (perf work-log)
+
 **Status: DIAGNOSED 2026-07-23 (profile-verified). Not yet fixed.**
 
 ## Symptom

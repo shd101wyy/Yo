@@ -1,5 +1,7 @@
 # `dyn(String.from(...))` as a fn's BARE TAIL loses the payload type and emits an unmangled C identifier
 
+**Severity:** S2 — a pretty-printed type is pasted into C identifiers — clang parse error on a valid throw
+
 **Status:** OPEN
 **Found:** 2026-09-05, building the over-rejection canary set for
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md` (the

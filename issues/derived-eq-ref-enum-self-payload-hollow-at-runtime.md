@@ -1,5 +1,7 @@
 # `derive(Eq)` on a ref enum with a `Self`-payload variant is HOLLOW at runtime
 
+**Severity:** S1 — derived Eq on a ref(enum) with a Self payload is a hollow stub — the first runtime `==` FATALs
+
 **Status: OPEN (surfaced by the V5 task-6 verifier work, 2026-09-13).**
 
 ## Summary

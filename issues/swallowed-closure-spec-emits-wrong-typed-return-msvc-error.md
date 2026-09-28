@@ -1,5 +1,7 @@
 # A swallowed closure spec emits a wrong-typed return (MSVC error) in one batch composition
 
+**Severity:** S1 — a swallowed closure-spec failure emits a wrong-typed return plus an `abort()` stub — latent UB; breaks the MSVC batch leg
+
 Status: OPEN (pre-existing on `origin/develop` @547d0c239; blocks `test
 (windows-11-arm)` whenever the batch packs these files; found via #614's CI
 on 2026-09-13).

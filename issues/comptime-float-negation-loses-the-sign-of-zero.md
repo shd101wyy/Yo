@@ -1,5 +1,7 @@
 # Comptime float negation loses the sign of zero: `-0.0` folds to `+0.0`
 
+**Severity:** S2 — comptime `-0.0` folds to `+0.0` — sign-sensitive results silently differ from the runtime spelling
+
 **Status:** OPEN
 **Found:** 2026-09-08, writing `tests/math.test.yo` for the new `std/math`.
 

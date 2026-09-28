@@ -1,5 +1,7 @@
 # A cond arm's SECOND await of a field-held future frees the field's future (heap-use-after-free)
 
+**Severity:** S1 — a second cond-arm await of a field-held future releases the owner's reference — ASan-confirmed heap-use-after-free
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and develop
 `af62bdb28`.

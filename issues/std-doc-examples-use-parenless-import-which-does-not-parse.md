@@ -1,5 +1,7 @@
 # 194 documentation examples show `:: import "path"` without parentheses — a form the parser rejects outright
 
+**Severity:** S3 — 194 doc examples (69 rendered on the site) show a `:: import` form the parser rejects — every reader's first line fails
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row
 (`std/cli/arg_parser.yo:9-10` is one instance of a tree-wide pattern).
 **Severity**: LOW (papercut), but wide — 69 of the offending lines are `//!` /

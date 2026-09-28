@@ -1,5 +1,7 @@
 # An await nested inside an expression in a non-first `cond` arm is silently dropped (wrong value)
 
+**Severity:** S1 — an await nested in a larger expression in an arm or loop body is silently dropped — assignments never run, or a NULL future slot segfaults
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom

@@ -1,5 +1,7 @@
 # verifier: a contracted GENERIC function is silently unverified in verify mode
 
+**Severity:** S2 — `yo verify` exits green on a contracted generic fn with no verification task registered — obligations silently unproven
+
 Found 2026-09-17 while scoping task 2's abstract-verification slice
 (plans/backlog/FORMAL_VERIFICATION.md §680). This is the SILENT GAP the
 V5-era "honest diagnostics over silent skips" principle forbids, and it

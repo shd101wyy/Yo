@@ -1,5 +1,7 @@
 # The full `yo check ./std` sweep fails 175/176 after the std/collections annotations (#713)
 
+**Severity:** S3 — the single-process std sweep failed 175/176 files after the annotations (resolved by #760's strict-missing-solver split)
+
 **Status: OPEN — a merged regression on develop (2026-09-17, via #713 →
 `53417021b`). The tier-1 gate's `check ./std` is red on every PR until this
 is fixed.**

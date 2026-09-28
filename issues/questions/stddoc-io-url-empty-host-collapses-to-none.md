@@ -1,5 +1,7 @@
 # `Url.parse` collapses an empty authority host to `.None`, so `file:///a/b` has no path segments
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** open. Found while writing `///` docs for `std/url/index.yo` (the
 2026-09-11 std doc sweep). Documentation-only PR — filed, not fixed.
 
@@ -120,3 +122,17 @@ host `b@h` here and userinfo `a@b`, host `h` there. Documented at `userinfo()`
 rather than changed. The old `set_userinfo` doc comment asserted the LAST-`@`
 rule and gave a consequence that matched neither reading; that doc was
 corrected in the same sweep.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Option 1, Rust's shape: parse an empty authority host as `.Some("")` in all
+three branches, and add the explicit authority bit (`_has_authority : bool`, or
+a `cannot_be_a_base()` predicate) so `path_segments` stops asking the host a
+question it cannot answer — `file:///a/b` then yields its segments like every
+`url`-crate consumer expects. Fix the first-`@`/last-`@` userinfo split in the
+same PR: it is the same authority parser, and the WHATWG/Rust rule (split at the
+LAST `@`) is the reference this module follows elsewhere. This changes what
+`host()` returns for empty hosts — acceptable under the no-compat-scaffolding
+rule; update the module's `## Stability` marker when the decision lands.

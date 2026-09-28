@@ -1,5 +1,7 @@
 # A value-position `cond` with a THROWING arm, after an await in `io.async`, reads an undeclared C temp
 
+**Severity:** S2 — C references a never-declared temp — clang error on a check-clean program
+
 **Status: OPEN.** Found 2026-09-05 writing `std/fs/dir.yo`'s `file_type`
 (issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md). Hard
 clang error, so it cannot ship silently — but `yo check` is green and the

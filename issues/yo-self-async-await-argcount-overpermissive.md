@@ -1,5 +1,7 @@
 # yo-self `check` accepts `io.await(fut)` (and any wrong-arity field-fn call) that TS rejects
 
+**Severity:** S2 — wrong-arity calls pass `check` ("evaluator OK") — the arg-count error is thrown but swallowed by the def-time body-eval trial
+
 ## Status
 OPEN — surfaced 2026-06-17 (Phase-5 async baseline). **Root cause corrected
 2026-06-17** after instrumented bisection: this is NOT a missing/over-permissive

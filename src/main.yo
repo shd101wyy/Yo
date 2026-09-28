@@ -828,9 +828,12 @@ collect_check_files :: (
 /// degrade to warnings in `verify+` (the runtime asserts stay).
 ///
 /// `strict_missing_solver` splits the two callers: `compile` ships
-/// binaries and verify-mode codegen carries NO runtime asserts (the
-/// splice was suppressed), so compiling without the proofs would be
-/// unsound — a missing solver FAILS the build. `check` ships nothing
+/// binaries and verify-mode codegen carries no `ensures` asserts (the
+/// proof replaces them), so compiling a `verify`-mode task without the
+/// proofs would be unsound — a missing solver FAILS the build. A `verify+`
+/// task keeps every runtime assert, so it falls back to them and the build
+/// passes with the hint (plans/backlog/FORMAL_VERIFICATION.md
+/// §"Acquisition"; issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md). `check` ships nothing
 /// and measures evaluator coverage: a verify-mode file whose proofs
 /// cannot run because the environment has no solver passes with the
 /// loud install hint, and the dedicated `yo verify` CI job (which
@@ -846,21 +849,37 @@ _run_contract_verification :: (
     return(true);
   });
   cfg := default_verify_run_config();
+  // Only a `verify`-mode task depends on its proofs for soundness.
+  (needs_proofs : bool) = false;
+  (ti : usize) = usize(0);
+  while(ti < tasks.len(), {
+    if(match(tasks.get(ti), .Some(t) => (t.mode == "verify"), .None => false), {
+      needs_proofs = true;
+    });
+    ti = (ti + usize(1));
+  });
+  fail_without_solver := (strict_missing_solver && needs_proofs);
   binary := match(
     resolve_solver_sync(cfg),
     .Resolved(p) => p,
     .InvalidPath(p) => {
       eprintln(`verify: solver path '${p}' does not exist`);
-      if(strict_missing_solver, {
+      if(fail_without_solver, {
         return(false);
       });
       return(true);
     },
     .Installable => {
-      eprintln(
-        `verify: no Z3 solver found — this file's verify-mode contracts need proofs (their runtime asserts are suppressed). Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
-      );
-      if(strict_missing_solver, {
+      if(needs_proofs, {
+        eprintln(
+          `verify: no Z3 solver found — this file's verify-mode ensures clauses need proofs (their runtime asserts are suppressed). Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
+        );
+      }, {
+        eprintln(
+          `verify: no Z3 solver found — verify+ contracts keep their runtime asserts, so nothing is proved. Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
+        );
+      });
+      if(fail_without_solver, {
         return(false);
       });
       return(true);
@@ -1905,6 +1924,7 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
         ks.push(String.from("folded"));
         ks.push(String.from("goal"));
         ks.push(String.from("model"));
+        ks.push(String.from("site"));
         vs := ArrayList(JsonValue).new();
         vs.push(JsonValue.Str(obl.name.clone()));
         vs.push(JsonValue.Str(verdict_str));
@@ -1912,6 +1932,28 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
         vs.push(JsonValue.Bool(obl.folded));
         vs.push(JsonValue.Str(obl.goal.clone()));
         vs.push(model);
+        // The runtime guard the obligation discharges, 1-based like the
+        // guard's own `(at file:row:col)` message; null for a contract,
+        // loop or assert obligation.
+        vs.push(
+          match(
+            obl.site,
+            .Some(gs) => {
+              sk := ArrayList(String).new();
+              sk.push(String.from("module"));
+              sk.push(String.from("row"));
+              sk.push(String.from("column"));
+              sk.push(String.from("class"));
+              sv := ArrayList(JsonValue).new();
+              sv.push(JsonValue.Str(gs.module.clone()));
+              sv.push(JsonValue.Int(i64(gs.row + usize(1))));
+              sv.push(JsonValue.Int(i64(gs.column + usize(1))));
+              sv.push(JsonValue.Str(gs.class.clone()));
+              JsonValue.Object(keys : sk, values : sv)
+            },
+            .None => JsonValue.Null
+          )
+        );
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
       },
       .None => ()

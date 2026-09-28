@@ -1,5 +1,7 @@
 # async codegen: duplicate `while_loop_N_continue` labels when awaits sit in nested cond arms inside nested whiles
 
+**Severity:** S2 — duplicate C labels from nested awaiting conds — clang rejects a valid program
+
 **Status: OPEN (unminimized).** Found 2026-08-22 implementing
 `follow_symlinks` in `std/fs/walker.yo` (S0 C9).
 

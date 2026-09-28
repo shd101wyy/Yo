@@ -1,6 +1,8 @@
 # `yo compile`: a missing solver fails verify+ builds, and a dangling `YO_Z3_PATH` counts as a solver
 
-**Status: OPEN.** Found 2026-09-28 while designing
+**Severity:** S2 — verify+ fails without Z3 despite the documented promise; a dangling `YO_Z3_PATH` is silently trusted
+
+**Status: FIXED 2026-09-28** (branch `verify/requires-and-solver-fixes`). Found 2026-09-28 while designing
 `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, which needs both
 fixed before a proof may remove a guard (its Phase 0).
 
@@ -50,3 +52,29 @@ Two cli-cases:
   its C still contains the `requires failed` entry assert.
 - `YO_Z3_PATH=/nonexistent/z3` gives the `solver path ... does not exist`
   error, whatever the cache holds.
+
+## Resolution
+
+- `_run_contract_verification` (`src/main.yo`) fails a solver-less compile
+  only when some task's mode is `verify` (`needs_proofs`). A `verify+`-only
+  compile prints `verify: no Z3 solver found — verify+ contracts keep their
+  runtime asserts, so nothing is proved …` and succeeds. The verify-mode
+  message now says the *ensures* clauses need proofs, which follows from the
+  companion fix (`requires` asserts are kept in `verify` mode:
+  `issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`).
+- `resolve_solver_sync` (`src/verifier/driver.yo`) checks that the path
+  `discover_z3` returns exists. A dangling `YO_Z3_PATH` is `InvalidPath`,
+  which prints `solver path '…' does not exist`, fails a `verify`-mode compile,
+  and never reaches the verify cache. `yo verify` resolves through the same
+  function, so it is covered too.
+
+## Verification
+
+- cli-case `verify-plus-compiles-without-a-solver`: rc 1 with the old
+  verify-mode message under the pre-fix compiler, rc 0 with the verify+ hint
+  after. The sandbox `HOME` has no cached solver.
+- cli-case `verify-dangling-z3-path-is-an-error`
+  (`env=YO_Z3_PATH=/nonexistent/z3`, a `verify`-mode fixture): the pre-fix
+  compiler ran the queries and reported `SOLVER-ERROR … z3 exited with
+  status 127`. It now reports `solver path '/nonexistent/z3' does not exist`,
+  rc 1.

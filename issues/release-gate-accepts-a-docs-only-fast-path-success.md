@@ -1,5 +1,7 @@
 # The release guard accepts a docs-only fast-path "success" as proof the code was tested
 
+**Severity:** S3 — the release guard accepts a fast-path run whose real jobs were all `skipped` as proof of testing
+
 **Status:** open (found 2026-09-10 while cutting v0.2.30). **Merged 2026-09-14**
 with the independent earlier filing of the same defect,
 `issues/retired/release-gate-accepts-a-docs-fast-path-run-as-proof-of-green.md`

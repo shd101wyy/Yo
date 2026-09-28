@@ -1,5 +1,7 @@
 # A state machine awaiting an already-started (spawned) future leaks the future and its result
 
+**Severity:** S1 — every await of an already-started (spawned) future from a state machine leaks the future and its result — the common spawn-then-await pattern, unbounded
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom

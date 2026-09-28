@@ -1,5 +1,7 @@
 # A generic body's definition-time trial degrades a failed sub-evaluation to `unit`
 
+**Severity:** S2 — a failed sub-evaluation is silently typed `unit` — genuine type errors in never-called generic bodies go unreported
+
 **Status:** OPEN
 **Found:** 2026-09-28, Phase 6 step 2 (`plans/TYPE_SYSTEM_SOUNDNESS.md`): trialling EVERY deferred
 generic body (not only those whose result mentions a type variable) made `check ./std` fail at

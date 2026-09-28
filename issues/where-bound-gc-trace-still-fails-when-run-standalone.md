@@ -1,5 +1,7 @@
 # The `where-bound` GC-trace regression test FAILS when run standalone — the suite's batching hides it
 
+**Severity:** S2 — standalone compiles emit calls to never-declared GC-trace functions — and batch composition hides it, so the suite stays green while the file is red
+
 **Status: OPEN.** Found 2026-08-25 on `develop` at `12d226078`, while landing
 the STD_API_AUDIT MapEntry unification (S2 chunk 3). **Not caused by that work
 — it reproduces on unmodified `develop`.**

@@ -46,7 +46,11 @@ _have_z3 :: (fn() -> bool)(
 );
 /// Load the verify+ fixture with targets armed; returns the drained task
 /// list (the VerifyTask refs are shared — the strip mutates through them).
-_load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))({
+_load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))(
+  _load_fixture_tasks(String.from("./tests/spec/fixtures/valid/verifyplus_abs.yo"), io)
+);
+/// Load one fixture file as a verification target; its single task.
+_load_fixture_tasks :: (fn(rel : String, io : Io) -> ArrayList(VerifyTask))({
   exn := Exception(
     throw : (
       err -> {
@@ -55,7 +59,6 @@ _load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))({
     )
   );
   std_path := resolve_std_path();
-  rel := String.from("./tests/spec/fixtures/valid/verifyplus_abs.yo");
   targets := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
@@ -190,4 +193,17 @@ test("verify+ end-to-end: proved obligations strip the assert (real solver)", {
   );
   assert(_count_contract_asserts(fv, String.from("ensures failed")) == usize(0), "post-verify: the proved ensures assert is gone");
   assert(_count_contract_asserts(fv, String.from("requires failed")) == usize(1), "post-verify: the requires guard stays");
+});
+
+test("verify mode splices the requires guard and not the ensures assert (no solver)", {
+  // The splice happens at evaluation, before any proof, so no solver is
+  // needed. Before the fix `verify` mode spliced NOTHING, and a caller outside
+  // the subset left the requires unchecked
+  // (issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md).
+  tasks := _load_fixture_tasks(String.from("./tests/spec/fixtures/valid/verify_requires_kept.yo"), io);
+  fv := _task_func_val(tasks);
+  nr := _count_contract_asserts(fv, String.from("requires failed"));
+  ne := _count_contract_asserts(fv, String.from("ensures failed"));
+  assert(nr == usize(1), `verify mode keeps the requires entry guard (got ${nr.to_string()})`);
+  assert(ne == usize(0), `verify mode splices no ensures assert: the proof replaces it (got ${ne.to_string()})`);
 });
