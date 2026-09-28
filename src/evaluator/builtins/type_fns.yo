@@ -10,7 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, alloc_global_expr_id } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -1890,7 +1890,10 @@ evaluate_type_join_fields :: (
     combine_args := ArrayList(AstExpr).new();
     combine_args.push(acc_expr);
     combine_args.push(rhs);
-    acc_expr = AstExpr.FnCall(usize(0), AstExpr.Atom(usize(0), tok), combine_args, true, tok);
+    // Fresh node ids: the combined Expr is spliced and evaluated, and the
+    // ExprInfo side table is keyed by id (see the auto-boxed `dyn` fix,
+    // issues/fixed/an-auto-boxed-dyn-value-builds-its-box-call-with-node-id-zero.md).
+    acc_expr = AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), tok), combine_args, true, tok);
     ri = (ri + usize(1));
   });
   combined_val := EvalValue.ExprVal(acc_expr);
