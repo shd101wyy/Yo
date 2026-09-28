@@ -15,6 +15,7 @@
 //! holds the TypeValue enum, this file the constructors.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
@@ -917,3 +918,39 @@ export(
   t_future_trait_simple,
   type_value_tag
 );
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_type_finals :: (fn(ids : ArrayList(String)) -> unit)({
+  doomed := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_struct_finals.remove(id.clone());
+        doomed.insert(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(doomed.len() > usize(0), {
+    kept := ArrayList(EnumFinalEntry).new();
+    (k : usize) = usize(0);
+    while(k < g_enum_finals.len(), {
+      match(
+        g_enum_finals.get(k),
+        .Some(e) => if(!doomed.contains(e.enum_id.clone()), {
+          kept.push(e);
+        }),
+        .None => ()
+      );
+      k = (k + usize(1));
+    });
+    g_enum_finals = kept;
+  });
+});
+export(purge_type_finals);
+/// Registered struct + enum finals (the plateau test's probe).
+type_finals_entry_count :: (fn() -> usize)(g_struct_finals.len() + g_enum_finals.len());
+export(type_finals_entry_count);

@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
+{ type_id_deps_into } :: import("../utils.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
@@ -2432,3 +2433,60 @@ mark_generic_independent :: (fn(err : YoError, a : TypeValue, b : TypeValue) -> 
   YoError(diagnostics : entries)
 });
 export(mark_generic_independent);
+/// The modules a type's identity depends on, appended to `out` (canonical
+/// paths, no duplicates): a nominal type contributes its recorded owners
+/// (`type_id_deps_into`) and is not descended into, since its fields are
+/// already part of that record. Structural types (pointers, tuples, function
+/// types, …) are walked to the nominal types they mention. For the LSP /
+/// watch purge of the id-keyed registries (`add_type_id_deps`,
+/// issues/lsp-memory-grows-per-open-edit-close-round.md). Depth-capped like
+/// `_type_contains_rc_inner`.
+type_dep_modules :: (fn(t : TypeValue, out : ArrayList(String)) -> unit)(
+  _type_dep_modules_at(t, out, u32(0))
+);
+_type_dep_modules_list :: (fn(ts : ArrayList(TypeValue), out : ArrayList(String), depth : u32) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    match(ts.get(i), .Some(x) => _type_dep_modules_at(x, out, depth), .None => ());
+    i = (i + usize(1));
+  });
+});
+_type_dep_modules_at :: (fn(t : TypeValue, out : ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(8), {
+    return(());
+  });
+  d := (depth + u32(1));
+  match(
+    t,
+    .Struct({ id : sid, type_arguments : targs }) => {
+      type_id_deps_into(sid, out);
+      _type_dep_modules_list(targs, out, d);
+    },
+    .EnumT(eid, _, _, _, _, _, _, _, _) => type_id_deps_into(eid, out),
+    .TraitT({ id : tid }) => type_id_deps_into(tid, out),
+    .Union(name : _, field_labels : _, field_types : fts) => _type_dep_modules_list(fts, out, d),
+    .Pointer(pointee : p) => _type_dep_modules_at(p, out, d),
+    .Array(element : e, length : _) => _type_dep_modules_at(e, out, d),
+    .Tuple(field_labels : _, field_types : fts) => _type_dep_modules_list(fts, out, d),
+    .Func({ param_types : ps, result : r }) => {
+      _type_dep_modules_list(ps, out, d);
+      _type_dep_modules_at(r, out, d);
+    },
+    .ComptimeListT(child : c) => _type_dep_modules_at(c, out, d),
+    .IsoT(child : c) => _type_dep_modules_at(c, out, d),
+    .TypeAppT(constructor : c, args : xs) => {
+      _type_dep_modules_at(c, out, d);
+      _type_dep_modules_list(xs, out, d);
+    },
+    .DynT({ required_trait_types : rts }) => _type_dep_modules_list(rts, out, d),
+    .FnTraitT({ call_param_types : ps, call_result : r }) => {
+      _type_dep_modules_list(ps, out, d);
+      _type_dep_modules_at(r, out, d);
+    },
+    .FutureTraitT({ output : o }) => _type_dep_modules_at(o, out, d),
+    .RefineT(inner : i, predicate_func_id : _) => _type_dep_modules_at(i, out, d),
+    .SomeT({ resolution : res }) => match(res, .Some(r) => _type_dep_modules_at(r, out, d), .None => ()),
+    _ => ()
+  );
+});
+export(type_dep_modules);

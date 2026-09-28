@@ -10,6 +10,7 @@
 { rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { Path } :: import("std/path");
 { cwd, env } :: import("std/env");
 // ---------------------------------------------------------------------------
@@ -375,6 +376,19 @@ stable_label_id :: (
 /// it (`stable_type_id`). A module's two path spellings (AGENTS.md) share one
 /// owner.
 (g_stable_type_id_owner : HashMap(String, String)) = HashMap(String, String).new();
+/// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
+/// recorded at all. They exist only so `mm_invalidate_document`
+/// can purge an edited module's entries, which `yo lsp`, `check --watch`,
+/// `build --watch` and `yo fix` do. A one-shot `check`, top-level `compile`
+/// (every `build` child and `test` batch), `doc` or `verify` never invalidates,
+/// so it switches them off and saves the logs' copies of every registry key
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
+/// point (including in-process watch rebuilds and internal tests) keeps them.
+(g_owner_logs_enabled : bool) = true;
+/// id → the modules it depends on.
+(g_type_id_deps : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+/// module → the ids that depend on it.
+(g_type_ids_by_owner : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
 /// A TYPE identity mint at a source position:
 /// `<prefix><module_stem>_<anchor>_r<row offset>c<col>_n<k>`, the position
 /// relative to the enclosing top-level statement (`_anchored_position`), so a
@@ -421,7 +435,8 @@ stable_type_id :: (
         candidate = `${base}_x${suffix.to_string()}`;
       },
       .None => {
-        g_stable_type_id_owner.insert(candidate.clone(), owner);
+        g_stable_type_id_owner.insert(candidate.clone(), owner.clone());
+        _record_type_id_dep(candidate.clone(), owner);
         return(candidate);
       }
     );
@@ -542,6 +557,10 @@ export(
   stable_occurrence_key,
   stable_label_id,
   stable_type_id,
+  add_type_id_deps,
+  type_id_deps_into,
+  take_type_ids_owned_by,
+  type_id_owner_entry_count,
   stable_func_id,
   stable_module_id,
   stable_sns_module_id,
@@ -885,15 +904,6 @@ set_current_owner :: (fn(owner : String) -> unit)({
   g_current_owner = owner;
 });
 current_owner :: (fn() -> String)(g_current_owner.clone());
-/// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
-/// recorded at all. They exist only so `mm_invalidate_document`
-/// can purge an edited module's entries, which `yo lsp`, `check --watch`,
-/// `build --watch` and `yo fix` do. A one-shot `check`, top-level `compile`
-/// (every `build` child and `test` batch), `doc` or `verify` never invalidates,
-/// so it switches them off and saves the logs' copies of every registry key
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
-/// point (including in-process watch rebuilds and internal tests) keeps them.
-(g_owner_logs_enabled : bool) = true;
 set_owner_logs_enabled :: (fn(on : bool) -> unit)({
   g_owner_logs_enabled = on;
 });
@@ -936,6 +946,145 @@ owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
 owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(
   match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
 );
+/// Type-id ownership for the LSP / watch purge
+/// (issues/lsp-memory-grows-per-open-edit-close-round.md). A type id is never
+/// re-minted (`k` never re-counts), so every re-analysis of a mod_path mints a
+/// new generation, and the id-keyed registries (`g_struct_finals`,
+/// `g_struct_field_registry`, …) must drop the old one. An id is owned by
+/// EVERY module its identity depends on: the defining mod_path (recorded at
+/// the mint) plus the modules of a type constructor's argument types
+/// (`add_type_id_deps`, after the call returns). A mod_path that can name the
+/// type imports all of them, so the entry goes exactly when one of them is
+/// invalidated. The current mod_path alone would be wrong: `HashMap(String,
+/// i32)` first instantiated by module A is shared with a cached,
+/// non-dependent module B. Recorded only while owner logs are on.
+_record_type_id_dep :: (fn(id : String, mod_path : String) -> unit)({
+  if((mod_path.len() == usize(0)) || !g_owner_logs_enabled, {
+    return(());
+  });
+  deps := match(
+    g_type_id_deps.get(id.clone()),
+    .Some(d) => d,
+    .None => {
+      d := ArrayList(String).new();
+      g_type_id_deps.insert(id.clone(), d);
+      d
+    }
+  );
+  (k : usize) = usize(0);
+  while(k < deps.len(), {
+    if(match(deps.get(k), .Some(m) => (m == mod_path), .None => false), {
+      return(());
+    });
+    k = (k + usize(1));
+  });
+  deps.push(mod_path.clone());
+  match(
+    g_type_ids_by_owner.get(mod_path.clone()),
+    .Some(ids) => {
+      ids.insert(id);
+    },
+    .None => {
+      ids := HashSet(String).new();
+      ids.insert(id);
+      g_type_ids_by_owner.insert(mod_path, ids);
+    }
+  );
+});
+/// Add `modules` (canonical paths, from `type_dep_modules`) to the owners of
+/// type `id`: a type constructor's result depends on its argument types.
+add_type_id_deps :: (fn(id : String, modules : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < modules.len(), {
+    match(modules.get(i), .Some(m) => _record_type_id_dep(id.clone(), m), .None => ());
+    i = (i + usize(1));
+  });
+});
+/// Append the modules type `id` depends on to `out` (no duplicates): its
+/// recorded owners, else its defining mod_path.
+type_id_deps_into :: (fn(id : String, out : ArrayList(String)) -> unit)({
+  src := match(
+    g_type_id_deps.get(id.clone()),
+    .Some(d) => d,
+    .None => {
+      d := ArrayList(String).new();
+      match(g_stable_type_id_owner.get(id), .Some(o) => d.push(o), .None => ());
+      d
+    }
+  );
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    match(
+      src.get(i),
+      .Some(m) => {
+        (seen : bool) = false;
+        (j : usize) = usize(0);
+        while((j < out.len()) && !seen, {
+          seen = match(out.get(j), .Some(o) => (o == m), .None => false);
+          j = (j + usize(1));
+        });
+        if(!seen, {
+          out.push(m);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Remove and return every type id that depends on `mod_path` (a `file://` or
+/// plain path; canonicalized here). Each id also leaves its other owners'
+/// sets and the mint registry, so nothing about it outlives this call.
+take_type_ids_owned_by :: (fn(mod_path : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  m := canonical_module_path(mod_path);
+  match(
+    g_type_ids_by_owner.remove(m.clone()),
+    .Some(ids) => {
+      it := ids.into_iter();
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(id) => {
+            match(
+              g_type_id_deps.remove(id.clone()),
+              .Some(deps) => {
+                (k : usize) = usize(0);
+                while(k < deps.len(), {
+                  match(
+                    deps.get(k),
+                    .Some(o) => if(!(o == m), {
+                      match(
+                        g_type_ids_by_owner.get(o),
+                        .Some(os) => {
+                          _r := os.remove(id.clone());
+                        },
+                        .None => ()
+                      );
+                    }),
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                });
+              },
+              .None => ()
+            );
+            _o := g_stable_type_id_owner.remove(id.clone());
+            out.push(id);
+          },
+          .None => {
+            go = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Type ids with recorded owners (the plateau test's probe).
+type_id_owner_entry_count :: (fn() -> usize)(g_type_id_deps.len());
 export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, set_codegen_tables_enabled, codegen_tables_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
 export(debug_knob);
 // ---------------------------------------------------------------------------

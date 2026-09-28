@@ -447,3 +447,19 @@ type_to_string_key :: (fn(t : TypeValue) -> String)(
 );
 export(type_to_string, type_to_string_key);
 export(register_type_display_name, type_display_name, clear_type_display_names);
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_type_display_names :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_type_display_names.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(purge_type_display_names);

@@ -21,6 +21,9 @@
 { write_string } :: import("std/fs/file");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { match_arms_entry_count } :: import("../../src/pattern.yo");
+{ type_finals_entry_count } :: import("../../src/types/creators.yo");
+{ struct_field_registry_entry_count } :: import("../../src/evaluator/types/field.yo");
+{ stable_type_id, add_type_id_deps, take_type_ids_owned_by, type_id_owner_entry_count } :: import("../../src/utils.yo");
 {
   mm_set_open_document,
   mm_forget_open_document,
@@ -42,6 +45,7 @@
 { specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count } :: import("../../src/evaluator/calls/helper.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
+_TYPES_DOC :: "Point :: struct(x : i32);\nShape :: enum(Dot, Line(n : i32));\nPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));\nmain :: (fn() -> unit)({\n  p := Pair(Point)(a : Point(x : i32(1)), b : Point(x : i32(2)));\n  _s := Shape.Line(n : p.a.x);\n});\nexport(main);\n";
 _MATCH_DOC :: "Shape :: enum(Dot, Line(n : i32));\nlen_of :: (fn(s : Shape) -> i32)(match(s, .Dot => i32(0), .Line(n) => n));\nmain :: (fn() -> unit)({\n  _a := len_of(Shape.Line(n : i32(2)));\n  _b := match(_a, i32(2) => true, _ => false);\n});\nexport(main);\n";
 _LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
 _LIB_V2 :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
@@ -470,4 +474,93 @@ test("match-arm registry: a command without codegen records nothing", {
   set_codegen_tables_enabled(true);
   assert(off_clean, "the document analyzes clean with the tables off");
   assert(after_off == before_off, `codegen tables off: the match-arm registry grew ${before_off} -> ${after_off}`);
+});
+
+test("type-id registries: re-analysis keeps them flat", {
+  /// A type id is never re-minted, so each re-analysis registers a new
+  /// generation of the document's struct / enum / instantiation ids. The
+  /// invalidation retires the previous one from every id-keyed registry, so
+  /// the counts must be flat across rounds
+  /// (issues/lsp-memory-grows-per-open-edit-close-round.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b2_type_ids_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/types_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPES_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  assert(_doc_round(doc_path.clone(), String.from(_TYPES_DOC), std_path.clone(), io), "round 1 should analyze clean");
+  assert(_doc_round(doc_path.clone(), String.from(_TYPES_DOC), std_path.clone(), io), "round 2 should analyze clean");
+  f2 := type_finals_entry_count();
+  r2 := struct_field_registry_entry_count();
+  o2 := type_id_owner_entry_count();
+  assert(_doc_round(doc_path.clone(), String.from(_TYPES_DOC), std_path.clone(), io), "round 3 should analyze clean");
+  f3 := type_finals_entry_count();
+  r3 := struct_field_registry_entry_count();
+  o3 := type_id_owner_entry_count();
+  assert(f3 == f2, `type finals leaked: ${f2} -> ${f3}`);
+  assert(r3 == r2, `struct field registry leaked: ${r2} -> ${r3}`);
+  assert(o3 == o2, `type-id owner records leaked: ${o2} -> ${o3}`);
+});
+
+test("type-id ownership: an instantiation goes with any module it depends on, a shared one does not", {
+  /// `Pair(Foo)` (library L, argument from module A) depends on both; a
+  /// `Pair(i32)` first minted while A was evaluated depends on L alone, so a
+  /// cached module that is not A's dependent keeps it when A is invalidated.
+  lib := `/tmp/yo_type_ids_lib.yo`;
+  mod_a := `/tmp/yo_type_ids_a.yo`;
+  with_arg := stable_type_id(String.from("struct_"), lib.clone(), usize(3), usize(1));
+  shared := stable_type_id(String.from("struct_"), lib.clone(), usize(3), usize(1));
+  assert(!(with_arg == shared), "each mint is a new id");
+  deps := ArrayList(String).new();
+  deps.push(mod_a.clone());
+  add_type_id_deps(with_arg.clone(), deps);
+  retired_a := take_type_ids_owned_by(mod_a.clone());
+  (a_has_with : bool) = false;
+  (a_has_shared : bool) = false;
+  (i : usize) = usize(0);
+  while(i < retired_a.len(), {
+    match(
+      retired_a.get(i),
+      .Some(x) => {
+        if(x == with_arg, {
+          a_has_with = true;
+        });
+        if(x == shared, {
+          a_has_shared = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(a_has_with, "invalidating A retires the instantiation over A's type");
+  assert(!a_has_shared, "invalidating A keeps the instantiation that depends on L alone");
+  retired_l := take_type_ids_owned_by(lib.clone());
+  (l_has_with : bool) = false;
+  (l_has_shared : bool) = false;
+  (j : usize) = usize(0);
+  while(j < retired_l.len(), {
+    match(
+      retired_l.get(j),
+      .Some(x) => {
+        if(x == with_arg, {
+          l_has_with = true;
+        });
+        if(x == shared, {
+          l_has_shared = true;
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  assert(!l_has_with, "an id retired through A left L's set too");
+  assert(l_has_shared, "invalidating L retires its own instantiation");
 });

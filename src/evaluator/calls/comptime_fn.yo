@@ -16,6 +16,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
 { register_type_display_name } :: import("../../types/string.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
@@ -25,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_dep_modules } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -38,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   register_type_ctor_value,
   value_to_string
 } :: import("../../value.yo");
-{ stable_module_id, debug_knob } :: import("../../utils.yo");
+{ stable_module_id, debug_knob, owner_logs_enabled, add_type_id_deps } :: import("../../utils.yo");
 {
   EvalContext,
   ArgValues,
@@ -1370,6 +1371,32 @@ evaluate_comptime_fn_call :: (
     ),
     .None => String.from("")
   );
+  // LSP / watch purge ownership: an instantiation's type id depends on its
+  // argument types' modules as well as the defining one, so editing any of
+  // them retires it (`add_type_id_deps`,
+  // issues/lsp-memory-grows-per-open-edit-close-round.md).
+  if(owner_logs_enabled(), {
+    dep_id := match(
+      return_value,
+      .TypeVal(dep_rt) => match(
+        dep_rt,
+        .Struct({ id : dep_sid }) => dep_sid,
+        .EnumT(dep_eid, _, _, _, _, _, _, _, _) => dep_eid,
+        .TraitT({ id : dep_tid }) => dep_tid,
+        _ => String.from("")
+      ),
+      _ => String.from("")
+    );
+    if(dep_id.len() > usize(0), {
+      dep_mods := ArrayList(String).new();
+      (dep_ai : usize) = usize(0);
+      while(dep_ai < all_arg_vals.len(), {
+        match(all_arg_vals.get(dep_ai), .Some(dep_av) => match(dep_av, .TypeVal(dep_at) => type_dep_modules(dep_at, dep_mods), _ => ()), .None => ());
+        dep_ai = (dep_ai + usize(1));
+      });
+      add_type_id_deps(dep_id, dep_mods);
+    });
+  });
   // Any written callee spells a type the user could have typed — an
   // identifier (`ArrayList`) or an operator constructor (`?` for `?(T)`, the
   // prelude's Option shorthand); only a member-access callee that did not
@@ -1479,3 +1506,75 @@ export(evaluate_comptime_fn_call);
 export(ComptimeFnCallResult);
 export(RecursiveTypeRef, lookup_recursive_type_ref, resolve_recursive_type_ref);
 export(canonicalize_instantiation_via_ctfe_memo);
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+/// A cached constructor call goes when its result, or a top-level type
+/// argument, is one of them.
+purge_comptime_fn_caches :: (fn(ids : ArrayList(String)) -> unit)({
+  if(ids.len() == usize(0), {
+    return(());
+  });
+  doomed := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := doomed.insert(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (b : usize) = usize(0);
+  while(b < g_comptime_fn_caches.len(), {
+    match(
+      g_comptime_fn_caches.get(b),
+      .Some(bucket) => {
+        kept := ArrayList(CalledComptimeFnCache).new();
+        (c : usize) = usize(0);
+        while(c < bucket.caches.len(), {
+          match(
+            bucket.caches.get(c),
+            .Some(entry) => {
+              (dead : bool) = _value_names_doomed_type(entry.value, doomed);
+              (a : usize) = usize(0);
+              while(!dead && (a < entry.arg_values.len()), {
+                match(
+                  entry.arg_values.get(a),
+                  .Some(av) => {
+                    dead = _value_names_doomed_type(av, doomed);
+                  },
+                  .None => ()
+                );
+                a = (a + usize(1));
+              });
+              if(!dead, {
+                kept.push(entry);
+              });
+            },
+            .None => ()
+          );
+          c = (c + usize(1));
+        });
+        bucket.caches = kept;
+      },
+      .None => ()
+    );
+    b = (b + usize(1));
+  });
+});
+_value_names_doomed_type :: (fn(v : EvalValue, doomed : HashSet(String)) -> bool)(
+  match(
+    v,
+    .TypeVal(t) => match(
+      t,
+      .Struct({ id : sid }) => doomed.contains(sid),
+      .EnumT(eid, _, _, _, _, _, _, _, _) => doomed.contains(eid),
+      .TraitT({ id : tid }) => doomed.contains(tid),
+      _ => false
+    ),
+    _ => false
+  )
+);
+export(purge_comptime_fn_caches);

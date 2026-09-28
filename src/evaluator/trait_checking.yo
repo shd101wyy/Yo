@@ -2250,3 +2250,19 @@ export(validate_type_availability);
 export(find_some_type_missing_comptime_constraint);
 export(mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered);
 export(register_type_trait, register_type_trait_value, is_type_registered_as_trait);
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_type_trait_registry :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_type_trait_registry.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(purge_type_trait_registry);

@@ -892,3 +892,19 @@ export(
   is_boxed_type,
   is_effects_row_type
 );
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_type_decl_modules :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_type_decl_modules.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(purge_type_decl_modules);

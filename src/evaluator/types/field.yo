@@ -582,3 +582,22 @@ export(TypeField, EvalTypeFieldResult);
 export(register_struct_fields, get_struct_fields);
 export(type_implements_fn);
 export(evaluate_type_field);
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_struct_field_registry :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_struct_field_registry.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(purge_struct_field_registry);
+/// Registered struct field lists (the plateau test's probe).
+struct_field_registry_entry_count :: (fn() -> usize)(g_struct_field_registry.len());
+export(struct_field_registry_entry_count);

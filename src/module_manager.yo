@@ -95,6 +95,15 @@ env_mod :: import("std/env");
 { purge_type_intern_owned_by } :: import("./types/intern.yo");
 { purge_specialization_caches_owned_by } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
+{ take_type_ids_owned_by } :: import("./utils.yo");
+{ purge_type_finals } :: import("./types/creators.yo");
+{ purge_type_display_names } :: import("./types/string.yo");
+{ purge_struct_field_registry } :: import("./evaluator/types/field.yo");
+{ purge_type_decl_modules } :: import("./types/guards.yo");
+{ purge_struct_ctor_fids } :: import("./expr_info.yo");
+{ purge_struct_field_comptime_flags } :: import("./types/definitions.yo");
+{ purge_type_trait_registry } :: import("./evaluator/trait_checking.yo");
+{ purge_comptime_fn_caches } :: import("./evaluator/calls/comptime_fn.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
@@ -585,6 +594,17 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
         purge_expr_side_tables(owned_eids);
         purge_ifc_memo_owned_by(owner.clone());
         purge_trait_defaults_owned_by(owner.clone());
+        // The type ids this module's identity retires, from every id-keyed
+        // registry (issues/lsp-memory-grows-per-open-edit-close-round.md).
+        doomed_tids := take_type_ids_owned_by(owner.clone());
+        purge_type_finals(doomed_tids.clone());
+        purge_type_display_names(doomed_tids.clone());
+        purge_struct_field_registry(doomed_tids.clone());
+        purge_type_decl_modules(doomed_tids.clone());
+        purge_struct_ctor_fids(doomed_tids.clone());
+        purge_struct_field_comptime_flags(doomed_tids.clone());
+        purge_type_trait_registry(doomed_tids.clone());
+        purge_comptime_fn_caches(doomed_tids);
         purge_type_intern_owned_by(owner);
       },
       .None => ()

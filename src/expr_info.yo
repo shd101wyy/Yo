@@ -2187,3 +2187,19 @@ expr_side_table_entry_count :: (fn() -> usize)(
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
+/// Drop the entries of the type ids `ids` (retired by an LSP / watch invalidation,
+/// `take_type_ids_owned_by`; issues/lsp-memory-grows-per-open-edit-close-round.md).
+purge_struct_ctor_fids :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_struct_ctor_fids.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(purge_struct_ctor_fids);
