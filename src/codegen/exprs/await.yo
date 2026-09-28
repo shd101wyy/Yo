@@ -50,6 +50,7 @@
 } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ _call_emit_inline_await } :: import("../async/_fsm.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { unwind_catch_condition } :: import("./async_completion.yo");
@@ -352,6 +353,10 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   // result is already extracted and live in this state, so the await stands for
   // that value. Without this the empty string below becomes an empty operand —
   // the `sm->var_N = ;` that used to reach the C compiler.
+  // The single-pass lowering suspends right here, wherever the await sits.
+  if(context.sm_inline_lowering.is_some(), {
+    return(_call_emit_inline_await(expr, indent, context));
+  });
   match(
     context.in_async_state_machine,
     .Some(_) => {

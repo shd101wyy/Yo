@@ -824,15 +824,22 @@ emit_await_future_store :: (
     context : FunctionGenerationContext
   ) -> unit
 )({
+  emit_future_store_into_slot(future_expr, future_code, `await_future_${idx_s}`, indent, context);
+});
+/// Store a future into the owned state-machine slot `sm-><slot>`, taking the
+/// reference the slot owns when the future is read out of a place (see
+/// `emit_await_future_store`). The single-pass lowering's one
+/// `__yo_await_slot` goes through here too.
+emit_future_store_into_slot :: (
+  fn(future_expr : AstExpr, future_code : String, slot : String, indent : String, context : FunctionGenerationContext) -> unit
+)({
   em := context.base.emitter;
-  em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+  em.emit_string_line(`${indent}sm->${slot} = (void*)(${future_code});`);
   if(_await_future_expr_is_borrowed_place(future_expr), {
     em.emit_string_line(`${indent}// Borrowed future (read out of a field): the slot releases what it`);
     em.emit_string_line(`${indent}// holds, so it needs a reference of its own — otherwise this await`);
     em.emit_string_line(`${indent}// frees the field's future out from under its owner.`);
-    em.emit_string_line(
-      `${indent}if (sm->await_future_${idx_s} != NULL) { __yo_incr_rc((void*)sm->await_future_${idx_s}); }`
-    );
+    em.emit_string_line(`${indent}if (sm->${slot} != NULL) { __yo_incr_rc((void*)sm->${slot}); }`);
   });
 });
 /// Emit the future store for an await hoisted out of a non-splittable position.
@@ -4134,6 +4141,7 @@ register_fsm_emitters_impl :: (fn() -> unit)({
 });
 export(
   _single_part_codes,
+  emit_future_store_into_slot,
   _branch_await_target_is_reassign,
   emit_await_future_store,
   _single_part_len,

@@ -61,6 +61,35 @@ SmWhileContinueInfo :: ref(
 /// Marks that code is being generated inside an async state machine; carries
 /// the future type (a SomeType or DynType).
 InAsyncStateMachine :: ref(struct(future_type : TypeValue));
+/// One suspension point the single-pass lowering emitted
+/// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5): what the abort hook needs
+/// to cancel the future the task is suspended on in state `state`.
+InlineSuspension :: ref(
+  struct(
+    /// The state that resumes after this await (the `__yo_resume_<state>` label).
+    state : usize,
+    /// The awaited future was stored in the task's `__yo_await_slot` (an
+    /// anonymous future the slot owns); a named future is the body's own value.
+    in_slot : bool,
+    /// The slot holds an I/O future (the backend can take it back).
+    is_io : bool
+  )
+);
+/// The single-pass lowering's state while ONE async block's resume function is
+/// generated: awaits are emitted inline where the expression generator reaches
+/// them (`emit_inline_await`), each allocating the next state.
+InlineSmLowering :: ref(
+  struct(
+    async_block_id : String,
+    resume_function_name : String,
+    next_state : usize,
+    /// The block's await analysis (result types of the awaits it knows).
+    analysis : AwaitAnalysisResult,
+    suspensions : ArrayList(InlineSuspension),
+    /// Await nodes already emitted — each must suspend exactly once.
+    emitted : HashSet(usize)
+  )
+);
 /// An effect-evidence parameter threaded into a function for explicit-effects
 /// dispatch — the implicit-record label, the field label/path within it, the
 /// field's function type, and the sanitized C parameter name.
@@ -474,6 +503,8 @@ FunctionGenerationContext :: ref(
     uses_parallelism : bool,
     /// Set when generating code inside an async state machine.
     in_async_state_machine : Option(InAsyncStateMachine),
+    /// Set while an async block is lowered by the single-pass emitter.
+    sm_inline_lowering : Option(InlineSmLowering),
     /// Break/continue goto info for a while loop inside a state machine (plain
     /// break/continue don't work inside a switch/goto loop).
     sm_while_break_info : Option(SmWhileBreakInfo),
@@ -603,6 +634,7 @@ impl(
       uses_async : false,
       uses_parallelism : false,
       in_async_state_machine : Option(InAsyncStateMachine).None,
+      sm_inline_lowering : Option(InlineSmLowering).None,
       sm_while_break_info : Option(SmWhileBreakInfo).None,
       sm_while_continue_info : Option(SmWhileContinueInfo).None,
       sm_while_body_drops : Option(ArrayList(AstExpr)).None,
@@ -686,6 +718,8 @@ export(resolve_var_name_in_context);
 export(merge_cond_branch_post_while_exprs);
 export(
   FunctionGenerationContext,
+  InlineSuspension,
+  InlineSmLowering,
   SmWhileBreakInfo,
   SmWhileContinueInfo,
   InAsyncStateMachine,

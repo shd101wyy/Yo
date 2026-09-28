@@ -13,7 +13,7 @@
 { lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store, _branch_await_target_is_reassign } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store, emit_future_store_into_slot, _branch_await_target_is_reassign } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -23,13 +23,14 @@
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs, InlineSmLowering, InlineSuspension } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
+{ awaited_future_c_type_override } :: import("../functions/declarations.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 /// Information about a generated state machine.
@@ -389,6 +390,29 @@ compute_cross_boundary_variables :: (
   await_points := analysis.await_points;
   captured_variables := analysis.captured_variables;
   variable_id_remapping := analysis.variable_id_remapping;
+  // The single-pass lowering jumps back into the middle of the body, where
+  // any C local would have lost its value, so every local the analysis
+  // captured lives in the struct (phase 6 narrows this by liveness).
+  if(inline_lowering_enabled(), {
+    all_ids := HashSet(String).new();
+    (ai : usize) = usize(0);
+    while(ai < captured_variables.len(), ai = (ai + usize(1)), {
+      match(
+        captured_variables.get(ai),
+        .Some(cv) => match(cv.kind, .Local => {
+          all_ids.insert(cv.base.id.to_string());
+        }, .Outer => ()),
+        .None => ()
+      );
+    });
+    return(
+      CrossBoundaryResult(
+        cross_boundary_ids : all_ids,
+        await_future_temp_var_aliases : HashMap(String, String).new(),
+        variable_segments : HashMap(String, HashSet(usize)).new()
+      )
+    );
+  });
   // No await points → nothing crosses a boundary.
   if(await_points.len() == usize(0), {
     return(
@@ -1560,7 +1584,11 @@ _emit_await_suspension_core :: (
     resume_function_name : String,
     effect_expr : AstExpr,
     ind : String,
-    context : FunctionGenerationContext
+    context : FunctionGenerationContext,
+    /// Where the inline fast path continues: the next state's case label
+    /// (`state_<next>`) in the segment lowering, the await's own resume label
+    /// in the single-pass lowering.
+    resume_label : String
   ) -> unit
 )({
   em := context.base.emitter;
@@ -1573,7 +1601,7 @@ _emit_await_suspension_core :: (
   em.emit_string_line(`${ind}  // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
   em.emit_string_line(`${ind}  if (__yo_inline_budget > 0) {`);
   em.emit_string_line(`${ind}    __yo_inline_budget--;`);
-  em.emit_string_line(`${ind}    goto state_${next_s};`);
+  em.emit_string_line(`${ind}    goto ${resume_label};`);
   em.emit_string_line(`${ind}  }`);
   em.emit_string_line(`${ind}  // Budget exhausted — yield once for fairness (microtask yield)`);
   em.emit_string_line(`${ind}  __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
@@ -1607,7 +1635,7 @@ _emit_await_suspension_core :: (
     // (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4: 330 → 100 ns with I/O pending).
     em.emit_string_line(`${ind}    if (__yo_inline_budget > 0) {`);
     em.emit_string_line(`${ind}      __yo_inline_budget--;`);
-    em.emit_string_line(`${ind}      goto state_${next_s};`);
+    em.emit_string_line(`${ind}      goto ${resume_label};`);
     em.emit_string_line(`${ind}    }`);
     em.emit_string_line(`${ind}    __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
     em.emit_string_line(`${ind}    return;`);
@@ -1758,14 +1786,14 @@ _emit_dispatch_suspension_case :: (
             wli := match(wi.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
             em.emit_string_line(`${indent}  // Only await if while loop is still active (not broken)`);
             em.emit_string_line(`${indent}  if (sm->while_loop_${wli.to_string()}_active) {`);
-            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}    `, context);
+            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}    `, context, `state_${next_s}`);
             em.emit_string_line(`${indent}  } else {`);
             em.emit_string_line(`${indent}    // While loop was broken, jump to code after loop`);
             em.emit_string_line(`${indent}    goto after_while_loop_${wli.to_string()};`);
             em.emit_string_line(`${indent}  }`);
           },
           .None => {
-            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}  `, context);
+            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}  `, context, `state_${next_s}`);
           }
         );
         em.emit_string_line(`${indent}  break;`);
@@ -1893,7 +1921,7 @@ _emit_await_suspension :: (
       );
       ffn_access := String.from("sm->");
       ffn_access.push_string(ffn.clone());
-      _emit_await_suspension_core(ffn_access, is_io_future, next_s.clone(), resume_function_name.clone(), ap.base.expr, String.from("      "), context);
+      _emit_await_suspension_core(ffn_access, is_io_future, next_s.clone(), resume_function_name.clone(), ap.base.expr, String.from("      "), context, `state_${next_s}`);
       match(
         while_info,
         .Some(wi) => {
@@ -4405,6 +4433,298 @@ generate_async_block_cancel_pending_function :: (
   em.emit_string_line(String.from(""));
   Option(String).Some(fn_name)
 });
+// ============================================================================
+// The single-pass lowering (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5)
+// ============================================================================
+// The body is generated ONCE by the ordinary expression generator, in
+// state-machine context; each `io.await` it reaches emits its own suspension
+// and a `__yo_resume_<K>:` label right there (emit_inline_await), wherever
+// the await is nested. The resume function jumps to the label of the state it
+// is in. Loops stay C loops, `match` stays a C switch, `break`/`continue`/
+// `return` are the ordinary ones — none of the segment lowering's
+// continuation machinery is involved.
+
+/// Whether the single-pass lowering is selected (`YO_ASYNC_LOWERING=inline`).
+inline_lowering_enabled :: (fn() -> bool)(
+  match(debug_knob(`YO_ASYNC_LOWERING`), .Some(v) => (v == "inline"), .None => false)
+);
+/// Per async block, the suspensions the single-pass lowering emitted — read
+/// by its abort hook, which is generated after the resume function.
+(g_inline_suspensions : HashMap(String, ArrayList(InlineSuspension))) = HashMap(String, ArrayList(InlineSuspension)).new();
+
+/// The await's result type: the await point's (the analysis resolves it), else
+/// the await expression's own recorded type.
+_inline_await_result_type :: (fn(expr : AstExpr, analysis : Option(AwaitAnalysisResult), context : FunctionGenerationContext) -> TypeValue)({
+  eid := ast_expr_id(expr);
+  match(
+    analysis,
+    .Some(a) => {
+      (i : usize) = usize(0);
+      while(i < a.await_points.len(), i = (i + usize(1)), {
+        match(
+          a.await_points.get(i),
+          .Some(ap) => if(ast_expr_id(ap.base.expr) == eid, {
+            return(ap.result_type);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
+});
+
+/// Emit one suspension point of the single-pass lowering, where the
+/// expression generator reached `io.await(future, effects)`, and return the C
+/// code of its result (empty for unit).
+///
+/// An anonymous future is stored in the task's one `__yo_await_slot` (a task
+/// has at most one pending await), which owns it and is released once the
+/// result is extracted; a named future (a variable or capture) is awaited in
+/// place and stays with its owner. The suspension itself is the shared core,
+/// continuing at this await's own resume label.
+emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  em := context.base.emitter;
+  low := match(
+    context.sm_inline_lowering,
+    .Some(l) => l,
+    .None => {
+      codegen_fatal(String.from("emit_inline_await outside the single-pass lowering"));
+      return(String.from(""));
+    }
+  );
+  eid := ast_expr_id(expr);
+  if(low.emitted.contains(eid), {
+    codegen_fatal(`the single-pass async lowering emitted await ${eid.to_string()} twice (an emitter generated its expression twice)`);
+    return(String.from(""));
+  });
+  low.emitted.insert(eid);
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  future_arg := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      codegen_fatal(String.from("await without a future argument"));
+      return(String.from(""));
+    }
+  );
+  future_ty := match(
+    context.base.get_expr_info(future_arg),
+    .Some(ei) => ei.ty,
+    .None => {
+      codegen_fatal(String.from("await argument without type information"));
+      return(String.from(""));
+    }
+  );
+  is_io := is_io_future_type(future_ty);
+  k := low.next_state;
+  low.next_state = (k + usize(1));
+  ks := k.to_string();
+  label := `__yo_resume_${ks}`;
+  is_named := ast_expr_is_atom(future_arg);
+  future_code := _call_generate_expr(future_arg, indent, context);
+  (future_c_type : String) = get_type_string(future_ty, context.base);
+  match(
+    awaited_future_c_type_override(future_arg, context.base),
+    .Some(o) => {
+      future_c_type = o;
+    },
+    .None => ()
+  );
+  acc := if(is_named, future_code.clone(), `((${future_c_type})sm->__yo_await_slot)`);
+  em.emit_string_line(`${indent}// await (resumes in state ${ks})`);
+  if(!(is_named), {
+    emit_future_store_into_slot(future_arg, future_code, String.from("__yo_await_slot"), indent, context);
+  });
+  inner := indent.clone();
+  inner.push_str("  ");
+  em.emit_string_line(`${indent}{`);
+  _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
+  em.emit_string_line(`${indent}}`);
+  em.emit_string_line(`${indent}${label}: ;`);
+  low.suspensions.push(InlineSuspension(state : k, in_slot : !(is_named), is_io : is_io));
+  // The awaited future was aborted: this task escapes too (the awaiter
+  // observes the abort).
+  em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
+  em.emit_string_line(`${inner}__yo_task_abort_observed((void*)${acc});`);
+  if(!(is_named), {
+    em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
+    em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
+  });
+  emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
+  em.emit_string_line(`${indent}}`);
+  rt := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
+  is_unit_rt := (is_unit_type(rt) || (is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)));
+  (out : String) = String.from("");
+  if(!(is_unit_rt), {
+    tmp := `__yo_await_result_${ks}`;
+    em.emit_string_line(`${indent}${get_type_string(rt, context.base)} ${tmp};`);
+    _emit_await_result_store(tmp.clone(), `${acc}->result`, rt, false, indent.clone(), context);
+    out = tmp;
+  });
+  if(!(is_named), {
+    em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
+    em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
+  });
+  out
+});
+
+/// The resume function of the single-pass lowering: the aborted-entry guard,
+/// then a jump to the dispatch table at the END (so the body can be emitted
+/// straight into the real emitter and the table still lists exactly the
+/// labels the body produced), the body once, its completion, and the table.
+generate_async_block_resume_function_inline :: (
+  fn(
+    body_expr : AstExpr,
+    async_block_id : String,
+    struct_name : String,
+    resume_function_name : String,
+    analysis : AwaitAnalysisResult,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    context : FunctionGenerationContext
+  ) -> ArrayList(String)
+)({
+  em := context.base.emitter;
+  is_unit_result := match(
+    extract_future_trait_from_type(future_type),
+    .Some(ft) => match(ft, .FutureTraitT({ output : o }) => is_unit_type(o), _ => false),
+    .None => false
+  );
+  em.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
+  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
+  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
+  // Externally aborted while suspended or queued: release the pending await's
+  // future and the task's own reference; never resume.
+  em.emit_string_line(`  if (sm->state == -2) {`);
+  em.emit_string_line(`    if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
+  em.emit_string_line(`    __yo_decr_rc((void*)sm);`);
+  em.emit_string_line(`    return;`);
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`  int __yo_inline_budget = 1024;  // bounded inline fast-path for sync-completed awaits`);
+  em.emit_string_line(`  goto __yo_dispatch;`);
+  em.emit_string_line(`__yo_state_0: ;`);
+  low := InlineSmLowering(
+    async_block_id : async_block_id.clone(),
+    resume_function_name : resume_function_name.clone(),
+    next_state : usize(1),
+    analysis : analysis,
+    suspensions : ArrayList(InlineSuspension).new(),
+    emitted : HashSet(usize).new()
+  );
+  p_low := context.sm_inline_lowering;
+  p_in := context.in_async_state_machine;
+  p_smv := context.state_machine_variables;
+  p_vr := context.variable_id_remapping;
+  p_pdd := context.pending_deferred_drops;
+  p_abre := context.async_body_return_expr;
+  context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
+  context.await_result_substitutions = Option(HashMap(usize, String)).None;
+  context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+  pdd := ArrayList(AstExpr).new();
+  match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+  context.async_body_return_expr = Option(AstExpr).None;
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    single := ArrayList(AstExpr).new();
+    single.push(body_expr);
+    single
+  });
+  // The whole body is one "segment" with no await at its end: the
+  // statements, the final value into sm->result, the body-level drops and
+  // the completion — exactly the segment lowering's last state.
+  segment := StateSegment(
+    state_number : usize(0),
+    expressions : body_exprs,
+    await_point : Option(AwaitPoint).None,
+    store_future_for_await : Option(AwaitPoint).None,
+    hoisted_await_point : Option(AwaitPoint).None
+  );
+  is_last_with_result := (!(is_unit_result) && (body_exprs.len() > usize(0)));
+  generate_state_segment_code(segment, `  `, context, is_last_with_result);
+  local_var_drop_codes := ArrayList(String).new();
+  _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);
+  context.sm_inline_lowering = p_low;
+  context.in_async_state_machine = p_in;
+  context.state_machine_variables = p_smv;
+  context.variable_id_remapping = p_vr;
+  context.pending_deferred_drops = p_pdd;
+  context.async_body_return_expr = p_abre;
+  em.emit_string_line(`  return;`);
+  em.emit_string_line(`__yo_dispatch:`);
+  em.emit_string_line(`  switch (sm->state) {`);
+  em.emit_string_line(`    case 0: goto __yo_state_0;`);
+  (i : usize) = usize(0);
+  while(i < low.suspensions.len(), i = (i + usize(1)), {
+    match(
+      low.suspensions.get(i),
+      .Some(sp) => em.emit_string_line(`    case ${sp.state.to_string()}: goto __yo_resume_${sp.state.to_string()};`),
+      .None => ()
+    );
+  });
+  em.emit_string_line(`    default: return;`);
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`}`);
+  em.emit_string_line(String.from(""));
+  g_inline_suspensions.insert(async_block_id.clone(), low.suspensions);
+  local_var_drop_codes
+});
+
+/// The abort hook of a single-pass state machine: cancel what the task is
+/// suspended on in `prev_state` (the one `__yo_await_slot`), then wake its
+/// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
+/// with the per-state facts the lowering recorded as it emitted each await.
+generate_async_block_cancel_pending_function_inline :: (
+  fn(async_block_id : String, struct_name : String, context : FunctionGenerationContext) -> Option(String)
+)({
+  em := context.base.emitter;
+  sps := match(g_inline_suspensions.get(async_block_id.clone()), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
+  fn_name := `${async_block_id.clone()}_cancel_pending`;
+  em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
+  em.emit_declaration_line("");
+  em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
+  em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  em.emit_string_line(`  if (sm->__yo_await_slot != NULL) {`);
+  em.emit_string_line(`    switch (prev_state) {`);
+  (i : usize) = usize(0);
+  while(i < sps.len(), i = (i + usize(1)), {
+    match(
+      sps.get(i),
+      .Some(sp) => if(sp.in_slot, {
+        em.emit_string_line(`      case ${sp.state.to_string()}:`);
+        if(sp.is_io, {
+          em.emit_string_line(`        if (__yo_async_io_cancel(sm->__yo_await_slot)) {`);
+          em.emit_string_line(`          __yo_decr_rc(sm->__yo_await_slot);`);
+          em.emit_string_line(`          sm->__yo_await_slot = NULL;`);
+          em.emit_string_line(`          __yo_future_wake_waiters(sm_ptr);`);
+          em.emit_string_line(`          __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
+          em.emit_string_line(`          return;`);
+          em.emit_string_line(`        }`);
+        }, {
+          em.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
+        });
+        em.emit_string_line(`        break;`);
+      }),
+      .None => ()
+    );
+  });
+  em.emit_string_line(`      default:`);
+  em.emit_string_line(`        break;`);
+  em.emit_string_line(`    }`);
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
+  em.emit_string_line(`}`);
+  em.emit_string_line(String.from(""));
+  Option(String).Some(fn_name)
+});
+
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -4437,5 +4757,9 @@ export(
   _emit_outer_while_continuation,
   _emit_while_continuation,
   generate_async_block_resume_function,
-  generate_async_block_cancel_pending_function
+  generate_async_block_cancel_pending_function,
+  inline_lowering_enabled,
+  emit_inline_await,
+  generate_async_block_resume_function_inline,
+  generate_async_block_cancel_pending_function_inline
 );

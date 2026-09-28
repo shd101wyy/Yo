@@ -95,7 +95,10 @@
   compute_cross_boundary_variables,
   compute_overlapping_slots,
   generate_async_block_resume_function,
-  generate_async_block_cancel_pending_function
+  generate_async_block_cancel_pending_function,
+  inline_lowering_enabled,
+  generate_async_block_resume_function_inline,
+  generate_async_block_cancel_pending_function_inline
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -702,7 +705,15 @@ emit_async_block_struct_definition :: (
     }),
     .None => ()
   );
-  aps := info.analysis.await_points;
+  // The single-pass lowering keeps ONE owned slot for the pending await (a
+  // task has at most one) and its results in C locals, so none of the
+  // segment lowering's per-await fields exist
+  // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+  inline_layout := inline_lowering_enabled();
+  if(inline_layout, {
+    em.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
+  });
+  aps := if(inline_layout, ArrayList(AwaitPoint).new(), info.analysis.await_points);
   // Await result temporaries (Phase 3 optimization: skip for linear non-cond awaits).
   if(aps.len() > usize(0), {
     await_result_fields := ArrayList(String).new();
@@ -2395,7 +2406,12 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   saved_sm_unwind_catch := context.sm_unwind_catch;
   context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
-  local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
+  inline_lowering := inline_lowering_enabled();
+  local_var_drops := if(
+    inline_lowering,
+    generate_async_block_resume_function_inline(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context),
+    generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids))
+  );
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
   context.base.declared_c_var_names = prev_declared;
@@ -2419,7 +2435,11 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
-  cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);
+  cancel_pending_function_name := if(
+    inline_lowering,
+    generate_async_block_cancel_pending_function_inline(block.async_block_id.clone(), block.struct_name.clone(), context),
+    generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context)
+  );
   // Constructor.
   generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), cancel_pending_function_name, block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
   em.emit_string_line(String.from(""));

@@ -100,7 +100,26 @@ _call_generate_while_with_await :: (
     .None => __yo_panic("generate_while_with_await called before register_fsm_emitters")
   )
 );
+/// Signature of `emit_inline_await(await_expr, indent, context) -> result code`:
+/// the single-pass lowering's suspension point (state_machine.yo), reached from
+/// `generate_await` (exprs/await.yo), which cannot import state_machine.yo.
+EmitInlineAwaitFn :: (fn(await_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String);
+(g_emit_inline_await : Option(EmitInlineAwaitFn)) = Option(EmitInlineAwaitFn).None;
+register_inline_await_emitter :: (fn(f : EmitInlineAwaitFn) -> unit)({
+  g_emit_inline_await = Option(EmitInlineAwaitFn).Some(f);
+  ()
+});
+_call_emit_inline_await :: (fn(await_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    g_emit_inline_await,
+    .Some(f) => f(await_expr, indent, context),
+    .None => __yo_panic("emit_inline_await called before register_inline_await_emitter")
+  )
+);
 export(
+  EmitInlineAwaitFn,
+  register_inline_await_emitter,
+  _call_emit_inline_await,
   GenerateCondWithAwaitFn,
   GenerateMatchWithAwaitFn,
   GenerateWhileWithAwaitFn,
