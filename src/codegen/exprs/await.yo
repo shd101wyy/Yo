@@ -347,28 +347,14 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     return(codegen_fatal_expr(String.from("await argument must be a Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(codegen_fatal_expr(String.from("could not extract Future trait from type"))));
-  // Inside a state machine, await emits no code — the FSM handles the suspension.
-  // An await in a non-splittable position (a `cond`/`if` condition, a `match`
-  // scrutinee, a `while` condition) was hoisted across the state boundary: its
-  // result is already extracted and live in this state, so the await stands for
-  // that value. Without this the empty string below becomes an empty operand —
-  // the `sm->var_N = ;` that used to reach the C compiler.
-  // The single-pass lowering suspends right here, wherever the await sits.
+  // Inside a state machine the task suspends right here, wherever the await
+  // sits (the single-pass lowering).
   if(context.sm_inline_lowering.is_some(), {
     return(_call_emit_inline_await(expr, indent, context));
   });
-  match(
-    context.in_async_state_machine,
-    .Some(_) => {
-      sub := match(
-        context.await_result_substitutions,
-        .Some(subs) => subs.get(ast_expr_id(expr)),
-        .None => Option(String).None
-      );
-      match(sub, .Some(v) => return(v), .None => return(String.from("")));
-    },
-    .None => ()
-  );
+  if(context.in_async_state_machine.is_some(), {
+    return(codegen_fatal_expr(String.from("internal: an io.await in a state machine was generated outside its resume function")));
+  });
   if(!is_io_await_call(expr), {
     return(codegen_fatal_expr(String.from("await should only be used inside async blocks")));
   });

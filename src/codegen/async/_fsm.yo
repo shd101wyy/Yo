@@ -15,94 +15,6 @@
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
-/// Signature of `generate_cond_with_await(cond_expr, await_point, indent,
-/// context, target_variable_id?, target_assignment_code?)`.
-GenerateCondWithAwaitFn :: (
-  fn(
-    cond_expr : AstExpr,
-    await_point : AwaitPoint,
-    indent : String,
-    context : FunctionGenerationContext,
-    target_variable_id : Option(String),
-    target_assignment_code : Option(String)
-  ) -> unit
-);
-/// Signature of `generate_match_with_await(match_expr, await_point, indent,
-/// context, target_variable_id?, target_assignment_code?)`.
-GenerateMatchWithAwaitFn :: (
-  fn(
-    match_expr : AstExpr,
-    await_point : AwaitPoint,
-    indent : String,
-    context : FunctionGenerationContext,
-    target_variable_id : Option(String),
-    target_assignment_code : Option(String)
-  ) -> unit
-);
-/// Signature of `generate_while_with_await(while_expr, await_point, indent, context)`.
-GenerateWhileWithAwaitFn :: (
-  fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
-);
-(g_generate_cond_with_await : Option(GenerateCondWithAwaitFn)) = Option(GenerateCondWithAwaitFn).None;
-(g_generate_match_with_await : Option(GenerateMatchWithAwaitFn)) = Option(GenerateMatchWithAwaitFn).None;
-(g_generate_while_with_await : Option(GenerateWhileWithAwaitFn)) = Option(GenerateWhileWithAwaitFn).None;
-/// Register the three `*_with_await` emitter entries. Call once after they are
-/// defined (from `state_code_gen.yo`).
-register_fsm_emitters :: (
-  fn(c : GenerateCondWithAwaitFn, m : GenerateMatchWithAwaitFn, w : GenerateWhileWithAwaitFn) -> unit
-)({
-  g_generate_cond_with_await = Option(GenerateCondWithAwaitFn).Some(c);
-  g_generate_match_with_await = Option(GenerateMatchWithAwaitFn).Some(m);
-  g_generate_while_with_await = Option(GenerateWhileWithAwaitFn).Some(w);
-  ()
-});
-/// Dispatch `cond(...)`-with-await emission through the registered entry.
-_call_generate_cond_with_await :: (
-  fn(
-    cond_expr : AstExpr,
-    await_point : AwaitPoint,
-    indent : String,
-    context : FunctionGenerationContext,
-    target_variable_id : Option(String),
-    target_assignment_code : Option(String)
-  ) -> unit
-)(
-  match(
-    g_generate_cond_with_await,
-    .Some(f) => f(cond_expr, await_point, indent, context, target_variable_id, target_assignment_code),
-    .None => __yo_panic("generate_cond_with_await called before register_fsm_emitters")
-  )
-);
-/// Dispatch `match(...)`-with-await emission through the registered entry.
-_call_generate_match_with_await :: (
-  fn(
-    match_expr : AstExpr,
-    await_point : AwaitPoint,
-    indent : String,
-    context : FunctionGenerationContext,
-    target_variable_id : Option(String),
-    target_assignment_code : Option(String)
-  ) -> unit
-)(
-  match(
-    g_generate_match_with_await,
-    .Some(f) => f(match_expr, await_point, indent, context, target_variable_id, target_assignment_code),
-    .None => __yo_panic("generate_match_with_await called before register_fsm_emitters")
-  )
-);
-/// Dispatch `while(...)`-with-await emission through the registered entry.
-_call_generate_while_with_await :: (
-  fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
-)(
-  match(
-    g_generate_while_with_await,
-    .Some(f) => f(while_expr, await_point, indent, context),
-    .None => __yo_panic("generate_while_with_await called before register_fsm_emitters")
-  )
-);
-/// Signature of `emit_inline_await(await_expr, indent, context) -> result code`:
-/// the single-pass lowering's suspension point (state_machine.yo), reached from
-/// `generate_await` (exprs/await.yo), which cannot import state_machine.yo.
 EmitInlineAwaitFn :: (fn(await_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String);
 (g_emit_inline_await : Option(EmitInlineAwaitFn)) = Option(EmitInlineAwaitFn).None;
 register_inline_await_emitter :: (fn(f : EmitInlineAwaitFn) -> unit)({
@@ -119,12 +31,5 @@ _call_emit_inline_await :: (fn(await_expr : AstExpr, indent : String, context : 
 export(
   EmitInlineAwaitFn,
   register_inline_await_emitter,
-  _call_emit_inline_await,
-  GenerateCondWithAwaitFn,
-  GenerateMatchWithAwaitFn,
-  GenerateWhileWithAwaitFn,
-  register_fsm_emitters,
-  _call_generate_cond_with_await,
-  _call_generate_match_with_await,
-  _call_generate_while_with_await
+  _call_emit_inline_await
 );

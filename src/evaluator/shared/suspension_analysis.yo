@@ -37,7 +37,6 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ debug_knob } :: import("../../utils.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -74,7 +73,13 @@ SuspensionPointDetector :: ref(
     /// Return true if this FnCall expression's body should be skipped
     /// (no recursion into func/args). Used for nested async blocks that
     /// have their own analysis. Deferred dup expressions are still walked.
-    should_skip_body : Dyn(Fn(expr : AstExpr) -> bool)
+    should_skip_body : Dyn(Fn(expr : AstExpr) -> bool),
+    /// Walk EVERY macro call through its expansion, not only `if`: the async
+    /// lowering generates the expansion, so an await that only a user macro
+    /// contains is a suspension point like any other
+    /// (issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
+    /// The effect lowering splits only `if`, and keeps the old rule.
+    follow_macro_expansions : bool
   )
 );
 // ---------------------------------------------------------------------------
@@ -411,15 +416,8 @@ walk_expr_ :: (
       // does follow the expansion) goes on to reference. The per-pass ExprInfo
       // can lose the macro expansion here, so use the durable side-table first
       // (the state_code_gen.yo pattern).
-      // Under the single-pass lowering (YO_ASYNC_LOWERING=inline) EVERY macro
-      // call is walked through its expansion: codegen generates the expansion,
-      // and an await that only a user macro contains otherwise never counted as
-      // a suspension point — the body was emitted as a blocking await inside a
-      // task (issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
-      // The segment lowering can split only `if`, so it keeps the old rule.
-      follow_expansion := (ast_expr_is_fn_call_of(expr_cloned.clone(), "if", Option(usize).None) || (
-        match(debug_knob(`YO_ASYNC_LOWERING`), .Some(v) => (v == "inline"), .None => false) && lookup_macro_expansion(ast_expr_id(expr_cloned.clone())).is_some()
-      ));
+      // The async detector follows every macro call (`follow_macro_expansions`).
+      follow_expansion := (ast_expr_is_fn_call_of(expr_cloned.clone(), "if", Option(usize).None) || (detector.follow_macro_expansions && lookup_macro_expansion(ast_expr_id(expr_cloned.clone())).is_some()));
       if(follow_expansion, {
         expansion := match(
           lookup_macro_expansion(ast_expr_id(expr_cloned.clone())),
