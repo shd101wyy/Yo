@@ -94,7 +94,10 @@ Reading the rows:
   `MSG_DONTWAIT` / `MSG_NOSIGNAL` contract needs, costs 0.033 µs more than
   `write`, and each park's `EV_ENABLE` costs ~0.02 µs. That re-enable is what
   keeps a park correct after a close on another thread, the same choice as
-  Linux's per-park `EPOLL_CTL_MOD`.
+  Linux's per-park `EPOLL_CTL_MOD`. The 64-connection row is the same two
+  costs: over 1,280,000 sends Yo spends 2.24 s in the kernel and libuv 2.16 s,
+  and 1,280,000 × (40 ns for `sendto` + 28 ns for the re-enable) predicts
+  87 ms of that 80 ms gap. User time differs by 0.02 s.
 - **The std rows** are behind by the std layer, not the backend: 8 loop steps
   and 6 task resumes per round trip
   (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
