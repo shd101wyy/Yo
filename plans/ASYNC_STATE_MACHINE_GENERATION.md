@@ -291,6 +291,24 @@ What costs, in order:
 The doc claim "~10–50 ns per poll" holds only for ready awaits. "~200 B per
 state machine" is about right.
 
+**Re-measured 2026-09-29, after phases 2 and 3** (callgrind instructions per op, same programs; the seed v0.2.45 before, the phase 2/3 branch after):
+
+| Path | before | after |
+|---|---|---|
+| plain sync fn call | 44 | 44 |
+| await of an already-completed future | 61 | 58 |
+| cold `sync_fut_t` leaf | 648 | 325 (−50%) |
+| cold state machine that completes synchronously | 852 | 361 (−58%) |
+| the same, with I/O parked in the kernel | 732 | 325 (−56%) |
+| one-await chain (`d1`) | 1662 | 688 (−59%) |
+| chain depth 4 / 8 | 4187 / 7220 | 1669 / 3255 (−60% / −55%) |
+| chain depth 4 with parked I/O | 4607 | 1669 (−64%) |
+| `main`'s own cold await | 510 | 347 |
+| spawn 100k one-await machines, then await each | 1718 | 1638 |
+| spawn 100k no-await leaves, then await each | 691 | **1239** (+79%) |
+
+The last row is the owning `JoinHandle`'s own allocation (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, phase 7).
+
 ### 3.5 Control-flow shape matrix
 
 The shape sweep (await placement × control-flow construct × a suspending or
@@ -645,7 +663,12 @@ measured before choosing:
 - a per-type free list of state machines;
 - embedding an immediately awaited child's machine in the parent's slot
   (Rust-style: the child's lifetime is exactly the await), falling back to
-  the heap when the future escapes.
+  the heap when the future escapes;
+- **the spawn handle without a box.** `JoinHandle(T)` is a `ref` struct
+  around the future pointer: one extra allocation per spawn
+  (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, +79% on
+  the leaf-spawn benchmark). The future is already counted, so the handle can
+  be that counted reference itself.
 
 ### Docs and instructions, per phase
 
