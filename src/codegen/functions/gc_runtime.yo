@@ -439,7 +439,7 @@ static void __yo_gc_unregister(void* ptr) { (void)ptr; }
 static void __yo_gc_collect() {}
 static size_t __yo_gc_tracked_count() { return 0; }
 static void __yo_gc_init_thread() {}
-static void __yo_cleanup_thread_gc() {}
+static void __yo_cleanup_thread_gc() { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }
 static void __yo_init_process_cleanup(void) {}`
   );
 });
@@ -1097,6 +1097,7 @@ static void __yo_cleanup_thread_gc() {
 
   if (my_gc_state == NULL) {
     __yo_mutex_unlock(&__yo_thread_list_mutex);
+    if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();
     return;
   }
 
@@ -1144,6 +1145,10 @@ static void __yo_cleanup_thread_gc() {
 
   __yo_free(my_gc_state);
   __yo_current_thread_gc = NULL;
+  // The async runtime's per-thread pools (the continuation free list) die with
+  // the thread. Last, because disposing a tracked future above can still
+  // enqueue a continuation.
+  if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();
 }`
   );
   // Process cleanup (inner Windows/POSIX branch for the cleanup-key teardown).

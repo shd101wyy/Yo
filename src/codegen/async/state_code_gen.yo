@@ -7,7 +7,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, BF_DOT, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, BF_DOT, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { lookup_match_arms } :: import("../../pattern.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -647,6 +647,21 @@ await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitP
 await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
+  });
+  // A binding or assignment of the branch expression (`v := match(await …,
+  // …)`, `v = cond(await … => …)`, `(v : T) = …`) hoists as a WHOLE: every part
+  // of the statement runs after the await, so moving it to the next state is
+  // exact. Looking only at the top-level form missed it, and the match was
+  // emitted with an empty scrutinee
+  // (issues/fixed/await-as-scrutinee-of-a-bound-match-emits-an-empty-scrutinee.md).
+  if(ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, BK_ASSIGN, Option(usize).Some(usize(2))), {
+    return(
+      match(
+        expr,
+        .FnCall(_, _, bind_args, _, _) => match(bind_args.get(usize(1)), .Some(rhs) => recur(rhs, await_point), .None => false),
+        _ => false
+      )
+    );
   });
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), {
     return(await_is_in_first_cond_position(expr, await_point));
@@ -3501,6 +3516,19 @@ _generate_match_with_await_impl :: (
     .Some(matched_value_expr) => if(cases.len() == usize(0), {
       codegen_fatal(`match must have a value and at least one case`);
     }, {
+      // The twin of generate_cond_with_await's guard: a scrutinee that IS this
+      // await is hoisted into the previous state (`hoist_non_splittable_awaits`)
+      // and reads `sm->await_result_N` by now. Still in place means the hoist
+      // did not fire, and generating on emits an empty scrutinee.
+      scrutinee_substituted := match(
+        context.await_result_substitutions,
+        .Some(subs) => subs.get(ast_expr_id(await_point.base.expr)).is_some(),
+        .None => false
+      );
+      if(expr_is_bare_await(Option(AstExpr).Some(matched_value_expr), await_point) && !(scrutinee_substituted), {
+        codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(match_expr, false, false));
+        return();
+      });
       matched_value_code := _call_generate_expr(matched_value_expr, indent, context);
       match_value_type_opt := match(context.base.get_expr_info(matched_value_expr), .Some(ei) => Option(TypeValue).Some(ei.ty), .None => Option(TypeValue).None);
       match(

@@ -1405,7 +1405,13 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
   // Effect-unwind task aborts still unobserved when the body returns (a bound
   // handle never awaited keeps its task alive, so no dispose reports it) are
   // reported here, before the belt (gc_runtime.yo, emit_task_abort_registry).
-  abort_report := String.from("  __yo_task_abort_report_unobserved();\n");
+  // The program body has returned on this thread: free the async runtime's
+  // per-thread pools (the continuation free list). The lightweight RC runtime
+  // never runs `__yo_cleanup_thread_gc` for the main worker thread, and a
+  // pooled node left there is what LeakSanitizer reported for every program
+  // that awaited synchronously. Idempotent: the full-GC runtime's own thread
+  // cleanup calls the same hook again on an empty pool.
+  abort_report := String.from("  __yo_task_abort_report_unobserved();\n  if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();\n");
   test_batch_main := main_def_module.contains(String.from(".yo_selftest_batch_"));
   belt_block := cond(
     test_batch_main =>

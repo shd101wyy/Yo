@@ -693,7 +693,8 @@ Options:
 An artifact is recompiled only when one of its **inputs** changed. The inputs
 are the files the previous compile actually opened — every `.yo` module it
 reached, and nothing else — plus the compile's own argument list, the compiler
-version, and the project's `yo.toml` and `yo.lock`.
+version, the compiler binary itself (its path, size and modification time), and
+the project's `yo.toml` and `yo.lock`.
 
 The child compile records that list with `yo compile --emit-deps <file>`, which
 writes one path per line beside the artifact (`<output>.deps`). The next build
