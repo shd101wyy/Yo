@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext } :: import("../context.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ Token, TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Attempt to cast `arg_expr` to `target_type` as a pointer-type conversion.
 /// Returns `.None` if `target_type` is not a pointer type.
@@ -142,7 +142,7 @@ try_to_convert_to_pointer_type :: (
     alloc_global_expr_id(),
     Token(
       kind : TokenKind.Identifier,
-      value : String.from(BF_YO_AS),
+      value : intern_token_str(String.from(BF_YO_AS)),
       row : orig_tok.row,
       column : orig_tok.column,
       character : orig_tok.character,

@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ Token, TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
 /// has no fixed bounds (floats, ComptimeInt, non-numeric types).
@@ -156,7 +156,7 @@ _make_yo_as_node :: (
     orig_id,
     Token(
       kind : TokenKind.Identifier,
-      value : String.from(BF_YO_AS),
+      value : intern_token_str(String.from(BF_YO_AS)),
       row : orig_tok.row,
       column : orig_tok.column,
       character : orig_tok.character,
