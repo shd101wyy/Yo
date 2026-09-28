@@ -1,7 +1,20 @@
 # `match` — real pattern matching: audit, design, implementation plan
 
-**Status: ACTIVE (2026-09-13). P1–P3 LANDED 2026-09-19 (PR `feat/match-p1-pattern-ir`)**
-on top of P0 (#672): the `Pattern` IR (`src/pattern.yo`) with its usefulness
+**Status: ACTIVE (2026-09-13). P1–P3 LANDED 2026-09-19 (PR `feat/match-p1-pattern-ir`);
+P4 + Box payloads LANDED 2026-09-29** — tuple scrutinees `(a, b)` (exact
+arity, `tests/match_tuples.test.yo`), struct scrutinees named
+`Point(x : 0, y)` and anonymous `{x, y}` (partial, `tests/match_structs.test.yo`),
+and structural sub-patterns through `Box(T)` payloads (a `Pattern.ThroughBox`
+node: `norm_position_type` presents the inner type to the usefulness check,
+codegen dereferences `path-><first field>`; `tests/match_nested.test.yo`). A
+single-constructor column splits like a one-variant enum; witnesses render
+`(w, w)` / `S(label : w, …)`. The Box work also surfaced and fixed a general
+codegen bug: `recur(...)` self-calls had no `__yo_effect_escaped` check, so a
+throw crossing a recursion boundary was swallowed and the caller continued
+with the callee's `{0}` (`issues/at-pattern-subpattern-error-crashes-check.md`,
+fixed in `src/codegen/exprs/recur.yo`).
+
+**P1–P3 record:** on top of P0 (#672): the `Pattern` IR (`src/pattern.yo`) with its usefulness
 checker and per-match arm registry, the pattern compiler
 (`src/evaluator/exprs/pattern_compile.yo`), `evaluate_match` rewritten as ONE arm
 loop over compiled arms, and the general test-chain lowering as a section of
@@ -49,12 +62,12 @@ Three deviations from the design below, each measured on the tree:
    emitter's goto chain is not dispatch-aware; §4.9's shared helpers are the
    follow-up.
 
-Still open: P4 (tuple/struct scrutinees), patterns through `Box(...)`
-payloads, the async general lowering, P5's adoption sweep in `src/`/`std/`
-(seed-gated), P6 (verifier). §8's decisions were taken as recommended: the
-new modules (under `evaluator/exprs/` and beside `expr_info.yo` rather than
-`src/pattern_emit.yo`), `(p && (g))`, `(name := p)`, errors not warnings
-(narrowed per deviation 2).
+Still open: the async general lowering (deviation 3's follow-up), P5's
+adoption sweep in `src/`/`std/` (now UNBLOCKED — `SEED_VERSION` v0.2.45
+carries every P1–P3 form), P6 (verifier). §8's decisions were taken as
+recommended: the new modules (under `evaluator/exprs/` and beside
+`expr_info.yo` rather than `src/pattern_emit.yo`), `(p && (g))`,
+`(name := p)`, errors not warnings (narrowed per deviation 2).
 
 Companion of PR #661 (`match: a literal payload in an enum pattern is COMPARED,
 not bound`), the narrow stop-gap for one row of the audit below. §3 says what it

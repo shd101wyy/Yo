@@ -1133,6 +1133,13 @@ _compile_struct :: (
         new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit))
       );
     }, {
+      // A bare `_` argument contributes nothing (a struct pattern is partial
+      // anyway — omit the field instead); accepted for readability after a
+      // bound field, as in `Point(x, _)`.
+      if(ast_expr_is_atom_of(param, "_"), {
+        pi = (pi + usize(1));
+        continue;
+      });
       // A bare identifier in a struct pattern names the field AND binds it
       // (always a binding — a same-named constant in scope is irrelevant).
       if(ast_expr_is_atom(param), {
