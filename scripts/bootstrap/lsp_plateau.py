@@ -14,6 +14,11 @@ from /proc (Linux) or `ps` (macOS):
 
 A plateau means rounds 2..N stay flat; growth per round is the leak.
 
+Measure a STAGE-2 binary (`<stage-1> compile src/main.yo --optimize 2
+--allocator mimalloc -o yo-s2`), which is what releases ship. A seed-built
+`yo build` binary runs the seed's codegen and can show leaks the tree has
+already fixed (~100 MB a round under v0.2.45, 2026-09-28).
+
 Usage:
   python3 scripts/bootstrap/lsp_plateau.py <yo binary> <rounds> <file.yo> [<file.yo> ...]
   (defaults to 10 std files when none are given; run from the repo root)
