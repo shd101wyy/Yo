@@ -917,8 +917,8 @@ as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
   [`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
   answers §8's three questions. Phase 6 waits on its implementation. Grounding
   it filed two verifier issues that 5b's soundness filter depends on:
-  `issues/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`
-  and `issues/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`.
+  `issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`
+  and `issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`.
 
 ## Appendix A — emission-site checklist (grep anchors, `develop @ a1df43578`)
 
