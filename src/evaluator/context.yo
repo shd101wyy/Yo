@@ -43,6 +43,7 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
+{ get_provisional_trait_methods_by_name } :: import("./values/type_trait_methods.yo");
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
@@ -2866,7 +2867,13 @@ ImplInFlight :: ref(
     /// belong to that entry).
     current_top_index : usize,
     current_trait_ty : Option(TypeValue),
-    forall_names : ArrayList(String)
+    forall_names : ArrayList(String),
+    /// The TRAIT-CONSTRUCTOR member whose value expression is being evaluated
+    /// (its RHS node id, label and trait id) — `publish_in_flight_trait_member`
+    /// binds its minted FuncVal to the member's in-flight signature entry.
+    member_rhs_id : Option(usize),
+    member_label : String,
+    member_trait_id : String
   )
 );
 (g_impls_in_flight : ArrayList(ImplInFlight)) = ArrayList(ImplInFlight).new();
@@ -2900,6 +2907,42 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_module_walks(d.walks);
   truncate_forcing_stack(d.forcing);
   truncate_impls_in_flight(d.impls);
+});
+/// Phase A for a TRAIT-CONSTRUCTOR impl member (`impl(T, Eq(T)((==) : ...))`),
+/// the counterpart of `publish_pending_phase_a` for top-level definitions.
+/// Called where a function literal mints its FuncVal, BEFORE the def-time body
+/// trial. When `rhs_id` is the value expression of the member an in-flight impl
+/// is evaluating, the member's in-flight signature entry (registered with
+/// `value : None` before the member loop) takes that FuncVal, so a recursive
+/// call from the body (`l == r` on a `Self` payload) binds the member's own
+/// function. Without a value the operator path stamped no callee and codegen
+/// emitted `// Failed to transpile` for the call
+/// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md). A dot
+/// call survived only because codegen re-queries the method registry by name.
+publish_in_flight_trait_member :: (fn(rhs_id : usize, value : EvalValue) -> unit)({
+  (i : usize) = g_impls_in_flight.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_impls_in_flight.get(i),
+      .Some(r) => if(match(r.member_rhs_id, .Some(mid) => (mid == rhs_id), .None => false), {
+        entries := get_provisional_trait_methods_by_name(r.recv_id, r.member_label);
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), {
+          match(
+            entries.get(ei),
+            .Some(e) => if((e.source_trait_id == r.member_trait_id) && e.value.is_none(), {
+              e.value = Option(EvalValue).Some(value);
+            }),
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+        return(());
+      }),
+      .None => ()
+    );
+  });
 });
 /// The newest in-flight impl on `recv_id`, if any.
 newest_impl_in_flight_for :: (fn(recv_id : String) -> Option(ImplInFlight))({
@@ -3267,6 +3310,7 @@ export(
   forcing_depths,
   truncate_forcing_depths,
   newest_impl_in_flight_for,
+  publish_in_flight_trait_member,
   make_impl_pending_field,
   impl_direct_field_at,
   impl_inner_field_at,

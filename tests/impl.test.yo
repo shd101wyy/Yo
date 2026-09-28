@@ -338,3 +338,38 @@ test("explicit `<:` dispatch of a generic static binds Self to the receiver", {
   c := SdBox(i32).sd_make();
   assert(c.value == a.value, "plain dot form agrees with the <: form");
 });
+
+// A trait-impl operator member that calls ITSELF from its own body: while the
+// impl is being evaluated the operator resolves to the member's in-flight
+// signature, which now carries the member's FuncVal (phase A), so the call
+// binds the member. It used to have no value, the operator path stamped no
+// callee, and codegen emitted `// Failed to transpile` — an abort() stub at
+// the first `==` (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+SelfEqTree :: ref(struct(v : i32, kid : Option(Self)));
+impl(
+  SelfEqTree,
+  Eq(SelfEqTree)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      ((lhs.v == rhs.v) && match(lhs.kid, .Some(a) => match(rhs.kid, .Some(b) => (a == b), .None => false), .None => rhs.kid.is_none()))
+    )
+  )
+);
+SelfEqKind :: ref(enum(Leaf, Other, Node(elem : Self)));
+impl(
+  SelfEqKind,
+  Eq(SelfEqKind)(
+    (==) : ((lhs, rhs) -> match(lhs, .Leaf => match(rhs, .Leaf => true, _ => false), .Other => match(rhs, .Other => true, _ => false), .Node(l) => match(rhs, .Node(r) => (l == r), _ => false)))
+  )
+);
+
+test("a trait operator member calls itself recursively", {
+  a := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(2), kid : .None)));
+  b := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(2), kid : .None)));
+  c := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(3), kid : .None)));
+  assert(a == b, "equal trees");
+  assert(!(a == c), "the child differs");
+  assert(a != c, "the default != goes through the recursive ==");
+  k := SelfEqKind.Node(elem : SelfEqKind.Leaf);
+  assert(k == SelfEqKind.Node(elem : SelfEqKind.Leaf), "-> literal member recursion");
+  assert(!(k == SelfEqKind.Node(elem : SelfEqKind.Other)), "payload differs");
+});

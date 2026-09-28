@@ -3392,7 +3392,30 @@ _c3_eval_colon_pair :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : st.env)),
     .None => Option(ExpectedTypeCtx).None
   );
+  // A trait-constructor member publishes its FuncVal to its in-flight
+  // signature entry the moment the literal mints it, before the body trial
+  // (`publish_in_flight_trait_member`), so a recursive call to this member
+  // from its own body binds the member itself.
+  saved_member_rhs := st.member_rhs_id;
+  saved_member_label := st.member_label.clone();
+  saved_member_trait := st.member_trait_id.clone();
+  match(
+    current_trait_ty,
+    .Some(mt) => match(
+      mt,
+      .TraitT({ id : mt_id }) => {
+        st.member_rhs_id = Option(usize).Some(ast_expr_id(val_expr));
+        st.member_label = method_name.clone();
+        st.member_trait_id = mt_id;
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
   eval_val := evaluate_expression_raw(val_expr, st.env, ctx, exn);
+  st.member_rhs_id = saved_member_rhs;
+  st.member_label = saved_member_label;
+  st.member_trait_id = saved_member_trait;
   ctx.expected_type = saved2;
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
@@ -4297,7 +4320,10 @@ evaluate_module_value :: (
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
-      forall_names : forall_names
+      forall_names : forall_names,
+      member_rhs_id : Option(usize).None,
+      member_label : String.new(),
+      member_trait_id : String.new()
     );
     push_impl_in_flight(c2_rec);
     (fj : usize) = (receiver_arg_idx + usize(1));
@@ -4729,7 +4755,10 @@ evaluate_module_value :: (
     fields : c3_fields,
     current_top_index : usize(0),
     current_trait_ty : Option(TypeValue).None,
-    forall_names : ArrayList(String).new()
+    forall_names : ArrayList(String).new(),
+    member_rhs_id : Option(usize).None,
+    member_label : String.new(),
+    member_trait_id : String.new()
   );
   push_impl_in_flight(c3_rec);
   // Process each field expression: `name : fn_def` or a trait constructor
