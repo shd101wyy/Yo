@@ -25,7 +25,7 @@
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
 { lookup_some_resolved_concrete } :: import("./expr_info.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
-{ parse_raw_int } :: import("./utils.yo");
+{ parse_raw_int, codegen_tables_enabled } :: import("./utils.yo");
 { get_integer_type_range } :: import("./types/utils.yo");
 /// A compiled match pattern. Positions are typed top-down from the scrutinee;
 /// `Const`/`Range` carry the SYNTHESIZED test expression the evaluator typed
@@ -94,10 +94,14 @@ Arm :: ref(
 // the ones in expr_info.yo: `record_owned_expr_id` logs the id under the
 // module being evaluated, and `mm_invalidate_document` hands the removed
 // module's ids to `purge_match_arms` beside `purge_expr_side_tables`. The log
-// is off in one-shot commands (§0.15), where nothing invalidates.
+// is off in one-shot commands (§0.15), where nothing invalidates. A command
+// that never generates code records nothing (`codegen_tables_enabled`, §0.21).
 // ---------------------------------------------------------------------------
 (g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
 register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
+  if(!codegen_tables_enabled(), {
+    return(());
+  });
   _old := g_match_arms.insert(match_id, arms);
   record_owned_expr_id(match_id);
 });

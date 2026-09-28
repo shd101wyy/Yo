@@ -200,13 +200,17 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
   plateau gate still fails:
   `issues/lsp-memory-grows-per-open-edit-close-round.md`.
 - **Phase 1 step 5**: the table is written (plan §0.20,
-  `scripts/bootstrap/registry_table.py`). Its four levers are open:
-  1. a "codegen will run" flag that skips codegen-only tables in `check`,
-     `verify`, `doc` and the LSP (about 28 MB);
-  2. truncating the whole-compile branch-init log at function end (about
-     16 MB);
-  3. owner-purging the per-module registries the LSP purge misses;
-  4. recording `g_specialized_base` only when verification will run.
+  `scripts/bootstrap/registry_table.py`). Its four levers (plan §0.21):
+  1. LANDED (branch `mem/arm-ranges-local`): the codegen-only tables are
+     skipped in `check`, `verify`, `doc` and the LSP
+     (`set_codegen_tables_enabled`), and the arm windows are local to their
+     construct. −33.9 MB max RSS.
+  2. NOT TAKEN: the branch-init log's indices are held across nested
+     evaluations and ~40 catch sites. §0.21 has the sound design (about
+     16 MB).
+  3. Open: owner-purging the per-module registries the LSP purge misses.
+  4. Folded into §3.2: `check` runs the verifier too, so the cost is the
+     duplicated id strings, not the recording.
 - **Phase 5b**: `Symbol`, interned identifier strings (feeds §3.2 and §3.4).
 - **Phase 6**: the RC header / `Variable` diet.
 

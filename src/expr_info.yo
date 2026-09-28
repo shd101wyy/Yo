@@ -1436,19 +1436,32 @@ record_branch_consume :: (fn(var_id : usize, token : Token, before_init : Option
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
-/// Arm-body expr id -> [start, end) window into the log.
-(g_arm_init_ranges : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
-register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) -> unit)({
-  rng := ArrayList(usize).new();
-  rng.push(start);
-  rng.push(end);
-  record_owned_expr_id(arm_expr_id);
-  g_arm_init_ranges.insert(arm_expr_id, rng);
-  ()
+/// A branching construct's arm windows: flat `[arm_body_id, start, end]`
+/// triples, one per evaluated arm, each a `[start, end)` window into the log.
+/// Local to the `cond` / `match` evaluation that fills it and hands it to
+/// `merge_and_check_envs`, which is the only reader. It used to be a
+/// process-wide table keyed by arm id that nothing emptied outside the LSP
+/// purge: 81 K entries at exit on `check src/main.yo`, every one dead once
+/// its construct returned (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21).
+push_arm_init_range :: (fn(ranges : ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
+  ranges.push(arm_expr_id);
+  ranges.push(start);
+  ranges.push(end);
 });
-get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
-  g_arm_init_ranges.get(arm_expr_id)
-);
+/// The position of the arm body `arm_expr_id`'s triple in `ranges` (its
+/// window is `ranges[p + 1] .. ranges[p + 2]`). The last one wins, as the
+/// table's `insert` did. Arms are few; a scan beats hashing.
+arm_init_range_in :: (fn(ranges : ArrayList(usize), arm_expr_id : usize) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  (k : usize) = ranges.len();
+  while((k >= usize(3)) && found.is_none(), {
+    k = (k - usize(3));
+    if(match(ranges.get(k), .Some(x) => (x == arm_expr_id), .None => false), {
+      found = Option(usize).Some(k);
+    });
+  });
+  found
+});
 /// Active branching-construct stack for the Impl(...) reassignment rule.
 /// Each entry is a 2-element list
 /// [group_start, current_arm_start]: log records with index in
@@ -1932,8 +1945,8 @@ export(
   last_flow_record_in,
   branch_init_log_len,
   get_branch_init_record,
-  register_arm_init_range,
-  get_arm_init_range,
+  push_arm_init_range,
+  arm_init_range_in,
   push_branch_group,
   begin_branch_group_arm,
   push_active_where_trait_ids,
@@ -2124,7 +2137,6 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _t := g_method_callee_types.remove(id);
   _b := g_io_builtin_calls.remove(id);
   _v := g_method_callee_values.remove(id);
-  _a := g_arm_init_ranges.remove(id);
   _m := g_macro_expansions.remove(id);
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
@@ -2171,7 +2183,7 @@ purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo :
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  ((((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_arm_init_ranges.len()) + g_macro_expansions.len())
+  (((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_macro_expansions.len())
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);

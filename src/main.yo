@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -1335,8 +1335,10 @@ run_check :: (
   // Only the watch modes re-force definitions after a module's walk finished;
   // a one-shot check lets each finished walk release its context (F1), and
   // records no owner logs, since nothing will invalidate a module (§0.15).
+  // `check` never generates code, watch or not (§0.21).
   set_retain_walk_contexts(watch || watch_once);
   set_owner_logs_enabled(watch || watch_once);
+  set_codegen_tables_enabled(false);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module
@@ -9279,6 +9281,7 @@ main :: (fn(io : Io) -> unit)({
     // corrupt the client's rendering, so the LSP ignores --color entirely
     // (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §4.4).
     set_color_enabled(false);
+    set_codegen_tables_enabled(false);
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
     // The Phase-4 warm gate intercepts before run_compile ever sees the
@@ -9317,6 +9320,7 @@ main :: (fn(io : Io) -> unit)({
     run_check(argv, io, exn);
   }, if(subcmd == "verify", {
     set_owner_logs_enabled(false);
+    set_codegen_tables_enabled(false);
     run_verify_cmd(argv, io, exn);
   }, if(subcmd == "init", {
     run_init(argv, io, exn);
@@ -9336,6 +9340,7 @@ main :: (fn(io : Io) -> unit)({
     run_effects(argv, io, exn);
   }, if(subcmd == "doc", {
     set_owner_logs_enabled(false);
+    set_codegen_tables_enabled(false);
     run_doc_cmd(argv, io, exn);
   }, if(subcmd == "unsafe-report", {
     run_unsafe_report_cmd(argv, io, exn);
