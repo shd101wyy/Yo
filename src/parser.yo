@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { StringBuilder } :: import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList, array_list } :: import("std/collections/array_list");
-{ TokenKind, Token, find_matching_bracket } :: import("./token.yo");
+{ TokenKind, Token, find_matching_bracket, intern_token_str } :: import("./token.yo");
 { tokenize, tokenize_span } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
 { YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
@@ -220,7 +220,7 @@ impl(
   make_syn_tok : (fn(inout(self) : Self, kind : TokenKind, value : String) -> Token)(
     Token(
       kind : kind,
-      value : value,
+      value : intern_token_str(value),
       row : u32(0),
       column : u32(0),
       character : u32(0),
@@ -231,7 +231,7 @@ impl(
   make_unit_call : (fn(inout(self) : Self, ref_tok : Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
-      value : String.from(BK_TUPLE),
+      value : intern_token_str(String.from(BK_TUPLE)),
       row : ref_tok.row,
       column : ref_tok.column,
       character : ref_tok.character,
@@ -802,7 +802,7 @@ impl(
     if(next_tok_kind == TokenKind.RParen, {
       unit_tok := Token(
         kind : TokenKind.Identifier,
-        value : String.from(BK_TUPLE),
+        value : intern_token_str(String.from(BK_TUPLE)),
         row : tok.row,
         column : tok.column,
         character : tok.character,
@@ -893,7 +893,7 @@ impl(
     kw := cond(is_tuple_type => BK_TUPLE_TYPE, true => BK_TUPLE);
     func_tok := Token(
       kind : TokenKind.Identifier,
-      value : String.from(kw),
+      value : intern_token_str(String.from(kw)),
       row : tok.row,
       column : tok.column,
       character : tok.character,
@@ -989,7 +989,7 @@ impl(
     );
     func_tok := Token(
       kind : TokenKind.Identifier,
-      value : String.from(kw),
+      value : intern_token_str(String.from(kw)),
       row : tok.row,
       column : tok.column,
       character : tok.character,
@@ -1084,7 +1084,7 @@ impl(
           .Some(t) => t,
           .None => Token(
             kind : TokenKind.LCurlyBracket,
-            value : String.from("{"),
+            value : intern_token_str(String.from("{")),
             row : u32(0),
             column : u32(0),
             character : u32(0),
@@ -1096,7 +1096,7 @@ impl(
         if(is_semi && ((last_tok.kind == TokenKind.Semicolon) || (last_tok.kind == TokenKind.LCurlyBracket)), {
           unit_tok := Token(
             kind : TokenKind.Identifier,
-            value : String.from(BK_TUPLE),
+            value : intern_token_str(String.from(BK_TUPLE)),
             row : last_tok.row,
             column : last_tok.column,
             character : last_tok.character,
@@ -1173,7 +1173,7 @@ impl(
                 ast_expr_is_atom(arg) => {
                   colon_tok := Token(
                     kind : TokenKind.Operator,
-                    value : String.from(":"),
+                    value : intern_token_str(String.from(":")),
                     row : tok.row,
                     column : tok.column,
                     character : tok.character,
@@ -1193,7 +1193,7 @@ impl(
         });
         anon_tok := Token(
           kind : TokenKind.Identifier,
-          value : String.from(BK_ANON_STRUCT),
+          value : intern_token_str(String.from(BK_ANON_STRUCT)),
           row : tok.row,
           column : tok.column,
           character : tok.character,
@@ -1210,7 +1210,7 @@ impl(
         // Begin block: begin(e1, e2, ...)
         begin_tok := Token(
           kind : TokenKind.Identifier,
-          value : String.from(BK_BEGIN),
+          value : intern_token_str(String.from(BK_BEGIN)),
           row : tok.row,
           column : tok.column,
           character : tok.character,
@@ -1656,7 +1656,7 @@ impl(
           if(last_tok.kind == TokenKind.Semicolon, {
             unit_tok := Token(
               kind : TokenKind.Identifier,
-              value : String.from(BK_TUPLE),
+              value : intern_token_str(String.from(BK_TUPLE)),
               row : last_tok.row,
               column : last_tok.column,
               character : last_tok.character,
@@ -1688,7 +1688,7 @@ impl(
     if(self.has_template_string, {
       import_tok := Token(
         kind : TokenKind.Identifier,
-        value : String.from(BK_IMPORT),
+        value : intern_token_str(String.from(BK_IMPORT)),
         row : u32(0),
         column : u32(0),
         character : u32(0),
