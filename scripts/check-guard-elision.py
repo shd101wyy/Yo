@@ -81,10 +81,12 @@ def check(binary, src, work):
     rc_b, c_b, log_b = compile_c(binary, src, base_b, ["--no-guard-elision"])
     if (rc_a == 0) != (rc_b == 0):
         return [f"only one variant compiled (elided rc {rc_a}, reference rc {rc_b})"], ""
+    header = EXPECT.search(open(src).read())
     if rc_a != 0:
+        if header is not None:
+            return [f"an elision fixture must compile (rc {rc_a}): {log_a.strip()[-300:]}"], ""
         return [], "skipped (does not compile standalone)"
     fails = []
-    header = EXPECT.search(open(src).read())
     reported = ELIDED_LINE.search(log_a)
     n_reported = int(reported.group(1)) if reported else 0
     removed = guards(c_b) - guards(c_a)
