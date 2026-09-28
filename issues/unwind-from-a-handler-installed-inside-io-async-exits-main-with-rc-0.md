@@ -102,3 +102,42 @@ kept as a wrapper for the client. That is how §3 item 18 is being fixed.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES, both shapes** (seed and tree build). Shape 1 prints only `ok case: ok body` and exits 0. Shape 2 exits 139, and ASan shows `SEGV on unknown address 0x000000000001` in `__yo_incr_rc` from the helper. Mechanism: the helper's synchronous await sees the aborted task and decides it is the handler's install frame (`is_await_unwind_handler_installation`, `src/codegen/exprs/await.yo`). It then runs `memcpy(&_unw_result, __yo_unwind_value, sizeof(String))`, reinterpreting the `Result(String, String).Err` that the task's local handler unwound (tag 1 read as pointer `0x1`) as the helper's `String` result. That is type confusion. In a unit `main`, the same path is a silent `return;`.
+
+## Fix (2026-09-29, async state-machine plan phase 2 item 4)
+
+The semantics are the useful one: `unwind(value)` exits the frame that
+installed the handler, the function or `io.async` block whose body the handler
+literal is written in. For an `io.async` block, the value resolves that
+block's future.
+
+The fix identifies the installer at run time instead of guessing it:
+
+- **Identity.** Every handler `unwind` stores its handler's id (a hash of the
+  handler literal's source position, `unwind_origin_id`) into the thread-local
+  `__yo_unwind_target`. Each frame collects the ids of the handler literals
+  written directly in its own body (`unwind_catches_of_body`).
+- **Catching.** Two sites now catch only when the target is one of their own
+  ids: a state machine whose awaited child aborted or whose call escaped
+  (`emit_sm_unwind_catch`: copy the value into `sm->result`, drop the locals
+  through the new `<dispose>_locals`, complete), and a synchronous `io.await`
+  of an aborted task. Any other unwind, or a cancellation, propagates. The
+  static `is_await_unwind_handler_installation`, which counted any effect
+  bundle built in the frame as an installation, is gone. It was what made a
+  helper frame read another frame's `Result` as its own `String`.
+- **Transport.** Between a task's abort and its awaiter's resume other tasks
+  run and may unwind, so the task-abort registry entry now carries the target
+  and a copy of the value. `__yo_task_abort_take_unwind` restores them for the
+  awaiter.
+- **Types.** The evaluator does not check an `unwind` value against an
+  `io.async` block's inferred result type, so codegen does. A mismatch is a
+  user error at the `unwind`, where it used to be a byte reinterpretation.
+
+Tests:
+
+- `tests/async/sm_protocol.test.yo` covers both shapes of this doc and an
+  unwind that passes through tasks to a synchronous installer.
+- `tests/cli-cases/async-unwind-value-must-have-the-block-result-type` covers
+  the type check.
+
+Item 1 (rc 0) no longer arises: `main` cannot take an `Exception` any more,
+and an unwind nobody catches reaches the top-level belt, which aborts loudly.
