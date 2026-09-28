@@ -4,6 +4,9 @@
 pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
 pragma(Pragma.SkipWasm32Wasi);
 { assert } :: import("std/assert");
+{ Error, Exception, IoExn } :: import("std/error");
+{ ToString } :: import("std/fmt");
+{ String } :: import("std/string");
 { yield, timeout } :: import("std/async");
 { sleep } :: import("std/sys/timer");
 { Duration } :: import("std/time/duration");
@@ -12,11 +15,14 @@ pragma(Pragma.SkipWasm32Wasi);
 
 (g_disposed : i32) = i32(0);
 Thing :: ref(struct(n : i32));
-impl(Thing, Dispose(
-  dispose : (fn(self : Self) -> unit)({
-    g_disposed = (g_disposed + i32(1));
-  })
-));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
 
 // issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md
 test("two tasks awaiting one pending future both resume", {
@@ -115,4 +121,79 @@ test("cancelling a task blocked on a channel releases it", {
   });
   io.await(yield(io), io);
   assert(g_disposed == (before + i32(3)), "every cancelled task was disposed with its locals");
+});
+
+// issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md
+Boom :: struct(msg : String);
+impl(Boom, ToString(to_string : (self -> self.msg)));
+impl(Boom, Error());
+_may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    io.await(yield(e.io), e.io);
+    cond(
+      fail => e.exn.throw(dyn(Boom(msg : `framing broke`))),
+      true => `ok body`
+    )
+  })
+);
+// The handler is installed inside the async body: its unwind resolves THIS
+// future with the value.
+_guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoExn)))(
+  io.async((e : IoExn) => {
+    local_exn := Exception(
+      throw : (
+        err -> {
+          unwind(Result(String, String).Err(err.to_string()));
+        }
+      )
+    );
+    raw := e.io.await(_may_fail(fail, e.io), IoExn(io : e.io, exn : local_exn));
+    Result(String, String).Ok(raw)
+  })
+);
+_show :: (fn(r : Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
+test("an unwind from a handler installed in an io.async body resolves that future", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  assert(_show(io.await(_guarded(false, io), e)) == `ok body`, "the ok case");
+  assert(_show(io.await(_guarded(true, io), e)) == `ERR framing broke`, "the handler's value");
+  assert(_show(io.await(_guarded(false, io), e)) == `ok body`, "and the program goes on");
+});
+// A synchronous frame that only passes the outer handler along is not the
+// one that installed the unwinding handler, and must not read its value.
+_run_fail :: (fn(io : Io, exn : Exception) -> String)({
+  e := IoExn(io : io, exn : exn);
+  _show(io.await(_guarded(true, io), e))
+});
+test("a helper awaiting the guarded future reads the resolved value", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  assert(_run_fail(io, exn) == `ERR framing broke`, "the helper got the future's value");
+});
+// The handler is installed in the synchronous caller: the unwind aborts the
+// tasks between and exits the caller's frame.
+_outer_catch :: (fn(io : Io) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(`caught ${err.to_string()}`);
+      }
+    )
+  );
+  r := io.await(_may_fail(true, io), IoExn(io : io, exn : exn));
+  `not reached ${r}`
+});
+test("an unwind to a synchronous installer passes through the tasks", {
+  assert(_outer_catch(io) == `caught framing broke`, "the caller's handler value");
 });

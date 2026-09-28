@@ -1371,7 +1371,8 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
 _emit_unwind_target :: (fn(indent : String, context : FunctionGenerationContext) -> unit)({
   origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
-  context.base.emitter.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
+  em := context.base.emitter;
+  em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
 });
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
 /// function. Async-state-machine context routes through
