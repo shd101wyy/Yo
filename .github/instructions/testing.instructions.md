@@ -725,22 +725,25 @@ cp yo-out/aarch64-apple-darwin/bin/yo /tmp/yo-s1
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 ```
 
-## `yo build` with a self-built compiler serves the OLD binary unless `YO_BUILD_NO_CACHE=1`
+## `yo build` with a self-built compiler: the stamp names the binary
 
-The artifact cache stamps the sources, `yo.toml`/`yo.lock`, argv and
-`CURRENT_YO_VERSION`, but not WHICH `yo` binary is running. A stage-1 built
-from this tree reports the same version string as the seed that built it. So
-`<stage-1> build` on an unchanged tree prints
-`(cached: inputs unchanged, skipping compile)` and copies the stage-1 binary
-back. You never get a stage-2 that way, and an A/B of "stage-2" against
-stage-1 compares a binary with itself (measured 2026-09-28, plan §0.19). To
-get the real, shipped-configuration stage-2 (mimalloc on Linux, build.yo's
-flags):
+The artifact stamp covers the sources, `yo.toml`/`yo.lock`, argv,
+`CURRENT_YO_VERSION`, and the running compiler binary (`yo-binary
+<path>:<size>:<mtime>` from `current_exe()`). The binary line was added
+2026-09-28 (`issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md`).
+Before it, a stage-1 built from this tree, which reports the seed's version
+string, got `(cached: inputs unchanged, skipping compile)` and copied itself
+back, so an A/B of "stage-2" against stage-1 compared a binary with itself
+(plan §0.19). Now `<stage-1> build` recompiles, and the result is the real,
+shipped-configuration stage-2 (mimalloc on Linux, build.yo's flags):
 
 ```bash
-YO_BUILD_NO_CACHE=1 YO_MAIN_STACK_MB=4096 <stage-1> build
+YO_MAIN_STACK_MB=4096 <stage-1> build
 sha256sum <stage-1> yo-out/<target>/bin/yo   # must differ
 ```
+
+A binary older than that fix still serves the stale artifact; with one,
+force the rebuild with `YO_BUILD_NO_CACHE=1`.
 
 `fixpoint_only.sh`'s `/tmp/<P>_s2` is a stage-2 too, but it is built with the
 SYSTEM allocator and plain `clang -O2`. Its wall time is not the shipped
