@@ -3758,8 +3758,10 @@ create_specialized_function_inline :: (
           // signature's own nodes (param labels unchanged by
           // specialization), so the walker's param rebinding applies
           // unchanged.
-          copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
-          register_specialized_base(specialized_func_id.clone(), func_id.clone());
+          // The id handle is shared, not cloned (§0.23): these tables key by
+          // the id the specialized FuncVal already holds.
+          copy_func_contract_exprs(func_id, specialized_func_id);
+          register_specialized_base(specialized_func_id, func_id);
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic
@@ -4368,7 +4370,7 @@ create_specialized_function_inline :: (
                 ),
                 ArrayList(TypeValue).new()
               );
-              register_func_type(specialized_func_id.clone(), spec_type);
+              register_func_type(specialized_func_id, spec_type);
             },
             _ => ()
           );

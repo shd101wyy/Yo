@@ -343,9 +343,13 @@ get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
 );
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
+/// The key SHARES the caller's id handle: `String.clone` is a byte copy, and a
+/// specialized id can run to 25 KB, so a cloned key was one more copy of an
+/// id the FuncVal already holds (plans/EVALUATOR_MEMORY_REDUCTION.md §0.23).
+/// Function ids are never mutated in place once minted.
 register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
-  record_owned_func_id(func_id.clone());
-  g_func_type_registry.insert(func_id.clone(), func_ty);
+  record_owned_func_id(func_id);
+  g_func_type_registry.insert(func_id, func_ty);
 });
 // ---------------------------------------------------------------------------
 // Unemittable-fn side-table
