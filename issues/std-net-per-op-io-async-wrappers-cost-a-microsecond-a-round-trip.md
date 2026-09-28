@@ -1,5 +1,7 @@
 # `std/net` per-operation `io.async` wrappers cost ~1 µs a round trip
 
+**Severity:** S3 — performance: std `TcpStream` round trips spend ~0.3–0.5 µs more user CPU than libuv, 10–13% behind on macOS
+
 **Status: OPEN.** Filed 2026-09-28 from the macOS async-runtime performance
 pass. All numbers are **measured** on macOS 26.6 (M4). The mechanism counts
 come from instrumented emitted C. The cause assignment (codegen/std, not the

@@ -1,5 +1,7 @@
 # Linux: the recv-parks hint is cleared on every hop of a ping-pong
 
+**Severity:** S3 — performance: a Linux ping-pong likely pays one doomed `recv` a hop that the hint exists to save
+
 **Status: OPEN.** Filed 2026-09-28 from the macOS async-runtime pass. **Measured
 on macOS**, with the same rule ported to kqueue. **Read, not run on Linux**:
 the loop driver (`runtime_core.yo`) is shared, so the mechanism should carry
