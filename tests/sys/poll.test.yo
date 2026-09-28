@@ -7,6 +7,13 @@ file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
 events :: import("std/sys/events");
 { sleep } :: import("std/sys/timer");
+{ Thread } :: import("std/thread");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ clock_gettime, CLOCK_MONOTONIC } :: import("std/sys/clock");
+{ write } :: import("std/libc/unistd");
+{ env } :: import("std/env");
+{ platform, Platform } :: import("std/process");
 // Callback that records events into user_data (pointer to i32)
 on_poll_record :: (fn(events_mask : i32, status : i32, user_data : *u8) -> unit)({
   ptr := (*i32)(user_data);
@@ -148,4 +155,68 @@ test("poll stop prevents further callbacks", {
   cr2 := io.await(file.close(write_fd), io);
   assert(cr1 == i32(0), "close read_fd failed");
   assert(cr2 == i32(0), "close write_fd failed");
+});
+// A watch must be serviced while the loop is BLOCKED. The loop used to look at
+// its poll handles only between waits, so with any operation in flight (here
+// a 1 s sleep) a descriptor that became ready during the wait was not
+// noticed until that operation completed
+// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
+// A thread makes the pipe readable 50 ms in; the callback stamps the time.
+_mono_ms :: (fn() -> i64)({
+  sec_buf := MaybeUninit(i64).new();
+  nsec_buf := MaybeUninit(i64).new();
+  sec := (*i64)(sec_buf.as_ptr());
+  nsec := (*i64)(nsec_buf.as_ptr());
+  _rc := clock_gettime(CLOCK_MONOTONIC, sec, nsec);
+  (sec.* * i64(1000)) + (nsec.* / i64(1000000))
+});
+// user_data: [0] the start in monotonic ms, [1] ms since then at the first
+// callback (0 until it fires).
+on_poll_stamp :: (fn(events_mask : i32, status : i32, user_data : *u8) -> unit)({
+  slots := (*i64)(user_data);
+  fired := slots.add(usize(1));
+  if(fired.* == i64(0), {
+    fired.* = (_mono_ms() - slots.*);
+  });
+  events_mask;
+  status;
+});
+_poll_wakes_a_blocked_loop :: (fn(io : Io) -> unit)({
+  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
+  assert(pipe_io.pipe(pipefd) == i32(0), "pipe creation failed");
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
+  slots_buf := MaybeUninit(Array(i64, usize(2))).new();
+  slots := (*i64)(slots_buf.as_ptr());
+  slots.* = _mono_ms();
+  stamp := slots.add(usize(1));
+  stamp.* = i64(0);
+  handle := events.poll_init(read_fd);
+  assert(events.poll_start(handle, events.POLL_READABLE, on_poll_stamp, (*u8)(slots)) == i32(0), "poll_start failed");
+  t := Thread(unit).spawn((tio : Io) => {
+    sleep_blocking(Duration.from_millis(i64(50)));
+    _w := unsafe(write(int(write_fd), (*void)((*u8)("x")), usize(1)));
+    ()
+  });
+  io.await(sleep(u64(1000)), io);
+  t.join();
+  unsafe(printf("  poll callback fired at %lld ms (loop blocked in a 1000 ms sleep)\n", stamp.*));
+  assert(stamp.* > i64(0), "the callback fired");
+  assert(stamp.* < i64(700), "the callback fired while the loop was blocked, not after the sleep");
+  events.poll_stop(handle);
+  events.poll_close(handle);
+  io.await(file.close(read_fd), io);
+  io.await(file.close(write_fd), io);
+});
+test("a poll watch fires while the loop is blocked on an unrelated timer", {
+  if(platform == Platform.Linux, {
+    _poll_wakes_a_blocked_loop(io);
+  });
+});
+test("a poll watch fires while the loop is blocked on an unrelated timer (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _poll_wakes_a_blocked_loop(io);
+  });
 });

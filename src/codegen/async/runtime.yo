@@ -16,7 +16,7 @@
 { generate_async_runtime_io_linux } :: import("./runtime_io_linux.yo");
 { generate_async_runtime_io_windows } :: import("./runtime_io_windows.yo");
 { generate_async_runtime_io_wasm } :: import("./runtime_io_wasm.yo");
-{ generate_async_runtime_io_common, AsyncRuntimeOptions } :: import("./runtime_io_common.yo");
+{ generate_async_runtime_io_common } :: import("./runtime_io_common.yo");
 { panic, assert } :: import("std/assert");
 /// Emit the async/await runtime for the compilation target. `_debug_async_await`
 /// is unused (debug tracing is gated by the `ASYNC_DEBUG` macro in the emitted C).
@@ -24,8 +24,7 @@ generate_async_runtime :: (
   fn(
     emitter : Emitter,
     target_info : TargetInfo,
-    _debug_async_await : bool,
-    options : AsyncRuntimeOptions
+    _debug_async_await : bool
   ) -> unit
 )({
   generate_async_runtime_core(emitter, target_info);
@@ -46,7 +45,7 @@ generate_async_runtime :: (
     });
   });
   if(!is_target_wasm(target_info), {
-    generate_async_runtime_io_common(emitter, target_info, options);
+    generate_async_runtime_io_common(emitter, target_info);
   });
 });
 export(generate_async_runtime);

@@ -1206,7 +1206,11 @@ static int __yo_io_wait(void) {
     processed++;
   }
 
-  return processed;
+  // The loop drivers skip their 0-timeout __yo_io_poll in an iteration that
+  // blocks here (runtime_core.yo), so this wait must tick the poll/fs-event
+  // handles itself: without it a started watch was never serviced while any
+  // other I/O was pending (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
+  return processed + __yo_poll_and_fs_event_tick();
 }
 
 // Attach a pending operation to its (fd, filter) registration, creating

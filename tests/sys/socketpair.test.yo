@@ -5,6 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio");
 socketpair_io :: import("std/sys/socketpair");
 tcp :: import("std/sys/tcp");
+pipe_io :: import("std/sys/pipe");
 { AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 fcntl :: import("std/sys/fcntl");
 { O_NONBLOCK } :: import("std/sys/constants");
@@ -183,5 +184,149 @@ test("an aborted task's pending recv does not swallow later data (epoll fallback
   if(platform == Platform.Linux, {
     env.set("YO_IO_BACKEND", "epoll");
     _aborted_recv_leaves_the_data(io);
+  });
+});
+// Both Linux backends try a recv inline before they park it. The inline
+// attempt must not overtake a recv already waiting on the same socket: the
+// earlier waiter is owed the first bytes. The second recv is started while the
+// first is parked.
+//   - epoll (like kqueue) completes parked recvs FIFO: the first send lands in
+//     the first recv.
+//   - io_uring does NOT order concurrent RECVs on one socket (a later RECV's
+//     attempt at submission can run before an earlier one's deferred wakeup),
+//     so there the contract is only that each byte reaches exactly one recv.
+_recvs_in_order :: (fn(io : Io, fifo : bool) -> unit)({
+  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  sv := (*i32)(sv_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
+  fd0 := (sv.add(usize(0))).*;
+  fd1 := (sv.add(usize(1))).*;
+  assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
+  b1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  b1 := (*u8)(b1_uninit.as_ptr());
+  b2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  b2 := (*u8)(b2_uninit.as_ptr());
+  r1 := tcp.recv(fd0, b1, usize(1), i32(0));
+  io.await(yield(io), io);
+  r2 := tcp.recv(fd0, b2, usize(1), i32(0));
+  assert(io.await(tcp.send(fd1, (*u8)("A"), usize(1), i32(0)), io) == i32(1), "send A");
+  if(fifo, {
+    assert(io.await(r1, io) == i32(1), "the first recv completes first");
+    assert(b1.* == u8(65), "and gets the first byte");
+  });
+  assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
+  assert(io.await(r1, io) == i32(1), "the first recv completes");
+  assert(io.await(r2, io) == i32(1), "the second recv completes");
+  if(fifo, {
+    assert(b2.* == u8(66), "the second recv gets the second byte");
+  }, {
+    sum := (i32(b1.*) + i32(b2.*));
+    assert(sum == i32(131), "each byte reached exactly one recv");
+    assert(b1.* != b2.*, "no byte was delivered twice");
+  });
+  io.await(tcp.close(fd0), io);
+  io.await(tcp.close(fd1), io);
+});
+test("a recv started behind a parked recv gets its own bytes", {
+  if(platform == Platform.Linux, {
+    _recvs_in_order(io, false);
+  });
+});
+test("a recv started behind a parked recv does not overtake it (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _recvs_in_order(io, true);
+  });
+});
+// dup2(other, fd) CLOSES fd first. That close has to reach the async backend
+// like any other: a recv parked on fd used to wait forever — the ring's
+// request holds its own reference to the old socket, and epoll drops the
+// interest with the old file, so neither ever delivered it
+// (issues/fixed/dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md).
+// It now fails with -EBADF, and fd works again as the duplicate.
+_dup2_over_parked_recv :: (fn(io : Io) -> unit)({
+  a_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  a := (*i32)(a_uninit.as_ptr());
+  b_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  b := (*i32)(b_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), a) == i32(0), "socketpair a");
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), b) == i32(0), "socketpair b");
+  a0 := (a.add(usize(0))).*;
+  a1 := (a.add(usize(1))).*;
+  b0 := (b.add(usize(0))).*;
+  b1 := (b.add(usize(1))).*;
+  assert(fcntl.setfl(a0, fcntl.getfl(a0) | O_NONBLOCK) == i32(0), "a0 nonblocking");
+  assert(fcntl.setfl(b0, fcntl.getfl(b0) | O_NONBLOCK) == i32(0), "b0 nonblocking");
+  buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  buf := (*u8)(buf_uninit.as_ptr());
+  parked := tcp.recv(a0, buf, usize(16), i32(0));
+  io.await(yield(io), io);
+  assert(pipe_io.dup2(b0, a0) == a0, "dup2 onto the parked fd");
+  r := io.await(parked, io);
+  unsafe(printf("  parked recv after dup2 = %d\n", r));
+  assert(r == i32(-9), "the parked recv fails with EBADF");
+  // a0 is now b0's socket, and must not inherit the old one's registration.
+  assert(io.await(tcp.send(b1, (*u8)("Z"), usize(1), i32(0)), io) == i32(1), "send on b");
+  assert(io.await(tcp.recv(a0, buf, usize(16), i32(0)), io) == i32(1), "recv through the duplicate");
+  assert(buf.* == u8(90), "gets b's byte");
+  io.await(tcp.close(a0), io);
+  io.await(tcp.close(a1), io);
+  io.await(tcp.close(b0), io);
+  io.await(tcp.close(b1), io);
+});
+test("dup2 over a descriptor with a parked recv fails the recv with EBADF", {
+  if(platform == Platform.Linux, {
+    _dup2_over_parked_recv(io);
+  });
+});
+test("dup2 over a descriptor with a parked recv fails the recv with EBADF (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _dup2_over_parked_recv(io);
+  });
+});
+// A top-level await of an I/O future registers no continuation: when the
+// loop's poll completes it, no task runs. The loop step used to block in the
+// backend right after that poll whenever other I/O was pending — here a recv
+// nobody will ever feed — so the await never returned
+// (issues/fixed/a-top-level-await-completed-by-the-io-poll-blocks-on-unrelated-io.md).
+_await_completed_by_poll :: (fn(io : Io) -> unit)({
+  u_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  u := (*i32)(u_uninit.as_ptr());
+  p_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  p := (*i32)(p_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), u) == i32(0), "socketpair u");
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), p) == i32(0), "socketpair p");
+  u0 := (u.add(usize(0))).*;
+  u1 := (u.add(usize(1))).*;
+  p0 := (p.add(usize(0))).*;
+  p1 := (p.add(usize(1))).*;
+  assert(fcntl.setfl(u0, fcntl.getfl(u0) | O_NONBLOCK) == i32(0), "u0 nonblocking");
+  assert(fcntl.setfl(p0, fcntl.getfl(p0) | O_NONBLOCK) == i32(0), "p0 nonblocking");
+  ubuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  ubuf := (*u8)(ubuf_uninit.as_ptr());
+  pbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  pbuf := (*u8)(pbuf_uninit.as_ptr());
+  unrelated := tcp.recv(u0, ubuf, usize(16), i32(0));
+  r := tcp.recv(p0, pbuf, usize(16), i32(0));
+  io.await(yield(io), io);
+  assert(io.await(tcp.send(p1, (*u8)("x"), usize(1), i32(0)), io) == i32(1), "feed r");
+  assert(io.await(r, io) == i32(1), "the awaited recv returns");
+  // Now end the unrelated recv: closing its fd fails it with EBADF.
+  io.await(tcp.close(u0), io);
+  assert(io.await(unrelated, io) == i32(-9), "the unrelated recv ends with the close");
+  io.await(tcp.close(u1), io);
+  io.await(tcp.close(p0), io);
+  io.await(tcp.close(p1), io);
+});
+test("a top-level await completed by the I/O poll returns despite unrelated pending I/O", {
+  if(platform != Platform.Windows, {
+    _await_completed_by_poll(io);
+  });
+});
+test("a top-level await completed by the I/O poll returns despite unrelated pending I/O (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _await_completed_by_poll(io);
   });
 });
