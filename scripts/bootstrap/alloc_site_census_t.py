@@ -72,7 +72,7 @@ for k, (label, base) in enumerate(zip(labels, bases)):
                 % (m.group(1), m.group(2), k, tag_expr))
     src, n_ctor = pat.subn(repl, src)
     n_ctor_total += n_ctor
-    d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = \(void\(\*\)\(void\*\)\)(yo_id_\d+);" % (base, base), src, re.S)
+    d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = (?:\(void\(\*\)\(void\*\)\))?(?:__yo_dispose_thunk_)?(yo_id_\d+);" % (base, base), src, re.S)
     if not d or n_ctor == 0:
         raise SystemExit("no ctor/dispose for %s (%s)" % (label, base))
     dpat = re.compile(r"\nstatic (?:inline )?void %s\(%s\* (\w+)\) \{" % (d.group(1), base))
@@ -271,7 +271,7 @@ if "--rc-events" in sys.argv or "--rc-balance" in sys.argv:
     print("rc-event hooks:", n1, n2)
     disp_fns = []
     for b in bases:
-        d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = \(void\(\*\)\(void\*\)\)(yo_id_\d+);" % (b, b), src, re.S)
+        d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = (?:\(void\(\*\)\(void\*\)\))?(?:__yo_dispose_thunk_)?(yo_id_\d+);" % (b, b), src, re.S)
         disp_fns.append(d.group(1))
     tgt = "static int __hs_is_target(void* p) { void* fn = (void*)((__yo_rc_prefix_t*)p)->dispose_fn; return " + " || ".join("fn == (void*)%s" % d for d in disp_fns) + "; }\n"
     src = src + tgt
