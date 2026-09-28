@@ -65,3 +65,24 @@ first, and the test passes for the reason it does on Linux). Alternative
 rejected: widening the test's margins would pin the OS, but the property
 under test — a shorter deadline wins — is real and the runtime should
 honor it.
+
+## Addendum 2026-09-28 (branch `perf/windows-async-io`)
+
+The QPC clock (#627) made the DUE times fine-grained but the WAIT stayed
+coarse: GetQueuedCompletionStatusEx's timeout rounds up to the system timer
+interrupt (15.6 ms by default), so a 1 ms and a 5 ms due still both became
+"due" in the same wake and fired in one `__yo_win_timer_process_due` batch —
+the structural half of this race survived the clock fix. The loop now calls
+`timeBeginPeriod(1)` at init (winmm resolved dynamically), which puts the
+waits on a 1 ms tick: due_1ms and due_5ms land in different waits, the
+deadline fires first, and this test's oracle —
+
+```
+tests/async/while_await_in_match_arm.test.yo
+  ✓ plain arm awaits once, looping arm polls to completion
+```
+
+— passes locally on Windows under the rebuilt runtime (it failed under the
+v0.2.45 seed's 15.6 ms rounding). The general oracle for sub-tick waits is
+`tests/time/sleep.test.yo` "sub-tick sleeps honor their deadline" (fails on
+the seed: avg sleep(4ms) 14–15 ms; passes with 1 ms resolution: 3–4 ms).
