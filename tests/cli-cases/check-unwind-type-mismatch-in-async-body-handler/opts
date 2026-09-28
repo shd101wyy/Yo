@@ -1,0 +1,13 @@
+# An exception handler inside an `io.async` closure body is a definition
+# inside another definition's trial: the handler's trial re-raises the
+# `unwind` mismatch it swallowed, and the io.async body's trial swallows that
+# re-raise in turn. The re-raise cleared the flow-violation flag without
+# setting it again, so the io.async body's caller had nothing to re-raise:
+# `yo check` passed and `yo compile` gave only E0905 (the body was never
+# fully evaluated)
+# (issues/fixed/unwind-type-mismatch-in-an-io-async-body-handler-is-swallowed.md).
+# `unwind` exits the frame that installed the handler, the async block, so
+# its value must have the block's result type. Now rc=1 and the E0604.
+# The file's check verdict is kept too, so a compiler with the bug scores a
+# GOLDEN-DIFF (`bad.yo — evaluator OK`) rather than a vacuous empty match.
+stdout_keep_match=(error\[E0604\]: Incompatible type for .unwind. argument|bad\.yo — evaluator OK|[0-9]+ file\(s\) failed evaluator coverage|Expected \(enclosing function return type\): Result\(String, String\)|Got: i32)
