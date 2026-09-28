@@ -1114,7 +1114,8 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   `YO_IO_BACKEND=epoll yo test ./tests/async_await.test.yo --parallel 1`
   and the same without the env (the io_uring path).
 - `tests/internal/uring_runtime.test.yo` pins the emitted runtime text (vendored
-  ring layer, no liburing surface, backend ladder, per-op dispatch). It follows
+  ring layer, no liburing surface, backend ladder, per-op dispatch, the timer
+  heap, the inline paths, the watch set). It follows
   the `gc_runtime_atomics.test.yo` pattern — call the emitters, assert on the C.
 - **Emit-diffs must pin `YO_STD`.** Minted type/function ids in the emitted C
   (`__yo_t_*`, `yo_id_*`) incorporate the std tree's absolute path, so comparing
@@ -1122,6 +1123,12 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   that is NOT a codegen change. Compile both sides with the same
   `YO_STD=<abs>/std` before diffing; then all diff hunks must sit inside the
   runtime region (`Platform-specific sync helpers (Linux)` .. `__yo_main_thread_entry`).
+- Performance: `scripts/io-budget-check.sh` is the hard gate (syscall counts);
+  `scripts/bench-io-backends.sh` (ring vs epoll) and `scripts/bench-vs-libuv.sh`
+  (both vs libuv 1.x; needs libuv headers, `LIBUV_CFLAGS`/`LIBUV_LIBS` without
+  pkg-config) are informational. On a shared box take medians (`REPS=7`) —
+  single runs vary ±30%. On WSL2, loopback-TCP round trips are ~300 µs for every
+  runtime: the socketpair rows measure the runtime, the TCP rows the kernel.
 - Nothing in the Linux pipeline needs liburing: user programs, the `yo`
   binary, stage-1 and the published bundles (seed v0.2.45 on) all carry the
   vendored ring layer. Only a `yo` built by a PRE-v0.2.45 seed links liburing

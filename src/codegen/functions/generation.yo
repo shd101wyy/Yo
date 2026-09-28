@@ -23,7 +23,7 @@
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
-{ is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
+{ is_target_posix, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -35,7 +35,7 @@
 { t_unit } :: import("../../types/creators.yo");
 { eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
-{ generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
+{ generate_sys_runtime, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
@@ -972,17 +972,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // The async/await runtime is emitted only when the program uses async code
   // (avoids ~8K lines of C for non-async programs).
   if(context.uses_async, {
-    // Precompute the Linux timer dispose type-id. Only register it on the LINUX
-    // non-cycle-GC path: on macOS the id is never allocated and
-    // __yo_timer_future_dispose (Linux-only) is never referenced by the
-    // dispose-dispatch switch. See
-    // AsyncRuntimeOptions for why this is a value, not a callback.
-    timer_dispose_type_id := if(!context.base.needs_cycle_gc && is_target_linux(context.base.target_info), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
-    opts := AsyncRuntimeOptions(
-      needs_cycle_gc : context.base.needs_cycle_gc,
-      timer_dispose_type_id : timer_dispose_type_id
-    );
-    generate_async_runtime(context.base.emitter, context.base.target_info, false, opts);
+    generate_async_runtime(context.base.emitter, context.base.target_info, false);
   });
   // Generate parallelism runtime only when the program uses threads/workers.
   // This avoids ~450 lines of C thread pool code for single-threaded programs.

@@ -1,62 +1,79 @@
-# async runtime vs libuv (Windows)
+# Yo's async runtime vs libuv
 
-A paired benchmark: the same workloads in Yo (`bench.yo`, one event loop) and
-in C on libuv (`bench_uv.c`, one loop, v1.51.0). Small payloads, so
-per-operation runtime overhead dominates; everything runs on the loopback
-stack with `TCP_NODELAY` on both ends.
+Two paired benchmarks: each runs the same workload in Yo and in C on libuv
+(one event loop each, small payloads so per-operation overhead dominates).
+Always alternate the two binaries per round and compare medians — on a
+shared machine the noise is of the same order as the differences.
 
-## Build & run
+| Pair | Level | Workloads | Driver |
+| --- | --- | --- | --- |
+| `../io_bench.yo` + `io_bench_uv.c` | runtime (the `__yo_async_*` ops) | socketpair echo; loopback-TCP echo over 1 and 64 connections; zero-delay timer churn; a 16 KiB file write+read cycle | `scripts/bench-vs-libuv.sh` (POSIX; prints medians and Yo/libuv ratios; runs informationally in CI's I/O budgets job) |
+| `bench.yo` + `bench_uv.c` | std (`TcpStream`, `Channel`, `sleep` tasks) | `pingpong` (1 TCP connection), `multi` (8 connections), `timers` (500 timers, 1 ms each) | manual, below (the Windows flow) |
+
+## Running
 
 ```bash
-# libuv side (clone at a release tag, compile with clang or cl):
-git clone --depth 1 --branch v1.51.0 https://github.com/libuv/libuv.git
-clang -O2 -DNDEBUG -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602 \
-  -Ilibuv/include -Ilibuv/src bench_uv.c libuv/src/*.c libuv/src/win/*.c \
-  -lws2_32 -lpsapi -luser32 -ladvapi32 -liphlpapi -lshell32 \
-  -lole32 -ldbghelp -luserenv -o bench_uv.exe
+# POSIX, the runtime-level pair (libuv from pkg-config, or LIBUV_CFLAGS/LIBUV_LIBS):
+YO=$(which yo) YO_STD=$PWD/std REPS=7 bash scripts/bench-vs-libuv.sh
 
-./bench_uv.exe pingpong 20000          # one connection, N round trips
-./bench_uv.exe multi 2000 8            # 8 connections, 2000 RTs each
-./bench_uv.exe timers 20000 500        # 500 1ms timers, 20k fires
-UV_HISTIMER=1 ./bench_uv.exe ...       # also call timeBeginPeriod(1) first
-                                       # (plain libuv does NOT — see notes)
+# The std-level pair, any platform:
+cc -O2 bench_uv.c $(pkg-config --cflags --libs libuv) -o bench_uv   # POSIX
+#   Windows (libuv source at a release tag, clang or cl):
+#   clang -O2 -DNDEBUG -D_WIN32_WINNT=0x0602 -Ilibuv/include -Ilibuv/src \
+#     bench_uv.c libuv/src/*.c libuv/src/win/*.c -lws2_32 -lpsapi -luser32 \
+#     -ladvapi32 -liphlpapi -lshell32 -lole32 -ldbghelp -luserenv -o bench_uv.exe
+yo compile scripts/bench/async-vs-libuv/bench.yo --optimize 2 -o bench_yo
 
-# Yo side (a yo built from this tree):
-yo compile scripts/bench/async-vs-libuv/bench.yo --optimize 2 -o bench_yo.exe
-BENCH_COUNT=20000 ./bench_yo.exe                         # pingpong
-BENCH_MODE=multi BENCH_COUNT=16000 BENCH_K=8 ./bench_yo.exe
-BENCH_MODE=timers BENCH_COUNT=20000 BENCH_K=500 ./bench_yo.exe
+./bench_uv pingpong 20000        ;  BENCH_COUNT=20000 ./bench_yo
+./bench_uv multi 2000 8          ;  BENCH_MODE=multi BENCH_COUNT=16000 BENCH_K=8 ./bench_yo
+./bench_uv timers 20000 500      ;  BENCH_MODE=timers BENCH_COUNT=20000 BENCH_K=500 ./bench_yo
 ```
 
-Alternate the two binaries per round and compare medians — the machine's
-noise is of the same order as the differences.
+## Measured
 
-## Measured (2026-09-28, Windows 11, x86_64, 7/5 interleaved rounds, medians)
+**Linux** (2026-09-28, WSL2 6.6.87, x86_64, libuv 1.52.1, medians; ratio > 1
+means Yo is faster). Runtime-level pair, 7 rounds, ops/s:
 
-| workload                          | libuv     | libuv + hi-res timer | Yo       |
-| --------------------------------- | --------- | -------------------- | -------- |
-| ping-pong, 1 conn (µs / RT)       | 26.4      | 26.5                 | **26.7** |
-| ping-pong, 8 conns (k RT/s)       | 33.8      | 34.5                 | **35.9** |
-| timer storm, 500×1ms (k fires/s)  | 8.9       | 9.1                  | **~350** |
+| workload | Yo io_uring | Yo epoll fallback | libuv | ring/uv | epoll/uv |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| socketpair echo | 1,384,299 | 1,334,201 | 1,139,471 | 1.21 | 1.17 |
+| TCP echo, 1 conn | 13,196 | 13,260 | 13,190 | 1.00 | 1.01 |
+| TCP echo, 64 conns | 267,650 | 262,423 | 261,064 | 1.03 | 1.01 |
+| zero-delay timers | 8,496,177 | 10,695,187 | 7,074,637 | 1.20 | 1.51 |
+| 16 KiB file cycle, tmpfs | 3,472 | 29,943 | 3,143 | 1.10 | 9.53 |
+| same on ext4 | ~5,400 | ~7,000 | ~2,850 | ~1.9 | ~2.5 |
 
-Yo is at parity on the RTT-bound single connection, ~4–6 % faster on the
-multi-connection aggregate (128-entry `GetQueuedCompletionStatusEx` batches
-plus the pooled overlapped structs), and ~40× faster on the timer storm.
+The two TCP rows are bound by WSL2's loopback delivery, ~300–450 µs per
+single-connection round trip for any runtime. The socketpair row is each
+runtime's own per-hop cost.
 
-## Notes on fairness
+Std-level pair, 5 rounds: `timers` 459 K vs 427 K fires/s (1.07); `multi`
+13.7 K vs 13.8 K rt/s and `pingpong` ~2.2 K rt/s on both — loopback-bound,
+parity within noise.
 
-- **libuv never calls `timeBeginPeriod`** — every wait it makes (including
-  timer deadlines) rounds up to the ~15.6 ms system timer interrupt. The
-  `UV_HISTIMER=1` column neutralizes that by raising resolution before the
-  loop starts, the same thing Yo's runtime does at init since #974. The
-  timer-storm gap is NOT mainly resolution (the hi-res column barely moves):
-  it is the timer queue — Yo fires the whole due batch per wake and re-arms
-  in-place, where re-arming a `uv_timer_t` from its own callback costs far
-  more at this scale.
-- The timer storm's Yo side pays full `io.async` task machinery (a state
-  machine per timer loop, resumed on every fire) — the libuv side is bare
-  `uv_timer_t` callbacks — and Yo still wins by an order of magnitude.
-- The teardown of `multi` prints "unhandled effect unwind aborted an async
-  task that was never awaited" for the server tasks (they observe the peer's
-  close as an error and unwind through the bench's panic handler); the client
-  counters — what the measurement uses — are unaffected.
+**Windows** (2026-09-28, Windows 11, x86_64, libuv 1.51.0, from #981):
+ping-pong at parity (26.7 vs 26.4 µs per round trip), 8 connections ~5%
+faster (35.9 vs 33.8 K rt/s). Those runs predate the fixes below. The
+`timers` row they reported ("~40×") is withdrawn; see below.
+
+## Corrections (2026-09-28)
+
+#981's first version of this pair was not like for like:
+
+- **`timers`:** `bench_uv.c` armed timer *i* for `1 + (i % 50)` ms, delays
+  averaging ~25 ms, while `bench.yo`'s tasks sleep 1 ms. The libuv side was
+  therefore capped near 500 timers / 25 ms ≈ 20 K fires/s by construction, which
+  is where "Yo ~40× faster on timers" came from. With the same 1 ms delay on
+  both sides, Yo is ~7% faster on Linux (above), not 40×. Windows needs
+  re-measuring. Its note that libuv never calls `timeBeginPeriod` (every wait
+  rounds up to the ~15.6 ms timer interrupt, while Yo's runtime raises the
+  resolution) still stands and matters there.
+- **`multi`:** the libuv side stopped timing when the FIRST connection reached
+  its target (`exit(0)` in the read callback), so it timed less work than the
+  Yo side (~15.6 K instead of 16 K round trips) and dropped the slowest
+  connection's tail. It now stops when the last one finishes.
+- **`multi` teardown** printed "unhandled effect unwind aborted an async task
+  that was never awaited": the Yo side never awaited its server tasks. It
+  does now.
+- `bench_uv.c` read the listener's port with `getsockname` on a `uv_fileno`
+  and an `int` length, which is not portable. It uses `uv_tcp_getsockname`.

@@ -15,7 +15,8 @@
 { Emitter } :: import("../../src/emitter.yo");
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
 { generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
-{ generate_async_runtime_io_common, AsyncRuntimeOptions } :: import("../../src/codegen/async/runtime_io_common.yo");
+{ generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
+{ generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
 { parse_target, host_target, is_target_linux } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
@@ -36,11 +37,7 @@ emit_linux_common :: (fn() -> String)({
     .Err(_) => host_target()
   );
   assert(is_target_linux(t), String.from("linux triple failed to parse as linux"));
-  opts := AsyncRuntimeOptions(
-    needs_cycle_gc : false,
-    timer_dispose_type_id : Option(i64).None
-  );
-  generate_async_runtime_io_common(em, t, opts);
+  generate_async_runtime_io_common(em, t);
   em.print()
 });
 /// The macOS runtime, for the negative pin: the vendored layer must stay a
@@ -77,17 +74,44 @@ test("linux runtime: the DEFER_TASKRUN probe is the plain GETEVENTS enter", {
   // Queued SQEs ride the probe's enter (issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md).
   assert(c.contains(String.from("ret = __yo_uring_submit_and_wait(&__yo_io_ring, 0);")), String.from("poll no longer submits and reaps in one enter"));
 });
-test("common runtime: the Linux timer arms through the vendored ring, unguarded", {
+test("common runtime: the Linux timer is a heap node on either backend, unguarded", {
   c := emit_linux_common();
   assert(c.contains(String.from("__yo_async_sleep_start")), String.from("sleep symbol missing"));
-  assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("timer does not arm through the ring"));
-  // A ring sleep is one IORING_OP_TIMEOUT, never a timerfd read (which io_uring
-  // punts to an io-wq worker per tick —
-  // issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
-  assert(c.contains(String.from("__yo_uring_prep_timeout(sqe, &timer_future->ts);")), String.from("ring sleep is not a timeout op"));
+  // A sleep arms the runtime's timer heap on both backends: no IORING_OP_TIMEOUT
+  // per sleep, no timerfd (plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md).
+  assert(c.contains(String.from("__yo_timer_arm(future, milliseconds);")), String.from("sleep does not arm the timer heap"));
+  assert(!c.contains(String.from("timerfd_create")), String.from("the timerfd sleep is back"));
+  assert(!c.contains(String.from("__yo_uring_prep_timeout(sqe, &timer_future->ts);")), String.from("a per-sleep ring timeout is back"));
   assert(!c.contains(String.from("__yo_uring_prep_read(sqe, tfd")), String.from("timerfd read prep is back"));
   assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("timer feature guard leaked back"));
   assert(!c.contains(String.from("No liburing: same symbol")), String.from("timer -ENOSYS stub arm leaked back"));
+});
+test("linux runtime: the ring's blocking wait carries the earliest timer deadline", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__YO_IORING_ENTER_EXT_ARG")), String.from("EXT_ARG wait missing"));
+  assert(c.contains(String.from("__yo_ring_arm_wait_timeout(timeout_ns);")), String.from("pre-5.11 timeout fallback missing"));
+  // One enter per wakeup: the wait's completions are reaped from the ring, not
+  // by a second polling enter.
+  assert(c.contains(String.from("return __yo_ring_reap();")), String.from("wait no longer reaps directly"));
+  assert(!c.contains(String.from("return 1 + __yo_io_poll();")), String.from("the second enter after a wait is back"));
+});
+test("linux runtime: a full SQ is flushed, not reported as EAGAIN", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("static struct __yo_uring_sqe* __yo_io_get_sqe(void) {")), String.from("SQE reservation helper missing"));
+  assert(c.contains(String.from("  __yo_io_flush_sq();\n  return __yo_uring_get_sqe(&__yo_io_ring);")), String.from("full-SQ flush and retry missing"));
+});
+test("linux runtime: what the kernel always punts to io-wq runs inline", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("return __yo_inline_statx_start(dirfd, path, flags, mask, statxbuf);")), String.from("statx is not inline"));
+  assert(!c.contains(String.from("__YO_IORING_OP_STATX")), String.from("a ring statx is back"));
+  assert(c.contains(String.from("__yo_pwrite_nowait(fd, buffer, size, offset)")), String.from("nowait write attempt missing"));
+  assert(c.contains(String.from("recv(sockfd, buf, len, flags | MSG_DONTWAIT)")), String.from("inline recv attempt missing"));
+  assert(c.contains(String.from("SOCK_NONBLOCK);\n  __yo_uring_sqe_set_data(sqe, future);")), String.from("accept does not ask for a nonblocking socket"));
+});
+test("linux runtime: watched descriptors can end a blocked wait", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__yo_uring_prep_poll_add(sqe, __yo_watch_epfd, POLLIN);")), String.from("watch-set POLL_ADD missing"));
+  assert(c.contains(String.from("static int32_t __yo_io_watch_set(int32_t fd, uint32_t events) {")), String.from("watch-set API missing"));
 });
 test("macos runtime: the vendored ring layer is not emitted", {
   c := emit_macos_runtime();
@@ -99,9 +123,11 @@ test("linux runtime: the epoll fallback backend and the selection ladder are emi
   assert(c.contains(String.from("__YO_BACKEND_EPOLL")), String.from("backend enum missing"));
   assert(c.contains(String.from("__yo_epoll_park")), String.from("pending-op machine missing"));
   // One kernel interest per fd, shared by its read and write registrations
-  // (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md).
-  assert(c.contains(String.from("static int __yo_epoll_sync_fd(int fd)")), String.from("per-fd interest sync missing"));
-  assert(!c.contains(String.from("__yo_epoll_arm(")), String.from("per-direction arm is back"));
+  // (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md),
+  // one-shot and re-armed with one MOD per park
+  // (plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md).
+  assert(c.contains(String.from("uint32_t mask = (slot->dir[0] ? EPOLLIN : 0u) | (slot->dir[1] ? EPOLLOUT : 0u);")), String.from("per-fd interest union missing"));
+  assert(c.contains(String.from("ev.events = mask | EPOLLONESHOT;")), String.from("one-shot interest missing"));
   assert(c.contains(String.from("YO_IO_BACKEND")), String.from("env override missing"));
   assert(c.contains(String.from("async I/O running on the epoll fallback")), String.from("fallback log line missing"));
   assert(c.contains(String.from("__YO_BACKEND_DEGRADED")), String.from("degraded rung missing"));
@@ -111,13 +137,22 @@ test("linux runtime: every ring op start carries the backend dispatch", {
   assert(c.contains(String.from("return __yo_epoll_read_start(fd, buffer, size, offset);")), String.from("read dispatch missing"));
   assert(c.contains(String.from("return __yo_epoll_accept_start(sockfd, addr, addrlen);")), String.from("accept dispatch missing"));
   assert(c.contains(String.from("return __yo_epoll_sendto_park(sockfd, buf, len, flags, dest_addr, addrlen, future);")), String.from("sendto dispatch missing"));
-  assert(c.contains(String.from("return __yo_epoll_done_future(-__yo_backend_errno);")), String.from("degraded dispatch missing"));
-});
-test("common runtime: the Linux timer arms through epoll when selected", {
-  c := emit_linux_common();
-  assert(c.contains(String.from("__yo_epoll_sleep_arm(future, tfd, buf);")), String.from("timer epoll arm missing"));
+  assert(c.contains(String.from("return __yo_io_done_future(-__yo_backend_errno);")), String.from("degraded dispatch missing"));
 });
 test("macos runtime: the epoll backend is not emitted", {
   c := emit_macos_runtime();
   assert(!c.contains(String.from("__yo_epoll")), String.from("epoll backend leaked into the macOS runtime"));
+});
+// The Windows sys runtime is emitted for EVERY program, the async section only
+// for async ones. A direct call from the former into the latter links only when
+// both are present: #974's __yo_file_close called __yo_win_unassociate_handle
+// directly, and every non-async Windows program (hello-world) failed to link
+// (issues/fixed/windows-non-async-programs-fail-to-link-on-an-async-only-symbol.md).
+// The close path goes through a hook the async init installs.
+test("windows sys runtime: the close path reaches the async section only through its hook", {
+  em := Emitter.new();
+  generate_platform_sys_runtime_windows(em);
+  c := em.print();
+  assert(!c.contains(String.from("__yo_win_unassociate_handle(fd);")), String.from("sys runtime calls an async-section function directly"));
+  assert(c.contains(String.from("if (__yo_win_close_hook) __yo_win_close_hook(fd);")), String.from("close hook call missing"));
 });

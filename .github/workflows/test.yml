@@ -1547,6 +1547,14 @@ jobs:
         continue-on-error: true
         run: |
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" bash scripts/bench-io-backends.sh
+      # The same workloads against libuv on the same runner (the yardstick in
+      # plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md): Yo/libuv ratios, > 1
+      # means Yo is faster. Informational for the same reason as the table.
+      - name: Yo vs libuv (informational)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libuv1-dev
+          YO="$PWD/yo-stage1" YO_STD="$PWD/std" REPS=5 bash scripts/bench-vs-libuv.sh
 
   epoll-corpus:
     # DROP_LIBURING Phase 5's forced-epoll corpus: the async, I/O, network and
