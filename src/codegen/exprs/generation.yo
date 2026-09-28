@@ -409,7 +409,18 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     .Some(jh) => {
       // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
       jh_base := jh.trim_end_matches("*").trim();
-      `__yo_new_${jh_base}((void*)${spawn_var.clone()})`
+      handle_code := `__yo_new_${jh_base}((void*)${spawn_var.clone()})`;
+      // Materialize the handle into the spawn's own temp, as a call does:
+      // the scope-end drop the evaluator schedules for that temp is what
+      // releases a DISCARDED handle (a statement-level spawn). Returned as an
+      // expression it had no C name, so the drop was skipped and every
+      // fire-and-forget spawn leaked its handle and the state machine
+      // (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
+      if(name_suffix.len() > usize(0), {
+        em.emit_string_line(`${indent.clone()}${jh} ${name_suffix.clone()} = ${handle_code};`);
+        _store_temp_var_to_state_machine_if_needed(name_suffix.clone(), indent.clone(), context);
+        name_suffix.clone()
+      }, handle_code)
     },
     .None => `(void*)${spawn_var.clone()}`
   )

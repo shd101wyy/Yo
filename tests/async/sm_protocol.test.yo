@@ -3,6 +3,7 @@
 //! issue's repro; a hang is caught by the runner's deadline.
 pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
 pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Error, Exception, IoExn } :: import("std/error");
 { ToString } :: import("std/fmt");
@@ -12,6 +13,8 @@ pragma(Pragma.SkipWasm32Wasi);
 { Duration } :: import("std/time/duration");
 { Channel } :: import("std/async/channel");
 { Mutex } :: import("std/async/mutex");
+{ __yo_async_socket_start, __yo_async_yield_start } :: import("std/sys/externs");
+{ close } :: import("std/libc/unistd");
 
 (g_disposed : i32) = i32(0);
 Thing :: ref(struct(n : i32));
@@ -202,4 +205,41 @@ _outer_catch :: (fn(io : Io) -> String)({
 });
 test("an unwind to a synchronous installer passes through the tasks", {
   assert(_outer_catch(io) == `caught framing broke`, "the caller's handler value");
+});
+
+// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md
+// A task's result lives in its state machine, so the result's Dispose runs
+// only when the state machine itself is freed.
+test("a statement-level spawn detaches the task, which frees itself", {
+  before := g_disposed;
+  (i : i32) = i32(0);
+  while(runtime(i < i32(20)), {
+    io.spawn(
+      io.async((io : Io) => {
+        io.await(yield(io), io);
+        Thing(n : i)
+      }),
+      io
+    );
+    i = (i + i32(1));
+  });
+  (spins : i32) = i32(0);
+  while(runtime((g_disposed < (before + i32(20))) && (spins < i32(100))), {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
+  assert(g_disposed == (before + i32(20)), "every detached task freed its state machine");
+});
+
+// issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md
+test("a JoinHandle of a raw I/O future reads its result and can abort it", {
+  // A socket's result is its (non-zero) fd, which a handle reading the
+  // state-machine layout used to miss.
+  h := io.spawn(unsafe(__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
+  fd := match(h.await(io), .Some(v) => v, .None => i32(-99));
+  assert(fd > i32(2), "the handle read the operation's fd");
+  _c := unsafe(close(int(fd)));
+  h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
+  h2.abort();
+  assert(h2.await(io).is_none(), "the aborted raw future reads .None");
 });
