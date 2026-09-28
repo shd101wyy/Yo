@@ -516,7 +516,7 @@ _expr_near_line :: (fn(e : AstExpr, line : usize) -> bool)(
     .Atom(
       _,
       tok
-    ) => (tok.row == line),
+    ) => (usize(tok.row) == line),
     .FnCall(
       _,
       func_box,
@@ -524,7 +524,7 @@ _expr_near_line :: (fn(e : AstExpr, line : usize) -> bool)(
       _,
       tok2
     ) => {
-      if(tok2.row == line, {
+      if(usize(tok2.row) == line, {
         return(true);
       });
       if(recur(func_box, line), {
@@ -679,7 +679,7 @@ _scan_idents :: (
   match(
     e,
     .Atom(_, tok) => {
-      at_or_before := ((tok.row < line) || ((tok.row == line) && (tok.column <= character)));
+      at_or_before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) <= character)));
       match(
         expr_info_table_get(info_table, ast_expr_id(e)),
         .Some(info) => if(at_or_before, {
@@ -697,7 +697,7 @@ _scan_idents :: (
         }),
         .None => ()
       );
-      before := ((tok.row < line) || ((tok.row == line) && (tok.column < character)));
+      before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) < character)));
       if((tok.kind == TokenKind.Identifier) && before, {
         name := tok.value.clone();
         match(
@@ -705,17 +705,17 @@ _scan_idents :: (
           .Some(idx) => {
             old_row := match(name_rows.get(idx), .Some(r) => r, .None => usize(0));
             old_col := match(name_cols.get(idx), .Some(c) => c, .None => usize(0));
-            later := ((tok.row > old_row) || ((tok.row == old_row) && (tok.column > old_col)));
+            later := ((usize(tok.row) > old_row) || ((usize(tok.row) == old_row) && (usize(tok.column) > old_col)));
             if(later, {
-              name_rows(idx) = tok.row;
-              name_cols(idx) = tok.column;
+              name_rows(idx) = usize(tok.row);
+              name_cols(idx) = usize(tok.column);
               name_expr_ids(idx) = ast_expr_id(e);
             });
           },
           .None => {
             names.push(name.clone());
-            name_rows.push(tok.row);
-            name_cols.push(tok.column);
+            name_rows.push(usize(tok.row));
+            name_cols.push(usize(tok.column));
             name_expr_ids.push(ast_expr_id(e));
             name_index.insert(name, names.len() - usize(1));
           }
@@ -878,7 +878,7 @@ _import_list_path :: (
   (ti : usize) = usize(0);
   while(ti < tokens.len(), {
     t := tokens(ti);
-    starts_before := ((t.row < line) || ((t.row == line) && (t.column < character)));
+    starts_before := ((usize(t.row) < line) || ((usize(t.row) == line) && (usize(t.column) < character)));
     if(starts_before, {
       last_before = Option(usize).Some(ti);
     });
@@ -1152,20 +1152,20 @@ handle_completion :: (
       if(!(trivia), {
         // `t.column` and `dot_col` are RUNE columns, so the token width added
         // to one has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-        ends_at_dot := ((t.row == line) && ((t.column + t.value.chars().count()) == dot_col));
+        ends_at_dot := ((usize(t.row) == line) && ((usize(t.column) + t.value.chars().count()) == dot_col));
         if(ends_at_dot && (t.kind == TokenKind.Identifier), {
           receiver = Option(Token).Some(t);
         });
-        before_dot := ((t.row < line) || ((t.row == line) && ((t.column + t.value.chars().count()) <= dot_col)));
+        before_dot := ((usize(t.row) < line) || ((usize(t.row) == line) && ((usize(t.column) + t.value.chars().count()) <= dot_col)));
         if(before_dot, {
           later := (
             prev_tok.is_none() ||
-              ((t.row > prev_row) || ((t.row == prev_row) && (t.column >= prev_col)))
+              ((usize(t.row) > prev_row) || ((usize(t.row) == prev_row) && (usize(t.column) >= prev_col)))
           );
           if(later, {
             prev_tok = Option(Token).Some(t);
-            prev_row = t.row;
-            prev_col = t.column;
+            prev_row = usize(t.row);
+            prev_col = usize(t.column);
           });
         });
       });

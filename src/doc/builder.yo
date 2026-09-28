@@ -270,8 +270,8 @@ _slice_token_text :: (
   // `Token.byte_offset` is that issue's named follow-up field; `value.len()`
   // is the token's byte width, which is the matching unit
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S8).
-  start := start_tok.byte_offset;
-  end := (end_tok.byte_offset + end_tok.value.len());
+  start := usize(start_tok.byte_offset);
+  end := (usize(end_tok.byte_offset) + end_tok.value.len());
   end_tok.input.substring(start, end).trim()
 });
 /// Skip one comma-delimited argument at any nesting depth. Returns the index
@@ -414,7 +414,7 @@ _render_token_span :: (
       prev := match(toks.get(k - usize(1)), .Some(pt) => pt, .None => t);
       // `Token.character` is a RUNE offset, so the token width added to one
       // has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      adjacent := ((prev.character + prev.value.chars().count()) == t.character);
+      adjacent := ((usize(prev.character) + prev.value.chars().count()) == usize(t.character));
       suppress := ((prev.kind == TokenKind.LParen) || (t.kind == TokenKind.RParen) || (t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon));
       if(!adjacent && !suppress, {
         out = `${out} `;
@@ -903,7 +903,7 @@ _collect_doc_comment_before :: (
   while((i < full_tokens.len()) && !found, {
     match(
       full_tokens.get(i),
-      .Some(t) => if((t.row > row) || ((t.row == row) && (t.character >= character)), {
+      .Some(t) => if((usize(t.row) > row) || ((usize(t.row) == row) && (usize(t.character) >= character)), {
         idx = isize(i);
         found = true;
       }),
@@ -1143,7 +1143,7 @@ _extract_trait_body_members :: (
       name := name_tok.value.clone();
       doc := if(
         full_tokens.len() > usize(0),
-        _collect_doc_comment_before(full_tokens, name_tok.row, name_tok.character),
+        _collect_doc_comment_before(full_tokens, usize(name_tok.row), usize(name_tok.character)),
         Option(String).None
       );
       // Is the type after ":" a function type (method) or a plain type

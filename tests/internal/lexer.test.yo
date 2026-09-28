@@ -577,16 +577,16 @@ test("Token row tracking across newlines", {
     toks.get(usize(0)),
     .None => assert(false, "no token 0"),
     .Some(tok) => {
-      assert(tok.row == usize(0), "hello is on row 0");
-      assert(tok.column == usize(0), "hello starts at col 0");
+      assert(usize(tok.row) == usize(0), "hello is on row 0");
+      assert(usize(tok.column) == usize(0), "hello starts at col 0");
     }
   );
   match(
     toks.get(usize(1)),
     .None => assert(false, "no token 1"),
     .Some(tok) => {
-      assert(tok.row == usize(1), "world is on row 1");
-      assert(tok.column == usize(0), "world starts at col 0");
+      assert(usize(tok.row) == usize(1), "world is on row 1");
+      assert(usize(tok.column) == usize(0), "world starts at col 0");
     }
   );
 });
@@ -604,12 +604,12 @@ test("Column offset within a line", {
   match(
     toks.get(usize(0)),
     .None => assert(false, "no token 0"),
-    .Some(tok) => assert(tok.column == usize(0), "abc at column 0")
+    .Some(tok) => assert(usize(tok.column) == usize(0), "abc at column 0")
   );
   match(
     toks.get(usize(1)),
     .None => assert(false, "no token 1"),
-    .Some(tok) => assert(tok.column == usize(4), "def at column 4")
+    .Some(tok) => assert(usize(tok.column) == usize(4), "def at column 4")
   );
 });
 // ─── find_matching_bracket ───────────────────────────────────────────────────
@@ -922,7 +922,7 @@ test("closed operator set: ** splits into two * tokens", {
     .Some(tok) => {
       assert(tok.kind == TokenKind.Operator, "expected Operator");
       assert(tok.value == `*`, "first * of the split");
-      first_star_col = tok.column;
+      first_star_col = usize(tok.column);
     }
   );
   match(
@@ -930,7 +930,7 @@ test("closed operator set: ** splits into two * tokens", {
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
       assert(tok.value == `*`, "second * of the split");
-      assert(tok.column == (first_star_col + usize(1)), "split pieces keep their own columns");
+      assert(usize(tok.column) == (first_star_col + usize(1)), "split pieces keep their own columns");
     }
   );
 });
@@ -1026,8 +1026,8 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.StringLit, "token 2 is the string literal");
-      assert(tok.character == usize(5), "rune index of the opening quote");
-      assert(tok.byte_offset == usize(5), "byte offset agrees before any multibyte");
+      assert(usize(tok.character) == usize(5), "rune index of the opening quote");
+      assert(usize(tok.byte_offset) == usize(5), "byte offset agrees before any multibyte");
     }
   );
   match(
@@ -1036,8 +1036,8 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
     .Some(tok) => {
       assert(tok.value == `;`, "token 3 is the semicolon");
       // "a := \"名前\"" is 5 + 1 + 6 + 1 = 13 bytes but 5 + 1 + 2 + 1 = 9 runes.
-      assert(tok.character == usize(9), "rune index after the literal");
-      assert(tok.byte_offset == usize(13), "byte offset after the literal");
+      assert(usize(tok.character) == usize(9), "rune index after the literal");
+      assert(usize(tok.byte_offset) == usize(13), "byte offset after the literal");
     }
   );
   // Every token's byte_offset must index `input` back to its own first byte.
@@ -1047,9 +1047,9 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
       toks.get(i),
       .None => (),
       .Some(tok) => {
-        assert(tok.input.is_char_boundary(tok.byte_offset), "byte_offset is a rune boundary");
+        assert(tok.input.is_char_boundary(usize(tok.byte_offset)), "byte_offset is a rune boundary");
         assert(
-          tok.input.starts_with(tok.value.substring(usize(0), usize(1)), tok.byte_offset),
+          tok.input.starts_with(tok.value.substring(usize(0), usize(1)), usize(tok.byte_offset)),
           "byte_offset points at the token's own first byte"
         );
       }
@@ -1077,8 +1077,8 @@ test("Token.byte_offset tracks a multibyte operator run correctly", {
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
       assert(tok.value == `<=`, "the operator token");
-      assert(tok.character == usize(2), "rune index 2");
-      assert(tok.byte_offset == usize(4), "byte offset 4 (名 is 3 bytes + space)");
+      assert(usize(tok.character) == usize(2), "rune index 2");
+      assert(usize(tok.byte_offset) == usize(4), "byte offset 4 (名 is 3 bytes + space)");
     }
   );
 });
@@ -1108,11 +1108,11 @@ test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
       assert(tok.value == `open`, "value must be 'open' with no BOM rune");
-      assert(tok.row == usize(0), "row must not count the BOM");
-      assert(tok.column == usize(0), "column must not count the BOM");
-      assert(tok.character == usize(0), "rune index must not count the BOM");
+      assert(usize(tok.row) == usize(0), "row must not count the BOM");
+      assert(usize(tok.column) == usize(0), "column must not count the BOM");
+      assert(usize(tok.character) == usize(0), "rune index must not count the BOM");
       assert(
-        tok.byte_offset == usize(3),
+        usize(tok.byte_offset) == usize(3),
         "byte_offset still points past the 3 BOM bytes in input"
       );
     }

@@ -2002,7 +2002,7 @@ record_node_eval :: (fn(id : usize, tok : Token) -> unit)({
   });
   n := match(g_node_eval_counts.get(id), .Some(v) => v, .None => usize(0));
   if(n == usize(0), {
-    _pl := g_node_eval_labels.insert(id, `${tok.value}@${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`);
+    _pl := g_node_eval_labels.insert(id, `${tok.value}@${tok.module_path}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`);
   });
   _pc := g_node_eval_counts.insert(id, n + usize(1));
 });

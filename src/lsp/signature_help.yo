@@ -18,7 +18,7 @@ import("std/error");
 
 /// Is position (row, col) at or after the token's start?
 _at_or_after :: (fn(t : Token, row : usize, col : usize) -> bool)(
-  (t.row < row) || ((t.row == row) && (t.column <= col))
+  (usize(t.row) < row) || ((usize(t.row) == row) && (usize(t.column) <= col))
 );
 
 /// The best (innermost, latest-starting) enclosing call: an FnCall whose
@@ -64,8 +64,8 @@ _find_enclosing_call :: (
           });
           best_callee.push(func_box);
           best_active.push(cond((active > usize(0)) => (active - usize(1)), true => usize(0)));
-          best_row.push(tok.row);
-          best_col.push(tok.column);
+          best_row.push(usize(tok.row));
+          best_col.push(usize(tok.column));
         });
       });
       recur(func_box, row, col, best_callee, best_active, best_row, best_col);

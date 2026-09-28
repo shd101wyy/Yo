@@ -33,14 +33,19 @@ Token :: ref(
   struct(
     kind : TokenKind,
     value : String,
-    row : usize,
-    column : usize,
+    /// The four positions are `u32` (a source file is far below 4 GiB): with
+    /// the 4-byte `kind` a `Token` is 64 B instead of 80, 16 B off each of
+    /// the ~1.9 M tokens a `check src/main.yo` keeps
+    /// (plans/EVALUATOR_MEMORY_REDUCTION.md §3.4). Widen with `usize(...)`
+    /// at the read.
+    row : u32,
+    column : u32,
     /// RUNE offset of this token's first character within `input` — the
     /// lexer's `input.chars()` loop counter. Used as an expression identity
     /// key (`await_analysis`, `effect_analysis`) and served straight to the
     /// LSP as a `character` position. **Never index `input` with it** — see
     /// `byte_offset`.
-    character : usize,
+    character : u32,
     /// BYTE offset of this token's first character within `input`.
     ///
     /// `character` is a rune offset, so slicing `input` (which is byte-indexed
@@ -53,7 +58,7 @@ Token :: ref(
     /// Defaults to 0 for the synthetic tokens the parser and evaluator mint:
     /// they have no source text to index, and their `character` is 0 or copied
     /// (in which case `byte_offset` is copied alongside it).
-    (byte_offset : usize) ?= usize(0),
+    (byte_offset : u32) ?= u32(0),
     module_path : String,
     input : String
   )
@@ -259,9 +264,9 @@ placeholder_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
     value : String.from("_"),
-    row : usize(0),
-    column : usize(0),
-    character : usize(0),
+    row : u32(0),
+    column : u32(0),
+    character : u32(0),
     module_path : String.from("_"),
     input : String.from("_")
   )
@@ -272,9 +277,9 @@ raii_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
     value : String.from("drop"),
-    row : usize(0),
-    column : usize(0),
-    character : usize(0),
+    row : u32(0),
+    column : u32(0),
+    character : u32(0),
     module_path : String.from("drop"),
     input : String.from("drop")
   )

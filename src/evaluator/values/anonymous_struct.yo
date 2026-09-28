@@ -86,7 +86,7 @@ evaluate_anonymous_struct_value :: (
   // anonymous-struct instantiations must never share, see struct.yo's twin),
   // but the names no longer follow the global counter.
   as_tok := ast_expr_token(expr);
-  struct_id := stable_type_id(String.from("struct_"), as_tok.module_path, as_tok.row, as_tok.column);
+  struct_id := stable_type_id(String.from("struct_"), as_tok.module_path, usize(as_tok.row), usize(as_tok.column));
   // Member visibility: an anonymous struct literal is declared where it is written.
   register_type_decl_module(struct_id.clone(), as_tok.module_path.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
@@ -173,7 +173,7 @@ evaluate_anonymous_struct_value :: (
       .Some(l) => l,
       .None => {
         vf_tok := ast_expr_token(value_expr);
-        stable_type_id(String.from("__field_"), vf_tok.module_path, vf_tok.row, vf_tok.column)
+        stable_type_id(String.from("__field_"), vf_tok.module_path, usize(vf_tok.row), usize(vf_tok.column))
       }
     );
     field_labels.push(label.clone());

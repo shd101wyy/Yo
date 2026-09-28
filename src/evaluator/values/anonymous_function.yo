@@ -1296,8 +1296,8 @@ evaluate_anonymous_function_implementation :: (
   // Os's body under VcOp's signature). The occurrence counter is per-position,
   // so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => stable_func_id(String.from("closure_"), tok.module_path, tok.row, tok.column),
-    true => stable_func_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
+    is_creating_closure => stable_func_id(String.from("closure_"), tok.module_path, usize(tok.row), usize(tok.column)),
+    true => stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column))
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across
@@ -1979,7 +1979,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // shadow the real definition's (codegen emitted the trial clone).
             // Positional-occurrence like every fid — the throwaway
             // takes this position's next ordinal, distinct from the real one.
-            func_id : stable_func_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
+            func_id : stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column))
           )
         ),
         ArrayList(EvalValue).new()
