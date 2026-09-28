@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 206 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 204 open bug
 docs in `issues/` root and the 13 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 15 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 47 | 27 |
-| **Total** | **206** | **63** |
+| Other | 45 | 27 |
+| **Total** | **204** | **63** |
 
 ## Counts by severity
 
@@ -46,7 +46,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 57 |
-| S2 | 100 |
+| S2 | 98 |
 | S3 | 49 |
 
 ## Design questions (issues/questions/)
@@ -350,7 +350,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (47)
+### Other (45)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -370,7 +370,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`await-placement-rules-only-enforced-in-codegen.md`](./await-placement-rules-only-enforced-in-codegen.md) | S2 | — | yes |
 | [`awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`](./awaiting-an-already-started-future-from-a-state-machine-leaks-it.md) | S1 | — | yes |
 | [`break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md`](./break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md) | S1 | — | yes |
-| [`compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`](./compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md) | S2 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md`](./hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md) | S1 | — | yes |
 | [`if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`](./if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md) | S2 | — | yes |
@@ -394,7 +393,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md`](./unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md) | S3 | OPEN | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | S2 | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |
-| [`verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`](./verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md) | S2 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
 | [`while-with-await-in-both-step-and-body-is-miscompiled.md`](./while-with-await-in-both-step-and-body-is-miscompiled.md) | S1 | — | yes |
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
