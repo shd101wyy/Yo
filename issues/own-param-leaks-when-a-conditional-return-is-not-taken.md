@@ -1,5 +1,7 @@
 # An `own` parameter is never dropped if the body contains an untaken `if(c, { return(param); })`
 
+**Severity:** S1 — a spurious balancing `+1` leaks every RC own-param value when a guard-clause return is not taken — unbounded, hits idiomatic std shapes
+
 **Status:** OPEN. **Class**: silent memory leak of every RC type passed by
 `own`. **Found:** 2026-09-14, while root-causing
 `issues/stddoc-coll-imm-vec-dedup-leaks-rc-elements.md` — whose filed diagnosis

@@ -1,5 +1,7 @@
 # Assigning to a by-value closure parameter under a generic result types the whole call `unit`
 
+**Severity:** S2 — closure assigning its by-value param under a generic result resolves R to `unit` — nonsense error or clang failure
+
 **Status: OPEN.** Found 2026-08-26 while adding `RwLock(T).with_read`
 (STD_API_AUDIT §D7). Distinct from — but in the same family as —
 `issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md`: that one

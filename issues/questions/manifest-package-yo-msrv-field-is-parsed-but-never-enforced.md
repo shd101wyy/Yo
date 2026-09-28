@@ -1,5 +1,7 @@
 # `[package] yo` (the MSRV field) is parsed into the manifest and never read
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** OPEN. Found 2026-09-13 while deciding whether the toolchain pin
 should move from `.yo-version` into `yo.toml`.
 
@@ -68,3 +70,17 @@ Open questions for whoever takes it:
   schema that introduced the field).
 - `plans/reference/VERSION_MANAGEMENT.md` (`.yo-version`, the toolchain pin —
   the half that does work).
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Enforce it: a hard error at manifest load — for the root package and for every
+dependency's manifest — when `[package] yo` is non-empty and the running
+compiler is older, naming both versions and the manifest path. Semantics:
+a bare version means `>=` (the field is documented as "minimum"; the smaller,
+more predictable choice). Do NOT build Cargo's prefer-matching-versions
+resolution policy now — that is a resolver-policy change with no consumer yet,
+and the clear error already delivers the valuable case (a dependency declaring
+a floor the consumer's toolchain does not meet). Keep `.yo-version` as the
+complementary toolchain pin, unchanged.

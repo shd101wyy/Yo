@@ -1,5 +1,7 @@
 # A `build.option` value cannot feed any artifact field
 
+**Severity:** S2 — `build.option` values cannot configure artifact fields — the documented `-Dname=value` purpose does not work
+
 **Status:** OPEN (found 2026-09-12). Belongs to the plan's B4 / §4.7 item
 ("`-D` options are unvalidated… values are untyped strings").
 

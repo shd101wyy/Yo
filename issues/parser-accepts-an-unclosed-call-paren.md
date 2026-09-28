@@ -1,5 +1,7 @@
 # The parser accepts an unclosed call paren — at EOF, and across a `;` and the enclosing `}`
 
+**Severity:** S2 — a missing `)` is silently accepted and the program restructured — the promised E0002 never fires
+
 **Status: open** (found 2026-09-20 while probing the diagnostics registry's
 E0002 example for the toolchain series). Repros:
 `issues/repros/unclosed-call-paren-eof.yo`,

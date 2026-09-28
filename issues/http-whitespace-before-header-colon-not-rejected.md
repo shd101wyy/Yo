@@ -1,5 +1,7 @@
 # `Content-Length : 5` — whitespace before a field-line colon is ignored instead of rejecting the message
 
+**Severity:** S2 — `Content-Length : 5` reads as Absent instead of being rejected — latent request-smuggling desync
+
 **Found**: 2026-09-05, while fixing
 `issues/fixed/http-content-length-ows-and-invalid-values.md` (the OWS-after-the-colon
 bug in the same scan). Open: closing it needs a message-level validity channel

@@ -1,5 +1,7 @@
 # Two separate awaiting `if` blocks after a cond, inside an async while loop, emit an undeclared `cond_branch_N` slot
 
+**Severity:** S2 — undeclared `cond_branch_1` state member — C compile failure on a valid async shape (unminimized)
+
 **Found**: 2026-08-28 building `std/crypto/tls`'s read pump (branch
 `d6/tls-stream`). **Status**: OPEN — std uses ONE post-cond awaiting `if`
 (the shape that works); recorded so the second-`if` shape is fixed rather

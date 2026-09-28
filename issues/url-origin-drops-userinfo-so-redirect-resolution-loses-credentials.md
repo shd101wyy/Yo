@@ -1,5 +1,7 @@
 # Redirect resolution rebuilds the authority from `origin()`, which drops the base URL's userinfo
 
+**Severity:** S2 — redirect resolution rebuilds the authority from `origin()`, dropping userinfo — resolved URLs lose credentials (RFC 3986 §5.2.2)
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

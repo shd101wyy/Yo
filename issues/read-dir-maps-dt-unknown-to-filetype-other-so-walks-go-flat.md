@@ -1,5 +1,7 @@
 # `read_dir` maps `DT_UNKNOWN` to `FileType.Other`, so a recursive walk silently returns a flat listing and `remove_dir_all` calls `remove_file` on directories
 
+**Severity:** S2 — on DT_UNKNOWN filesystems recursive walks silently return a flat listing and `remove_dir_all` calls `remove_file` on directories
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row.
 **Status**: OPEN. **Severity**: wrong-value. **Verified by code reading** — the
 mechanism and the platform asymmetry are established below from the source and

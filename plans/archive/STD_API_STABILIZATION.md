@@ -2621,7 +2621,7 @@ emitted C, so it could not be randomized even if that were wanted.
    Surfaced one row for later: `HttpMethod.from_string` returns `Option`, not
    `Result` — a D12 violation independent of the name, and an error-type design
    question rather than a rename
-   (issues/httpmethod-from-string-returns-option-not-result.md).
+   (issues/questions/httpmethod-from-string-returns-option-not-result.md).
    - **`async/channel.try_recv` returned `Option(T)`** where `sync/channel`'s
      returns `Result(T, TryRecvError)` (#495). ALIGNED in the follow-up: the
      async channel now returns the SAME `TryRecvError`, imported from

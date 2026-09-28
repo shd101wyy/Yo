@@ -1,5 +1,7 @@
 # A `ref` value passed as a parameter to an `io.async` future is never released
 
+**Severity:** S1 — a ref captured by an async future is dup'd and never released — unbounded leak, Dispose never runs
+
 **Status: OPEN.** Found 2026-09-11 while building `std/http`'s connection pool
 (`HttpClient`), whose `Dispose` this defect makes unreachable.
 

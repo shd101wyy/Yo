@@ -1,5 +1,7 @@
 # Drop bookkeeping hangs off a return value that is EMPTY for multi-line drops, so the drop is emitted but never recorded
 
+**Severity:** S1 — two drop-flush sites can emit a multi-line drop twice — double `__yo_decr_rc`/UAF class (latent)
+
 **Found**: 2026-09-05, root-causing the short-circuit chain double-drop
 (`issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md`).
 **Status**: OPEN for the two remaining sites. **Severity: latent double-free** —

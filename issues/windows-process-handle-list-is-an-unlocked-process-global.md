@@ -1,5 +1,7 @@
 # The Windows process-handle list is an unlocked process-global
 
+**Severity:** S1 — the pid→HANDLE list is a completely unlocked process-global — UAF reads, lost updates, leaked handles, waitpid answering -ESRCH for a live child
+
 Status: OPEN (found by the 2026-09-28 Windows async-I/O audit).
 
 ## The defect

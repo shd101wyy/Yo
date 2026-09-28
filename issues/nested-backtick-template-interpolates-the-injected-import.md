@@ -1,5 +1,7 @@
 # A nested backtick template inside `${…}` interpolates the auto-injected `import("std/fmt/to_string")` — reported as `E0403 Module field "to_string" not found in module type` at line 1, col 1
 
+**Severity:** S2 — a valid nested template is rejected; the interpolation grabs the injected import, caret at an unrelated line 1:1
+
 **Status:** OPEN — valid source is rejected, and the diagnostic names the wrong
 thing at the wrong place. Found 2026-09-04 while writing probes for the
 std-API-audit re-measurement of the encoding/TOML row; the shape cost three

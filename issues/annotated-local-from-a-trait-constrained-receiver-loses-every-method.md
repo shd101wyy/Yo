@@ -1,5 +1,7 @@
 # A type-annotated local loses EVERY method on its type when its value comes from a trait-constrained receiver
 
+**Severity:** S2 — a redundant type annotation poisons the local so every method call on it fails
+
 **Status: OPEN.** Severity: **valid code rejected** at check time, with a
 diagnostic that names the method rather than the binding. Found 2026-09-04
 during the std-API-audit re-measurement of the `std/imm` set-pair dedupe row,

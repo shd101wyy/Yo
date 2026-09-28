@@ -1,5 +1,7 @@
 # `yo lsp` memory grows with every open/edit/close round of the same documents
 
+**Severity:** S2 — `yo lsp` grows without bound across open/edit/close rounds — a long editor session eventually exhausts memory
+
 > Found 2026-09-24 by the plateau gate of `plans/EVALUATOR_MEMORY_REDUCTION.md`
 > Phase 1 step 3. Open — root cause under investigation.
 

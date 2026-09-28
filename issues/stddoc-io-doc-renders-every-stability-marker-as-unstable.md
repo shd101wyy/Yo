@@ -1,5 +1,7 @@
 # `yo doc` renders a `stable` `## Stability` marker as "this one may still change"
 
+**Severity:** S3 — both renderers append a hardcoded "may still change" tail — a module marked `stable` renders self-contradicting
+
 **Status:** open. Found while adding `## Stability` sections during the
 2026-09-11 std `///` doc sweep. Documentation-only PR — filed, not fixed.
 

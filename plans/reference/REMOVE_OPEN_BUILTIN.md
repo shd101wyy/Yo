@@ -61,7 +61,7 @@ Zero non-import opens in `std/` or `src/`.
   adding an export anywhere in it can change name resolution in 266 files.
   Named imports give exact per-definition edges.
 - **It squats a common identifier.** Builtin-first dispatch
-  (`issues/builtin-name-shadows-user-definition.md`) means a bare `open` can
+  (`issues/questions/builtin-name-shadows-user-definition.md`) means a bare `open` can
   never be libc's `open`; `src/module_manager.yo::_read_file_sync` already has
   to write `fcntl.open` for exactly that reason.
 - **Struct open is a redundant spelling.** `{ x, y } := point` exists

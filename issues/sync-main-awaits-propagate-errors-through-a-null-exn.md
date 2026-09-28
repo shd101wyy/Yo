@@ -1,5 +1,7 @@
 # An IoError propagating to a main-level `io.await` calls a NULL `exn.throw`
 
+**Severity:** S1 — a propagated IoError calls a NULL `exn.throw` — SIGSEGV at PC 0 instead of an error report
+
 **Status: OPEN** (found 2026-09-08 while validating the version-install
 cross-device fix; reproduced under gdb).
 

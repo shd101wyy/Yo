@@ -1,5 +1,7 @@
 # `ArgDef._required` is a dead field — `std/cli` documents required arguments and enforces none
 
+**Severity:** S2 — a missing required positional parses `.Ok` with `.None` — the documented required concept is never enforced
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: MEDIUM (api-lie) — a public type documents a required-argument
 concept the parser never implements, so a missing required positional parses as

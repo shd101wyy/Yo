@@ -1,5 +1,7 @@
 # Five CLI goldens are stale against the current compiler (watch, forward-ref, and three LSP cases)
 
+**Severity:** S3 — five CLI goldens fail on pristine develop — otherwise-clean PRs blocked
+
 **Status: OPEN.** Found 2026-09-17 on PR #755's full battery (run
 `35245990956`, job "Self-hosted `test` subcommand (yo-self tier-1 gates)",
 GATE 7): `CLIDIFF_RC=1  PASS 145  GOLDEN-DIFF 5`. Reproduced **identically on

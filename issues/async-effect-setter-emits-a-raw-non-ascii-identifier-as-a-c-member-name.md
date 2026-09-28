@@ -1,5 +1,7 @@
 # The async effect setter emits a raw non-ASCII identifier as a C member name
 
+**Severity:** S2 — non-ASCII effect field emitted raw as a C member name — clang rejects a valid program
+
 **Status: OPEN.** Found 2026-08-26 while reviewing D4 PR 3 (the `String`
 byte-index flip). **Pre-existing and unrelated to D4** — it reproduces on the
 seed compiler `yo 0.2.17`, whose `std` is still rune-indexed.

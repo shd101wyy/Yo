@@ -1,5 +1,7 @@
 # A query-only or fragment-only `Location` drops the base path's last segment
 
+**Severity:** S2 — a query-only `Location` redirect drops the base path's last segment — silently returns the wrong document
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

@@ -1,5 +1,7 @@
 # `yo doc --document-private` is parsed, threaded, and never read
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** OPEN — found 2026-09-14 while fixing
 `issues/fixed/yo-doc-publishes-compiler-temporaries-as-api.md`. Not the cause
 of that bug, and deliberately not fixed with it.
@@ -58,3 +60,17 @@ remove the flag and its help text. Whichever is chosen, the gate must be a test
 that passes the flag BOTH ways and asserts the output differs — the absence of
 such a test is the whole reason a dead flag survived being threaded through
 five files.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Remove the flag — delete `--document-private` and its bilingual help text —
+rather than implement it. Today's output already omits underscore-private items
+for an unrelated reason (unexported names never reach the builder), the policy
+questions the doc lists (one underscore or two? methods and trait members?
+vanish vs render-marked-private?) have no consumer, and a dead advertised flag
+is strictly worse than none — the doc's own "exported but never called"
+hazard. If private-item documentation is ever wanted, reintroduce it WITH the
+both-ways test the doc prescribes (pass the flag both ways, assert the output
+differs) so a dead flag cannot survive threading through five files again.

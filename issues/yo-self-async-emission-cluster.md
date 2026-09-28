@@ -5,6 +5,8 @@
 
 # yo-self: async/worker emission cluster (post-IoExn-erasure tail)
 
+**Severity:** S1 — self-hosted async misemissions: hollow void/empty closure bodies, calls to undeclared functions, unspecialized future structs, wrong `\u` escape bytes
+
 The IoExn erasure fix (annotation-driven forall substitution + NULL
 io-builtin fields) moved 4 of the 7 rc=-6 files past the abort into
 ordinary C-compile failures. Probing those batches (`YO_KEEP_BATCH=1`,

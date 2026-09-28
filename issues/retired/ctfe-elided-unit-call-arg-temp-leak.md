@@ -5,7 +5,7 @@
 > `consume`: the BUILTIN `consume` silently shadows the user definition in both
 > compilers' dispatch, and builtin-consume semantics legally suppress the drop.
 > Renaming the function yields fully correct C. The real finding is filed as
-> `issues/builtin-name-shadows-user-definition.md`.
+> `issues/questions/builtin-name-shadows-user-definition.md`.
 
 # A fully CTFE-elided call leaves its owned RC argument temp undropped
 

@@ -1,5 +1,7 @@
 # `utf16_to_utf8` reports unpaired surrogates as `EncodingError.InvalidChar(0)`
 
+**Severity:** S3 — an unpaired surrogate is reported as `InvalidChar(0)` — the offending code point is wrong and the failures byte-identical
+
 **Status:** OPEN — found during STD_API_AUDIT D8 (the `EncodingError` move out of
 `hex.yo`). Not fixed there: the fix adds a variant to a now-shared error type, so
 it is an API change that wants its own test, not a drive-by edit.

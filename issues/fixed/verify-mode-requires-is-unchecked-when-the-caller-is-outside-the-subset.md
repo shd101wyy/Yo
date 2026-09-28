@@ -1,5 +1,7 @@
 # verify mode: a `requires` is neither proved nor checked when the caller is outside the subset
 
+**Severity:** S2 — in verify mode a `requires` is neither proved nor emitted as a check outside the subset — violated preconditions pass silently
+
 **Status: FIXED 2026-09-28** (branch `verify/requires-and-solver-fixes`, the recommended option). Found 2026-09-28 while designing
 `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`. The safe-mode guards
 hide it today. It becomes undefined behavior as soon as a guard is elided on

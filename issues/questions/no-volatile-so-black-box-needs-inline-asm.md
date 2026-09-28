@@ -1,5 +1,7 @@
 # No `volatile`, so an optimizer barrier needs inline asm — and wasm has none
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** OPEN — missing capability, not a defect
 **Found:** 2026-09-08, implementing `black_box`.
 
@@ -40,3 +42,17 @@ A `volatile` qualifier, or a `read_volatile`/`write_volatile` pair of
 builtins — Rust's pre-`asm!` `black_box` was written over exactly those. A
 single `__yo_black_box` builtin lowering to the right thing per target would
 also do, and would remove the need for `Pragma.AllowUnsafe` in a benchmark.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Add the `__yo_black_box` builtin with per-target lowering — the `asm` +
+`"memory"` clobber natively, and on wasm an opaque non-inlined call the
+optimizer cannot see through — and route `std/testing/bench.yo`'s `black_box`
+through it. That also removes `Pragma.AllowUnsafe` from ordinary benchmark
+code, the win the doc names. Defer a general `volatile` qualifier and a
+`read_volatile`/`write_volatile` pair: they grow the language surface and this
+is the only consumer on record; revisit when a second use case appears. Note
+the seed gate applies — a new `__yo_*` builtin needs one release before `std`
+can call it.

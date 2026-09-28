@@ -1,5 +1,7 @@
 # An `io.async` closure calling a `ctl` through a nested bundle field ICEs codegen
 
+**Severity:** S1 — `yo compile` ICEs on a check-clean program (deferred error swallowed, never re-checked)
+
 Status: open
 Filed: 2026-09-24 (found during the 2026-09-24 docs code-block audit)
 Seed: yo 0.2.41 (`~/.local/lib/yo/v0.2.41`)

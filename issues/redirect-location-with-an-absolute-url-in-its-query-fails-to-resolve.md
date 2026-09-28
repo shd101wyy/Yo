@@ -1,5 +1,7 @@
 # A relative `Location` whose query carries an absolute URL is mistaken for absolute, then fails to parse
 
+**Severity:** S2 — a legal redirect whose query holds an absolute URL is misclassified by `contains(://)` — fetch fails `MissingScheme`
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

@@ -1,5 +1,7 @@
 # `std/cli` rejects `--`, a bare `-`, any `-`-leading positional and `--opt=value` as "Unknown argument"
 
+**Severity:** S2 — `--`, bare `-`, `-`-leading positionals and `--opt=value` all rejected — std/cli cannot back real tools
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: MEDIUM (api-lie) — four POSIX/GNU baseline argv forms are refused
 by one branch, so the module cannot be used by anything that forwards arguments

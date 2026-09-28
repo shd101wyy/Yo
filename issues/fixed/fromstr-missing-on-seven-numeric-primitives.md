@@ -113,4 +113,4 @@ people use a trait is worse than a clean rename in the release notes.
 
 `HttpMethod.from_string` returns `Option`, not `Result`, which is a D12
 violation independent of its name — filed as
-`issues/httpmethod-from-string-returns-option-not-result.md`.
+`issues/questions/httpmethod-from-string-returns-option-not-result.md`.

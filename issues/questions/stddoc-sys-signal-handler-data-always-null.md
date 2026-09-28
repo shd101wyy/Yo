@@ -1,5 +1,7 @@
 # `SignalHandler`'s `data` parameter is always NULL — the user-data table is never written
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** open. Found by reading, during the `std/` `///` documentation
 sweep. Not fixed here (the sweep is documentation-only), and the fix is a
 design choice rather than a one-liner — see below.
@@ -93,3 +95,17 @@ to want context (a shutdown flag, a channel), and the `events.yo` precedent
 already exists in the same layer. Either way the test belongs in
 `tests/sys/signal.test.yo` — register with a non-NULL cookie, `kill` self,
 assert the handler saw that exact pointer. Written that way it fails today.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Option 1 — carry the data. Add a `user_data : *u8` parameter to `on_signal` and
+`__yo_signal_start` and store it into `__yo_signal_handler_data[signum]` in both
+the POSIX and Windows arms, matching the poll/fs-event precedent in the same
+layer (`std/sys/events.yo`). Signal handlers are precisely the callbacks most
+likely to want context (a shutdown flag, a channel), and the current shape is a
+NULL-deref trap in the worst possible place to debug one. Land the doc's
+prescribed test with it — register with a non-NULL cookie, `kill` self, assert
+the handler saw that exact pointer — written red-first, since it fails today.
+Breaking change to the exported `SignalHandler` type; single user, no shim.

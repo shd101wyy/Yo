@@ -1,5 +1,7 @@
 # Windows runner images lost libasan — every ASan-instrumented test link fails with "cannot find -lasan"
 
+**Severity:** S3 — Windows CI legs run the whole corpus without ASan (`--disable-sanitize`) — memory-safety detection lost until the images ship libasan again
+
 - **Status**: OPEN (CI workaround landed with the module-global capture PR:
   the Windows legs of the two full-suite invocations pass
   `--disable-sanitize`; restore ASan when the images ship the library again)

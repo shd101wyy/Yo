@@ -1,5 +1,7 @@
 # A `c_include`d constant that is an rvalue MACRO cannot be an `inout` receiver
 
+**Severity:** S2 — method call on an rvalue macro constant fails at the C stage (cannot take the address of an rvalue)
+
 **Status:** OPEN
 **Found:** 2026-09-08, after fixing
 `issues/fixed/c-include-global-does-not-emit-its-header.md`.

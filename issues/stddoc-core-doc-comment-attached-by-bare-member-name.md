@@ -1,5 +1,7 @@
 # `yo doc` attaches a method's doc comment by BARE NAME, so two types with a same-named method get each other's prose
 
+**Severity:** S3 — `yo doc` keys method docs by bare member name — same-named methods render each other's prose
+
 **Status:** OPEN
 **Severity:** wrong output — the generated docs state something false about a
 method rather than merely omitting it. Every std module that defines `new` (or

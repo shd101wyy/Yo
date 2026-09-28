@@ -1,5 +1,7 @@
 # `io.await` in a `cond` condition: yo-self accepts it, TS rejects it
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status: OPEN.** Found 2026-08-15 when the divergence blocked the v0.2.5
 release.
 
@@ -84,3 +86,18 @@ divergence itself is untouched.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: the divergence is gone.** The compiler now rejects the doc's shape with E0904, matching the old TS. The rejection is itself wrong for this shape, though: the await IS the first condition, and the same `if` outside a match arm compiles and runs. That is filed separately as `issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`. This doc can be retired once that one is fixed.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — updated after the #985 re-verification — awaiting maintainer verdict)
+
+The audit settled the factual half: the compiler now REJECTS the shape (E0904),
+so the old TS restriction — an await must BE the first condition of a `cond` —
+is the de-facto rule again, and the permissive acceptance this doc originally
+asked about is gone. What remains is whether that restriction is the rule you
+want to keep. Recommendation: yes — adopt "an `io.await` must be the first
+condition of a `cond`" as the documented rule (it is what the state-machine
+lowering is built around, per `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`
+§3.3), fix the one known false rejection through the already-filed bug
+(`issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`), and
+retire this doc once that lands — the exit the re-verification above proposes.

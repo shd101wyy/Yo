@@ -1,5 +1,7 @@
 # `yo doc` silently degrades a whole std module to name-only `constants`, dropping every `///`
 
+**Severity:** S3 — `yo doc` silently degrades whole modules to nameless constants and exits 0 — hundreds of doc comments vanish
+
 **Status:** OPEN
 **Severity:** silent total doc loss for the affected module — `yo doc` reports
 "N items documented" and exits 0 while emitting entries that carry a name, the

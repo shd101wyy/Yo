@@ -1,5 +1,7 @@
 # `lookup_host` throws away the `getaddrinfo` error code, so a retryable failure is indistinguishable from a permanent one
 
+**Severity:** S2 — every DNS failure is the same `DNSFailed(host)` — the getaddrinfo code (retryable vs permanent) is discarded
+
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
 **Status:** open. Filed, not fixed — the sweep is documentation-only.
 

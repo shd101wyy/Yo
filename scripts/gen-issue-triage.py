@@ -3,10 +3,11 @@
 
 Run from the repo root:  python3 scripts/gen-issue-triage.py
 
-The MECHANICAL parts (areas, counts, self-reported status, whether a runnable
-reproducer exists) are derived from the tree every run. The CURATED parts --
-the caveats, and the "confirmed still reproducing" list -- are constants below
-and carry the date they were established; update them deliberately.
+The MECHANICAL parts (areas, counts, severities, self-reported status, whether
+a runnable reproducer exists) are derived from the tree every run. The CURATED
+parts -- the caveats, the "confirmed still reproducing" list, and the one-line
+gists of the questions/ docs -- are constants below and carry the date they
+were established; update them deliberately.
 
 TRIAGE.md is generated. Edit this script, not the output, or it rots the way
 the 149 stale issue references repaired on 2026-09-14 did.
@@ -24,6 +25,24 @@ AREAS = [
     ("Vendor (markdown_yo)", r"^vendor-"),
 ]
 ORDER = [a for a, _ in AREAS] + ["Other"]
+
+# Curated 2026-09-28: one-line gists of the design questions under
+# issues/questions/ (docs whose core is an open decision, not a defect — each
+# carries a ## Recommendation awaiting the maintainer's verdict).
+QUESTIONS = {
+    "builtin-name-shadows-user-definition.md": "which name-resolution policy when user definitions collide with builtins: reserve, prefer user bindings, or warn",
+    "emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md": "grow the emscripten heap, size it from a flag, or make the OOM abort say what happened",
+    "httpmethod-from-string-returns-option-not-result.md": "`HttpMethod.from_string` should be a `FromString` impl — with which error type",
+    "manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md": "how the `[package] yo` MSRV field is enforced: error vs warning, `>=` or range, checked where",
+    "no-volatile-so-black-box-needs-inline-asm.md": "`volatile` qualifier, volatile builtins, or a per-target `__yo_black_box` builtin",
+    "spawn-blocking-degrades-to-inline-on-a-threadless-target.md": "how a caller learns `spawn_blocking` degrades to inline on a threadless target",
+    "stddoc-io-url-empty-host-collapses-to-none.md": "empty authority host: `.Some(\"\")` plus an authority bit (Rust's shape) vs keeping `.None`",
+    "stddoc-str-regex-split-emits-the-literal-string-undefined.md": "`Regex.split`: Rust's shape (pieces only) vs Python's shape (`ArrayList(Option(String))`)",
+    "stddoc-sys-signal-handler-data-always-null.md": "carry the `SignalHandler` user data (the `events.yo` precedent) or drop the parameter",
+    "with-lock-and-with-permit-cannot-see-an-unwind.md": "correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent",
+    "yo-doc-document-private-flag-is-a-no-op.md": "implement or remove the inert `--document-private` flag",
+    "yoself-accepts-await-in-cond-that-ts-rejects.md": "is an await nested in a `cond` condition legal, and is it lowered correctly",
+}
 
 # Curated 2026-09-14: repro executed AND its output read.
 #
@@ -76,9 +95,12 @@ def main():
         txt = open(os.path.join(idir, f), encoding="utf-8", errors="replace").read()
         m = re.search(r"\*\*Status:?\*\*:?\s*([^\n.*]{2,45})", txt[:2500])
         status = m.group(1).strip() if m else ""
+        sev = re.search(r"\*\*Severity:\*\*\s*(S[123])", txt[:2500])
         repro = any(os.path.exists(os.path.join(root, p))
                     for p in re.findall(r"issues/repros/[A-Za-z0-9._/-]+\.yo", txt))
-        rows.append((area(f), f, status, repro, len(txt)))
+        rows.append((area(f), f, status, repro, len(txt), sev.group(1) if sev else ""))
+    qdir = os.path.join(idir, "questions")
+    qlist = sorted(f for f in os.listdir(qdir) if f.endswith(".md")) if os.path.isdir(qdir) else []
 
     by = collections.OrderedDict((k, []) for k in ORDER)
     for r in rows:
@@ -86,8 +108,9 @@ def main():
     out = []
     W = out.append
     W("# `issues/` triage index — open docs, categorised\n")
-    W(f"**Generated** by `scripts/gen-issue-triage.py` over the {len(rows)} open docs in")
-    W("`issues/` root. A NAVIGATION aid, not a source of truth: each doc stays")
+    W(f"**Generated** by `scripts/gen-issue-triage.py` over the {len(rows)} open bug")
+    W(f"docs in `issues/` root and the {len(qlist)} design questions in")
+    W("`issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays")
     W("authoritative about itself. Regenerate rather than hand-edit.\n")
     W("""## How to read this
 
@@ -117,7 +140,25 @@ Three things are worth knowing before trusting any row.
         if rs:
             W(f"| {k} | {len(rs)} | {sum(1 for r in rs if r[3])} |")
     W(f"| **Total** | **{len(rows)}** | **{sum(1 for r in rows if r[3])}** |")
+    sevs = collections.Counter(r[5] for r in rows)
+    W("\n## Counts by severity\n")
+    W("Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.\n")
+    W("| Severity | Open docs |")
+    W("| --- | ---: |")
+    for s in ("S1", "S2", "S3"):
+        W(f"| {s} | {sevs.get(s, 0)} |")
+    untriaged = [r[1] for r in rows if not r[5]]
+    if untriaged:
+        W(f"| (missing) | {len(untriaged)} |")
+        for f in untriaged:
+            W(f"\n- MISSING SEVERITY: `{f}`")
     names = {r[1] for r in rows}
+    if qlist:
+        W("\n## Design questions (issues/questions/)\n")
+        W("Open decisions, not defects — each doc carries a `## Recommendation`")
+        W("awaiting the maintainer's verdict. Not counted in the tables above.\n")
+        for f in qlist:
+            W(f"- [`{f}`](./questions/{f}) — {QUESTIONS.get(f, '(no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)')}")
     W("\n## Cross-cutting buckets\n")
     W("### Confirmed still reproducing (output read, 2026-09-14)\n")
     W("Ready to work on — the defect was observed, not inferred.\n")
@@ -181,15 +222,15 @@ pointing the other way.
         if not rs:
             continue
         W(f"\n### {k} ({len(rs)})\n")
-        W("| Doc | Status (self-reported) | Repro |")
-        W("| --- | --- | --- |")
+        W("| Doc | Severity | Status (self-reported) | Repro |")
+        W("| --- | --- | --- | --- |")
         for r in sorted(rs, key=lambda x: x[1]):
-            W(f"| [`{r[1]}`](./{r[1]}) | {r[2][:60] if r[2] else '—'} | {'yes' if r[3] else '—'} |")
+            W(f"| [`{r[1]}`](./{r[1]}) | {r[5] or '—'} | {r[2][:60] if r[2] else '—'} | {'yes' if r[3] else '—'} |")
     # Fixed literal target relative to the repo root (the documented CWD):
     # no variable enters the path, so the write cannot escape issues/.
     with open("issues/TRIAGE.md", "w", encoding="utf-8") as fh:
         fh.write("\n".join(out) + "\n")
-    print(f"issues/TRIAGE.md regenerated: {len(rows)} open docs")
+    print(f"issues/TRIAGE.md regenerated: {len(rows)} open bug docs ({sum(1 for r in rows if not r[5])} missing a severity), {len(qlist)} questions")
 
 if __name__ == "__main__":
     main()

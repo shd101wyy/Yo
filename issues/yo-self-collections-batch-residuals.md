@@ -1,5 +1,7 @@
 # yo-self: collections batch residuals after the 2026-07-18 fixes (round-7)
 
+**Severity:** S1 — valid collections batches still fail to compile, and a valid recursive enum with two Box(Self) variants crashes on construct+drop from memory corruption
+
 Carriers of the two remaining array_list-batch signatures — see the tail of
 issues/fixed/yo-self-void-param-logicalnot-spec.md for the full analysis:
 
