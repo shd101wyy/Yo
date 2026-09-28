@@ -173,6 +173,25 @@ committed repro under `issues/repros/`.
 | `await-placement-rules-only-enforced-in-codegen.md` | tooling | E0904 invisible to check/LSP |
 | `a-non-send-closure-reading-a-global-marks-it-thread-reached.md` | false rejection, shown as an unrelated E0610 | evaluator D1 registry |
 | `sanitize-address-is-silently-dropped-for-a-bare-output-name.md` | tooling | ASan probe runs `"$0"` through `PATH` |
+| `three-deep-nested-while-never-resumes-the-middle-loop.md` | **silent wrong value** | `outer_while_loop` holds one level |
+| `an-arm-with-two-sequential-awaits-runs-enclosing-code-in-the-wrong-state.md` | **silent wrong value** | continuation emitted before the chained await |
+| `break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md` | **silent wrong value** / C error | break/continue info not installed |
+| `hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md` | garbage value / C errors | hoisted statement never re-split |
+| `while-with-await-in-both-step-and-body-is-miscompiled.md` | C error / SIGSEGV | step-await layout assumes an await-free body |
+| `primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md` | **silent wrong value** | primitive and enum match paths drifted |
+| `tail-primitive-match-with-three-arms-redefines-continuation-fn.md` | C error | unbraced `case` bodies with declarations |
+| `reassigning-a-heap-local-from-an-await-leaks-the-old-value.md` | leak | extraction treats `=` like `:=` |
+| `reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md` | leak | continuation loses the arm's deferred drops |
+| `thread-local-async-registries-leak-at-thread-exit.md` | leak (one-time, per thread) | no thread-exit hook |
+| `a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md` | C error (sync code, not async) | while step emission |
+
+The shape sweep also widened three docs: the await-in-an-expression family
+(`await-inside-an-expression-in-a-later-cond-arm-is-dropped.md`, now five
+shapes including a top-level SIGSEGV), the `match` variant of
+`async-cond-value-with-await-arm-inside-while-yields-zero.md`, and a
+misleading E0904 hint (`await-placement-rules-only-enforced-in-codegen.md`).
+
+**Count:** 27 new bug docs, and 7 of them are silent wrong values.
 
 ### 3.3 The open async issues, re-verified
 
@@ -274,9 +293,18 @@ state machine" is about right.
 
 ### 3.5 Control-flow shape matrix
 
-The systematic shape sweep (await placement × control-flow construct ×
-sync/suspending inner future) is recorded in §8 once it completes. Its
-passing shapes become the phase-0 shape corpus.
+The shape sweep (await placement × control-flow construct × a suspending or
+synchronously completing inner future × `-O0`/`-O2`, with expected values
+from the same program written synchronously) is in §8.
+
+- 11 of its findings are new bugs (the §3.2 rows from
+  `three-deep-nested-while…` down).
+- Every failing shape nests an await in a branch or loop that ALSO contains
+  another suspension, or inside an expression.
+- Every straight-line shape and single-level branch shape passed.
+
+That is the §3.1 diagnosis, measured: the continuation emitters are where
+the failures are.
 
 ---
 
@@ -558,7 +586,7 @@ measured before choosing:
 
 ## 7. Metrics to track
 
-- Open async-SM issues (24 at audit, excluding the ones this doc filed).
+- Open async-SM issues: 24 at the audit, plus the 27 it filed (§3.2).
 - Silent-wrong-value shapes in the corpus: must reach 0 in phase 0.
 - The §3.4 table.
 - `sizeof` of the 1-, 4- and 16-await machines.
@@ -567,4 +595,68 @@ measured before choosing:
 
 ## 8. Appendix: control-flow shape matrix results
 
-_To be filled in from the shape sweep._
+The sweep used a tree build of `af62bdb28`, cross-checked on the v0.2.45
+seed. Each shape was run with a suspending and a synchronously completing
+inner future, at `-O0` and `-O2`, and under ASan. The repros are committed
+as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
+
+### Failing
+
+| Repro | Shape | Result |
+|---|---|---|
+| b1a, b1c, b1d | await inside `+`, a call argument, or an arm tail value, in an if/cond arm | wrong value (statement dropped) |
+| b1b | `acc = (acc + await)` in a while body | SIGSEGV |
+| b1e | await in the awaited future's argument, top level | SIGSEGV (not rejected) |
+| b2 | 3-deep while, await innermost | wrong value |
+| b3a, b3b | arm with two sequential awaits, nested if or loop | wrong value |
+| b4a, b4c | `break` after an await in an if or enum-match arm | wrong value |
+| b4b | `continue` after an await in an arm | C error |
+| b5a | `r := match(await, …, 1 => await, …)` | uninitialized read |
+| b5b, b5c, b5d | condition/scrutinee await plus an arm/body await | C errors |
+| b6a, b6b | await in the while step and the body | C error / SIGSEGV |
+| b7 | primitive match arm with a while-await, then trailing code | wrong value |
+| b8 | tail primitive match, 3+ arms, one awaiting | C error |
+| b9 | `v := match(… await arm …)` inside a while | yields 0 |
+| l1, l2 | `s = await` reassigning a heap local; reassignment in an arm after a loop await | leaks |
+| d1 | begin block as a value containing awaits | misleading E0904 hint |
+
+### Passed
+
+- **Straight-line and branches:** await as a statement, `x := await`,
+  `x = await` (int), await as the tail value; `if` without else, if/else, a
+  3-arm cond with the middle arm awaiting (as a statement and as a value),
+  a cond as the tail value, `r := match(n, … => await)`; enum match payload
+  bindings used after an await (value and statement); a nested cond inside
+  a match arm after an await; two and three sequential awaiting `if`s
+  (including the same local name in both arms); nested ifs 2 deep with an
+  await per arm, and 3 deep with an await only innermost; a top-level `if`
+  with 2 awaits; `if(await_bool)` and `match(await)` with no arm await;
+  early `return` after an await, including inside a nested cond. An
+  arm-local read after the cond is correctly rejected (E0401).
+- **Loops:** await in the body; as the condition (no body await); in the
+  3-arg step (no body await); 2-deep nesting; 3 levels mixing `if` and
+  `while`; `break`/`continue` before and after an await at loop level; a
+  separate `if(…, {break;})` after an arm await; `continue` with a step;
+  early `return` from a loop, from a 2-deep loop, and from a loop in an
+  arm; `while` inside an if/else/middle-cond/enum-match arm; if/elif chains
+  and enum matches inside loops; counters and locals mutated across awaits
+  and read after the loop; 0, 1000 and 1,000,000 iterations (no growth, no
+  hang); two loops in sequence, then an await after them.
+- **Heap values:** String and ArrayList locals across awaits in loops,
+  arms, nested loops, and with `break`/`continue`/`return`; an
+  `Option(String)` payload used after an await. Values were correct and
+  ASan clean.
+- **Effects:** an IoExn throw from the awaited future inside a loop, an arm
+  or a cond value unwinds as expected.
+- **Ownership** (the lifecycle sweep):
+  - RC locals across 1–3 awaits; abort at a sleep, a nested SM, a woken
+    Park and a yield (`ref` counts exact);
+  - a local moved before an await, then aborted (no double drop);
+  - a cold future dropped unawaited (captures released);
+  - a completed RC result awaited twice;
+  - a future passed as a parameter or captured;
+  - `join_all`, `race_first`/`any_first` (`ref` counts), `timeout` won and
+    lost;
+  - recursive self-await 1M deep at `-O0` and 5M at `-O2`;
+  - 1M sequential awaits (flat 4 MB RSS);
+  - 100k spawned tasks with `join_all` (all disposed).

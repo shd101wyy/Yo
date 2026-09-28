@@ -42,3 +42,29 @@ Immediately: every fall-through in the branch emitters becomes a
 this into a compile error. Plan phase 1 (statement-position normalisation)
 then makes the shape legal: `out = (await(f) + 10)` becomes
 `t := await(f); out = (t + 10)`.
+
+## The wider family (shape sweep, 2026-09-28)
+
+The same fall-through drops an await nested in ANY larger expression inside
+an arm or a loop body. The first-arm case works only because `x = await(…)`
+is on the whitelist.
+
+- `if(c, { x = (x + await); })`: the statement vanishes. Expected
+  `0,20,40`, got `0,10,30` (`issues/repros/async-shape-b1a-await-in-binop-in-if-arm-dropped.yo`).
+- `y = f(await)` in an arm: a wrong value
+  (`issues/repros/async-shape-b1c-await-as-call-arg-in-if-arm-dropped.yo`).
+- An arm's tail value `(await + 1)` yields 0
+  (`issues/repros/async-shape-b1d-await-in-binop-as-cond-arm-tail-value.yo`).
+- `acc = (acc + await)` in a while body gives SIGSEGV, a NULL
+  `await_future_0` dereference (`issues/repros/async-shape-b1b-await-in-binop-in-while-body-segv.yo`).
+- At the TOP level, `y := io.await(_v(io.await(…)))` (an await inside the
+  awaited future's argument) is not rejected: the outer future is built
+  with argument 0 and the inner future slot is NULL, so it SIGSEGVs
+  (`issues/repros/async-shape-b1e-await-inside-awaited-future-arg-top-level.yo`).
+  `_is_ident_bare_await_reassign` and the `:=` path of
+  `generate_await_expression` never check the future argument for a nested
+  await.
+
+The fall-through sites are `generate_cond_branch_with_await` (its `:=`/`=`
+arm acts only on a bare await) and the binding arm of
+`generate_while_body_with_await`.

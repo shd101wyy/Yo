@@ -95,3 +95,8 @@ four functions in one program.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `got(0..3) = 0`, expected `1, 2, 103, 9`. Repro: `issues/repros/async-cond-value-with-await-arm-inside-while-yields-zero.yo`. Root cause, visible in the emitted C: the whole `v := cond(...)` statement is dropped. Only `t := tags(i)` is emitted before `while_loop_0_end:`, and `await_future_0` is never created. The `:=`/`=` arm of `generate_while_body_with_await` (`src/codegen/async/state_code_gen.yo`) only handles a DIRECT `io.await` right-hand side. A `cond`/`match` right-hand side is never routed to the cond/match-with-await emitter, and the fall-through path discards the statement without a `codegen_fatal`.
+
+**Match variant (shape sweep, 2026-09-28).** `v := match(…)` with an awaiting
+arm inside a `while` yields 0 for every arm the same way (expected `0,1,321`,
+got `0,0,0`; `issues/repros/async-shape-b9-match-value-await-arm-in-while-zero.yo`). Same site: the
+while-body binding arm only handled a direct `io.await` right-hand side.

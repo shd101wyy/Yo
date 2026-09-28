@@ -51,3 +51,23 @@ normalised to statement position, and `cond` chains lowered to nested
 `if`/`else` so a later condition still runs only when earlier ones fail,
 every one of these shapes can be compiled with unchanged semantics. That is
 phase 1 of the plan, after which E0904 can be retired.
+
+## Related: a misleading E0904 hint
+
+A begin block used as a value with awaits inside,
+`r := { a := await; b := await; (a*b) };`, is rejected with E0904
+"Hoist it into a local first: `result := io.await(f, io)`", pointing at a
+line that already IS `a := io.await(…)`
+(`issues/repros/async-shape-d1-begin-block-value-with-awaits-misleading-e0904.yo`). The rejection
+is fine for today's lowering; the hint names the wrong remedy. It should
+say that a block used as a value cannot contain awaits yet, and to bind
+the block's statements at the enclosing level.
+
+## Note: the evaluator validator the codegen comment describes does not exist
+
+The doc comment on `codegen_user_error` (`src/codegen/constants.yo`, added
+in #917) says that the rules decidable from the syntax "are also enforced
+by the evaluator (`validate_await_placement`, evaluator/async/await_placement.yo)".
+No such function or file exists in any branch (`git log -S validate_await_placement`
+finds only that comment). The fix for this issue should create the check
+and make the comment true.
