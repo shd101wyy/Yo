@@ -45,13 +45,35 @@ existing `__yo_inline_budget` (the "already complete" path's rule) was tried
 on the emitted C and did **not** move the benchmark (13.3–13.7 vs
 13.0–13.7 µs). So the yield alone is not the cost.
 
+## The 8-connection row (measured 2026-09-29)
+
+`bench.yo multi` (8 connections ping-ponging at once) is the widest std gap:
+3.62–3.70 vs 3.17–3.20 µs a round trip. `sample` over 1.5 M round trips puts the
+kernel side at parity. The loop thread's leaf samples are `sendto` 1032 /
+`read` 281 / `kevent` 153 for Yo, and `write` 1032 / `read` 337 / `kevent` 157
+for libuv. `getrusage` agrees: 0.95 vs 0.91 s system, 0.20 vs 0.11 s user,
+over 320,000 round trips. The whole gap is user CPU, spread thin: `malloc`/`free`
+(a wrapper state machine and a raw future per operation, 4 operations a round
+trip), `__yo_decr_rc`, the resumes, `_tlv_get_addr`, the loop step. No
+function is more than 1% of the thread.
+
+Yo also makes 50% more `kevent()` calls (133,662 vs 88,621; ~4.8 vs ~7 events
+each), all of them blocking waits. Running continuations queued during a drain
+in the same step (the second direction below, prototyped on the emitted C:
+budget = queue length + 64, yields drained after the loop) did **not** move
+the row (3.61–3.70 µs, before and after). So the step count is not the cost;
+the per-operation work is.
+
 ## Directions
 
 - Let a std wrapper that only maps an error await the raw future without its
   own state machine (a synchronous result mapping on the raw future), or give
   `io.async` blocks that consist of one await plus a pure tail an inline
   lowering.
-- Run a continuation that becomes ready during a drain within the same step
-  (bounded), instead of one step later. This touches `runtime_core.yo`'s
-  budget semantics on every platform and the `yield` contract ("exactly one
-  `__yo_io_poll()` in between").
+- ~~Run a continuation that becomes ready during a drain within the same step
+  (bounded), instead of one step later.~~ Prototyped; no change on either std
+  row (above).
+- Fewer allocations per operation: the raw future and the wrapper's state
+  machine are two `__yo_rc_alloc`s that live exactly as long as one await. An
+  await of a future the caller created and never shares could keep it inline
+  in the caller's frame.
