@@ -309,6 +309,16 @@ state machine" is about right.
 
 The last row is the owning `JoinHandle`'s own allocation (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, phase 7).
 
+Wall clock, same box, interleaved runs (median ns/op, before → after):
+
+- cold leaf 70 → 25;
+- cold state machine 83 → 28;
+- the same with parked I/O 204 → 24;
+- depth 4: 442 → 146;
+- depth 4 with parked I/O: 1100 → 157;
+- ready await with parked I/O: 10.6 → 3.9;
+- leaf spawn: 134 → **211**.
+
 ### 3.5 Control-flow shape matrix
 
 The shape sweep (await placement × control-flow construct × a suspending or
