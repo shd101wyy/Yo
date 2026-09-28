@@ -152,18 +152,24 @@ _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoE
   })
 );
 _show :: (fn(r : Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
-test("an unwind from a handler installed in an io.async body resolves that future", {
+// Returns what the three awaits produced: a frame that "caught" the unwind by
+// returning early (the old lowering) cannot fake this result.
+_three_guarded :: (fn(io : Io) -> String)({
   exn := Exception(
     throw : (
       err -> {
-        unwind(());
+        unwind(`the outer handler ran`);
       }
     )
   );
   e := IoExn(io : io, exn : exn);
-  assert(_show(io.await(_guarded(false, io), e)) == `ok body`, "the ok case");
-  assert(_show(io.await(_guarded(true, io), e)) == `ERR framing broke`, "the handler's value");
-  assert(_show(io.await(_guarded(false, io), e)) == `ok body`, "and the program goes on");
+  a := _show(io.await(_guarded(false, io), e));
+  b := _show(io.await(_guarded(true, io), e));
+  c := _show(io.await(_guarded(false, io), e));
+  `${a} | ${b} | ${c}`
+});
+test("an unwind from a handler installed in an io.async body resolves that future", {
+  assert(_three_guarded(io) == `ok body | ERR framing broke | ok body`, "the handler's value resolved the guarded future");
 });
 // A synchronous frame that only passes the outer handler along is not the
 // one that installed the unwinding handler, and must not read its value.
