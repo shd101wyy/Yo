@@ -260,18 +260,21 @@ is_overload_set_capable_file :: (fn(module_path : Option(String), std_path : Str
 /// ── Safe mode: the class-1 panic vocabulary (D7, decided 2026-09-22;
 /// plans/SAFE_MODE.md §3 0c) ──
 ///
-/// `unwrap` / `expect` / `unwrap_err` on `Option`/`Result` discard failure
-/// information the receiver's type ALREADY gave the caller and abort on the
-/// failure case. Safe files may not call them: handle the failure case
+/// `unwrap` / `expect` / `unwrap_err` / `expect_err` on `Option`/`Result`
+/// discard failure information the receiver's type ALREADY gave the caller
+/// and abort on the failure case. Safe files may not call them: handle the failure case
 /// (`match` on the variants, `unwrap_or` / `unwrap_or_else`, or propagate).
 /// Deliberate abort (`panic`, `assert`) and value-level traps (indexing,
 /// `/`) are NOT class 1 and stay legal — the ban is exactly "a call may not
 /// erase a failure the type carries".
 ///
-/// The registry is spelled as these predicates; `public_safe_report` grows
-/// the cross-check section when a second library needs the gate.
+/// The registry is spelled as these predicates. `public_safe_report`'s
+/// class-1 section cross-checks the name list against every `Option`/`Result`
+/// method that reaches `__yo_panic`, and `tests/internal/memory_safety_paths.test.yo`
+/// runs it over the prelude: `expect_err` was missing from this list until
+/// that check existed (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
 is_class1_panic_method_name :: (fn(name : String) -> bool)(
-  (name == "unwrap") || (name == "expect") || (name == "unwrap_err")
+  (name == "unwrap") || (name == "expect") || (name == "unwrap_err") || (name == "expect_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
 /// IN the type. The value must BE an enum (`Option`/`Result` are enums), and

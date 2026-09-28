@@ -6,6 +6,14 @@
 //!
 //! The byte-scanner conventions and the deliberately duplicated file walker
 //! match `unsafe_report.yo`.
+//!
+//! A second section cross-checks the class-1 panic ban (plans/SAFE_MODE.md
+//! §3 0c, rule D7) against the source: every `Option`/`Result` method whose
+//! body reaches `__yo_panic` is listed with whether the ban knows its name. A
+//! runtime-trapping extraction the ban does not name is `UNGATED` — a safe
+//! file can call it. `tests/internal/memory_safety_paths.test.yo` runs the
+//! scanner over the real prelude, so a new or renamed extraction fails a test
+//! instead of opening a silent hole.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
@@ -16,6 +24,7 @@ fs_metadata :: import("std/fs/metadata");
 fs_walker :: import("std/fs/walker");
 { Exception, IoExn } :: import("std/error");
 { cwd : env_cwd } :: import("std/env");
+{ is_class1_panic_method_name } :: import("./evaluator/memory_safety.yo");
 PublicSafeFinding :: ref(
   struct(
     file : String,
@@ -33,16 +42,33 @@ PublicSafeFinding :: ref(
     snippet : String
   )
 );
+/// An `Option`/`Result` method whose body reaches `__yo_panic`.
+Class1Extraction :: ref(
+  struct(
+    file : String,
+    /// 1-based line of the method's signature.
+    line : usize,
+    /// `Option` or `Result`.
+    receiver : String,
+    method : String,
+    /// `gated`: the class-1 ban rejects the call in safe files.
+    /// `comptime`: a `comptime(self)` method, so the panic is a compile error.
+    /// `UNGATED`: it traps at runtime and the ban does not know its name.
+    status : String
+  )
+);
 PublicSafeTotals :: ref(
   struct(
     files_scanned : usize,
     public_decls_scanned : usize,
-    findings : usize
+    findings : usize,
+    class1_ungated : usize
   )
 );
 PublicSafeReport :: ref(
   struct(
     findings : ArrayList(PublicSafeFinding),
+    class1 : ArrayList(Class1Extraction),
     totals : PublicSafeTotals
   )
 );
@@ -562,6 +588,96 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
     di = (di + usize(1));
   });
 });
+/// `<ident> : (fn(` at the start of `body` → the method name.
+_psr_method_name :: (fn(body : String) -> Option(String))(
+  match(
+    body.index_of(" : (fn("),
+    .Some(k) => {
+      name := body.substring(usize(0), k);
+      bytes := name.as_bytes();
+      (ok : bool) = (k > usize(0));
+      (bi : usize) = usize(0);
+      while(runtime(ok && (bi < bytes.len())), {
+        ok = _psr_is_ident_byte(bytes(bi));
+        bi = (bi + usize(1));
+      });
+      if(ok, Option(String).Some(name), Option(String).None)
+    },
+    .None => Option(String).None
+  )
+);
+/// Record every method of an `impl(...)` block targeting `Option(...)` or
+/// `Result(...)` whose body reaches `__yo_panic`. The scan is line-based over
+/// the std layout `yo fmt` produces: `impl(` opens at column 0, the target is
+/// the first two-space line that is not a `generic(`/`where(` clause or a
+/// comment, methods are two-space `name : (fn(` lines, and `);` at column 0
+/// closes the block. Trait impls nested inside (deeper indentation) are not
+/// methods of the receiver and are skipped.
+scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(Class1Extraction)) -> unit)({
+  lines := src_str.split("\n");
+  (in_impl : bool) = false;
+  (target_seen : bool) = false;
+  (receiver : String) = String.new();
+  (method : String) = String.new();
+  (method_line : usize) = usize(0);
+  (method_comptime : bool) = false;
+  (recorded : bool) = false;
+  (li : usize) = usize(0);
+  while(runtime(li < lines.len()), {
+    raw := lines(li);
+    line := if(raw.ends_with("\r"), raw.substring(usize(0), raw.len() - usize(1)), raw);
+    cond(
+      line.starts_with("impl(") => {
+        in_impl = !(line.ends_with(");"));
+        target_seen = false;
+        receiver = String.new();
+        method = String.new();
+      },
+      (in_impl && (line == ");")) => {
+        in_impl = false;
+        method = String.new();
+      },
+      in_impl => {
+        if(line.starts_with("  ") && !(line.starts_with("   ")), {
+          body := line.substring(usize(2), line.len());
+          skip := ((body.starts_with("generic(") || body.starts_with("where(")) || body.starts_with("//"));
+          cond(
+            skip => (),
+            !(target_seen) => {
+              target_seen = true;
+              receiver = cond(
+                body.starts_with("Option(") => String.from("Option"),
+                body.starts_with("Result(") => String.from("Result"),
+                true => String.new()
+              );
+            },
+            true => match(
+              _psr_method_name(body.clone()),
+              .Some(name) => {
+                method = name;
+                method_line = (li + usize(1));
+                method_comptime = body.contains("comptime(self)");
+                recorded = false;
+              },
+              .None => ()
+            )
+          );
+        });
+        if(((receiver.len() > usize(0)) && (method.len() > usize(0))) && (!(recorded) && line.contains("__yo_panic(")), {
+          recorded = true;
+          status := cond(
+            method_comptime => String.from("comptime"),
+            is_class1_panic_method_name(method.clone()) => String.from("gated"),
+            true => String.from("UNGATED")
+          );
+          out.push(Class1Extraction(file : file.clone(), line : method_line, receiver : receiver.clone(), method : method.clone(), status : status));
+        });
+      },
+      true => ()
+    );
+    li = (li + usize(1));
+  });
+});
 /// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
 /// and skip-set handling); deliberately duplicated rather than shared.
 _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
@@ -621,6 +737,7 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
     files := ArrayList(String).new();
     e.io.await(_psr_walk_yo_files(root_path.clone(), files, e.io, e.exn), e);
     findings := ArrayList(PublicSafeFinding).new();
+    class1 := ArrayList(Class1Extraction).new();
     (public_decls_scanned : usize) = usize(0);
     (files_scanned : usize) = usize(0);
     (fi : usize) = usize(0);
@@ -639,19 +756,51 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
           di = (di + usize(1));
         });
         _scan_file(file.clone(), src, findings);
+        scan_class1_extractions(file.clone(), src, class1);
       });
       fi = (fi + usize(1));
     });
+    (class1_ungated : usize) = usize(0);
+    (ki : usize) = usize(0);
+    while(runtime(ki < class1.len()), {
+      if(class1(ki).status == "UNGATED", {
+        class1_ungated = (class1_ungated + usize(1));
+      });
+      ki = (ki + usize(1));
+    });
     PublicSafeReport(
       findings : findings,
+      class1 : class1,
       totals : PublicSafeTotals(
         files_scanned : files_scanned,
         public_decls_scanned : public_decls_scanned,
-        findings : findings.len()
+        findings : findings.len(),
+        class1_ungated : class1_ungated
       )
     )
   })
 );
+/// The class-1 section of the human format; empty when no scanned file has
+/// a panicking `Option`/`Result` method, so a tree without the prelude
+/// renders as before.
+_format_class1_section :: (fn(report : PublicSafeReport) -> String)({
+  out := StringBuilder.new();
+  if(report.class1.len() == usize(0), {
+    return(out.to_string());
+  });
+  out.write_str("\n\nClass-1 extraction methods (Option/Result methods that trap on the failure case):\n");
+  (i : usize) = usize(0);
+  while(runtime(i < report.class1.len()), {
+    c := report.class1(i);
+    out.write_string(`  ${c.file}:${c.line}: ${c.receiver}.${c.method} — ${c.status}\n`);
+    i = (i + usize(1));
+  });
+  out.write_string(`  ungated: ${report.totals.class1_ungated}`);
+  if(report.totals.class1_ungated > usize(0), {
+    out.write_str("\n\nAn UNGATED method traps on the failure case its receiver's type already carries, and a safe file can call it. Add its name to is_class1_panic_method_name (src/evaluator/memory_safety.yo), or make it return the failure instead.");
+  });
+  out.to_string()
+});
 /// Human format.
 format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
   out := StringBuilder.new();
@@ -663,6 +812,7 @@ format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
   out.write_str("\n");
   if(report.findings.len() == usize(0), {
     out.write_str("No raw-pointer leaks found in public stdlib signatures.");
+    out.write_string(_format_class1_section(report));
     return(out.to_string());
   });
   out.write_str("Findings (file:line:col):\n");
@@ -674,6 +824,7 @@ format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
   });
   out.write_str("\n");
   out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract.");
+  out.write_string(_format_class1_section(report));
   out.to_string()
 });
 /// JSON string escaping (same shape as unsafe_report.yo's).
@@ -723,17 +874,33 @@ public_safe_report_to_json :: (fn(report : PublicSafeReport) -> String)({
   if(report.findings.len() > usize(0), {
     out.write_str("\n  ");
   });
+  out.write_str("],\n  \"class1Extractions\": [");
+  (ci : usize) = usize(0);
+  while(runtime(ci < report.class1.len()), {
+    c := report.class1(ci);
+    if(ci > usize(0), {
+      out.write_str(",");
+    });
+    out.write_string(`\n    {\n      "file": ${_psr_json_str(c.file.clone())},\n      "line": ${c.line},\n      "receiver": ${_psr_json_str(c.receiver.clone())},\n      "method": ${_psr_json_str(c.method.clone())},\n      "status": ${_psr_json_str(c.status.clone())}\n    }`);
+    ci = (ci + usize(1));
+  });
+  if(report.class1.len() > usize(0), {
+    out.write_str("\n  ");
+  });
   out.write_str("],\n  \"totals\": {\n");
   out.write_string(`    "filesScanned": ${report.totals.files_scanned},\n`);
   out.write_string(`    "publicDeclsScanned": ${report.totals.public_decls_scanned},\n`);
-  out.write_string(`    "findings": ${report.totals.findings}\n`);
+  out.write_string(`    "findings": ${report.totals.findings},\n`);
+  out.write_string(`    "class1Ungated": ${report.totals.class1_ungated}\n`);
   out.write_str("  }\n}");
   out.to_string()
 });
 export(
   PublicSafeFinding,
+  Class1Extraction,
   PublicSafeTotals,
   PublicSafeReport,
+  scan_class1_extractions,
   generate_public_safe_report,
   format_public_safe_report,
   public_safe_report_to_json
