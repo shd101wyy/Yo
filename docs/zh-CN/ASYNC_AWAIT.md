@@ -347,6 +347,25 @@ export(main);
 
 Future 在完成后保留其结果。对于引用计数类型的结果，每次 `io.await` 调用会对结果进行 dup，使调用方获得自己的引用。Future 的 dispose 函数在状态机被释放时 drop 原始值。
 
+多个任务也可以**同时 await 同一个尚未完成的 Future**。每个等待方都会登记在该
+Future 上，Future 完成时它们按登记顺序全部恢复：
+
+```rust
+{ sleep } :: import("std/sys/timer");
+
+shared := io.async((io : Io) => {
+  io.await(sleep(u64(5)), io);
+  i32(7)
+});
+a := io.async((io : Io) => io.await(shared, io));
+b := io.async((io : Io) => io.await(shared, io));
+ha := io.spawn(a, io);
+hb := io.spawn(b, io);
+// 两者都读到 .Some(7)。
+ra := ha.await(io);
+rb := hb.await(io);
+```
+
 ### 中止的 Future
 
 当代数效应处理器在异步任务内调用 `unwind` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。
@@ -384,6 +403,42 @@ main :: (fn(io : Io) -> unit)({
 });
 export(main);
 ```
+
+### 取消任务
+
+`handle.abort()` 取消一个已 spawn 的任务。任务被标记为中止（-2），而且取消是
+**结构化的**：任务当前挂起所等待的东西会随它一起被取消。
+
+- 挂起中的 I/O 操作或定时器会在操作系统层面被取消。
+- 任务正在 await 的子 Future 会被递归地中止。
+- 停在 `Mutex` 或 `Channel` 上的任务会离开等待队列。下一次 `unlock` 或 `send`
+  会跳过这个已死的等待者，把锁或消息交给一个存活的等待者，不会丢失任何东西。
+- 所有正在 await 这个被中止任务的任务都会被唤醒。中止发生时**正在等待**的
+  `io.await` 会让它自己所在的任务也中止，因此更上层的 `JoinHandle.await` 读到
+  `.None`。（对一个**已经**中止的 Future 发起 `io.await` 仍然会 panic。）
+
+被中止任务的局部变量会在它的最后一个引用消失时被 drop。
+
+```rust
+{ sleep } :: import("std/sys/timer");
+
+f := io.async((io : Io) => {
+  io.await(sleep(u64(50)), io);
+  i32(7)
+});
+hf := io.spawn(f, io);
+a := io.async((io : Io) => io.await(f, io));
+ha := io.spawn(a, io);
+io.await(yield(io), io);
+hf.abort();
+// 等待方随之被中止。
+assert(ha.await(io).is_none(), "the awaiter reads .None");
+// 被中止的任务本身也是。
+assert(hf.await(io).is_none(), "the aborted task reads .None");
+```
+
+`std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上。超时时，任务以及
+它所阻塞的一切都会被取消。
 
 **Future 状态机的状态：**
 
@@ -682,9 +737,8 @@ main :: (fn(io : Io) -> unit)({
   });
   // task 为冷状态（refcount=1），尚未启动
   io.spawn(task, io);
-  // spawn 启动任务，返回 JoinHandle(T)（非持有视图）
-  // __yo_incr_rc（refcount=2）
-  // 一个引用属于用户代码（task），一个属于运行中的任务（事件循环）
+  // spawn 启动任务：运行中的任务（事件循环）+1，返回的 JoinHandle 也 +1
+  // （这里立即被丢弃：语句级的 spawn 会分离任务）
   io.await(task, io);
   // 等待完成，提取结果
   // 任务完成，事件循环释放引用（refcount=1）
@@ -703,6 +757,12 @@ export(main);
 4. **任务完成**：状态机调用 `__yo_decr_rc()`（refcount = 0，被释放）
 
 **核心洞察**：即使用户代码提前释放任务，任务也会保持存活直到完成！
+
+**`JoinHandle(T)` 持有一个引用。** `io.spawn` 返回一个 `ref` 结构体，它持有任务
+Future 的一个引用。只要还有任何一个句柄副本存在，任务及其结果就保持存活；最后一个
+副本被丢弃时释放这个引用。await 句柄不会消耗它：await 两次读到同一个结果。一个未被
+await 就被丢弃的句柄会**分离**任务：任务继续运行，并在结束时释放自己，因此一句
+即发即弃的 `io.spawn(task, io);` 不会泄漏任何东西。
 
 **实现细节：**
 
@@ -1047,6 +1107,9 @@ match(waiters.pop(), .Some(w) => w.wake(), .None => ());
   再注册续延，所以一个已被唤醒的 park 会直接就地恢复，而不会挂起。
 - **唤醒是幂等的。** 第二次 `wake()`，或者唤醒一个任务已经结束的 park，都是空操作。
   因此等待者列表可以逐个唤醒所有人，而无需记录谁已经跑过了。
+- **被取消的等待者会告诉你。** 如果被 park 的任务已被取消、永远不会运行，
+  那么刚调用完 `w.wake()` 后 `w.is_woken()` 为 `false`。等待者列表据此把唤醒转交
+  给下一个等待者，`Mutex` 和 `Channel` 正是靠这一点在 `abort` 和 `timeout` 下保持正确。
 - **无人能唤醒的 park 会被报告，而不是挂死。** 运行时会统计存活的 waker 令牌；
   当没有可运行的任务、没有未完成的 I/O，却仍有令牌存活时，事件循环会明确报告并停止，
   而不是空转。
