@@ -892,7 +892,21 @@ State machines are small (~32-500 bytes):
 
 ### Throughput
 
-- State machine poll: ~10-50ns per poll
+Measured on a loaded 32-thread x86_64 box (`--optimize 2`, median ns per
+operation over 100k; treat as ±2×):
+
+| Operation | ns |
+|---|---|
+| `io.await` of an already-completed future | ~4 |
+| cold child future that completes synchronously | ~25 |
+| the same while other I/O is parked in the kernel | ~24 |
+| a chain of 4 nested awaits | ~150 |
+| `io.spawn` + `JoinHandle.await` of a no-await task | ~210 |
+
+A child that completes synchronously continues inline (within a budget of
+1024 per resume), and a finishing task hands its waiter the rest of the same
+scheduler step, so neither costs a trip through the run queue or the kernel.
+
 - No context switching (same thread)
 - No synchronization overhead
 - Cache-friendly (small state machines)
