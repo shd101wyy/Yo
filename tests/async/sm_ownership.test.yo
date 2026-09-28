@@ -241,3 +241,32 @@ test("two io.async closures that update a module global", {
   _b := h2.await(io);
   assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
 });
+
+// issues/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair)
+test("an aborted task drops a pattern binding's scrutinee once", {
+  before := g_disposed;
+  {
+    task := io.async((io : Io) => {
+      o := Option(Thing).Some(Thing(n : i32(5)));
+      match(
+        o,
+        .Some(q) => {
+          io.await(yield(io), io);
+          q.n
+        },
+        .None => i32(0)
+      )
+    });
+    h := io.spawn(task, io);
+    h.abort();
+    r := h.await(io);
+    assert(r.is_none(), "the task was aborted");
+  };
+  (spins : i32) = i32(0);
+  while(runtime((g_disposed < (before + i32(1))) && (spins < i32(100))), {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
+  io.await(yield(io), io);
+  assert(g_disposed == (before + i32(1)), "the Thing is disposed exactly once");
+});
