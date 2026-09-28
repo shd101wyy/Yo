@@ -1,5 +1,7 @@
 # A hoisted condition/scrutinee await combined with another await in an arm or loop body is lowered as plain code
 
+**Severity:** S1 — a hoisted condition await plus an arm/body await lowers as plain code — reads an uninitialized temp (garbage output) or emits invalid C
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom

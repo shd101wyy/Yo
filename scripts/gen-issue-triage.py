@@ -42,6 +42,7 @@ QUESTIONS = {
     "with-lock-and-with-permit-cannot-see-an-unwind.md": "correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent",
     "yo-doc-document-private-flag-is-a-no-op.md": "implement or remove the inert `--document-private` flag",
     "yoself-accepts-await-in-cond-that-ts-rejects.md": "is an await nested in a `cond` condition legal, and is it lowered correctly",
+    "impl-future-struct-field-emits-incompatible-pointer.md": "support `Impl(Future(T, E))` struct fields (the `Impl(Fn(...), Send)` precedent) or reject them at check with alternatives",
 }
 
 # Curated 2026-09-14: repro executed AND its output read.

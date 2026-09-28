@@ -1,5 +1,7 @@
 # A String captured by a nested `io.async` inside a state machine is dropped but never retained (heap-use-after-free)
 
+**Severity:** S1 — a String captured by a nested io.async is freed while the outer state machine still holds it — verified heap-use-after-free read at resume
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
