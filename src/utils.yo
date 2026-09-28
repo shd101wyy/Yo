@@ -898,6 +898,19 @@ set_owner_logs_enabled :: (fn(on : bool) -> unit)({
   g_owner_logs_enabled = on;
 });
 owner_logs_enabled :: (fn() -> bool)(g_owner_logs_enabled);
+/// Whether the evaluator records the side tables only codegen reads: the
+/// compiled match arms (`pattern.yo` `g_match_arms`) and the io.async closure
+/// await analyses (`g_closure_await_analysis`). `check`, `verify`, `doc` and
+/// the LSP never generate code, so they switch it off (18.7 MB + 2.3 MB of a
+/// `check src/main.yo`'s retained set, plans/EVALUATOR_MEMORY_REDUCTION.md
+/// §0.21). Only the recording is skipped; the analyses and their errors run
+/// as before. Default on, so every entry point that may generate code keeps
+/// them.
+(g_codegen_tables_enabled : bool) = true;
+set_codegen_tables_enabled :: (fn(on : bool) -> unit)({
+  g_codegen_tables_enabled = on;
+});
+codegen_tables_enabled :: (fn() -> bool)(g_codegen_tables_enabled);
 /// Keys a registry wrote, grouped by the owner current at the write
 /// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5): `owned_keys_record`
 /// at insert, `owned_keys_take` when `mm_invalidate_document` drops that owner.
@@ -923,7 +936,7 @@ owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
 owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(
   match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
 );
-export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
+export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, set_codegen_tables_enabled, codegen_tables_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
 export(debug_knob);
 // ---------------------------------------------------------------------------
 // Template interpolation scanning — shared by the lexer (where a template
