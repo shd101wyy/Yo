@@ -542,34 +542,26 @@ task := io.async((io : Io) => {
 
 ### `io.async` 内部 `await` 可以出现的位置
 
-每个 `await` 都是一次状态转换，因此它必须位于函数体能够被**切分**的位置。分支主体
-天然可切分。条件与 `match` 被匹配值在选择分支之前求值，因此会被**提升**到状态边界
-之外；而 `while` 的条件每轮迭代都要重新求值，于是整个循环在一个状态中循环往复。
+任何可以出现表达式的地方都可以。函数体只经过一次降级：每个 `await` 就在它被写下的位置
+成为一个挂起点，任务也从那里恢复。每个局部变量、模式绑定和中间值都存放在任务本身之中，
+因此跨越挂起点不会丢失任何东西。
 
 ```rust
-// ✓ 支持
 cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
-if(io.await(exists(p, io), io), { ... });
-cond(io.await(ready(io), io) => ..., true => ...);
-match(io.await(num(io), io), 42 => ..., _ => ...);
+if(!(io.await(exists(p, io), io)), { ... });              // 在条件内部
+cond(c1 => ..., io.await(f, io) => ..., true => ...);      // 位于后面的 cond 分支
+match(io.await(num(io), io), 42 => ..., _ => ...);          // 作为 match 的被匹配值
+x := add(io.await(a, io), io.await(b, io));                 // 同一个表达式中的两个 await
 while(io.await(more(io), io), { ... });
-while(c, { ... io.await(f, io) ... }, { ... });   // 三参数形式的步进（第 2 个参数）
-
-// ✗ 拒绝：await 被**嵌套**在更大的条件表达式中
-if(!(io.await(exists(p, io), io)), { ... });
-// ✓ 先绑定到局部变量
-found := io.await(exists(p, io), io);
-if(!(found), { ... });
-
-// ✗ 拒绝：位于**靠后**的 cond 分支。`cond` 惰性求值，提升它会导致即使前面的分支
-//   命中也仍然执行 await——这改变的是语义，而不只是时机。
-cond(c1 => ..., io.await(f, io) => ..., true => ...);
+while(c, { t := io.await(f, io); i = t; }, { ... });        // 三参数 while 的 step
 ```
 
-这些都是真正的挂起：在 await 条件之前 spawn 的任务，会在当前任务挂起期间运行。
+求值顺序就是源代码顺序。在 `add(g(), io.await(f, io))` 中，`g()` 在任务挂起之前运行。
+惰性求值得以保留：位于后面 `cond` 分支中、或 `&&` 右侧的 `await`，只有在该分支或操作数
+被求值时才会运行。
 
-该限制**仅适用于 `io.async` 内部**。在普通 `fn` 体中，`io.await` 会同步驱动事件
-循环，可以出现在任何允许表达式的位置。
+这些都是真正的挂起：在一个被 await 的条件之前 spawn 的任务，会在进行 await 的任务挂起
+期间运行。
 
 ## 事件循环
 
