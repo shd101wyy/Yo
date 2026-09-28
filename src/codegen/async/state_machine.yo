@@ -401,9 +401,10 @@ compute_cross_boundary_variables :: (
         captured_variables.get(ai),
         .Some(cv) => match(
           cv.kind,
-          .Local => {
+          // A unit local has no C representation, so it needs no slot.
+          .Local => if(!(_inline_result_is_unit(cv.base.ty)), {
             all_ids.insert(cv.base.id.to_string());
-          },
+          }),
           .Outer => ()
         ),
         .None => ()

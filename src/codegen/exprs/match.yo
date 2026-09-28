@@ -14,6 +14,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -781,17 +782,33 @@ _inline_binding_sm_field :: (fn(tok : Token, context : FunctionGenerationContext
   Option(String).None
 });
 /// Make the just-declared pattern binding `cname` (declared at `tok`) visible
-/// to the arm: its state-machine slot under the single-pass lowering (reads
-/// then go through `sm->…`), else the C local, which shadows any same-named
-/// state-machine variable.
-_bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token) -> unit)(
+/// to the arm: the name shadows any same-named state-machine variable, and
+/// under the single-pass lowering it is also stored into, and read from, its
+/// own slot (a C local does not survive an await in the arm).
+_bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token) -> unit)({
   match(
     _inline_binding_sm_field(tok, context),
     .Some(field) => {
       em := context.base.emitter;
       em.emit_string_line(`${indent}sm->${field} = ${cname};`);
+      _shadow_slot_set(context, cname.clone(), field);
     },
-    .None => _shadow_add(context, cname)
+    .None => ()
+  );
+  _shadow_add(context, cname);
+});
+/// Record the slot a shadowed name lives in (`shadow_slots`).
+_shadow_slot_set :: (fn(context : FunctionGenerationContext, name : String, field : String) -> unit)(
+  match(
+    context.shadow_slots,
+    .Some(m) => {
+      m.insert(name, field);
+    },
+    .None => {
+      nm := HashMap(String, String).new();
+      nm.insert(name, field);
+      context.shadow_slots = Option(HashMap(String, String)).Some(nm);
+    }
   )
 );
 _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
@@ -810,6 +827,13 @@ _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)(
 /// Remove a name from the local-shadowed-variables set (after an arm body, so
 /// the shadow does not leak to sibling arms / outer scope).
 _shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.shadow_slots,
+    .Some(m) => {
+      _rs := m.remove(name.clone());
+    },
+    .None => ()
+  );
   match(
     context.local_shadowed_variables,
     .Some(s) => {
@@ -903,10 +927,9 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
           // `_<module>__priv_temp_N` (the generic-impl face of
           // issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
           // Removed after the ptr-case body below.
-          // Under the single-pass lowering the binding lives in its slot
-          // (stored below), and reads must go there: a C local does not
-          // survive an await in the arm.
-          (ptr_bind_slotted : bool) = false;
+          // Under the single-pass lowering the binding also lives in its slot
+          // (stored below, `shadow_slots`), and reads go there: a C local does
+          // not survive an await in the arm.
           // STATE-MACHINE STORAGE PARITY: identifier READS of an
           // sm-hoisted variable emit `sm->var_N` (atom.yo consults
           // state_machine_variables), so when THIS pattern binding's
@@ -1012,12 +1035,14 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               );
               smb_store := body_indent.clone();
               smb_store.push_str("sm->");
-              smb_store.push_string(smb_field);
+              smb_store.push_string(smb_field.clone());
               smb_store.push_str(" = ");
               smb_store.push_string(dvn.clone());
               smb_store.push_str(";");
               em.emit_string_line(smb_store);
-              ptr_bind_slotted = context.sm_inline_lowering.is_some();
+              if(context.sm_inline_lowering.is_some(), {
+                _shadow_slot_set(context, dvn.clone(), smb_field.clone());
+              });
               match(
                 context.state_machine_binding_ids,
                 .Some(bids) => {
@@ -1027,9 +1052,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               );
             });
           });
-          if(!ptr_bind_slotted, {
-            _shadow_add(context, dvn.clone());
-          });
+          _shadow_add(context, dvn.clone());
         },
         .None => ()
       );

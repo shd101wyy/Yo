@@ -463,6 +463,11 @@ FunctionGenerationContext :: ref(
     /// Variables locally shadowed (e.g. match destructuring) — use the local C
     /// var, not the SM field.
     local_shadowed_variables : Option(HashSet(String)),
+    /// Single-pass async lowering: the state-machine slot a shadowed name
+    /// (a match-arm binding) lives in. A shadowed name renders as that slot,
+    /// or as the C local when it has none; never through the env, whose
+    /// same-named variables are not the binding.
+    shadow_slots : Option(HashMap(String, String)),
     /// Temp variable names already declared in the C output (avoid duplicates).
     declared_temp_vars : Option(HashSet(String)),
     /// Var names whose drops were already emitted inside short-circuit branches.
@@ -624,6 +629,7 @@ impl(
       pending_deferred_drops : Option(ArrayList(AstExpr)).None,
       consumed_var_pending_drops : Option(ArrayList(AstExpr)).None,
       local_shadowed_variables : Option(HashSet(String)).None,
+      shadow_slots : Option(HashMap(String, String)).None,
       declared_temp_vars : Option(HashSet(String)).None,
       short_circuit_handled_drop_var_names : Option(HashSet(String)).None,
       short_circuit_emitted_drop_targets : Option(HashSet(String)).None,

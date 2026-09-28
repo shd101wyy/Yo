@@ -633,8 +633,15 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
           raw_code := _call_generate_expr(expr, indent.clone(), context);
           ei.variable_name = Option(String).Some(saved.clone());
           expr_temp_var := get_variable_name_for_codegen(saved.clone(), Option(Environment).Some(ei.env));
-          value_var = Option(String).Some(expr_temp_var.clone());
-          if(!(expr_temp_var == raw_code), {
+          // An atom named after ITSELF (its `variable_name` is the variable,
+          // not a minted temp) has nothing to materialize: its value is its
+          // own rendering. That rendering can differ from the name, a
+          // state-machine slot (`sm->var_…`) under the single-pass async
+          // lowering, and declaring `T name = sm->var_…` then redefined the
+          // binding in its own C scope.
+          self_named := (ast_expr_is_atom(expr) && (saved == ast_expr_token(expr).value));
+          value_var = Option(String).Some(if(self_named, raw_code.clone(), expr_temp_var.clone()));
+          if(!self_named && !(expr_temp_var == raw_code), {
             line := indent.clone();
             rt_ct := get_type_string(ei.ty, context.base);
             line.push_string(rt_ct.clone());
