@@ -897,7 +897,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : stable_func_id(String.from(""), rp_tok.module_path, rp_tok.row, rp_tok.column)
+              func_id : stable_func_id(String.from(""), rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column))
             )
           ),
           ArrayList(EvalValue).new()
@@ -1185,7 +1185,7 @@ Result type: ${type_to_string(result_box)}`
       });
       ft_env_key := mint_funcval_env_key();
       register_funcval_cap_slices(ft_env_key, cap_slices);
-      fn_val_id := stable_func_id(String.from(""), tok.module_path, tok.row, tok.column);
+      fn_val_id := stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column));
       // Defer body evaluation ONLY for functions that depend on generic type
       // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
@@ -1603,7 +1603,7 @@ Result type: ${type_to_string(result_box)}`
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), tok.module_path, tok.row, tok.column)
+                func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
               )
             ),
             ArrayList(EvalValue).new()
@@ -2018,7 +2018,7 @@ Result type: ${type_to_string(result_box)}`
                   body : make_err_expr(),
                   cap_names : ArrayList(String).new(),
                   cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), tok.module_path, tok.row, tok.column)
+                  func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
                 )
               ),
               ArrayList(EvalValue).new()

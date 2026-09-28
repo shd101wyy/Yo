@@ -174,7 +174,7 @@ tokenize_span :: (
         });
         dot_str := dot_sb.to_string();
         kind := cond(((j - i) == usize(1)) => TokenKind.Dot, true => TokenKind.Operator);
-        tokens.push(Token(kind : kind, value : dot_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : dot_str, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Non-comment operator characters
@@ -229,7 +229,7 @@ tokenize_span :: (
             );
             break;
           });
-          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str.slice_copy(k .. (k + tok_len))), row : line, column : (col + k), character : (char_idx + k), byte_offset : (byte_idx + k), module_path : module_path, input : input));
+          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str.slice_copy(k .. (k + tok_len))), row : u32(line), column : u32(col + k), character : u32(char_idx + k), byte_offset : u32(byte_idx + k), module_path : module_path, input : input));
           k = (k + tok_len);
         });
         i = j;
@@ -252,7 +252,7 @@ tokenize_span :: (
           k = (k + usize(1));
         });
         ws_str := ws_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Whitespace, value : ws_str, row : ws_start_ln, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Whitespace, value : ws_str, row : u32(ws_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = k;
       },
       // Line comment: //, ///, //!
@@ -275,7 +275,7 @@ tokenize_span :: (
           k = (k + usize(1));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : comment_kind, value : cm_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : comment_kind, value : cm_str, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = k;
       },
       // Block comment: /*, /**, /*!
@@ -326,32 +326,32 @@ tokenize_span :: (
           exn.throw(dyn(format_lexer_error(module_path, input, bc_start_ln, col, `unterminated block comment`)));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : block_kind, value : cm_str, row : bc_start_ln, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : block_kind, value : cm_str, row : u32(bc_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = k;
       },
       // ( ) [ ] { }
       (c.char == u32(0x28)) => {
-        tokens.push(Token(kind : TokenKind.LParen, value : `(`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LParen, value : `(`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x29)) => {
-        tokens.push(Token(kind : TokenKind.RParen, value : `)`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RParen, value : `)`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5B)) => {
-        tokens.push(Token(kind : TokenKind.LBracket, value : `[`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LBracket, value : `[`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5D)) => {
-        tokens.push(Token(kind : TokenKind.RBracket, value : `]`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RBracket, value : `]`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7B)) => {
-        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : `{`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : `{`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7D)) => {
-        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : `}`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : `}`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Char literal: '...'
@@ -407,7 +407,7 @@ tokenize_span :: (
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.CharLit, value : tok_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.CharLit, value : tok_val, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // String literal: "..."
@@ -486,7 +486,7 @@ tokenize_span :: (
         });
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Template string: `...`
@@ -644,16 +644,16 @@ tokenize_span :: (
           exn.throw(dyn(format_lexer_error(module_path, input, line, col, `unterminated template string`)));
         });
         ts_val := ts_sb.to_string();
-        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Comma and semicolon
       (c.char == u32(0x2C)) => {
-        tokens.push(Token(kind : TokenKind.Comma, value : `,`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Comma, value : `,`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x3B)) => {
-        tokens.push(Token(kind : TokenKind.Semicolon, value : `;`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Semicolon, value : `;`, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Number literals (integer and float)
@@ -809,7 +809,7 @@ tokenize_span :: (
         });
         num_str := num_sb.to_string();
         kind := cond(is_float => TokenKind.Float, true => TokenKind.Integer);
-        tokens.push(Token(kind : kind, value : num_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : num_str, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Identifier or Bool keyword
@@ -857,7 +857,7 @@ tokenize_span :: (
           (id_str == `false`) => TokenKind.Bool,
           true => TokenKind.Identifier
         );
-        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Unknown character: error

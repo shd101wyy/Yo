@@ -206,7 +206,7 @@ find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usiz
         return(
           DeclarationNameResult_(
             name : token.value,
-            position : Option(DocPosition).Some(DocPosition(row : token.row, column : token.column))
+            position : Option(DocPosition).Some(DocPosition(row : usize(token.row), column : usize(token.column)))
           )
         );
       }, {
@@ -248,7 +248,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
       match(
         inner_doc_position,
         .None => {
-          inner_doc_position = Option(DocPosition).Some(DocPosition(row : token.row, column : token.column));
+          inner_doc_position = Option(DocPosition).Some(DocPosition(row : usize(token.row), column : usize(token.column)));
           inner_doc_module_path = token.module_path;
         },
         .Some(_) => ()
@@ -312,8 +312,8 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
     }, {
       if(token.kind == TokenKind.DocLineComment, {
         doc_parts := ArrayList(String).new();
-        start_row := token.row;
-        start_col := token.column;
+        start_row := usize(token.row);
+        start_col := usize(token.column);
         start_mod_path := token.module_path;
         doc_parts.push(strip_doc_line_comment_(token.value));
         i = (i + usize(1));
@@ -372,8 +372,8 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
           doc_comment := DocComment(
             content : strip_doc_block_comment_(token.value),
             inner : false,
-            row : token.row,
-            column : token.column,
+            row : usize(token.row),
+            column : usize(token.column),
             module_path : token.module_path
           );
           i = (i + usize(1));

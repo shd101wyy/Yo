@@ -73,11 +73,11 @@ _location_of :: (
 )({
   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
   // converted to the wire encoding against the TARGET file's lines.
-  end_col := (def_tok.column + def_tok.value.chars().count());
+  end_col := (usize(def_tok.column) + def_tok.value.chars().count());
   range := match(
     _target_lines(def_tok, doc_abs.clone(), lines),
-    .Some(target_lines) => j_range_in(target_lines, def_tok.row, def_tok.column, def_tok.row, end_col),
-    .None => j_range(def_tok.row, def_tok.column, def_tok.row, end_col)
+    .Some(target_lines) => j_range_in(target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
+    .None => j_range(usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col)
   );
   jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
 });

@@ -2602,13 +2602,13 @@ evaluate_begin_expression :: (
               if(!skip, {
                 wspan := Span(
                   path : wv.token.module_path,
-                  row : wv.token.row,
-                  col : wv.token.column,
+                  row : usize(wv.token.row),
+                  col : usize(wv.token.column),
                   len : wv.token.value.chars().count()
                 );
                 wlines := wv.token.input.split(String.from("\n"));
                 wsource_line := match(
-                  wlines.get(wv.token.row),
+                  wlines.get(usize(wv.token.row)),
                   .Some(l) => l,
                   .None => String.new()
                 );

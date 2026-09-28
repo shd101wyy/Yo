@@ -118,8 +118,8 @@ _template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
   out := ArrayList(_TemplateBodyOrigin).new();
   bytes := tok.input.as_bytes();
   n := bytes.len();
-  if((tok.byte_offset < n) && (bytes(tok.byte_offset) == u8(0x60)), {
-    (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (tok.byte_offset + usize(1)), row : tok.row, col : (tok.column + usize(1)), ch : (tok.character + usize(1)));
+  if((usize(tok.byte_offset) < n) && (bytes(usize(tok.byte_offset)) == u8(0x60)), {
+    (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
     (done : bool) = false;
     while((pos.byte < n) && !(done), {
       b := bytes(pos.byte);
@@ -221,9 +221,9 @@ impl(
     Token(
       kind : kind,
       value : value,
-      row : usize(0),
-      column : usize(0),
-      character : usize(0),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
       module_path : self.module_path,
       input : self.input_string
     )
@@ -1085,9 +1085,9 @@ impl(
           .None => Token(
             kind : TokenKind.LCurlyBracket,
             value : String.from("{"),
-            row : usize(0),
-            column : usize(0),
-            character : usize(0),
+            row : u32(0),
+            column : u32(0),
+            character : u32(0),
             module_path : String.from(""),
             input : String.from("")
           )
@@ -1144,7 +1144,7 @@ impl(
                         tok,
                         block_msg,
                         Option(String).None,
-                        Span(path : close_tok.module_path, row : close_tok.row, col : close_tok.column, len : usize(0)),
+                        Span(path : close_tok.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
                         String.from("insert `;` before `}` so the braces form a block")
                       )
@@ -1384,9 +1384,9 @@ impl(
           .None => Token(
             kind : TokenKind.Dot,
             value : String.from("."),
-            row : usize(0),
-            column : usize(0),
-            character : usize(0),
+            row : u32(0),
+            column : u32(0),
+            character : u32(0),
             module_path : String.from(""),
             input : String.from("")
           )
@@ -1689,18 +1689,18 @@ impl(
       import_tok := Token(
         kind : TokenKind.Identifier,
         value : String.from(BK_IMPORT),
-        row : usize(0),
-        column : usize(0),
-        character : usize(0),
+        row : u32(0),
+        column : u32(0),
+        character : u32(0),
         module_path : self.module_path,
         input : self.input_string
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
         value : if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\"")),
-        row : usize(0),
-        column : usize(0),
-        character : usize(0),
+        row : u32(0),
+        column : u32(0),
+        character : u32(0),
         module_path : self.module_path,
         input : self.input_string
       );

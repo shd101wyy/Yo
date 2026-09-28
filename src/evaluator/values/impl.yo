@@ -1572,7 +1572,7 @@ find_matching_generic_impl :: (
 /// carry the path as typed and a demand-loaded one's the `file://` key, and a
 /// replay of one impl under the other spelling is not a second impl.
 _impl_site_string :: (fn(tok : Token) -> String)(
-  `${display_module_path(tok.module_path)}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`
+  `${display_module_path(tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
@@ -5053,7 +5053,7 @@ evaluate_module_value :: (
                         d_val,
                         .FuncVal(d_fvd, d_cvs) => {
                           d_tok := ast_expr_token(expr);
-                          d_fresh_id := stable_func_id(String.from("fn_"), d_tok.module_path, d_tok.row, d_tok.column);
+                          d_fresh_id := stable_func_id(String.from("fn_"), d_tok.module_path, usize(d_tok.row), usize(d_tok.column));
                           d_body_clone := clone_expr_fresh_ids(d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
                             box(

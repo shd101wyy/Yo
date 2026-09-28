@@ -1009,7 +1009,7 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
                   exprs.get(j),
                   .Some(e) => {
                     if(module_expr_binds_name(e, name), {
-                      found_row = Option(usize).Some(ast_expr_token(e).row);
+                      found_row = Option(usize).Some(usize(ast_expr_token(e).row));
                     });
                   },
                   .None => ()
@@ -1790,7 +1790,7 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
       members : ArrayList(String).new(),
       expr : e,
       index : index,
-      row : ast_expr_token(e).row,
+      row : usize(ast_expr_token(e).row),
       is_impl : is_impl,
       state : PendingDefState.Unforced,
       failure : Option(String).None,
@@ -2019,17 +2019,17 @@ _anchor_label_chars :: (fn(raw : String) -> String)({
 /// first argument's (`P :: ...` is headed by `::`, after `P`).
 _statement_start :: (fn(e : AstExpr) -> Tuple(usize, usize))({
   ht := ast_expr_token(e);
-  (row : usize) = ht.row;
-  (column : usize) = ht.column;
+  (row : usize) = usize(ht.row);
+  (column : usize) = usize(ht.column);
   match(
     e,
     .FnCall(_, _, sargs, _, _) => match(
       sargs.get(usize(0)),
       .Some(a0) => {
         at := ast_expr_token(a0);
-        if((at.module_path == ht.module_path) && ((at.row < row) || ((at.row == row) && (at.column < column))), {
-          row = at.row;
-          column = at.column;
+        if((at.module_path == ht.module_path) && ((usize(at.row) < row) || ((usize(at.row) == row) && (usize(at.column) < column))), {
+          row = usize(at.row);
+          column = usize(at.column);
         });
       },
       .None => ()
@@ -2889,7 +2889,7 @@ make_impl_pending_field :: (fn(label : String, colon_expr : AstExpr, top_index :
       members : ArrayList(String).new(),
       expr : colon_expr,
       index : top_index,
-      row : ast_expr_token(colon_expr).row,
+      row : usize(ast_expr_token(colon_expr).row),
       is_impl : false,
       state : PendingDefState.Unforced,
       failure : Option(String).None,
