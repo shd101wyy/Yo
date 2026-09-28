@@ -1367,7 +1367,10 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning), {
+        // A pattern binding's slot borrows the scrutinee's payload: the
+        // scrutinee's own drop releases it.
+        is_binding := match(context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
+        if((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding), {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
@@ -2369,6 +2372,8 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.base.declared_scopes.push(String.from("sm"));
   em.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
   em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
+  saved_binding_ids := context.state_machine_binding_ids;
+  context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
@@ -2389,6 +2394,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   em.emit_string_line(String.from(""));
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
+  context.state_machine_binding_ids = saved_binding_ids;
   em.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);

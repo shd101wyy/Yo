@@ -948,6 +948,13 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               smb_store.push_string(dvn.clone());
               smb_store.push_str(";");
               em.emit_string_line(smb_store);
+              match(
+                context.state_machine_binding_ids,
+                .Some(bids) => {
+                  bids.insert(smb_id.clone());
+                },
+                .None => ()
+              );
             });
           });
         },

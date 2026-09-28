@@ -3421,6 +3421,13 @@ _aw_destructure_pattern :: (
                       match(
                         _resolve_pattern_binding_sm_field(bind_expr, raw_name.clone(), context),
                         .Some(vid) => {
+                          match(
+                            context.state_machine_binding_ids,
+                            .Some(bids) => {
+                              bids.insert(vid.clone());
+                            },
+                            .None => ()
+                          );
                           fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
                           em.emit_string_line(`${indent}    sm->${fname} = ${access};`);
                         },
@@ -3775,6 +3782,13 @@ _generate_match_with_await_impl :: (
                                 .None => _find_sm_var_id_by_name(context, pvn)
                               ),
                               .Some(vid) => {
+                                match(
+                                  context.state_machine_binding_ids,
+                                  .Some(bids) => {
+                                    bids.insert(vid.clone());
+                                  },
+                                  .None => ()
+                                );
                                 fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
                                 em.emit_string_line(`${indent}  sm->${fname} = ${matched_value_code};`);
                               },
