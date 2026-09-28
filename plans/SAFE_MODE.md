@@ -11,8 +11,11 @@ audit's open-work list, closed 2026-09-28): the std unwrap ratchet, the
 comptime-panic diagnostic, the docs and instruction debt, the trap/OOM
 oracles, the UBSan acceptance run with its function-type class fixed, the
 standing UBSan workflow (D6, `.github/workflows/ubsan.yml`), the class-1
-governance cross-check, and the 5b design. Open: 5b's implementation
-(`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`) and 6, which is gated
+governance cross-check, and the 5b design. Open: a safe file can read an
+inactive union member (UB for `bool` and other types with invalid bit
+patterns; needs a language decision,
+`issues/safe-code-can-read-an-inactive-union-member.md`), 5b's implementation
+(`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), and 6, which is gated
 on it.**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
@@ -886,6 +889,14 @@ as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
     nine abort handlers, `function_type_mismatch` among them, so the zero is
     not vacuous. It is the first run that reaches the end without disabling a
     check class.
+  - **Run 5** (2026-09-28, the language suite under
+    `YO_TEST_SANITIZE=undefined`, what the new D6 workflow runs): 4510 of 4512
+    passed. The two reports were a new class, loads of an invalid `bool`.
+    `MaybeUninit(T).new()` copied an indeterminate value, which was fixed by
+    zero-initializing it
+    (`issues/fixed/maybe-uninit-new-copies-an-indeterminate-value.md`). A union
+    read of an inactive `bool` member remains open, because safe files may
+    read union members at all (`issues/safe-code-can-read-an-inactive-union-member.md`).
   - D6's leg landed with the fix (see D6 in §13).
 - **R7 — governance cross-check. DONE 2026-09-28, and it found a hole.**
   `scan_class1_extractions` (`src/public_safe_report.yo`) lists every
