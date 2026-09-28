@@ -1237,7 +1237,10 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
     bei.variable_name,
     .Some(bvn) => {
       btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
-      if(!(btv == raw_code), {
+      // Self-named atom: its value is its own rendering (see
+      // handle_atom_deferred_dup in return.yo).
+      b_self := (ast_expr_is_atom(body_expr) && (bvn == ast_expr_token(body_expr).value));
+      if(!b_self && !(btv == raw_code), {
         bem := context.base.emitter;
         bline := indent.clone();
         bline.push_string(get_type_string(bei.ty, context.base));
@@ -1249,7 +1252,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
         bem.emit_string_line(bline);
         context.base.declared_c_var_names.insert(btv.clone());
       });
-      final_code = btv;
+      final_code = if(b_self, raw_code.clone(), btv);
     },
     .None => ()
   );
