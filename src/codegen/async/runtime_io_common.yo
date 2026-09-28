@@ -14,25 +14,6 @@
 { generate_platform_sys_runtime_windows } :: import("./runtime_io_windows.yo");
 { generate_platform_sys_runtime_wasm } :: import("./runtime_io_wasm.yo");
 { panic, assert } :: import("std/assert");
-/// Options for `generate_async_runtime`.
-/// Defined here (not in `runtime.yo`) so `runtime.yo` can
-/// import it without a cycle: `runtime.yo` already imports this module's
-/// `generate_async_runtime_io_common`.
-///
-/// Instead of a register-dispose-type-id callback (which would be consulted at
-/// exactly ONE site with exactly ONE fixed name — `__yo_timer_future_dispose`,
-/// the Linux non-cycle-GC timer path), the single dispose type-id is
-/// PRECOMPUTED and carried as `timer_dispose_type_id`.
-/// This sidesteps the fact that an `Impl(Fn(...))` type written in two different
-/// modules resolves to two distinct (non-canonical) type instances, which makes
-/// `Option(Impl(Fn(...)))` monomorphize to clashing C enums across the field
-/// declaration site and the construction site. `Some(id)` only when `!needs_cycle_gc`.
-AsyncRuntimeOptions :: ref(
-  struct(
-    needs_cycle_gc : bool,
-    timer_dispose_type_id : Option(i64)
-  )
-);
 /// Emit the shared POSIX sync runtime + dispatch to the platform sys-runtime.
 generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit)({
   if(is_target_windows(target_info), {
@@ -220,17 +201,59 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
   return -err;
   }
 
-  ssize_t copied = 0;
-  off_t off_in = 0;
+  // Copy to END OF FILE, in as many calls as it takes. One copy_file_range
+  // (or sendfile) call moves at most MAX_RW_COUNT, 2,147,479,552 bytes: the
+  // single call this used to make copied a 2.2 GB file as exactly that many
+  // bytes and reported success. And st_size is not the length of every
+  // file — procfs/sysfs report 0 — so a /proc file copied as an empty one
+  // (issues/fixed/linux-copyfile-truncates-files-over-2-gib-and-empties-proc-files.md).
+  int err = 0;
+  off_t off = 0;
+  bool done = false;
 #ifdef __NR_copy_file_range
-  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
-#endif
-  if (copied < 0) {
-  off_t offset = 0;
-  copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
+  for (;;) {
+    ssize_t n = syscall(__NR_copy_file_range, src_fd, &off, dst_fd, NULL, (size_t)1 << 30, 0);
+    if (n > 0) continue;
+    if (n == 0) {
+      // EOF — unless nothing was copied at all, which is also what a
+      // filesystem whose files report no length (procfs) answers: let the
+      // read/write loop below find out.
+      done = (off > 0);
+      break;
+    }
+    if (errno == EINTR) continue;
+    // Not supported for this pair (cross-device before 5.3/after 5.19, a
+    // pseudo filesystem, seccomp): the read/write loop continues from off.
+    if (errno == EXDEV || errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP || errno == EPERM) break;
+    err = errno;
+    done = true;
+    break;
   }
-
-  int err = (copied < 0) ? errno : 0;
+#endif
+  if (!done) {
+    unsigned char buffer[65536];
+    for (;;) {
+      ssize_t nread = pread(src_fd, buffer, sizeof(buffer), off);
+      if (nread < 0) {
+        if (errno == EINTR) continue;
+        err = errno;
+        break;
+      }
+      if (nread == 0) break;
+      ssize_t written = 0;
+      while (written < nread) {
+        ssize_t w = write(dst_fd, buffer + written, (size_t)(nread - written));
+        if (w < 0) {
+          if (errno == EINTR) continue;
+          err = errno;
+          break;
+        }
+        written += w;
+      }
+      if (err != 0) break;
+      off += nread;
+    }
+  }
   close(src_fd);
   close(dst_fd);
   return (err != 0) ? -err : 0;
@@ -610,62 +633,31 @@ ${cpu_id_body}
 });
 /// Timer, directory scanning, DNS, process, FS events, poll, and the tick
 /// function. macOS + Linux only; Windows/WASM never reach this (WASM is
-/// excluded by `runtime.yo`, Windows panics below). The `timer_dispose_init`
-/// 3-way (cycle-GC / type-id callback / none) is Linux-only.
+/// excluded by `runtime.yo`, Windows panics below).
 generate_async_runtime_io_common :: (
-  fn(emitter : Emitter, target_info : TargetInfo, options : AsyncRuntimeOptions) -> unit
+  fn(emitter : Emitter, target_info : TargetInfo) -> unit
 )({
   is_windows := is_target_windows(target_info);
   is_linux := is_target_linux(target_info);
   is_macos := is_target_macos(target_info);
   // --- Timer operations (platform-specific) ---
   if(is_linux, {
-    (timer_dispose_init : String) = String.from("");
-    if(options.needs_cycle_gc, {
-      timer_dispose_init = String.from("  future->header.dispose_fn = __yo_timer_future_dispose;");
-    }, {
-      match(
-        options.timer_dispose_type_id,
-        .Some(tid) => {
-          s := String.from("  future->header.type_id = ");
-          s.push_string(tid.to_string());
-          s.push_str(";");
-          timer_dispose_init = s;
-        },
-        .None => {
-          timer_dispose_init = String.from("  // No dispose registration available");
-        }
-      );
-    });
     emitter.emit_string_line(
       `
 // ============================================================================
-// Timer Operations (Linux - timerfd + io_uring)
+// Timer Operations (Linux - IORING_OP_TIMEOUT, or the epoll timer heap)
 // ============================================================================
-#include <sys/timerfd.h>
 
 // Extended future for a timer. The ring backend sleeps with IORING_OP_TIMEOUT
 // (ts is its relative deadline, read by the kernel at submission); the epoll
-// fallback has no timeout op and waits on a timerfd (timerfd + read_buf,
-// released by the dispose hook).
+// fallback has no timeout op and keeps the future in its timer heap
+// (__yo_epoll_sleep_arm). Neither owns a resource, so there is no dispose
+// hook: the epoll path's timerfd, and the dispose type-id that closed it, are
+// gone.
 typedef struct {
   __yo_io_future_t base;
-  int timerfd;
-  uint64_t* read_buf;
   struct __yo_uring_timespec ts;
 } __yo_timer_future_t;
-
-static void __yo_timer_future_dispose(void* ptr) {
-  __yo_timer_future_t* tf = (__yo_timer_future_t*)ptr;
-  if (tf->timerfd >= 0) {
-    close(tf->timerfd);
-    tf->timerfd = -1;
-  }
-  if (tf->read_buf) {
-    __yo_free(tf->read_buf);
-    tf->read_buf = NULL;
-  }
-}
 
 // Async sleep. The ring layer (runtime_io_linux.yo's emission, which lands
 // before this file's output) is always compiled on Linux since
@@ -694,13 +686,10 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   
   __yo_io_future_t* future = &timer_future->base;
   future->header.ref_count = 1;
-${timer_dispose_init}
   atomic_init(&future->state, 0);
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  timer_future->timerfd = -1;
-  timer_future->read_buf = NULL;
   
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     future->result = -__yo_backend_errno;
@@ -709,32 +698,9 @@ ${timer_dispose_init}
   }
 
   if (__yo_backend == __YO_BACKEND_EPOLL) {
-    // No timeout op: a timerfd, registered with the epoll set; delivery
-    // performs the 8-byte read (the source of the "8 on success" contract).
-    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
-    if (tfd < 0) {
-      future->result = -errno;
-      atomic_store(&future->state, -1);
-      return future;
-    }
-    timer_future->timerfd = tfd;
-    struct itimerspec its = {0};
-    its.it_value.tv_sec = (time_t)(milliseconds / 1000);
-    its.it_value.tv_nsec = (long)((milliseconds % 1000) * 1000000);
-    if (milliseconds == 0) {
-      // POSIX defines a zero it_value as DISARMING the timer, so sleep(0)
-      // would never fire. Arm for 1 ns instead — completes on the next loop
-      // turn like the kqueue/Windows/wasm runtimes.
-      its.it_value.tv_nsec = 1;
-    }
-    if (timerfd_settime(tfd, 0, &its, NULL) < 0) {
-      future->result = -errno;
-      atomic_store(&future->state, -1);
-      return future;
-    }
-    uint64_t* buf = (uint64_t*)__yo_rc_alloc(sizeof(uint64_t));
-    timer_future->read_buf = buf;
-    __yo_epoll_sleep_arm(future, tfd, buf);
+    // No timeout op: a node in the thread's timer heap, whose earliest
+    // deadline bounds the epoll wait. Completes with 8, the timer contract.
+    __yo_epoll_sleep_arm(future, milliseconds);
     return future;
   }
 
@@ -742,7 +708,7 @@ ${timer_dispose_init}
   // next reap, like the other runtimes' sleep(0).
   timer_future->ts.tv_sec = (int64_t)(milliseconds / 1000);
   timer_future->ts.tv_nsec = (long long)((milliseconds % 1000) * 1000000);
-  struct __yo_uring_sqe* sqe = __yo_uring_get_sqe(&__yo_io_ring);
+  struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
     atomic_store(&future->state, -1);
@@ -1617,6 +1583,8 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
   handle->next = __yo_active_fs_events;
   __yo_active_fs_events = handle;
   __yo_active_watch_count++;
+  // Let the inotify fd end a blocked wait (the backend's watch set).
+  (void)__yo_io_watch_set(handle->fd, EPOLLIN);
   return 0;
 }
 `
@@ -1739,6 +1707,9 @@ static int32_t __yo_fs_event_stop(void* h) {
   handle->active = 0;
   __yo_active_watch_count--;
 
+  if (handle->fd >= 0) {
+    (void)__yo_io_watch_set(handle->fd, 0);
+  }
   if (handle->watch_fd >= 0 && handle->fd >= 0) {
     inotify_rm_watch(handle->fd, handle->watch_fd);
     handle->watch_fd = -1;
@@ -1805,7 +1776,37 @@ static int32_t __yo_fs_event_stop(void* h) {
         );
       });
     });
-    // FS event close + poll operations (common POSIX)
+    // FS event close + poll operations (common POSIX). On Linux a poll handle's
+    // fd also joins the backend's watch set (runtime_io_linux.yo), so a ready
+    // fd ends a blocked wait instead of being noticed at the next tick.
+    poll_watch_defs := cond(
+      is_linux =>
+        `
+// The watch-set interest for fd: the union of every started poll handle on
+// it (two handles may watch one fd). Called after a handle starts or stops.
+static void __yo_poll_sync_watch(int fd) {
+  uint32_t mask = 0;
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (!ph->active || ph->fd != fd) continue;
+    if (ph->events & 1) mask |= EPOLLIN;
+    if (ph->events & 2) mask |= EPOLLOUT;
+    if (ph->events & 8) mask |= EPOLLPRI;
+  }
+  int32_t rc = __yo_io_watch_set(fd, mask);
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (ph->fd == fd) ph->unpollable = (rc == -EPERM) ? 1 : 0;
+  }
+}
+
+static bool __yo_watch_needs_polling(void) {
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (ph->active && ph->unpollable) return true;
+  }
+  return false;
+}`,
+      true => String.from("")
+    );
+    poll_watch_sync := cond(is_linux => String.from("  __yo_poll_sync_watch(handle->fd);"), true => String.from(""));
     emitter.emit_string_line(
       `
 static void __yo_fs_event_close(void* h) {
@@ -1825,10 +1826,14 @@ typedef struct __yo_poll_s {
   void (*callback)(int32_t, int32_t, uint8_t*);
   void* user_data;
   int active;
+  // The backend's watch set refused this fd (Linux: epoll's EPERM for a
+  // regular file); the loop keeps polling for it.
+  int unpollable;
   struct __yo_poll_s* next;
 } __yo_poll_t;
 
 static _Thread_local __yo_poll_t* __yo_active_polls = NULL;
+${poll_watch_defs}
 
 static void* __yo_poll_init(int32_t fd) {
   __yo_poll_t* handle = (__yo_poll_t*)__yo_rc_alloc(sizeof(__yo_poll_t));
@@ -1849,6 +1854,7 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
   handle->next = __yo_active_polls;
   __yo_active_polls = handle;
   __yo_active_watch_count++;
+${poll_watch_sync}
   return 0;
 }
 
@@ -1869,6 +1875,7 @@ static int32_t __yo_poll_stop(void* h) {
     pp = &(*pp)->next;
   }
   handle->next = NULL;
+${poll_watch_sync}
   return 0;
 }
 
@@ -2746,6 +2753,5 @@ int __yo_tls_available(void) { return 0; }
 export(
   generate_tls_runtime,
   generate_sys_runtime,
-  generate_async_runtime_io_common,
-  AsyncRuntimeOptions
+  generate_async_runtime_io_common
 );
