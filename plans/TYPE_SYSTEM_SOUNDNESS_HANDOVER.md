@@ -34,7 +34,13 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
   E0905); `stable_type_identity` spelling a SomeT by its binder (two closures' capture structs
   aliased); the Fn-result pre-binding typed as the result instead of `Type` (`map_values`); and
   a struct built with a closure in an `Impl(Fn)`-typed field, now instantiated over that closure
-  identity instead of an id-keyed registry write.
+  identity instead of an id-keyed registry write. Its Linux CI also found a develop bug, fixed on the branch: a
+  `ClosureType({...})` closure did not own its RC captures, so returning one read freed memory
+  (`issues/fixed/a-closuretype-closure-does-not-own-its-rc-captures.md`).
+- **#980 — a develop regression from #973.** An early `return(x)` of a hoisted state-machine
+  local completed its future with NULL, which made the stage-2 compiler segfault in
+  `yo install` on a cold cache
+  (`issues/fixed/an-early-return-of-a-hoisted-state-machine-local-completes-with-null.md`).
 - **#968 — Phase 6 step 2.** Replaces the closed #962 (its E1104 code classified a symptom; its
   last commit deleted E0607's `yo explain` entry). What landed, per census site:
   - #5 closures with concrete runtime parameters re-raise; a `comptime(x)` value parameter
