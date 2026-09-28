@@ -881,7 +881,11 @@ as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
     verified from the binary's imports, so this is not a vacuous zero. Signed
     overflow has no UBSan check here: `-fwrapv` defines it, and Phase 3 traps it.
   - **Run 4** (2026-09-28, full `--sanitize undefined`, `-fsanitize=function`
-    included, no recover): RUN4_RESULT
+    included, no recover): the self-built compiler finished `check ./src`
+    280/280 with rc 0 and **zero** UBSan reports in 134 s. The binary imports
+    nine abort handlers, `function_type_mismatch` among them, so the zero is
+    not vacuous. It is the first run that reaches the end without disabling a
+    check class.
   - D6's leg landed with the fix (see D6 in §13).
 - **R7 — governance cross-check. DONE 2026-09-28, and it found a hole.**
   `scan_class1_extractions` (`src/public_safe_report.yo`) lists every
