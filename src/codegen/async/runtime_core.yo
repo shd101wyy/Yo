@@ -279,6 +279,9 @@ static void __yo_async_free_cont_pool(void) {
   // (issues/fixed/thread-local-async-registries-leak-at-thread-exit.md). Both
   // are idempotent: the loop drivers call the cleanup themselves too.
   __yo_io_cleanup();
+  for (size_t i = 0; i < __yo_task_aborts.len; i++) {
+    if (__yo_task_aborts.items[i].value) __yo_free(__yo_task_aborts.items[i].value);
+  }
   __yo_free(__yo_task_aborts.items);
   __yo_task_aborts.items = NULL;
   __yo_task_aborts.len = 0;
