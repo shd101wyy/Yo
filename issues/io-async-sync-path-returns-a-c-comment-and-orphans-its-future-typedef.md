@@ -1,5 +1,7 @@
 # `io.async`'s sync-future emitter returns a C COMMENT in `return` position and leaves its future struct forward-declared but never defined
 
+**Severity:** S3 — the failing sync-future emitter returns a `/* Error */` C comment — seven clang errors instead of a Yo diagnostic
+
 **Status:** OPEN
 **Severity:** papercut in its observed face — the build fails loudly, but with
 seven clang errors that name compiler temporaries instead of the source mistake,
@@ -158,6 +160,6 @@ extinct.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **LATENT.** The source trigger `io.async({…})` is now `E0606 … not callable` (#924). The defects remain in the code: `/* Error: … */` returns in `generate_io_async_sync_call` and `generate_async_block` (`src/codegen/exprs/async.yo`, 37 such markers under `src/codegen/`), plus the unconditional forward typedef. Plan phase 0 turns these into `codegen_fatal`.

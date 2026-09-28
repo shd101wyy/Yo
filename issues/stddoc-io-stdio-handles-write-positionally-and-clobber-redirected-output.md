@@ -1,5 +1,7 @@
 # `std/io/stdio` handles write POSITIONALLY, so redirected stdout is silently overwritten
 
+**Severity:** S1 — per-handle `pwrite` offsets on stdout silently overwrite, truncate and reorder redirected output — no error, no short write
+
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
 **Status:** open. Filed, not fixed — the sweep is documentation-only. The
 hazard was documented in `std/io/stdio.yo`'s module header in the same sweep.

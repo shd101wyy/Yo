@@ -1,5 +1,7 @@
 # Capture-mode state-machine argument rendering: the still-open cluster
 
+**Severity:** S2 — an unbound name inside io.async leaves check green but compile ICEs (swallowed not-found error)
+
 **Status: OPEN** (split 2026-09-09 out of
 `issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md`,
 whose PRIMARY bug — the illegal aggregate call-arg cast — is fixed).
@@ -60,6 +62,6 @@ finding:
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 Finding 1 (missing-name soft fallbacks) is **FIXED**: an unbound name in a direct `io.async` body now fails `yo check` with `E0401 Variable "nosuchfn" not found`. Finding 2's probe is still cleanly rejected (E0904). Finding 3 runs clean (prints 80, no UAF). The seed leaks 24 B from `__yo_async_enqueue_continuation` (the continuation pool, freed at thread exit since #970), and the tree build is LSan-clean.

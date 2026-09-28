@@ -1,5 +1,7 @@
 # wasm's `__yo_statx_*time_nsec` are defined `int64_t` while `std/sys/externs.yo` declares them `u32`
 
+**Severity:** S3 — the wasm `*time_nsec` accessors are `int64_t` against a `u32` declaration — silent narrowing, harmless today
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row,
 while inventorying `src/codegen/async/runtime_io_wasm.yo`'s statx block.
 **Status**: OPEN. **Severity**: papercut — it narrows silently today, but it is

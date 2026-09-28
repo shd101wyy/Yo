@@ -1,5 +1,7 @@
 # 22 collection methods write their documentation with `//`, so `yo doc` silently drops all of it
 
+**Severity:** S3 — 22 methods' docs sit in `//` comments `yo doc` skips — shipped docs empty
+
 **Status:** OPEN
 **Severity:** papercut — no runtime effect; the entire method surface of
 `PriorityQueue`, and the core of `Deque` and `BTreeMap`, ships with empty

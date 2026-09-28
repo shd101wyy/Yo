@@ -1,5 +1,7 @@
 # A network-path `Location` (`//host/path`) is sent to the base host with the new authority glued on as a path
 
+**Severity:** S2 — a protocol-relative redirect goes to the base host with the new authority glued on as a path — the client talks to the wrong origin
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

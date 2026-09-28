@@ -1,5 +1,7 @@
 # `Path.join` / `Path.push` never re-fold `..`, so `"a/b".join("../c")` is `a/b/c`
 
+**Severity:** S2 — `join("../c")` never refolds `..` — "go up one level" becomes a silent no-op / a different path
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row.
 **Status**: OPEN. **Severity**: wrong-value. The compiler already works around
 this rather than relying on it (`src/main.yo:363-367`), which is the strongest

@@ -1,5 +1,7 @@
 # A repeated option in `std/cli` yields its FIRST value — later occurrences are stored but no accessor can reach them
 
+**Severity:** S2 — repeated options silently keep the first value — overrides ignored, later occurrences unreachable
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: MEDIUM (wrong-value) — `--output a --output b` silently returns
 `a`, so the wrapper-script idiom that makes CLIs composable (`myapp --output

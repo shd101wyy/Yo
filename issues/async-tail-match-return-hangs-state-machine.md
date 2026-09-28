@@ -1,5 +1,7 @@
 # A `match` arm with a mid-body `return(...)` at an async body's TAIL hangs the state machine
 
+**Severity:** S1 — a mid-body `return` in a tail match makes the state machine hang forever at runtime, even off the arm
+
 **Found**: 2026-08-28 adding the walk-pattern filter to `std/fs/walker.yo`
 (branch `p1/glob-expansion`). **Status**: OPEN — std avoids the shape (the
 filter moved into a sync helper called as the tail expression); the shape
@@ -45,6 +47,6 @@ call) fixes it with identical semantics.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Two reconstructions (an awaiting `while`, then a tail `match` with `.Some => { …; return(kept) }`, then `results`) print the right lengths with no hang. `_emit_last_segment_completion`'s tail-only return check (issues/fixed/build-smoke-hangs-registry-perturbation.md) probably covers it.

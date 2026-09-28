@@ -1,5 +1,7 @@
 # `yo test --std-path` is shadowed by the binary's own tree std in batch child compiles
 
+**Severity:** S2 — an explicit `--std-path` is silently ignored in batch children — tests run against the wrong std tree
+
 **Status: OPEN.** Found 2026-08-22 while validating the enum-alignment fix
 across worktrees; cost ~40 minutes of misdiagnosis as a miscompile.
 

@@ -1,5 +1,7 @@
 # A value-position `cond` with a THROWING arm, after an await in `io.async`, reads an undeclared C temp
 
+**Severity:** S2 — C references a never-declared temp — clang error on a check-clean program
+
 **Status: OPEN.** Found 2026-09-05 writing `std/fs/dir.yo`'s `file_type`
 (issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md). Hard
 clang error, so it cannot ship silently — but `yo check` is green and the
@@ -64,7 +66,7 @@ then the non-throwing arm assigns from a temp nobody ever declared:
   non-throwing arms are literals (`true` / `false`). Here the surviving arm's
   value is a read of the local `k`, which needs a temp, and that temp is the
   one never emitted.
-- Distinct from `issues/async-cond-value-with-await-arm-inside-while-yields-zero.md`
+- Distinct from `issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md`
   (no `while` here, no await inside the cond, and this one is a compile error
   rather than a silent zero).
 
@@ -83,7 +85,7 @@ the bare `ft`.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `error: use of undeclared identifier '_file____tmp__temp_…'` in the else arm (`… = <undeclared>`) after the throwing arm's escape check. This implicates the final-expression path of `generate_state_segment_code` ("Store final expression result") into the value-cond emitter: the non-throwing arm's operand temp is never emitted.
 

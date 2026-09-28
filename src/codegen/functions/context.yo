@@ -476,6 +476,13 @@ FunctionGenerationContext :: ref(
     /// Phase-1b aliases: temp future variable id → its await_future_N SM field
     /// name (atom emission redirects SM lookups to the existing await field).
     state_machine_field_aliases : Option(HashMap(String, String)),
+    /// State-machine variable ids whose slot a match PATTERN BINDING was
+    /// stored into. A binding borrows the scrutinee's payload (no dup, no
+    /// scope-end drop), so the abort dispose must not drop its slot as well as
+    /// the scrutinee's: filled by every binding-store site while the resume
+    /// function is generated, read by the dispose generator
+    /// (issues/async-abort-dispose-double-drops-moved-enum-payload.md).
+    state_machine_binding_ids : Option(HashSet(String)),
     /// While-loop-with-await info, keyed by await-point index. Written by
     /// `generate_while_with_await`, read by the resume generator.
     async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)),
@@ -587,6 +594,7 @@ impl(
       sm_while_body_drops : Option(ArrayList(AstExpr)).None,
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
+      state_machine_binding_ids : Option(HashSet(String)).None,
       async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
       await_result_substitutions : Option(HashMap(usize, String)).None,
       async_next_while_loop_index : Option(usize).None,

@@ -1,5 +1,7 @@
 # D6 Schannel (#413) hangs the Windows `test` legs for 4 hours — merged on a false green, reverted
 
+**Severity:** S1 — blocking `accept` on the single-threaded loop deadlocks server-first programs; hung Windows CI legs for 4 hours
+
 **Status: OPEN — #413 REVERTED from develop 2026-09-06.** The Schannel work
 itself is not known to be wrong; the Windows test legs never completed, so it
 was never actually verified.

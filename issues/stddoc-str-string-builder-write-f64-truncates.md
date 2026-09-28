@@ -1,5 +1,7 @@
 # `StringBuilder.write_f64` silently truncates at 63 bytes
 
+**Severity:** S2 — unchecked `snprintf` into a 64-byte buffer — large floats silently truncate to a prefix wrong by orders of magnitude
+
 **Status:** open (found by the `std/` `///` doc sweep, 2026-09-11)
 **File:** `std/string/string_builder.yo` — `write_f64`, and the same shape in `write_hex`
 

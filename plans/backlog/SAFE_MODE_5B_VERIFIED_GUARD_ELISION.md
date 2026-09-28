@@ -465,7 +465,12 @@ emitters' `expr` (§2.8).
 Each phase is its own PR. Every phase runs the standard battery
 (SAFE_MODE §10) plus its own gate.
 
-**Phase 0: verifier prerequisites (removes no guard).**
+**Phase 0: verifier prerequisites (removes no guard).** *Status 2026-09-29:
+landed in two PRs: #983 (the two solver defects and the §2.7 fix) and the
+Phase 0 PR (sites, unique names, target widths, the cache key + epoch).
+Measured: no duplicate obligation name over `tests/spec/fixtures/valid` (124
+obligations, 35 sited) or the three spec test files, and every verify outcome
+is unchanged.*
 
 - `VcObligation.site : Option(GuardSite)`, unique obligation names, and
   `site` in JSON (§4.2).

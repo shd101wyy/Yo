@@ -1,5 +1,7 @@
 # Redirect resolution never runs `remove_dot_segments`, so `..` and `.` reach the wire
 
+**Severity:** S2 — RFC 3986 `remove_dot_segments` is never applied — literal `..`/`.` reach the wire and per-server normalization decides the resource
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

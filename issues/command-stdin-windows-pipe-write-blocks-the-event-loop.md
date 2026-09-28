@@ -1,5 +1,7 @@
 # Windows: pipe WRITES are a blocking `_write` — a full child-stdin pipe parks the event loop
 
+**Severity:** S1 — a full child-stdin pipe blocks the whole event-loop thread — deadlock on Windows
+
 **Status: OPEN.** The read half of this was fixed by parking empty-pipe reads
 on the event-loop tick
 (`issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md`);

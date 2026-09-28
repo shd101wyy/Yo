@@ -1,9 +1,9 @@
 # `ArrayList` has no public buffer pointer, so six sites in `std/` read its `_`-private `_ptr` from other modules
 
 **Status:** OPEN
-**Severity:** papercut — nothing is wrong at runtime today; `ArrayList`'s buffer
-representation is nevertheless part of three other modules' ABI, and no tool
-would report a break.
+**Severity:** S3 — std reads ArrayList's underscore-private `_ptr` across module
+boundaries: nothing is wrong at runtime today, but the buffer representation is
+part of three other modules' ABI and no tool would report a break.
 **Found:** 2026-09-04, during the std-API audit re-measurement of the
 `collections/*` row, while checking the premise of its "hide the pub
 `ctrl`/`data`/… fields" item — that the `_` prefix provides hiding.

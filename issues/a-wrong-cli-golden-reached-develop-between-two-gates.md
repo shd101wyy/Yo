@@ -1,5 +1,7 @@
 # A wrong cli-case golden reached `develop` through the gap between two gates
 
+**Severity:** S3 — CI gating-policy gap let a wrong golden land invisibly (process fix, not code)
+
 **Status:** OPEN. Found 2026-09-17 while landing
 `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` slice 2 (#724).
 

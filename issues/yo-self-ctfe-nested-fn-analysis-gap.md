@@ -1,5 +1,7 @@
 # yo-self: CTFE analysis was never applied to NESTED functions
 
+**Severity:** S2 — `comptime_assert` is vacuous — it silently accepts claims it cannot prove (the reported undeclared-identifier bug itself is fixed)
+
 **Status: the reported bug is FIXED (2026-08-05).** The file stays in `issues/`
 rather than `issues/fixed/` because one of TS's three call sites is deliberately
 still unwired — see "Remaining: the third site" at the end, which is a real finding

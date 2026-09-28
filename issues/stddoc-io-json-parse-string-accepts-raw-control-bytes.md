@@ -1,5 +1,7 @@
 # `json` string scanner accepts raw control bytes and unvalidated UTF-8
 
+**Severity:** S2 — the JSON parser accepts raw control bytes and unvalidated UTF-8 — malformed JSON rivals reject parses `.Ok`
+
 **Status:** open. Found while writing `///` docs for `std/encoding/json.yo`
 (the 2026-09-11 std doc sweep). Documentation-only PR — filed, not fixed.
 Documented at `_Parser.parse_string` and in the module's `## Stability`

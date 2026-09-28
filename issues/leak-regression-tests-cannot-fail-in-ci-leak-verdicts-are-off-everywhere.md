@@ -1,5 +1,7 @@
 # Leak regression tests cannot fail in CI — every job sets `YO_TEST_LEAK_VERDICT: "0"`
 
+**Severity:** S3 — every CI job sets `YO_TEST_LEAK_VERDICT=0` — leak regression tests pass vacuously
+
 **Found**: 2026-09-05, verifying PR #409's fix
 (`issues/fixed/short-circuit-bare-fn-body-operand-temps-leak.md`).
 **Status**: OPEN. **Severity: hollow gate** — the same class as

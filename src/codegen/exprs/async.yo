@@ -66,7 +66,7 @@
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -1142,6 +1142,51 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     ei = (ei + usize(1));
   });
 });
+/// The INLINE retain (`is_drop == false`) or drop line for an RC-bearing
+/// value that has no synthesized `___dup`/`___drop` function — a String, an
+/// Option, a value struct or an enum with an RC payload; synthesized helpers
+/// are the exception, so this is the ordinary case. The general generators may
+/// emit helper statements of their own (a tuple/array walk), so they run
+/// against a scratch emitter and everything they produced comes back as the
+/// line, in order. Without this both helpers returned `.None` for these types:
+/// an aborted task never dropped its String locals, and a nested `io.async`
+/// capture of a String was dropped by the inner future without ever being
+/// retained — a use-after-free
+/// (issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md,
+/// issues/fixed/nested-io-async-string-capture-is-not-retained.md).
+_inline_rc_field_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, is_drop : bool, context : FunctionGenerationContext) -> Option(String))({
+  saved := context.base.emitter;
+  scratch := Emitter.new();
+  context.base.emitter = scratch;
+  code := if(is_drop, generate_drop_code_for_value(field_ref.clone(), field_type, context), generate_dup_code_for_value(field_ref.clone(), field_type, context));
+  context.base.emitter = saved;
+  out := String.from("");
+  pre := scratch.print().trim();
+  if(pre.len() > usize(0), {
+    plines := pre.split("\n");
+    (pi : usize) = usize(0);
+    while(pi < plines.len(), pi = (pi + usize(1)), {
+      match(
+        plines.get(pi),
+        .Some(l) => if(l.trim().len() > usize(0), {
+          if(out.len() > usize(0), {
+            out.push_str("\n");
+          });
+          out.push_string(`${indent.clone()}${l.trim()}`);
+        }),
+        .None => ()
+      );
+    });
+  });
+  if(code.len() > usize(0), {
+    if(out.len() > usize(0), {
+      out.push_str("\n");
+    });
+    stmt := if(is_drop, `${code};`, `${field_ref.clone()} = ${code};`);
+    out.push_string(`${indent.clone()}${stmt}`);
+  });
+  if(out.len() > usize(0), Option(String).Some(out), Option(String).None)
+});
 /// The RETAIN line for an RC-bearing capture field at `field_ref`, or `None` if
 /// the type needs none. The exact mirror of `_rc_field_drop_line` below — every
 /// branch there has its counterpart here, so a field that gets dropped on
@@ -1165,7 +1210,7 @@ _rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent 
     type_contains_rc_type(field_type) => match(
       get_dup_function_for_type(field_type, context),
       .Some(dup_fn) => Option(String).Some(`${indent.clone()}${field_ref.clone()} = ${dup_fn}(${field_ref.clone()});`),
-      .None => Option(String).None
+      .None => _inline_rc_field_line(field_ref, field_type, indent, false, context)
     ),
     true => Option(String).None
   )
@@ -1184,7 +1229,7 @@ _rc_field_drop_line :: (fn(field_ref : String, field_type : TypeValue, indent : 
     type_contains_rc_type(field_type) => match(
       get_drop_function_for_type(field_type, context),
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}${drop_fn}(${field_ref.clone()});`),
-      .None => Option(String).None
+      .None => _inline_rc_field_line(field_ref, field_type, indent, true, context)
     ),
     true => Option(String).None
   )
@@ -1322,7 +1367,10 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning), {
+        // A pattern binding's slot borrows the scrutinee's payload: the
+        // scrutinee's own drop releases it.
+        is_binding := match(context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
+        if((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding), {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
@@ -2324,6 +2372,8 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.base.declared_scopes.push(String.from("sm"));
   em.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
   em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
+  saved_binding_ids := context.state_machine_binding_ids;
+  context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
@@ -2344,6 +2394,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   em.emit_string_line(String.from(""));
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
+  context.state_machine_binding_ids = saved_binding_ids;
   em.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);

@@ -1,5 +1,7 @@
 # `TempFile`/`TempDir` Dispose-on-drop fails when the file is run standalone, and making `read_bytes` position-aware SIGSEGVs six of those tests
 
+**Severity:** S2 — the position-aware `read_bytes` SIGSEGVs six tests (reverted) and Dispose failures are standalone-only — an unresolved codegen defect
+
 **Status: OPEN.** Two observations about the same corner, both measured
 2026-08-25 on `develop` at `340a9e735`.
 

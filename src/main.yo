@@ -1924,6 +1924,7 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
         ks.push(String.from("folded"));
         ks.push(String.from("goal"));
         ks.push(String.from("model"));
+        ks.push(String.from("site"));
         vs := ArrayList(JsonValue).new();
         vs.push(JsonValue.Str(obl.name.clone()));
         vs.push(JsonValue.Str(verdict_str));
@@ -1931,6 +1932,28 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
         vs.push(JsonValue.Bool(obl.folded));
         vs.push(JsonValue.Str(obl.goal.clone()));
         vs.push(model);
+        // The runtime guard the obligation discharges, 1-based like the
+        // guard's own `(at file:row:col)` message; null for a contract,
+        // loop or assert obligation.
+        vs.push(
+          match(
+            obl.site,
+            .Some(gs) => {
+              sk := ArrayList(String).new();
+              sk.push(String.from("module"));
+              sk.push(String.from("row"));
+              sk.push(String.from("column"));
+              sk.push(String.from("class"));
+              sv := ArrayList(JsonValue).new();
+              sv.push(JsonValue.Str(gs.module.clone()));
+              sv.push(JsonValue.Int(i64(gs.row + usize(1))));
+              sv.push(JsonValue.Int(i64(gs.column + usize(1))));
+              sv.push(JsonValue.Str(gs.class.clone()));
+              JsonValue.Object(keys : sk, values : sv)
+            },
+            .None => JsonValue.Null
+          )
+        );
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
       },
       .None => ()
@@ -2467,7 +2490,10 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
     run_cmd := Command.new(String.from("sh"));
     run_cmd.arg(String.from("-c"));
     run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
-    run_cmd.arg(probe_bin.clone());
+    // `"$0"` is a command word, so a slash-free path is looked up in PATH: a
+    // bare `-o name` made the probe "command not found" and silently dropped
+    // the sanitizer (issues/fixed/sanitize-address-is-silently-dropped-for-a-bare-output-name.md).
+    run_cmd.arg(if(probe_bin.contains("/"), probe_bin.clone(), `./${probe_bin}`));
     run_st := io.await(run_cmd.status(io), IoExn(io : io, exn : probe_exn));
     usable = run_st.success();
   });

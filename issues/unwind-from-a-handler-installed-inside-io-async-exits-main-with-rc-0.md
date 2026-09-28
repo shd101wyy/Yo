@@ -1,5 +1,7 @@
 # `unwind` from an `Exception` handler installed INSIDE an `io.async` body silently ends the program with rc 0
 
+**Severity:** S1 — unwinding from a handler inside io.async silently exits main with rc 0 (or segfaults) — the emitted C jumps somewhere it should not
+
 **Status: OPEN.** Found 2026-09-06 while looking for a way to catch a framing
 error per connection in `HttpServer.serve` (`plans/archive/STD_API_STABILIZATION.md`
 §3 item 18).
@@ -97,6 +99,6 @@ kept as a wrapper for the client. That is how §3 item 18 is being fixed.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES, both shapes** (seed and tree build). Shape 1 prints only `ok case: ok body` and exits 0. Shape 2 exits 139, and ASan shows `SEGV on unknown address 0x000000000001` in `__yo_incr_rc` from the helper. Mechanism: the helper's synchronous await sees the aborted task and decides it is the handler's install frame (`is_await_unwind_handler_installation`, `src/codegen/exprs/await.yo`). It then runs `memcpy(&_unw_result, __yo_unwind_value, sizeof(String))`, reinterpreting the `Result(String, String).Err` that the task's local handler unwound (tag 1 read as pointer `0x1`) as the helper's `String` result. That is type confusion. In a unit `main`, the same path is a silent `return;`.

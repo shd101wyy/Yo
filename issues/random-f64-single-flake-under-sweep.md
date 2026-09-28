@@ -1,5 +1,7 @@
 # One-shot failure of `random_f64 in range 0 to 1` under a hollow sweep (macOS, unreproduced)
 
+**Severity:** S3 — a single unreproduced RED of `random_f64` (13 clean reruns) — latent-miscompile possibility left open
+
 **Status: OPEN (observation; 13 reruns clean).** 2026-08-14, during P2.5
 Group B's sweep: `tests/crypto/random.test.yo` went RED once —
 `✗ random_f64 in range 0 to 1` / exit 6 — under `/tmp/yo-gb3` (the Group B

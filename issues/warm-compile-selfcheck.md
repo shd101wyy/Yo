@@ -1,5 +1,7 @@
 # The warm-compile selfcheck: lifting `run_compile`'s self-containment invariant (Phase 4 §7 step 1)
 
+**Severity:** S3 — warm-compile selfcheck work-log — most blockers fixed inline; the remaining reds live behind non-default gated paths
+
 OPEN (2026-09-15) — the Phase-4 work list, with its gate harness landed.
 
 `yo compile <file> --warm-selfcheck` (hidden debug flag, `src/main.yo`

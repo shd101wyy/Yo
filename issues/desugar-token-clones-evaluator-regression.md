@@ -1,5 +1,7 @@
 # v0.2.15 evaluator regression: the if→cond desugar deep-cloned the source into every AST node
 
+**Severity:** S3 — the if→cond desugar deep-cloned the file into every rebuilt node — 4× wall time, 2.8× RSS in the released v0.2.15 (perf)
+
 **Found:** 2026-08-22, when the manual v0.2.15 site deploy OOM-killed three
 GitHub runners in a row ("The runner has received a shutdown signal", ~40-70s
 into `yo compile scripts/build_site.yo` — severe memory pressure kills the

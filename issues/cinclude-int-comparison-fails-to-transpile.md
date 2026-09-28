@@ -1,5 +1,7 @@
 # Comparing a c_include-typed integer against a Yo int fails to transpile
 
+**Severity:** S2 — c_include integer compared to a Yo int fails at the C stage (transpile comment in condition position)
+
 **Status: OPEN (workaround in place). Found 2026-08-23 while adding
 `BufWriter`'s Dispose flush (std S0 C12).**
 

@@ -1,5 +1,7 @@
 # The self-hosted test runner cannot RUN wasm test batches
 
+**Severity:** S2 — the self-hosted runner execve'd the .wasm batch artifact, never emitted a standalone .wasm, and wrongly applied ASan to wasm (fix applied per the doc tail)
+
 **Status: OPEN.** Found 2026-08-15 by the converted `test-wasm32_wasi` leg
 (run on `e5311bc15`), which is the first time that leg drove the self-hosted
 compiler instead of the TypeScript one.

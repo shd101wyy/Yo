@@ -35,6 +35,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
+{ canonical_module_path } :: import("../utils.yo");
+{ get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
@@ -259,10 +261,16 @@ _int_width :: (fn(t : TypeValue) -> Option(usize))(
   match(
     t_refine_inner(t),
     .Int({ bits : b }) => Option(usize).Some(usize(b)),
-    .Usize => Option(usize).Some(usize(64)),
-    .Isize => Option(usize).Some(usize(64)),
+    .Usize => Option(usize).Some(_pointer_width()),
+    .Isize => Option(usize).Some(_pointer_width()),
     _ => Option(usize).None
   )
+);
+/// `usize`/`isize` width for the compilation target, the same width the
+/// codegen guards test (32 on wasm32): a proof over 64-bit `usize` does not
+/// discharge a 32-bit guard (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §2.5).
+_pointer_width :: (fn() -> usize)(
+  usize(get_current_target().pointer_size_bits)
 );
 _int_is_signed :: (fn(t : TypeValue) -> bool)(
   match(
@@ -416,10 +424,41 @@ _enum_ctor_name :: (fn(enum_id : String, variant : String) -> String)(
 // Results
 // ============================================================================
 /// One obligation discovered in a body.
+/// The runtime guard an AoRTE obligation corresponds to. `node_id` is the
+/// in-process trust key (exact across specializations and macro
+/// expansions); `(module, row, column, class)` is the display key, the same
+/// position the guard prints, 0-based like the token
+/// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §4.2).
+GuardSite :: struct(
+  node_id : ExprId,
+  /// Canonical module path (`canonical_module_path`), never a raw spelling.
+  module : String,
+  row : usize,
+  column : usize,
+  /// The obligation label: `divisor-nonzero`, `shift-in-width`,
+  /// `index-in-bounds`.
+  class : String
+);
+/// The guard site of the AoRTE obligation an expression `e` emits.
+_guard_site :: (fn(e : AstExpr, class : String) -> Option(GuardSite))({
+  tok := ast_expr_token(e);
+  Option(GuardSite).Some(
+    GuardSite(
+      node_id : ast_expr_id(e),
+      module : canonical_module_path(tok.module_path.clone()),
+      row : usize(tok.row),
+      column : usize(tok.column),
+      class : class
+    )
+  )
+});
 VcObligation :: ref(
   struct(
     name : String,
     query : VcQuery,
+    /// The runtime guard this obligation discharges; `.None` for contract,
+    /// loop and assert obligations.
+    (site : Option(GuardSite)) ?= Option(GuardSite).None,
     /// Literal-construction CTFE folding: the goal constant-folded to a
     /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
     (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
@@ -866,10 +905,29 @@ _emit :: (
     inout(ctx) : VcCtx,
     label : String,
     extra_assumptions : ArrayList(VcTerm),
-    goal : VcTerm
+    goal : VcTerm,
+    (site : Option(GuardSite)) ?= Option(GuardSite).None
   ) -> unit
 )({
-  q := new_vc_query(`${ctx.fn_name}/${label}`);
+  // Unique within the function: a guard obligation carries its 1-based
+  // position (`f/divisor-nonzero@6:5`), and any name still repeated (two
+  // call sites of one callee's `requires#0`, two `assert`s) gets `~2`,
+  // `~3`, … in walk order.
+  base_name := match(
+    site,
+    .Some(gs) => `${ctx.fn_name}/${label}@${(gs.row + usize(1)).to_string()}:${(gs.column + usize(1)).to_string()}`,
+    .None => `${ctx.fn_name}/${label}`
+  );
+  (dup_count : usize) = usize(0);
+  (oi : usize) = usize(0);
+  while(oi < ctx.obligations.len(), {
+    if(match(ctx.obligations.get(oi), .Some(o) => ((o.name == base_name) || o.name.starts_with(`${base_name}~`)), .None => false), {
+      dup_count = (dup_count + usize(1));
+    });
+    oi = (oi + usize(1));
+  });
+  obl_name := if(dup_count == usize(0), base_name, `${base_name}~${(dup_count + usize(1)).to_string()}`);
+  q := new_vc_query(obl_name.clone());
   // Declarations: every source variable the obligations may mention — in
   // the goal, the extra assumptions, AND the path condition (a `requires`
   // param that never appears in the goal is still ASSUMED, and an
@@ -1075,7 +1133,7 @@ _emit :: (
     ),
     _ => Option(VcPreVerdict).None
   );
-  ctx.obligations.push(VcObligation(name : `${ctx.fn_name}/${label}`, query : q, pre : pre));
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
@@ -2776,7 +2834,7 @@ _call_term :: (
     });
     // AoRTE: division/remainder divisor non-zero.
     if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
-      _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt));
+      _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt), _guard_site(e, String.from("divisor-nonzero")));
     });
     // AoRTE: shift amount within the shifted operand's width.
     if((op == VcOp.BvShl) || (op == VcOp.BvLshr) || (op == VcOp.BvAshr), {
@@ -2793,7 +2851,8 @@ _call_term :: (
         ctx,
         String.from("shift-in-width"),
         ArrayList(VcTerm).new(),
-        _lt_unsigned_term(bt, VcTerm.BvLit(value : u64(shift_w), width : _term_width(bt)))
+        _lt_unsigned_term(bt, VcTerm.BvLit(value : u64(shift_w), width : _term_width(bt))),
+        _guard_site(e, String.from("shift-in-width"))
       );
     });
     return(Option(VcTerm).Some(_app2(op, at, bt)));
@@ -3171,7 +3230,8 @@ _call_term :: (
                   ctx,
                   String.from("index-in-bounds"),
                   ArrayList(VcTerm).new(),
-                  _lt_unsigned_term(it, VcTerm.BvLit(value : u64(alen), width : _term_width(it)))
+                  _lt_unsigned_term(it, VcTerm.BvLit(value : u64(alen), width : _term_width(it))),
+                  _guard_site(e, String.from("index-in-bounds"))
                 );
               });
               Option(VcTerm).Some(_app2(VcOp.SelectOp, arr_t, _idx64(it)))
@@ -3261,8 +3321,8 @@ _cast_width :: (fn(head : String) -> Option(usize))(
     (head == "u32") => Option(usize).Some(usize(32)),
     (head == "i64") => Option(usize).Some(usize(64)),
     (head == "u64") => Option(usize).Some(usize(64)),
-    (head == "usize") => Option(usize).Some(usize(64)),
-    (head == "isize") => Option(usize).Some(usize(64)),
+    (head == "usize") => Option(usize).Some(_pointer_width()),
+    (head == "isize") => Option(usize).Some(_pointer_width()),
     true => Option(usize).None
   )
 );
@@ -3858,7 +3918,8 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
                     ctx,
                     String.from("index-in-bounds"),
                     ArrayList(VcTerm).new(),
-                    _lt_unsigned_term(idx.unwrap(), VcTerm.BvLit(value : u64(alen), width : _term_width(idx.unwrap())))
+                    _lt_unsigned_term(idx.unwrap(), VcTerm.BvLit(value : u64(alen), width : _term_width(idx.unwrap()))),
+                    _guard_site(ba.get(usize(0)).unwrap(), String.from("index-in-bounds"))
                   );
                   ctx.vars.insert(
                     aname.clone(),
@@ -4687,6 +4748,8 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   )
 });
 export(
+  _pointer_width,
+  GuardSite,
   VcObligation,
   VcSubsetError,
   VcBodyResult,

@@ -1,5 +1,7 @@
 # A negative `Duration` makes `sleep` / `sleep_blocking` wait ~585 million years
 
+**Severity:** S2 — a negative `Duration` casts to unsigned unchecked — `sleep` silently waits ~585 million years instead of returning
+
 **Found:** 2026-09-11, during the `std/` `///` documentation sweep (docs-only PR;
 this is filed, not fixed).
 **Files:** `std/time/sleep.yo:59`, `std/time/sleep.yo:68`, `std/time/duration.yo:53-76`

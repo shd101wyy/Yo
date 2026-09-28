@@ -1,5 +1,7 @@
 # `unit` as a value type — the shapes still not covered
 
+**Severity:** S2 — `unit` in uncovered shapes (union, dyn members/globals/async slots, spawn) still fails; dyn impl methods emit `return impl(...)` in a C `void` wrapper
+
 **Status:** OPEN (deliberate scope boundary, not regressions)
 **Context:** follow-up to issues/fixed/unit-typed-params-and-fields-emit-c-void.md
 (which made `unit` work in parameter, field, tuple and generic-container
@@ -84,6 +86,6 @@ test; those are load-bearing and undocumented. Either document them or give
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 The "unit local across `io.await`" row **STILL REPRODUCES** (tree build): `error: field has incomplete type 'void'` at `void var_u_…; // u`, plus `sm->var_w_… = ;`. Repro: `issues/repros/unit-local-across-io-await.yo`. `emit_async_block_struct_definition` (`src/codegen/exprs/async.yo`) emits a field for a unit-typed cross-boundary local.

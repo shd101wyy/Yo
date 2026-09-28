@@ -1,6 +1,8 @@
 # An `io.async` closure whose parameter shadows an outer name still captures the outer value
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Severity:** S3 — nearly every idiomatic io.async closure carries a dead 32-byte copy of the shadowed outer binding in its capture struct — results correct today
+
+**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 

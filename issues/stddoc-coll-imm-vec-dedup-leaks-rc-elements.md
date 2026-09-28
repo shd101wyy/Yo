@@ -1,5 +1,7 @@
 # `imm.Vec.dedup` leaks every refcounted element on its uniquely-owned path
 
+**Severity:** S1 — `dedup` leaks every RC element per call (0 of 3 disposed) — unbounded, via the own-param defect
+
 **Status:** OPEN — **but the diagnosis below is WRONG, and the leak is not a
 `std` bug.** Re-measured 2026-09-14; see "Correction" at the end. The real
 cause is a compiler defect,

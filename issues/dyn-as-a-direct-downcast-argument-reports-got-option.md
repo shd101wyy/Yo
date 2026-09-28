@@ -1,5 +1,7 @@
 # `downcast(dyn(x), T)` is rejected with "got Option" — a diagnostic that names the wrong type
 
+**Severity:** S3 — `downcast(dyn(x), T)` rejected with "got Option" — diagnostic names a type that appears nowhere in the operand
+
 **Status:** OPEN
 **Found:** 2026-09-05, writing the regression test for
 `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md` (the test

@@ -196,7 +196,7 @@ compiles clean and returns the ZERO value for **every** arm. A value-position
 its binding; the same cond without the `while` is fine, an unconditional
 await inside the `while` is fine, and the statement form that assigns an
 outer variable is fine. Filed, minimized, as
-`issues/async-cond-value-with-await-arm-inside-while-yields-zero.md`;
+`issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md`;
 `read_dir` ships the statement form with a comment pointing there.
 
 ## Tests

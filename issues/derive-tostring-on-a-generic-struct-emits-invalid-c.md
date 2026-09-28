@@ -1,5 +1,7 @@
 # `derive(ToString)` on a generic struct emits invalid C (`&(self.field)` on a pointer)
 
+**Severity:** S2 — derive(ToString) on a generic struct emits invalid C (`&` of a pointer receiver) — clang failure
+
 **Status:** OPEN
 **Found:** 2026-08-25, completeness-checking the fix for
 issues/fixed/derive-rules-name-types-through-a-display-renderer.md — i.e. asking

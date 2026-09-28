@@ -1,5 +1,7 @@
 # `std/regex` accepts the `g` and `u` flags and ignores them
 
+**Severity:** S2 — `g`/`u` flags compile and are silently ignored — a `g` sanitiser appears to work while removing only the first match
+
 **Status:** open (found by the `std/` `///` doc sweep, 2026-09-11)
 **Files:** `std/regex/flags.yo` (parses them), `std/regex/vm.yo` and
 `std/regex/index.yo` (never read them)

@@ -1,5 +1,7 @@
 # `make_err_expr()`'s hard-coded ExprId 0 aliases the prelude in `compile`'s shared ExprInfoTable — a failed definition is masked, then blamed on a later, correct line
 
+**Severity:** S2 — the error sentinel (ExprId 0) aliases the prelude in compile's shared table — masked errors, compile laxer than check
+
 **Status:** OPEN
 **Severity:** wrong-value. `yo check` and `yo compile` disagree about the SAME
 file: `check` reports the real error at the real line, `compile` either blames a

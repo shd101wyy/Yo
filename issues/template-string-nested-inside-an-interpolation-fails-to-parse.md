@@ -1,5 +1,7 @@
 # A template string inside another template string's `${…}` fails, and the error points at line 1
 
+**Severity:** S2 — a valid nested template inside `${...}` is rejected with a misleading line-1 `to_string` error
+
 **Status: OPEN.** Found 2026-09-05 while writing a `std/path` reproducer
 (`issues/fixed/path-drops-dotdot-and-destroys-unc-prefix.md`). Sibling of
 `issues/template-string-backslash-before-interpolation-eats-both.md` — the same

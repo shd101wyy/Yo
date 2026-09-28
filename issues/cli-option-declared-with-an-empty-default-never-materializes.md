@@ -1,5 +1,7 @@
 # An option declared with an empty-string default is never materialized — `get_option` returns `.None` for a declared option
 
+**Severity:** S2 — an empty-string default never materializes — `get_option` returns `.None` as if undeclared
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: LOW (papercut) — `add_option(long, short, desc, ``)` produces no
 entry, so the empty string is an unrepresentable default and a declared option

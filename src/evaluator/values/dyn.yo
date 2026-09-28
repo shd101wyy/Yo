@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
+{ function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
@@ -388,15 +388,16 @@ _require_send_dyn_methods_reach_no_global :: (
                 fv_opt,
                 .Some(fv) => match(
                   fv,
-                  .FuncVal(fvd, _) => match(
-                    function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env),
-                    .Some(reason) => {
-                      mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
-                      msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;
-                      raise_flow_violation(format_error_message(token, msg), ctx, exn);
-                    },
-                    .None => ()
-                  ),
+                  .FuncVal(fvd, _) => match({
+                    reach := function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env);
+                    // A Send dyn's methods may run on another thread.
+                    d1_note_thread_reach(fvd.*.func_id.clone());
+                    reach
+                  }, .Some(reason) => {
+                    mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                    msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;
+                    raise_flow_violation(format_error_message(token, msg), ctx, exn);
+                  }, .None => ()),
                   _ => ()
                 ),
                 .None => ()

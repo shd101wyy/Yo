@@ -17,7 +17,7 @@ json :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
-{ VerifyFnInput, verify_function_body, register_recursion_cliques } :: import("./vc.yo");
+{ VerifyFnInput, verify_function_body, register_recursion_cliques, GuardSite } :: import("./vc.yo");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
@@ -254,8 +254,15 @@ verify_cache_dir :: (fn() -> String)({
 /// The cache key: sha256 of (solver pin, run options, query content). All
 /// inputs are text; each part is newline-terminated so the concatenation
 /// is unambiguous.
+/// Bump when the verifier's encoding or verdict semantics change in a way
+/// the query content does not capture, so no cached verdict from the old
+/// semantics is reused. 2 (2026-09-28): `usize`/`isize` widths follow the
+/// target, guard obligations carry their site in the query name, and stores
+/// key by the run's own budget.
+VERIFIER_CACHE_EPOCH :: "2";
 verify_cache_key :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> String)({
   material := StringBuilder.new();
+  material.write_string(`epoch=${VERIFIER_CACHE_EPOCH}\n`);
   material.write_string(`z3=${Z3_VERSION}\n`);
   material.write_string(`rlimit=${cfg.encode_opts.rlimit.to_string()}\n`);
   material.write_string(`seed=${cfg.encode_opts.random_seed.to_string()}\n`);
@@ -311,9 +318,12 @@ _cache_lookup :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> Option(VerifyResult)
 });
 /// Cache store for one obligation. Terminal verdicts only — a SolverError
 /// (missing/crashed solver) must retry on the next run.
-_cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
+/// Keyed by the run's own `cfg`, the same key `_cache_lookup` reads. Keying
+/// by the default config stored a `--rlimit N` verdict where a later
+/// default-budget run would reuse a verdict it could not reproduce itself.
+_cache_store :: (fn(q : VcQuery, cfg : VerifyRunConfig, verdict : VerifyVerdict) -> unit)({
   _z3_ensure_dir_sync(verify_cache_dir());
-  key := verify_cache_key(q, default_verify_run_config());
+  key := verify_cache_key(q, cfg);
   cache_path := `${verify_cache_dir()}/${key}.json`;
   payload := _json_obj2(
     String.from("query"),
@@ -374,7 +384,7 @@ run_vc_query :: (fn(q : VcQuery, cfg : VerifyRunConfig, binary : String) -> Veri
     _ => true
   );
   if(is_terminal, {
-    _cache_store(q, verdict);
+    _cache_store(q, cfg, verdict);
   });
   VerifyResult(query_name : q.name.clone(), verdict : verdict, cached : false)
 });
@@ -465,7 +475,10 @@ VerifyFnObligation :: ref(
     /// The obligation's goal term rendered as SMT-LIB (`--explain`'s VC
     /// display; the JSON report's `goal` field). Empty only if the
     /// rendering was never requested.
-    (goal : String) ?= String.new()
+    (goal : String) ?= String.new(),
+    /// The runtime guard this obligation discharges (`vc.yo`'s `GuardSite`);
+    /// `.None` for contract, loop and assert obligations.
+    (site : Option(GuardSite)) ?= Option(GuardSite).None
   )
 );
 /// The verification report for one function.
@@ -862,7 +875,8 @@ verify_and_strip_tasks :: (
                         verdict : pre_verdict,
                         cached : false,
                         folded : true,
-                        goal : encode_term(obl.query.goal)
+                        goal : encode_term(obl.query.goal),
+                        site : obl.site
                       )
                     );
                     rank := if(pre_is_proved, usize(0), usize(3));
@@ -888,7 +902,8 @@ verify_and_strip_tasks :: (
                         name : r.query_name.clone(),
                         verdict : clean_verdict,
                         cached : r.cached,
-                        goal : encode_term(obl.query.goal)
+                        goal : encode_term(obl.query.goal),
+                        site : obl.site
                       )
                     );
                     // 0 ok < 1 unproven < 2 solver-error < 3 refuted

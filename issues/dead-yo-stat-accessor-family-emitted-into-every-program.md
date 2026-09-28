@@ -1,5 +1,7 @@
 # The `__yo_stat_*` accessor family is dead C — nothing in Yo can call it, yet it is emitted into every program
 
+**Severity:** S3 — eleven unreachable `__yo_stat_*` accessors emitted into every program — a trap for future fd-stat work
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row,
 while looking for the binding an fd-based `File.metadata` would use.
 **Status**: OPEN. **Severity**: papercut — no wrong values, but it is a trap

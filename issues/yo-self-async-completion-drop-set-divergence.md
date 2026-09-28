@@ -1,5 +1,7 @@
 # yo-self async completion drops diverge from TS: leaked String temp + phantom never-written Option fields
 
+**Severity:** S1 — the completion drop set omits the `path.to_string()` temp's drop (one leaked String per exists/is_file/is_dir call) and emits phantom never-written Option state fields
+
 **Status: OPEN** (found 2026-08-14 during the GATE 3 emit-diff hunt,
 issues/fixed/seed-built-stage1-array-fill-method-miss.md).
 
@@ -33,6 +35,6 @@ section).
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED.** `exists`' SM completion now drops the `path.to_string()` temp (an SM field), with no phantom Option fields. 10 calls under LSan: the seed shows only the 24 B continuation-pool leak, and the tree build is clean.

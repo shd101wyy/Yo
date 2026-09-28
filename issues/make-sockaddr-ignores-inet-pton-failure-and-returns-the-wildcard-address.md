@@ -1,5 +1,7 @@
 # `make_sockaddr_in` / `make_sockaddr_in6` discard `inet_pton`'s result — malformed IP text silently becomes `0.0.0.0` / `::`
 
+**Severity:** S2 — unparseable IP text silently yields `0.0.0.0`/`::` — binds every interface or connects to the wrong host
+
 **Status: OPEN.** **Class**: wrong-value — unparseable address text yields the
 WILDCARD address instead of an error, so a caller binds every interface, or
 connects to the wrong host, with nothing reported.

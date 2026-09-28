@@ -1,5 +1,7 @@
 # `yo.lock` records the annotated TAG OBJECT, not the commit
 
+**Severity:** S3 — `yo.lock` records the annotated tag object's SHA, not the commit — provenance wrong; fetch still lands the right tree
+
 **Status:** OPEN — found 2026-09-14 while re-pinning `markdown_yo` from a `rev`
 to the semver range `^0.0.7`.
 
