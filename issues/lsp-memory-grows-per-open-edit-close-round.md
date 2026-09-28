@@ -50,6 +50,46 @@ Still open: 56 registries grew per round before these batches; the
 `HOLDER_DEEP` census ranks what remains (`g_ifc_memo`, the type-id
 registries, `g_frame_indexes`, unreachable objects).
 
+2026-09-28: re-measured on develop `2b50ef1a8` with the new driver
+`scripts/bootstrap/lsp_plateau.py` (10 std documents, open → edit → close
+each, per round):
+
+| round | 1 | 2 | 3 | 4 | 5 | 6 |
+| --- | --- | --- | --- | --- | --- | --- |
+| RSS, MB (shipped mimalloc stage-1) | 179 | 242 | 309 | 368 | 427 | 486 |
+
+That is about 60 MB a round, linear, with no plateau.
+
+A holder census of the LSP (system allocator, about 25 MB a round) after 1
+and after 3 rounds, diffed by root:
+
+| root | growth over 2 rounds | what |
+| --- | --- | --- |
+| `g_struct_finals` | +14.4 MB, 194 K objects | type-id keyed |
+| `g_frame_indexes` | +9.9 MB | a bounded cache (cleared at 2,048 entries), so it saturates |
+| LEAK (unreachable) | +9.6 MB | re-parsed ASTs: `AstExpr` +43 K, `Token` +27 K, `Variable`, `Frame` |
+| `g_enum_finals`, `g_type_display_names`, `g_struct_field_registry`, `g_type_decl_modules`, `g_struct_ctor_fids`, `g_recursive_type_refs`, `g_stable_type_id_owner`, `g_type_trait_registry`, `g_type_ctor_values` | +0.2 to 1.4 MB each | type-id keyed |
+
+**The type-id keyed registries grow by design.** `stable_type_id` never
+re-counts `k` (the `_n<k>` occurrence suffix; see its doc in `src/utils.yo`,
+and `issues/fixed/warm-test-batches-doc-stability-genericimplentry.md`), so
+every re-analysis of a module mints a new generation of ids. Nothing purges
+the previous generation's entries, so a plateau needs an owner purge
+(`OwnedKeys`, the §0.15 pattern) for each of these tables.
+
+The open design point is cross-module reuse. An instantiation of a std
+generic (`List(i32)`) first minted while module A was evaluated is owned by
+A, but a cached, non-dependent module B can hold the same interned
+instance. Purging A's entries would then break B's id-keyed lookups:
+`resolve_struct_shell` for recursive types, field and trait lookups. The
+purge must key ownership on what the id depends on, not on the module
+current at insert.
+
+**The LEAK group is a missing release.** The unreachable subgraph is held
+only from raw (non-RC) blocks of 64 B or less: `KH` rows show 29 K `AstExpr`
+and 12 K `Frame` pointed at from `raw<=64`. Next step: `--rc-balance` on
+`AstExpr` in a 3-round LSP run (plan §4.2 of the handover).
+
 ## Expected
 
 After the first round every module involved is cached, so later rounds
