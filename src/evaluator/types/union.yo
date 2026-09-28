@@ -60,9 +60,9 @@ evaluate_union_type :: (
   // unique per mint like the `random_id` it replaces, but an edit in another
   // module cannot renumber it.
   decl_tok := ast_expr_token(expr);
-  union_id := stable_type_id(String.from("union_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column));
+  union_id := stable_type_id(String.from("union_"), decl_tok.src.module_path, usize(decl_tok.row), usize(decl_tok.column));
   // Member visibility: record which module declares this type (guards.yo).
-  register_type_decl_module(union_id.clone(), decl_tok.module_path.clone());
+  register_type_decl_module(union_id.clone(), decl_tok.src.module_path.clone());
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type;
   prelim_ty := TypeValue.Union(

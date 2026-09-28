@@ -650,7 +650,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       (forced_var : Option(Variable)) = Option(Variable).None;
                       if(vars.len() == usize(0), {
                         match(
-                          resolve_pending_definition(given_var_name.clone(), ast_expr_token(export_expr).module_path.clone()),
+                          resolve_pending_definition(given_var_name.clone(), ast_expr_token(export_expr).src.module_path.clone()),
                           .Resolved({ var : fv, frame_id : _fid }) => {
                             forced_var = Option(Variable).Some(fv);
                           },
@@ -727,7 +727,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           the_val,
                           .TupleVal(cand_fns) => if(cand_fns.len() >= usize(2), {
                             if(!is_overload_set_capable_file(
-                              Option(String).Some(ast_expr_token(export_expr).module_path.clone()),
+                              Option(String).Some(ast_expr_token(export_expr).src.module_path.clone()),
                               ctx.std_path.clone()
                             ), {
                               exn.throw(

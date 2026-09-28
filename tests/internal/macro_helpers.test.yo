@@ -4,7 +4,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ TokenSource, Token, TokenKind } :: import("../../src/token.yo");
 { EvalValue } :: import("../../src/value.yo");
 { has_comment_attribute, Evaluator } :: import("../../src/evaluator/index.yo");
 { MACRO_DISPATCH_ENABLED } :: import("../../src/evaluator/calls/function.yo");
@@ -266,8 +266,7 @@ test("macro helpers: a gensym'd token shares its source token's input", {
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("gensym_share_test.yo"),
-    input : source
+    src : TokenSource(module_path : String.from("gensym_share_test.yo"), input : source)
   );
   call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), ArrayList(AstExpr).new(), false, tok);
   env := Environment.new(String.from("gensym_share_test.yo"));
@@ -281,9 +280,9 @@ test("macro helpers: a gensym'd token shares its source token's input", {
         v,
         .ExprVal(atom) => {
           synth := ast_expr_token(atom);
-          assert(synth.input == source, "the synthesized token carries the source text");
-          assert(unsafe(__yo_ptr_eq(synth.input.as_bytes(), source.as_bytes())), "the synthesized token SHARES the source text instead of copying it");
-          assert(unsafe(__yo_ptr_eq(synth.module_path.as_bytes(), tok.module_path.as_bytes())), "the synthesized token shares the module path");
+          assert(synth.src.input == source, "the synthesized token carries the source text");
+          assert(unsafe(__yo_ptr_eq(synth.src.input.as_bytes(), source.as_bytes())), "the synthesized token SHARES the source text instead of copying it");
+          assert(unsafe(__yo_ptr_eq(synth.src.module_path.as_bytes(), tok.src.module_path.as_bytes())), "the synthesized token shares the module path");
         },
         _ => assert(false, "gensym did not produce an ExprVal")
       ),

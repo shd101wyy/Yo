@@ -13,7 +13,7 @@
 { rune, String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenSource, TokenKind, Token } :: import("../../src/token.yo");
 json :: import("std/encoding/json");
 { assert, panic } :: import("std/assert");
 {
@@ -57,8 +57,7 @@ make_token :: (fn(module_path : String, input : String, row : usize, column : us
     row : u32(row),
     column : u32(column),
     character : u32(0),
-    module_path : module_path,
-    input : input
+    src : TokenSource(module_path : module_path, input : input)
   )
 );
 // ─── format_error_message: the human render (exact) ──────────────────────────

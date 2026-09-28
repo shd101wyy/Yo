@@ -882,7 +882,7 @@ require_valid_ref_argument_places :: (
     if(p_ref, {
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(arg);
-      if(!arg_tok.module_path.starts_with(String.from("auto-generated://")), {
+      if(!arg_tok.src.module_path.starts_with(String.from("auto-generated://")), {
         // `xs(i)` (Index trait) yields a raw `*(T)` into the container's
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(

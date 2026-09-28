@@ -124,7 +124,7 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   tok := ast_expr_token(expr);
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  file_lit := _idx_c_string_literal(tok.src.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   signed_wide := cond(
     (is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty))) => String.from("(-2147483647 - 1)"),
@@ -174,7 +174,7 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   tok := ast_expr_token(expr);
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  file_lit := _idx_c_string_literal(tok.src.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
@@ -213,7 +213,7 @@ _neg_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     return(`// Failed to transpile (-(${a}))`);
   });
   tok := ast_expr_token(expr);
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  file_lit := _idx_c_string_literal(tok.src.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
@@ -253,7 +253,7 @@ _shift_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
     });
   });
   tok := ast_expr_token(expr);
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  file_lit := _idx_c_string_literal(tok.src.module_path.clone());
   `((__yo_sh_chk((long long)(${b}), ${bits}, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()})), ((${a}) ${op} (${b})))`
 });
 /// Safe mode Phase 3c (§6, ruling D2): float→int casts SATURATE (out-of-range
@@ -598,7 +598,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
       self_c_type := get_type_string(ei_ty(expr, context), context.base);
       uninit_tok := ast_expr_token(expr);
-      uninit_var := stable_label_id(String.from("__yo_uninit_"), uninit_tok.module_path, usize(uninit_tok.row), usize(uninit_tok.column));
+      uninit_var := stable_label_id(String.from("__yo_uninit_"), uninit_tok.src.module_path, usize(uninit_tok.row), usize(uninit_tok.column));
       // `= {0}`, not a bare declaration: the value is copied into temporaries
       // by value right away (`T t = __yo_uninit_…;`), and reading an
       // indeterminate automatic object is undefined behavior (C11 6.3.2.1p2).

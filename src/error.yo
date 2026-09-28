@@ -75,7 +75,7 @@ derive(TokenAndWarning, Clone);
 /// token's MIDDLE; it now underlines the whole token from its start).
 _span_of_token :: (fn(token : Token) -> Span)(
   Span(
-    path : token.module_path,
+    path : token.src.module_path,
     row : usize(token.row),
     col : usize(token.column),
     len : token.value.chars().count()
@@ -83,7 +83,7 @@ _span_of_token :: (fn(token : Token) -> Span)(
 );
 /// The source line at the token's row ("" when the row is out of range).
 _source_line_of_token :: (fn(token : Token) -> String)({
-  lines := token.input.split(String.from("\n"));
+  lines := token.src.input.split(String.from("\n"));
   match(
     lines.get(usize(token.row)),
     .Some(line) => line,
@@ -760,7 +760,7 @@ note_diagnostic_of_token :: (fn(token : Token, message : String) -> Diagnostic)(
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : Token) -> String)({
-  lines := token.input.split(String.from("\n"));
+  lines := token.src.input.split(String.from("\n"));
   row_line := match(
     lines.get(usize(token.row)),
     .Some(line) => line,
@@ -774,7 +774,7 @@ get_line_at_token :: (fn(token : Token) -> String)({
   spaces := String.from(" ").repeat(caret_col);
   row_plus1 := (usize(token.row) + usize(1));
   col_plus1 := (usize(token.column) + usize(1));
-  `${token.module_path}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
+  `${token.src.module_path}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
 });
 /// Get the source line at a given position with a caret indicator
 /// (the legacy pre-P1 block).

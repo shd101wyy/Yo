@@ -179,12 +179,12 @@ evaluate_identifier_and_operator :: (
       bound := get_value_of_some_type_from_env(env, self_tv);
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         st_r := if(is_some_type(bound), String.from("<unresolved-some>"), type_key(bound));
-        eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+        eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.src.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
       });
       if(is_some_type(bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(resolved)} mod=${env.module_path} loc=${token.src.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(resolved);
     info := new_expr_info(env, t_type());
@@ -222,7 +222,7 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value;
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
-    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.src.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
   });
   found_frame_idx_out := ArrayList(usize).new();
   variable := match(
@@ -257,7 +257,7 @@ evaluate_identifier_and_operator :: (
     // state an in-order definition would have left — and every by-name
     // lookup that follows (consumption, RC ownership, flowability) finds it.
     .None => match(
-      resolve_pending_definition(identifier_string.clone(), token.module_path.clone()),
+      resolve_pending_definition(identifier_string.clone(), token.src.module_path.clone()),
       .Resolved({ var : pending_var, frame_id : pending_frame_id }) => {
         found_frame_idx_out.push(adopt_resolved_definition(env, pending_var, pending_frame_id));
         pending_var
@@ -382,7 +382,7 @@ evaluate_identifier_and_operator :: (
                     token,
                     `Variable "${identifier_string}" not found.`,
                     not_found_help,
-                    Span(path : token.module_path, row : _first_code_row(token.input), col : usize(0), len : usize(0)),
+                    Span(path : token.src.module_path, row : _first_code_row(token.src.input), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),

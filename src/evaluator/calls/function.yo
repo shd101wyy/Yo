@@ -306,7 +306,7 @@ _reject_private_method_call :: (
   name_tok := ast_expr_token(name_expr);
   owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
-  if(private_member_blocked(name_tok.value.clone(), owner_opt, name_tok.module_path.clone()), {
+  if(private_member_blocked(name_tok.value.clone(), owner_opt, name_tok.src.module_path.clone()), {
     recv_str := cond(
       mi.is_static => ast_expr_to_string(mi.receiver_expr),
       true => match(
@@ -489,7 +489,7 @@ _reject_class1_panic_method_call :: (
       .None => false
     );
   });
-  if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.clone())), {
+  if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.src.module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -519,7 +519,7 @@ _reject_private_construction :: (
   (i : usize) = usize(0);
   while(i < labels.len(), {
     lbl := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
-    if(private_member_blocked(lbl.clone(), decl, tok.module_path.clone()), {
+    if(private_member_blocked(lbl.clone(), decl, tok.src.module_path.clone()), {
       exn.throw(
         dyn(
           format_error_message(
@@ -965,8 +965,7 @@ _build_receiver_call_args :: (
           column : recv_tok.column,
           character : recv_tok.character,
           byte_offset : recv_tok.byte_offset,
-          module_path : recv_tok.module_path,
-          input : recv_tok.input
+          src : recv_tok.src
         )
       );
       amp_args := ArrayList(AstExpr).new();
@@ -4437,7 +4436,7 @@ evaluate_function_call :: (
   ) -> AstExpr
 )({
   call_tok := ast_expr_token(expr);
-  call_mp := call_tok.module_path.clone();
+  call_mp := call_tok.src.module_path.clone();
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(call_mp, ctx.std_path.clone()), {
     return(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn));
   });
@@ -5128,7 +5127,7 @@ _evaluate_function_call_unanchored :: (
     .Func({ meta : __fm3 }) => match(__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
     _ => false
   );
-  gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
+  gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.src.module_path.clone()));
   // Rule D6 (`plans/reference/PARALLELISM_RULES.md`): a runtime extern (an
   // `extern` other than "c" — the `__yo_*` entry points `std/sys/externs.yo`
   // exports) called BY NAME from a file without the pragma. Declaring one
@@ -5144,7 +5143,7 @@ _evaluate_function_call_unanchored :: (
     .Func({ meta : __fm_d6 }) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
-  if(((gate_is_extern_runtime && _d6_callee_is_by_name(func_expr, ctx)) && !(gate_in_autogen)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+  if(((gate_is_extern_runtime && _d6_callee_is_by_name(func_expr, ctx)) && !(gate_in_autogen)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.src.module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -6978,7 +6977,7 @@ Fix: wrap the call:
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
-              func_id : stable_func_id(String.from(""), recur_tok.module_path, usize(recur_tok.row), usize(recur_tok.column)),
+              func_id : stable_func_id(String.from(""), recur_tok.src.module_path, usize(recur_tok.row), usize(recur_tok.column)),
               env_key : fv_env_key
             )
           ),
@@ -8200,8 +8199,7 @@ Fix: wrap the call:
                   column : recv_tok.column,
                   character : recv_tok.character,
                   byte_offset : recv_tok.byte_offset,
-                  module_path : recv_tok.module_path,
-                  input : recv_tok.input
+                  src : recv_tok.src
                 )
               );
               amp_args := ArrayList(AstExpr).new();

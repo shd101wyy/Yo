@@ -271,7 +271,7 @@ _reject_private_static_member :: (
     (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
     true => type_decl_module(type_id)
   );
-  if(private_member_blocked(prop_name.clone(), decl, ast_expr_token(property_expr).module_path.clone()), {
+  if(private_member_blocked(prop_name.clone(), decl, ast_expr_token(property_expr).src.module_path.clone()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -615,7 +615,7 @@ evaluate_property_access :: (
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
     pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
-    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).src.module_path.clone())), {
       exn.throw(
         dyn(
           format_error_message_with_help(
@@ -646,7 +646,7 @@ evaluate_property_access :: (
         if(is_pointer_type(ot), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
-          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).src.module_path.clone())), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -832,7 +832,7 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_is_atom(property_expr) &&
         is_class1_panic_method_name(pr_prop_name.clone()) &&
           is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).src.module_path.clone())), {
         exn.throw(
           dyn(
             format_error_message_with_help(
@@ -906,7 +906,7 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_is_atom(property_expr) &&
         is_class1_panic_method_name(ast_expr_token(property_expr).value) &&
           is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).src.module_path.clone())), {
         exn.throw(
           dyn(
             format_error_message_with_help(
@@ -1586,7 +1586,7 @@ Raw pointer operations may dereference invalid memory.`
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
       pa_union_member := ast_expr_token(property_expr).value;
-      if(is_union_type(base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.unsafe_context)), {
+      if(is_union_type(base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(property_expr).src.module_path.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(format_error_message(ast_expr_token(property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(base_ty)))));
         return(expr);
       });
@@ -1718,7 +1718,7 @@ Raw pointer operations may dereference invalid memory.`
             // The access site is the label TOKEN's module (lexical) — never
             // `env.module_path`, which inside a generic impl body evaluated at
             // call time is the CALLER's module.
-            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(property_expr).module_path.clone()), {
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(property_expr).src.module_path.clone()), {
               exn.throw(
                 dyn(
                   format_error_message(

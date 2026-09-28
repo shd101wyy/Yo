@@ -2555,7 +2555,7 @@ impl(
     });
     // Only calls written in a strict file are checked.
     tok := ast_expr_token(e);
-    if(!file_has_pragma(Option(String).Some(tok.module_path.clone()), Pragma.StrictBorrow), {
+    if(!file_has_pragma(Option(String).Some(tok.src.module_path.clone()), Pragma.StrictBorrow), {
       return(());
     });
     match(
@@ -3255,10 +3255,10 @@ function_param_mutation_mask :: (
 (g_d1_written : HashMap(String, String)) = HashMap(String, String).new();
 (g_d1_reached : HashMap(String, String)) = HashMap(String, String).new();
 _d1_global_key :: (fn(decl : Token, name : String) -> String)(
-  `${decl.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
+  `${decl.src.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
 );
 _d1_location :: (fn(t : Token) -> String)(
-  `${t.module_path}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
+  `${t.src.module_path}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
 );
 /// Record a write to the module-level global declared at `decl`; returns where
 /// a closure that runs on another thread reaches it, if one does.
@@ -3295,7 +3295,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   v := match(vars.get(vars.len() - usize(1)), .Some(v0) => v0, .None => return(Option(String).None));
-  if((!v.is_module_level || v.is_compile_time_only) || is_thread_local(tok.module_path.clone(), name.clone()), {
+  if((!v.is_module_level || v.is_compile_time_only) || is_thread_local(tok.src.module_path.clone(), name.clone()), {
     return(Option(String).None);
   });
   send_ok := match(
@@ -3550,7 +3550,7 @@ function_reaches_non_send_global :: (
     return(Option(String).None);
   });
   // A body defined in a pragma'd file is the audited base.
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).src.module_path.clone())), {
     g_gr_by_fid.insert(fid, Option(String).None);
     return(Option(String).None);
   });

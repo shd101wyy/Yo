@@ -510,7 +510,7 @@ impl(
     );
     def_mod := match(
       value,
-      .FuncVal(fvd, _) => ast_expr_token(fvd.*.body).module_path,
+      .FuncVal(fvd, _) => ast_expr_token(fvd.*.body).src.module_path,
       _ => String.new()
     );
     self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
@@ -1786,7 +1786,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           // must keep theirs.
           // issues/fixed/module-global-c-names-are-not-namespaced.md.
           if(g_debug_mg, {
-            eprintln(`[mg] name=${variable.name} path=${variable.token.module_path} param=${variable.is_parameter} hit=${is_module_level_global(variable.token.module_path, variable.name)}`);
+            eprintln(`[mg] name=${variable.name} path=${variable.token.src.module_path} param=${variable.is_parameter} hit=${is_module_level_global(variable.token.src.module_path, variable.name)}`);
           });
           // Never qualify when ANY match for this name is a PARAMETER: a
           // same-named parameter lexically shadows the global, so the bare
@@ -1812,15 +1812,15 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
               mg_i = (mg_i + usize(1));
             });
           };
-          if(!is_extern_c && !mg_any_param && is_module_level_global(variable.token.module_path, variable.name), {
-            mg_qualified := `${var_name}${module_global_c_suffix(variable.token.module_path)}`;
+          if(!is_extern_c && !mg_any_param && is_module_level_global(variable.token.src.module_path, variable.name), {
+            mg_qualified := `${var_name}${module_global_c_suffix(variable.token.src.module_path)}`;
             // A thread-local reads and writes through its lazy accessor, so
             // the FIRST touch on each thread runs the initializer. The
             // dereference is an lvalue, so this substitution is equally valid
             // in read and write position — which is what lets the whole rest
             // of codegen keep treating a thread-local as an ordinary
             // module-level global (plans/reference/THREAD_LOCAL_STORAGE.md).
-            if(is_thread_local(variable.token.module_path, variable.name), {
+            if(is_thread_local(variable.token.src.module_path, variable.name), {
               return(`(*${mg_qualified}__tl_get())`);
             });
             return(mg_qualified);
@@ -2034,7 +2034,7 @@ _checked_index_expr :: (fn(index_code : String, length_code : String, expr : Ast
       return(index_code);
     });
   });
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  file_lit := _idx_c_string_literal(tok.src.module_path.clone());
   `__yo_idx_chk((size_t)(${index_code}), (size_t)(${length_code}), ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()})`
 });
 /// The comptime length of a fixed `Array(T, N)` as a decimal literal, or ""

@@ -47,7 +47,7 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           // P3.6 (D13): the panic message carries its Yo call site, and the
           // StrLit's literal quotes are stripped.
           ptok := ast_expr_token(expr);
-          ploc := ` (at ${ptok.module_path}:${(usize(ptok.row) + usize(1))}:${(usize(ptok.column) + usize(1))})`;
+          ploc := ` (at ${ptok.src.module_path}:${(usize(ptok.row) + usize(1))}:${(usize(ptok.column) + usize(1))})`;
           pmsg := `${_strip_panic_quotes(raw)}${ploc}`;
           l := indent.clone();
           l.push_str("fprintf(stderr, \"%s\\n\", ");
@@ -77,7 +77,7 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           );
           em := context.base.emitter;
           rtok := ast_expr_token(expr);
-          rloc := ` (at ${rtok.module_path}:${(usize(rtok.row) + usize(1))}:${(usize(rtok.column) + usize(1))})`;
+          rloc := ` (at ${rtok.src.module_path}:${(usize(rtok.row) + usize(1))}:${(usize(rtok.column) + usize(1))})`;
           line := indent.clone();
           str_fmt := _c_string_literal(`%.*s${rloc}\n`);
           if(msg_is_str, {

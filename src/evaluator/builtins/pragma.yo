@@ -183,7 +183,7 @@ evaluate_pragma :: (
       k,
       .SkipPrelude => true,
       .AllowMacroDef => {
-        register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
+        register_file_pragma(ast_expr_token(expr).src.module_path.clone(), Pragma.AllowMacroDef);
         true
       },
       _ => false
@@ -247,7 +247,7 @@ evaluate_pragma :: (
       ),
       .Some(kind) => {
         tok := ast_expr_token(expr);
-        register_file_pragma(tok.module_path.clone(), kind);
+        register_file_pragma(tok.src.module_path.clone(), kind);
         // `Verify`/`VerifyOrAssert` are honored by the V3 verifier pass
         // (mode dispatch + task registration, evaluator/builtins/contracts.yo);
         // the Phase-0 "not implemented" warning is gone.

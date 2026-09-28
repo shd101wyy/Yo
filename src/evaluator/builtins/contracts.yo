@@ -1054,8 +1054,7 @@ _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr
       column : src_tok.column,
       character : src_tok.character,
       byte_offset : src_tok.byte_offset,
-      module_path : src_tok.module_path,
-      input : src_tok.input
+      src : src_tok.src
     )
   )
 );
@@ -1230,8 +1229,7 @@ _build_binding :: (fn(name : String, value : AstExpr, src_tok : Token, op : Stri
     column : src_tok.column,
     character : src_tok.character,
     byte_offset : src_tok.byte_offset,
-    module_path : src_tok.module_path,
-    input : src_tok.input
+    src : src_tok.src
   );
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
@@ -1478,10 +1476,10 @@ register_impl_inheritance_task :: (
     exn : Exception
   ) -> unit
 )({
-  if(!_is_verify_target(name_tok.module_path.clone()), {
+  if(!_is_verify_target(name_tok.src.module_path.clone()), {
     return(());
   });
-  __mode := resolve_verify_mode(name_tok.module_path.clone());
+  __mode := resolve_verify_mode(name_tok.src.module_path.clone());
   if((__mode != "verify") && (__mode != "verify+"), {
     return(());
   });
@@ -1600,9 +1598,9 @@ register_impl_inheritance_task :: (
       pred_env.pop_frame();
       register_verify_task(
         VerifyTask(
-          fn_id : `impl-inherits@${display_module_path(name_tok.module_path.clone())}:${name_tok.row.to_string()}:${label}`,
+          fn_id : `impl-inherits@${display_module_path(name_tok.src.module_path.clone())}:${name_tok.row.to_string()}:${label}`,
           func_id : __fid.clone(),
-          module_path : name_tok.module_path.clone(),
+          module_path : name_tok.src.module_path.clone(),
           // The FuncVal's body: `wrap_function_body_with_contracts`
           // returned it UNCHANGED at the application (no contracts were
           // registered under the fn-type expression id then — and verify
@@ -1955,10 +1953,10 @@ register_impl_variance_task :: (
     exn : Exception
   ) -> unit
 )({
-  if(!_is_verify_target(name_tok.module_path.clone()), {
+  if(!_is_verify_target(name_tok.src.module_path.clone()), {
     return(());
   });
-  __mode := resolve_verify_mode(name_tok.module_path.clone());
+  __mode := resolve_verify_mode(name_tok.src.module_path.clone());
   if((__mode != "verify") && (__mode != "verify+"), {
     return(());
   });
@@ -2195,9 +2193,9 @@ register_impl_variance_task :: (
   pred_env.pop_frame();
   register_verify_task(
     VerifyTask(
-      fn_id : `impl-variance@${display_module_path(name_tok.module_path.clone())}:${name_tok.row.to_string()}:${label}`,
+      fn_id : `impl-variance@${display_module_path(name_tok.src.module_path.clone())}:${name_tok.row.to_string()}:${label}`,
       func_id : func_id.clone(),
-      module_path : name_tok.module_path.clone(),
+      module_path : name_tok.src.module_path.clone(),
       body : body_ev,
       param_names : p_names,
       param_types : p_types,
@@ -2491,8 +2489,8 @@ wrap_function_body_with_contracts :: (
   // prelude, an imported dependency — keeps today's runtime behavior even
   // under a CLI override, so its un-verified contracts never lose their
   // asserts.
-  if(_is_verify_target(body_tok.module_path.clone()), {
-    mode := resolve_verify_mode(body_tok.module_path.clone());
+  if(_is_verify_target(body_tok.src.module_path.clone()), {
+    mode := resolve_verify_mode(body_tok.src.module_path.clone());
     // `ignore` (the `pragma(Pragma.NoContracts);` mode, or the CLI
     // override) — erase contract clauses entirely.
     if(mode == "ignore", {
@@ -2834,10 +2832,10 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
   // Validation above runs in EVERY mode; registration only for a verify
   // target. `--verify-mode` is global, so resolve_verify_mode alone would arm
   // every law in std/ and in every dependency.
-  if(!_is_verify_target(law_tok.module_path.clone()), {
+  if(!_is_verify_target(law_tok.src.module_path.clone()), {
     return(expr);
   });
-  law_mode := resolve_verify_mode(law_tok.module_path.clone());
+  law_mode := resolve_verify_mode(law_tok.src.module_path.clone());
   if((law_mode != "verify") && (law_mode != "verify+"), {
     return(expr);
   });
@@ -2898,9 +2896,9 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
     VerifyTask(
       // Column disambiguates: register_verify_task is first-wins on fn_id, and
       // row alone collides for two laws written on one line.
-      fn_id : `law@${display_module_path(law_tok.module_path.clone())}:${law_tok.row.to_string()}:${law_tok.column.to_string()}`,
+      fn_id : `law@${display_module_path(law_tok.src.module_path.clone())}:${law_tok.row.to_string()}:${law_tok.column.to_string()}`,
       func_id : key.clone(),
-      module_path : law_tok.module_path.clone(),
+      module_path : law_tok.src.module_path.clone(),
       body : body_ev,
       param_names : p_names,
       param_types : p_types,

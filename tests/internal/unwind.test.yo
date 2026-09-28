@@ -4,7 +4,7 @@
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ TokenSource, Token, TokenKind } :: import("../../src/token.yo");
 { AstExpr, ast_expr_id, BF_UNWIND } :: import("../../src/expr.yo");
 {
   ExprInfo,
@@ -33,8 +33,7 @@ mk_token :: (fn(value : str) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("test"),
-    input : String.from("")
+    src : TokenSource(module_path : String.from("test"), input : String.from(""))
   )
 );
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({

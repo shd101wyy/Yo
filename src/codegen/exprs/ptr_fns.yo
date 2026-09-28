@@ -126,7 +126,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
                 if(!is_already_var, {
                   callee_type := get_type_string(cei.ty, context.base);
                   callee_tok := ast_expr_token(callee_expr);
-                  temp_name := stable_label_id(String.from("__yo_ptr_idx_tmp_"), callee_tok.module_path, usize(callee_tok.row), usize(callee_tok.column));
+                  temp_name := stable_label_id(String.from("__yo_ptr_idx_tmp_"), callee_tok.src.module_path, usize(callee_tok.row), usize(callee_tok.column));
                   line := indent.clone();
                   line.push_string(callee_type);
                   line.push_str(" ");
@@ -199,7 +199,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
             .Some(vn) => vn,
             .None => {
               arg_tok := ast_expr_token(arg);
-              stable_label_id(String.from("__yo_addrof_tmp_"), arg_tok.module_path, usize(arg_tok.row), usize(arg_tok.column))
+              stable_label_id(String.from("__yo_addrof_tmp_"), arg_tok.src.module_path, usize(arg_tok.row), usize(arg_tok.column))
             }
           );
           line := indent.clone();

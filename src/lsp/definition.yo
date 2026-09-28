@@ -56,7 +56,7 @@
 _target_lines :: (
   fn(def_tok : Token, doc_abs : String, doc_lines : ArrayList(String)) -> Option(ArrayList(String))
 )({
-  target_fs := uri_to_fs_path(def_tok.module_path.clone());
+  target_fs := uri_to_fs_path(def_tok.src.module_path.clone());
   if(target_fs == uri_to_fs_path(doc_abs.clone()), {
     return(Option(ArrayList(String)).Some(doc_lines));
   });
@@ -79,7 +79,7 @@ _location_of :: (
     .Some(target_lines) => j_range_in(target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
     .None => j_range(usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col)
   );
-  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
+  jb().put("uri", jstr(module_path_to_uri(def_tok.src.module_path.clone()))).put("range", range).obj()
 });
 
 /// The parsed program of the module at `module_path` (either `file://`
@@ -405,7 +405,7 @@ _owner_member_decl :: (
       return(Option(Token).None);
     }
   );
-  module_exprs := _module_exprs(decl_tok.module_path.clone(), doc_abs, doc_exprs);
+  module_exprs := _module_exprs(decl_tok.src.module_path.clone(), doc_abs, doc_exprs);
   value := match(
     _binding_value(module_exprs, head),
     .Some(v) => v,
@@ -470,7 +470,7 @@ _method_decl :: (
       return(Option(Token).None);
     }
   );
-  module_exprs := _module_exprs(body_tok.module_path.clone(), doc_abs, doc_exprs);
+  module_exprs := _module_exprs(body_tok.src.module_path.clone(), doc_abs, doc_exprs);
   found := ArrayList(Token).new();
   (i : usize) = usize(0);
   while(i < module_exprs.len(), {

@@ -3,7 +3,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenSource, TokenKind, Token } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { TypeValue, FuncMeta } :: import("../../src/types/definitions.yo");
@@ -26,8 +26,7 @@ make_token :: (fn(kind : TokenKind, v : str) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
@@ -37,8 +36,7 @@ make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(character),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 make_ident :: (fn(v : str) -> AstExpr)(

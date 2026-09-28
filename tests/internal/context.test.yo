@@ -2,7 +2,7 @@
 //! Mirrors the structure of src/evaluator/context.ts
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenSource, TokenKind, Token } :: import("../../src/token.yo");
 {
   EvalContext,
   eval_context_new,
@@ -35,8 +35,7 @@ make_token :: (fn(value : str) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 test("eval_context_new: default fields", {

@@ -120,7 +120,7 @@ _reject_private_destructure :: (
     .Union(pv_uid, _, _) => pv_uid.clone(),
     _ => String.new()
   );
-  if(private_member_blocked(label.clone(), type_decl_module(pv_type_id), tok.module_path.clone()), {
+  if(private_member_blocked(label.clone(), type_decl_module(pv_type_id), tok.src.module_path.clone()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -146,7 +146,7 @@ _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx :
   // renamed to): every call spelled with the name dispatches to the builtin,
   // so the binding could never run (twin of binding.yo's gate; the choke
   // point both destructuring branches already pass through).
-  if(is_reserved_builtin_binding_name(var_name.clone()) && !at.module_path.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(var_name.clone()) && !at.src.module_path.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         at,
@@ -274,7 +274,7 @@ handle_member_destructuring :: (
   });
   // Union destructuring requires exactly one field, and is a member READ:
   // the same safe-mode gate as `u.x` (property_access.yo).
-  if(is_union_type(rhs_type) && !(is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.clone()), ctx.unsafe_context)), {
+  if(is_union_type(rhs_type) && !(is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).src.module_path.clone()), ctx.unsafe_context)), {
     exn.throw(dyn(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type)))));
   });
   if(is_union_type(rhs_type), {

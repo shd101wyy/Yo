@@ -659,7 +659,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // back to Yo functions (.github/instructions/debugging.instructions.md).
       if(g_debug_fn_origin, {
         origin_tok := ast_expr_token(body_box);
-        em.emit_string_line(`/* yo-origin ${origin_tok.module_path}:${(usize(origin_tok.row) + usize(1)).to_string()} ${c_function_name} */`);
+        em.emit_string_line(`/* yo-origin ${origin_tok.src.module_path}:${(usize(origin_tok.row) + usize(1)).to_string()} ${c_function_name} */`);
       });
       stub_mark_b := em.code.as_bytes().len();
       em.emit_string_line(open);
@@ -1140,7 +1140,7 @@ emit_module_level_variable_declarations :: (
             // handles module-level vars, so qualify directly from the
             // registry using the declaration's own token
             // (issues/fixed/module-global-c-names-are-not-namespaced.md).
-            mg_decl_path := ast_expr_token(var_atom).module_path;
+            mg_decl_path := ast_expr_token(var_atom).src.module_path;
             // A thread-local's READS are rewritten to `(*name__tl_get())` by
             // get_variable_name_for_codegen — correct everywhere except HERE,
             // where the name is being DECLARED. Build the declaration name

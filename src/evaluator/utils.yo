@@ -206,7 +206,7 @@ attach_temp_variable_to_expr :: (
             usize(temp_tok.row),
             usize(temp_tok.column),
             String.new(),
-            temp_tok.module_path
+            temp_tok.src.module_path
           );
           add_variable_to_begin_block_frame(
             info.env,
@@ -438,7 +438,7 @@ require_expr_not_consumed :: (
           same_site := (
             (consumed_tok.*.row == ast_expr_token(rhs).row)
             && (consumed_tok.*.column == ast_expr_token(rhs).column)
-            && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
+            && (consumed_tok.*.src.module_path == ast_expr_token(rhs).src.module_path)
           );
           if(same_site, {
             return(());
@@ -1047,7 +1047,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
 /// Matches the format produced by `get_doc_comment_lookup_key` in
 /// `doc/extractor.yo`: `"<module_path>:<row>:<column>"`.
 doc_comment_lookup_key_from_token :: (fn(tok : Token) -> String)(
-  `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
+  `${tok.src.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
 );
 // ---------------------------------------------------------------------------
 // consume_case_body_temp_var
@@ -1145,14 +1145,14 @@ reset_sibling_flow_state :: (fn(env : Environment, prev_arm : Option(AstExpr)) -
 _last_token_of :: (fn(e : AstExpr, root : Token) -> Token)({
   (best : Token) = root;
   tok := ast_expr_token(e);
-  if((tok.module_path == root.module_path) && (tok.character > best.character), {
+  if((tok.src.module_path == root.src.module_path) && (tok.character > best.character), {
     best = tok;
   });
   match(
     e,
     .FnCall(_, callee, args, _, _) => {
       c := recur(callee, root);
-      if((c.module_path == root.module_path) && (c.character > best.character), {
+      if((c.src.module_path == root.src.module_path) && (c.character > best.character), {
         best = c;
       });
       (i : usize) = usize(0);
@@ -1161,7 +1161,7 @@ _last_token_of :: (fn(e : AstExpr, root : Token) -> Token)({
           args.get(i),
           .Some(a) => {
             t := recur(a, root);
-            if((t.module_path == root.module_path) && (t.character > best.character), {
+            if((t.src.module_path == root.src.module_path) && (t.character > best.character), {
               best = t;
             });
           },
@@ -1181,7 +1181,7 @@ _keep_undone_move :: (fn(v : Variable, before : Option(Token), arm : AstExpr) ->
   match(
     v.consumed_at_token,
     .Some(ct) => {
-      same := match(before, .Some(b) => ((b.module_path == ct.*.module_path) && (b.character == ct.*.character)), .None => false);
+      same := match(before, .Some(b) => ((b.src.module_path == ct.*.src.module_path) && (b.character == ct.*.character)), .None => false);
       if(!same, {
         variable_record_undone_move(v, UndoneMove(moved_at : ct.*.clone(), until : _last_token_of(arm, ct.*), inclusive : true));
       });

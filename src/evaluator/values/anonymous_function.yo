@@ -446,7 +446,7 @@ _trial_eval_anon_body :: (
   // error path.
   if(_g_anon_dbg_swallow, {
     dbg_tok0 := ast_expr_token(body);
-    eprintln(`[anon-trial] ${dbg_tok0.module_path}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
+    eprintln(`[anon-trial] ${dbg_tok0.src.module_path}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
   });
   inner_exn := Exception(
     throw : (
@@ -1296,14 +1296,14 @@ evaluate_anonymous_function_implementation :: (
   // Os's body under VcOp's signature). The occurrence counter is per-position,
   // so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => stable_func_id(String.from("closure_"), tok.module_path, usize(tok.row), usize(tok.column)),
-    true => stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column))
+    is_creating_closure => stable_func_id(String.from("closure_"), tok.src.module_path, usize(tok.row), usize(tok.column)),
+    true => stable_func_id(String.from("fn_"), tok.src.module_path, usize(tok.row), usize(tok.column))
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across
   // generations (see function_value.yo g_closure_fid_source).
   if(is_creating_closure, {
-    register_closure_fid_source(func_id.clone(), `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+    register_closure_fid_source(func_id.clone(), `${tok.src.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
   });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
@@ -1979,7 +1979,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // shadow the real definition's (codegen emitted the trial clone).
             // Positional-occurrence like every fid — the throwaway
             // takes this position's next ordinal, distinct from the real one.
-            func_id : stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column))
+            func_id : stable_func_id(String.from("fn_"), tok.src.module_path, usize(tok.row), usize(tok.column))
           )
         ),
         ArrayList(EvalValue).new()

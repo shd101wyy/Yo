@@ -592,7 +592,7 @@ _evaluate_assert_ghost_args :: (
   // unreadable there — the escape error fires instead (otherwise codegen
   // would emit a runtime assert reading a name no C declaration carries).
   tok0 := ast_expr_token(expr);
-  if(!_is_verify_target(tok0.module_path.clone()), {
+  if(!_is_verify_target(tok0.src.module_path.clone()), {
     return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
   });
   prev_ghost := ctx.is_ghost_context;
@@ -1492,7 +1492,7 @@ _evaluate_expression_raw_wrapper :: (
         is_runtime := match(ri.value, .Some(v) => is_unknown_val(v), .None => true);
         if(is_runtime && _surfaces_raw_pointer(ri.ty), {
           tok := ast_expr_token(result);
-          if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
+          if(!is_pointer_value_capable_file(Option(String).Some(tok.src.module_path.clone()), ctx.std_path.clone()), {
             exn.throw(
               dyn(
                 format_error_message(

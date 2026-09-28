@@ -30,6 +30,19 @@ TokenKind :: enum(
   Whitespace
 );
 derive(TokenKind, Eq(TokenKind), Hash, Clone, ToString);
+/// Where a token came from: its module path (as the lexer was given it, see
+/// AGENTS.md on the two spellings) and the whole source text. One handle per
+/// lexed file, shared by all of its tokens — two separate `String` fields on
+/// `Token` cost 8 B more per token (64 → 56 B, a smaller allocator class, over
+/// the ~1.9 M tokens `check src/main.yo` keeps). Immutable like `Token`.
+TokenSource :: ref(struct(module_path : String, input : String));
+derive(TokenSource, Eq(TokenSource));
+/// The source of a token with no module and no text (parser sentinels,
+/// fresh-id clones' placeholders). Shared: tokens are immutable.
+(g_empty_token_source : TokenSource) = TokenSource(module_path : String.from(""), input : String.from(""));
+empty_token_source :: (fn() -> TokenSource)(g_empty_token_source);
+(g_placeholder_token_source : TokenSource) = TokenSource(module_path : String.from("_"), input : String.from("_"));
+(g_raii_token_source : TokenSource) = TokenSource(module_path : String.from("drop"), input : String.from("drop"));
 Token :: ref(
   struct(
     kind : TokenKind,
@@ -60,8 +73,9 @@ Token :: ref(
     /// they have no source text to index, and their `character` is 0 or copied
     /// (in which case `byte_offset` is copied alongside it).
     (byte_offset : u32) ?= u32(0),
-    module_path : String,
-    input : String
+    /// The module path and source text this token was lexed from, shared by
+    /// every token of one lexing (plans/EVALUATOR_MEMORY_REDUCTION.md §3.4).
+    src : TokenSource
   )
 );
 derive(Token, Eq(Token));
@@ -288,8 +302,7 @@ placeholder_token :: (fn() -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("_"),
-    input : String.from("_")
+    src : g_placeholder_token_source
   )
 );
 /// Synthetic token used for `drop` (RAII) markers attached to compiler-generated
@@ -301,8 +314,7 @@ raii_token :: (fn() -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("drop"),
-    input : String.from("drop")
+    src : g_raii_token_source
   )
 );
 find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option(usize))({
@@ -359,6 +371,8 @@ find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option
 export(
   TokenKind,
   Token,
+  TokenSource,
+  empty_token_source,
   is_operator_char,
   is_reserved_operator_name,
   is_reserved_builtin_binding_name,

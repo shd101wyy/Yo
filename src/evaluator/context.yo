@@ -1343,7 +1343,7 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
         .Some(d) => d,
         .None => return(())
       );
-      dk := def_key(ast_expr_token(top.expr).module_path, top.index, top.name);
+      dk := def_key(ast_expr_token(top.expr).src.module_path, top.index, top.name);
       deps := match(
         g_def_deps.get(dk),
         .Some(existing) => existing,
@@ -2027,7 +2027,7 @@ _statement_start :: (fn(e : AstExpr) -> Tuple(usize, usize))({
       sargs.get(usize(0)),
       .Some(a0) => {
         at := ast_expr_token(a0);
-        if((at.module_path == ht.module_path) && ((usize(at.row) < row) || ((usize(at.row) == row) && (usize(at.column) < column))), {
+        if((at.src.module_path == ht.src.module_path) && ((usize(at.row) < row) || ((usize(at.row) == row) && (usize(at.column) < column))), {
           row = usize(at.row);
           column = usize(at.column);
         });
@@ -2045,7 +2045,7 @@ _statement_start :: (fn(e : AstExpr) -> Tuple(usize, usize))({
 register_module_anchors :: (fn(begin_exprs : ArrayList(AstExpr)) -> unit)({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .Some(first) => ast_expr_token(first).src.module_path.clone(),
     .None => {
       return(());
     }
@@ -2130,7 +2130,7 @@ begin_module_walk :: (
 )({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .Some(first) => ast_expr_token(first).src.module_path.clone(),
     .None => env.module_path.clone()
   );
   g_finished_walks.remove(module_path.clone());
@@ -2357,7 +2357,7 @@ _def_lhs_token_is :: (fn(def : PendingDef, tok : Token) -> bool)(
       cargs.get(usize(0)),
       .Some(lhs) => {
         lt := ast_expr_token(lhs);
-        (((lt.row == tok.row) && (lt.column == tok.column)) && (lt.module_path == tok.module_path))
+        (((lt.row == tok.row) && (lt.column == tok.column)) && (lt.src.module_path == tok.src.module_path))
       },
       .None => false
     ),

@@ -622,7 +622,7 @@ validate_send_closure_global_reach :: (
   // parameter) reads it through `g_closure_fids_by_some`. Walking it there,
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.src.module_path.clone())), {
     match(
       function_reaches_non_send_global(closure_fid, closure_body, ctx.expr_info_table, env),
       .Some(reason) => if(wants_send, {
@@ -902,7 +902,7 @@ create_capture_type_and_value :: (
       // Stable capture-struct id (see g_capture_struct_ids note): keyed by the
       // closure's source position + capture field signature, reused across evals.
       cap_key := String.from("cap@");
-      cap_key.push_string(closure_tok.module_path.clone());
+      cap_key.push_string(closure_tok.src.module_path.clone());
       cap_key.push_str(":");
       cap_key.push_string(usize(closure_tok.row).to_string());
       cap_key.push_str(":");

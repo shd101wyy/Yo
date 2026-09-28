@@ -287,7 +287,7 @@ evaluate_binding :: (
   // spelled with the name dispatches to the builtin, silently. Reject the
   // binding instead (the `consume` arm leaked the argument's reference before
   // this gate: issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md).
-  if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo")), {
+  if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.src.module_path.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
         res_tok,
@@ -432,7 +432,7 @@ evaluate_binding :: (
       // expr_info.yo g_module_level_globals).
       new_binding_var.is_module_level = is_module_level;
       if(is_module_level, {
-        register_module_level_global(ast_expr_token(lhs).module_path.clone(), variable_name.clone());
+        register_module_level_global(ast_expr_token(lhs).src.module_path.clone(), variable_name.clone());
       });
     },
     .None => ()

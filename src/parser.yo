@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { StringBuilder } :: import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList, array_list } :: import("std/collections/array_list");
-{ TokenKind, Token, find_matching_bracket, intern_token_str } :: import("./token.yo");
+{ TokenKind, Token, TokenSource, empty_token_source, find_matching_bracket, intern_token_str } :: import("./token.yo");
 { tokenize, tokenize_span } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
 { YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
@@ -116,7 +116,7 @@ _advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyO
 /// the caller lexes the body text on its own.
 _template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
   out := ArrayList(_TemplateBodyOrigin).new();
-  bytes := tok.input.as_bytes();
+  bytes := tok.src.input.as_bytes();
   n := bytes.len();
   if((usize(tok.byte_offset) < n) && (bytes(usize(tok.byte_offset)) == u8(0x60)), {
     (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
@@ -163,7 +163,9 @@ Parser :: struct(
   /// auto-import pulls in, so a file with no specs keeps a byte-identical
   /// import closure.
   has_template_spec : bool,
-  next_expr_id : usize
+  next_expr_id : usize,
+  /// The source record of the tokens this parser synthesizes.
+  token_src : TokenSource
 );
 impl(
   Parser,
@@ -182,7 +184,8 @@ impl(
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
       has_template_spec : false,
-      next_expr_id : usize(0)
+      next_expr_id : usize(0),
+      token_src : TokenSource(module_path : module_path, input : input_string)
     )
   }),
   /// A parser over the byte range `[start_byte, end_byte)` of `input`, its
@@ -208,7 +211,8 @@ impl(
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
       has_template_spec : false,
-      next_expr_id : usize(0)
+      next_expr_id : usize(0),
+      token_src : TokenSource(module_path : module_path, input : input_string)
     )
   }),
   get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
@@ -224,8 +228,7 @@ impl(
       row : u32(0),
       column : u32(0),
       character : u32(0),
-      module_path : self.module_path,
-      input : self.input_string
+      src : self.token_src
     )
   ),
   make_unit_call : (fn(inout(self) : Self, ref_tok : Token) -> AstExpr)({
@@ -236,8 +239,7 @@ impl(
       column : ref_tok.column,
       character : ref_tok.character,
       byte_offset : ref_tok.byte_offset,
-      module_path : ref_tok.module_path,
-      input : ref_tok.input
+      src : ref_tok.src
     );
     .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok)
   }),
@@ -604,8 +606,8 @@ impl(
           sub_parser := match(
             body_origins.get(expr_ordinal),
             .Some(o) => cond(
-              (((o.byte + sp.expr_text.len()) <= tok.input.len()) && (tok.input.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
-                tok.input,
+              (((o.byte + sp.expr_text.len()) <= tok.src.input.len()) && (tok.src.input.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
+                tok.src.input,
                 self.module_path,
                 o.byte,
                 o.byte + sp.expr_text.len(),
@@ -643,8 +645,7 @@ impl(
                 column : tok.column,
                 character : tok.character,
                 byte_offset : tok.byte_offset,
-                module_path : tok.module_path,
-                input : tok.input
+                src : tok.src
               );
               make_ts_spec_call(
                 inner_expr,
@@ -673,8 +674,7 @@ impl(
             column : tok.column,
             character : tok.character,
             byte_offset : tok.byte_offset,
-            module_path : tok.module_path,
-            input : tok.input
+            src : tok.src
           );
           make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         }
@@ -807,8 +807,7 @@ impl(
         column : tok.column,
         character : tok.character,
         byte_offset : tok.byte_offset,
-        module_path : tok.module_path,
-        input : tok.input
+        src : tok.src
       );
       return(
         ParseResult(
@@ -898,8 +897,7 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      src : tok.src
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -994,8 +992,7 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      src : tok.src
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -1088,8 +1085,7 @@ impl(
             row : u32(0),
             column : u32(0),
             character : u32(0),
-            module_path : String.from(""),
-            input : String.from("")
+            src : empty_token_source()
           )
         );
         is_semi := match(separator_is_comma, .None => false, .Some(__sb) => ((__sb) == false));
@@ -1101,8 +1097,7 @@ impl(
             column : last_tok.column,
             character : last_tok.character,
             byte_offset : last_tok.byte_offset,
-            module_path : last_tok.module_path,
-            input : last_tok.input
+            src : last_tok.src
           );
           args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
         });
@@ -1144,7 +1139,7 @@ impl(
                         tok,
                         block_msg,
                         Option(String).None,
-                        Span(path : close_tok.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
+                        Span(path : close_tok.src.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
                         String.from("insert `;` before `}` so the braces form a block")
                       )
@@ -1178,8 +1173,7 @@ impl(
                     column : tok.column,
                     character : tok.character,
                     byte_offset : tok.byte_offset,
-                    module_path : tok.module_path,
-                    input : tok.input
+                    src : tok.src
                   );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
                   .FnCall(self.alloc_id(), .Atom(self.alloc_id(), colon_tok), array_list(arg, arg_copy), true, colon_tok)
@@ -1198,8 +1192,7 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          src : tok.src
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), anon_tok), final_args, false, tok),
@@ -1215,8 +1208,7 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          src : tok.src
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), args, false, begin_tok),
@@ -1387,8 +1379,7 @@ impl(
             row : u32(0),
             column : u32(0),
             character : u32(0),
-            module_path : String.from(""),
-            input : String.from("")
+            src : empty_token_source()
           )
         );
         rhs_start := cond(primary_is_dot => idx, true => (idx + usize(1)));
@@ -1661,8 +1652,7 @@ impl(
               column : last_tok.column,
               character : last_tok.character,
               byte_offset : last_tok.byte_offset,
-              module_path : last_tok.module_path,
-              input : last_tok.input
+              src : last_tok.src
             );
             exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
           });
@@ -1692,8 +1682,7 @@ impl(
         row : u32(0),
         column : u32(0),
         character : u32(0),
-        module_path : self.module_path,
-        input : self.input_string
+        src : self.token_src
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
@@ -1701,8 +1690,7 @@ impl(
         row : u32(0),
         column : u32(0),
         character : u32(0),
-        module_path : self.module_path,
-        input : self.input_string
+        src : self.token_src
       );
       (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
       (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);

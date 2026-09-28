@@ -660,7 +660,7 @@ _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
 // walker + driver.)
 // ---------------------------------------------------------------------------
 _m3_tokens_comparable :: (fn(left : Token, right : Token) -> bool)(
-  (left.module_path == right.module_path) && (left.input == right.input)
+  left.src == right.src
 );
 _m3_token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
   if(!_m3_tokens_comparable(left, right), false, left.character <= right.character)
@@ -1473,7 +1473,7 @@ _schedule_scope_end_drops :: (
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
         e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
         if(g_debug_scope_drops, {
-          eprintln(`[sd] mod=${v.token.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
+          eprintln(`[sd] mod=${v.token.src.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
         });
         if(e7, {
           to_drop.push(v);
@@ -1858,7 +1858,7 @@ evaluate_begin_expression :: (
                   .Func({ result : rfb, meta : __fm1 }) => {
                     rfco := __fm1.*.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(rfb)
-                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone())), {
+                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).src.module_path.clone())), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
                         allow_parameter_source : true,
@@ -2536,7 +2536,7 @@ evaluate_begin_expression :: (
         match(
           fr2.variables.get(evi),
           .Some(ev) => {
-            not_auto := !ev.token.module_path.starts_with(String.from("auto-generated://"));
+            not_auto := !ev.token.src.module_path.starts_with(String.from("auto-generated://"));
             eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!_variable_is_captured_by_current_function(ev, ctx) && _variable_can_need_drop_ignoring_consumed(ev)))));
             init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(begin_tok, it), .None => false);
             if(eligible && init_ok, {
@@ -2580,7 +2580,7 @@ evaluate_begin_expression :: (
               if(wv.name.starts_with(String.from("_")), {
                 skip = true;
               });
-              if(wv.token.module_path.starts_with(String.from("auto-generated://")), {
+              if(wv.token.src.module_path.starts_with(String.from("auto-generated://")), {
                 skip = true;
               });
               // A binding whose value is a TYPE (a generic parameter like
@@ -2601,12 +2601,12 @@ evaluate_begin_expression :: (
               );
               if(!skip, {
                 wspan := Span(
-                  path : wv.token.module_path,
+                  path : wv.token.src.module_path,
                   row : usize(wv.token.row),
                   col : usize(wv.token.column),
                   len : wv.token.value.chars().count()
                 );
-                wlines := wv.token.input.split(String.from("\n"));
+                wlines := wv.token.src.input.split(String.from("\n"));
                 wsource_line := match(
                   wlines.get(usize(wv.token.row)),
                   .Some(l) => l,

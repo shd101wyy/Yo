@@ -2,7 +2,7 @@
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenSource, TokenKind, Token } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { type_value_tag, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
@@ -19,8 +19,7 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(

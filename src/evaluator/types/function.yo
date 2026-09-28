@@ -73,7 +73,7 @@ import("std/fmt");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Token, TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, empty_token_source } :: import("../../token.yo");
 { set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
@@ -1672,7 +1672,7 @@ evaluate_function_parameter :: (
   // annotate a parameter with a type whose representation carries a raw
   // pointer (RawSlice(T), structs wrapping *(T), ...).
   if(!ctx.unsafe_context &&
-    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())) &&
+    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).src.module_path.clone())) &&
       type_representation_contains_raw_ptr(final_param_type), {
     exn.throw(
       dyn(
@@ -2443,7 +2443,7 @@ parse_where_clause_constraints :: (
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
-        AstExpr.Atom(usize(0), Token(kind : TokenKind.Identifier, value : String.from(""), row : u32(0), column : u32(0), character : u32(0), module_path : String.from(""), input : String.from("")))
+        AstExpr.Atom(usize(0), Token(kind : TokenKind.Identifier, value : String.from(""), row : u32(0), column : u32(0), character : u32(0), src : empty_token_source()))
       }
     );
     ci = (ci + usize(1));
@@ -4579,7 +4579,7 @@ evaluate_function_type :: (
   // exempt this generation (see is_macro_def_capable_file) and
   // `auto-generated://` expansions inherit their caller's policy.
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()), ctx.std_path.clone()), {
+    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).src.module_path.clone()), ctx.std_path.clone()), {
       exn.throw(
         dyn(
           format_error_message(

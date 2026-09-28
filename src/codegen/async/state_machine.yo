@@ -175,7 +175,7 @@ collect_variable_refs_in_expr :: (
                 .None => canonical_id
               );
               refs.insert(owner_id.clone());
-              site_key_a := `${var_name}@${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
+              site_key_a := `${var_name}@${variable.token.src.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
               match(
                 captured_name_ids.get(site_key_a),
                 .Some(site_id) => if(!(site_id == owner_id), {
@@ -240,7 +240,7 @@ collect_variable_refs_in_expr :: (
                     .None => bind_canonical
                   );
                   refs.insert(bind_owner.clone());
-                  site_key_b := `${lhs_tok.value}@${bind_var.token.module_path}:${bind_var.token.row.to_string()}:${bind_var.token.column.to_string()}`;
+                  site_key_b := `${lhs_tok.value}@${bind_var.token.src.module_path}:${bind_var.token.row.to_string()}:${bind_var.token.column.to_string()}`;
                   match(
                     captured_name_ids.get(site_key_b),
                     .Some(site_id_b) => if(!(site_id_b == bind_owner), {
@@ -1703,7 +1703,7 @@ _emit_dispatch_suspension_case :: (
       cond_branch_future_access(ae, ap, context),
       .None => {
         bt := ast_expr_token(ae);
-        codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} branch ${branch.index.to_string()} future access unresolvable (${bt.module_path}:${(usize(bt.row) + usize(1)).to_string()}:${(usize(bt.column) + usize(1)).to_string()})`);
+        codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} branch ${branch.index.to_string()} future access unresolvable (${bt.src.module_path}:${(usize(bt.row) + usize(1)).to_string()}:${(usize(bt.column) + usize(1)).to_string()})`);
       },
       .Some(acc_info) => {
         em.emit_string_line(`${indent}case ${branch.index.to_string()}: {`);
@@ -2223,7 +2223,7 @@ _emit_dispatch_extraction_case :: (
       cond_branch_future_access(ae, prev_await, context),
       .None => {
         bt2 := ast_expr_token(ae);
-        codegen_fatal(`internal: dispatch-mode await point ${prev_idx_s} branch ${branch.index.to_string()} future access unresolvable at extraction (${bt2.module_path}:${(usize(bt2.row) + usize(1)).to_string()}:${(usize(bt2.column) + usize(1)).to_string()})`);
+        codegen_fatal(`internal: dispatch-mode await point ${prev_idx_s} branch ${branch.index.to_string()} future access unresolvable at extraction (${bt2.src.module_path}:${(usize(bt2.row) + usize(1)).to_string()}:${(usize(bt2.column) + usize(1)).to_string()})`);
       },
       .Some(acc_info) => {
         acc := acc_info.access;

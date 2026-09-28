@@ -4,7 +4,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { SuspensionPoint, SuspensionAnalysisResult } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
 { AstExpr, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenSource, TokenKind, Token } :: import("../../src/token.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { Environment } :: import("../../src/env.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -25,8 +25,7 @@ make_token :: (fn(kind : TokenKind, v : str) -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 make_ident_expr :: (fn(v : str) -> AstExpr)(

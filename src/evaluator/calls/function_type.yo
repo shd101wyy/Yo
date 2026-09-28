@@ -330,7 +330,7 @@ _trial_eval_fn_body :: (
   // the most recent `[trial]` above it.
   if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
     dbg_tok := ast_expr_token(body);
-    eprintln(`[trial] ${dbg_tok.module_path}:${dbg_tok.row.to_string()}:${dbg_tok.column.to_string()}`);
+    eprintln(`[trial] ${dbg_tok.src.module_path}:${dbg_tok.row.to_string()}:${dbg_tok.column.to_string()}`);
   });
   inner_exn := Exception(
     throw : (
@@ -897,7 +897,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : stable_func_id(String.from(""), rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column))
+              func_id : stable_func_id(String.from(""), rp_tok.src.module_path, usize(rp_tok.row), usize(rp_tok.column))
             )
           ),
           ArrayList(EvalValue).new()
@@ -1185,7 +1185,7 @@ Result type: ${type_to_string(result_box)}`
       });
       ft_env_key := mint_funcval_env_key();
       register_funcval_cap_slices(ft_env_key, cap_slices);
-      fn_val_id := stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column));
+      fn_val_id := stable_func_id(String.from(""), tok.src.module_path, usize(tok.row), usize(tok.column));
       // Defer body evaluation ONLY for functions that depend on generic type
       // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
@@ -1333,8 +1333,8 @@ Result type: ${type_to_string(result_box)}`
       // AoRTE flagship: div-by-zero on code nobody annotated); a walk that
       // fails the SUBSET on a contract-less fn degrades to the passing
       // `outside-subset` outcome in the driver, not an error.
-      if(_is_verify_target(tok.module_path.clone()), {
-        vmode := resolve_verify_mode(tok.module_path.clone());
+      if(_is_verify_target(tok.src.module_path.clone()), {
+        vmode := resolve_verify_mode(tok.src.module_path.clone());
         is_assumed := has_func_assumed_body(fn_val_id.clone());
         // V6 task 2: a DEFERRED (generic) CONTRACTED fn registers too —
         // its body is verified ABSTRACTLY (type variables as opaque
@@ -1347,9 +1347,9 @@ Result type: ${type_to_string(result_box)}`
           if(is_assumed, {
             register_verify_task(
               VerifyTask(
-                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
+                fn_id : `fn@${display_module_path(tok.src.module_path.clone())}:${tok.row.to_string()}`,
                 func_id : fn_val_id.clone(),
-                module_path : tok.module_path.clone(),
+                module_path : tok.src.module_path.clone(),
                 body : body_expr_raw.clone(),
                 param_names : param_labels.clone(),
                 param_types : param_types.clone(),
@@ -1480,9 +1480,9 @@ Result type: ${type_to_string(result_box)}`
             });
             register_verify_task(
               VerifyTask(
-                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
+                fn_id : `fn@${display_module_path(tok.src.module_path.clone())}:${tok.row.to_string()}`,
                 func_id : fn_val_id.clone(),
-                module_path : tok.module_path.clone(),
+                module_path : tok.src.module_path.clone(),
                 body : body_expr_raw.clone(),
                 param_names : param_labels.clone(),
                 param_types : param_types.clone(),
@@ -1603,7 +1603,7 @@ Result type: ${type_to_string(result_box)}`
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                func_id : stable_func_id(String.from(""), tok.src.module_path, usize(tok.row), usize(tok.column))
               )
             ),
             ArrayList(EvalValue).new()
@@ -1656,9 +1656,9 @@ Result type: ${type_to_string(result_box)}`
           // message keyed by the task's fn_id BEFORE the fatal re-raise below,
           // so the verifier can name the cause when the load path surfaces the
           // task anyway.
-          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(tok.module_path.clone()), {
+          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(tok.src.module_path.clone()), {
             record_verify_task_def_eval_failure(
-              `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
+              `fn@${display_module_path(tok.src.module_path.clone())}:${tok.row.to_string()}`,
               _trial_swallow_message()
             );
           });
@@ -1671,7 +1671,7 @@ Result type: ${type_to_string(result_box)}`
           // so the stash evaluates fresh-id clones at THIS call site's
           // concrete types — see CallsiteContracts in contracts.yo and the
           // `_callee_call_term` consult.
-          __cs_mode := resolve_verify_mode(tok.module_path.clone());
+          __cs_mode := resolve_verify_mode(tok.src.module_path.clone());
           // ... but NOT when the trial above swallowed. That body is hollow —
           // the call-site ExprInfo the stash reads (argument types, callee
           // FuncVal) is exactly what the failed trial did not stamp — so the
@@ -1695,7 +1695,7 @@ Result type: ${type_to_string(result_box)}`
           // there, since a body that did not evaluate has no call sites worth
           // stashing.
           __cs_trial_failed := (_trial_swallow_pending() && (flow_out.len() == usize(0)));
-          if((_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))) && !(__cs_trial_failed), {
+          if((_is_verify_target(tok.src.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))) && !(__cs_trial_failed), {
             prepare_callsite_contracts(body_expr_raw.clone(), caller_env, ctx, exn);
           });
           if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
@@ -1894,7 +1894,7 @@ Result type: ${type_to_string(result_box)}`
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains.)
           if((type_representation_contains_raw_ptr(result_box) && !(result_is_comptime_only))
-          && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
+          && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).src.module_path.clone()))), {
             seb := match(
               flow_out.get(usize(0)),
               .Some(e) => e,
@@ -2018,7 +2018,7 @@ Result type: ${type_to_string(result_box)}`
                   body : make_err_expr(),
                   cap_names : ArrayList(String).new(),
                   cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                  func_id : stable_func_id(String.from(""), tok.src.module_path, usize(tok.row), usize(tok.column))
                 )
               ),
               ArrayList(EvalValue).new()

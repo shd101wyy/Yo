@@ -357,7 +357,7 @@ _module_global_root_var :: (
   });
   match(
     variables.get(variables.len() - usize(1)),
-    .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
+    .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.src.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
 });
@@ -368,7 +368,7 @@ _module_global_root_var :: (
 _d1_record_write :: (
   fn(gv : Variable, write_tok : Token, how : String, note : String, exn : Exception) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.module_path.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.src.module_path.clone())), {
     return(());
   });
   match(
@@ -394,7 +394,7 @@ _d1_record_write :: (
 d3_record_inout_place :: (
   fn(pending : ArrayList(D3PendingInout), param_index : usize, param_label : String, place : AstExpr, env : Environment) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).src.module_path.clone())), {
     return(());
   });
   root_expr := get_root_expr_of_place(place);
@@ -451,7 +451,7 @@ d3_check_pending :: (
   if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
     return(());
   });
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).src.module_path.clone())), {
     return(());
   });
   mask := function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table);
@@ -494,7 +494,7 @@ d3_check_pending :: (
 throw_if_write_through_atomic_root :: (
   fn(place : AstExpr, env : Environment, how : String, exn : Exception) -> unit
 )({
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).src.module_path.clone())), {
     return(());
   });
   root_expr := get_root_expr_of_place(place);
@@ -756,7 +756,7 @@ evaluate_assignment :: (
     // a `ref` param / enclosing-scope local / parameter / comptime is
     // accepted. Throws directly
     // (this path runs at module/test level — not behind the def-eval swallow).
-    if(type_representation_contains_raw_ptr(expected_ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone())), {
+    if(type_representation_contains_raw_ptr(expected_ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).src.module_path.clone())), {
       prop_root_expr := get_root_expr_of_field_access(lhs);
       (container_frame_level : i64) = i64(-1);
       if(ast_expr_is_atom(prop_root_expr), {
@@ -1214,7 +1214,7 @@ evaluate_assignment :: (
         )
       );
     });
-    register_thread_local(tl_tok.module_path.clone(), variable_name.clone());
+    register_thread_local(tl_tok.src.module_path.clone(), variable_name.clone());
   });
   // §4 escape boundary 2 for the typed form `(g : T) = init` at module level
   // (the `:=` form is checked in initialization_assignment.yo): a module-level
@@ -1300,8 +1300,8 @@ Bound type: ${type_to_string(mcb_v.ty)}`
   // `(g : T) = init` reaches this arm too, as the initialization of the
   // binding at its own declaration token — that is not a write.
   d1_lhs_tok := ast_expr_token(lhs_resolved);
-  d1_is_decl_init := (((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column)) && (d1_lhs_tok.module_path == variable.token.module_path));
-  if(((variable.is_module_level && !variable.is_compile_time_only) && !d1_is_decl_init) && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
+  d1_is_decl_init := (((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column)) && (d1_lhs_tok.src.module_path == variable.token.src.module_path));
+  if(((variable.is_module_level && !variable.is_compile_time_only) && !d1_is_decl_init) && !is_thread_local(d1_lhs_tok.src.module_path.clone(), variable_name.clone()), {
     _d1_record_write(variable, ast_expr_token(lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Evaluate the RHS.
@@ -1381,7 +1381,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // what those files declare. Same rule as at the binding site, but
   // `:=` is always innermost so only `=` reassignment
   // can invert scope.
-  if(type_representation_contains_raw_ptr(variable.ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone())), {
+  if(type_representation_contains_raw_ptr(variable.ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).src.module_path.clone())), {
     assign_flow_opts := FlowOptions(
       allow_same_frame_local : true,
       allow_parameter_source : true,

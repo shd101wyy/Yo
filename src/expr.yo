@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token, intern_token_str } :: import("./token.yo");
+{ TokenKind, Token, empty_token_source, intern_token_str } :: import("./token.yo");
 { format_error_message } :: import("./error.yo");
 { Exception } :: import("std/error");
 /// The Yo builtin keyword strings used by the parser.
@@ -440,8 +440,7 @@ make_err_expr :: (fn() -> AstExpr)(
       row : u32(0),
       column : u32(0),
       character : u32(0),
-      module_path : String.from(""),
-      input : String.from("")
+      src : empty_token_source()
     )
   )
 );
@@ -962,7 +961,7 @@ _synth_desugar_tok_s :: (fn(kind : TokenKind, value : String, ref_tok : Token) -
     column : ref_tok.column,
     character : ref_tok.character,
     byte_offset : ref_tok.byte_offset,
-    // SHARE module_path and input — never .clone() them. String.clone()
+    // SHARE the source record — never rebuild it from cloned strings. String.clone()
     // deep-copies the buffer, and `input` is the ENTIRE SOURCE FILE: the
     // original desugar cloned it into every synthesized (and, worse, every
     // REBUILT) node's token, giving each AST node a private copy of the
@@ -972,8 +971,7 @@ _synth_desugar_tok_s :: (fn(kind : TokenKind, value : String, ref_tok : Token) -
     // begin.yo's _m3_tokens_comparable (`left.input == right.input`) relies
     // on — with per-node copies every comparability check memcmp'd the
     // whole file (issues/desugar-token-clones-evaluator-regression.md).
-    module_path : ref_tok.module_path,
-    input : ref_tok.input
+    src : ref_tok.src
   )
 );
 /// Unwrap an optional `label : value` wrapper on an `if` argument.
@@ -1341,8 +1339,7 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
     column : tok.column,
     character : tok.character,
     byte_offset : tok.byte_offset,
-    module_path : tok.module_path,
-    input : tok.input
+    src : tok.src
   );
   args := ArrayList(AstExpr).new();
   args.push(body);

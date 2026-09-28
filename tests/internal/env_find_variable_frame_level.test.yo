@@ -2,7 +2,7 @@
 /// `find_variable_frame_level` in src/env.yo.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ TokenSource, Token, TokenKind } :: import("../../src/token.yo");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32 } :: import("../../src/types/creators.yo");
@@ -21,8 +21,7 @@ placeholder_token :: (fn() -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from(""),
-    input : String.from("")
+    src : TokenSource(module_path : String.from(""), input : String.from(""))
   )
 );
 add_var :: (fn(env : Environment, name : str) -> unit)({
