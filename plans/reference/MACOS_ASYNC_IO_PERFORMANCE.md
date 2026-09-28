@@ -61,7 +61,11 @@ the fix and passes after.
   11.1 µs a round trip, with less CPU. A near deadline wakes the thread
   sooner, most likely because the core idles in a shallower state (the
   mechanism is the kernel's and is not proven). A hot wait that times out empty
-  ends the hot state.
+  ends the hot state. A hot wait with no deadline reads no clock: one that
+  returns events within its 50 µs bound was answered inside the window by
+  construction. The two `clock_gettime_nsec_np` calls it used to make were
+  ~15 ns of a ~750 ns socketpair echo hop (1.52 → 1.49 s for 2,000,000 hops;
+  `sample` put them at 2% of the loop thread).
 
 ## 4. Measurements
 
@@ -109,6 +113,12 @@ Reading the rows:
   a 1 µs userspace spin): 5–40% slower on the TCP echo, and more CPU.
 - **`write` instead of `send`** for inline sends: `write` takes no
   `MSG_NOSIGNAL`, and it would block the loop on a caller's blocking socket.
+- **Level knotes disabled lazily** (keep a knote enabled after its FIFO
+  drains, disable it on the first delivery that finds no waiter): saves the
+  per-park `EV_ENABLE`, 28 ns a socketpair hop in C (0.602 vs 0.574 µs). It
+  makes the slot table the record of what the kernel holds, so a descriptor
+  closed outside the runtime (a raw `close` through FFI) and reused hangs its
+  next park, which today's per-park `EV_ADD|EV_ENABLE` re-creates.
 - **Inline continuation after a synchronous cold-start completion** (codegen):
   no measurable change (see the std issue).
 - **`NOTE_CRITICAL` timers**: precise (1.03 ms for 1 ms), but they opt out of

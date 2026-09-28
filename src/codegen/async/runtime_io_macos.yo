@@ -1650,10 +1650,14 @@ static int __yo_io_wait(void) {
   // idle process ten times a second and delayed a watch by up to 100 ms.
   uint64_t due = __yo_watch_next_due_ns();
   if (__yo_timer_count > 0 && __yo_timers[0]->deadline_ns < due) due = __yo_timers[0]->deadline_ns;
-  uint64_t now = __yo_mono_ns();
+  //
+  // The clock is read only when an answer needs it: a finite deadline to turn
+  // into a span, or a cold wait whose latency decides whether the loop turns
+  // hot. A hot loop with no deadline reads it never (two clock reads were
+  // ~15 ns of a ~750 ns socketpair echo hop).
+  uint64_t now = (due != UINT64_MAX || !__yo_kq_hot) ? __yo_mono_ns() : 0;
   uint64_t span = (due == UINT64_MAX) ? UINT64_MAX : ((due > now) ? (due - now) : 0);
-  bool hot_bound = __yo_kq_hot && span > __YO_KQ_HOT_WAIT_NS;
-  if (hot_bound) span = __YO_KQ_HOT_WAIT_NS;
+  if (__yo_kq_hot && span > __YO_KQ_HOT_WAIT_NS) span = __YO_KQ_HOT_WAIT_NS;
   struct timespec ts;
   const struct timespec* timeout = NULL;
   if (span != UINT64_MAX) {
@@ -1664,8 +1668,11 @@ static int __yo_io_wait(void) {
   int processed = __yo_kq_drive(timeout);
   // Hot: this wait was answered within the hot window, so the next one is
   // likely to be too. A hot-bounded wait that timed out empty ends it, and the
-  // loop's next wait is unbounded again.
-  __yo_kq_hot = processed > 0 && (__yo_mono_ns() - now) < __YO_KQ_HOT_WAIT_NS;
+  // loop's next wait is unbounded again. A wait bounded by the window (or
+  // closer) that returned events was answered within it by construction, so
+  // only a longer wait reads the clock again.
+  __yo_kq_hot = processed > 0
+      && (span <= __YO_KQ_HOT_WAIT_NS || (__yo_mono_ns() - now) < __YO_KQ_HOT_WAIT_NS);
   processed += __yo_timer_expire();
   // The loop drivers skip their 0-timeout __yo_io_poll in an iteration that
   // blocks here (runtime_core.yo), so this wait must tick the poll/fs-event

@@ -193,7 +193,8 @@ test("macos runtime: sleeps are a heap, the wait carries the next deadline, an e
   assert(!c.contains(String.from("nanosleep(&")), String.from("the watch-only 10 ms sleep came back"));
   assert(c.contains(String.from("int r = select(__yo_io_kq + 1, &rs, NULL, NULL, &tv);")), String.from("the non-blocking poll does not probe before scanning"));
   assert(c.contains(String.from("bool next_step_waits = ")), String.from("a poll before a blocking step still enters the kernel"));
-  assert(c.contains(String.from("__yo_kq_hot = processed > 0 && (__yo_mono_ns() - now) < __YO_KQ_HOT_WAIT_NS;")), String.from("the hot-wait bound is gone"));
+  assert(c.contains(String.from("if (__yo_kq_hot && span > __YO_KQ_HOT_WAIT_NS) span = __YO_KQ_HOT_WAIT_NS;")), String.from("the hot-wait bound is gone"));
+  assert(c.contains(String.from("uint64_t now = (due != UINT64_MAX || !__yo_kq_hot) ? __yo_mono_ns() : 0;")), String.from("a hot wait with no deadline reads the clock again"));
 });
 test("macos sys runtime: dup2 closes through the backend's per-thread hook", {
   // issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md
