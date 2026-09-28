@@ -1335,7 +1335,7 @@ prefix_call_paren_shape :: (
                   .Some(lp) => cond(
                     // The call form is exactly adjacency: `(` starts where the
                     // operator token ends (`f - (x)` has a gap and is infix).
-                    ((op.byte_offset + op.value.len()) != lp.byte_offset) => false,
+                    ((usize(op.byte_offset) + op.value.len()) != usize(lp.byte_offset)) => false,
                     true => {
                       // Prefix position: an rvalue-end before the operator
                       // makes it the infix spelling (`f -(x)`).
@@ -1442,7 +1442,7 @@ is_callee_prefix_call_paren :: (
             match(
               tokens.get(right_index),
               .None => false,
-              .Some(r) => ((r.byte_offset + r.value.len()) == nx.byte_offset)
+              .Some(r) => ((usize(r.byte_offset) + r.value.len()) == usize(nx.byte_offset))
             )
         )
       )
@@ -1909,7 +1909,7 @@ is_tightly_bound_operator :: (
                 // RUNE columns (the lexer indexes an ArrayList(rune)), so the
                 // token width added to one has to be a rune count
                 // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                (n.column == (token.column + token.value.chars().count()))
+                (usize(n.column) == (usize(token.column) + token.value.chars().count()))
             )
           );
           cond(
@@ -2206,7 +2206,7 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
     tokens.get(index),
     .None => String.new(),
     .Some(t) => cond(
-      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, t.byte_offset),
+      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.byte_offset)),
       true => t.value
     )
   )
@@ -2969,7 +2969,7 @@ _format_yo_source_impl :: (
                           });
                           at_line_start = true;
                           // Preserve at most one blank line between statements
-                          next_row_diff := match(next, .None => usize(0), .Some(nx) => cond((nx.row > token.row) => (nx.row - token.row), true => usize(0)));
+                          next_row_diff := match(next, .None => usize(0), .Some(nx) => cond((nx.row > token.row) => usize(nx.row - token.row), true => usize(0)));
                           if(next_row_diff >= usize(2), {
                             result.push_str("\n");
                           });

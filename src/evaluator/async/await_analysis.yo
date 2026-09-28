@@ -343,7 +343,7 @@ detect_await_expr_ :: (
       // Get the target variable ID from the parent := assignment, if any
       target_variable_id := extract_target_variable_id(parent_expr.clone(), get_info);
       // Store async-specific extras in the side-channel, keyed by token position
-      expr_char_key := tok.character.to_string();
+      expr_char_key := usize(tok.character).to_string();
       await_extras.insert(
         expr_char_key.clone(),
         AwaitPointExtra(
@@ -456,7 +456,7 @@ analyze_await_points :: (
       },
       .Some(p) => p
     );
-    expr_char_key := ast_expr_token(sp.expr.clone()).character.to_string();
+    expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
       await_extras.get(expr_char_key.clone()),
       .None => (),

@@ -150,10 +150,10 @@ _find_token_at :: (
       (t.kind == TokenKind.Whitespace) ||
         ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
     );
-    if(!skip && (t.row == line), {
+    if(!skip && (usize(t.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
       // to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      if((character >= t.column) && (character < (t.column + t.value.chars().count())), {
+      if((character >= usize(t.column)) && (character < (usize(t.column) + t.value.chars().count())), {
         return(Option(Token).Some(t));
       });
     });
@@ -240,12 +240,12 @@ _select_best_variable :: (
           if(visible, {
             later := (
               best_visible.is_none() ||
-                ((it.row > best_row) || ((it.row == best_row) && (it.column >= best_col)))
+                ((usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col)))
             );
             if(later, {
               best_visible = Option(Variable).Some(v);
-              best_row = it.row;
-              best_col = it.column;
+              best_row = usize(it.row);
+              best_col = usize(it.column);
             });
           });
         });
@@ -646,7 +646,7 @@ handle_hover :: (
       jb().put("kind", jstr(String.from("markdown"))).put("value", jstr(content)).obj()
     ).put(
       "range",
-      j_range_in(lines, target.row, target.column, target.row, target.column + target.value.chars().count())
+      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.chars().count())
     ).obj()
   )
 });

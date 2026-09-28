@@ -148,6 +148,22 @@ now that closures stop pinning them.
 
 ### 3.2 Strings: `ArrayList(u8)`, 185 MB
 
+**Re-ranked by content (plan §0.23, `HOLDER_DUPSTR=1`):** 1.28 M live strings
+hold 194 MB, but only 422 K distinct contents exist, so **71.9 MB (37 %) is
+redundant copies**. Two families:
+- tiny node strings minted per AST node instead of interned: a 1-char string
+  ×198 K, `tuple` ×48 K, `begin` ×34 K, `=>` ×30 K, `Some`/`None`/`cond`/
+  `true` ×15 K each;
+- registry keys cloned per table: `g_funcval_cap_vars` 12.0 MB,
+  `g_func_type_registry` 10.8 MB, `_type_trait_methods` 10.4 MB,
+  `g_specialized_base` 9.4 MB, `g_type_intern` 7.1 MB of copies.
+
+Interning the first family at its mint site, and sharing the handle instead
+of `.clone()` for the second, is where the §3.2 bytes are. The lexer's
+`intern_token_str` is the precedent (value strings are audited
+never-mutated).
+
+
 The exclusive holders measured before §0.19 (re-measure with
 `HOLDER_DEEP_LAST`):
 - `g_type_intern` keys, about 35 MB (24 K keys of 1.4–3.6 KB);
@@ -181,11 +197,12 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
 `create_specialized_function_inline` (`calls/helper.yo`) and measure the
 `AstExpr` count.
 
-### 3.4 Token diet (76 B × about 1.9 M)
+### 3.4 Token diet (80 B × about 1.9 M)
 
-`row`/`column`/`character`/`byte_offset` are four `usize` fields; `u32` saves
-16 B a token. `module_path` + `input` could share one source-record handle
-(−8 B). The edit is big but mechanical.
+LANDED on branch `mem/token-u32` (plan §0.22): the four positions are `u32`,
+80 → 64 B a token, −30.1 MB max RSS. Still open on the same object:
+`module_path` + `input` could share one source-record handle (−8 B, a 56 B
+class on mimalloc). The edit is big but mechanical.
 
 ### 3.5 Plan steps still open
 

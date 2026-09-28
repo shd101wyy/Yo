@@ -54,14 +54,14 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
     is_close := ((t.kind == TokenKind.RCurlyBracket) || (t.kind == TokenKind.RParen));
     cond(
       is_open => {
-        open_rows.push(t.row);
+        open_rows.push(usize(t.row));
       },
       is_close => {
         if(open_rows.len() > usize(0), {
-          open_row := match(open_rows.get(open_rows.len() - usize(1)), .Some(r) => r, .None => t.row);
+          open_row := match(open_rows.get(open_rows.len() - usize(1)), .Some(r) => r, .None => usize(t.row));
           _p := open_rows.pop();
-          if(open_row < t.row, {
-            _push_fold(out, seen, open_row, t.row, "region");
+          if(open_row < usize(t.row), {
+            _push_fold(out, seen, open_row, usize(t.row), "region");
           });
         });
       },
@@ -71,7 +71,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
       ) => {
         line_count := t.value.split(String.from("\n")).len();
         if(line_count > usize(1), {
-          _push_fold(out, seen, t.row, (t.row + line_count) - usize(1), "comment");
+          _push_fold(out, seen, usize(t.row), (usize(t.row) + line_count) - usize(1), "comment");
         });
       },
       true => ()

@@ -324,8 +324,8 @@ evaluate_enum_type :: (
   decl_tok := ast_expr_token(expr);
   enum_id := if(
     ctx.ctfe_depth == usize(0),
-    stable_position_id(String.from("enum_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
-    stable_type_id(String.from("enum_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
+    stable_position_id(String.from("enum_decl_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column)),
+    stable_type_id(String.from("enum_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column))
   );
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(enum_id.clone(), decl_tok.module_path.clone());
