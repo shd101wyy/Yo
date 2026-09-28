@@ -1322,9 +1322,9 @@ operation, and never re-decides:
 1. **io_uring** (the default wherever the kernel allows it — 5.6+, not blocked).
 2. **epoll fallback** — chosen automatically when the ring cannot be created
    (a kernel without io_uring, or a sandbox that blocks it, such as Docker's
-   default seccomp profile). Readiness-driven for sockets/pipes/ttys and
-   timers; regular files and the ops epoll cannot express complete
-   synchronously in the future, matching the macOS backend's behavior.
+   default seccomp profile). Readiness-driven for sockets, pipes and ttys;
+   regular files and the ops epoll cannot express complete synchronously in
+   the future, matching the macOS backend's behavior.
 3. **degraded** — only if epoll is also unavailable: every async operation
    completes with an errno instead of hanging or exiting the process.
 
@@ -1336,12 +1336,50 @@ benchmarking with the `YO_IO_BACKEND` environment variable (`auto` (default)
 error rather than a silent step, and any other value is an error too, so a
 typo can never quietly mean `auto`.
 
+### What runs where on Linux
+
+Both backends try to finish an operation without the loop having to wait for
+it, because a round trip through the loop (suspend the task, enter the
+kernel, reap, resume) costs far more than the syscall itself:
+
+- **Sockets:** `send`/`recv`/`sendto`/`recvfrom` are attempted inline with
+  `MSG_DONTWAIT` first; only a would-block result parks the task (an io_uring
+  SQE, or an epoll registration). An inline attempt never runs ahead of an
+  earlier operation of the same direction still queued on that socket. A
+  socket whose last inline `recv` would have blocked sends its next one
+  straight to the ring (or straight to epoll), until a receive completes
+  without the loop waiting.
+- **Timers:** a sleep is a node in a per-thread timer heap on both backends;
+  the loop's wait is bounded by the earliest deadline. Arming and cancelling
+  one costs no syscall (std/async's `timeout` cancels its deadline whenever
+  the guarded work wins).
+- **File metadata on io_uring:** `stat`, `mkdir`, `unlink`, `rename`,
+  `symlink`, `link` and opens that create or truncate run inline on the loop
+  thread. The kernel cannot do them without blocking, so io_uring always
+  hands them to a worker thread; the hand-off measured ~57 µs against
+  0.3–3 µs for the syscall itself. A path lookup on a slow or network
+  filesystem blocks the loop for its duration — the contract macOS and the
+  epoll fallback already had. Buffered writes are tried inline with
+  `RWF_NOWAIT` and go to the ring only when the kernel refuses; ext4 and
+  tmpfs refuse on current kernels, and the refusal is remembered per
+  descriptor. Reads, plain opens, `fsync` and `ftruncate` stay on the ring.
+- **Watches** (`std/sys/events` poll handles, `std/fs/watch`): a watched
+  descriptor ends a blocked wait, so a callback fires while unrelated I/O is
+  in flight, and `Watcher.next` parks rather than polling.
+
 ### Operation lifetimes are the same on every backend
 
 - **Closing a descriptor ends the operations still pending on it**: they
   complete with `-EBADF` (kqueue, epoll and io_uring alike — the ring cancels
   its requests, because an io_uring request holds its own file reference and
-  would otherwise outlive the descriptor).
+  would otherwise outlive the descriptor). On Linux that includes `dup2` over
+  an open descriptor, which closes it. Close descriptors the runtime has
+  waited on through std (`file.close`, `tcp.close`, `pipe.dup2`), not a raw
+  `libc` `close`: the backend cannot see a close it is not told about.
+- **Concurrent receives on one stream socket:** kqueue and epoll complete
+  them in the order they were issued; io_uring does not order them (a later
+  `recv` may get the next bytes). Each byte still reaches exactly one
+  `recv`.
 - **Aborting a task cancels the operation it is suspended in**, so an aborted
   `recv` never consumes data a later `recv` should see.
 - **Sockets may be blocking or nonblocking** for `send`/`recv`/`sendto`/

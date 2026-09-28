@@ -1271,11 +1271,17 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   return (fd < 0) ? -errno : fd;
 }
 
-// Defined in the async runtime section emitted below: drops a closing fd's
-// handle from the per-thread IOCP-association cache (handle values are reused
-// by the kernel, so a stale cached entry would hang future operations on the
-// reused value).
-static void __yo_win_unassociate_handle(int32_t fd);
+// Drops a closing fd's handle from the per-thread IOCP-association cache
+// (handle values are reused by the kernel, so a stale cached entry would hang
+// future operations on the reused value). A HOOK, installed by the async
+// runtime's __yo_io_init, not a direct call: this sync section is emitted for
+// every program and the cache lives in the async section, which a program
+// without async code does not get — the direct call left every such program
+// (hello-world) with an undefined __yo_win_unassociate_handle at link time.
+// Per thread, like the cache: a thread that never initialized async I/O has
+// no cache to evict from, and its hook is NULL. The Linux runtime's
+// __yo_io_close_hook is the same arrangement.
+static __declspec(thread) void (*__yo_win_close_hook)(int32_t) = NULL;
 
 static void __yo_file_close(int32_t fd) {
   // Registry-driven, not closesocket-probed: see __yo_win_sock_fds above.
@@ -1284,12 +1290,12 @@ static void __yo_file_close(int32_t fd) {
     // cache consults the registry to know a socket fd IS its handle value,
     // and after closesocket the value is gone from it.
     __yo_wsa_init();
-    __yo_win_unassociate_handle(fd);
+    if (__yo_win_close_hook) __yo_win_close_hook(fd);
     closesocket((SOCKET)(uintptr_t)(uint32_t)fd);
     __yo_win_fd_unmark_socket(fd);
     return;
   }
-  __yo_win_unassociate_handle(fd);
+  if (__yo_win_close_hook) __yo_win_close_hook(fd);
   _close(fd);
 }
 
@@ -2399,6 +2405,7 @@ static void __yo_io_init(void) {
     loop->notify_ready = 1;
   }
   __yo_io_initialized = true;
+  __yo_win_close_hook = __yo_win_unassociate_handle;
   ASYNC_DEBUG("[Io] Windows async runtime initialized\\n");
 }
 
@@ -2436,6 +2443,7 @@ static void __yo_io_cleanup(void) {
     __yo_win_assoc_cap = 0;
     __yo_win_assoc_count = 0;
   }
+  __yo_win_close_hook = NULL;
   // Operations still "pending" died with the port above (their completions
   // were never delivered and never will be): a loop that re-initializes on
   // this thread must not inherit their counts, or __yo_has_pending_io reports

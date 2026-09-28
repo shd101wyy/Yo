@@ -187,7 +187,6 @@ _run_timers :: (fn(io : Io) -> unit)({
     )
   );
 });
-export(main);
 
 _run_multi :: (fn(io : Io) -> unit)({
   count := _env_count(`BENCH_COUNT`.to_string(), i64(16000));
@@ -219,6 +218,11 @@ _run_multi :: (fn(io : Io) -> unit)({
     li = (li + i64(1));
   });
   done := Channel(unit).new(usize(npair));
+  // The server tasks are awaited at the end: a server observing its peer's
+  // close as an error unwinds, and an unwound task nobody awaits is reported
+  // at teardown ("unhandled effect unwind aborted an async task that was
+  // never awaited") — noise the first version of this bench printed.
+  servers := ArrayList(JoinHandle(unit)).new();
   (pi : i64) = i64(0);
   while(runtime(pi < npair), {
     lst := match(
@@ -286,7 +290,7 @@ _run_multi :: (fn(io : Io) -> unit)({
       io.await(c.close(io), e);
       match(done.try_send(()), .Ok(_) => (), .Err(_) => ());
     });
-    io.spawn(server, io);
+    servers.push(io.spawn(server, io));
     io.spawn(client, io);
     pi = (pi + i64(1));
   });
@@ -327,4 +331,9 @@ _run_multi :: (fn(io : Io) -> unit)({
     io.await(l.close(io), e2);
     ci = (ci + i64(1));
   });
+  (si : usize) = usize(0);
+  while(si < servers.len(), si = (si + usize(1)), {
+    _s := servers(si).await(io);
+  });
 });
+export(main);

@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 import("std/libc/stdio");
-{ get_thread_id, Thread } :: import("std/thread");
+{ Thread } :: import("std/thread");
 { yield } :: import("std/async");
 { Channel } :: import("std/sync/channel");
 { rand_u64 } :: import("std/rand");
@@ -444,11 +444,13 @@ test("Test a spawned thread joins a thread of its own, 5000 times", {
 // (issues/windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md).
 // Every round is an open + getdents + close on that one shared registry; the
 // data race is undefined behavior, so a pass on an unfixed build proves
-// nothing, but a hang or crash here is this bug's signature. No captures: the
-// unique directory name comes from get_thread_id().
-// One thread's share of the registry stress: a private directory (named by
-// thread id, so no captures are needed), created, iterated 40 times, removed.
-_dir_iter_roundtrip :: (fn(io : Io) -> unit)({
+// nothing, but a hang or crash here is this bug's signature.
+// One thread's share of the registry stress: a private directory named by
+// `k` (a literal at each spawn, so still no captures), created, iterated 40
+// times, removed. It was named by get_thread_id(), which is 0 on every wasm
+// thread (runtime_core's wasm arm): there all three threads raced for one
+// directory and the second create_dir threw EEXIST.
+_dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
   task := io.async((io : Io) => {
     exn := Exception(
       throw : (
@@ -459,7 +461,7 @@ _dir_iter_roundtrip :: (fn(io : Io) -> unit)({
       )
     );
     tmp := temp_dir();
-    base := path_join(tmp, `yo_thread_dir_iter_${get_thread_id()}`);
+    base := path_join(tmp, `yo_thread_dir_iter_${k}`);
     dpath := Path.new(base.clone());
     io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
     (i : usize) = usize(0);
@@ -489,9 +491,9 @@ _dir_iter_roundtrip :: (fn(io : Io) -> unit)({
   io.await(task, io);
 });
 test("concurrent directory iteration on three threads", {
-  t1 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
-  t2 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
-  t3 := Thread(unit).spawn(io => _dir_iter_roundtrip(io));
+  t1 := Thread(unit).spawn(io => _dir_iter_roundtrip(i32(1), io));
+  t2 := Thread(unit).spawn(io => _dir_iter_roundtrip(i32(2), io));
+  t3 := Thread(unit).spawn(io => _dir_iter_roundtrip(i32(3), io));
   t1.join();
   t2.join();
   t3.join();
