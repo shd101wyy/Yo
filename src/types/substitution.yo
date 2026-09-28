@@ -43,9 +43,13 @@ Substitution :: ref(
     /// never reach it and `Array(T, N)` survived substitution as
     /// `Array(u16, length = 0, length_var = "N")` — a type with no valid C
     /// rendering, which codegen spells as the comment `// Unknown type: ...`.
-    /// Parallel arrays, name → concrete length.
+    /// Parallel arrays, name → concrete length; `len_var_syms` is non-empty
+    /// for a SYMBOLIC binding instead — the variable length it names
+    /// (`N := T.BYTES` when the receiver is `Array(u8, T.BYTES)` in a generic
+    /// body), which `Array(T, N)` then carries as its own `length_var`.
     len_var_names : ArrayList(String),
     len_var_values : ArrayList(usize),
+    len_var_syms : ArrayList(String),
     /// SomeT ids whose OWN resolution (`SomeT.resolution`) this walk
     /// adopts: each occurrence that carries a resolution is replaced by it,
     /// and an occurrence without one is left to the (name, level) entries.
@@ -67,13 +71,25 @@ subst_new :: (fn() -> Substitution)(
     self_to : ArrayList(TypeValue).new(),
     len_var_names : ArrayList(String).new(),
     len_var_values : ArrayList(usize).new(),
+    len_var_syms : ArrayList(String).new(),
     own_resolution_ids : ArrayList(String).new()
   )
 );
 /// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
 /// concrete value. Applied by the `.Array` arm of `substitute`. Overwrites an
 /// existing binding of the same name.
-subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit)({
+subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit)(
+  _subst_bind_len_var(s, name, value, String.from(""))
+);
+/// Bind a const-generic array LENGTH variable to another variable length
+/// (`N := T.BYTES`): a generic body's receiver `Array(u8, T.BYTES)` matched
+/// against `Array(T, N)`. `substitute` rewrites `Array(T, N)` to
+/// `Array(u8, T.BYTES)`, which the later substitution of `T` resolves
+/// (issues/fixed/generic-trial-degrades-a-failed-evaluation-to-unit.md).
+subst_add_len_var_alias :: (fn(s : Substitution, name : String, sym : String) -> unit)(
+  _subst_bind_len_var(s, name, usize(0), sym)
+);
+_subst_bind_len_var :: (fn(s : Substitution, name : String, value : usize, sym : String) -> unit)({
   if(name.len() == usize(0), {
     return(());
   });
@@ -83,12 +99,14 @@ subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit
     ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       s.len_var_values(i) = value;
+      s.len_var_syms(i) = sym;
       return(());
     });
     i = (i + usize(1));
   });
   s.len_var_names.push(name);
   s.len_var_values.push(value);
+  s.len_var_syms.push(sym);
 });
 /// The same substitution with the const-generic LENGTH bindings dropped.
 ///
@@ -116,6 +134,7 @@ _without_len_vars :: (fn(s : Substitution) -> Substitution)(
       self_to : s.self_to,
       len_var_names : ArrayList(String).new(),
       len_var_values : ArrayList(usize).new(),
+      len_var_syms : ArrayList(String).new(),
       own_resolution_ids : s.own_resolution_ids
     )
   )
@@ -186,6 +205,9 @@ subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
   while(i < n, {
     ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
     if(ni == name, {
+      if(match(s.len_var_syms.get(i), .Some(sy) => (sy.len() > usize(0)), .None => false), {
+        return(Option(usize).None);
+      });
       return(
         match(
           s.len_var_values.get(i),
@@ -197,6 +219,25 @@ subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
     i = (i + usize(1));
   });
   Option(usize).None
+});
+/// The variable length a SYMBOLIC length binding names (`subst_add_len_var_alias`).
+_subst_lookup_len_var_sym :: (fn(s : Substitution, name : String) -> Option(String))({
+  i := usize(0);
+  n := s.len_var_names.len();
+  while(i < n, {
+    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    if(ni == name, {
+      return(
+        match(
+          s.len_var_syms.get(i),
+          .Some(sy) => if(sy.len() > usize(0), Option(String).Some(sy.clone()), Option(String).None),
+          .None => Option(String).None
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(String).None
 });
 /// Bind `Self`, consumed by
 /// the same walk. `TypeValue.Func` stores no type
@@ -378,6 +419,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
     self_to : s.self_to,
     len_var_names : ArrayList(String).new(),
     len_var_values : ArrayList(usize).new(),
+    len_var_syms : ArrayList(String).new(),
     // An adopted own resolution belongs to its SomeT, never to a nested
     // fn's binder (a distinct SomeT), so the mask never applies to it.
     own_resolution_ids : s.own_resolution_ids
@@ -398,6 +440,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
     if(!_mfb_is_binder(forall_labels, lnm), {
       masked.len_var_names.push(lnm);
       masked.len_var_values.push(match(s.len_var_values.get(mli), .Some(v) => v, .None => usize(0)));
+      masked.len_var_syms.push(match(s.len_var_syms.get(mli), .Some(v) => v, .None => String.from("")));
     });
     mli = (mli + usize(1));
   });
@@ -431,15 +474,20 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             true => match(
               subst_lookup_len_var(s, lvar.clone()),
               .Some(bound_len) => .Array(new_inner, bound_len, String.from("")),
-              // Not a plain length variable — it may be an associated-constant
-              // projection (`T.BYTES`) recorded by evaluator/types/array.yo.
-              // Resolving it here is the whole point of the value half: the
-              // receiver is bound in THIS substitution, so the constant is
-              // knowable exactly when the impl specializes.
               .None => match(
-                _subst_resolve_len_projection(s, lvar.clone()),
-                .Some(proj_len) => .Array(new_inner, proj_len, String.from("")),
-                .None => .Array(new_inner, len, lvar)
+                _subst_lookup_len_var_sym(s, lvar.clone()),
+                // Bound to another variable length: carry that one.
+                .Some(sym) => .Array(new_inner, usize(0), sym),
+                // Not a plain length variable — it may be an associated-constant
+                // projection (`T.BYTES`) recorded by evaluator/types/array.yo.
+                // Resolving it here is the whole point of the value half: the
+                // receiver is bound in THIS substitution, so the constant is
+                // knowable exactly when the impl specializes.
+                .None => match(
+                  _subst_resolve_len_projection(s, lvar.clone()),
+                  .Some(proj_len) => .Array(new_inner, proj_len, String.from("")),
+                  .None => .Array(new_inner, len, lvar)
+                )
               )
             )
           )
@@ -749,6 +797,7 @@ export(
   subst_adopt_own_resolution,
   subst_lookup,
   subst_add_len_var,
+  subst_add_len_var_alias,
   subst_lookup_len_var,
   substitute,
   substitute_all,

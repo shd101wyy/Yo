@@ -1934,6 +1934,38 @@ _synthesize_types_impl :: (
         );
       });
     });
+    // A VARIABLE given length (`Array(u8, T.BYTES)` inside a generic body,
+    // where `T` is still abstract) binds the expected variable to it
+    // SYMBOLICALLY: `N := VarRef("T.BYTES")`. The impl then matches, and its
+    // method types substitute `Array(T, N)` to `Array(u8, T.BYTES)` — the
+    // type the call has under every `T`. Left unbound, the impl did not match,
+    // the static call `Array(u8, T.BYTES).fill(u8(0))` found no method, and the
+    // generic trial typed it `unit`
+    // (issues/fixed/generic-trial-degrades-a-failed-evaluation-to-unit.md).
+    if((exp_lvar.len() > usize(0)) && (giv_lvar.len() > usize(0)), {
+      sym_vars := get_variables_from_env(ee, exp_lvar);
+      if(sym_vars.len() > usize(0), {
+        match(
+          sym_vars.get(sym_vars.len() - usize(1)),
+          .Some(sym_var) => {
+            sym_var.value = value_cell_of(Option(EvalValue).Some(EvalValue.VarRef(giv_lvar.clone())));
+          },
+          .None => ()
+        );
+      }, {
+        add_variable_to_env(
+          ee,
+          exp_lvar.clone(),
+          t_usize(),
+          Option(EvalValue).Some(EvalValue.VarRef(giv_lvar.clone())),
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(exp_lvar, ee.module_path)
+        );
+      });
+    });
     // Concrete-vs-concrete mismatched lengths fail compatibility later
     // (compatibility.yo's Array arm); synthesis itself stays permissive,
     // only binding, never rejecting lengths here.
