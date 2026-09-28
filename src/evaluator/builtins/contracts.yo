@@ -2485,6 +2485,9 @@ wrap_function_body_with_contracts :: (
     return(body);
   });
   body_tok := ast_expr_token(body);
+  // The ensures clauses that get runtime asserts: all of them, except in
+  // `verify` mode (below).
+  (splice_ensures : ArrayList(AstExpr)) = ensures_exprs;
   // V3 mode dispatch (plans/backlog/FORMAL_VERIFICATION.md §"The
   // assert-splice interaction"). Effects apply only when this module is a
   // VERIFICATION TARGET (the `yo verify` file set): a non-target file — the
@@ -2498,14 +2501,20 @@ wrap_function_body_with_contracts :: (
     if(mode == "ignore", {
       return(body);
     });
-    // `verify` — suppress the splice entirely: the verifier consumes the
-    // predicates from the fn-type side tables and the emitted code carries
-    // no runtime asserts (the proof replaces them). The predicates were
-    // still type-checked at signature evaluation, so malformed ones error.
-    // `verify+` keeps the splice here; the strip pass for PROVED predicates
-    // is V3 task 6.
+    // `verify` — suppress the ENSURES asserts: the verifier proves each one
+    // against this body, so the proof replaces the check. The REQUIRES entry
+    // asserts stay, exactly as in `verify+`. A requires is proved at call
+    // sites, and a caller the verifier never walks (one outside the subset,
+    // an exported symbol's foreign caller, an indirect call through a function
+    // value) proves nothing, so without the assert nothing would establish it
+    // (issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md).
+    // The predicates were still type-checked at signature evaluation, so
+    // malformed ones error either way.
     if(mode == "verify", {
-      return(body);
+      if(requires_exprs.len() == usize(0), {
+        return(body);
+      });
+      splice_ensures = ArrayList(AstExpr).new();
     });
   });
   bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
@@ -2541,7 +2550,7 @@ wrap_function_body_with_contracts :: (
   });
   begin_atom := _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, body_tok.clone());
   // No ensures: prepend the requires asserts to the body.
-  if(ensures_exprs.len() == usize(0), {
+  if(splice_ensures.len() == usize(0), {
     new_args := ArrayList(AstExpr).new();
     (ai : usize) = usize(0);
     while(ai < requires_asserts.len(), {
@@ -2582,9 +2591,9 @@ wrap_function_body_with_contracts :: (
   snapshots := ArrayList(AstExpr).new();
   ensures_asserts := ArrayList(AstExpr).new();
   (ei : usize) = usize(0);
-  while(ei < ensures_exprs.len(), {
+  while(ei < splice_ensures.len(), {
     match(
-      ensures_exprs.get(ei),
+      splice_ensures.get(ei),
       .Some(p) => {
         rewritten := _hoist_old_in(clone_expr_fresh_ids(p.clone()), snapshots, bind_op.clone());
         if(return_label.is_none(), {

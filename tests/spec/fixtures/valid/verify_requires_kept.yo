@@ -1,0 +1,13 @@
+// verify-mode fixture for tests/internal/verifier_strip.test.yo: the
+// `requires failed` entry guard is SPLICED in `verify` mode too, because a
+// caller the verifier never walks proves nothing. The `ensures` assert is
+// not: the proof replaces it
+// (issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md).
+pragma(Pragma.Verify);
+
+abs_v :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => (i32(0) - x),
+    true => x
+  )
+);
