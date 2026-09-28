@@ -21,11 +21,44 @@ tcp :: import("std/sys/tcp");
 { Duration } :: import("std/time/duration");
 { Exception, IoExn } :: import("std/error");
 { env } :: import("std/env");
+{ AF_INET } :: import("std/sys/socket");
+{ getsockname } :: import("std/sys/sockinfo");
+{ ArrayList } :: import("std/collections/array_list");
 
 ECHO_ROUNDS :: usize(2000);
 TIMER_TICKS :: usize(2000);
 FILE_ITERS :: usize(400);
 FILE_SIZE :: usize(16384);
+ECHO_CONNS :: usize(64);
+ECHO_CONN_ROUNDS :: usize(200);
+
+// One side of a concurrent echo connection: `server` receives then echoes,
+// the client sends then waits for the echo. Every op of every connection is
+// in flight at once, so this is the batching and parking case the
+// sequential ping-pongs above cannot show.
+_echo_side :: (fn(fd : i32, server : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    buf := (*u8)(malloc(usize(64)).unwrap());
+    (i : usize) = usize(0);
+    (bad : i32) = i32(0);
+    while(i < ECHO_CONN_ROUNDS, i = (i + usize(1)), {
+      if(server, {
+        got := io.await(__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
+        if(got != i32(32), {
+          bad = (bad + i32(1));
+        });
+        io.await(__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
+      }, {
+        io.await(__yo_async_send_start(fd, buf, usize(32), i32(0)), io);
+        got := io.await(__yo_async_recv_start(fd, buf, usize(64), i32(0)), io);
+        if(got != i32(32), {
+          bad = (bad + i32(1));
+        });
+      });
+    });
+    bad
+  })
+);
 
 main :: (fn(io : Io) -> unit)({
   exn := Exception(throw : (_e -> unwind(())));
@@ -72,6 +105,58 @@ main :: (fn(io : Io) -> unit)({
   println(`parked_us ${parked_us} ops ${(ECHO_ROUNDS * usize(4))}`);
   io.await(tcp.close(fd_a), io);
   io.await(tcp.close(fd_b), io);
+
+  // --- Concurrent loopback-TCP echo: ECHO_CONNS connections at once ----------
+  lfd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  laddr := tcp.make_sockaddr_in_loopback(u16(0));
+  if(io.await(tcp.bind(lfd, laddr.buf, laddr.len), io) != i32(0), {
+    panic(String.from("bind failed"));
+  });
+  io.await(tcp.listen(lfd, i32(1024)), io);
+  alen := (*u32)(malloc(usize(4)).unwrap());
+  alen.* = laddr.len;
+  getsockname(lfd, laddr.buf, alen);
+  port := tcp.get_port_in(laddr.buf);
+  fds := ArrayList(i32).new();
+  (k : usize) = usize(0);
+  while(k < ECHO_CONNS, k = (k + usize(1)), {
+    cfd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+    caddr := tcp.make_sockaddr_in_loopback(port);
+    if(io.await(tcp.connect(cfd, caddr.buf, caddr.len), io) != i32(0), {
+      panic(String.from("connect failed"));
+    });
+    tcp.free_sockaddr(caddr);
+    peer_len := (*u32)(malloc(usize(4)).unwrap());
+    peer_len.* = u32(128);
+    peer := (*u8)(malloc(usize(128)).unwrap());
+    sfd := io.await(tcp.accept(lfd, peer, peer_len), io);
+    if(sfd < i32(0), {
+      panic(String.from("accept failed"));
+    });
+    fds.push(cfd);
+    fds.push(sfd);
+  });
+  t0c := Instant.now();
+  hs := ArrayList(JoinHandle(i32)).new();
+  k = usize(0);
+  while(k < fds.len(), k = (k + usize(2)), {
+    hs.push(io.spawn(_echo_side(fds(k + usize(1)), true, io), io));
+    hs.push(io.spawn(_echo_side(fds(k), false, io), io));
+  });
+  k = usize(0);
+  while(k < hs.len(), k = (k + usize(1)), {
+    if(match(hs(k).await(io), .Some(b) => (b != i32(0)), .None => true), {
+      panic(String.from("echo connection failed"));
+    });
+  });
+  conc_us := Instant.now().duration_since(t0c).as_micros();
+  println(`echo_conc_us ${conc_us} ops ${((ECHO_CONNS * ECHO_CONN_ROUNDS) * usize(4))}`);
+  k = usize(0);
+  while(k < fds.len(), k = (k + usize(1)), {
+    io.await(tcp.close(fds(k)), io);
+  });
+  io.await(tcp.close(lfd), io);
+  tcp.free_sockaddr(laddr);
 
   // --- Timer churn -----------------------------------------------------------
   t1 := Instant.now();

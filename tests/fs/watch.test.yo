@@ -15,6 +15,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
 { sleep } :: import("std/sys/timer");
+{ clock_gettime } :: import("std/sys/clock");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
 { AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
@@ -297,4 +298,51 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
   w.close();
   _unlink(sub_target, io);
   _unlink(root_target, io);
+});
+// A task waiting in next() must not burn CPU. next used to re-yield in a loop,
+// so the waiting task was always runnable and the loop never blocked: 300 ms
+// of waiting cost ~300 ms of CPU. It now parks, and the event callback wakes
+// it (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
+_cpu_ms :: (fn() -> i64)({
+  sec_buf := MaybeUninit(i64).new();
+  nsec_buf := MaybeUninit(i64).new();
+  sec := (*i64)(sec_buf.as_ptr());
+  nsec := (*i64)(nsec_buf.as_ptr());
+  // CLOCK_PROCESS_CPUTIME_ID: 2 on Linux, 12 on macOS.
+  id := cond((platform == Platform.Macos) => i32(12), true => i32(2));
+  _rc := clock_gettime(id, sec, nsec);
+  (sec.* * i64(1000)) + (nsec.* / i64(1000000))
+});
+_touch_later :: (fn(path : String, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    _s := io.await(sleep(u64(300)), io);
+    _touch(path, String.from("late"), io);
+    i32(0)
+  })
+);
+test("a task waiting in next(io) does not spin the CPU", {
+  if(platform != Platform.Windows, {
+    t_exn := Exception(
+      throw : (
+        err -> {
+          assert(false, `unexpected error: ${err}`);
+          unwind(());
+        }
+      )
+    );
+    d := temp_dir();
+    target := path_join(d, `yo_watch_idle.txt`);
+    _unlink(target, io);
+    w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+    h := io.spawn(_touch_later(target, io), io);
+    cpu0 := _cpu_ms();
+    ev := io.await(w.next(io), io);
+    cpu := (_cpu_ms() - cpu0);
+    println(`  CPU while waiting ~300 ms in next(): ${cpu} ms`);
+    assert(ev.is_some(), "next resolved with the late event");
+    assert(cpu < i64(150), "the wait parked instead of spinning");
+    _j := h.await(io);
+    w.close();
+    _unlink(target, io);
+  });
 });

@@ -8,6 +8,8 @@ copy_io :: import("std/sys/copy");
 dir :: import("std/sys/dir");
 { AT_FDCWD, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import("std/sys/constants");
 { temp_dir, path_join } :: import("../helper");
+{ env } :: import("std/env");
+{ platform, Platform } :: import("std/process");
 test("copyfile copies file contents", {
   tmp := temp_dir();
   src_path_str := path_join(tmp, `yo_io_copy_src.txt`);
@@ -87,4 +89,51 @@ test("sendfile transfers bytes", {
   assert(c4 == i32(0));
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)), io);
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)), io);
+});
+// copyfile copies to END OF FILE, not st_size: a /proc file reports size 0 and
+// used to be copied as an empty file
+// (issues/fixed/linux-copyfile-truncates-files-over-2-gib-and-empties-proc-files.md).
+test("copyfile copies a file whose reported size is 0 (/proc)", {
+  if(platform == Platform.Linux, {
+    tmp := temp_dir();
+    dst_str := path_join(tmp, `yo_io_copy_proc.txt`);
+    dst_c := dst_str.to_cstr();
+    dst := dst_c.ptr().unwrap();
+    io.await(dir.unlink(AT_FDCWD, dst, i32(0)), io);
+    cr := copy_io.copyfile((*u8)("/proc/self/status"), dst, i32(0));
+    assert(cr == i32(0), "copyfile of /proc/self/status succeeds");
+    fd := file.open_sync(dst, O_RDONLY, i32(0));
+    size := file.file_size(fd);
+    file.close_sync(fd);
+    unsafe(printf("  copied /proc/self/status: %lld bytes\n", size));
+    assert(size > i64(0), "the copy has the file's contents");
+    io.await(dir.unlink(AT_FDCWD, dst, i32(0)), io);
+  });
+});
+// One copy_file_range call moves at most 2,147,479,552 bytes; the single call
+// copyfile used to make truncated a larger file silently. Writes 2.2 GB, so it
+// runs only with YO_TEST_HEAVY=1.
+test("copyfile copies a file larger than 2 GiB (YO_TEST_HEAVY=1)", {
+  heavy := match(env.get(String.from("YO_TEST_HEAVY")), .Some(v) => (v == "1"), .None => false);
+  if((platform == Platform.Linux) && heavy, {
+    tmp := temp_dir();
+    src_str := path_join(tmp, `yo_io_copy_big_src`);
+    dst_str := path_join(tmp, `yo_io_copy_big_dst`);
+    src_c := src_str.to_cstr();
+    dst_c := dst_str.to_cstr();
+    src := src_c.ptr().unwrap();
+    dst := dst_c.ptr().unwrap();
+    big := i64(2200000000);
+    sfd := io.await(file.openat(AT_FDCWD, src, O_WRONLY | O_CREAT | O_TRUNC, i32(0o644)), io);
+    assert(io.await(file.ftruncate(sfd, big), io) == i32(0), "sparse source");
+    io.await(file.close(sfd), io);
+    assert(copy_io.copyfile(src, dst, i32(0)) == i32(0), "copyfile succeeds");
+    fd := file.open_sync(dst, O_RDONLY, i32(0));
+    size := file.file_size(fd);
+    file.close_sync(fd);
+    unsafe(printf("  copied %lld of %lld bytes\n", size, big));
+    assert(size == big, "every byte was copied");
+    io.await(dir.unlink(AT_FDCWD, dst, i32(0)), io);
+    io.await(dir.unlink(AT_FDCWD, src, i32(0)), io);
+  });
 });

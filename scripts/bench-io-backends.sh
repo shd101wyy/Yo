@@ -26,7 +26,7 @@ run() { # <backend> -> writes <backend>.metrics
   # metric = operations per second from MICROSECOND timings (the old whole-
   # millisecond readings of ~7 ms runs, with 0 replaced by 1, could not
   # resolve a 2x difference); higher is better, so ratio = epoll/uring.
-  for key in pingpong parked timer file; do
+  for key in pingpong parked echo_conc timer file; do
     us=$(sed -n "s/^${key}_us \([0-9]*\) ops \([0-9]*\).*/\1/p" "${OUT}/${backend}.raw")
     ops=$(sed -n "s/^${key}_us \([0-9]*\) ops \([0-9]*\).*/\2/p" "${OUT}/${backend}.raw")
     if [ -z "${us}" ] || [ "${us}" -le 0 ]; then

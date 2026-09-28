@@ -4,6 +4,9 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 { printf } :: import("std/libc/stdio");
 { yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+{ env } :: import("std/env");
+{ platform, Platform } :: import("std/process");
 test("Test Io timer", {
   // =========================================================================
   // Test: async timer operations
@@ -53,4 +56,78 @@ test("Test zero-length sleep completes", {
   io.spawn(t, io);
   io.await(t, io);
   assert(inner.*, "the zero-sleep task body should have run to completion");
+});
+// io_uring submission is deferred to the loop's next poll, so a single tick
+// that starts more operations than the ring has SQ entries (1024) used to run
+// out of slots: every operation past the 1,024th completed at once with
+// -EAGAIN (issues/fixed/io-uring-full-submission-queue-fails-operations-with-eagain.md).
+// 1,500 spawned tasks each start one sleep: the tasks all run in ONE drain of
+// the ready queue, so every start lands in the same tick.
+_one_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    r := io.await(sleep(u64(1)), io);
+    r
+  })
+);
+_many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
+  hs := ArrayList(JoinHandle(i32)).new();
+  (i : usize) = usize(0);
+  while(i < usize(1500), i = (i + usize(1)), {
+    hs.push(io.spawn(_one_sleep(io), io));
+  });
+  (ok : usize) = usize(0);
+  i = usize(0);
+  while(i < hs.len(), i = (i + usize(1)), {
+    r := match(hs(i).await(io), .Some(v) => v, .None => i32(-1));
+    if(r > i32(0), {
+      ok = (ok + usize(1));
+    });
+  });
+  unsafe(printf("  %zu of 1500 sleeps completed\n", ok));
+  assert(ok == usize(1500), "every sleep started in one tick completes with success");
+});
+test("1500 sleeps started in one tick all complete", {
+  _many_sleeps_in_one_tick(io);
+});
+test("1500 sleeps started in one tick all complete (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _many_sleeps_in_one_tick(io);
+  });
+});
+// Timers complete in deadline order, and aborting one in the middle of the
+// set releases it without disturbing the rest — the epoll fallback's timer
+// heap removes it from the middle of the heap (a timerfd per sleep before).
+_sleeper :: (fn(ms : i32, order : ArrayList(i32), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    _r := io.await(sleep(u64(ms)), io);
+    order.push(ms);
+    i32(0)
+  })
+);
+_timer_order :: (fn(io : Io) -> unit)({
+  order := ArrayList(i32).new();
+  h60 := io.spawn(_sleeper(i32(60), order, io), io);
+  h20 := io.spawn(_sleeper(i32(20), order, io), io);
+  h30 := io.spawn(_sleeper(i32(30), order, io), io);
+  h40 := io.spawn(_sleeper(i32(40), order, io), io);
+  io.await(yield(io), io);
+  h30.abort();
+  _a := h60.await(io);
+  _b := h20.await(io);
+  assert(match(h30.await(io), .Some(_) => false, .None => true), "the aborted sleeper never finished");
+  _d := h40.await(io);
+  assert(order.len() == usize(3), "three sleepers finished");
+  assert(order(usize(0)) == i32(20), "20 ms first");
+  assert(order(usize(1)) == i32(40), "then 40 ms");
+  assert(order(usize(2)) == i32(60), "then 60 ms");
+});
+test("timers fire in deadline order around an aborted one", {
+  _timer_order(io);
+});
+test("timers fire in deadline order around an aborted one (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _timer_order(io);
+  });
 });

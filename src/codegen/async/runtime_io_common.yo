@@ -645,46 +645,23 @@ generate_async_runtime_io_common :: (
     emitter.emit_string_line(
       `
 // ============================================================================
-// Timer Operations (Linux - IORING_OP_TIMEOUT, or the epoll timer heap)
+// Timer Operations (Linux - the runtime's timer heap, on either backend)
 // ============================================================================
 
-// Extended future for a timer. The ring backend sleeps with IORING_OP_TIMEOUT
-// (ts is its relative deadline, read by the kernel at submission); the epoll
-// fallback has no timeout op and keeps the future in its timer heap
-// (__yo_epoll_sleep_arm). Neither owns a resource, so there is no dispose
-// hook: the epoll path's timerfd, and the dispose type-id that closed it, are
-// gone.
-typedef struct {
-  __yo_io_future_t base;
-  struct __yo_uring_timespec ts;
-} __yo_timer_future_t;
-
-// Async sleep. The ring layer (runtime_io_linux.yo's emission, which lands
-// before this file's output) is always compiled on Linux since
-// plans/reference/DROP_LIBURING.md Phase 1, so this body needs no feature guard.
-//
-// On the ring a sleep is ONE IORING_OP_TIMEOUT SQE: no descriptor, no
-// syscall of its own. It used to be a timerfd (create + settime + close)
-// with an IORING_OP_READ on it — and a timerfd read cannot be done
-// nonblocking inside io_uring, so every tick was punted to an io-wq worker
-// thread and woke the loop from there
+// Async sleep. A sleep is a node in the thread's timer heap
+// (runtime_io_linux.yo, __yo_timer_arm), whose earliest deadline bounds the
+// loop's blocking wait on the ring and on the epoll fallback alike: arming
+// and cancelling it cost no syscall. It was one IORING_OP_TIMEOUT per sleep
+// on the ring (plus an ASYNC_CANCEL when a std/async timeout's deadline lost
+// the race) and a timerfd on epoll — and before that a timerfd READ that
+// io_uring punted to an io-wq worker per tick
 // (issues/fixed/io-uring-sleep-punts-every-tick-to-a-worker-thread.md).
-//
-// Cancel a pending timeout. The kernel still delivers the op's own CQE (with
-// -ECANCELED), and that is what releases the ring's reference — so the
-// retention window becomes one poll turn instead of the whole remaining
-// deadline.
-static bool __yo_timer_future_cancel(__yo_io_future_t* future) {
-  return __yo_io_ring_submit_cancel(future);
-}
-
+// Completes with 8, the timer contract. The future owns no resource.
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
   
-  __yo_timer_future_t* timer_future = (__yo_timer_future_t*)__yo_rc_alloc(sizeof(__yo_timer_future_t));
-  memset(timer_future, 0, sizeof(__yo_timer_future_t));
-  
-  __yo_io_future_t* future = &timer_future->base;
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);
   future->result = 0;
@@ -697,27 +674,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
     return future;
   }
 
-  if (__yo_backend == __YO_BACKEND_EPOLL) {
-    // No timeout op: a node in the thread's timer heap, whose earliest
-    // deadline bounds the epoll wait. Completes with 8, the timer contract.
-    __yo_epoll_sleep_arm(future, milliseconds);
-    return future;
-  }
-
-  // The ring: one relative IORING_OP_TIMEOUT. A zero timeout completes on the
-  // next reap, like the other runtimes' sleep(0).
-  timer_future->ts.tv_sec = (int64_t)(milliseconds / 1000);
-  timer_future->ts.tv_nsec = (long long)((milliseconds % 1000) * 1000000);
-  struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
-  if (!sqe) {
-    future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
-    return future;
-  }
-  __yo_uring_prep_timeout(sqe, &timer_future->ts);
-  __yo_uring_sqe_set_data(sqe, future);
-  future->cancel_fn = __yo_timer_future_cancel;
-  __yo_io_ring_submit(future);
+  __yo_timer_arm(future, milliseconds);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
               (unsigned long long)milliseconds, __yo_pending_io_count);
