@@ -4478,20 +4478,31 @@ _inline_await_result_type :: (fn(expr : AstExpr, analysis : Option(AwaitAnalysis
   match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 });
 
-/// The analysis's await point for the await expression `expr`.
+/// The analysis's await point for the await expression `expr`: by node id,
+/// else by source position. An arm body can be generated from an evaluated
+/// copy whose await node is not the one the analysis walked; its position is
+/// the same.
 _inline_await_point :: (fn(expr : AstExpr, analysis : AwaitAnalysisResult) -> Option(AwaitPoint))({
   eid := ast_expr_id(expr);
+  tok := ast_expr_token(expr);
+  (by_pos : Option(AwaitPoint)) = Option(AwaitPoint).None;
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
       analysis.await_points.get(i),
-      .Some(ap) => if(ast_expr_id(ap.base.expr) == eid, {
-        return(Option(AwaitPoint).Some(ap));
-      }),
+      .Some(ap) => {
+        if(ast_expr_id(ap.base.expr) == eid, {
+          return(Option(AwaitPoint).Some(ap));
+        });
+        atok := ast_expr_token(ap.base.expr);
+        if(by_pos.is_none() && ((atok.row == tok.row) && ((atok.column == tok.column) && (atok.module_path == tok.module_path))), {
+          by_pos = Option(AwaitPoint).Some(ap);
+        });
+      },
       .None => ()
     );
   });
-  Option(AwaitPoint).None
+  by_pos
 });
 /// The single-pass lowering's result field for an await point
 /// (`sm->__yo_await_result_<index>`) and its type, or `.None` for a unit
