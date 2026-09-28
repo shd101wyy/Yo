@@ -85,10 +85,22 @@ instance. Purging A's entries would then break B's id-keyed lookups:
 purge must key ownership on what the id depends on, not on the module
 current at insert.
 
-**The LEAK group is a missing release.** The unreachable subgraph is held
-only from raw (non-RC) blocks of 64 B or less: `KH` rows show 29 K `AstExpr`
-and 12 K `Frame` pointed at from `raw<=64`. Next step: `--rc-balance` on
-`AstExpr` in a 3-round LSP run (plan §4.2 of the handover).
+**The LEAK group survives a full collection** (`HOLDER_COLLECT=1`). It is
+unreachable and not freed, and almost every object in it is pointed at by
+another: only 460 of the 29 K leaked `Token`s are zero-hit. The raw ≤64 B
+holders in the `KH` rows are container element buffers, so they do not
+identify a root either. The shape is a cycle the collector cannot see: an
+edge through an RC type classified cycle-incapable (untracked, 16 B
+header, no traverse function). The candidate loop is Environment → its
+frames list → Frame → Variable → a FuncVal value → Environment.
+
+`--rc-balance` on `AstExpr` (2 documents, 1 vs 4 rounds: 107,625 → 120,837
+live) confirms the growth, but the per-function balance is dominated by
+balanced high-volume sites (`ArrayList.get`, `merge_and_check_envs`) and
+does not isolate it. A balance run needs `#define __HS_NB 256` in the
+instrumented C: the default 8,192-slot per-object table reached 29 GB.
+Next step: find the untracked type on the loop (the census `T` rows plus
+the type's `needs_cycle_gc` classification).
 
 ## Expected
 
