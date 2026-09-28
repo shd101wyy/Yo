@@ -1396,7 +1396,10 @@ nothing, and it never wakes without a reason.
   26 a zero-timeout `kevent()` that finds nothing costs ~12 µs, so a
   non-blocking poll first asks the kqueue descriptor with a zero-timeout
   `select()` (~0.2 µs). With tasks still queued, the kernel is polled every
-  61 turns (tokio's interval).
+  61 turns (tokio's interval). While traffic is flowing (the last wait was
+  answered within 50 µs), a wait is bounded by 50 µs rather than unbounded:
+  on macOS a wait with a near deadline wakes sooner, which is worth ~7% on a
+  loopback-TCP round trip. The first such wait that times out empty ends it.
 - **Watches** (`std/sys/events` poll handles, `std/fs/watch`): they share one
   watch kqueue per thread, nested in the loop's. A watched descriptor ends a
   blocked wait, and a directory watch rescans on the directory's vnode events,

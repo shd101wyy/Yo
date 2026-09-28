@@ -642,6 +642,18 @@ static _Thread_local uint32_t __yo_kq_pass = 0;
 // Busy-step polls since the loop last entered the kernel (see __yo_io_poll).
 #define __YO_KQ_BUSY_POLL_INTERVAL 61
 static _Thread_local uint32_t __yo_kq_busy_polls = 0;
+// A blocking wait that was answered within __YO_KQ_HOT_WAIT_NS makes the loop
+// "hot": its next wait is bounded by that window instead of being unbounded.
+// Measured on macOS 26 (M4): a kevent() wait with a deadline within ~50 us
+// wakes measurably sooner when its event arrives than an unbounded one (a
+// loopback-TCP ping-pong in C: 10.3 vs 11.1 us a round trip, with LESS CPU),
+// and the runtime's TCP echo went from 7% behind libuv to parity. The
+// mechanism is the kernel's (a near-term deadline keeps the core in a
+// shallower idle state, most likely); the cost is bounded: a hot wait that
+// times out empty ends the hot state, so an idle loop pays one extra timed
+// wakeup per transition to idle.
+#define __YO_KQ_HOT_WAIT_NS (50ull * 1000ull)
+static _Thread_local bool __yo_kq_hot = false;
 
 // Batched kevent changelist. Registrations append here and ride the next
 // kevent() the loop makes anyway (poll or wait), so arming an operation costs
@@ -1638,16 +1650,22 @@ static int __yo_io_wait(void) {
   // idle process ten times a second and delayed a watch by up to 100 ms.
   uint64_t due = __yo_watch_next_due_ns();
   if (__yo_timer_count > 0 && __yo_timers[0]->deadline_ns < due) due = __yo_timers[0]->deadline_ns;
+  uint64_t now = __yo_mono_ns();
+  uint64_t span = (due == UINT64_MAX) ? UINT64_MAX : ((due > now) ? (due - now) : 0);
+  bool hot_bound = __yo_kq_hot && span > __YO_KQ_HOT_WAIT_NS;
+  if (hot_bound) span = __YO_KQ_HOT_WAIT_NS;
   struct timespec ts;
   const struct timespec* timeout = NULL;
-  if (due != UINT64_MAX) {
-    uint64_t now = __yo_mono_ns();
-    uint64_t span = (due > now) ? (due - now) : 0;
+  if (span != UINT64_MAX) {
     ts.tv_sec = (time_t)(span / 1000000000ull);
     ts.tv_nsec = (long)(span % 1000000000ull);
     timeout = &ts;
   }
   int processed = __yo_kq_drive(timeout);
+  // Hot: this wait was answered within the hot window, so the next one is
+  // likely to be too. A hot-bounded wait that timed out empty ends it, and the
+  // loop's next wait is unbounded again.
+  __yo_kq_hot = processed > 0 && (__yo_mono_ns() - now) < __YO_KQ_HOT_WAIT_NS;
   processed += __yo_timer_expire();
   // The loop drivers skip their 0-timeout __yo_io_poll in an iteration that
   // blocks here (runtime_core.yo), so this wait must tick the poll/fs-event
