@@ -33,7 +33,7 @@ So the second waiter silently evicts the first, and completion
 (`emit_async_future_completion`, `src/codegen/exprs/async_completion.yo`)
 wakes only the survivor. Each waiter also took its own "event loop
 reference", so the future leaks too
-(`issues/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`).
+(`issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`).
 
 ## Fix direction
 

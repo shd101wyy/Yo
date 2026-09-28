@@ -1,6 +1,6 @@
 # A value-position `cond` with an awaiting arm, inside a `while` inside `io.async`, yields the ZERO value for EVERY arm
 
-**Status: OPEN.** Found 2026-09-05 fixing `read_dir`'s `DT_UNKNOWN` fallback
+**Status: FIXED (2026-09-29).** Found 2026-09-05 fixing `read_dir`'s `DT_UNKNOWN` fallback
 (`std/fs/dir.yo`, issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md).
 Silent wrong values — `yo check` is green, clang is clean, the binary runs and
 returns `0`/`.<first variant>` for every branch.
@@ -100,3 +100,7 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 arm inside a `while` yields 0 for every arm the same way (expected `0,1,321`,
 got `0,0,0`; `issues/repros/async-shape-b9-match-value-await-arm-in-while-zero.yo`). Same site: the
 while-body binding arm only handled a direct `io.await` right-hand side.
+
+## Fix (2026-09-29)
+
+The binding arm of `generate_while_body_with_await` (`src/codegen/async/state_code_gen.yo`) now routes a `cond`/`match`/`if` right-hand side to its emitter with the binding as the target (`:=` by variable id, `=` by target code). Any other right-hand side holding an await is a coded user error instead of a dropped statement. Regression: `tests/async/sm_ownership.test.yo`, "a value-position cond or match with an awaiting arm inside a while" (both the `cond` and the `match` variant).

@@ -64,7 +64,7 @@ then the non-throwing arm assigns from a temp nobody ever declared:
   non-throwing arms are literals (`true` / `false`). Here the surviving arm's
   value is a read of the local `k`, which needs a temp, and that temp is the
   one never emitted.
-- Distinct from `issues/async-cond-value-with-await-arm-inside-while-yields-zero.md`
+- Distinct from `issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md`
   (no `while` here, no await inside the cond, and this one is a compile error
   rather than a silent zero).
 
