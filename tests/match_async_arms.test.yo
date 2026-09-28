@@ -165,3 +165,204 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
   io.await(task, io);
   assert(result.* == (((n + i32(2)) * i32(2)) + i32(1)), "labeled and curly bind the payload, a bare arm selects by variant name");
 });
+// ---------------------------------------------------------------------------
+// The GENERAL pattern forms in awaiting arms (plans/MATCH_PATTERN_MATCHING.md
+// §4.9): nested variants, or-patterns, guards, constants, ranges, catch-all
+// bindings, whole-value `:=`, tuple/struct scrutinees and Box payloads all
+// dispatch through the compiled-arm test chain; the arm bodies keep the
+// ordinary cond_branch suspension machinery.
+// ---------------------------------------------------------------------------
+Inner2 :: enum(A2(v : i32), B2);
+Outer2 :: enum(Ok2(v : Inner2), Err2(code : i32));
+test("a nested variant pattern in an awaiting arm", {
+  n := runtime_int();
+  o := Outer2.Ok2(Inner2.A2(i32(6) + n)); // Ok2(A2(7)) at runtime
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      o,
+      .Ok2(.A2(x)) => {
+        io.await(yield(io), io);
+        x * i32(10)
+      },
+      .Ok2(.B2) => {
+        io.await(yield(io), io);
+        i32(-1)
+      },
+      .Err2(c) => {
+        io.await(yield(io), io);
+        c
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(70), "Ok2(A2(7)) must bind x=7 and take the nested arm");
+});
+test("an or-pattern arm with an await", {
+  n := runtime_int();
+  r := Reading2.Code(i32(0) - n); // Code(-1) at runtime
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      r,
+      (.Code(-1) | .Code(-2)) => {
+        io.await(yield(io), io);
+        i32(11)
+      },
+      .Code(c) => {
+        io.await(yield(io), io);
+        c * i32(2)
+      },
+      .Flag2(_) => i32(-3)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(11), "Code(-1) must take the or-pattern arm");
+});
+test("a guard arm with an await", {
+  n := runtime_int();
+  o := Option(i32).Some(i32(7) + n); // Some(8)
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      o,
+      (.Some(v) && (v > i32(100))) => {
+        io.await(yield(io), io);
+        i32(1)
+      },
+      .Some(v) => {
+        io.await(yield(io), io);
+        v + i32(100)
+      },
+      .None => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(108), "Some(8) must fail the guard and bind v=8");
+});
+test("a string-constant arm with an await", {
+  n := runtime_int();
+  tag := String.from("run");
+  (t2 : String) = tag.append_substring(0, usize(n)); // still "run"
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      t2,
+      "run" => {
+        io.await(yield(io), io);
+        i32(1)
+      },
+      _ => {
+        io.await(yield(io), io);
+        i32(2)
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(1), "the string constant arm must match");
+});
+test("a range arm and a catch-all binding with awaits", {
+  n := runtime_int();
+  v := (i32(42) + n); // 43
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      v,
+      (0 ..= 9) => {
+        io.await(yield(io), io);
+        i32(1)
+      },
+      (10 ..= 99) => {
+        io.await(yield(io), io);
+        i32(2)
+      },
+      other => {
+        io.await(yield(io), io);
+        other
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(2), "43 must take the (10 ..= 99) arm");
+});
+test("a whole-value := binding with an await", {
+  n := runtime_int();
+  o := Option(i32).Some(i32(5) + n); // Some(6)
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      o,
+      (whole := .Some(v)) => {
+        io.await(yield(io), io);
+        whole.unwrap_or(i32(0)) - v
+      },
+      .None => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(0), "whole and v are the same Some(6)");
+});
+test("a tuple scrutinee with awaiting arms", {
+  n := runtime_int();
+  t := (i32(3) + n, true); // (4, true)
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      t,
+      (0, _) => {
+        io.await(yield(io), io);
+        i32(0)
+      },
+      (x, true) => {
+        io.await(yield(io), io);
+        x * i32(100)
+      },
+      (x, false) => x
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(400), "(4, true) must take the second arm");
+});
+test("a struct pattern with an await", {
+  Pt :: struct(x : i32, y : i32);
+  n := runtime_int();
+  p := Pt(i32(0) + n, i32(9)); // Pt(1, 9)
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      p,
+      Pt(x : 0, y) => {
+        io.await(yield(io), io);
+        y
+      },
+      Pt(x, y) => {
+        io.await(yield(io), io);
+        (x * i32(10)) + y
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(19), "Pt(1, 9) must take the general struct arm");
+});
+List2 :: ref(enum(Nil2, Cons2(head : i32, tail : Box(Self))));
+test("a pattern through a Box payload with an await", {
+  n := runtime_int();
+  l := List2.Cons2(1, box(List2.Cons2(i32(2) + n, box(List2.Nil2))));
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      l,
+      .Cons2(1, .Cons2(second, _)) => {
+        io.await(yield(io), io);
+        second
+      },
+      .Cons2(h, _) => {
+        io.await(yield(io), io);
+        h
+      },
+      .Nil2 => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(3), "the nested Box payload pattern must bind second=3");
+});

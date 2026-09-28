@@ -38,7 +38,8 @@
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   make_err_expr,
-  alloc_global_expr_id
+  alloc_global_expr_id,
+  BK_TUPLE
 } :: import("../../expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
@@ -46,8 +47,8 @@
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_bool } :: import("../../types/creators.yo");
-{ is_enum_type, is_pointer_type, is_tuple_type } :: import("../../types/guards.yo");
+{ t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
+{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
@@ -57,7 +58,15 @@ _did_you_mean :: (fn(lbl : String, labels : ArrayList(String)) -> Option(String)
   match(suggest_name(lbl, labels), .Some(near) => Option(String).Some(`did you mean "${near}"?`), .None => Option(String).None)
 );
 { evaluate_expression, evaluate_expression_guarded } :: import("./expr.yo");
-{ Pattern, norm_position_type, variant_field_types } :: import("../../pattern.yo");
+{
+  Pattern,
+  norm_position_type,
+  variant_field_types,
+  box_inner_type,
+  _struct_field_tys,
+  _struct_field_labels,
+  _tuple_elem_tys
+} :: import("../../pattern.yo");
 { Exception } :: import("std/error");
 { flow_violation_pending, clear_flow_violation } :: import("../../types/flowability.yo");
 /// A binding the pattern introduces, collected during compilation and added
@@ -288,7 +297,7 @@ _bind_subject_and_eval_test :: (
           dyn(
             format_error_message(
               ast_expr_token(src),
-              `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)}: a value pattern is compared with \`==\`, and there is no \`==\` between them that gives a bool.${cond(is_tuple_type(position_ty) => " Tuple patterns are not supported yet: bind the tuple and compare its elements.", true => "")}`
+              `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)}: a value pattern is compared with \`==\`, and there is no \`==\` between them that gives a bool.${cond(is_tuple_type(position_ty) => " Write a tuple pattern with one sub-pattern per element instead.", true => "")}`
             )
           )
         );
@@ -399,7 +408,7 @@ _const_value_of :: (fn(e : AstExpr, evaluated : AstExpr, ctx : EvalContext, exn 
           format_error_message(
             ast_expr_token(e),
             `Invalid pattern in match expression: ${ast_expr_to_string(e)}
-Supported patterns: _, a binding name, a compile-time constant, .Variant, .Variant(p, …), .Variant(label : p), .Variant({…}), (p | q), (name := p), (lo..hi), (p && (guard))`
+Supported patterns: _, a binding name, a compile-time constant, .Variant, .Variant(p, …), .Variant(label : p), .Variant({…}), (p | q), (name := p), (lo..hi), (p && (guard)), (a, b), S(label : p, …), {label : p, …}`
           )
         )
       );
@@ -948,6 +957,275 @@ _compile_variant :: (
     arity : arity
   )
 });
+/// A name in scope bound to a STRUCT TYPE value — the callee of a named
+/// struct pattern (`Point(x : 0, y)`).
+_struct_type_in_scope :: (fn(name : String, env : Environment) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, name);
+  if(vars.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  if(!v.is_compile_time_only, {
+    return(Option(TypeValue).None);
+  });
+  if(v.value.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    v.value.get(v.value.len() - usize(1)),
+    .Some(val) => match(
+      val,
+      .TypeVal(t) => cond(is_struct_type(t) => Option(TypeValue).Some(t), true => Option(TypeValue).None),
+      _ => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+});
+/// Compile a tuple pattern `(a, b)` against a tuple position. Exact arity.
+_compile_tuple :: (
+  fn(
+    e : AstExpr,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  args := _args_of(e);
+  elem_tys := _tuple_elem_tys(norm_position_type(position_ty));
+  if(elem_tys.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(e),
+          `Pattern ${ast_expr_to_string(e)} needs a tuple to match against, but this position has type ${type_to_string(position_ty)}`
+        )
+      )
+    );
+    return(Pattern.Wildcard);
+  });
+  if(elem_tys.len() != args.len(), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(e),
+          `Tuple pattern has ${args.len()} elements, but this position's type ${type_to_string(position_ty)} has ${elem_tys.len()}`
+        )
+      )
+    );
+    return(Pattern.Wildcard);
+  });
+  (elem_vals : Option(ArrayList(EvalValue))) = match(
+    value_opt,
+    .Some(v) => match(
+      v,
+      .TupleVal(fs) => Option(ArrayList(EvalValue)).Some(fs),
+      _ => Option(ArrayList(EvalValue)).None
+    ),
+    .None => Option(ArrayList(EvalValue)).None
+  );
+  subs := ArrayList(Pattern).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ev := match(
+      elem_vals,
+      .Some(evs) => evs.get(i),
+      .None => Option(EvalValue).None
+    );
+    subs.push(compile_pattern(arg, ety, ev, pc, env, ctx, exn));
+    i = (i + usize(1));
+  });
+  Pattern.Tuple(subs : subs, elem_tys : elem_tys)
+});
+/// Compile a struct pattern — named `Point(x : 0, y)` (callee names the
+/// struct) or anonymous `{x : p, y}` (the `_(…)` record form) — against a
+/// struct position. Partial: unlisted fields match anything. `ty_named` is
+/// the struct the callee named (`.None` for the anonymous form).
+_compile_struct :: (
+  fn(
+    e : AstExpr,
+    struct_ty : TypeValue,
+    ty_named : Option(TypeValue),
+    params : ArrayList(AstExpr),
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  labels := _struct_field_labels(struct_ty);
+  field_tys := _struct_field_tys(struct_ty);
+  arity := field_tys.len();
+  (field_vals : Option(ArrayList(EvalValue))) = match(
+    value_opt,
+    .Some(v) => match(
+      v,
+      .StructVal(_, _, fvs) => Option(ArrayList(EvalValue)).Some(fvs),
+      _ => Option(ArrayList(EvalValue)).None
+    ),
+    .None => Option(ArrayList(EvalValue)).None
+  );
+  field_idx := ArrayList(usize).new();
+  subs := ArrayList(Pattern).new();
+  seen_labels := ArrayList(String).new();
+  (pi : usize) = usize(0);
+  while(pi < params.len(), {
+    param := match(params.get(pi), .Some(p) => p, .None => make_err_expr());
+    (fidx : usize) = usize(0);
+    (sub_ast : AstExpr) = param;
+    (bare_bind : bool) = false;
+    if(ast_expr_is_fn_call_of(param, ":", Option(usize).Some(usize(2))), {
+      pargs := _args_of(param);
+      label_expr := match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub_ast = match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+      if(!ast_expr_is_atom(label_expr), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_expr),
+              `Expected identifier for label in struct pattern, got ${ast_expr_to_string(label_expr)}`
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+      lbl := _atom_name(label_expr);
+      fidx = match(
+        _find_str(labels, lbl.clone()),
+        .Some(i) => i,
+        .None => {
+          exn.throw(
+            dyn(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(label_expr),
+                  `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
+                  _did_you_mean(lbl.clone(), labels)
+                ),
+                E_FIELD_NOT_FOUND
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        }
+      );
+      if(_find_str(seen_labels, lbl.clone()).is_some(), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_expr),
+              `Label "${lbl}" is already destructured`
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+      seen_labels.push(lbl.clone());
+      expr_info_table_set(
+        ctx.expr_info_table,
+        ast_expr_id(label_expr),
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit))
+      );
+    }, {
+      // A bare `_` argument contributes nothing (a struct pattern is partial
+      // anyway — omit the field instead); accepted for readability after a
+      // bound field, as in `Point(x, _)`.
+      if(ast_expr_is_atom_of(param, "_"), {
+        pi = (pi + usize(1));
+        continue;
+      });
+      // A bare identifier in a struct pattern names the field AND binds it
+      // (always a binding — a same-named constant in scope is irrelevant).
+      if(ast_expr_is_atom(param), {
+        lbl := _atom_name(param);
+        bare_bind = true;
+        fidx = match(
+          _find_str(labels, lbl.clone()),
+          .Some(i) => i,
+          .None => {
+            exn.throw(
+              dyn(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(param),
+                    `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
+                    _did_you_mean(lbl.clone(), labels)
+                  ),
+                  E_FIELD_NOT_FOUND
+                )
+              )
+            );
+            return(Pattern.Wildcard);
+          }
+        );
+        if(_find_str(seen_labels, lbl.clone()).is_some(), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(param),
+                `Label "${lbl}" is already destructured`
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        });
+        seen_labels.push(lbl.clone());
+      }, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(param),
+              `Expected a labeled pattern (label: pattern) or a bare field name in a struct pattern, got ${ast_expr_to_string(param)}`
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+    });
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit);
+    fval := match(
+      field_vals,
+      .Some(fvs) => fvs.get(fidx),
+      .None => Option(EvalValue).None
+    );
+    sub := cond(
+      bare_bind => {
+        bn := _atom_name(sub_ast);
+        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
+        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast))
+      },
+      true => compile_pattern(sub_ast, fty, fval, pc, env, ctx, exn)
+    );
+    field_idx.push(fidx);
+    subs.push(sub);
+    pi = (pi + usize(1));
+  });
+  Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx, subs : subs, arity : arity)
+});
+/// The name a struct-pattern diagnostic addresses (the named struct, or the
+/// position's type for the anonymous form).
+_struct_type_name_for_err :: (fn(struct_ty : TypeValue, ty_named : Option(TypeValue)) -> String)({
+  base := cond(
+    match(ty_named, .Some(_) => true, .None => false) => _struct_type_name_text(struct_ty),
+    true => type_to_string(struct_ty)
+  );
+  out := String.from("struct ");
+  out.push_string(base);
+  out
+});
+_struct_type_name_text :: (fn(struct_ty : TypeValue) -> String)(
+  match(
+    struct_ty,
+    .Struct({ name : n }) => n.clone(),
+    _ => String.new()
+  )
+);
 /// Compile the pattern AST `e` against the type of its position.
 /// `value_opt` is the compile-time value at this position when the scrutinee
 /// is known (bindings then carry it, and constant tests fold).
@@ -986,6 +1264,101 @@ compile_pattern :: (
     pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
     sub := recur(sub_expr, position_ty, value_opt, pc, env, ctx, exn);
     return(Pattern.At(name : nm, token : ast_expr_token(name_expr), sub : sub));
+  });
+  // A bare identifier that does NOT name a constant in scope is a BINDING of
+  // this position (checked before the Box look-through so a Box position
+  // binds the box itself; a constant identifier falls through and is looked
+  // through like every other structural pattern).
+  if(ast_expr_is_atom(e) && !_is_literal_atom(e), {
+    nm := _atom_name(e);
+    if(!_constant_in_scope(nm.clone(), env), {
+      pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
+      return(Pattern.Bind(name : nm, token : ast_expr_token(e)));
+    });
+  });
+  // A STRUCTURAL pattern at a `Box(T)` position looks through the box: the
+  // sub-pattern compiles against `T`, and the access path dereferences the
+  // box (`path-><first field>`, §4.8). `_`, a plain binding and the name of
+  // `:=` bind/ignore the box itself and never reach here.
+  if(is_box_type(position_ty), {
+    inner := match(
+      box_inner_type(position_ty),
+      .Some(i) => resolve_enum_shell(i),
+      .None => position_ty
+    );
+    inner_val := match(
+      value_opt,
+      .Some(v) => match(
+        v,
+        .StructVal(_, _, fvs) => fvs.get(usize(0)),
+        _ => Option(EvalValue).None
+      ),
+      .None => Option(EvalValue).None
+    );
+    sub := recur(e, inner, inner_val, pc, env, ctx, exn);
+    return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : sub));
+  });
+  // `(a, b)` — a tuple pattern (the parser's BK_TUPLE call).
+  if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
+    return(_compile_tuple(e, position_ty, value_opt, pc, env, ctx, exn));
+  });
+  // `S(x : p, y)` — a NAMED struct pattern: a call whose callee names a
+  // struct type in scope. Checked before the constant fallthrough so the
+  // struct pattern is not read as a construction compared with `==`.
+  if(ast_expr_is_fn_call(e) && !ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
+    callee := match(_func_of(e), .Some(f) => f, .None => make_err_expr());
+    if(ast_expr_is_atom(callee), {
+      st := _struct_type_in_scope(_atom_name(callee), env);
+      match(
+        st,
+        .Some(struct_ty) => {
+          pos_struct := norm_position_type(position_ty);
+          if(!(is_struct_type(pos_struct) && are_types_compatible(struct_ty, pos_struct)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(e),
+                  `Pattern ${_struct_type_name_text(struct_ty)} needs a value of that struct type to match against, but this position has type ${type_to_string(position_ty)}`
+                )
+              )
+            );
+            return(Pattern.Wildcard);
+          });
+          return(
+            _compile_struct(
+              e,
+              struct_ty,
+              Option(TypeValue).Some(struct_ty),
+              _args_of(e),
+              position_ty,
+              value_opt,
+              pc,
+              env,
+              ctx,
+              exn
+            )
+          );
+        },
+        .None => ()
+      );
+    });
+  });
+  // `{x : p, y}` — the anonymous record pattern at a struct position.
+  if(ast_expr_is_fn_call_of(e, "_", Option(usize).None), {
+    pos_struct := norm_position_type(position_ty);
+    if(is_struct_type(pos_struct), {
+      return(_compile_struct(e, pos_struct, Option(TypeValue).None, _args_of(e), position_ty, value_opt, pc, env, ctx, exn));
+    }, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Pattern ${ast_expr_to_string(e)} needs a struct value to match against, but this position has type ${type_to_string(position_ty)}`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
   });
   // `(p | q)`
   if(ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
@@ -1059,26 +1432,6 @@ compile_pattern :: (
   if(_is_variant_call(e), {
     head := match(_func_of(e), .Some(f) => f, .None => make_err_expr());
     return(_compile_variant(e, head, _args_of(e), position_ty, value_opt, pc, env, ctx, exn));
-  });
-  // A record pattern `{…}` outside a variant payload — not supported yet.
-  if(ast_expr_is_fn_call_of(e, "_", Option(usize).None), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(e),
-          `Struct patterns are not supported yet: ${ast_expr_to_string(e)}. Bind the value and read its fields in the arm body.`
-        )
-      )
-    );
-    return(Pattern.Wildcard);
-  });
-  // A bare identifier: a binding, unless it names a constant in scope.
-  if(ast_expr_is_atom(e) && !_is_literal_atom(e), {
-    nm := _atom_name(e);
-    if(!_constant_in_scope(nm.clone(), env), {
-      pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
-      return(Pattern.Bind(name : nm, token : ast_expr_token(e)));
-    });
   });
   // Everything else is a compile-time constant compared with `==`.
   _compile_const_expr(e, norm_position_type(position_ty), value_opt, pc, env, ctx, exn)
@@ -1171,7 +1524,83 @@ match_value :: (fn(p : Pattern, value_opt : Option(EvalValue), ctx : EvalContext
         true => Option(bool).None
       )
     },
-    .At(_, _, sub) => recur(sub, value_opt, ctx)
+    .At(_, _, sub) => recur(sub, value_opt, ctx),
+    .ThroughBox(_, _, sub) => match(
+      value_opt,
+      .Some(v) => match(
+        v,
+        .StructVal(_, _, fvs) => match(
+          fvs.get(usize(0)),
+          .Some(inner) => recur(sub, Option(EvalValue).Some(inner), ctx),
+          .None => Option(bool).None
+        ),
+        _ => Option(bool).None
+      ),
+      .None => Option(bool).None
+    ),
+    .Tuple(subs, _) => match(
+      value_opt,
+      .Some(v) => match(
+        v,
+        .TupleVal(fields) => {
+          (result : Option(bool)) = Option(bool).Some(true);
+          (si : usize) = usize(0);
+          while(si < subs.len(), {
+            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
+            r := recur(sub, fields.get(si), ctx);
+            match(
+              r,
+              .Some(b) => {
+                if(!b, {
+                  result = Option(bool).Some(false);
+                });
+              },
+              .None => {
+                if(match(result, .Some(rb) => rb, .None => false), {
+                  result = Option(bool).None;
+                });
+              }
+            );
+            si = (si + usize(1));
+          });
+          result
+        },
+        _ => Option(bool).None
+      ),
+      .None => Option(bool).None
+    ),
+    .Struct(_, field_idx, subs, _) => match(
+      value_opt,
+      .Some(v) => match(
+        v,
+        .StructVal(_, _, field_values) => {
+          (result : Option(bool)) = Option(bool).Some(true);
+          (si : usize) = usize(0);
+          while(si < subs.len(), {
+            fi := match(field_idx.get(si), .Some(k) => k, .None => usize(0));
+            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
+            r := recur(sub, field_values.get(fi), ctx);
+            match(
+              r,
+              .Some(b) => {
+                if(!b, {
+                  result = Option(bool).Some(false);
+                });
+              },
+              .None => {
+                if(match(result, .Some(rb) => rb, .None => false), {
+                  result = Option(bool).None;
+                });
+              }
+            );
+            si = (si + usize(1));
+          });
+          result
+        },
+        _ => Option(bool).None
+      ),
+      .None => Option(bool).None
+    )
   )
 );
 /// The classic-shape test (see `Arm.classic`): the arm's pattern AST is one

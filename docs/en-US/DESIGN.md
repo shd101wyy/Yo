@@ -2109,6 +2109,9 @@ parentheses.
 | range | `(0..10)`, `(10..=19)` | half-open / inclusive, compile-time bounds |
 | whole-value binding | `(whole := .Some(v))` | binds the whole value and matches the sub-pattern |
 | guard | `(.Some(v) && (v > i32(100)))` | the arm runs when the pattern matches and the guard, which sees the bindings, is true |
+| tuple | `(0, y)`, `(_, .Some(v))` | exact arity, one sub-pattern per element |
+| named struct | `Point(x : 0, y)`, `Person(name : "alice")` | labeled or bare-field, partial (unlisted fields match anything) |
+| anonymous struct | `{x : 0, y}` | at a struct position, like the variant curly form |
 
 ```rust
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
@@ -2137,6 +2140,46 @@ command :: (fn(s : String) -> i32)(
 );
 ```
 
+A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
+labeled sub-patterns (a bare field name binds that field; unlisted fields
+match anything). A `Box(T)` payload is looked through implicitly — the
+sub-pattern matches `T`:
+
+```rust
+axis :: (fn(t : Tuple(i32, i32)) -> i32)(
+  match(
+    t,
+    (0, y) => y,
+    (x, y) => ((x * i32(10)) + y)
+  )
+);
+
+Point :: struct(x : i32, y : i32);
+origin_only :: (fn(p : Point) -> bool)(
+  match(
+    p,
+    Point(x : 0, y : 0) => true,
+    _ => false
+  )
+);
+
+// A recursive enum through Box: the tail pattern matches the inner List.
+List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
+second :: (fn(l : List) -> i32)(
+  match(
+    l,
+    .Cons(_, .Cons(h, _)) => h,
+    .Cons(h, _) => h,
+    .Nil => i32(-1)
+  )
+);
+```
+
+A tuple or struct scrutinee is always exhaustive over its single constructor:
+a match is exhaustive when the element/field sub-patterns together cover
+every element (a missing element/field is named in the witness, e.g.
+`(_, 1)` or `Point(x : _, y : (101 ..= 149))`).
+
 Arms are tried in source order and the first match wins. Exhaustiveness is
 checked structurally: `.Some(true), .None` is rejected with
 `Missing case: .Some(false)`, and a missing variant is named with its payload
@@ -2156,9 +2199,8 @@ the earlier arms match only together, such as `.Some(_)` after `.Some(true)`
 and `.Some(false)`, is a warning. A trailing `_` or binding arm is always
 accepted. Bindings borrow the matched value for the arm.
 
-Not yet supported: struct and tuple scrutinees, patterns through a `Box(...)`
-payload, and the new forms inside an `io.async` arm that awaits (those fail
-loudly at codegen; bind the payload and match again inside the arm).
+Not yet supported: the new forms inside an `io.async` arm that awaits (those
+fail loudly at codegen; bind the payload and match again inside the arm).
 
 ## String
 
