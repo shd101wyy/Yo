@@ -2684,3 +2684,20 @@ test("a plain-named builtin cannot be destructured into, even renamed", {
   p := P(a : 1);
   comptime_expect_error({ a : consume } := p, "names a builtin");
 });
+
+// issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md
+_while_block_step :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < n, {
+    t := (i + i32(1));
+    i = t;
+  }, {
+    acc = ((acc * i32(10)) + i);
+  });
+  acc + (i * i32(1000))
+});
+test("a 3-argument while with a block step that declares a local", {
+  assert(_while_block_step(i32(0)) == i32(0), "no iteration");
+  assert(_while_block_step(i32(3)) == i32(3012), "0, 1, 2 then i = 3");
+});
