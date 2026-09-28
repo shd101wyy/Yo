@@ -233,9 +233,14 @@ class on mimalloc). The edit is big but mechanical.
 - **Phase 1 step 2**: CLOSED 2026-09-28 (plan text). `ModuleWalk.ctx` is an
   `Option`, and `_force_pending_def_impl` turns forcing a released walk into
   an internal error, so every green one-shot gate proves the invariant.
-- **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
-  plateau gate still fails:
-  `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+- **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24.
+  Plateau on stage-2, 2026-09-28: editing leaf documents is flat (196 → 231 MB
+  over 4 rounds). Editing std modules the cached prelude imports still grows
+  ~19 MB a round, led by `g_struct_finals`. An owner purge of the type-id
+  registries was tried and rejected because it was slower and fatter: the
+  prelude keeps the old generation alive
+  (`issues/lsp-memory-grows-per-open-edit-close-round.md`). Measure on
+  stage-2 only; seed-built binaries show the seed's leaks.
 - **Phase 1 step 5**: the table is written (plan §0.20,
   `scripts/bootstrap/registry_table.py`). Its four levers (plan §0.21):
   1. LANDED (branch `mem/arm-ranges-local`): the codegen-only tables are
@@ -245,7 +250,8 @@ class on mimalloc). The edit is big but mechanical.
   2. NOT TAKEN: the branch-init log's indices are held across nested
      evaluations and ~40 catch sites. §0.21 has the sound design (about
      16 MB).
-  3. Open: owner-purging the per-module registries the LSP purge misses.
+  3. Tried 2026-09-28 for the type-id registries and rejected (see Phase 1
+     step 3 above). The prelude-imported std modules need a different design.
   4. Folded into §3.2: `check` runs the verifier too, so the cost is the
      duplicated id strings, not the recording.
 - **Phase 5b**: `Symbol`, interned identifier strings (feeds §3.2 and §3.4).
