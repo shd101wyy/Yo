@@ -46,6 +46,8 @@ verifier's design, V1–V7 landed),
 [`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
+Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
+(verifier-driven removal of proved runtime guards; strict mode builds on it).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
