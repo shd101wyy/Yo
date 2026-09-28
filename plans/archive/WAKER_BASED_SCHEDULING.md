@@ -104,7 +104,7 @@ cycle:
   whose captures a synthesized capture-dispose already frees: a
   heap-use-after-free that macOS ran green and Linux ASan caught. It belongs in
   the spawn wrapper alone
-  (`issues/a-closure-typed-slot-never-releases-its-captures.md`).
+  (`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md`).
 
 **Two codegen bugs fell out of this campaign, both fixed.**
 

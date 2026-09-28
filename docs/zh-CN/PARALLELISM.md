@@ -277,7 +277,7 @@ rx := Channel(i32).receiver(usize(16));
 把 `Sender` **移入** `Thread(T).spawn` 闭包会正常关闭 Channel：线程体返回时，spawn 包装函数会
 释放该线程的捕获结构体，因此该 sender 的丢弃逻辑会执行
 （issues/fixed/spawn-closure-captures-never-dropped-leak.md；捕获本身又是闭包的情况见
-issues/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
+issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
 （`std/async/channel`，在单个事件循环上提供同样的 `receiver()`/`sender()`/`pair()` API）以同样的
 方式释放捕获。
 

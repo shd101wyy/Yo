@@ -113,7 +113,8 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type } :: import("../../types/utils.yo");
+{ attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -2327,6 +2328,17 @@ Result type: ${type_to_string(decl_result_ty)}`
   expr_info_set_capture_type(info, closure_capture_type);
   expr_info_set_deferred_dup_expressions(info, closure_capture_dups);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  // A sync closure value OWNS its capture struct: the capture dups above are
+  // its fields' own references. Give it an owning temp typed as that struct,
+  // like any RC-carrying temp, so the value is released where it dies (a
+  // borrowed argument at the scope end) or moved where it is consumed (a
+  // binding, an owning parameter, a return). Without it a closure literal
+  // passed as an argument leaked every capture
+  // (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md). The
+  // io.async state machine owns its captures through its own lowering.
+  if(is_creating_closure && !ctx.is_inside_io_async_call && match(closure_capture_type, .Some(cct) => type_contains_rc_type(cct), .None => false), {
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
   expr
 });
 export(evaluate_anonymous_function_implementation);

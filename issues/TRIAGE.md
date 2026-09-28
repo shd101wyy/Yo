@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 191 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 189 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,15 +28,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 1 |
-| Async / effects | 29 | 7 |
+| Async / effects | 28 | 6 |
 | Codegen / emitted C | 19 | 3 |
 | Evaluator / types | 23 | 4 |
 | Std library | 54 | 14 |
 | Tooling (fmt/doc/lsp) | 13 | 1 |
 | Self-hosting legacy | 16 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 21 | 4 |
-| **Total** | **191** | **36** |
+| Other | 20 | 4 |
+| **Total** | **189** | **35** |
 
 ## Cross-cutting buckets
 
@@ -139,13 +139,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (29)
+### Async / effects (28)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) | OPEN — an inner | — |
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | OPEN | — |
-| [`a-closure-typed-slot-never-releases-its-captures.md`](./a-closure-typed-slot-never-releases-its-captures.md) | PARTIALLY FIXED 2026-09-12 | yes |
 | [`a-ref-value-passed-to-an-async-future-is-never-released.md`](./a-ref-value-passed-to-an-async-future-is-never-released.md) | — | yes |
 | [`async-abort-dispose-double-drops-moved-enum-payload.md`](./async-abort-dispose-double-drops-moved-enum-payload.md) | — | — |
 | [`async-await-nested-if-lost-continuation.md`](./async-await-nested-if-lost-continuation.md) | — | — |
@@ -331,7 +330,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (21)
+### Other (20)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -344,7 +343,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
-| [`match-arm-registry-retains-every-generation-of-compiled-arms.md`](./match-arm-registry-retains-every-generation-of-compiled-arms.md) | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |

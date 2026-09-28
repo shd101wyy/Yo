@@ -24,6 +24,7 @@
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
 { lookup_some_resolved_concrete } :: import("./expr_info.yo");
+{ record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { parse_raw_int } :: import("./utils.yo");
 { get_integer_type_range } :: import("./types/utils.yo");
 /// A compiled match pattern. Positions are typed top-down from the scrutinee;
@@ -88,51 +89,36 @@ Arm :: ref(
 // ---------------------------------------------------------------------------
 // Registry — arms per match node, keyed by the match expression's id.
 //
-// The id carries no owner, so a side index records which module registered
-// it and `mm_invalidate_document` purges that module's entries (a
-// re-evaluation re-registers them). Before the owner index, every
-// watch/LSP edit generation stayed in the map forever — the 2026-09-27
-// holder census measured 18,102 lists (≈35 K Pattern IR graphs, the single
-// biggest `Pattern` population at `check` exit) living in a one-shot process
-// with nothing left to read them.
+// Only codegen reads it (`lookup_match_arms` in exprs/match.yo and
+// async/state_code_gen.yo), so an entry is an ExprId-keyed side table like
+// the ones in expr_info.yo: `record_owned_expr_id` logs the id under the
+// module being evaluated, and `mm_invalidate_document` hands the removed
+// module's ids to `purge_match_arms` beside `purge_expr_side_tables`. The log
+// is off in one-shot commands (§0.15), where nothing invalidates.
 // ---------------------------------------------------------------------------
 (g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
-(g_match_arm_owners : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
-register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm), owner : String) -> unit)({
+register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
   _old := g_match_arms.insert(match_id, arms);
-  ids := match(
-    g_match_arm_owners.get(owner),
-    .Some(existing) => existing,
-    .None => {
-      // insert takes ownership of the HANDLE (no clone — a cloned list would
-      // store a detached snapshot the push below never reaches).
-      fresh := ArrayList(usize).new();
-      _ := g_match_arm_owners.insert(owner.clone(), fresh);
-      match(g_match_arm_owners.get(owner), .Some(stored) => stored, .None => fresh)
-    }
-  );
-  ids.push(match_id);
+  record_owned_expr_id(match_id);
 });
 lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(match_id));
-purge_match_arms_owned_by :: (fn(owner : String) -> unit)({
-  match(
-    g_match_arm_owners.remove(owner),
-    .Some(ids) => {
-      (pi : usize) = usize(0);
-      while(pi < ids.len(), {
-        match(
-          ids.get(pi),
-          .Some(mid) => {
-            _r := g_match_arms.remove(mid);
-          },
-          .None => ()
-        );
-        pi = (pi + usize(1));
-      });
-    },
-    .None => ()
-  );
+/// Drop the compiled arms of the given match ids (a removed module's
+/// `take_owned_expr_ids`).
+purge_match_arms :: (fn(ids : ArrayList(usize)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r := g_match_arms.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
+/// Registered match nodes (the B2 plateau test's probe).
+match_arms_entry_count :: (fn() -> usize)(g_match_arms.len());
 // ---------------------------------------------------------------------------
 // GADT reachability (moved from evaluator/exprs/match.yo so the checker can
 // exclude unreachable variants from an enum's constructor set).
@@ -1544,7 +1530,7 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
     }
   );
 });
-export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms_owned_by);
+export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);

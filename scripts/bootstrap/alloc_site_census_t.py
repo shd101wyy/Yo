@@ -25,6 +25,12 @@ HS_ONLY_MARKED=1 the dump then carries `E <type> <events> rc=<n> alloc=<ra0> <ra
 rows for the marked leak roots — scripts/bootstrap/rc_event_report.py aggregates them (build
 with -g -fno-omit-frame-pointer). This is what found the HashMap rehash leak
 (issues/fixed/cond-unit-arm-statement-is-dropped.md).
+--rc-balance (a trailing flag; same hooks) keeps, per target object, the NET refcount
+change per call site in an 8192-slot table; a disposed object folds into a FREED
+histogram, a live one into a LIVE histogram at the dump. `B <live net> <freed net> <site> -`
+rows; scripts/bootstrap/rc_balance_report.py sums them per function. This is the tool
+for objects dup'd thousands of times (an ExprInfoTable), where the first/last-8 event
+windows of --rc-events say nothing (§0.19: the closure-capture leak).
 Dump rows: `S <live> <type label> <tag or -1> <ra0> <ra1> <summed capacity> <ra2> <ra3> <ra4>`
 (capacity is 0 for non-ArrayList types; ra2..ra4 come from the frame-record chain, so
 build with -fno-omit-frame-pointer); line 1 is the image base.
@@ -88,8 +94,30 @@ table = r"""
 #define __HS_NEV 8
 typedef struct { void* k; void* a0; void* a1; void* a2; void* a3; void* a4; int ty; int tag; int marked;
   /* RC_EVENTS mode: first and last __HS_NEV incr(+)/decr(-) sites */
-  unsigned nev; void* first[__HS_NEV]; void* last[__HS_NEV]; void* first2[__HS_NEV][2]; void* last2[__HS_NEV][2]; signed char fd[__HS_NEV]; signed char ld[__HS_NEV]; } __hs_e;
+  unsigned nev; void* first[__HS_NEV]; void* last[__HS_NEV]; void* first2[__HS_NEV][2]; void* last2[__HS_NEV][2]; signed char fd[__HS_NEV]; signed char ld[__HS_NEV];
+  /* RC_BALANCE mode: net incr-minus-decr per (site, caller) */
+  struct __hs_b* bal; } __hs_e;
 #define __HS_CAP (1u << %(cap_bits)d)
+/* --rc-balance: every target object keeps its net refcount change per
+   (site, caller) pair; a disposed object's table folds into a global
+   "freed" histogram (the control group), a live one's into the "live"
+   histogram at dump time. A site whose live net is positive while the freed
+   objects balance it is where the missing release belongs. */
+#define __HS_NB 8192 /* per-object open-addressing table, keyed by site */
+typedef struct __hs_b { void* site; void* up; long long net; } __hs_b;
+static const int __hs_balance = %(balance)d;
+#define __HS_GCAP (1u << 16)
+static __hs_b* __hs_gfreed; static __hs_b* __hs_glive; static long long __hs_nfreed, __hs_nlive, __hs_bal_over;
+static void __hs_gadd(__hs_b* g, void* site, void* up, long long net) {
+  size_t i = ((((size_t)site >> 2) * 0x9E3779B97F4A7C15ull) ^ ((size_t)up >> 2)) & (__HS_GCAP - 1);
+  while (g[i].site && !(g[i].site == site && g[i].up == up)) i = (i + 1) & (__HS_GCAP - 1);
+  g[i].site = site; g[i].up = up; g[i].net += net;
+}
+static void __hs_fold(__hs_b* bal, __hs_b** g) {
+  if (!bal) return;
+  if (!*g) *g = (__hs_b*)calloc(__HS_GCAP, sizeof(__hs_b));
+  for (int q = 0; q < __HS_NB; q++) if (bal[q].site) __hs_gadd(*g, bal[q].site, bal[q].up, bal[q].net);
+}
 static __hs_e* __hs_t;
 static void* const __HS_TOMB = (void*)1;
 static const char* __hs_labels[] = {%(labels)s};
@@ -98,6 +126,7 @@ static void __hs_put(void* k, int ty, int tag, void* a0, void* a1) {
   if (!__hs_t) __hs_t = (__hs_e*)calloc(__HS_CAP, sizeof(__hs_e));
   size_t i = __hs_h(k);
   while (__hs_t[i].k != NULL && __hs_t[i].k != __HS_TOMB && __hs_t[i].k != k) i = (i + 1) & (__HS_CAP - 1);
+  if (__hs_t[i].bal) { free(__hs_t[i].bal); __hs_t[i].bal = NULL; }
   __hs_t[i].k = k; __hs_t[i].marked = 0; __hs_t[i].nev = 0; __hs_t[i].ty = ty; __hs_t[i].tag = tag; __hs_t[i].a0 = a0; __hs_t[i].a1 = a1;
   /* frames 2..4 through the frame-record chain: fp[0] = caller's fp, fp[1] = return address */
   void** fp = (void**)__builtin_frame_address(1);
@@ -132,6 +161,12 @@ __attribute__((noinline)) static void __hs_ev(void* k, void* site, int d) {
       if (e->nev < __HS_NEV) { e->first[e->nev] = site; e->fd[e->nev] = (signed char)d; e->first2[e->nev][0] = up[0]; e->first2[e->nev][1] = up[1]; }
       e->last[e->nev %% __HS_NEV] = site; e->ld[e->nev %% __HS_NEV] = (signed char)d; e->last2[e->nev %% __HS_NEV][0] = up[0]; e->last2[e->nev %% __HS_NEV][1] = up[1];
       e->nev++;
+      if (__hs_balance) {
+        if (!e->bal) e->bal = (__hs_b*)calloc(__HS_NB, sizeof(__hs_b));
+        size_t q = (((size_t)site >> 2) * 0x9E3779B97F4A7C15ull >> 51) & (__HS_NB - 1); int probes = 0;
+        while (e->bal[q].site && e->bal[q].site != site && probes < __HS_NB) { q = (q + 1) & (__HS_NB - 1); probes++; }
+        if (probes < __HS_NB) { e->bal[q].site = site; e->bal[q].up = NULL; e->bal[q].net += d; } else __hs_bal_over++;
+      }
       return;
     }
     i = (i + 1) & (__HS_CAP - 1);
@@ -140,7 +175,7 @@ __attribute__((noinline)) static void __hs_ev(void* k, void* site, int d) {
 static void __hs_del(void* k) {
   if (!__hs_t) return;
   size_t i = __hs_h(k);
-  while (__hs_t[i].k != NULL) { if (__hs_t[i].k == k) { __hs_t[i].k = __HS_TOMB; return; } i = (i + 1) & (__HS_CAP - 1); }
+  while (__hs_t[i].k != NULL) { if (__hs_t[i].k == k) { if (__hs_t[i].bal) { __hs_fold(__hs_t[i].bal, &__hs_gfreed); __hs_nfreed++; free(__hs_t[i].bal); __hs_t[i].bal = NULL; } __hs_t[i].k = __HS_TOMB; return; } i = (i + 1) & (__HS_CAP - 1); }
 }
 typedef struct { void* a0; void* a1; void* a2; void* a3; void* a4; int ty; int tag; long long n; long long cap; } __hs_s;
 static const char __hs_is_al[] = {%(al)s};
@@ -201,16 +236,32 @@ __attribute__((destructor)) static void __hs_dump(void) {
       fprintf(f, "\n");
     }
   }
+  if (__hs_balance) {
+    for (size_t j = 0; j < __HS_CAP; j++) {
+      __hs_e* e = &__hs_t[j];
+      if (e->k == NULL || e->k == __HS_TOMB || !e->bal) continue;
+      if (getenv("HS_ONLY_MARKED") && !e->marked) continue;
+      __hs_fold(e->bal, &__hs_glive); __hs_nlive++;
+    }
+    fprintf(f, "# balance live %%lld freed %%lld overflow %%lld\n", __hs_nlive, __hs_nfreed, __hs_bal_over);
+    if (__hs_glive) for (size_t i = 0; i < __HS_GCAP; i++) if (__hs_glive[i].site) {
+      long long fr = 0;
+      if (__hs_gfreed) { size_t k = ((((size_t)__hs_glive[i].site >> 2) * 0x9E3779B97F4A7C15ull) ^ ((size_t)__hs_glive[i].up >> 2)) & (__HS_GCAP - 1);
+        while (__hs_gfreed[k].site && !(__hs_gfreed[k].site == __hs_glive[i].site && __hs_gfreed[k].up == __hs_glive[i].up)) k = (k + 1) & (__HS_GCAP - 1);
+        if (__hs_gfreed[k].site) fr = __hs_gfreed[k].net; }
+      fprintf(f, "B %%lld %%lld %%p %%p\n", __hs_glive[i].net, fr, __hs_glive[i].site, __hs_glive[i].up);
+    }
+  }
   fclose(f);
 }
-""" % dict(cap_bits=(22 if "--rc-events" in sys.argv else 25), labels=label_list, dump=dump_path, al=al_flags)
+""" % dict(balance=(1 if "--rc-balance" in sys.argv else 0), cap_bits=(22 if ("--rc-events" in sys.argv or "--rc-balance" in sys.argv) else 25), labels=label_list, dump=dump_path, al=al_flags)
 cl = "static void __yo_cleanup_thread_gc() {"
 cpos = src.find("\n" + cl)
 if cpos >= 0:
     # Only the thread that actually ran the program: an early-exiting helper
     # thread's teardown would otherwise dump an empty table first.
     src = src[:cpos + 1] + "static void __hs_dump(void);\n" + cl + "\n  if (__yo_current_thread_gc && (long long)__yo_current_thread_gc->tracked_count >= (getenv(\"HS_MIN\") ? atoll(getenv(\"HS_MIN\")) : 1000)) __hs_dump();" + src[cpos + 1 + len(cl):]
-if "--rc-events" in sys.argv:
+if "--rc-events" in sys.argv or "--rc-balance" in sys.argv:
     n1 = src.count("static inline void* __yo_incr_rc(void* ptr) {\n  if (ptr == NULL) return NULL;")
     n2 = src.count("static inline void __yo_decr_rc(void* ptr) {\n  if (ptr == NULL) return;")
     src = src.replace("static inline void* __yo_incr_rc(void* ptr) {\n  if (ptr == NULL) return NULL;",

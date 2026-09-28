@@ -94,7 +94,7 @@ env_mod :: import("std/env");
 { purge_generic_impls_owned_by, purge_concrete_trait_impls_owned_by, purge_ifc_memo_owned_by } :: import("./evaluator/values/impl.yo");
 { purge_type_intern_owned_by } :: import("./types/intern.yo");
 { purge_specialization_caches_owned_by } :: import("./evaluator/calls/helper.yo");
-{ purge_match_arms_owned_by } :: import("./pattern.yo");
+{ purge_match_arms } :: import("./pattern.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
@@ -577,11 +577,12 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
         // (issues/fixed/build-watch-reuses-a-stale-imported-module.md).
         // Both must go together.
         purge_specialization_caches_owned_by(owner.clone());
-        purge_match_arms_owned_by(owner.clone());
         owned_fids := take_owned_func_ids(owner.clone());
         purge_function_side_tables(owned_fids.clone());
         purge_function_value_tables(owned_fids);
-        purge_expr_side_tables(take_owned_expr_ids(owner.clone()));
+        owned_eids := take_owned_expr_ids(owner.clone());
+        purge_match_arms(owned_eids.clone());
+        purge_expr_side_tables(owned_eids);
         purge_ifc_memo_owned_by(owner.clone());
         purge_trait_defaults_owned_by(owner.clone());
         purge_type_intern_owned_by(owner);

@@ -292,7 +292,7 @@ rx := Channel(i32).receiver(usize(16));
 A `Sender` *moved into* a `Thread(T).spawn` closure does close the channel: the spawn wrapper
 releases the thread's capture struct when the body returns, so that sender's drop runs
 (issues/fixed/spawn-closure-captures-never-dropped-leak.md, and
-issues/a-closure-typed-slot-never-releases-its-captures.md for a capture that is itself
+issues/fixed/a-closure-typed-slot-never-releases-its-captures.md for a capture that is itself
 a closure). Async tasks (`std/async/channel`, which has the same
 `receiver()`/`sender()`/`pair()` API for one event loop) release their captures the same way.
 

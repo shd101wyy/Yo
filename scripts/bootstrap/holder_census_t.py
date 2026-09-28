@@ -39,11 +39,9 @@ from pathlib import Path
 src_path, out_path, dump_path = sys.argv[1], sys.argv[2], sys.argv[3]
 src = Path(src_path).read_text()
 
-# Linux enumeration: no per-allocation tracking — the scan walks glibc malloc
-# chunks from /proc/self/maps at exit time (see __ho_linux_chunks in the code
-# block); zero runtime overhead, unlike the macro-wrapping registry this file
-# used to inject (which cost 7x on evaluation and wedged at full-tree scale
-# while a small-module check ran fine — 2026-09-27).
+# Linux enumeration: no per-allocation tracking — the scan walks glibc's own
+# chunk chain at exit time (see __ho_linux_chunks in the code block), exact
+# because the binary re-executes itself under walkable malloc tunables.
 
 tyname = {}
 for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // ([^\n]*)", src):
@@ -85,6 +83,7 @@ al_c = ",\n".join(al_rows) or "  { 0, 0, 0, 0 }"
 hm_c = ",\n".join(hm_rows) or "  { 0, 0, 0, 0, 0 }"
 len_c = "\n".join("  { void* p = *(void* const*)__ho_root_addrs[%d]; if (p) fprintf(f, \"L %%lld %%s\\n\", %s, __ho_roots[%d]); }" % (i, e, i) for i, e in len_exprs)
 
+sizes_c = ",\n".join("  sizeof(struct %s_struct)" % b if b in struct_body else "  0" for b in bases)
 labels_c = ",\n".join('  "%s"' % tyname.get(b, b).replace('"', "'").replace("\\", "/")[:120] for b in bases)
 roots_c = ",\n".join('  "%s"' % n for _, n in roots)
 root_ptrs = ",\n".join("  (void*)&%s" % n for _, n in roots)
@@ -94,8 +93,49 @@ cases = "\n".join("  if (fn == (void*)%s) return %d;" % (d, slot[b]) for d, b in
 code = r"""
 /* ---- holder census (tmp instrument) ---- */
 #include <stdio.h>
+#if !defined(__APPLE__)
+/* The census's own tables hold pointers to the objects it classifies (the
+   unreached set above all), so they must not be read as heap holders. On
+   Linux they live in private mappings the chunk walk skips; nothing the
+   program allocated shares them. */
+#include <sys/mman.h>
+#include <string.h>
+#include <stdlib.h>
+#define __HO_MAXMAPS 256
+static char* __ho_map_a[__HO_MAXMAPS]; static size_t __ho_map_n[__HO_MAXMAPS]; static int __ho_nmaps;
+static void* __ho_calloc(size_t n, size_t sz) {
+  size_t len = ((n * sz + 16) + 4095) & ~(size_t)4095;
+  char* m = (char*)mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (m == (char*)MAP_FAILED) return NULL;
+  *(size_t*)m = len;
+  if (__ho_nmaps < __HO_MAXMAPS) { __ho_map_a[__ho_nmaps] = m; __ho_map_n[__ho_nmaps] = len; __ho_nmaps++; }
+  return m + 16;
+}
+static void* __ho_realloc(void* q, size_t n) {
+  char* p = (char*)__ho_calloc(n, 1);
+  if (q && p) {
+    char* m = (char*)q - 16; size_t len = *(size_t*)m;
+    memcpy(p, q, (len - 16) < n ? (len - 16) : n);
+    for (int i = 0; i < __ho_nmaps; i++) if (__ho_map_a[i] == m) { __ho_map_a[i] = __ho_map_a[--__ho_nmaps]; __ho_map_n[i] = __ho_map_n[__ho_nmaps]; break; }
+    munmap(m, len);
+  }
+  return p;
+}
+static size_t __ho_own_map_at(char* w) {
+  for (int i = 0; i < __ho_nmaps; i++) if (__ho_map_a[i] == w) return __ho_map_n[i];
+  return 0;
+}
+#define calloc __ho_calloc
+#define realloc __ho_realloc
+#endif
 static const char* __ho_types[%(nb)d] = {
 %(labels)s
+};
+/* sizeof each type's struct: a conservative scan of an untracked object
+   stops there, because the malloc chunk's usable tail past the struct holds
+   the previous occupant's stale words (0 = unknown, scan the whole block). */
+static const size_t __ho_type_size[%(nb)d] = {
+%(sizes)s
 };
 static const char* __ho_roots[%(nr)d] = {
 %(roots)s
@@ -175,70 +215,73 @@ static void __ho_walk_from(int r, void* p) {
 #endif
 #include <pthread.h>
 #include <string.h>
-/* Linux: enumerate in-use malloc blocks by walking glibc chunks from
-   /proc/self/maps — no per-allocation tracking, zero evaluation overhead.
-   For each anonymous rw region, try a chunk chain at successive 16-byte
-   offsets (thread arenas carry a heap_info + malloc_state header before the
-   first chunk; the offset scan finds it); a chain validates only when it
-   covers the region exactly, so non-heap anon regions (census tables,
-   stacks, OpenSSL buffers) are skipped. Large mmap'd chunks are single-chunk
-   regions with page-rounded tails — accepted when one chunk covers the
-   region within a page. In-use = the next chunk's PREV_INUSE bit; chunks
-   sitting in tcache/fastbins keep that bit set and are overcounted (bounded
-   by bin capacity). */
-static unsigned long long __ho_linux_nchunks, __ho_linux_nbytes;
+/* Linux: EXACT enumeration of in-use glibc malloc blocks, no per-allocation
+   tracking (zero evaluation overhead). The constructor below re-executes the
+   binary once with glibc tunables that make the heap walkable:
+     arena_max=1        every thread allocates from the main arena, whose
+                        chunks form one contiguous chain over `[heap]`;
+     tcache_count=0,    a freed chunk is then always in a regular bin, so the
+     mxfast=0           next chunk's PREV_INUSE bit is exact (tcache/fastbin
+                        chunks keep it set and would read as live);
+     mmap_threshold=32M only blocks above 32 MiB are separate mmap'd chunks,
+                        each one a whole mapping (walked as a run of chunks
+                        with IS_MMAPPED set from the start of an anonymous
+                        region, since /proc/self/maps merges neighbours).
+   The walk is therefore the heap's own chunk chain from its first chunk to
+   the top chunk: every block is visited exactly once, none is guessed.
+   HOLDER_NO_REEXEC=1 skips the re-exec (the walk then reports itself
+   inexact in the dump header). */
+#if !defined(__APPLE__)
+#include <unistd.h>
+extern char** environ;
+static int __ho_linux_exact;
+__attribute__((constructor)) static void __ho_linux_reexec(int argc, char** argv) {
+  (void)argc;
+  const char* want = "glibc.malloc.arena_max=1:glibc.malloc.tcache_count=0:glibc.malloc.mxfast=0:glibc.malloc.mmap_threshold=33554432";
+  const char* have = getenv("GLIBC_TUNABLES");
+  if (have && strcmp(have, want) == 0) { __ho_linux_exact = 1; return; }
+  if (getenv("HOLDER_NO_REEXEC")) return;
+  setenv("GLIBC_TUNABLES", want, 1);
+  execv("/proc/self/exe", argv);
+  /* exec failed: carry on inexact */
+}
+#endif
+static unsigned long long __ho_linux_nchunks, __ho_linux_nbytes, __ho_linux_nmmapped;
 static void __ho_linux_chunks(void (*cb)(char*, size_t)) {
   FILE* mf = fopen("/proc/self/maps", "r");
   if (!mf) return;
   char mline[1024];
+  __ho_linux_nchunks = __ho_linux_nbytes = __ho_linux_nmmapped = 0;
   while (fgets(mline, sizeof(mline), mf)) {
     unsigned long long rs, re; char perms[8]; char path[600] = "";
     int n = sscanf(mline, "%%llx-%%llx %%7s %%*s %%*s %%*s %%599s", &rs, &re, perms, path);
     if (n < 3) continue;
-    if (perms[0] != 'r' || perms[1] != 'w' || perms[2] != '-') continue;
-    if (path[0] == '/') continue;
-    unsigned long long rlen = re - rs;
-    if (rlen < 4096) continue;
-    int dbg = (getenv("HOLDER_DEBUG_REGIONS") != NULL);
-    if (dbg) fprintf(stderr, "[holders] region %%llx-%%llx %%s len=%%llu\n", rs, re, perms, rlen);
-    /* Candidate starts: offset 0 (main brk heap; single mmap'd chunks) and a
-       small window after every 64 KiB boundary (thread arenas are 64 MiB
-       reservations whose heap_info+malloc_state header precedes the first
-       chunk; /proc/self/maps COALESCES adjacent anonymous mappings, so a
-       chain can rarely end exactly at a region end — validate a PREFIX and
-       accept it when it is long or covers most of the region). */
-    {
-      unsigned long long first_b = (rs & 65535) ? (65536 - (rs & 65535)) : 0;
-      /* candidate starts: offset 0, then a small window after EVERY 64 KiB
-         boundary (thread arenas are 64 MiB-aligned heap_info+malloc_state
-         followed by chunks; coalesced regions hide where the arena begins) */
-      unsigned long long nb = (rlen - first_b) / 65536 + 1;
-      for (unsigned long long bi = 0; bi <= nb; bi++) {
-        unsigned long long base_off = (bi == 0 && first_b == 0) ? 0 : first_b + (bi == 0 ? 0 : (bi - (first_b == 0 ? 1 : 0)) * 65536);
-        unsigned long long limit_off = base_off + ((bi == 0 && first_b == 0) ? 16 : 8192);
-        if (base_off >= rlen) break;
-        for (unsigned long long off = base_off; off + 64 <= rlen && off < limit_off; off += 16) {
-        char* c = (char*)(rs + off);
-        char* end = (char*)re;
-        char* w = c; int nch = 0; unsigned long long covered = 0;
-        while (w + 16 <= end) {
-          size_t sz = *((size_t*)(w + 8)) & ~(size_t)7;
-          if (sz < 32 || (sz & 15) || w + sz > end) break;
-          w += sz; covered += sz; nch++;
-        }
-        int accept = (nch >= 64) || (w == end && nch >= 1) || (nch >= 1 && off == 0 && nch == 1 && covered + 4095 >= rlen);
-        if (dbg && nch >= 4) fprintf(stderr, "[holders]   off=%%llu nch=%%d covered=%%llu rlen=%%llu accept=%%d\n", off, nch, covered, rlen, accept);
-        if (!accept) continue;
-        for (char* c2 = c; c2 + 16 <= w; ) {
-          size_t sz = *((size_t*)(c2 + 8)) & ~(size_t)7;
-          int inuse = 1;
-          if (c2 + sz + 8 <= w) inuse = (int)(*((size_t*)(c2 + sz + 8)) & 1);
-          if (inuse) { cb((char*)(c2 + 16), (size_t)(sz - 16)); __ho_linux_nchunks++; __ho_linux_nbytes += sz; }
-          c2 += sz;
-        }
-        break;
+    if (perms[0] != 'r' || perms[1] != 'w') continue;
+    if (strcmp(path, "[heap]") == 0) {
+      /* The main arena: chunks from the heap's start to the top chunk. The
+         top chunk (the last one) is free by definition and is not reported. */
+      char* w = (char*)rs; char* end = (char*)re;
+      while (w + 32 <= end) {
+        size_t sz = *((size_t*)(w + 8)) & ~(size_t)7;
+        if (sz < 32 || (sz & 15) || w + sz > end) break;
+        char* nx = w + sz;
+        if (nx + 16 > end) break; /* w is the top chunk */
+        if (*((size_t*)(nx + 8)) & 1) { cb(w + 16, sz - 16); __ho_linux_nchunks++; __ho_linux_nbytes += sz; }
+        w = nx;
       }
-      }
+      continue;
+    }
+    if (path[0] != 0) continue;
+    /* An anonymous region: a run of whole-mapping mmap'd chunks (prev_size 0,
+       IS_MMAPPED set, page-sized) starting at its first byte, or nothing. */
+    char* w = (char*)rs; char* end = (char*)re;
+    while (w + 32 <= end) {
+      size_t own = __ho_own_map_at(w);
+      if (own) { w += own; continue; }
+      size_t ps = *((size_t*)w), raw = *((size_t*)(w + 8)), sz = raw & ~(size_t)7;
+      if (ps != 0 || !(raw & 2) || (raw & 4) || sz < 4096 || (sz & 4095) || w + sz > end) break;
+      cb(w + 16, sz - 16); __ho_linux_nchunks++; __ho_linux_nbytes += sz; __ho_linux_nmmapped++;
+      w += sz;
     }
   }
   fclose(mf);
@@ -437,6 +480,17 @@ static void __hd_scan_range(void* lo, size_t bytes, int root) {
   void** w = (void**)lo; size_t nw = bytes / sizeof(void*);
   for (size_t j = 0; j < nw; j++) __hd_push(w[j], root);
 }
+/* A block reached by the conservative scan can be raw storage whose words
+   merely look like a header (a stored dispose_fn at +8 and a set bit at +4):
+   call its traverse_fn only when that is a pointer into the program's code. */
+static int __ho_is_code(void* fn) {
+#if defined(__APPLE__)
+  return fn != NULL;
+#else
+  extern char __executable_start[]; extern char etext[];
+  return (char*)fn >= __executable_start && (char*)fn < etext;
+#endif
+}
 /* breadth-first, so HOLDER_DEEP_PATH chains are shortest paths */
 static void __hd_drain(int root) {
   while (__hd_head < __hd_sp) {
@@ -448,7 +502,7 @@ static void __hd_drain(int root) {
     /* A TRACKED object's traverse_fn visits exactly its RC children, which
        is precise for enums whose union tail may hold a previous occupant's
        stale words; only untracked objects are scanned conservatively. */
-    if ((((__yo_rc_prefix_t*)b)->gc_flags & __YO_GC_TRACKED) && ((__yo_ref_header_t*)b)->traverse_fn) {
+    if ((((__yo_rc_prefix_t*)b)->gc_flags & __YO_GC_TRACKED) && bytes >= (long long)sizeof(__yo_ref_header_t) && __ho_is_code(((__yo_ref_header_t*)b)->traverse_fn)) {
       __hd_root = root;
       ((__yo_ref_header_t*)b)->traverse_fn(b, __hd_visit);
       /* the container storage bytes still count toward this object */
@@ -457,7 +511,11 @@ static void __hd_drain(int root) {
       if (s >= 0) { __hd_cnt[(size_t)root * %(nb)d + s]++; __hd_bytes[(size_t)root * %(nb)d + s] += bytes; }
       continue;
     }
-    __hd_scan_range(b + 16, __hd_bs[bi] > 16 ? __hd_bs[bi] - 16 : 0, root);
+    {
+      size_t lim = __hd_bs[bi];
+      if (s >= 0 && __ho_type_size[s] >= 16 && __ho_type_size[s] < lim) lim = __ho_type_size[s];
+      __hd_scan_range(b + 16, lim > 16 ? lim - 16 : 0, root);
+    }
     for (size_t a = 0; a < sizeof(__hd_al) / sizeof(__hd_al[0]); a++) if (__hd_al[a].fn == fn) {
       char* ptr = *(char**)(b + __hd_al[a].off_ptr); size_t len = *(size_t*)(b + __hd_al[a].off_len);
       if (ptr && len) { long pi = __hd_find(ptr); if (pi >= 0) { size_t used = len * __hd_al[a].esz; if (used > __hd_bs[pi]) used = __hd_bs[pi]; __hd_scan_range(ptr, used, root); bytes += (long long)__hd_bs[pi]; } }
@@ -609,8 +667,6 @@ static void __ho_census(void* st) {
     if (ext > 0 && s >= 0) { __ho_extn[s]++; __ho_ext[s] += ext; }
   }
   FILE* f = fopen("%(dump)s", "w"); if (!f) return;
-  fprintf(f, "# chunks %%llu %%llu\n", __ho_linux_nchunks, __ho_linux_nbytes);
-  fprintf(stderr, "[holders] linux chunk walk: %%llu in-use blocks, %%llu bytes\n", __ho_linux_nchunks, __ho_linux_nbytes);
   for (int r = 0; r < %(nr)d; r++) for (int t = 0; t < %(nb)d; t++) {
     long long c = __ho_count[(size_t)r * %(nb)d + t];
     if (c) fprintf(f, "H %%lld %%s %%s\n", c, __ho_roots[r], __ho_types[t]);
@@ -619,13 +675,17 @@ static void __ho_census(void* st) {
   for (int t = 0; t < %(nb)d; t++) if (__ho_extn && __ho_extn[t]) fprintf(f, "R %%lld %%lld %%s\n", __ho_extn[t], __ho_ext[t], __ho_types[t]);
   if (getenv("HOLDER_SCAN")) { __ho_scan_skip = (void*)gc->gc_white; __ho_scan_heap(f); }
   if (getenv("HOLDER_SCAN") && getenv("HOLDER_DEEP")) __ho_deep(f);
+#if !defined(__APPLE__)
+  fprintf(f, "# chunks %%llu %%llu mmapped %%llu exact %%d\n", __ho_linux_nchunks, __ho_linux_nbytes, __ho_linux_nmmapped, __ho_linux_exact);
+  fprintf(stderr, "[holders] linux chunk walk: %%llu in-use blocks, %%llu bytes (%%llu mmapped), %%s\n", __ho_linux_nchunks, __ho_linux_nbytes, __ho_linux_nmmapped, __ho_linux_exact ? "exact" : "INEXACT (not re-executed under the walkable tunables)");
+#endif
 %(len_c)s
   fclose(f);
 }
 __attribute__((destructor)) static void __ho_census_atexit(void) {
   for (__yo_thread_gc_state_t* g = __yo_all_thread_gcs; g != NULL; g = g->next) __ho_census(g);
 }
-""" % dict(nb=nb, nr=nr, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c, len_c=len_c, al_c=al_c, hm_c=hm_c)
+""" % dict(nb=nb, nr=nr, sizes=sizes_c, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c, len_c=len_c, al_c=al_c, hm_c=hm_c)
 
 cl = "static void __yo_cleanup_thread_gc() {"
 pos = src.find("\n" + cl)

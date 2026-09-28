@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-28 — (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -705,6 +705,20 @@ instruments durable and answer the three questions the ranking depends on.
    (`YO_DEBUG_WALKS=1`) that panics if `finished_walk_for` returns a slim
    record and the caller touches `.ctx`/`.env`; run `check ./src`,
    `check ./std`, `compile src/main.yo --skip-c-compiler`, the fast suite.
+   **CLOSED 2026-09-28, with no build flag needed.** The shape Phase 1 step 1
+   landed makes this an always-on invariant:
+   - `ModuleWalk.ctx` is an `Option`, so no reader can touch a released
+     context without handling `.None`;
+   - the one reader that needs it, `_force_pending_def_impl`
+     (`src/evaluator/values/anonymous_module.yo`), turns `.None` into
+     `internal error: forcing … after module … finished its walk and released
+     its evaluation context`, rather than falling back.
+
+   Every one-shot gate is therefore the proof, and all of them are green on
+   the §0.19 tree: `check ./src` 279/279, `check ./std`, the fixpoint's
+   `compile src/main.yo`, and the fast suite. `ModuleWalk.env` stays on the
+   record: `module_walk_force_env` and the revalidation planner read it, and
+   it is the live walker's env, not a copy.
 3. **LSP: retain only open documents.** `mm_forget_open_document` drops that
    document's walk `ctx` (keeping the slim record); `mm_set_open_document`
    restores full retention on the next walk. Gate with the LSP tests under
@@ -1827,6 +1841,200 @@ interned node); (3) the two open missing-drop bugs
 (`issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md` and
 the drop-liburing agent's param-interior fix) land first — each shrinks the
 same ExprInfo/Variable/Environment mass.
+
+**Corrections (2026-09-28, §0.19).** Three readings above did not hold up.
+- The Pattern row is not a missing release. The `+1` is the untracked `Arm`
+  in `g_match_arms`, which keeps one generation per re-evaluation
+  (`issues/fixed/match-arm-registry-retains-every-generation-of-compiled-arms.md`).
+- The heuristic chunk walk above could not support HOLDER_SCAN or
+  HOLDER_DEEP. The deep walk segfaulted on Linux, so no byte figures came
+  out of it.
+- The `:=` indexed-read "leak" was a user function named `consume` (#958),
+  not a missing drop.
+
+The LEAK group's real cause is §0.19.
+
+### 0.19 Closures never released their captures: the LEAK group was 38 `ExprInfoTable`s (2026-09-28)
+
+**The census, made exact on Linux.** The instrumented binary now re-executes
+itself under glibc tunables that make the heap walkable:
+- `arena_max=1` puts every thread in the main arena, one contiguous chain
+  over `[heap]`;
+- `tcache_count=0` and `mxfast=0` keep every freed chunk in a regular bin,
+  so the next chunk's `PREV_INUSE` bit is exact;
+- `mmap_threshold=32M` leaves only 32 MiB+ blocks as whole-mapping chunks.
+
+The walk is then glibc's own chunk chain, and the dump header says `exact 1`.
+The census's own tables live in private mappings the walk skips; they point
+at the unreached set and would otherwise count as holders. Two fixes in the
+deep walk (`HOLDER_DEEP`):
+- It no longer calls a `traverse_fn` read out of raw storage that merely
+  looks like a header. That was the segfault behind §0.18's missing byte
+  figures.
+- It scans an untracked object only up to `sizeof` its struct. The malloc
+  chunk's tail holds the previous occupant's stale words, which had credited
+  a 17 KB `HashMap(String, String)` with 339 MB of the AST.
+
+**The LEAK group, exactly.** `check src/main.yo` (develop @ a9e20aa4b,
+stage-2 C, system malloc) keeps 942.5 MB of RC objects at exit. 129.5 MB of
+that is LEAK: 1.49 M objects no root reaches even through untracked links.
+The breakdown:
+- 265 K `ExprInfo`, 155 K `Environment`, 91 K `Variable`, 154 K frame lists;
+- all of them held by the data arrays of **38 `HashMap(usize, ExprInfo)` —
+  whole `ExprInfoTable`s — with 472 references nothing released**.
+
+The first/last-8 rc-event window cannot follow an object dup'd thousands of
+times. A new mode can: `alloc_site_census_t.py --rc-balance` keeps each
+object's net refcount per call site, and a disposed object folds into a
+"freed" control histogram (`rc_balance_report.py` sums per function). Two
+functions retained the 38 live tables and appeared in none of the 3,571 freed
+ones:
+- `evaluate_anonymous_function_implementation`'s
+  `(e) => expr_info_table_get(info_tbl, …)`;
+- `analyze_await_points`'s `dyn((expr, …) => …get_info…)`.
+
+Each call leaked one reference to the table.
+
+**The cause** is a defect filed on 2026-09-12 and left half-fixed. A closure
+never released what it captured, and every seed from v0.2.29 to v0.2.44
+leaks the 14-line repro
+(`issues/fixed/a-closure-typed-slot-never-releases-its-captures.md`). There
+were three pieces:
+- codegen's value drop/dup did nothing for a closure's `Impl(Fn)` SomeT; both
+  now walk the capture struct;
+- a bound closure's capture dups were emitted twice;
+- a closure literal passed as an argument had no owner; it now gets an owning
+  temp typed as its capture struct.
+
+`Thread.spawn`'s heap copy now retains its own fields; before, it relied on
+the call-site copy never being released.
+
+| exit census, `check src/main.yo` | develop | fixed |
+| --- | --- | --- |
+| RC bytes live at exit | 942.5 MB | **763.0 MB (−19 %)** |
+| LEAK (unreachable) | 129.5 MB / 1.49 M objects | **17.8 MB / 244 K** |
+| tracked objects at teardown | 1,619,099 | 634,407 |
+| leaked `ExprInfoTable`s | 38 | 0 |
+
+What LEAK still holds is mostly not leaks:
+- `Pattern` 35 K is the registry's untracked `Arm`s;
+- `TypeValue` 20.8 K has about 5.7 refs each from untracked holders (§3.2's
+  intern family);
+- `Environment` 10.6 K.
+
+**Peak and wall time.** This changes the emitted C, so the numbers below come
+from stage-2 compilers; each tree's stage-1 built its own with
+`YO_BUILD_NO_CACHE=1 yo build`. Without the variable, the artifact cache
+serves the stage-1 binary, because its stamp does not include the compiler's
+identity.
+
+`check src/main.yo` on the same tree, three simultaneous pairs, Linux:
+
+| | develop @ 5141a909c | fixed |
+| --- | --- | --- |
+| max RSS, mimalloc (the shipped allocator) | 1,193,148 / 1,192,536 / 1,193,192 kB | **1,069,272 / 1,070,576 / 1,069,240 kB (−10.4 %)** |
+| wall, mimalloc | 285.1 / 281.2 / 277.2 s | 285.2 / 275.3 / 285.5 s (mean +0.3 %, noise) |
+| max RSS, system malloc (`fixpoint_only.sh`'s stage-2) | 1,282,496 / 1,282,956 / 1,282,332 kB | 1,164,988 / 1,165,196 / 1,166,288 kB (−9.2 %) |
+| wall, system malloc | 255.9 / 255.9 / 259.3 s | 257.6 / 259.8 / 261.7 s (+1.0 %) |
+
+Callgrind settles the wall question.
+- `check src/types/intern.yo`: 48,996.6 M instructions → 49,006.1 M (+0.02 %).
+- `check src/evaluator/async/await_analysis.yo`: 596,722 M → 597,100 M
+  (+0.06 %). The whole difference is glibc's `_int_malloc` /
+  `malloc_consolidate` reusing freed chunks.
+- RC operations over `check src/main.yo`: 15.83 G incr / 16.60 G decr, of
+  which the fix adds about 155 K.
+
+The system-malloc build's +1 % is allocator reuse, and mimalloc does not show
+it. Side finding: the cycle collector costs about 2 % of this wall time
+(`YO_GC_THRESHOLD=0`: 251 vs 256 s at identical RSS). Handover §3.6.
+
+The fast suite on this box: 109 tests that LeakSanitizer failed on develop now
+pass, and none newly fails. 549 leak reports remain, all pre-existing
+(handover §3.1).
+
+### 0.20 The registry sweep table (Phase 1 step 5, 2026-09-28)
+
+`scripts/bootstrap/registry_table.py src <holders_dump.txt> --markdown` lists
+every module-level global of the compiler: 369 of them, from the §0.19
+census of the fixed stage-2 on `check src/main.yo`. For each it gives the
+container length at exit, the bytes first reached from it, and the functions
+that empty it. The class is derived from those emptiers:
+- **per-module**: an emptier is reachable from `mm_invalidate_document`;
+- **per-command**: a reset/clear/begin function empties it;
+- **process**: nothing ever empties it;
+- **scalar**: not a container.
+
+Counts: **160 scalar, 146 process, 40 per-command, 23 per-module.** The top 30
+by bytes:
+
+| global | module | type | length at exit | first-reach MB | class | emptied by |
+| --- | --- | --- | --- | --- | --- | --- |
+| `g_type_intern` | `types/intern.yo:747` | `HashMap(String, TypeValue)` | 11,132 | 281.4 | per-module | purge_type_intern_owned_by |
+| `g_funcval_cap_vars` | `env.yo:2193` | `HashMap(usize, ArrayList(CaptureSlice))` | 15,329 | 178.5 | per-module | purge_funcval_cap_vars_owned_by |
+| `g_method_callee_values` | `expr_info.yo:1055` | `HashMap(ExprId, EvalValue)` | 122,467 | 36.9 | per-module | _purge_expr_side_tables_at |
+| `g_finished_walks` | `evaluator/context.yo:1189` | `HashMap(String, ModuleWalk)` | 425 | 30.9 | per-command | begin_module_walk |
+| `g_match_arms` | `pattern.yo:99` | `HashMap(usize, ArrayList(Arm))` | 18,108 | 18.7 | per-module | purge_match_arms |
+| `g_ifc_memo` | `evaluator/values/impl.yo:1845` | `HashMap(String, EvalValue)` | 3,261 | 17.7 | per-module | purge_ifc_memo_owned_by |
+| `g_branch_init_log` | `expr_info.yo:1370` | `ArrayList(BranchInitRecord)` | 50,386 | 13.8 | process |  |
+| `g_synthetic_token_cache` | `env.yo:373` | `HashMap(String, HashMap(String, Token))` | 417 | 12.7 | process |  |
+| `g_stable_occurrence` | `utils.yo:238` | `HashMap(String, usize)` | 68,431 | 11.3 | per-command | stable_occurrence_reset |
+| `g_specialized_base` | `evaluator/builtins/contracts.yo:1695` | `HashMap(String, String)` | 3,457 | 9.7 | process |  |
+| `g_emission_occurrence` | `utils.yo:271` | `HashMap(u64, usize)` | 434,330 | 8.5 | per-command | emission_occurrence_reset |
+| `g_snapshot_ring` | `env.yo:2010` | `ArrayList(Environment)` | 4 | 8.4 | process |  |
+| `g_arm_init_ranges` | `expr_info.yo:1440` | `HashMap(usize, ArrayList(usize))` | 80,960 | 7.1 | per-module | _purge_expr_side_tables_at |
+| `g_frame_indexes` | `env.yo:527` | `HashMap(usize, FrameNameIndex)` | 217 | 5.2 | process | _frame_index_for, capture_env_for, invalidate_frame_index |
+| `g_method_callee_types` | `expr_info.yo:1002` | `HashMap(ExprId, TypeValue)` | 116,303 | 4.3 | per-module | _purge_expr_side_tables_at |
+| `g_specialized_fn_caches` | `evaluator/calls/helper.yo:1506` | `ArrayList(SpecializedFunctionCacheEntry)` | 163 | 4.0 | process |  |
+| `g_shared_capture_envs` | `env.yo:2578` | `HashMap(usize, SharedCaptureEnvEntry)` | 422 | 3.9 | per-module | capture_env_for, purge_funcval_cap_vars_owned_by |
+| `g_func_return_type_expr` | `evaluator/types/function.yo:368` | `HashMap(String, AstExpr)` | 17,532 | 2.8 | per-module | purge_function_side_tables |
+| `g_macro_expansions` | `expr_info.yo:1818` | `HashMap(ExprId, AstExpr)` | 5,191 | 2.4 | per-module | _purge_expr_side_tables_at |
+| `g_enum_sig_keys` | `types/type_key.yo:35` | `HashMap(String, String)` | 721 | 2.4 | process |  |
+| `g_closure_await_analysis` | `evaluator/async/await_analysis.yo:662` | `HashMap(String, AwaitAnalysisResult)` | 205 | 2.3 | process |  |
+| `g_branch_init_by_var` | `expr_info.yo:1374` | `HashMap(usize, ArrayList(usize))` | 24,437 | 2.1 | process |  |
+| `g_ms_summary_by_fid` | `evaluator/effects/mutation_summary.yo:82` | `HashMap(String, bool)` | 815 | 1.2 | process |  |
+| `g_top_level_anchors` | `utils.yo:312` | `HashMap(String, ArrayList(TopLevelAnchor))` | 425 | 1.1 | process |  |
+| `g_def_hash` | `evaluator/context.yo:1281` | `HashMap(String, u64)` | 7,758 | 1.1 | process |  |
+| `g_dup_use_site_tokens` | `evaluator/utils.yo:667` | `HashMap(usize, Token)` | 40,722 | 1.1 | process |  |
+| `g_struct_field_registry` | `evaluator/types/field.yo:86` | `HashMap(String, ArrayList(TypeField))` | 1,874 | 1.0 | process |  |
+| `g_func_assumed_body` | `evaluator/types/function.yo:572` | `HashMap(String, bool)` | 263 | 0.9 | per-module | purge_function_side_tables |
+| `g_struct_finals` | `types/creators.yo:770` | `HashMap(String, TypeValue)` | 1,615 | 0.8 | process |  |
+| `g_module_level_init_exprs` | `expr_info.yo:1837` | `ArrayList(AstExpr)` | 417 | 0.8 | process |  |
+
+Hand corrections to the heuristic for the rows that matter:
+- `g_specialized_fn_caches` is purged per module; `purge_specialization_caches_owned_by`
+  rebuilds its entries in place, which the emptier match does not see.
+- `g_snapshot_ring` is a bounded 4-slot ring.
+- `g_frame_indexes` is per frame (`invalidate_frame_index`).
+- `g_finished_walks` is per command with context-free records outside watch
+  and LSP (Phase 1 step 1).
+
+**What the table re-ranks** (levers, none implemented yet):
+1. **Codegen-only tables in a command without codegen.** `check`, `verify`,
+   `doc` and the LSP never read these, and `check` still keeps them:
+   - `g_match_arms`, 18.7 MB;
+   - `g_arm_init_ranges`, 7.1 MB;
+   - `g_closure_await_analysis`, 2.3 MB.
+
+   A "codegen will run" flag, defaulting on and switched off in those
+   commands, skips about 28 MB of `check`'s retained set.
+2. **The branch-init log.** `g_branch_init_log` (13.8 MB, 50 K records) and
+   its index `g_branch_init_by_var` (2.1 MB) "span the WHOLE compile" by their
+   own comment, and nothing truncates them. A record is dead once its
+   function's evaluation ends. Truncating at function end is about 16 MB, and
+   it also stops the LSP's per-round growth there.
+3. **Process-class registries keyed per module**, which the LSP owner purge
+   does not reach:
+   - `g_synthetic_token_cache`, 12.7 MB, keyed by module path;
+   - `g_def_hash`, 1.1 MB;
+   - `g_dup_use_site_tokens`, 1.1 MB;
+   - `g_top_level_anchors`, 1.1 MB;
+   - `g_type_decl_modules`.
+
+   They are the candidates for `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+4. **`g_specialized_base`** (9.7 MB) is read only by the verifier's
+   mutual-recursion cliques. Recording it only when verification will run is
+   the same flag as (1).
 
 ## 6. Gates (every phase)
 
