@@ -14,10 +14,10 @@
 { String } :: import("std/string");
 { Emitter } :: import("../../src/emitter.yo");
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
-{ generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
+{ generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
 { generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
 { generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
-{ parse_target, host_target, is_target_linux } :: import("../../src/target.yo");
+{ parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
 /// carries the vendored ring layer).
@@ -45,6 +45,25 @@ emit_linux_common :: (fn() -> String)({
 emit_macos_runtime :: (fn() -> String)({
   em := Emitter.new();
   generate_async_runtime_io_macos(em);
+  em.print()
+});
+/// The macOS platform sync helpers (dup2 and the close hook live there).
+emit_macos_sys_runtime :: (fn() -> String)({
+  em := Emitter.new();
+  generate_platform_sys_runtime_macos(em);
+  em.print()
+});
+/// The shared common runtime as emitted for a macOS target (its sleep,
+/// fs-event and poll-handle sections).
+emit_macos_common :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("aarch64-apple-darwin")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_macos(t), String.from("darwin triple failed to parse as macos"));
+  generate_async_runtime_io_common(em, t);
   em.print()
 });
 test("linux runtime: the vendored ring layer is emitted", {
@@ -155,4 +174,38 @@ test("windows sys runtime: the close path reaches the async section only through
   c := em.print();
   assert(!c.contains(String.from("__yo_win_unassociate_handle(fd);")), String.from("sys runtime calls an async-section function directly"));
   assert(c.contains(String.from("if (__yo_win_close_hook) __yo_win_close_hook(fd);")), String.from("close hook call missing"));
+});
+test("macos runtime: a parked op is cancellable, FIFO-safe and found by (ident, filter)", {
+  // issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md,
+  // issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md
+  c := emit_macos_runtime();
+  assert(c.contains(String.from("future->cancel_fn = __yo_kq_cancel;")), String.from("parked ops have no cancel path"));
+  assert(c.contains(String.from("static _Thread_local __yo_kq_slot_t* __yo_kq_slots")), String.from("per-fd slot table missing"));
+  assert(c.contains(String.from("if (!__yo_kq_dir_busy(sockfd, 1)) {")), String.from("inline send does not queue behind a parked send"));
+  assert(c.contains(String.from("EV_ADD | EV_ENABLE | EV_DISPATCH")), String.from("registrations are not dispatch knotes re-enabled per park"));
+  assert(!c.contains(String.from("EV_ONESHOT")), String.from("a one-shot knote came back"));
+});
+test("macos runtime: sleeps are a heap, the wait carries the next deadline, an empty poll skips the kernel", {
+  c := emit_macos_runtime();
+  assert(c.contains(String.from("static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds)")), String.from("timer heap missing"));
+  assert(c.contains(String.from("uint64_t due = __yo_watch_next_due_ns();")), String.from("the wait is not bounded by the next deadline"));
+  assert(!c.contains(String.from("100 * 1000 * 1000")), String.from("the fixed 100 ms wait came back"));
+  assert(!c.contains(String.from("nanosleep")), String.from("the watch-only 10 ms sleep came back"));
+  assert(c.contains(String.from("int r = select(__yo_io_kq + 1, &rs, NULL, NULL, &tv);")), String.from("the non-blocking poll does not probe before scanning"));
+  assert(c.contains(String.from("bool next_step_waits = ")), String.from("a poll before a blocking step still enters the kernel"));
+});
+test("macos sys runtime: dup2 closes through the backend's per-thread hook", {
+  // issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md
+  c := emit_macos_sys_runtime();
+  assert(c.contains(String.from("static _Thread_local void (*__yo_kq_close_hook)(int32_t) = NULL;")), String.from("close hook is not per-thread"));
+  assert(c.contains(String.from("if (oldfd != newfd && __yo_kq_close_hook) __yo_kq_close_hook(newfd);")), String.from("dup2 bypasses the close hook"));
+});
+test("common runtime (macos): sleep arms the heap; watches use the watch kqueue", {
+  // issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md
+  c := emit_macos_common();
+  assert(c.contains(String.from("__yo_timer_arm(future, milliseconds);")), String.from("the macOS sleep does not arm the heap"));
+  assert(!c.contains(String.from("EVFILT_TIMER")), String.from("a per-sleep EVFILT_TIMER came back"));
+  assert(c.contains(String.from("int32_t rc = __yo_io_watch_vnode(handle->fd, __yo_fs_vnode_fflags);")), String.from("fs events are not in the watch kqueue"));
+  assert(!c.contains(String.from("handle->watch_fd = kqueue();")), String.from("a private kqueue per watch came back"));
+  assert(c.contains(String.from("if (ph->active && (ph->ready || ph->unpollable)) {")), String.from("the tick polls every poll handle again"));
 });

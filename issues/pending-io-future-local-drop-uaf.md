@@ -1,10 +1,28 @@
 # Binding a pending IoFuture to a local: scope-end auto-drop frees what the backend still holds
 
 **Found**: 2026-08-27 by analysis while designing `std/async`'s `timeout()`
-(STD_API_AUDIT §7 P0 item 6). **Status**: OPEN — analysis-verified hazard, not
-yet observed as a crash (ASan is non-functional on the dev box); nothing in
-std or the corpus binds an unfired `IoFuture` to a local any more (`timeout()`
-was redesigned to use a spawned deadline TASK instead).
+(STD_API_AUDIT §7 P0 item 6). **Status**: OPEN on **Windows** only. Fixed on
+Linux and macOS, where the backend now holds its own reference to every
+pending future (direction 2 below, in its reference-counting form).
+
+**Update 2026-09-28 (macOS audit):**
+
+- **Observed as a crash on macOS.** The shape below, run 50 times and then
+  awaiting a 30 ms sleep, segfaulted on every run with develop at af62bdb28
+  (exit 139, with or without GuardMalloc). The kqueue backend's
+  `EVFILT_TIMER` context kept a bare pointer to the freed future.
+- **Fixed on macOS:** the timer heap and every parked descriptor op take a
+  reference (`future->header.ref_count++`) and release it when the operation
+  completes or is cancelled. The local's drop leaves rc 1, and the future is
+  freed after it fires.
+- **Linux** already had this reference on the ring, the timer heap and the
+  epoll park (`runtime_io_linux.yo`) — read, not run on Linux here.
+- **Windows**'s timer list (`__yo_win_timer_add`) still stores the bare future
+  pointer. Read, not run.
+
+Test: `tests/sys/timer.test.yo` "a sleep future dropped before it fires does
+not fire into freed memory". It is skipped on Windows until that backend takes
+the reference too.
 
 ## The shape
 

@@ -1134,3 +1134,38 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   vendored ring layer. Only a `yo` built by a PRE-v0.2.45 seed links liburing
   (the seed-lag table in `plans/reference/DROP_LIBURING.md` §5) — rebuild with a current
   seed rather than installing the library.
+
+## macOS async-runtime testing and prototyping
+
+- `tests/internal/uring_runtime.test.yo` also pins the macOS runtime (slot table,
+  cancellable dispatch registrations, timer heap, select probe, dup2 hook, watch
+  kqueue) — call the emitters, assert on the C.
+- **Prototype runtime changes without a self-build.** The emitted runtime is C
+  text, so iterate on it directly: emit a program's C with any current `yo`
+  (`yo compile x.yo --emit-c --skip-c-compiler -o out`), replace the macOS
+  runtime regions (the backend from `Async I/O Runtime (macOS - kqueue)`, the
+  macOS timer section, and `FS Event Operations` .. the end of
+  `__yo_poll_and_fs_event_tick`) with your edited C, and compile it with the
+  flags `yo compile` uses. A `clang` wrapper first on `PATH` that performs the
+  same splice on any `.c` it is handed runs whole test files through the
+  prototype (`yo test <file> --cc clang`). Port to the `.yo` emitters only
+  once it is measured and green — in the Yo template string every C backslash
+  is doubled (`\\n`), and there must be no backtick or `${`.
+- **Benchmarks** (informational, like Linux's): `scripts/bench/io_bench.yo` and
+  `scripts/bench/async-vs-libuv/io_bench_uv.c` (runtime level), `bench.yo` and
+  `bench_uv.c` (std level); `brew install libuv`, then build the C twin with
+  `-I$(brew --prefix libuv)/include -L$(brew --prefix libuv)/lib -luv` (no
+  pkg-config file). Alternate the binaries per round and take medians: other
+  sessions' gate batteries on the same box move single runs by 10–20%.
+- **macOS measurement pitfalls, measured on 26.6 (M4):** `sample <pid>` is
+  wall-clock, not CPU — a thread blocked in `kevent` shows as `kevent`; split
+  user from system time with `/usr/bin/time -l`. A `DYLD_INSERT_LIBRARIES`
+  interposer counts libc syscall wrappers (libSystem's `send`/`recv` go
+  through `sendto`/`recvfrom`, so both count). A kqueue is locked to the first
+  API family used on it: mixing `kevent` and `kevent64` on one kqueue fails
+  with `EINVAL` and "measures" as 0.1 µs. Timer wakeups are coalesced by the
+  OS: a 1 ms `kevent()` timeout wakes after ~1.25 ms, an `EVFILT_TIMER` with
+  default leeway after ~1.5 ms; thread QoS does not change it, only
+  `NOTE_CRITICAL` does. A level-triggered knote left enabled with no waiter
+  makes a loop busy-spin, which "halves" a ping-pong's latency at 100% CPU —
+  check CPU time before believing a latency win.
