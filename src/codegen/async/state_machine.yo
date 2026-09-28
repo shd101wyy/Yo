@@ -23,7 +23,7 @@
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs, InlineSmLowering, InlineSuspension } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
@@ -4478,6 +4478,35 @@ _inline_await_result_type :: (fn(expr : AstExpr, analysis : Option(AwaitAnalysis
   match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 });
 
+/// The analysis's await point for the await expression `expr`.
+_inline_await_point :: (fn(expr : AstExpr, analysis : AwaitAnalysisResult) -> Option(AwaitPoint))({
+  eid := ast_expr_id(expr);
+  (i : usize) = usize(0);
+  while(i < analysis.await_points.len(), i = (i + usize(1)), {
+    match(
+      analysis.await_points.get(i),
+      .Some(ap) => if(ast_expr_id(ap.base.expr) == eid, {
+        return(Option(AwaitPoint).Some(ap));
+      }),
+      .None => ()
+    );
+  });
+  Option(AwaitPoint).None
+});
+/// The single-pass lowering's result field for an await point
+/// (`sm->__yo_await_result_<index>`) and its type, or `.None` for a unit
+/// result. The struct declares exactly these fields, and the emitter stores
+/// into them.
+inline_await_result_field :: (fn(ap : AwaitPoint) -> Option(InlineAwaitResultField))({
+  rt := ap.result_type;
+  if(
+    is_unit_type(rt) || (
+      is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+    ),
+    return(Option(InlineAwaitResultField).None)
+  );
+  Option(InlineAwaitResultField).Some(InlineAwaitResultField(name : `__yo_await_result_${ap.base.index.to_string()}`, ty : rt))
+});
 /// Emit one suspension point of the single-pass lowering, where the
 /// expression generator reached `io.await(future, effects)`, and return the C
 /// code of its result (empty for unit).
@@ -4558,19 +4587,27 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   emit_sm_unwind_catch(em, inner.clone(), context.sm_unwind_catch);
   emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
   em.emit_string_line(`${indent}}`);
-  rt := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
-  is_unit_rt := (
-    is_unit_type(rt) || (
-      is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
-    )
-  );
+  // The result lives in the task, like every other value of the body: a
+  // second await in the same expression suspends before this one's result is
+  // read (`f(await a, await b)`), and a C local does not survive the jump.
   (out : String) = String.from("");
-  if(!(is_unit_rt), {
-    tmp := `__yo_await_result_${ks}`;
-    em.emit_string_line(`${indent}${get_type_string(rt, context.base)} ${tmp};`);
-    _emit_await_result_store(tmp.clone(), `${acc}->result`, rt, false, indent.clone(), context);
-    out = tmp;
-  });
+  match(
+    _inline_await_point(expr, low.analysis),
+    .Some(ap) => match(
+      inline_await_result_field(ap),
+      .Some(rf) => {
+        field := `sm->${rf.name}`;
+        _emit_await_result_store(field.clone(), `${acc}->result`, rf.ty, false, indent.clone(), context);
+        out = field;
+      },
+      .None => ()
+    ),
+    .None => {
+      if(!(is_unit_type(_inline_await_result_type(expr, Option(AwaitAnalysisResult).None, context))), {
+        codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+      });
+    }
+  );
   if(!(is_named), {
     em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
     em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
@@ -4735,6 +4772,7 @@ generate_async_block_cancel_pending_function_inline :: (
 
 export(
   is_io_future_type,
+  inline_await_result_field,
   StateMachineInfo,
   generate_resume_function_declaration,
   get_state_machine_field_name,
