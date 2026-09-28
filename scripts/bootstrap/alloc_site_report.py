@@ -4,8 +4,8 @@ Usage: python3 scripts/bootstrap/alloc_site_report.py sites_dump.txt <instrument
 (--by-capacity ranks ArrayList sites by summed live capacity — buffer slots — instead of object count;
  --deep adds a 5-frame chain view.)
 Prints the top (type, tag, caller) and (type, tag, caller <- caller's caller)
-rows by live count. Callers are resolved with `atos` against the dump's image
-base, then mapped from `yo_id_*` to `<name>@<file>:<line>` via fid_name_map.py's
+rows by live count. Callers are resolved with `atos` (macOS) or `addr2line`
+(Linux) against the dump's image base, then mapped from `yo_id_*` to `<name>@<file>:<line>` via fid_name_map.py's
 table; unmapped symbols print as-is.
 """
 import collections, re, subprocess, sys
@@ -17,9 +17,17 @@ base = lines[0].split()[-1]
 rows = [l.split() for l in lines[1:] if l.startswith("S ")]
 addrs = sorted({a for r in rows for a in (r[4:6] + r[7:10]) if a not in ("0x0", "(nil)")})
 sym = {}
+import shutil
+use_atos = shutil.which("atos") is not None
 for i in range(0, len(addrs), 500):
     chunk = addrs[i:i + 500]
-    out = subprocess.run(["atos", "-o", binary, "-l", base] + chunk, capture_output=True, text=True).stdout.split("\n")
+    if use_atos:
+        out = subprocess.run(["atos", "-o", binary, "-l", base] + chunk, capture_output=True, text=True).stdout.split("\n")
+    else:
+        # Linux: addr2line takes offsets into the (PIE) image; `-f` prints the
+        # function name on the first line of each two-line answer.
+        offs = ["0x%x" % (int(a, 16) - int(base, 16)) for a in chunk]
+        out = subprocess.run(["addr2line", "-f", "-e", binary] + offs, capture_output=True, text=True).stdout.split("\n")[0::2]
     sym.update(zip(chunk, out))
 names = {}
 for l in open(fidmap):
