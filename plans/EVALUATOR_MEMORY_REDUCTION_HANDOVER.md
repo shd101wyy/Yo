@@ -199,10 +199,14 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
 - **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
   plateau gate still fails:
   `issues/lsp-memory-grows-per-open-edit-close-round.md`.
-- **Phase 1 step 5**: the registry sweep table (about 288 module-level globals
-  classified {bounded, per-module, per-function, process}). This includes
-  whether a non-codegen command (`check`, `verify`, `doc`, `lsp`) needs
-  codegen-only tables such as `g_match_arms` (18.7 MB) at all.
+- **Phase 1 step 5**: the table is written (plan §0.20,
+  `scripts/bootstrap/registry_table.py`). Its four levers are open:
+  1. a "codegen will run" flag that skips codegen-only tables in `check`,
+     `verify`, `doc` and the LSP (about 28 MB);
+  2. truncating the whole-compile branch-init log at function end (about
+     16 MB);
+  3. owner-purging the per-module registries the LSP purge misses;
+  4. recording `g_specialized_base` only when verification will run.
 - **Phase 5b**: `Symbol`, interned identifier strings (feeds §3.2 and §3.4).
 - **Phase 6**: the RC header / `Variable` diet.
 

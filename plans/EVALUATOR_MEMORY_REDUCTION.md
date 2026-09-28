@@ -1953,6 +1953,89 @@ The fast suite on this box: 109 tests that LeakSanitizer failed on develop now
 pass, and none newly fails. 549 leak reports remain, all pre-existing
 (handover §3.1).
 
+### 0.20 The registry sweep table (Phase 1 step 5, 2026-09-28)
+
+`scripts/bootstrap/registry_table.py src <holders_dump.txt> --markdown` lists
+every module-level global of the compiler: 369 of them, from the §0.19
+census of the fixed stage-2 on `check src/main.yo`. For each it gives the
+container length at exit, the bytes first reached from it, and the functions
+that empty it. The class is derived from those emptiers:
+- **per-module**: an emptier is reachable from `mm_invalidate_document`;
+- **per-command**: a reset/clear/begin function empties it;
+- **process**: nothing ever empties it;
+- **scalar**: not a container.
+
+Counts: **160 scalar, 146 process, 40 per-command, 23 per-module.** The top 30
+by bytes:
+
+| global | module | type | length at exit | first-reach MB | class | emptied by |
+| --- | --- | --- | --- | --- | --- | --- |
+| `g_type_intern` | `types/intern.yo:747` | `HashMap(String, TypeValue)` | 11,132 | 281.4 | per-module | purge_type_intern_owned_by |
+| `g_funcval_cap_vars` | `env.yo:2193` | `HashMap(usize, ArrayList(CaptureSlice))` | 15,329 | 178.5 | per-module | purge_funcval_cap_vars_owned_by |
+| `g_method_callee_values` | `expr_info.yo:1055` | `HashMap(ExprId, EvalValue)` | 122,467 | 36.9 | per-module | _purge_expr_side_tables_at |
+| `g_finished_walks` | `evaluator/context.yo:1189` | `HashMap(String, ModuleWalk)` | 425 | 30.9 | per-command | begin_module_walk |
+| `g_match_arms` | `pattern.yo:99` | `HashMap(usize, ArrayList(Arm))` | 18,108 | 18.7 | per-module | purge_match_arms |
+| `g_ifc_memo` | `evaluator/values/impl.yo:1845` | `HashMap(String, EvalValue)` | 3,261 | 17.7 | per-module | purge_ifc_memo_owned_by |
+| `g_branch_init_log` | `expr_info.yo:1370` | `ArrayList(BranchInitRecord)` | 50,386 | 13.8 | process |  |
+| `g_synthetic_token_cache` | `env.yo:373` | `HashMap(String, HashMap(String, Token))` | 417 | 12.7 | process |  |
+| `g_stable_occurrence` | `utils.yo:238` | `HashMap(String, usize)` | 68,431 | 11.3 | per-command | stable_occurrence_reset |
+| `g_specialized_base` | `evaluator/builtins/contracts.yo:1695` | `HashMap(String, String)` | 3,457 | 9.7 | process |  |
+| `g_emission_occurrence` | `utils.yo:271` | `HashMap(u64, usize)` | 434,330 | 8.5 | per-command | emission_occurrence_reset |
+| `g_snapshot_ring` | `env.yo:2010` | `ArrayList(Environment)` | 4 | 8.4 | process |  |
+| `g_arm_init_ranges` | `expr_info.yo:1440` | `HashMap(usize, ArrayList(usize))` | 80,960 | 7.1 | per-module | _purge_expr_side_tables_at |
+| `g_frame_indexes` | `env.yo:527` | `HashMap(usize, FrameNameIndex)` | 217 | 5.2 | process | _frame_index_for, capture_env_for, invalidate_frame_index |
+| `g_method_callee_types` | `expr_info.yo:1002` | `HashMap(ExprId, TypeValue)` | 116,303 | 4.3 | per-module | _purge_expr_side_tables_at |
+| `g_specialized_fn_caches` | `evaluator/calls/helper.yo:1506` | `ArrayList(SpecializedFunctionCacheEntry)` | 163 | 4.0 | process |  |
+| `g_shared_capture_envs` | `env.yo:2578` | `HashMap(usize, SharedCaptureEnvEntry)` | 422 | 3.9 | per-module | capture_env_for, purge_funcval_cap_vars_owned_by |
+| `g_func_return_type_expr` | `evaluator/types/function.yo:368` | `HashMap(String, AstExpr)` | 17,532 | 2.8 | per-module | purge_function_side_tables |
+| `g_macro_expansions` | `expr_info.yo:1818` | `HashMap(ExprId, AstExpr)` | 5,191 | 2.4 | per-module | _purge_expr_side_tables_at |
+| `g_enum_sig_keys` | `types/type_key.yo:35` | `HashMap(String, String)` | 721 | 2.4 | process |  |
+| `g_closure_await_analysis` | `evaluator/async/await_analysis.yo:662` | `HashMap(String, AwaitAnalysisResult)` | 205 | 2.3 | process |  |
+| `g_branch_init_by_var` | `expr_info.yo:1374` | `HashMap(usize, ArrayList(usize))` | 24,437 | 2.1 | process |  |
+| `g_ms_summary_by_fid` | `evaluator/effects/mutation_summary.yo:82` | `HashMap(String, bool)` | 815 | 1.2 | process |  |
+| `g_top_level_anchors` | `utils.yo:312` | `HashMap(String, ArrayList(TopLevelAnchor))` | 425 | 1.1 | process |  |
+| `g_def_hash` | `evaluator/context.yo:1281` | `HashMap(String, u64)` | 7,758 | 1.1 | process |  |
+| `g_dup_use_site_tokens` | `evaluator/utils.yo:667` | `HashMap(usize, Token)` | 40,722 | 1.1 | process |  |
+| `g_struct_field_registry` | `evaluator/types/field.yo:86` | `HashMap(String, ArrayList(TypeField))` | 1,874 | 1.0 | process |  |
+| `g_func_assumed_body` | `evaluator/types/function.yo:572` | `HashMap(String, bool)` | 263 | 0.9 | per-module | purge_function_side_tables |
+| `g_struct_finals` | `types/creators.yo:770` | `HashMap(String, TypeValue)` | 1,615 | 0.8 | process |  |
+| `g_module_level_init_exprs` | `expr_info.yo:1837` | `ArrayList(AstExpr)` | 417 | 0.8 | process |  |
+
+Hand corrections to the heuristic for the rows that matter:
+- `g_specialized_fn_caches` is purged per module; `purge_specialization_caches_owned_by`
+  rebuilds its entries in place, which the emptier match does not see.
+- `g_snapshot_ring` is a bounded 4-slot ring.
+- `g_frame_indexes` is per frame (`invalidate_frame_index`).
+- `g_finished_walks` is per command with context-free records outside watch
+  and LSP (Phase 1 step 1).
+
+**What the table re-ranks** (levers, none implemented yet):
+1. **Codegen-only tables in a command without codegen.** `check`, `verify`,
+   `doc` and the LSP never read these, and `check` still keeps them:
+   - `g_match_arms`, 18.7 MB;
+   - `g_arm_init_ranges`, 7.1 MB;
+   - `g_closure_await_analysis`, 2.3 MB.
+
+   A "codegen will run" flag, defaulting on and switched off in those
+   commands, skips about 28 MB of `check`'s retained set.
+2. **The branch-init log.** `g_branch_init_log` (13.8 MB, 50 K records) and
+   its index `g_branch_init_by_var` (2.1 MB) "span the WHOLE compile" by their
+   own comment, and nothing truncates them. A record is dead once its
+   function's evaluation ends. Truncating at function end is about 16 MB, and
+   it also stops the LSP's per-round growth there.
+3. **Process-class registries keyed per module**, which the LSP owner purge
+   does not reach:
+   - `g_synthetic_token_cache`, 12.7 MB, keyed by module path;
+   - `g_def_hash`, 1.1 MB;
+   - `g_dup_use_site_tokens`, 1.1 MB;
+   - `g_top_level_anchors`, 1.1 MB;
+   - `g_type_decl_modules`.
+
+   They are the candidates for `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+4. **`g_specialized_base`** (9.7 MB) is read only by the verifier's
+   mutual-recursion cliques. Recording it only when verification will run is
+   the same flag as (1).
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.
