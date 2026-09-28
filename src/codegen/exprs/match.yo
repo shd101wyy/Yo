@@ -29,7 +29,7 @@
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ TokenKind } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
@@ -728,6 +728,69 @@ _variant_name :: (fn(case_value : AstExpr) -> String)(
 /// Add a name to the function's local-shadowed-variables set (creating it if
 /// absent). A shadowed name resolves in `generate_atom` to its sanitized
 /// SOURCE name (the arm-block C declaration), not the evaluator's temp.
+/// Single-pass async lowering: the state-machine field of the pattern binding
+/// declared at `tok`, found by its declaration site, or `.None`. In that
+/// lowering a binding cannot stay a C local: an await in the arm jumps out of
+/// the function and back to its resume label, and a C local written before
+/// the jump is garbage after it (plans/ASYNC_STATE_MACHINE_GENERATION.md
+/// phase 5, rule 1). The declaration site is exact where a name scan is not:
+/// sibling arms and outer variables share names.
+_inline_binding_sm_field :: (fn(tok : Token, context : FunctionGenerationContext) -> Option(String))({
+  if(context.sm_inline_lowering.is_none(), {
+    return(Option(String).None);
+  });
+  site := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  match(
+    context.state_machine_variables,
+    .Some(smv) => {
+      it := smv.keys();
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .None => {
+            go = false;
+          },
+          .Some(k) => match(
+            smv.get(k.clone()),
+            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && (cv.base.decl_site == site), {
+              match(
+                context.state_machine_binding_ids,
+                .Some(bids) => {
+                  bids.insert(k.clone());
+                },
+                .None => ()
+              );
+              return(
+                Option(String).Some(
+                  match(
+                    context.state_machine_field_aliases,
+                    .Some(al) => match(al.get(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+                    .None => sm_local_field_name(k.clone())
+                  )
+                )
+              );
+            }),
+            .None => ()
+          )
+        );
+      });
+    },
+    .None => ()
+  );
+  Option(String).None
+});
+/// Make the just-declared pattern binding `cname` (declared at `tok`) visible
+/// to the arm: its state-machine slot under the single-pass lowering (reads
+/// then go through `sm->…`), else the C local, which shadows any same-named
+/// state-machine variable.
+_bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token) -> unit)(
+  match(
+    _inline_binding_sm_field(tok, context),
+    .Some(field) => context.base.emitter.emit_string_line(`${indent}sm->${field} = ${cname};`),
+    .None => _shadow_add(context, cname)
+  )
+);
 _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
   match(
     context.local_shadowed_variables,
@@ -837,7 +900,10 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
           // `_<module>__priv_temp_N` (the generic-impl face of
           // issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
           // Removed after the ptr-case body below.
-          _shadow_add(context, dvn.clone());
+          // Under the single-pass lowering the binding lives in its slot
+          // (stored below), and reads must go there: a C local does not
+          // survive an await in the arm.
+          (ptr_bind_slotted : bool) = false;
           // STATE-MACHINE STORAGE PARITY: identifier READS of an
           // sm-hoisted variable emit `sm->var_N` (atom.yo consults
           // state_machine_variables), so when THIS pattern binding's
@@ -948,6 +1014,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               smb_store.push_string(dvn.clone());
               smb_store.push_str(";");
               em.emit_string_line(smb_store);
+              ptr_bind_slotted = context.sm_inline_lowering.is_some();
               match(
                 context.state_machine_binding_ids,
                 .Some(bids) => {
@@ -956,6 +1023,9 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
                 .None => ()
               );
             });
+          });
+          if(!ptr_bind_slotted, {
+            _shadow_add(context, dvn.clone());
           });
         },
         .None => ()
@@ -1238,7 +1308,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                           ftype,
                           init
                         );
-                        _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
+                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
                       });
                     });
                   }),
@@ -1273,7 +1343,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                     ftype,
                     init
                   );
-                  _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
+                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
                 });
               }),
               .None => ()
@@ -1723,7 +1793,7 @@ _emit_pattern_chain :: (
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, btok) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {
@@ -1736,7 +1806,7 @@ _emit_pattern_chain :: (
         }, {
           _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
         });
-        _shadow_add(context, cname.clone());
+        _bind_pattern_name(context, indent.clone(), cname.clone(), btok);
         shadows.push(cname);
       });
     },
@@ -1879,7 +1949,7 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       em.emit_string_line(dl);
     },
-    .At(name, _, sub) => {
+    .At(name, atok, sub) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {
@@ -1892,7 +1962,7 @@ _emit_pattern_chain :: (
         }, {
           _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
         });
-        _shadow_add(context, cname.clone());
+        _bind_pattern_name(context, indent.clone(), cname.clone(), atok);
         shadows.push(cname);
       });
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
