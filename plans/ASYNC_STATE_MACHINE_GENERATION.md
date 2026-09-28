@@ -827,7 +827,20 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   - the task-abort registry transports the target and value between tasks;
   - a statement-level spawn's handle is materialized, so it is dropped.
   - All six phase-2 issues are closed, with tests.
-- 2026-09-29: phase 5 in progress on `async-sm-p5` (stacked on p2). The
-  single-pass emitter sits behind `YO_ASYNC_LOWERING=inline`, and the
-  generated shape corpus is `tests/async/sm_shapes_{1..4}.test.yo` (129
-  cases).
+- 2026-09-29: phases 2 and 3 merged (#991). The unwind value check inside an
+  `io.async` body merged separately (#994: a re-raised flow violation is
+  re-flagged, so it survives nested trials).
+- 2026-09-29: phase 5 on `async-sm-p5`. The single-pass emitter sits behind
+  `YO_ASYNC_LOWERING=inline`, and the shape corpus is
+  `tests/async/sm_shapes_{1..4}.test.yo` (129 cases).
+  - First differential, one case per batch: inline 126/129, old lowering
+    78/129 (20 E0904, 22 wrong results, 9 C compile failures).
+  - Found and fixed on the way (rule 1, "everything lives in the task"):
+    - await results were C locals, lost when a second await in the same
+      expression suspended first;
+    - pattern bindings were C locals shadowing their slots, now resolved by
+      declaration site;
+    - result fields are keyed per await expression, since the analysis
+      merges branch awaits into one point;
+    - a sync bug: a begin-block `while` step dropped its declarations
+      (`issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md`).
