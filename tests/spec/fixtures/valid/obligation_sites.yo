@@ -1,0 +1,21 @@
+// 5b Phase 0 fixture (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md
+// §4.2): two divisions in one function, and two calls of one callee, must
+// give obligations with UNIQUE names. Each division's obligation carries the
+// guard site of its own `/` (tests/internal/verifier_negative.test.yo).
+pragma(Pragma.Verify);
+
+safe_div :: (fn(a : i32, b : i32, requires(b != i32(0))) -> (r : i32))(
+  a / b
+);
+
+two_divs :: (fn(a : i32, b : i32, requires(b != i32(0))) -> (r : i32))({
+  q := (a / b);
+  s := (q / b);
+  s
+});
+
+two_calls :: (fn(a : i32, requires(a > i32(0))) -> (r : i32))({
+  x := safe_div(i32(10), a);
+  y := safe_div(i32(20), a);
+  x - y
+});

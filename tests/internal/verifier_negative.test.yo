@@ -280,3 +280,88 @@ test("positive battery: every function in verify_straight_line proves", {
   assert(_count_outcome(reports, String.from("ok")) == reports.len(), `all battery functions must prove, got: [${_join(ids, String.from(", "))}]`);
   assert(reports.len() >= usize(7), `expected at least 7 verified functions, got ${reports.len().to_string()}`);
 });
+
+// 5b Phase 0 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §4.2):
+// obligation names are unique within a function, and an AoRTE obligation
+// carries the site of its runtime guard. Before this, both divisions in
+// `two_divs` were named `…/divisor-nonzero`, and both calls in `two_calls`
+// `…/requires#0`. Obligation generation needs no solver.
+_fn_report_named :: (fn(reports : ArrayList(VerifyFnReport), fn_suffix : String) -> Option(VerifyFnReport))({
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports(i);
+    if(rp.fn_id.ends_with(fn_suffix.clone()), {
+      return(Option(VerifyFnReport).Some(rp));
+    });
+    i = (i + usize(1));
+  });
+  Option(VerifyFnReport).None
+});
+_names_unique :: (fn(rp : VerifyFnReport) -> bool)({
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    (j : usize) = (i + usize(1));
+    while(j < rp.obligations.len(), {
+      if(rp.obligations(i).name == rp.obligations(j).name, {
+        return(false);
+      });
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+
+test("obligation names are unique and guard obligations carry their site", {
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/obligation_sites.yo"), io);
+  match(
+    _fn_report_named(reports, String.from(":10")),
+    .Some(rp) => {
+      assert(_names_unique(rp), "two_divs: two divisions give two distinct obligation names");
+      (rows : ArrayList(usize)) = ArrayList(usize).new();
+      (i : usize) = usize(0);
+      while(i < rp.obligations.len(), {
+        obl := rp.obligations(i);
+        if(obl.name.contains("divisor-nonzero"), {
+          match(
+            obl.site,
+            .Some(gs) => {
+              assert(gs.class == "divisor-nonzero", "the site names its guard class");
+              assert(gs.module.ends_with("obligation_sites.yo"), `the site names its module (got ${gs.module})`);
+              rows.push(gs.row);
+            },
+            .None => {
+              assert(false, "a divisor-nonzero obligation carries its guard site");
+            }
+          );
+        });
+        i = (i + usize(1));
+      });
+      assert(rows.len() == usize(2), `two_divs has two divisor obligations (got ${rows.len().to_string()})`);
+      assert(rows(usize(0)) != rows(usize(1)), "each division's site is its own line");
+    },
+    .None => {
+      assert(false, "two_divs (fn_id row 10, 0-based) must be reported");
+    }
+  );
+  match(
+    _fn_report_named(reports, String.from(":16")),
+    .Some(rp2) => {
+      assert(_names_unique(rp2), "two_calls: two calls of safe_div give two distinct requires#0 names");
+      (ri : usize) = usize(0);
+      (n_req : usize) = usize(0);
+      while(ri < rp2.obligations.len(), {
+        o2 := rp2.obligations(ri);
+        if(o2.name.contains("requires#0"), {
+          n_req = (n_req + usize(1));
+          assert(o2.site.is_none(), "a contract obligation has no guard site");
+        });
+        ri = (ri + usize(1));
+      });
+      assert(n_req == usize(2), `two_calls discharges safe_div's requires#0 twice (got ${n_req.to_string()})`);
+    },
+    .None => {
+      assert(false, "two_calls (fn_id row 16, 0-based) must be reported");
+    }
+  );
+});

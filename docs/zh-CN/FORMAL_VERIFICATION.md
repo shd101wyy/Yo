@@ -296,7 +296,7 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 `obligations[]` —— 每个义务一个对象，含 `name`、`verdict`
 （`proved` / `refuted` / `unproven` / `solver-error`）、`cached`、
 `folded`、`goal`（按 SMT-LIB 渲染的义务本体 —— 求解器被问的东西）
-与 `model`（反例绑定，仅 `refuted`）。
+与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……
 
 `--explain <模式>` 把报告收窄到 id 匹配（子串 —— 裸函数名或
 `文件:行号` 皆可）的函数，并强制输出明细：每个义务列出判定**及其目标
