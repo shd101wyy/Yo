@@ -81,7 +81,8 @@ payload:
 Both fail on the unfixed compiler (exit 6, zero disposals, with the leak
 verdict off) and pass with the fix.
 
-## Not fixed here
+## Related
 
-A state-machine local bound from a `match` arm's moved payload is released
-only on the escape path (`issues/a-state-machine-binding-from-a-match-arm-payload-is-released-only-on-escape.md`).
+A state-machine local bound from a `match` arm's moved payload was released
+only on the escape path. It is fixed in the same change:
+`issues/fixed/a-state-machine-binding-from-a-match-arm-payload-is-released-only-on-escape.md`.
