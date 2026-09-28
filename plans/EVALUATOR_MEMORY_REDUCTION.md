@@ -938,6 +938,76 @@ byte-identical" (they change bookkeeping, not what is emitted):
    `fixpoint_only.sh`, `gates_fast.sh`, the hollow sweep ratchet, and the
    census showing the population it targets gone.
 
+**Re-measured and inventoried 2026-09-28 (develop `59ef41250`, stage-2).**
+`YO_SPEC_REPORT=1 check src/main.yo`: 1,427,653 cloned nodes over 11,425
+specializations. Max RSS 1.54 GB. Design 1 still targets the largest
+population. Clones share `Token`s (`Token.clone` returns `self`), so the
+bytes at stake are the cloned `AstExpr`s, their argument lists and their
+`ExprInfo`s. What Design 1 must change when specializations share nodes and
+ids:
+
+- **Tables whose per-spec payload codegen reads (last writer wins today
+  only because the ids are fresh):**
+  - `ExprInfoTable` (`expr_info.yo`). Codegen also writes it: `async.yo`
+    `_move_deferred_drops`, `generate_async_block`, `_set_async_sm_struct_name`.
+  - `g_method_callee_values` and `g_method_callee_types`. This is the
+    `println<str>`/`println<i32>` hazard `helper.yo`'s clone comment describes.
+  - `g_macro_expansions`.
+  - `g_match_arms`: its patterns carry TypeValues and freshly synthesized
+    test ASTs.
+  - `g_io_async_closure_fid_by_expr`.
+  - SomeT ids minted from the call's ExprId
+    (`${fname}_wcforall_${ast_expr_id(call)}`, `function.yo` and
+    `helper.yo`), whose lineage would cross between specializations.
+- **Medium:**
+  - the fn-type-expr registries in `evaluator/types/function.yo`
+    (where-constraints and defaults by type-expr id / `origin_id`);
+  - `g_refine_annotation_preds`;
+  - `g_callsite_contracts` (the verifier would see the last spec's
+    predicates);
+  - the owner log `g_owned_expr_ids`, which must record `(spec, id)` or an
+    LSP purge deletes other specs' entries.
+- **Safe:**
+  - fid-keyed registries (fids are minted per evaluation);
+  - per-function codegen state (`emitted_deferred_drop_ids` and friends);
+  - the dup/drop optimizer (fresh `___dup`/`___drop` ids, variable-id
+    keys);
+  - `g_branch_init_log` (keyed by variable id).
+- **Carriers:**
+  - `FuncValData.spec_id` next to `env_key`. 19 literal sites set or
+    inherit it. A lambda minted inside a spec body takes the current spec.
+  - `EvalContext` carries the current spec through `copy_eval_context` /
+    `create_function_body_evaluation_context`.
+  - Codegen needs a per-function current spec for `get_expr_info`.
+  - Several readers need the CALLEE's spec, not the current one:
+    `function.yo` return-stamp reads, `other_fn_call.yo`, `declarations.yo`,
+    `async.yo`, `collection.yo`'s `expr_contains_unknown_value`, and the
+    mutation summary.
+- **Clones that must stay:**
+  - CTFE execution (`comptime_fn.yo`, the only id-range user,
+    `purge_executed_clone_metadata`);
+  - comptime `while` unrolling;
+  - trials, default arguments, where-clauses, quote/macro and contract
+    splicing;
+  - LSP revalidation.
+
+  Only `create_specialized_function_inline` and the impl default-body
+  materialization (`impl.yo` `evaluate_module_value`) are specialization
+  clones.
+- **Existing cross-talk:** `evaluate_ctl_function_body_inline` and
+  `_reeval_closure_body_swallow` already re-evaluate a body under shared ids
+  (last writer wins), so they are a precedent to fix, not to copy.
+- **The acceptance gate needs amending.** Emitted C names embed ExprIds:
+  - `__yo_m<id>` match labels;
+  - `__spawn_future_expr_<id>`, `__yo_idx_tmp_<id>`;
+  - await/async temporaries;
+  - `__pa_fn_<id>`.
+
+  Dropping 1.4 M clone allocations also shifts the global counter for every
+  later node, so the C cannot be byte-identical. The gate becomes: C
+  identical after normalizing those id-bearing names, plus
+  `fixpoint_only.sh` (whose own stage-2/stage-3 identity still holds).
+
 ### Phase 5 — identity: `TypeValue` interning (5a) and `Symbol` (5b)
 
 - **5a** follows `backlog/TYPEVALUE_HASH_CONSING.md` §7 Phases 1–2 as written

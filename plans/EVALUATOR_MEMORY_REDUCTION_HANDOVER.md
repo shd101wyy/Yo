@@ -259,9 +259,17 @@ class on mimalloc). The edit is big but mechanical.
 - The cycle collector costs about 2 % of `check src/main.yo` wall time and
   reclaims nothing measurable. `YO_GC_THRESHOLD=0` gives 251 s instead of
   256 s at identical RSS. The runtime comment on `YO_GC_THRESHOLD` already
-  suggests disabling it for the compiler. It needs a measurement on
-  `compile` and on the LSP, where cycles may matter, before any default
-  changes.
+  suggests disabling it for the compiler. MEASURED 2026-09-28 (stage-2 of
+  `59ef41250`, `YO_GC_THRESHOLD=0`):
+  - `compile src/main.yo --skip-c-compiler`: user 375.9 → 369.4 s (−1.7 %),
+    max RSS 3,245 → 3,248 MB, emitted C byte-identical;
+  - LSP plateau, 10 std files × 6 rounds: 230.3 vs 230.5 MB, same round
+    times.
+
+  The collector reclaims nothing measurable anywhere in the compiler.
+  Turning it off needs a runtime entry the compiler calls at startup; the
+  env knob is read before `main` runs. It is seed-gated: `src/main.yo` can
+  call the entry only once a release carries it.
 - `__yo_decr_rc` is 19 % of all instructions in `check`, and one `__yo_fs_…`
   function is 9.5 % (callgrind, §0.19). Name that function with
   `YO_DEBUG_FN_ORIGIN=1` before optimizing anything.
