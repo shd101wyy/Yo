@@ -100,33 +100,45 @@ single-connection round trip for every runtime); the socketpair row is the
 runtime's own per-hop cost. libuv's timer loop re-arms inside the same loop
 iteration, while Yo's `sleep(0)` takes a loop turn, and Yo is faster anyway.
 
-**Before → after, this pass** (`io_bench.yo`, pinned, 7-run medians, ops/s):
+**Before → after, this pass** (`io_bench.yo`, pinned to one CPU, 7-run
+medians, ops/s; the same bench source compiled by the pre-audit compiler and
+by this branch):
 
 | case | ring before | ring after | epoll before | epoll after |
 | --- | ---: | ---: | ---: | ---: |
-| inline ping-pong | 796,654 | 1,057,082 | 1,110,032 | 1,190,122 |
-| parked ping-pong | 736,377 | 769,009 | 355,429 | 601,504 |
-| timers | 133,520 | (heap) | 81,087 | 2,202,643 |
+| inline ping-pong | 1,706,485 | 2,381,661 | 2,722,941 | 2,617,801 |
+| parked ping-pong | 1,562,195 | 1,931,434 | 1,184,308 | 1,605,136 |
+| 64-connection TCP echo | 324,644 | 305,950 → +6% with the batch rule | 271,191 | 312,461 |
+| zero-delay timers | 228,016 | 10,198,878 | 183,847 | 10,881,393 |
+| 16 KiB file cycle, tmpfs | 23,833 | 26,531 | 27,563 | 32,768 |
+
+The ring's 64-connection echo lost ~3–6% to the inline path: 64 inline
+sends per tick replaced one batched enter. Socket ops therefore go inline
+only while fewer than 8 SQEs are queued (`__YO_IO_INLINE_MAX_QUEUED`), which
+recovered +6% (unpinned 9-run medians, 293 K → 311 K) and left the
+sequential cases unchanged within noise.
 
 **File-op microbenchmarks** (2,000 each, ext4, µs total, before):
 cached read 882 (ring) / 833 (epoll); `statx` 114,371 / 863; buffered write
 122,042 / 1,548; `O_TRUNC` open+close 152,026 / 5,749. After, the ring's
 `statx` and truncating open run the same inline code as epoll.
 
-**Syscall budgets** (`scripts/io-budget-check.sh`, 200 rounds / 50 ticks):
+**Syscall budgets** (`scripts/io-budget-check.sh`, 200 rounds / 50 ticks;
+"after" includes #981's no-poll-before-a-blocking-wait):
 
 | budget | ring before | ring after | epoll before | epoll after |
 | --- | ---: | ---: | ---: | ---: |
-| A inline ping-pong | 801 enters | 801 inline syscalls, 1 enter | 800 | 800 |
-| D parked ping-pong | 400 | 1,200 | 2,400 | 2,000 |
-| B timer ticks | 150 | 100 | 200 | 100 |
-| C 150 ms blocked window | 3 | 3 | 4 | 2 |
+| A inline ping-pong | 801 (enters) | 801 (inline syscalls, 1 enter) | 800 | 800 |
+| D parked ping-pong | 400 | 802 | 2,400 | 1,602 |
+| B timer ticks | 150 | 50 | 200 | 50 |
+| C 150 ms blocked window | 3 | 1 | 4 | 1 |
 
-Budget D's ring count tripled while its wall clock improved (+4%): each recv
-now makes a doomed inline attempt before it parks. The recv-parks hint
-removes that for a socket whose peer answers after the loop has blocked (a
-real server). In the synthetic parked ping-pong the reply arrives before the
-loop ever waits, so the hint clears every round.
+Budget D's ring count doubled while its wall clock improved (+24%, pinned
+medians): each recv makes an inline attempt before it parks, and a syscall
+that fails fast is cheaper than a loop round trip. The recv-parks hint
+removes the attempt for a socket whose peer answers after the loop has
+blocked (a real server). In the synthetic parked ping-pong the reply arrives
+before the loop ever waits, so the hint clears every round.
 
 ## 5. Records
 
