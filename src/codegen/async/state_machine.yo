@@ -1558,7 +1558,7 @@ _emit_await_suspension_core :: (
   em.emit_string_line(`${ind}    goto state_${next_s};`);
   em.emit_string_line(`${ind}  }`);
   em.emit_string_line(`${ind}  // Budget exhausted — yield once for fairness (microtask yield)`);
-  em.emit_string_line(`${ind}  __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+  em.emit_string_line(`${ind}  __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
   em.emit_string_line(`${ind}  return;`);
   em.emit_string_line(`${ind}}`);
   em.emit_string_line(``);
@@ -1580,14 +1580,14 @@ _emit_await_suspension_core :: (
     em.emit_string_line(`${ind}  future_state = ${acc}->state;`);
     em.emit_string_line(`${ind}  if (future_state == -1 || future_state == -2) {`);
     em.emit_string_line(`${ind}    // Completed or aborted synchronously — yield for fairness`);
-    em.emit_string_line(`${ind}    __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+    em.emit_string_line(`${ind}    __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
     em.emit_string_line(`${ind}    return;`);
     em.emit_string_line(`${ind}  }`);
     em.emit_string_line(`${ind}}`);
   });
   em.emit_string_line(``);
   em.emit_string_line(`${ind}// Still pending — register continuation and suspend`);
-  em.emit_string_line(`${ind}${acc}->continuation_fn = (void (*)(void*))${resume_function_name};`);
+  em.emit_string_line(`${ind}${acc}->continuation_fn = ${resume_function_name};`);
   em.emit_string_line(`${ind}${acc}->continuation_sm = (void*)sm;`);
   em.emit_string_line(`${ind}return;`);
 });
@@ -4106,7 +4106,11 @@ generate_async_block_resume_function :: (
     Option(AstExpr).None
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id}`);
-  em.emit_string_line(`void ${resume_function_name}(${struct_name}* sm) {`);
+  // `void*`, not `${struct_name}*`: every caller reaches it through a
+  // `void (*)(void*)` slot (__yo_resume_fn, continuation_fn, the task queue),
+  // and a call through an incompatible function type is UB (C11 6.5.2.2p9).
+  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally-aborted entry guard: JoinHandle.abort marks a suspended/queued
   // task -2 from OUTSIDE, so the continuation that later wakes it must not

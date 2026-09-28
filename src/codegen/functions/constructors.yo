@@ -106,6 +106,27 @@ _emit_traversal_prototypes :: (fn(context : FunctionGenerationContext) -> unit)(
     );
   });
 });
+/// The `dispose_fn` a cycle-GC constructor stores for `dispose_c_name`.
+///
+/// The RC header types that slot `void (*)(void*)` and the runtime calls it
+/// that way, but a `___dispose` method is defined with its typed `self`
+/// pointer. Calling a function through an incompatible pointer type is
+/// undefined behavior (C11 6.5.2.2p9), and UBSan's `-fsanitize=function`
+/// aborted on the first release
+/// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+/// So the slot holds a `void*` thunk that forwards to the typed function.
+/// Each thunk is emitted once, before the first constructor that stores it.
+/// The constructor block is one contiguous region (copied verbatim into the
+/// shared header in chunk mode), so emission order is first-use order. Call it
+/// BEFORE the constructor's signature line.
+dispose_fn_thunk :: (fn(dispose_c_name : String, context : FunctionGenerationContext) -> String)({
+  thunk := `__yo_dispose_thunk_${dispose_c_name}`;
+  if(!context.base.dispose_thunks.contains(thunk.clone()), {
+    context.base.dispose_thunks.insert(thunk.clone());
+    context.base.emitter.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
+  });
+  thunk
+});
 /// Emit the constructor function for a single concrete object type.
 _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
@@ -138,6 +159,12 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
     );
     pi = (pi + usize(1));
   });
+  dispose_opt := get_dispose_function_for_type(type, context);
+  (dispose_thunk : String) = match(
+    dispose_opt,
+    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(dn, context), String.new()),
+    .None => String.new()
+  );
   // Signature + malloc.
   sig := String.from("static ");
   sig.push_string(c_name.clone());
@@ -175,12 +202,9 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   });
   // Dispose function pointer / type-tag.
   match(
-    get_dispose_function_for_type(type, context),
+    dispose_opt,
     .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
-      line := String.from("  obj->header.dispose_fn = (void(*)(void*))");
-      line.push_string(dispose_c_name.clone());
-      line.push_str(";");
-      em.emit_string_line(line);
+      em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
     }, {
       dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
       line := String.from("  obj->header.type_id = ");
@@ -581,6 +605,11 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
   });
   // Dispose dispatch is shared across all variants (depends on the type).
   dispose_opt := get_dispose_function_for_type(type, context);
+  (dispose_thunk : String) = match(
+    dispose_opt,
+    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(dn, context), String.new()),
+    .None => String.new()
+  );
   is_atomic := is_atomic_reference_enum_type(type);
   registers_with_gc := (context.base.needs_cycle_gc && !is_atomic && can_type_form_rc_cycle(type));
   enum_small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
@@ -654,7 +683,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         match(
           dispose_opt,
           .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
-            em.emit_string_line(`  obj->header.dispose_fn = (void(*)(void*))${dispose_c_name};`);
+            em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
           }, {
             dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
             em.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
