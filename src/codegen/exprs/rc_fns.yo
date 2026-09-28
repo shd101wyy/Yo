@@ -95,6 +95,11 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
     _arg(expr, usize(0)),
     .Some(value_arg) => {
       value_code := _call_generate_expr(value_arg, indent.clone(), context);
+      // Single-pass async lowering: an await moved this temp's future into
+      // the task's slot, which releases it.
+      if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
+        return(String.new());
+      });
       value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
       drop_code := generate_drop_code_for_value(value_code.clone(), value_type, context);
       // A local that lives in an async state machine (`sm->var_N`) is dropped

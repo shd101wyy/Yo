@@ -21,13 +21,13 @@
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
 { TokenKind } :: import("../../token.yo");
 { EvalValue } :: import("../../value.yo");
-{ Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
+{ Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
-{ get_type_string, fresh_local_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
@@ -4605,6 +4605,19 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   em.emit_string_line(`${indent}// await (resumes in state ${ks})`);
   if(!(is_named), {
     emit_future_store_into_slot(future_arg, future_code, String.from("__yo_await_slot"), indent, context);
+    // The slot owns the future now; the temp the evaluator minted for it
+    // (its scope-end drop is scheduled) holds nothing of its own.
+    match(
+      context.base.get_expr_info(future_arg),
+      .Some(fei) => match(
+        fei.variable_name,
+        .Some(fvn) => {
+          low.moved_into_slot.insert(get_variable_name_for_codegen(fvn, Option(Environment).Some(fei.env)));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
   });
   inner := indent.clone();
   inner.push_str("  ");
@@ -4690,7 +4703,8 @@ generate_async_block_resume_function_inline :: (
     next_state : usize(1),
     analysis : analysis,
     suspensions : ArrayList(InlineSuspension).new(),
-    emitted : HashSet(usize).new()
+    emitted : HashSet(usize).new(),
+    moved_into_slot : HashSet(String).new()
   );
   p_low := context.sm_inline_lowering;
   p_in := context.in_async_state_machine;

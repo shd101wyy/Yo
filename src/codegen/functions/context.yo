@@ -89,7 +89,11 @@ InlineSmLowering :: ref(
     analysis : AwaitAnalysisResult,
     suspensions : ArrayList(InlineSuspension),
     /// Await nodes already emitted — each must suspend exactly once.
-    emitted : HashSet(usize)
+    emitted : HashSet(usize),
+    /// C names of the temps whose future an await moved into
+    /// `__yo_await_slot`: the slot releases the future, so the temp's own
+    /// scope-end drop is not emitted.
+    moved_into_slot : HashSet(String)
   )
 );
 /// An effect-evidence parameter threaded into a function for explicit-effects
