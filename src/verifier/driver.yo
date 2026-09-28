@@ -408,9 +408,17 @@ resolve_solver_sync :: (fn(cfg : VerifyRunConfig) -> SolverResolution)(
       SolverResolution.Resolved(path : p),
       SolverResolution.InvalidPath(path : p)
     ),
+    // `discover_z3` hands back the `YO_Z3_PATH` override as given, so check
+    // it exists: a dangling override is `InvalidPath`, not a solver. As
+    // `Resolved` it let a warm verify cache answer `proved` with no solver
+    // present (issues/fixed/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md).
     .None => match(
       discover_z3(),
-      .Some(p) => SolverResolution.Resolved(path : p),
+      .Some(p) => if(
+        _z3_exists_sync(p.clone()),
+        SolverResolution.Resolved(path : p),
+        SolverResolution.InvalidPath(path : p)
+      ),
       .None => SolverResolution.Installable
     )
   )

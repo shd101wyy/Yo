@@ -645,10 +645,15 @@ Today `wrap_function_body_with_contracts` splices asserts at
 function-definition time. The verifier changes the dispatch:
 
 - `runtime` / `ignore` — unchanged (splice / erase), regardless of solver.
-- `verify` — **suppress the splice entirely**; the verifier consumes the
+- `verify` — **suppress the `ensures` asserts**; the verifier consumes the
   predicates from the side tables instead. Predicates still get one
   diagnostic evaluation pass (types checked, `old(...)` validated) so
   malformed predicates error cleanly even though no assert is emitted.
+  **Amended 2026-09-28:** the `requires` entry asserts are KEPT, as in
+  `verify+`. A requires is proved at call sites, and a caller the verifier
+  never walks (outside the subset, a library export's foreign caller, an
+  indirect call) proves nothing, so suppressing its assert left it unchecked
+  (issues/fixed/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md).
 - `verify+` — splice first (today's lowering), then, after the verifier
   reports, **strip the asserts whose predicates were Proved** (a
   post-evaluation body rewrite keyed by the spliced node ids, before

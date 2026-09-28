@@ -3706,8 +3706,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
       return future;
     }
     __yo_win_associate_handle((HANDLE)ls);
-    __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-    memset(ov, 0, sizeof(__yo_win_overlapped_t));
+    __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)ls, 0);
     ov->future = future;
     ov->is_socket = true;
     ov->is_accept = true;
@@ -3817,8 +3816,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
     }
 
     __yo_win_associate_handle((HANDLE)s);
-    __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-    memset(ov, 0, sizeof(__yo_win_overlapped_t));
+    __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)s, 0);
     ov->future = future;
     ov->is_socket = true;
     ov->is_connect = true;
@@ -3870,8 +3868,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
 
   SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)s, 0);
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
@@ -3918,8 +3915,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
 
   SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)s, 0);
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
@@ -3971,8 +3967,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   // the packet immediately.
   SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)s, 0);
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
@@ -4024,8 +4019,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   // task — the accept/connect bug class.
   SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
-  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)s, 0);
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
