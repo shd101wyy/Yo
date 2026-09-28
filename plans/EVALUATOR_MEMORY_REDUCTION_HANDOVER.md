@@ -236,6 +236,14 @@ class on mimalloc). The edit is big but mechanical.
 - **Phase 1 step 3** (LSP retains only open documents) LANDED 2026-09-24. Its
   plateau gate still fails:
   `issues/lsp-memory-grows-per-open-edit-close-round.md`.
+  - Measured 2026-09-28 with `scripts/bootstrap/lsp_plateau.py`: about
+    60 MB a round of 10 documents, linear.
+  - The issue doc has the per-root census diff. It has two causes:
+    1. the type-id keyed registries (`g_struct_finals` first) keep every
+       generation, because ids never re-count;
+    2. a missing release leaks each re-parsed AST from a raw ≤64 B holder.
+  - Census a develop-tip binary only with #979's census scripts: #969's
+    dispose thunks made the older regex match nothing.
 - **Phase 1 step 5**: the table is written (plan §0.20,
   `scripts/bootstrap/registry_table.py`). Its four levers (plan §0.21):
   1. LANDED (branch `mem/arm-ranges-local`): the codegen-only tables are
