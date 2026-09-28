@@ -6,13 +6,14 @@
 post-`main` belt re-landed with the install-frame classification fix, #858),
 0b (#829), 0c (#831), 1 (#833), 2 (#835), 3a/3b/3c with the `wrapping_*`
 escape hatch (#837; two missed wrap-by-design sites, #841), 4 (#836); 5a
-measured and closed as a documented non-change. Open (§14): the std unwrap
-ratchet (closing), the comptime-panic diagnostic that the "comptime carve-out"
-reduces to, the per-phase docs and
-instruction updates, the missing trap/OOM oracles, the UBSan acceptance run,
-the governance cross-check, 5b (design written in
-`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, implementation not
-started), and 6 (gated on 5b).**
+measured and closed as a documented non-change. §14 R1–R8 are done (the
+audit's open-work list, closed 2026-09-28): the std unwrap ratchet, the
+comptime-panic diagnostic, the docs and instruction debt, the trap/OOM
+oracles, the UBSan acceptance run with its function-type class fixed, the
+standing UBSan workflow (D6, `.github/workflows/ubsan.yml`), the class-1
+governance cross-check, and the 5b design. Open: 5b's implementation
+(`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`) and 6, which is gated
+on it.**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
 
@@ -800,10 +801,14 @@ semantics.
   mode.
 - **D6 — a standing UBSan CI leg.** RECOMMEND adding an optional workflow leg after
   0b proves it stable; make it a required check only with the manual
-  branch-protection update the workflow rules require.
+  branch-protection update the workflow rules require. **LANDED 2026-09-28** as
+  `.github/workflows/ubsan.yml`: the language suite under
+  `YO_TEST_SANITIZE=undefined`, weekly and on dispatch, not a required check,
+  with a vacuity probe that the UBSan runtime fires. It carries the fourth
+  `SEED_VERSION` pin (guarded and auto-bumped with the other three).
 - **D7 — panic vocabulary in safe files.** **DECIDED 2026-09-22 (maintainer): ban
   class 1.** Safe files may not call a function whose signature erases a fallible type
-  into its payload with a trap — `Option.unwrap`/`expect`, `Result.unwrap`/`unwrap_err`
+  into its payload with a trap — `Option.unwrap`/`expect`, `Result.unwrap`/`unwrap_err`/`expect_err`
   — because the caller is discarding failure information the type already gave them.
   Deliberate abort (`panic`/`assert`) and class-2 value-level traps stay legal; comptime
   `unwrap` stays legal (decidable ⇒ checked at compile time); the endgame upgrades the
@@ -815,10 +820,9 @@ semantics.
 In landing order. Each item is its own PR, stacked; none merges before the
 v0.2.40 release publishes.
 
-**Progress:** R1–R5 are done on the stack `safe-mode-5-ratchet` →
-`safe-mode-5-comptime-panic` → `safe-mode-5-docs` → `safe-mode-5-oracles`. R6
-ran on `safe-mode-5-ubsan`: one finding fixed, one class awaiting a ruling. R7
-is open; R8's design is written (implementation not started).
+**Progress: all eight done.** R1–R5 landed as #862–#865 and R6's first finding
+as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
+`safe-mode/callback-thunks` (2026-09-28).
 
 - **R1 — close the std unwrap ratchet. DONE.** Migrate the 9 remaining calls in
   safe std files and drop the blanket std branch of
@@ -854,32 +858,45 @@ is open; R8's design is written (implementation not started).
   spawn, thread spawn, and `String` growth. It pins that each shape dies with
   an allocation diagnostic and never a segfault. All three did, measured on
   macOS.
-- **R6 — the UBSan acceptance run. RUN 2026-09-23; one class open.** A
+- **R6 — the UBSan acceptance run. DONE 2026-09-28.** A
   self-built compiler with `--sanitize undefined` was run over `yo check ./src`.
   - **Run 1** aborted on the first RC increment: small RC headers were read
     through the full 56-byte header type. Fixed on `safe-mode-5-ubsan`
     (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`).
   - **Run 2** aborted on `header->dispose_fn(ptr)`: every runtime callback is
     called through `void (*)(void*)` while defined with a typed parameter
-    (4,910 casts in the compiler's own C). This is still open
-    (`issues/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`)
-    and needs a ruling: emit `void*`-typed callbacks, or accept and document
-    the ABI reliance.
+    (4,910 casts in the compiler's own C). **Ruled 2026-09-28: fix it** (the
+    UB is in Promise A's scope, and the fix costs no machine code). Every
+    callback is now defined with the type it is called through: `void*` dispose
+    thunks, `void*` SM resume functions, dyn wrappers with their slot's
+    signature, function-typed parameters cast by the prototype's own spelling,
+    and sys-callback slots typed to the Yo lowering
+    (`issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`).
+    The same class covered five more sites that `check ./src` never reached;
+    running the tests under UBSan found them.
   - **Run 3** (`--cflags '-fno-sanitize=function -fsanitize-recover=all'`, so
     every site is reported) finished `check ./src` 279/279 with **zero** UBSan
     reports across div/rem, shift, bounds, pointer-overflow, type-mismatch
     (object size and alignment), and float-cast checks. The handler set was
     verified from the binary's imports, so this is not a vacuous zero. Signed
     overflow has no UBSan check here: `-fwrapv` defines it, and Phase 3 traps it.
-  - D6's optional CI leg waits on the function-type ruling, because that
-    class aborts at the first dispose.
-- **R7 — governance cross-check.** §3's `public_safe_report` class-1 section,
-  which turns a renamed or newly added `Option`/`Result` extraction method that
-  can reach `__yo_panic` into a report diff. Nothing in-tree exercises it yet,
-  because the list is three names on two types. Lowest priority.
+  - **Run 4** (2026-09-28, full `--sanitize undefined`, `-fsanitize=function`
+    included, no recover): RUN4_RESULT
+  - D6's leg landed with the fix (see D6 in §13).
+- **R7 — governance cross-check. DONE 2026-09-28, and it found a hole.**
+  `scan_class1_extractions` (`src/public_safe_report.yo`) lists every
+  `Option`/`Result` method that reaches `__yo_panic` as `gated`, `comptime` or
+  `UNGATED`. `yo public-safe-report` prints it, and
+  `tests/internal/memory_safety_paths.test.yo` fails on an `UNGATED` prelude
+  method. Its first run found `Result.expect_err`: class 1 by the criterion,
+  missing from the list, and callable from safe files. It now joins the ban
+  (`issues/fixed/result-expect-err-escapes-the-class-1-ban.md`).
 - **R8 — the 5b plan. DESIGN WRITTEN, implementation not started.**
   [`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
-  answers §8's three questions. Phase 6 waits on its implementation.
+  answers §8's three questions. Phase 6 waits on its implementation. Grounding
+  it filed two verifier issues that 5b's soundness filter depends on:
+  `issues/verify-mode-requires-is-unchecked-when-the-caller-is-outside-the-subset.md`
+  and `issues/compile-missing-solver-handling-ignores-verify-plus-and-trusts-a-dangling-z3-path.md`.
 
 ## Appendix A — emission-site checklist (grep anchors, `develop @ a1df43578`)
 
