@@ -898,6 +898,12 @@ as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
     members at all. Ruled 2026-09-28: a union member read now needs
     `pragma(Pragma.AllowUnsafe)`, the same tier as raw pointers
     (`issues/fixed/safe-code-can-read-an-inactive-union-member.md`).
+  - **Run 6** (2026-09-28, the first CI run of `ubsan.yml`, ubuntu-latest):
+    7 more invalid-`bool` loads that macOS could not see, because its fresh
+    allocations happen to be zeroed. `consume(p.* = v)`, the "write into
+    uninitialized memory" spelling, still loaded the old value. It now saves
+    it by bytes (`issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md`).
+    Lesson: on macOS, reproduce Linux heap garbage with `MallocScribble=1`.
   - D6's leg landed with the fix (see D6 in §13).
 - **R7 — governance cross-check. DONE 2026-09-28, and it found a hole.**
   `scan_class1_extractions` (`src/public_safe_report.yo`) lists every
