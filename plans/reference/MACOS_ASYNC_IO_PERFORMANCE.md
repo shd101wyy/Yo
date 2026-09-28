@@ -65,20 +65,22 @@ the fix and passes after.
 
 ## 4. Measurements
 
-macOS 26.6, Apple M4 (10 cores, 16 GB), libuv 1.52.1 (Homebrew), 7
-interleaved rounds, medians, ops/s. The ratio is Yo/libuv (> 1: Yo is faster).
-The box was shared with other sessions' gate batteries.
+macOS 26.6, Apple M4 (10 cores, 16 GB), libuv 1.52.1 (Homebrew). Binaries were
+built by the tree compiler; "develop" is af62bdb28's runtime and std. 9
+interleaved rounds, medians, ops/s (std rows: round trips or fires per second).
+The ratio is Yo/libuv (> 1: Yo is faster). Measured while no other session's
+battery was running.
 
 | workload | libuv | develop | now | develop/uv | now/uv |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| socketpair echo | 3,015,227 | 1,933,114 | 2,690,975 | 0.64 | 0.89 |
-| TCP echo, 1 conn | 369,261 | 370,065 | 365,714 | 1.00 | 0.99 |
-| TCP echo, 64 conns | 1,078,431 | 771,731 | 1,036,899 | 0.72 | 0.97 |
-| zero-delay timers | 83,026 | 2,182,929 | 4,200,798 | 26.3 | 50.6 |
-| 16 KiB file cycle | 27,469 | 9,021 | 35,485 | 0.33 | 1.30 |
-| std TCP ping-pong (rt/s) | 83,328 | 28,227 | 69,466 | 0.34 | 0.83 |
-| std 8 connections (rt/s) | 314,202 | 205,178 | 274,221 | 0.65 | 0.87 |
-| std 500 × 1 ms timers (fires/s) | 391,264 | 328,764 | 393,918 | 0.84 | 1.01 |
+| socketpair echo | 3,045,415 | 1,936,202 | 2,621,146 | 0.64 | 0.86 |
+| TCP echo, 1 conn | 300,212 | 316,321 | 331,591 | 1.05 | 1.10 |
+| TCP echo, 64 conns | 1,094,447 | 785,642 | 1,043,424 | 0.72 | 0.95 |
+| zero-delay timers | 77,809 | 2,270,921 | 4,294,610 | 29.2 | 55.2 |
+| 16 KiB file cycle | 28,256 | 11,919 | 38,608 | 0.42 | 1.37 |
+| std TCP ping-pong | 71,422 | 27,865 | 64,276 | 0.39 | 0.90 |
+| std 8 connections | 318,087 | 210,969 | 272,589 | 0.66 | 0.86 |
+| std 500 × 1 ms timers | 379,151 | 317,254 | 382,161 | 0.84 | 1.01 |
 
 Reading the rows:
 

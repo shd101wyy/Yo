@@ -2,7 +2,7 @@
 
 **Status: FIXED (2026-09-28).** Read from the code during the macOS
 async-runtime audit. It is the macOS twin of the Linux item in
-`issues/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md` (item
+`issues/fixed/linux-io-runtime-minor-defects-from-the-drop-liburing-audit.md` (item
 3, `__yo_io_close_hook`), and of Windows' `__yo_win_close_hook` and
 `issues/fixed/async-thread-exit-hook-is-a-process-global-written-by-every-thread.md`.
 

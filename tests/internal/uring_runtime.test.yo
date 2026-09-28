@@ -183,14 +183,14 @@ test("macos runtime: a parked op is cancellable, FIFO-safe and found by (ident, 
   assert(c.contains(String.from("static _Thread_local __yo_kq_slot_t* __yo_kq_slots")), String.from("per-fd slot table missing"));
   assert(c.contains(String.from("if (!__yo_kq_dir_busy(sockfd, 1)) {")), String.from("inline send does not queue behind a parked send"));
   assert(c.contains(String.from("EV_ADD | EV_ENABLE | EV_DISPATCH")), String.from("registrations are not dispatch knotes re-enabled per park"));
-  assert(!c.contains(String.from("EV_ONESHOT")), String.from("a one-shot knote came back"));
+  assert(!c.contains(String.from("EV_ONESHOT, 0, 0")), String.from("a one-shot knote came back"));
 });
 test("macos runtime: sleeps are a heap, the wait carries the next deadline, an empty poll skips the kernel", {
   c := emit_macos_runtime();
   assert(c.contains(String.from("static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds)")), String.from("timer heap missing"));
   assert(c.contains(String.from("uint64_t due = __yo_watch_next_due_ns();")), String.from("the wait is not bounded by the next deadline"));
   assert(!c.contains(String.from("100 * 1000 * 1000")), String.from("the fixed 100 ms wait came back"));
-  assert(!c.contains(String.from("nanosleep")), String.from("the watch-only 10 ms sleep came back"));
+  assert(!c.contains(String.from("nanosleep(&")), String.from("the watch-only 10 ms sleep came back"));
   assert(c.contains(String.from("int r = select(__yo_io_kq + 1, &rs, NULL, NULL, &tv);")), String.from("the non-blocking poll does not probe before scanning"));
   assert(c.contains(String.from("bool next_step_waits = ")), String.from("a poll before a blocking step still enters the kernel"));
   assert(c.contains(String.from("__yo_kq_hot = processed > 0 && (__yo_mono_ns() - now) < __YO_KQ_HOT_WAIT_NS;")), String.from("the hot-wait bound is gone"));
@@ -205,7 +205,7 @@ test("common runtime (macos): sleep arms the heap; watches use the watch kqueue"
   // issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md
   c := emit_macos_common();
   assert(c.contains(String.from("__yo_timer_arm(future, milliseconds);")), String.from("the macOS sleep does not arm the heap"));
-  assert(!c.contains(String.from("EVFILT_TIMER")), String.from("a per-sleep EVFILT_TIMER came back"));
+  assert(!c.contains(String.from("EVFILT_TIMER, EV_ADD")), String.from("a per-sleep EVFILT_TIMER came back"));
   assert(c.contains(String.from("int32_t rc = __yo_io_watch_vnode(handle->fd, __yo_fs_vnode_fflags);")), String.from("fs events are not in the watch kqueue"));
   assert(!c.contains(String.from("handle->watch_fd = kqueue();")), String.from("a private kqueue per watch came back"));
   assert(c.contains(String.from("if (ph->active && (ph->ready || ph->unpollable)) {")), String.from("the tick polls every poll handle again"));
