@@ -1591,12 +1591,61 @@ generate_while_body_with_await :: (
         v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
         match(
           v_args.get(usize(0)),
-          .Some(future_expr) => {
-            future_code := _call_generate_expr(future_expr, indent, context);
-            em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            emit_await_future_store(future_expr, future_code, idx_s, indent, context);
-          },
+          // A NAMED future has no `await_future_N` slot (the struct emitter
+          // skips it); the await reads the variable's own field, exactly as in
+          // the standalone branch below
+          // (issues/fixed/named-future-awaited-in-a-while-emits-missing-await-future-field.md).
+          .Some(future_expr) => match(
+            await_point.future_variable_id,
+            .None => {
+              future_code := _call_generate_expr(future_expr, indent, context);
+              em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
+              emit_await_future_store(future_expr, future_code, idx_s, indent, context);
+            },
+            .Some(_) => ()
+          ),
           .None => ()
+        );
+      }, {
+        // `v := cond/match/if(… await …)` / `v = …`: the binding's value is a
+        // branch construct, which its own emitter lowers with this binding as
+        // the target. This arm used to recognise ONLY a direct `io.await`
+        // right-hand side and fall through, dropping the whole statement —
+        // `v` kept its zero value and the await never ran
+        // (issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).
+        branch_rhs := cond(
+          (ast_expr_is_fn_call_of(value_expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(value_expr, BK_MATCH, Option(usize).None)) => Option(AstExpr).Some(value_expr),
+          ast_expr_is_fn_call_of(value_expr, "if", Option(usize).None) => _await_macro_expansion(value_expr),
+          true => Option(AstExpr).None
+        );
+        match(
+          branch_rhs,
+          .Some(rhs) => {
+            is_init := ast_expr_is_fn_call_of(await_expr, ":=", Option(usize).None);
+            (target_var_id : Option(String)) = Option(String).None;
+            (target_code : Option(String)) = Option(String).None;
+            match(
+              a_args.get(usize(0)),
+              .Some(lhs) => if(is_init, {
+                target_var_id = _extract_target_var_id(lhs, context);
+              }, {
+                tcode := _call_generate_expr(lhs, indent, context);
+                target_code = if(tcode.len() > usize(0), Option(String).Some(tcode), Option(String).None);
+              }),
+              .None => ()
+            );
+            if(ast_expr_is_fn_call_of(rhs, BK_MATCH, Option(usize).None), {
+              _call_generate_match_with_await(rhs, await_point, indent, context, target_var_id, target_code);
+            }, {
+              _call_generate_cond_with_await(rhs, await_point, indent, context, target_var_id, target_code);
+            });
+            _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+            return(remaining_exprs);
+          },
+          // Any other right-hand side holds the await inside a larger
+          // expression, which this lowering cannot split — say so rather than
+          // silently drop the statement.
+          .None => codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(value_expr, false, false))
         );
       }),
       .None => ()
@@ -4005,6 +4054,7 @@ register_fsm_emitters_impl :: (fn() -> unit)({
 });
 export(
   _single_part_codes,
+  emit_await_future_store,
   _single_part_len,
   hoist_non_splittable_awaits,
   await_is_while_condition,

@@ -2448,7 +2448,10 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
     run_cmd := Command.new(String.from("sh"));
     run_cmd.arg(String.from("-c"));
     run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
-    run_cmd.arg(probe_bin.clone());
+    // `"$0"` is a command word, so a slash-free path is looked up in PATH: a
+    // bare `-o name` made the probe "command not found" and silently dropped
+    // the sanitizer (issues/fixed/sanitize-address-is-silently-dropped-for-a-bare-output-name.md).
+    run_cmd.arg(if(probe_bin.contains("/"), probe_bin.clone(), `./${probe_bin}`));
     run_st := io.await(run_cmd.status(io), IoExn(io : io, exn : probe_exn));
     usable = run_st.success();
   });

@@ -13,7 +13,7 @@
 { lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -26,7 +26,7 @@
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ codegen_fatal } :: import("../constants.yo");
+{ codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
@@ -1453,9 +1453,7 @@ generate_remaining_expr_future :: (
           .Some(future_expr) => if(branch_named, {
             em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
           }, {
-            fc := _call_generate_expr(future_expr, indent, context);
-            em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
-            em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+            _emit_remaining_future_store(future_expr, future_field_name.clone(), await_point, indent, context);
           }),
           .None => ()
         );
@@ -1480,9 +1478,7 @@ generate_remaining_expr_future :: (
       .Some(future_expr) => if(branch_named2, {
         em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
       }, {
-        fc := _call_generate_expr(future_expr, indent, context);
-        em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
-        em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+        _emit_remaining_future_store(future_expr, future_field_name.clone(), await_point, indent, context);
       }),
       .None => ()
     );
@@ -1508,7 +1504,29 @@ generate_remaining_expr_future :: (
     generate_await_expression(expr, await_point, usize(0), indent, context);
     return();
   });
-  em.emit_string_line(`${indent}// Warning: unhandled await pattern in remaining expressions`);
+  // Nothing above stored this await's future, so the state transition that
+  // follows would read an unset slot and the await would be skipped: fail
+  // loudly instead of emitting a C comment where the await should be.
+  codegen_user_error(ast_expr_token(await_point.base.expr), String.from("`io.await` is not supported in this position inside an `io.async` block.\nHoist it into a local first: `result := io.await(f, io);`"));
+});
+/// Store an ADDITIONAL cond-arm await's future. An anonymous future goes into
+/// its `await_future_N` slot through `emit_await_future_store`, which takes the
+/// slot's own reference when the future is read out of a place (`h.fut`) —
+/// a raw store here made the arm's await release the field's reference, a
+/// use-after-free for the next reader
+/// (issues/fixed/async-second-cond-arm-await-of-a-field-future-frees-it.md). A
+/// named future has no slot: the await reads the variable's own field.
+_emit_remaining_future_store :: (
+  fn(future_expr : AstExpr, future_field_name : String, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  if(!(future_field_name.starts_with("await_future_")), {
+    em.emit_string_line(`${indent}// Additional await in cond branch reads the named Future in sm->${future_field_name}`);
+    return();
+  });
+  fc := _call_generate_expr(future_expr, indent, context);
+  em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
+  emit_await_future_store(future_expr, fc, await_point.base.index.to_string(), indent, context);
 });
 /// The branch-info record a dispatch-mode await point dispatches on: the entry
 /// stored at the point's own index, else at its cond-source index.
@@ -1562,14 +1580,17 @@ _emit_await_suspension_core :: (
   em.emit_string_line(`${ind}  return;`);
   em.emit_string_line(`${ind}}`);
   em.emit_string_line(``);
-  if(!(is_io_future), {
-    em.emit_string_line(`${ind}// Future not complete — take event loop reference and start if cold`);
-    em.emit_string_line(`${ind}__yo_incr_rc((void*)${acc});  // event loop reference`);
-  }, {
+  if(is_io_future, {
     em.emit_string_line(`${ind}// Io future: no extra ref needed (completion handler does not decr_rc)`);
   });
   if(!(is_io_future), {
+    // The running-task reference is taken by whoever STARTS the future: its
+    // completion releases exactly one. A future that is already running
+    // (spawned, or started by another awaiter) has one already, and taking a
+    // second leaked the future and its result
+    // (issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md).
     em.emit_string_line(`${ind}if (future_state == 0) {  // 0 = cold (not started)`);
+    em.emit_string_line(`${ind}  __yo_incr_rc((void*)${acc});  // running-task reference, released by its completion`);
     inner := ind.clone();
     inner.push_str("  ");
     emit_effect_injection_for_sm(effect_expr, acc.clone(), inner, context);
