@@ -9,6 +9,7 @@ import("std/string");
 { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, AT_FDCWD } :: import("std/sys/constants");
 { openat, close, read, write, open_sync, close_sync, file_size } :: import("std/sys/file");
 { temp_dir, path_join } :: import("../helper");
+{ ArrayList } :: import("std/collections/array_list");
 test("sync open, file_size, close", {
   (path : *u8) = "tests/fixtures/test_file.txt";
   fd := open_sync(path, O_RDONLY, i32(0));
@@ -77,4 +78,40 @@ test("async write and read back", {
   close2 := io.await(close(rfd), io);
   assert(close2 == i32(0));
   free(.Some((*void)(buf)));
+});
+// io_uring submission is deferred to the loop's next poll, so one tick that
+// starts more operations than the ring has SQ entries (1024) ran out of
+// slots: every read past the 1,024th completed at once with -EAGAIN. A full
+// SQ is now flushed and the slot retried
+// (issues/fixed/io-uring-full-submission-queue-fails-operations-with-eagain.md).
+// 1,500 spawned tasks each start one read; they all run in ONE drain of the
+// ready queue, so every start lands in the same tick.
+_read_one :: (fn(fd : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    buf := (*u8)(malloc(usize(16)).unwrap());
+    r := io.await(read(fd, buf, u32(16), u64(0)), io);
+    free(.Some((*void)(buf)));
+    r
+  })
+);
+test("1500 file reads started in one tick all complete", {
+  (path : *u8) = "tests/fixtures/test_file.txt";
+  fd := io.await(openat(AT_FDCWD, path, O_RDONLY, i32(0)), io);
+  assert(fd >= i32(0), "open the fixture");
+  hs := ArrayList(JoinHandle(i32)).new();
+  (i : usize) = usize(0);
+  while(i < usize(1500), i = (i + usize(1)), {
+    hs.push(io.spawn(_read_one(fd, io), io));
+  });
+  (ok : usize) = usize(0);
+  i = usize(0);
+  while(i < hs.len(), i = (i + usize(1)), {
+    r := match(hs(i).await(io), .Some(v) => v, .None => i32(-1));
+    if(r > i32(0), {
+      ok = (ok + usize(1));
+    });
+  });
+  unsafe(printf("  %zu of 1500 reads completed\n", ok));
+  assert(ok == usize(1500), "every read started in one tick completes");
+  io.await(close(fd), io);
 });

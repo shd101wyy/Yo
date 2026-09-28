@@ -712,6 +712,13 @@ struct __yo_uring {
   } cq;
 };
 
+// The kernel's 64-bit timespec (__kernel_timespec), the layout
+// IORING_OP_TIMEOUT and IORING_ENTER_EXT_ARG read on every ABI.
+struct __yo_uring_timespec {
+  int64_t tv_sec;
+  long long tv_nsec;
+};
+
 _Static_assert(sizeof(struct __yo_uring_sqe) == 64, "__yo_uring_sqe layout");
 _Static_assert(sizeof(struct __yo_uring_cqe) == 16, "__yo_uring_cqe layout");
 
@@ -956,17 +963,6 @@ static inline bool __yo_uring_op_ok(int op) {
   return op >= 0 && op < __YO_IORING_PROBE_OPS && __yo_uring_op_ok_table[op];
 }
 
-// Returns 0 and sets *cqe_ptr, or -EAGAIN when the CQ ring is empty.
-static int __yo_uring_peek_cqe(struct __yo_uring* ring,
-                               struct __yo_uring_cqe** cqe_ptr) {
-  uint32_t head = *ring->cq.khead;
-  if (head != __yo_uring_load_acquire(ring->cq.ktail)) {
-    *cqe_ptr = &ring->cq.cqes[head & *ring->cq.ring_mask];
-    return 0;
-  }
-  return -EAGAIN;
-}
-
 static unsigned __yo_uring_peek_batch_cqe(struct __yo_uring* ring,
                                           struct __yo_uring_cqe** cqes,
                                           unsigned nr) {
@@ -988,15 +984,6 @@ static void __yo_uring_cqe_seen(struct __yo_uring* ring,
   }
 }
 
-static int __yo_uring_wait_cqe(struct __yo_uring* ring,
-                               struct __yo_uring_cqe** cqe_ptr) {
-  int ret = __yo_uring_peek_cqe(ring, cqe_ptr);
-  if (ret == 0) return 0;
-  ret = __yo_uring_enter(ring, 0, 1, __YO_IORING_ENTER_GETEVENTS);
-  if (ret < 0) return ret;
-  return __yo_uring_peek_cqe(ring, cqe_ptr);
-}
-
 static inline void __yo_uring_sqe_set_data(struct __yo_uring_sqe* sqe,
                                            void* data) {
   sqe->user_data = (uint64_t)(uintptr_t)data;
@@ -1012,11 +999,6 @@ static inline void* __yo_uring_cqe_get_data(const struct __yo_uring_cqe* cqe) {
 // argument shapes mirror liburing's so the call sites keep their review
 // history; the field placements (which UAPI slot carries which argument) are
 // liburing's, verified against the kernel's opcode handlers.
-// The kernel's 64-bit timespec, the layout IORING_OP_TIMEOUT reads on every ABI.
-struct __yo_uring_timespec {
-  int64_t tv_sec;
-  long long tv_nsec;
-};
 
 static inline void __yo_uring_prep_rw(uint8_t op, struct __yo_uring_sqe* sqe,
                                       int32_t fd, const void* addr,
@@ -1189,7 +1171,7 @@ static inline void __yo_tsan_ring_unmapping(struct __yo_uring* ring) { (void)rin
 static _Thread_local size_t __yo_pending_io_count = 0;
 // Cross-thread wakeup channel (plans/archive/WAKER_BASED_SCHEDULING.md step 5): an
 // eventfd this loop keeps a POLL_ADD armed on, so a foreign thread can end an
-// __yo_uring_wait_cqe that would otherwise block forever. Its SQE carries a
+// blocking io_uring_enter that would otherwise wait forever. Its SQE carries a
 // SENTINEL user_data rather than a future, and takes no pending-I/O slot: it
 // is not work the loop is waiting for, it is how the loop is reachable.
 #define __YO_IO_NOTIFY_UD ((void*)(uintptr_t)1)
@@ -1676,7 +1658,7 @@ static inline void __yo_io_arm_notify(void) {
   __yo_sq_unsubmitted++;
 }
 
-// Nudge a loop out of __yo_uring_wait_cqe. Safe from any thread: an eventfd
+// Nudge a loop out of its blocking wait. Safe from any thread: an eventfd
 // write is atomic, and the check and the write run under the loop's mutex so
 // they cannot race __yo_io_cleanup's clear+close of the descriptor (see the
 // comment there).
@@ -1759,6 +1741,16 @@ static struct __yo_uring_sqe* __yo_io_get_sqe(void) {
 //     EPOLL_CTL_ADD, the 8-byte read, EPOLL_CTL_DEL, close — six syscalls.
 // A fired timer completes with 8, the result the timerfd read produced and
 // the contract every platform keeps (std/sys/timer.yo).
+// Mark a future done and queue whoever is suspended on it.
+static void __yo_io_wake(__yo_io_future_t* future) {
+  future->state = -1;
+  void (*cont_fn)(void*) = future->continuation_fn;
+  void* cont_sm = future->continuation_sm;
+  if (cont_fn && cont_sm) {
+    __yo_async_spawn_task(cont_fn, cont_sm);
+  }
+}
+
 typedef struct __yo_timer_t {
   uint64_t deadline_ns;
   uint64_t seq;  // FIFO among equal deadlines
@@ -1909,16 +1901,6 @@ static int __yo_timer_expire(void) {
     fired++;
   }
   return fired;
-}
-
-// Mark a future done and queue whoever is suspended on it.
-static void __yo_io_wake(__yo_io_future_t* future) {
-  future->state = -1;
-  void (*cont_fn)(void*) = future->continuation_fn;
-  void* cont_sm = future->continuation_sm;
-  if (cont_fn && cont_sm) {
-    __yo_async_spawn_task(cont_fn, cont_sm);
-  }
 }
 
 // How long a blocking wait may sleep before the earliest timer is due: -1
