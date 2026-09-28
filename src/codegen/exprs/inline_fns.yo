@@ -599,11 +599,18 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       self_c_type := get_type_string(ei_ty(expr, context), context.base);
       uninit_tok := ast_expr_token(expr);
       uninit_var := stable_label_id(String.from("__yo_uninit_"), uninit_tok.module_path, uninit_tok.row, uninit_tok.column);
+      // `= {0}`, not a bare declaration: the value is copied into temporaries
+      // by value right away (`T t = __yo_uninit_…;`), and reading an
+      // indeterminate automatic object is undefined behavior (C11 6.3.2.1p2).
+      // UBSan caught it as `load of value 3 … for type 'bool'` in
+      // `Array(bool, N).default()` (issues/fixed/maybe-uninit-new-copies-an-indeterminate-value.md).
+      // The zeroing is dead whenever every byte is written before a read, and
+      // clang removes it then.
       line := indent.clone();
       line.push_string(self_c_type);
       line.push_str(" ");
       line.push_string(uninit_var.clone());
-      line.push_str(";");
+      line.push_str(" = {0};");
       em := context.base.emitter;
       em.emit_string_line(line);
       uninit_var
