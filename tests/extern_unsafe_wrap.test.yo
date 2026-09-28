@@ -58,3 +58,18 @@ test("two externs with the same signature both get a prototype", {
   assert(upper == i32(65), "toupper('a') is 'A'");
   assert(lower == i32(98), "tolower('B') is 'b'");
 });
+// ── Negative: a unit value cannot be a variadic argument.
+// Variadic arguments (helper.yo's Step 7b) were forwarded to codegen with no
+// type validation, and codegen emits NOTHING for a unit expression in an
+// argument slot — `unsafe(printf("%d\n", ()))` produced literally
+// `printf("%d\n", )` and failed at the C compile. The common way to reach it:
+// a block tail followed by `;` yields unit by design, so an awaited task
+// whose body ends in `cond(...);` (not `return(...)`) hands its consumer a
+// unit that then flowed into any variadic slot unchecked.
+{ printf } :: import("std/libc/stdio");
+comptime_expect_error(
+  bad_variadic_unit :: (fn() -> usize)({
+    unsafe(printf("%d\n", ()));
+    usize(0)
+  })
+);

@@ -53,10 +53,12 @@ Four latency/syscall changes and two latent-race fixes, all in
   down with live timers (a still-sleeping spawned task) does not leak its
   count into the next loop on that thread.
 
-Also filed from this pass, unrelated to the runtime change:
-`an-async-closure-returning-a-cond-tail-drops-the-awaited-value-at-codegen.md`
-(a cond tail as an `io.async` return emits an empty argument at the consumer;
-pre-existing on the v0.2.45 seed).
+Also filed from this pass, unrelated to the runtime change (found while
+building the timing demo, fixed the same day in `fix/async-cond-tail-value`):
+`issues/fixed/a-unit-variadic-argument-is-accepted-and-emits-an-empty-c-argument.md`
+— variadic arguments were forwarded with no type validation, so a unit value
+(a block tail followed by `;` yields unit by design) reached codegen, which
+emits nothing for it: `printf("v = %d\n", )`, a hard C error.
 
 ## Fixed in this audit
 
