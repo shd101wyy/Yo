@@ -77,7 +77,7 @@ for d, b in sorted(disp.items()):
     body = struct_body.get(b, "")
     st = "struct %s_struct" % b
     if re.search(r"\* _ptr;", body) and re.search(r"\bsize_t _length;", body):
-        is_u8 = 1 if tyname.get(b, "").startswith("ArrayList(u8)") else 0
+        is_u8 = 1 if re.search(r"\buint8_t\* _ptr;", body) else 0
         al_rows.append("  { (void*)%s, offsetof(%s, _ptr), offsetof(%s, _length), sizeof(*((%s*)0)->_ptr), %d }" % (d, st, st, st, is_u8))
     elif re.search(r"\buint8_t\* ctrl;", body) and re.search(r"\* data;", body) and re.search(r"\bsize_t capacity;", body):
         hm_rows.append("  { (void*)%s, offsetof(%s, ctrl), offsetof(%s, data), offsetof(%s, capacity), sizeof(*((%s*)0)->data) }" % (d, st, st, st, st))
@@ -553,7 +553,7 @@ static int __hd_zs_cmp(const void* a, const void* b) {
 typedef struct { long long waste; long long n; size_t len; long bi; } __hd_zg_t;
 static int __hd_zg_cmp(const void* a, const void* b) { long long x = ((const __hd_zg_t*)a)->waste, y = ((const __hd_zg_t*)b)->waste; return x < y ? 1 : (x > y ? -1 : 0); }
 static void __hd_dupstr(FILE* f) {
-  size_t cap = 1 << 20, n = 0; __hd_zs_t* z = (__hd_zs_t*)malloc(cap * sizeof(__hd_zs_t));
+  size_t cap = 1 << 20, n = 0; __hd_zs_t* z = (__hd_zs_t*)calloc(cap, sizeof(__hd_zs_t));
   for (size_t i = 0; i < __HD_BCAP; i++) {
     if (!__hd_bk[i] || __hd_br[i] < 0 || __hd_bs[i] < 16) continue;
     char* b = (char*)__hd_bk[i]; void* fn = *(void**)(b + 8);
@@ -574,7 +574,7 @@ static void __hd_dupstr(FILE* f) {
   qsort(z, n, sizeof(__hd_zs_t), __hd_zs_cmp);
   long long total = 0, waste = 0, groups = 0;
   long long* rw = (long long*)calloc(%(nr)d + 2, sizeof(long long));
-  size_t gcap = 1 << 16, gn = 0; __hd_zg_t* g = (__hd_zg_t*)malloc(gcap * sizeof(__hd_zg_t));
+  size_t gcap = 1 << 16, gn = 0; __hd_zg_t* g = (__hd_zg_t*)calloc(gcap, sizeof(__hd_zg_t));
   for (size_t i = 0; i < n; ) {
     size_t j = i + 1; while (j < n && z[j].h == z[i].h && z[j].len == z[i].len) j++;
     long long gw = 0;
@@ -594,7 +594,8 @@ static void __hd_dupstr(FILE* f) {
     esc[e] = 0;
     fprintf(f, "Z %%lld %%zu %%lld %%s\n", g[k].n, g[k].len, g[k].waste, e ? esc : "<empty>");
   }
-  free(z); free(g); free(rw);
+  /* the tables live in the census's private mappings (calloc/realloc are
+     remapped on Linux): nothing to free */
 }
 static void __ho_deep(FILE* f) {
   __hd_bk = (void**)calloc(__HD_BCAP, sizeof(void*)); __hd_bs = (size_t*)calloc(__HD_BCAP, sizeof(size_t)); __hd_br = (int*)calloc(__HD_BCAP, sizeof(int)); __hd_par = (long*)calloc(__HD_BCAP, sizeof(long));
