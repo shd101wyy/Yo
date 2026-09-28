@@ -3035,9 +3035,13 @@ static int __yo_io_wait(void) {
   }
   __yo_io_wait_epoch++;
   if (__yo_backend == __YO_BACKEND_EPOLL) {
+    // The loop drivers skip their 0-timeout __yo_io_poll in an iteration
+    // that blocks here, so the tick is this wait's job too (the ring's reap
+    // does it); without it a ready watch ended the wait, was never ticked,
+    // and ended the next wait at once, forever.
     int n;
     __yo_epoll_drive(true, &n);
-    return n;
+    return n + __yo_poll_and_fs_event_tick();
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     // Every op here completed at start, so the loop only waits when a

@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Yo's async runtime against libuv on the same box, same workloads:
-# scripts/bench/io_bench.yo and scripts/bench/libuv/libuv_bench.c (loopback-TCP
+# scripts/bench/io_bench.yo and its libuv twin
+# scripts/bench/async-vs-libuv/io_bench_uv.c — a socketpair echo, loopback-TCP
 # echo over 1 and 64 connections, zero-delay timer churn, a 16 KiB file
-# write+read cycle). Runs REPS alternating rounds, optionally pinned to one
-# CPU, and prints the median ops/s per workload with Yo/libuv ratios (> 1:
-# Yo is faster). Informational — wall clock on a shared machine is not a CI
-# gate; scripts/io-budget-check.sh is.
+# write+read cycle. Runs REPS alternating rounds, optionally pinned to one CPU,
+# and prints the median ops/s per workload with Yo/libuv ratios (> 1: Yo is
+# faster). Informational — wall clock on a shared machine is not a CI gate;
+# scripts/io-budget-check.sh is. The std-API-level comparison (TcpStream,
+# Channel) is scripts/bench/async-vs-libuv/bench.yo; see its README.
 #
 # Usage: YO=<yo-binary> YO_STD=<std-dir> [REPS=7] [CPU=<n>] scripts/bench-vs-libuv.sh
-# libuv comes from pkg-config, or LIBUV_CFLAGS / LIBUV_LIBS.
+# libuv comes from pkg-config, or LIBUV_CFLAGS / LIBUV_LIBS. POSIX only (the
+# Windows flow is manual: README.md).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,7 +26,7 @@ trap 'rm -rf "${OUT}"' EXIT
 UV_CFLAGS="${LIBUV_CFLAGS:-$(pkg-config --cflags libuv)}"
 UV_LIBS="${LIBUV_LIBS:-$(pkg-config --libs libuv)}"
 # shellcheck disable=SC2086
-${CC:-cc} -O2 ${UV_CFLAGS} "${HERE}/bench/libuv/libuv_bench.c" -o "${OUT}/libuv_bench" ${UV_LIBS}
+${CC:-cc} -O2 ${UV_CFLAGS} "${HERE}/bench/async-vs-libuv/io_bench_uv.c" -o "${OUT}/libuv_bench" ${UV_LIBS}
 "${YO}" compile "${HERE}/bench/io_bench.yo" --optimize 2 -o "${OUT}/yo_bench" >/dev/null
 
 for r in $(seq "${REPS}"); do

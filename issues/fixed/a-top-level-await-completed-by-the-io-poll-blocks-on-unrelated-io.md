@@ -34,6 +34,22 @@ occurrence), indefinite on io_uring and epoll.
 
 ## Fix
 
-`__yo_async_poll_step` blocks only when the step resumed no task AND its
-poll completed nothing (`__yo_io_poll`'s return, a completion count on every
-backend). `runtime_core.yo` is shared, so the fix applies to every platform.
+Two fixes arrived at once, and the second subsumes the first:
+
+- This audit's first fix made `__yo_async_poll_step` block only when the step
+  resumed no task AND its poll completed nothing.
+- #981 (merged the same day, for Windows performance) restructured the loop
+  drivers. A step that is going to block no longer polls first: it goes
+  straight to `__yo_io_wait`, which drains completions itself and returns
+  as soon as it has one. So nothing can complete between a poll and a
+  block. The audit's branch rebased onto that structure and dropped its own
+  guard.
+
+That restructure assumes every backend's wait also TICKS the poll/fs-event
+handles, as `__yo_io_poll` does. Windows' and the ring's did, but the epoll
+fallback's and macOS's did not. On those, a started watch was never
+serviced while other I/O was pending, and on epoll a ready watch ended every
+wait at once without being ticked, which spun. Both waits now tick. The
+epoll half is pinned by `tests/sys/poll.test.yo`'s epoll-fallback variant.
+
+The reproducer test above pins the behavior on the ring and on epoll.

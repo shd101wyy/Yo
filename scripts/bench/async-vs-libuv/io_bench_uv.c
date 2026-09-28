@@ -1,4 +1,4 @@
-// libuv counterparts of scripts/bench/io_bench.yo's echo, timer and file
+// The libuv twin of scripts/bench/io_bench.yo's echo, timer and file
 // workloads, written the way a libuv program would write them (callbacks,
 // uv_write, uv_read_start, uv_timer, uv_fs on the threadpool). Driven by
 // scripts/bench-vs-libuv.sh, which prints both programs' numbers side by

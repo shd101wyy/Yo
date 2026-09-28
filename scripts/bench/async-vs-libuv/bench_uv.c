@@ -1,7 +1,10 @@
-/* libuv benchmark twin of the Yo async benchmark: pingpong / multi / timers.
+/* libuv benchmark twin of bench.yo: pingpong / multi / timers.
  * One event loop for everything; small payloads so per-operation overhead
- * dominates. Usage: bench_uv.exe <mode> <count> */
+ * dominates. Usage: bench_uv <mode> <count> [nconn|ktimers]
+ * Portable: builds against libuv on Windows, Linux and macOS (README.md). */
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <uv.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,10 +27,12 @@ static side_t client_side, server_side;
 #define MAXP 16
 static side_t mclient[MAXP], mserver[MAXP];
 static uv_tcp_t mlst[MAXP];
-static long long multi_target = 0;
-static long long global_target = 0;
 static long long global_done = 0;
-static int nconn = 1;
+/* Clients still running: the measurement ends when the LAST one finishes,
+ * as bench.yo's does (it waits for every pair). It used to end — exit(0) —
+ * when the first client reached its target, timing less work than the Yo
+ * side and dropping the slowest connection's tail. */
+static int clients_left = 1;
 static uint64_t t0;
 
 static void on_close(uv_handle_t* h) { (void)h; }
@@ -37,8 +42,6 @@ static void on_write(uv_write_t* req, int status) {
   if (status) { fprintf(stderr, "write error %d\n", status); exit(1); }
   (void)req;
 }
-
-static void arm_read(side_t* s);
 
 static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   side_t* s = (side_t*)stream->data;
@@ -54,16 +57,19 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     global_done++;
     s->done++;
     if (s->done >= s->target) {
-      printf("%lld round trips in %.3f ms -> %.0f rt/s (%.2f us/rt)\n",
-             global_done, (double)(uv_hrtime() - t0) / 1e6,
-             (double)global_done / ((double)(uv_hrtime() - t0) / 1e9),
-             (double)(uv_hrtime() - t0) / 1e3 / (double)global_done);
-      exit(0);
+      uv_read_stop(stream);
+      if (--clients_left == 0) {
+        printf("%lld round trips in %.3f ms -> %.0f rt/s (%.2f us/rt)\n",
+               global_done, (double)(uv_hrtime() - t0) / 1e6,
+               (double)global_done / ((double)(uv_hrtime() - t0) / 1e9),
+               (double)(uv_hrtime() - t0) / 1e3 / (double)global_done);
+        exit(0);
+      }
+      return;
     }
   }
   uv_buf_t ob = uv_buf_init(s->tx, (unsigned int)s->txlen);
   uv_write(&s->wr, stream, &ob, 1, on_write);
-  (void)arm_read;
 }
 
 static void alloc_cb(uv_handle_t* h, size_t size, uv_buf_t* buf) {
@@ -72,8 +78,6 @@ static void alloc_cb(uv_handle_t* h, size_t size, uv_buf_t* buf) {
   buf->base = s->rx;
   buf->len = sizeof(s->rx);
 }
-
-static void arm_read(side_t* s) { /* read stays started; placeholder */ }
 
 static void on_connect(uv_connect_t* cr, int status) {
   if (status) { fprintf(stderr, "connect %d\n", status); exit(1); }
@@ -129,12 +133,12 @@ static void on_multi_connect(uv_connect_t* cr, int status) {
 }
 
 int main(int argc, char** argv) {
-  if (argc < 3) { fprintf(stderr, "usage: %s <pingpong|timers> <count> [nconn|ktimers]\n", argv[0]); return 2; }
+  if (argc < 3) { fprintf(stderr, "usage: %s <pingpong|multi|timers> <count> [nconn|ktimers]\n", argv[0]); return 2; }
   const char* mode = argv[1];
   long long count = atoll(argv[2]);
   uv_loop_init(&loop);
   if (strcmp(mode, "pingpong") == 0) {
-    global_target = count;
+    clients_left = 1;
     struct sockaddr_in addr;
     uv_ip4_addr("127.0.0.1", 0, &addr);
     uv_tcp_init(&loop, &client_side.conn);
@@ -149,10 +153,8 @@ int main(int argc, char** argv) {
     uv_tcp_nodelay(&client_side.conn, 1);
     uv_tcp_nodelay(&server_side.conn, 1);
     uv_listen((uv_stream_t*)&lst, 16, on_conn);
-    uv_os_sock_t sfd;
-    uv_fileno((uv_handle_t*)&lst, (uv_os_fd_t*)&sfd);
     int namelen = sizeof(addr);
-    getsockname(sfd, (struct sockaddr*)&addr, &namelen);
+    uv_tcp_getsockname(&lst, (struct sockaddr*)&addr, &namelen);
     static uv_connect_t cr;
     t0 = uv_hrtime();
     uv_tcp_connect(&cr, &client_side.conn, (const struct sockaddr*)&addr, on_connect);
@@ -160,7 +162,7 @@ int main(int argc, char** argv) {
   } else if (strcmp(mode, "multi") == 0) {
     int npair = (argc > 3) ? atoi(argv[3]) : 8;
     if (npair > MAXP) npair = MAXP;
-    multi_target = count;
+    clients_left = npair;
     for (int i = 0; i < npair; i++) {
       struct sockaddr_in a;
       uv_ip4_addr("127.0.0.1", 0, &a);
@@ -182,10 +184,8 @@ int main(int argc, char** argv) {
     for (int i = 0; i < npair; i++) {
       struct sockaddr_in a;
       uv_ip4_addr("127.0.0.1", 0, &a);
-      uv_os_sock_t sfd;
-      uv_fileno((uv_handle_t*)&mlst[i], (uv_os_fd_t*)&sfd);
       int al = sizeof(a);
-      getsockname(sfd, (struct sockaddr*)&a, &al);
+      uv_tcp_getsockname(&mlst[i], (struct sockaddr*)&a, &al);
       static uv_connect_t crs[MAXP];
       uv_tcp_connect(&crs[i], &mclient[i].conn, (const struct sockaddr*)&a, on_multi_connect);
     }
@@ -198,7 +198,11 @@ int main(int argc, char** argv) {
     for (long long i = 0; i < k; i++) {
       uv_timer_init(&loop, &timers[i].t);
       timers[i].t.data = &timers[i];
-      timers[i].delay = 1 + (i % 50);
+      /* 1 ms, the delay bench.yo's timer tasks sleep. This was
+       * 1 + (i % 50) — delays averaging ~25 ms against Yo's 1 ms — which is
+       * where the "~40x faster timers" of #981 came from; with equal delays
+       * the two are within ~10% (README.md). */
+      timers[i].delay = 1;
       timers[i].left = (count + k - 1) / k;
       uv_timer_start(&timers[i].t, on_timer, (uint64_t)timers[i].delay, 0);
     }

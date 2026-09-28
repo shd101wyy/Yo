@@ -63,10 +63,13 @@ inline (macOS parity) is the remaining lever. It was offered and not taken.
   socket closed on another thread would leave a stale registration that a
   reused number parks on forever. The per-park MOD is the check that
   catches it (`ENOENT` → ADD).
-- **The loop step does not block after its poll completed work.** A
-  top-level await of an I/O future registers no continuation, so its
-  completion runs no task. The step used to block right after the poll that
-  completed it.
+- **A step that is going to block does not poll first** (#981's
+  restructure, merged alongside this pass): `__yo_io_wait` drains, submits
+  and ticks on every backend, so the zero-timeout poll before it was a wasted
+  syscall. It also closes a hang this audit found: a top-level await
+  completed by that poll ran no task, and the step went on to block on
+  unrelated I/O. The epoll and macOS waits had to start ticking the watches
+  for the restructure to hold.
 
 ## 4. Measurements
 
@@ -85,6 +88,12 @@ is a median over repeated alternating runs.
 | 20,000 zero-delay timers | 8,496,177 | 10,695,187 | 7,074,637 | 1.20 | 1.51 |
 | 16 KiB file write+read, tmpfs | 3,472 | 29,943 | 3,143 | 1.10 | 9.53 |
 | same, ext4 (3 runs) | ~5,400 | ~7,000 | ~2,850 | ~1.9 | ~2.5 |
+
+The std-level pair #981 added (`scripts/bench/async-vs-libuv/bench.yo` and
+`bench_uv.c`) measures the same way once its two fairness bugs are fixed
+(`scripts/bench/async-vs-libuv/README.md`, "Corrections"): 1 ms timers
+459 K vs 427 K fires/s (1.07; #981 reported "~40×" against libuv timers
+averaging 25 ms), and 8-connection TCP at parity.
 
 Both loopback-TCP rows are bound by WSL2's loopback delivery (~300 µs per
 single-connection round trip for every runtime); the socketpair row is the
