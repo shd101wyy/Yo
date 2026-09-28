@@ -87,6 +87,16 @@ The verifier walks exactly that node, so `dist_zero` in
 `verify` mode the body is therefore kept as one child
 (`begin(asserts…, body)`). Runtime-mode splicing is unchanged.
 
+Only a **runtime-checkable** `requires` is spliced
+(`requires_is_runtime_checkable`). A predicate that calls a `ghost_fn`,
+quantifies (`forall`/`exists`), or reads `old(...)` has no runtime meaning, so
+it stays proof-only. The first full run caught this: `verifier_ghost`'s
+`requires(within(x, i32(0)))` with a ghost `within` broke 3 tests. Nothing is
+spliced into a `ghost_fn`'s own body either, because it never runs
+(`ctx.is_ghost_context`). Such a requires remains unchecked for a caller the
+verifier never walks, the same class as a `refine` below, and 5b must treat it
+as an unchecked assumption.
+
 `refine(T, p)` parameters are NOT covered, and cannot be by this fix: the
 predicate `p` is a `ghost_fn`, which has no runtime body to call, so there is
 nothing to assert at entry. Until refinements get a runtime check, a

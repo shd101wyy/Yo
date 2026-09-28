@@ -46,7 +46,7 @@
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
 { snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
-{ EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
+{ EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
@@ -2475,8 +2475,10 @@ _guard_body_is :: (fn(body : AstExpr, prefix : String) -> bool)(
 );
 /// Can `pred` be evaluated at runtime? Not when it mentions a verification-only
 /// construct: `old(...)`, a quantifier, `ghost(...)`, or a call to a `ghost_fn`.
-/// A `ghost_fn` has no runtime body. The predicate was type-checked at
-/// signature evaluation, so each callee's ExprInfo already holds its FuncVal.
+/// A `ghost_fn` has no runtime body. The side-table predicate nodes carry no
+/// ExprInfo (it lands on evaluated clones), so a callee is recognized as ghost
+/// by its module-level `name :: ghost_fn(...)` definition
+/// (`is_module_ghost_fn_def`), or by a FuncVal value when a node has one.
 requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> bool)(
   match(
     pred,
@@ -2493,6 +2495,10 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
         if((((hn == BF_OLD) || (hn == BF_FORALL)) || (hn == BF_EXISTS)) || (hn == BF_GHOST), {
+          return(false);
+        });
+        // A ghost fn defined anywhere in this module, forced yet or not.
+        if(is_module_ghost_fn_def(ast_expr_token(head).module_path.clone(), hn.clone()), {
           return(false);
         });
       });
