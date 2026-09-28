@@ -313,11 +313,15 @@ _cpu_ms :: (fn() -> i64)({
   _rc := clock_gettime(id, sec, nsec);
   (sec.* * i64(1000)) + (nsec.* / i64(1000000))
 });
+// Awaits directly inside the task (a plain helper like _touch would be a
+// nested blocking await there).
 _touch_later :: (fn(path : String, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     _s := io.await(sleep(u64(300)), io);
-    _touch(path, String.from("late"), io);
-    i32(0)
+    c := path.to_cstr();
+    fd := io.await(file.openat(AT_FDCWD, c.ptr().unwrap(), O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
+    _c := io.await(file.close(fd), io);
+    fd
   })
 );
 test("a task waiting in next(io) does not spin the CPU", {

@@ -409,7 +409,13 @@ static void __yo_async_poll_step(void) {
     // backend's __yo_io_wait performs the same completion drain, the same
     // submission flush and the same tick __yo_io_poll would have done, so the
     // extra non-blocking syscall only added latency to the common
-    // one-completion-per-iteration shape.
+    // one-completion-per-iteration shape. (A wait that is NOT given the tick
+    // starves the watches: the Linux epoll and macOS waits had to learn it.)
+    // It also closes the other way this step blocked after its future was
+    // done: polling first, completing a top-level await's I/O future (which
+    // runs no task), and then waiting on unrelated I/O
+    // (issues/fixed/a-top-level-await-completed-by-the-io-poll-blocks-on-unrelated-io.md).
+    // The wait itself returns as soon as it has drained a completion.
     if (ran == 0 && !__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
         && !__yo_async_has_xwake()
         && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())

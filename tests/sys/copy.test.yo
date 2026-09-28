@@ -114,7 +114,7 @@ test("copyfile copies a file whose reported size is 0 (/proc)", {
 // copyfile used to make truncated a larger file silently. Writes 2.2 GB, so it
 // runs only with YO_TEST_HEAVY=1.
 test("copyfile copies a file larger than 2 GiB (YO_TEST_HEAVY=1)", {
-  heavy := match(env.get(String.from("YO_TEST_HEAVY")), .Some(v) => (v == "1"), .None => false);
+  heavy := match(env.get(`YO_TEST_HEAVY`), .Some(v) => (v == "1"), .None => false);
   if((platform == Platform.Linux) && heavy, {
     tmp := temp_dir();
     src_str := path_join(tmp, `yo_io_copy_big_src`);
