@@ -1,5 +1,7 @@
 # Capture-mode state-machine argument rendering: the still-open cluster
 
+**Severity:** S2 — an unbound name inside io.async leaves check green but compile ICEs (swallowed not-found error)
+
 **Status: OPEN** (split 2026-09-09 out of
 `issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md`,
 whose PRIMARY bug — the illegal aggregate call-arg cast — is fixed).

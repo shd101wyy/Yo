@@ -1,5 +1,7 @@
 # `Mutex.with_lock`'s "unlocks on unwind" claim is unreachable through its own signature
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** OPEN — doc/API accuracy, not a defect
 **Found:** 2026-09-08, trying to write the unwind test for the new
 `Semaphore.with_permit`.
@@ -58,3 +60,18 @@ closure.
 
 (1) should happen regardless; (2) is a design decision about whether these
 helpers are meant to be effect-transparent.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Do option 1 now: correct `Mutex.with_lock`'s comment to the accurate wording
+`Semaphore.with_permit` already carries — that half is a doc bug regardless of
+the decision. Then take option 2 as the target design: make these helpers
+effect-transparent (the body takes `exn : Exception`), which is what
+`plans/archive/STD_API_STABILIZATION.md` §4 already asks of the async variant —
+the "unlocks on unwind" guarantee becomes true AND testable instead of an
+unreachable claim, and a body that needs to abort can actually get out.
+Sequencing: the comment fix can land any time; the signature change belongs
+with the std concurrency stabilization pass so the sync and async variants move
+together.

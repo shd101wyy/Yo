@@ -1,5 +1,7 @@
 # `std/sys/signals.yo` gives Linux signal numbers on macOS for `SIGBUS`, `SIGURG`, `SIGUSR1`, `SIGUSR2`
 
+**Severity:** S2 — four macOS signal constants carry Linux numbers — raising SIGUSR1 delivers SIGBUS and kills the target
+
 **Status:** open. Found while writing doc comments for `std/sys/signals.yo`
 (std `///` doc sweep, 2026-09-11). **Filed, not fixed** — the sweep it was found
 in is documentation-only.

@@ -1,5 +1,7 @@
 # An `Impl(Future(T, E))` struct field passes `yo check` and fails the C compile
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit
 (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
@@ -56,3 +58,21 @@ Pick one of these, and make `check` and codegen agree:
 
 `Impl(Fn(...), Send)` fields are an established std pattern, which argues for
 (2).
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Option 2 — support it. `Impl(Fn(...), Send)` fields are already an
+established std pattern, so an `Impl(Future(T, E))` field is the same shape one
+layer down; every access already goes through the common future header, so the
+support fix is an upcast at the field-initialisation site plus the
+generic-interface await path — not new runtime machinery. Rejecting (option 1)
+would remove the only way to store an in-flight operation inside a struct
+(`JoinHandle` covers spawned tasks only; `IoFuture` is concrete-typed), and
+supporting also resolves the checker's self-inconsistency in the right
+direction: `ArrayList(Impl(Future(...)))` should start working too. Sequence:
+make `check` and codegen agree first by whichever lands sooner — if the
+support fix drags, an interim check-time rejection with a diagnostic naming
+the alternatives is acceptable, but today's silent C-compile failure is not.
+Slot the support work into `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`.

@@ -1,5 +1,7 @@
 # Assigning to a comptime ENUM payload field is a silent no-op
 
+**Severity:** S1 — an accepted comptime payload assignment is silently discarded — derived constants run with the old values
+
 **Status: OPEN. Not fixed — see "Why it is not obviously small".**
 
 **Severity: silent wrong value at compile time.** `c1 :: Shape.Circle(5.0);`

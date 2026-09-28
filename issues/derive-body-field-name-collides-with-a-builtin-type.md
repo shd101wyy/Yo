@@ -1,5 +1,7 @@
 # An enum field named after a builtin type breaks `derive(Error)` / `derive(ToString)`
 
+**Severity:** S2 — a payload field named `unit` breaks derive(Error/ToString) with an arity error pointing at nothing the author wrote
+
 **Status:** open (found 2026-09-09 while adding `EncodingError.UnpairedSurrogate`).
 
 ## Symptom

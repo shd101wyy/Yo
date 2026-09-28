@@ -12,7 +12,7 @@
 //! rather than registered (real-time signals are unreachable); and the
 //! `user_data` channel is declared but never populated, so the `data`
 //! parameter of a `SignalHandler` is always NULL
-//! (`issues/stddoc-sys-signal-handler-data-always-null.md`). On top of that,
+//! (`issues/questions/stddoc-sys-signal-handler-data-always-null.md`). On top of that,
 //! handlers run in a real signal context on POSIX, where almost nothing is
 //! legal to call, and this layer does nothing to enforce that — a
 //! self-pipe/`signalfd` design that delivers on the event loop instead is the
@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 /// `data` is ALWAYS NULL. The runtime keeps a per-signal user-data table but
 /// `__yo_signal_start` never writes to it, so the parameter exists for ABI
 /// shape only — do not build on it
-/// (`issues/stddoc-sys-signal-handler-data-always-null.md`). Capture what you
+/// (`issues/questions/stddoc-sys-signal-handler-data-always-null.md`). Capture what you
 /// need instead, and remember the POSIX rule the wrapper cannot enforce: the
 /// body runs in a signal context, so it must stay to async-signal-safe work
 /// (set a flag, write to a self-pipe) and must not allocate or take locks.

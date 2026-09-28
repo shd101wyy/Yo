@@ -1,5 +1,7 @@
 # Copying an RC value into a local, taking its address, and returning it DOUBLE-DROPS
 
+**Severity:** S1 — copy + address-of + return emits a double drop — ASan-confirmed heap-use-after-free for valid code
+
 **Status:** OPEN
 **Found:** 2026-09-08 by CI's `test (ubuntu-24.04-arm)` ASan leg, on the first
 cut of `std/testing/bench.yo`'s `black_box`.

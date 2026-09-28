@@ -1,5 +1,7 @@
 # A value-position `cond` with an awaiting arm, inside a `while` inside `io.async`, yields the ZERO value for EVERY arm
 
+**Severity:** S1 — value-position cond with an awaiting arm silently yields the zero value for every arm
+
 **Status: OPEN.** Found 2026-09-05 fixing `read_dir`'s `DT_UNKNOWN` fallback
 (`std/fs/dir.yo`, issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md).
 Silent wrong values — `yo check` is green, clang is clean, the binary runs and

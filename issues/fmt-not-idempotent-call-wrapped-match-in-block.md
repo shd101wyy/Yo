@@ -1,5 +1,7 @@
 # `yo fmt` is not idempotent: one pass leaves a file `yo fmt --check` rejects
 
+**Severity:** S3 — one `yo fmt` pass produces output `fmt --check` rejects — the format-then-check workflow breaks
+
 **Status: OPEN.** Found 2026-08-25 while formatting a codegen edit for
 issues/fixed/inline-builtin-alias-drops-body-arguments.md. Reproducer:
 `issues/repros/fmt-not-idempotent-call-wrapped-match-in-block.yo`.

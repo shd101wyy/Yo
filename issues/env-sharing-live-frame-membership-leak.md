@@ -1,5 +1,7 @@
 # Env-sharing v1: live frame membership leaks into def-time envs (fd-drop miscompile)
 
+**Severity:** S1 — on the env-sharing branch, `fd :=` declarations are silently dropped from emitted C — clang error or silent miscompile
+
 **Status:** OPEN — found during the env-sharing implementation
 (`plans/backlog/YO_SELF_ENV_SHARING.md` §3), branch `p2/env-sharing`,
 commit `eb3f2b8fb` (the naive sharing port). Blocks landing the memory fix.

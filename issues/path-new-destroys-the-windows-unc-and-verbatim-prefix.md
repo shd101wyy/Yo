@@ -1,5 +1,7 @@
 # `Path.new` destroys the Windows UNC `\\server\share` prefix, turning a network share into a local absolute path
 
+**Severity:** S2 — `Path.new` collapses the `\\server\share` and `\\?\` prefixes — a network share silently becomes a local path
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row
 (the row asks "should `to_string` render `\` on Windows targets?"; the answer to
 that is no, but looking at it surfaced this). **Status**: OPEN.

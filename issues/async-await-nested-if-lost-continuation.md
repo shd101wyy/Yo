@@ -1,5 +1,7 @@
 # Await nested in if-branches inside io.async lost its continuation (observed once, not yet minimized)
 
+**Severity:** S1 — a nested-if await compiled silently wrong — branch statements never executed, no diagnostic
+
 **Found:** 2026-08-22, implementing the build-artifact cache in
 `src/build_runner.yo`'s `compile_artifact` (an `io.async` closure that
 already contains several awaits: `create_dir_all`, `_git_version`'s

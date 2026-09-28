@@ -42,7 +42,7 @@ body had THREE independent hollowing causes:
 3. A local named `short` interpolated in the 404-fallback println —
    builtin-first dispatch resolved the prelude C-interop integer type instead
    of the local ("Argument count mismatch: expected 1, got 0" in the template
-   lowering; issues/builtin-name-shadows-user-definition.md third face, now
+   lowering; issues/questions/builtin-name-shadows-user-definition.md third face, now
    with a production casualty). Renamed to `short_name`.
 
 A tree-wide `YO_DEBUG_SWALLOW=1 check` sweep for "Argument count mismatch"

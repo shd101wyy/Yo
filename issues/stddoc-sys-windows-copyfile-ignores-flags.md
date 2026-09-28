@@ -1,5 +1,7 @@
 # `sys.copyfile` silently ignores its `flags` word on Windows
 
+**Severity:** S2 — the flags word is discarded — a fail-if-exists request silently succeeds while the destination is overwritten
+
 **Status:** open. Found by reading, during the `std/` `///` documentation
 sweep. Not fixed here — this is a behaviour change and the sweep is
 documentation-only.

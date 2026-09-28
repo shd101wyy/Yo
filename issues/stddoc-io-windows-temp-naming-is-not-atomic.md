@@ -1,5 +1,7 @@
 # `TempDir`/`TempFile` creation on Windows is a TOCTOU with 26 candidate names and no retry
 
+**Severity:** S2 — name-invention and creation split with no retry over ≤26 candidates — temp loops spuriously fail `EEXIST` on Windows
+
 **Found:** 2026-09-11, during the `std/` `///` documentation sweep (code reading).
 **Status:** OPEN — filed, not fixed (documentation-only PR).
 **Severity:** spurious failure + a name-prediction window. Not memory-unsafe.

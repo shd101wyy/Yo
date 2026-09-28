@@ -1,5 +1,7 @@
 # `std/cli`'s `parse` returns `.Err(<the whole help text>)` for `--help` — so the module's own documented example aborts the process
 
+**Severity:** S2 — `--help` aborts the documented example (rc 134) and the requested help text is thrown away
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: HIGH — the documented usage of a published `std` module dies with
 `rc 134` on the single most common CLI invocation, and the help text it was

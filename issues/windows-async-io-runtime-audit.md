@@ -1,5 +1,7 @@
 # Windows async I/O runtime audit — findings register
 
+**Severity:** S3 — audit register: the five reproduced defects were fixed in-branch; only deliberately-dispositioned minor items remain
+
 **Status: OPEN (audit 2026-09-12, branch `audit/windows-async-io`; performance pass 2026-09-28, branch `perf/windows-async-io`).** A
 full read of `src/codegen/async/runtime_io_windows.yo` (both emitted
 sections) against `runtime_io_linux.yo`, `runtime_io_macos.yo`,

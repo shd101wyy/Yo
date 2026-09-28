@@ -1,5 +1,7 @@
 # yo-self's RC depth cap silently skips teardown for deeply nested values
 
+**Severity:** S1 — values nested deeper than 8 aggregate levels are silently never torn down — dispose never runs, unbounded leak of deep structures
+
 **Found 2026-08-08.** Confirmed with a minimal reproducer and a differential
 run against the TS compiler. **Leak direction, not corruption.**
 

@@ -1,5 +1,7 @@
 # The emscripten heap is fixed at 16 MB and cannot grow, so a thread-heavy program aborts with `Aborted(OOM)`
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Found**: 2026-09-13, by `tests/spawn_blocking.test.yo`'s wake-inbox regression
 test on PR #667 (`test-wasm32_emscripten`, run `34764386998`). **Status**: OPEN
 — documented, not fixed; the test was scaled down on this target instead, and
@@ -43,7 +45,7 @@ or that it was never allowed to grow.
 
 Standalone WASI is NOT affected: it has no threads at all, so `spawn_blocking`
 runs the closure inline and costs no stacks
-(`issues/spawn-blocking-degrades-to-inline-on-a-threadless-target.md`).
+(`issues/questions/spawn-blocking-degrades-to-inline-on-a-threadless-target.md`).
 
 ## What was done instead
 
@@ -69,3 +71,18 @@ A cheaper intermediate: make the abort say what happened. `abortOnCannotGrowMemo
 currently aborts with the bare string `"OOM"`; it knows `requestedSize` and the
 current heap size, and could say that the heap is fixed at N bytes and cannot
 grow.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Take the cheap intermediate now: make `abortOnCannotGrowMemory` say the heap is
+fixed at N bytes and cannot grow (it already has `requestedSize` and the current
+size). Then wire `INITIAL_MEMORY` to the existing `--heap-size` flag (default
+16 MB unchanged) so thread-heavy programs can opt into a bigger fixed heap —
+additive, no default perf change, and consistent with the fixed-region
+allocator's `--heap-size` precedent (`plans/reference/FIXED_REGION_ALLOCATOR.md`).
+Leave `-sALLOW_MEMORY_GROWTH` off: with shared/growable memory some emscripten
+configurations pay a bounds reload on every access, and once the ceiling is
+configurable the OOM becomes an explicit user choice rather than a lottery.
+Revisit growth only if a real workload outgrows any sane fixed ceiling.

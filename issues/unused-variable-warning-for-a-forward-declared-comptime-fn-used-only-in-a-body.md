@@ -1,5 +1,7 @@
 # A forward-declared comptime fn used only inside another fn's body is warned "unused"
 
+**Severity:** S3 — a false unused-variable warning for a forward-declared comptime fn used only from another function's body
+
 **Status:** OPEN
 **Found:** 2026-09-27, writing the repro for
 `issues/fixed/a-forward-comptime-fn-body-error-is-dropped-by-the-pending-rerun.md`.

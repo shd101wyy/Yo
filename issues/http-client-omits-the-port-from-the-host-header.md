@@ -1,5 +1,7 @@
 # `fetch` sends `Host: <host>` without the port, so any server on a non-default port sees the wrong `Host`
 
+**Severity:** S2 — `Host` omits the port — virtual hosting on non-default ports routes to the wrong site; strict servers answer 400
+
 ## Status
 
 **OPEN** — found 2026-09-04 while verifying the redirect-resolution defects

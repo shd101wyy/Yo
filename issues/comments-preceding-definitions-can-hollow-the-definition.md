@@ -1,5 +1,7 @@
 # Certain comments directly above a definition poison its def-eval when the module loads as a dependency
 
+**Severity:** S2 — a `//` comment above a definition breaks the module when loaded as a dependency (bogus unify error)
+
 **Status: OPEN.** Found 2026-08-31 building the TLS runtime backend
 (fix/tls-runtime-backend): a `//` comment block placed directly above a new
 `fn` in `src/codegen/async/runtime_io_common.yo` made the module fail with
@@ -25,7 +27,7 @@ checking `runtime_io_common.yo` directly passed.
 So at least two faces: (a) comment-with-parens/paths above a definition, (b)
 many sequential `emit_string_line` string literals in one body — both only
 reproducible on the dependency-load path, both resolved by the rewrite. Same
-family as issues/builtin-name-shadows-user-definition.md's "doc-comment
+family as issues/questions/builtin-name-shadows-user-definition.md's "doc-comment
 shaping": comment text influencing def-eval.
 
 ## Suggested attack

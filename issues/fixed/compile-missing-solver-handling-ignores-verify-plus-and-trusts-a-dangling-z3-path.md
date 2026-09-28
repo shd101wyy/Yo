@@ -1,5 +1,7 @@
 # `yo compile`: a missing solver fails verify+ builds, and a dangling `YO_Z3_PATH` counts as a solver
 
+**Severity:** S2 — verify+ fails without Z3 despite the documented promise; a dangling `YO_Z3_PATH` is silently trusted
+
 **Status: FIXED 2026-09-28** (branch `verify/requires-and-solver-fixes`). Found 2026-09-28 while designing
 `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, which needs both
 fixed before a proof may remove a guard (its Phase 0).

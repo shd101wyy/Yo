@@ -1,5 +1,7 @@
 # The seed emits `typedef // Unknown type: …` and only the musl/gcc leg notices — a latent trap for any PR that shifts emission order
 
+**Severity:** S3 — the pinned seed emits a `typedef // Unknown type:` line-comment — innocent PRs turn the musl/gcc leg red until the seed bumps
+
 **Status:** OPEN (blocked on a seed bump). **Found:** 2026-09-19, triaging the
 `Static musl Linux bundle` failure on PR #773 (the `law` builtin).
 **Severity:** a live seed defect that turns an ARBITRARY, innocent PR red, with

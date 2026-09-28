@@ -1,5 +1,7 @@
 # yo-self async completion drops diverge from TS: leaked String temp + phantom never-written Option fields
 
+**Severity:** S1 — the completion drop set omits the `path.to_string()` temp's drop (one leaked String per exists/is_file/is_dir call) and emits phantom never-written Option state fields
+
 **Status: OPEN** (found 2026-08-14 during the GATE 3 emit-diff hunt,
 issues/fixed/seed-built-stage1-array-fill-method-miss.md).
 

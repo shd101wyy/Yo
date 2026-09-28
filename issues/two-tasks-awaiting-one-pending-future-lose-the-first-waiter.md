@@ -1,5 +1,7 @@
 # Two tasks awaiting the same pending future: the first waiter is never woken (hang)
 
+**Severity:** S1 — the second awaiter overwrites the single waiter slot — the first task never resumes and the program hangs forever (documented multi-await semantics broken)
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom

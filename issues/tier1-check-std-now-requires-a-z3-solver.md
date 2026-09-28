@@ -1,5 +1,7 @@
 # Tier-1 `check ./std` gate now requires a Z3 solver — `std/async/stream.yo` carries verify-mode contracts and the job has none
 
+**Severity:** S3 — the tier-1 `check ./std` gate goes red on pristine develop — the job lacks the Z3 the stream contracts require
+
 **Status: OPEN.** Found 2026-09-17 on PR #755's full battery (run
 `35245990956`, job "Self-hosted `test` subcommand (yo-self tier-1 gates)",
 GATE 3), and reproduced locally on a **pristine `origin/develop` checkout** at

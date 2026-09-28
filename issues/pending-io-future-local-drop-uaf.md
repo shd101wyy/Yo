@@ -1,5 +1,7 @@
 # Binding a pending IoFuture to a local: scope-end auto-drop frees what the backend still holds
 
+**Severity:** S1 — the scope-end auto-drop frees a pending IoFuture the backend still holds — use-after-free when the armed timer fires
+
 **Found**: 2026-08-27 by analysis while designing `std/async`'s `timeout()`
 (STD_API_AUDIT §7 P0 item 6). **Status**: OPEN — analysis-verified hazard, not
 yet observed as a crash (ASan is non-functional on the dev box); nothing in

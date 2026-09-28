@@ -1,5 +1,7 @@
 # `break()` / `continue()` in an arm's post-await code emits raw C `break;` / `continue;` inside the dispatch `switch`
 
+**Severity:** S1 — post-await `break()`/`continue()` emit raw C keywords in the dispatch switch — breaks silently ignored (wrong control flow), the continue shape fails the C compile
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom

@@ -1,5 +1,7 @@
 # Reassigning an outer heap local inside an `if` arm in a loop body's post-await code leaks the old value
 
+**Severity:** S1 — the deferred drop of a heap local reassigned in an arm after a loop await is lost — memory grows without bound as the loop runs
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom

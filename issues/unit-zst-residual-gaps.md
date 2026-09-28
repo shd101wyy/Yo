@@ -1,5 +1,7 @@
 # `unit` as a value type — the shapes still not covered
 
+**Severity:** S2 — `unit` in uncovered shapes (union, dyn members/globals/async slots, spawn) still fails; dyn impl methods emit `return impl(...)` in a C `void` wrapper
+
 **Status:** OPEN (deliberate scope boundary, not regressions)
 **Context:** follow-up to issues/fixed/unit-typed-params-and-fields-emit-c-void.md
 (which made `unit` work in parameter, field, tuple and generic-container

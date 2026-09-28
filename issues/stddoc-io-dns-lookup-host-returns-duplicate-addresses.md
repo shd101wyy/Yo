@@ -1,5 +1,7 @@
 # `lookup_host` returns every address once PER SOCKET TYPE (duplicates)
 
+**Severity:** S2 — `lookup_host` returns each address 2–3× — connect-order callers retry dead addresses, counts platform-dependent
+
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
 **Status:** open. Filed, not fixed — the sweep is documentation-only.
 

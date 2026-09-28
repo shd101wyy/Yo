@@ -1,5 +1,7 @@
 # `yo doc` renders `std/prelude` as an empty module — 0 types, 0 traits, 0 functions
 
+**Severity:** S3 — 62 parameterised prelude declarations (Option, Result, Box, Range, Eq, Ord, the operator traits) are silently missing from generated docs
+
 **Status: OPEN, but NARROWED — the emptiness is fixed and the remaining
 defect is different and sharper.** The prelude is no longer empty; 49 of its
 declarations now render. What is still missing is every PARAMETERISED

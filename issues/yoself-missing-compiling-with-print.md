@@ -1,5 +1,7 @@
 # yo-self never prints the C compile line ("Compiling with:"), so sanitizer/flag vacuity cannot be asserted
 
+**Severity:** S3 — the C compile line is never printed and `--verbose` is not propagated — the TSan leg cannot assert its flag reached the log
+
 **Status: OPEN** (found 2026-08-15 implementing P2.5 step 21.) **Re-verified
 2026-09-14** against a tree-built binary: still no print, and NOT under `-v`
 either. Measurements that change the shape of the fix are at the end.

@@ -1,5 +1,7 @@
 # `yo doc` on this tree's `std/` without `--std-path` silently drops every member doc and still reports success
 
+**Severity:** S3 — `yo doc` without `--std-path` silently degrades ~90 modules to token-only output, exits 0, and reports a misleadingly higher item count
+
 **Status:** open. Found while measuring `///` coverage for the std doc sweep
 (2026-09-11). **Filed, not fixed** — the sweep it was found in is
 documentation-only, and the fix is in `src/doc_command.yo` / `src/doc/builder.yo`.

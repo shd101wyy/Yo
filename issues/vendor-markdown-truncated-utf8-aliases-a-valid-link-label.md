@@ -1,5 +1,7 @@
 # `vendor/markdown_yo` decodes a truncated UTF-8 sequence as the lead byte's own value, so an invalid link label aliases a valid one
 
+**Severity:** S2 — a link label ending in a truncated lead byte case-folds onto a valid label's key — an invalid reference resolves to the wrong destination
+
 **Status:** OPEN (upstream — `vendor/markdown_yo`, submodule pinned
 `9f9340f606572f049f8d568a47ef55af525cfd5d`, `v0.0.4-8-g9f9340f`). Found
 2026-09-04 during the std-API-audit re-measurement of the D4 PR 9 row.

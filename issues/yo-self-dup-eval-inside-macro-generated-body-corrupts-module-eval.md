@@ -1,5 +1,7 @@
 # yo-self: evaluating a fresh `___dup` expr inside a macro-generated body's def-time eval corrupts the enclosing module evaluation
 
+**Severity:** S2 — a nested raw dup evaluation inside a macro-generated body corrupts module eval — "Variable not found" on the next statement (sidestepped, unowned)
+
 **Status:** SIDESTEPPED for Stage 0 (fix direction 2 below implemented —
 the marker now SYNTHESIZES the dup instead of evaluating it, and the
 deferred-dup emitter declare-assigns a synthesized dup's result temp via

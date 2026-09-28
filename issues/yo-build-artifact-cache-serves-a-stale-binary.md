@@ -1,5 +1,7 @@
 # `yo build` reports "cached: inputs unchanged" after the compiler sources changed, and serves a stale binary
 
+**Severity:** S1 — the post-compile input stamp lets `yo build` serve a stale binary forever with exit 0 — every gate can unknowingly test the wrong compiler
+
 **Status:** OPEN. **Found:** 2026-09-18, during `plans/SELF_VERIFICATION.md` M0 /
 Bend-plan B0 work.
 **Severity:** HIGH — every local gate in this repo can silently test the wrong

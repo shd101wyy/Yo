@@ -1,5 +1,7 @@
 # `std/imm` exports nine internal node types nothing can use — dead surface about to be frozen stable
 
+**Severity:** S3 — std/imm exports internal node types nothing external can use — dead public surface freezing into stable API
+
 **Status: OPEN — but the prescribed fix is WRONG in one item.** Re-verified
 2026-09-15; the dead-surface finding holds, the removal list does not. See
 "Correction" at the end before acting on the Fix section.

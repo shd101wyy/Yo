@@ -1,5 +1,7 @@
 # A definition that type-checks in source order fails when a FORWARD reference forces it early
 
+**Severity:** S2 — once-observed: a module fine in source order fails on importers when a forward reference forces early evaluation (unreproduced on develop)
+
 **Status:** OPEN — observed once, NOT REPRODUCIBLE on develop at `bff7e3bd7`
 (2026-09-11 re-check): a faithful re-creation — moving the whole `--imports`
 block (the two globals, `set_imports_file_override`, `_load_imports_file`)

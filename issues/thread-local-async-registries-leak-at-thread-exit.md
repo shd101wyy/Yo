@@ -1,5 +1,7 @@
 # Thread-local async runtime arrays (task-abort registry, timer heap) are never freed at thread exit
 
+**Severity:** S3 — fixed one-time 64–128 B per-thread runtime allocations are never freed — LSan noise masking real leaks, no growth
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit. Tree build of develop `af62bdb28` (LeakSanitizer, Linux).
 
 ## Symptom

@@ -1,5 +1,7 @@
 # The emitted C scaffolding hardcodes Linux's `AT_FDCWD` (-100) on every platform
 
+**Severity:** S3 — emitted C hardcodes Linux's AT_FDCWD on every target — latent, correct today only by coincidence
+
 **Status: OPEN** (found 2026-08-15 while measuring cross-platform emission for
 `plans/reference/PORTABLE_C_DISTRIBUTION.md`.)
 

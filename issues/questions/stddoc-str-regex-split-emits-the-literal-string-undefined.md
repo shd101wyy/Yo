@@ -1,5 +1,7 @@
 # `Regex.split` interleaves capture groups and emits the literal string `"undefined"`
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Status:** open (found by the `std/` `///` doc sweep, 2026-09-11)
 **File:** `std/regex/index.yo` — `Regex.split`, and through it the `Pattern`
 impl's `split_of`, i.e. `String.split(re)` as well.
@@ -86,3 +88,16 @@ section rather than as a silent fix.
 Found during a documentation-only sweep. `Regex.split`'s doc comment and the
 module's `## Stability` section now describe both behaviours and point here;
 the behaviour is untouched.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Rust's shape: `split` yields only the pieces between matches — no group
+interleaving — keeping the `ArrayList(String)` return type. It matches the
+module's stated Rust-ward bearing, kills the `"undefined"` sentinel outright,
+and keeps the common case simple; callers who want captures have the match API.
+If group interleaving is ever wanted, add it as a separate method returning
+`ArrayList(Option(String))` (Python's shape) rather than reopening `split`.
+Ship as a breaking change with the module's `## Stability` list updated — no
+compat shim, per repo policy.

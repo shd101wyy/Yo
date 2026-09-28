@@ -1,5 +1,7 @@
 # `Path.new` silently drops a leading `..`, turning a sibling of the cwd into a child of it
 
+**Severity:** S2 — a leading `..` is silently dropped — `../foo` (a sibling of the cwd) becomes `foo` (a child of it)
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row.
 The plan (`plans/archive/STD_API_AUDIT.md`, path row) frames the item as "revisit eager
 `..` normalization (symlink semantics)" — an eager-vs-lazy design question. The

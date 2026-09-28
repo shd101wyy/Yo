@@ -1,5 +1,7 @@
 # `spawn_blocking` silently loses its concurrency on a target with no OS threads
 
+**Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
+
 **Found**: 2026-09-13, by the CI leg that first ran `tests/spawn_blocking.test.yo`
 after `spawn_blocking` was exported (PR #667, run `34753610579`,
 `test-wasm32_wasi`). **Status**: OPEN — the behaviour is deliberate and
@@ -79,3 +81,17 @@ A runtime fallback that preserves the VALUE while dropping a CONCURRENCY
 property is invisible to every test that only checks the value — and those are
 the easy tests to write, so they are the ones that exist. `spawn_blocking`'s
 first two tests pass on WASI and prove nothing about what the function is for.
+
+---
+
+## Recommendation (agent triage, 2026-09-28 — awaiting maintainer verdict)
+
+Treat the comptime `Platform.Wasi` spelling as the caller's detection mechanism
+and keep what already landed — the corrected doc contract and the pinned
+degraded-contract test. That is honest and costs nothing. Option 2 (compile-time
+rejection) is worse: it breaks callers who only want the value. Add the runtime
+`threads_available()` builtin (option 1) only when a target appears whose thread
+availability is not comptime-known — and note it is seed-gated anyway, so std
+could not call it for two release cycles. If the async DNS work ever lands a
+wasm-side thread pool, re-point `spawn_blocking` at it and this question becomes
+moot.

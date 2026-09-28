@@ -1,5 +1,7 @@
 # A `=>` closure argument inside an `io.async` body loses the future's result type
 
+**Severity:** S2 — an `=>` closure argument inside io.async leaves the future result unresolved — misattributed no-match error
+
 **Status: OPEN** (found 2026-09-11 while implementing `std/async/stream.yo`,
 `plans/reference/ASYNC_ITERATION_STREAM.md`). **Severity:** MEDIUM — the error
 lands on the caller's `await`, nowhere near the closure, and the working

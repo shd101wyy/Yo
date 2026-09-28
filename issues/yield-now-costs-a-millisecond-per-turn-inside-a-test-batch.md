@@ -1,5 +1,7 @@
 # `yield_now` costs ~1.5 ms per turn inside a test batch and ~0 outside one
 
+**Severity:** S3 — `yield_now` costs ~1.5 ms per turn inside a test batch (0 ms standalone) — in-harness timing measurements are blunted (perf)
+
 **Status:** OPEN — a PERFORMANCE observation, not a correctness bug. Recorded
 2026-09-11 while landing `std/async/waker.yo`, because it will otherwise mask
 the next piece of async performance work.

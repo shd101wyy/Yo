@@ -1,5 +1,7 @@
 # The blanket `into_iter` is a bare METHOD, so `where(T <: IntoIterator)` rejects every iterator
 
+**Severity:** S2 — `where(T <: IntoIterator)` rejects real iterators while prelude comments claim the blanket impl exists
+
 **Status:** OPEN
 **Found:** 2026-09-08, giving `HashMap.extend` its bound.
 

@@ -1,5 +1,7 @@
 # On Windows, the 1 ms deadline race loses to the 5 ms work — since the cancellation landing
 
+**Severity:** S2 — the coarse Windows timer fires sub-tick deadlines late and out of order — the runtime's deadline ordering semantics are broken
+
 Status: OPEN (pre-existing on `origin/develop` @ d6d910f0; first exercised by
 PR #614's CI on 2026-09-12).
 
