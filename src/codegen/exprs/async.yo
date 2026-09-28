@@ -97,7 +97,7 @@
   generate_async_block_resume_function,
   generate_async_block_cancel_pending_function,
   inline_lowering_enabled,
-  inline_await_result_field,
+  inline_await_result_fields,
   generate_async_block_resume_function_inline,
   generate_async_block_cancel_pending_function_inline
 } :: import("../async/state_machine.yo");
@@ -713,18 +713,10 @@ emit_async_block_struct_definition :: (
   inline_layout := inline_lowering_enabled();
   if(inline_layout, {
     em.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
-    iaps := info.analysis.await_points;
+    irfs := inline_await_result_fields(info.analysis, context);
     (iai : usize) = usize(0);
-    while(iai < iaps.len(), iai = (iai + usize(1)), {
-      match(
-        iaps.get(iai),
-        .Some(iap) => match(
-          inline_await_result_field(iap),
-          .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(rf.ty, context.base)} ${rf.name};  // await ${iap.base.index.to_string()}'s result`),
-          .None => ()
-        ),
-        .None => ()
-      );
+    while(iai < irfs.len(), iai = (iai + usize(1)), {
+      match(irfs.get(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(rf.ty, context.base)} ${rf.name};  // an await's result`), .None => ());
     });
   });
   aps := if(inline_layout, ArrayList(AwaitPoint).new(), info.analysis.await_points);
