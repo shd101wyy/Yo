@@ -1,0 +1,17 @@
+// expected 0,11,33 ; actual 0,<uninitialized>,33
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => {
+r := match(e.await(_v(n, e), e), i32(3) => i32(30), i32(1) => e.await(_v(i32(10), e), e), _ => i32(0));
+(r + n)
+
+}));
+main :: (fn(io : Io) -> unit)({
+  println(io.await(_run(i32(0), io), io));
+  println(io.await(_run(i32(1), io), io));
+  println(io.await(_run(i32(3), io), io));
+});
+export(main);

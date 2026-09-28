@@ -1,0 +1,25 @@
+{ eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn(io : Io) -> unit)({
+  {
+    task := io.async((io : Io) => {
+      s1 := String.from("from-literal");
+      n := i32(5);
+      s2 := `interp ${n}`;
+      l := ArrayList(i32).new();
+      l.push(i32(1));
+      o := Option(String).Some(String.from("opt"));
+      io.await(yield(io), io);
+      (((i32(s1.len()) + i32(s2.len())) + i32(l.len())) + match(o, .Some(q) => i32(q.len()), .None => i32(0)))
+    });
+    h := io.spawn(task, io);
+    h.abort();
+    r := h.await(io);
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    eprintln(`abort: none=${r.is_none()}`);
+  };
+});
+export(main);

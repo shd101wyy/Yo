@@ -1,0 +1,36 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ IoExn, Exception } :: import("std/error");
+{ yield } :: import("std/async");
+
+_parse :: (fn(content : String) -> Result(String, String))(
+  cond(
+    (content.len() > usize(3)) => Result(String, String).Err(`invalid content: ` + content),
+    true => Result(String, String).Ok(content)
+  )
+);
+
+_read :: (fn(src : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    content := src.clone();
+    e.io.await(yield(e.io), e.io);
+    match(
+      _parse(content),
+      .Err(msg) => e.exn.throw(dyn(msg)),
+      .Ok(version) => .Some(version)
+    )
+  })
+);
+
+_run :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> { println(`caught: ${err.to_string()}`); unwind(()); }));
+  r := io.await(_read(`not-a-version`, io), IoExn(io : io, exn : exn));
+  println(`unreachable ${r.is_some()}`);
+});
+
+main :: (fn(io : Io) -> unit)({
+  _run(io);
+  println(`after`);
+});
+export(main);

@@ -1,0 +1,42 @@
+{ println } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+{ yield } :: import("std/async");
+
+_a :: (fn(v : i32, io : Io) -> Impl(Future(i32, IoExn)))(io.async(e => { e.io.await(yield(e.io), e.io); (v + i32(1)) }));
+_step :: (fn(i : i32) -> i32)((i % i32(3)));
+
+_pump :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (settled : bool) = false;
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(runtime(!(settled)), {
+      rc := _step(i);
+      (act : int) = int(0);
+      cond(
+        (rc == i32(0)) => { act = int(1); },
+        (rc == i32(1)) => { act = int(2); },
+        true => ()
+      );
+      if((act == int(1)), {
+        x := e.io.await(_a(i32(10), e.io), e);
+        y := e.io.await(_a(i32(20), e.io), e);
+        total = ((total + x) + y);
+      });
+      if((act == int(2)), {
+        z := e.io.await(_a(i32(100), e.io), e);
+        total = (total + z);
+      });
+      i = (i + i32(1));
+      if((i >= i32(6)), { settled = true; });
+    });
+    total
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> { unwind(()); }));
+  r := io.await(_pump(io), IoExn(io : io, exn : exn));
+  println(`r=${r} expected=266`);
+});
+export(main);

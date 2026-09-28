@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+
+Holder :: ref(struct(fut : Impl(Future(i32, Io))));
+
+_mk :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => v)
+);
+
+main :: (fn(io : Io) -> unit)({
+  h := Holder(fut : _mk(i32(41), io));
+  println(io.await(h.fut, io));
+});
+export(main);

@@ -1,0 +1,23 @@
+{ eprintln } :: import("std/fmt");
+{ sleep } :: import("std/sys/timer");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(Thing, Dispose(dispose : (fn(self : Self) -> unit)({ g_disposed = (g_disposed + i32(1)); })));
+main :: (fn(io : Io) -> unit)({
+  {
+    f := io.async((io : Io) => {
+      io.await(sleep(u64(20)), io);
+      Thing(n : i32(7))
+    });
+    hf := io.spawn(f, io);
+    a := io.async((io : Io) => {
+      v := io.await(f, io);
+      v.n
+    });
+    r := io.await(a, io);
+    eprintln(`r=${r}`);
+    rf := hf.await(io);
+  };
+  eprintln(`disposed=${g_disposed} (expect 1)`);
+});
+export(main);

@@ -76,3 +76,9 @@ point collector in `src/codegen/async/`, and at the `Synchronous await
 3. Regression test: the reproducer above, plus a `for_await` over a channel
    fed by a sibling task (the test that was removed from
    `tests/async/channel.test.yo` in the same commit — see the plan doc).
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**STILL REPRODUCES** (tree build): rc=124 under `timeout`, and the C contains `// Synchronous await (io.await outside state machine)`. The suspension walk in `src/evaluator/shared/suspension_analysis.yo` follows `macro_expansion` only for the hard-coded `if` head, not for user macros. Plan phase 1 (normalising the macro-expanded tree) removes this class.
