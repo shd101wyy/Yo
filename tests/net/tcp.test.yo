@@ -740,3 +740,43 @@ test("connecting to a non-routable address does not park the event loop", {
     `the 300 ms sleep took ${sleep_ms} ms — the loop was parked inside connect()`
   );
 });
+// A write to a peer that has closed must THROW (EPIPE, or ECONNRESET once the
+// peer's RST has arrived), not raise SIGPIPE: the signal's default action
+// killed the whole process, so any std server could be taken down by a client
+// that disconnected mid-response
+// (issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md).
+_tcp_write_until_error :: (fn(s : TcpStream, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  write failed: ${err}`);
+        unwind(true);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  (i : i32) = i32(0);
+  while(i < i32(50), i = (i + i32(1)), {
+    io.await(s.write_str("x", io), e);
+    io.await(sleep(u64(2)), e);
+  });
+  false
+});
+test("a TcpStream write to a peer that has closed throws instead of killing the process", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), e);
+  client := io.await(TcpStream.connect(listener.local_addr(), io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(client.close(io), e);
+  assert(_tcp_write_until_error(server, io), "a write to the closed peer reported an error");
+  io.await(server.close(io), e);
+  io.await(listener.close(io), e);
+});

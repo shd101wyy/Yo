@@ -135,3 +135,42 @@ test("dup.sock cleanup", {
   io.await(remove_file(_sock("dup.sock"), io), e);
   assert(true, "cleaned");
 });
+// A write to a peer that has closed must THROW (EPIPE), not raise SIGPIPE,
+// whose default action killed the whole process
+// (issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md).
+_unix_write_until_error :: (fn(s : UnixStream, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  write failed as expected\n"));
+        unwind(true);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  (i : i32) = i32(0);
+  while(i < i32(8), i = (i + i32(1)), {
+    io.await(s.write_str("x", io), e);
+  });
+  false
+});
+test("a UnixStream write to a peer that has closed throws instead of killing the process", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("sigpipe.sock");
+  listener := io.await(UnixListener.bind(path, io), e);
+  client := io.await(UnixStream.connect(path, io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(client.close(io), e);
+  assert(_unix_write_until_error(server, io), "a write to the closed peer reported an error");
+  io.await(server.close(io), e);
+  io.await(listener.close(io), e);
+  io.await(remove_file(path, io), e);
+});
