@@ -30,7 +30,8 @@ HOLDER_DUPSTR=1 (with HOLDER_DEEP) groups the reached Strings by content (`ZT`/`
 rows: redundant copies, per root, top groups). HOLDER_SCAN=1 adds a
 conservative heap scan: `X <words> <target> <- <holder>` = RC objects of <holder> (reached or
 untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hit histogram, `Y` = holders of the raw buffers that do
-(`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_MIN=<n> lowers the
+(`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_DUMP=<path> overrides the dump path baked in at instrumentation
+(one binary, several runs). HOLDER_MIN=<n> lowers the
 1,000,000-tracked-object threshold for small runs; HOLDER_COLLECT=1 runs the full
 cycle collector first (what then stays unreached is a refcount leak, not cycle garbage).
 """
@@ -49,7 +50,9 @@ for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // ([^\n]*)", src):
     tyname[m.group(1)] = m.group(2).replace("(reference counted)", "").strip()
 disp = {}
 for m in re.finditer(r"static (__yo_t_?\d+)\* __yo_new_\1(?:_\w+)?\([^)]*\) \{(.*?)\n\}", src, re.S):
-    d = re.search(r"header\.dispose_fn = \(void\(\*\)\(void\*\)\)(yo_id_\d+);", m.group(2))
+    # The stored pointer: a direct `(void(*)(void*))yo_id_K` cast, or (since
+    # #969) a typed `__yo_dispose_thunk_yo_id_K` that forwards to it.
+    d = re.search(r"header\.dispose_fn = (?:\(void\(\*\)\(void\*\)\))?((?:__yo_dispose_thunk_)?yo_id_\d+);", m.group(2))
     if d:
         disp.setdefault(d.group(1), m.group(1))
 bases = sorted(set(disp.values()))
@@ -730,7 +733,8 @@ static void __ho_census(void* st) {
     int s = __ho_slot((void*)h->dispose_fn);
     if (ext > 0 && s >= 0) { __ho_extn[s]++; __ho_ext[s] += ext; }
   }
-  FILE* f = fopen("%(dump)s", "w"); if (!f) return;
+  const char* dump_override = getenv("HOLDER_DUMP");
+  FILE* f = fopen(dump_override ? dump_override : "%(dump)s", "w"); if (!f) return;
   for (int r = 0; r < %(nr)d; r++) for (int t = 0; t < %(nb)d; t++) {
     long long c = __ho_count[(size_t)r * %(nb)d + t];
     if (c) fprintf(f, "H %%lld %%s %%s\n", c, __ho_roots[r], __ho_types[t]);

@@ -2165,6 +2165,19 @@ the emitted C:
    `intern_token_str` already does for source tokens;
 2. share the handle instead of cloning where the key is never mutated.
 
+**Landed (§0.23 PR, 2026-09-28).**
+- The lexer interns dot and number tokens and shares one value per fixed
+  punctuation token.
+- Desugar and parser keywords are interned (`intern_token_str` now lives
+  in `token.yo`).
+- Every function-id-keyed registry shares the id handle.
+
+Stage-1 `check src/main.yo` max RSS: **1,143,324 → 1,098,652 kB (−44.7 MB,
+−3.9 %)**. Callgrind on `check src/types/intern.yo`: −0.19 % instructions.
+
+Remaining copies: the label family (`self`, `Self`, `T`, `value`, `K`,
+`V`), about 1.2 MB; `g_struct_finals` keys, 3.7 MB; the rest spread thin.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.
