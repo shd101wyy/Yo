@@ -10,7 +10,8 @@ measured and closed as a documented non-change. Open (§14): the std unwrap
 ratchet (closing), the comptime-panic diagnostic that the "comptime carve-out"
 reduces to, the per-phase docs and
 instruction updates, the missing trap/OOM oracles, the UBSan acceptance run,
-the governance cross-check, 5b (its FV gate is LIFTED, V1–V7 landed; design not
+the governance cross-check, 5b (design written in
+`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, implementation not
 started), and 6 (gated on 5b).**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
@@ -640,13 +641,14 @@ the C compiler already does it** — the guard helper returns the index, so a do
 `-O0`/`-O1` self-builds are the only candidates. If `-O2` recovers everything, 5a
 shrinks to a documented non-change and the phase collapses into 5b.
 
-### 5b Verifier-driven elision (tier 1) — FV gate LIFTED 2026-09-23, design not started
+### 5b Verifier-driven elision (tier 1) — design written 2026-09-28, implementation not started
 
 The gate this section named is closed: FV V1–V7 landed, including V6's remaining
 slices and the `assumed()`/`outside-subset` visibility work
 (`plans/backlog/FORMAL_VERIFICATION.md`, V7 COMPLETE banner, #785). What
-remains is design, and it belongs in its own plan when picked up (§14 R8). The
-three questions it must answer are listed below the original sketch.
+remained was design, and it now has its own plan:
+[`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md),
+which answers the three questions below (§14 R8).
 
 Original sketch:
 
@@ -775,7 +777,7 @@ semantics.
 | 3c | saturating float→int casts (D2) — LANDED (#837) | ruling D2 (adopted) | low | small |
 | 4 | OOM audit — LANDED (#836): cycle-collector scratch realloc NULL-deref fixed | — | low | small |
 | 5a | local elision — CLOSED as a documented non-change (§8 measurement) | — | — | — |
-| 5b | verifier-driven elision | FV campaign (LANDED V1–V7; gate lifted) | design not started (§8 questions) | large |
+| 5b | verifier-driven elision | FV campaign (LANDED V1–V7; gate lifted) | design written (`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), not started | large |
 | 6 | strict mode | 5b | — | deferred |
 
 ## 13. Decisions (all ruled 2026-09-22: every recommendation adopted)
@@ -816,7 +818,7 @@ v0.2.40 release publishes.
 **Progress:** R1–R5 are done on the stack `safe-mode-5-ratchet` →
 `safe-mode-5-comptime-panic` → `safe-mode-5-docs` → `safe-mode-5-oracles`. R6
 ran on `safe-mode-5-ubsan`: one finding fixed, one class awaiting a ruling. R7
-and R8 are open.
+is open; R8's design is written (implementation not started).
 
 - **R1 — close the std unwrap ratchet. DONE.** Migrate the 9 remaining calls in
   safe std files and drop the blanket std branch of
@@ -875,8 +877,9 @@ and R8 are open.
   which turns a renamed or newly added `Option`/`Result` extraction method that
   can reach `__yo_panic` into a report diff. Nothing in-tree exercises it yet,
   because the list is three names on two types. Lowest priority.
-- **R8 — the 5b plan.** A separate design doc answering §8's three questions.
-  Phase 6 waits on it.
+- **R8 — the 5b plan. DESIGN WRITTEN, implementation not started.**
+  [`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
+  answers §8's three questions. Phase 6 waits on its implementation.
 
 ## Appendix A — emission-site checklist (grep anchors, `develop @ a1df43578`)
 
