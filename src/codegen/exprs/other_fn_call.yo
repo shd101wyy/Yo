@@ -10,7 +10,7 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_is_control_bound, dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
+{ type_is_control_bound, dyn_type_has_vtable_slot, type_contains_some_type } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -727,6 +727,37 @@ _fn_pointer_param_type_string :: (
     .None => String.from("void*")
   )
 );
+/// The declared type of the current function's parameter that `func_expr`
+/// names, when that type is a fully concrete function type — the type the C
+/// parameter was declared with (the prototype is generated from
+/// `current_function_type`).
+_callee_param_fn_type :: (fn(func_expr : AstExpr, context : FunctionGenerationContext) -> Option(TypeValue))({
+  if(!(ast_expr_is_atom(func_expr)), {
+    return(Option(TypeValue).None);
+  });
+  name := ast_expr_token(func_expr).value;
+  match(
+    context.current_function_type,
+    .Some(.Func({ param_types : cpts, meta : cmeta })) => {
+      labels := cmeta.*.param_labels;
+      (i : usize) = usize(0);
+      while(i < labels.len(), {
+        if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+          return(
+            match(
+              cpts.get(i),
+              .Some(t) => if(is_function_type(t) && !(type_contains_some_type(t)), Option(TypeValue).Some(t), Option(TypeValue).None),
+              .None => Option(TypeValue).None
+            )
+          );
+        });
+        i = (i + usize(1));
+      });
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+});
 _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), context : FunctionGenerationContext) -> String)(
   if(args_list.len() == usize(0), args_list, {
     parts := _split_top_level_args_list(args_list);
@@ -2383,33 +2414,37 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         o2.push_str(")");
         arm_out = o2;
       }, {
+        // A callee that is a PARAMETER of the function being emitted was
+        // declared with the specialization's own signature, which is concrete
+        // where this call's ExprInfo still carries an unresolved generic. An
+        // effect-row parameter (`f : fn(e : E) -> T`, `E` spread) spells
+        // `int (*)(void*)` from the ExprInfo while the C parameter is
+        // `int (*f)(int (*)(T))`, and calling through the former is a call
+        // through an incompatible function type
+        // (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
+        (cast_param_types : ArrayList(TypeValue)) = param_types;
+        (cast_param_is_ref : ArrayList(bool)) = param_is_ref;
+        (cast_ret_ty : TypeValue) = result_type;
+        match(
+          _callee_param_fn_type(func_expr, context),
+          .Some(.Func({ param_types : sig_pt, result : sig_res, meta : sig_meta })) => if(sig_pt.len() == param_types.len(), {
+            cast_param_types = sig_pt;
+            cast_param_is_ref = sig_meta.*.param_is_ref;
+            cast_ret_ty = sig_res;
+          }),
+          _ => ()
+        );
         // The CALLEE's real return type, not this call site's instantiation —
         // see the ctl_generic_ret comment above.
         ret_str := if(
           ctl_generic_ret,
           ctl_callee_ret_str.clone(),
-          get_type_string(result_type, context.base)
+          get_type_string(cast_ret_ty, context.base)
         );
         cast := String.from("(");
         cast.push_string(ret_str);
         cast.push_str(" (*)(");
         npt := param_types.len();
-        // Spell each parameter through its SomeT resolution. An effect-row
-        // parameter (`e : E`, `E` a spread generic) is still the SomeT here,
-        // whose erased spelling is `void*`, while the specialized callee takes
-        // the resolved handler type. Calling `int (*)(int (*)(T))` through
-        // `int (*)(void*)` is a call through an incompatible function type
-        // (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
-        cast_param_types := ArrayList(TypeValue).new();
-        (cpt_i : usize) = usize(0);
-        while(cpt_i < npt, {
-          match(
-            param_types.get(cpt_i),
-            .Some(cpt_t) => cast_param_types.push(resolve_some_type_to_concrete(cpt_t)),
-            .None => ()
-          );
-          cpt_i = (cpt_i + usize(1));
-        });
         (pi : usize) = usize(0);
         while(pi < npt, {
           if(pi > usize(0), {
@@ -2422,7 +2457,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // and called an `int32_t*` function through a by-value pointer type,
           // truncating the address
           // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-          cast.push_string(_fn_pointer_param_type_string(cast_param_types, param_is_ref, pi, context));
+          cast.push_string(_fn_pointer_param_type_string(cast_param_types, cast_param_is_ref, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2443,7 +2478,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 fa_out.push_str(", ");
               });
               // In lockstep with the fn-pointer cast above.
-              fa_pt := _fn_pointer_param_type_string(cast_param_types, param_is_ref, fa_i, context);
+              fa_pt := _fn_pointer_param_type_string(cast_param_types, cast_param_is_ref, fa_i, context);
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(fa_pt);
