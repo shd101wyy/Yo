@@ -1,0 +1,113 @@
+# macOS async I/O: the 2026-09-28 audit and performance pass
+
+**Status:** LANDED (2026-09-28). This doc is authoritative for how the macOS
+runtime decides where an operation runs and when the loop enters the kernel.
+That covers `src/codegen/async/runtime_io_macos.yo` and the macOS sections of
+`runtime_io_common.yo`: sleep, fs events, poll handles, and the tick. It is the
+macOS twin of `plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md`.
+
+**Goal set by the user:** audit the macOS runtime, starting from the four items
+the Linux pass left open (the `dup2` hang, the 100 ms / 10 ms waits, two
+`kevent()` calls per timer, the fs-watch rescan). Document and fix every bug
+found, with no workarounds, and be at least as fast as libuv.
+
+## 1. Bugs found and fixed
+
+Each has an `issues/fixed/` record and a regression test that fails before
+the fix and passes after.
+
+| Bug | Record |
+| --- | --- |
+| `dup2` over a descriptor with a parked op hung the op | `issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md` |
+| An aborted task's parked `recv` kept its FIFO place and took the next bytes | `issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md` |
+| An inline `recv` overtook a parked one (FIFO order broken) | `issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md` |
+| A dropped, still-armed sleep fired into freed memory (SIGSEGV) | `issues/pending-io-future-local-drop-uaf.md` (macOS part) |
+| A `std/net` stream write to a closed peer killed the process (SIGPIPE) — Linux too | `issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md` |
+| The close hook was a process-global written by every loop thread | `issues/fixed/macos-kqueue-close-hook-is-a-process-global-written-by-every-loop-thread.md` |
+| An fs watch rescanned its directory on every loop pass (25.7 s CPU for 20,000 passes) | `issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md` |
+
+## 2. What runs where
+
+| Operation | develop (af62bdb28) | now |
+| --- | --- | --- |
+| `send`/`recv`/`sendto`/`recvfrom`/`accept` | inline, even ahead of a parked op; parked ops not cancellable | inline only when nothing of that direction is parked; parked ops cancellable (`-ECANCELED`) |
+| a socket whose last inline `recv` would block | inline attempt, then park | straight to park (hint cleared when the arming pass delivers it) |
+| delivered flag-less `recv` | `recv(MSG_DONTWAIT)` | the first waiter uses `read()`: the event's byte count means it cannot block |
+| registrations | linked list; `EV_ADD\|EV_ONESHOT` per park (a knote allocated each time) | per-fd slot table; `EV_DISPATCH` knote, re-enabled with `EV_ADD\|EV_ENABLE` |
+| regular-file `read`/`write` | `fstat` (+`F_GETFL`) + `pread`/`pwrite` | `pread` (`ESPIPE`/`ENXIO` → readiness); `F_GETFL` + `pwrite` (`O_APPEND` → `write`) |
+| `socket` / accepted socket | `F_GETFL` + `F_SETFL` | one `ioctl(FIONBIO)` |
+| sleep | one `EVFILT_TIMER` knote each; its cancel another `kevent()` | userspace heap; the wait carries the earliest deadline |
+| poll / fs-event watches | polled every tick: a `poll()` per handle, a private kqueue and a directory rescan per fs handle | one watch kqueue nested in the loop's; fs rescans on vnode events plus at most every 50 ms |
+
+## 3. Loop mechanics
+
+- **An empty zero-timeout `kevent()` costs ~12 µs on macOS 26**, against
+  0.2 µs when it finds an event. It effectively waits for a kernel timer.
+  Develop paid it on every pass that polled with nothing ready. A
+  non-blocking pass now asks the kqueue descriptor with a zero-timeout
+  `select()` (~0.2 µs) first, and reaps only when something is there.
+- **No kernel entry without kernel work**: a pass whose pending work is only
+  timers, or nothing, makes no syscall.
+- **No poll before a blocking step**: when nothing is runnable after a pass,
+  the next step's blocking `kevent()` submits and reaps in one call. With tasks
+  still queued, the kernel is polled every 61 such passes (tokio's
+  `event_interval`).
+- **Waits are bounded only by deadlines**: the next timer and the next watch
+  rescan. There is no fixed 100 ms cap and no 10 ms `nanosleep`. The
+  `EVFILT_USER` wake channel is the only thing that can end an unbounded wait
+  from another thread, so failing to create it is now fatal.
+- **Hot waits**: while the last wait was answered within 50 µs, the next wait
+  is bounded by 50 µs. Measured in C on a loopback-TCP ping-pong: 10.3 vs
+  11.1 µs a round trip, with less CPU. A near deadline wakes the thread
+  sooner, most likely because the core idles in a shallower state (the
+  mechanism is the kernel's and is not proven). A hot wait that times out empty
+  ends the hot state.
+
+## 4. Measurements
+
+macOS 26.6, Apple M4 (10 cores, 16 GB), libuv 1.52.1 (Homebrew), 7
+interleaved rounds, medians, ops/s. The ratio is Yo/libuv (> 1: Yo is faster).
+The box was shared with other sessions' gate batteries.
+
+| workload | libuv | develop | now | develop/uv | now/uv |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| socketpair echo | 3,015,227 | 1,933,114 | 2,690,975 | 0.64 | 0.89 |
+| TCP echo, 1 conn | 369,261 | 370,065 | 365,714 | 1.00 | 0.99 |
+| TCP echo, 64 conns | 1,078,431 | 771,731 | 1,036,899 | 0.72 | 0.97 |
+| zero-delay timers | 83,026 | 2,182,929 | 4,200,798 | 26.3 | 50.6 |
+| 16 KiB file cycle | 27,469 | 9,021 | 35,485 | 0.33 | 1.30 |
+| std TCP ping-pong (rt/s) | 83,328 | 28,227 | 69,466 | 0.34 | 0.83 |
+| std 8 connections (rt/s) | 314,202 | 205,178 | 274,221 | 0.65 | 0.87 |
+| std 500 × 1 ms timers (fires/s) | 391,264 | 328,764 | 393,918 | 0.84 | 1.01 |
+
+Reading the rows:
+
+- **Syscalls per round trip now equal libuv's** on every socket row: 2
+  `kevent`, 2 `send`/`write` and 2 `read`, counted with an interposer. The
+  socketpair gap that remains is the entry points. `send`, which the documented
+  `MSG_DONTWAIT` / `MSG_NOSIGNAL` contract needs, costs 0.033 µs more than
+  `write`, and each park's `EV_ENABLE` costs ~0.02 µs. That re-enable is what
+  keeps a park correct after a close on another thread, the same choice as
+  Linux's per-park `EPOLL_CTL_MOD`.
+- **The std rows** are behind by the std layer, not the backend: 8 loop steps
+  and 6 task resumes per round trip
+  (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
+- **Timers** are bounded by the OS's timer coalescing on both sides: a 1 ms
+  wait wakes after ~1.25 ms. Only `NOTE_CRITICAL` avoids that, and it is not
+  used, because of the energy cost.
+- **File**: 3 `pread`s per 16 KiB read (the new `Reader.read_to_end` reads
+  into spare capacity), and no `fstat`.
+
+## 5. Rejected, with measurements
+
+- **Persistent level-triggered knotes** (libuv's registration): "7.1 µs" on the
+  std ping-pong, but that was a busy-spin. A writable socket's WRITE knote
+  fired every pass: 7.5 `kevent`s a hop at 100% CPU.
+- **Spinning or probing before blocking** (a `select()` probe, 1–10 µs spins,
+  a 1 µs userspace spin): 5–40% slower on the TCP echo, and more CPU.
+- **`write` instead of `send`** for inline sends: `write` takes no
+  `MSG_NOSIGNAL`, and it would block the loop on a caller's blocking socket.
+- **Inline continuation after a synchronous cold-start completion** (codegen):
+  no measurable change (see the std issue).
+- **`NOTE_CRITICAL` timers**: precise (1.03 ms for 1 ms), but they opt out of
+  the OS's power management.
