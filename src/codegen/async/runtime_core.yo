@@ -395,7 +395,6 @@ static void __yo_async_poll_step(void) {
   }
   int ran = __yo_async_run_ready_tasks();
   if (__yo_io_initialized) {
-    __yo_io_poll();
     // Block for I/O only in a step where NOTHING ran. A resumed task may have
     // completed the very future the caller is waiting on (every blocking
     // waiter — a top-level io.await, JoinHandle.await, the std/async
@@ -405,11 +404,19 @@ static void __yo_async_poll_step(void) {
     // 100 ms wait timeout hid this on macOS; io_uring_wait_cqe waits forever
     // (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md).
     // Same rule as __yo_async_wait_all's !tasks_processed.
+    //
+    // When this step IS going to block, the 0-timeout poll is skipped: every
+    // backend's __yo_io_wait performs the same completion drain, the same
+    // submission flush and the same tick __yo_io_poll would have done, so the
+    // extra non-blocking syscall only added latency to the common
+    // one-completion-per-iteration shape.
     if (ran == 0 && !__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
         && !__yo_async_has_xwake()
         && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
             || __yo_async_foreign_wake_possible())) {
       __yo_io_wait();
+    } else {
+      __yo_io_poll();
     }
   }
 }
@@ -465,8 +472,22 @@ static void __yo_async_run_until_complete(void* future_ptr) {
       __yo_cont_free_list = cont;
       tasks_run++;
     }
+    // Same skip as __yo_async_poll_step: when this iteration is about to
+    // block, the backend's wait call already drains, submits and ticks, so
+    // the 0-timeout poll syscall is pure overhead on the hot path.
+    if (tasks_run == 0 && !__yo_thread_async_queue.head
+        && !__yo_async_has_pending_yield() && !__yo_async_has_xwake()
+        && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
+            || __yo_async_foreign_wake_possible())) {
+      __yo_io_wait();
+      __future_state = future->state;
+      if (__future_state == -1 || __future_state == -2) {
+        break;
+      }
+      continue;
+    }
     __yo_io_poll();
-    // Re-read the state BEFORE blocking: the drain above may have completed
+    // Re-read the state AFTER the poll: the drain above may have completed
     // the main future while other I/O (a parked accept, a timer) stays
     // pending — waiting on it would keep the process alive after main
     // returned (the Linux-only "loop stays alive" hang; same rule as
@@ -474,14 +495,6 @@ static void __yo_async_run_until_complete(void* future_ptr) {
     __future_state = future->state;
     if (__future_state == -1 || __future_state == -2) {
       break;
-    }
-    if (tasks_run == 0 && !__yo_thread_async_queue.head
-        && !__yo_async_has_pending_yield() && !__yo_async_has_xwake()
-        && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
-            || __yo_async_foreign_wake_possible())) {
-      __yo_io_wait();
-      __future_state = future->state;
-      continue;
     }
     if (!__yo_thread_async_queue.head) {
       if (!__yo_async_has_pending_work()) {
@@ -527,7 +540,9 @@ static void __yo_async_wait_all(void) {
       __yo_free(cont);
       tasks_processed = true;
     }
-    __yo_io_poll();
+    // Same skip as __yo_async_poll_step: the blocking wait subsumes the
+    // 0-timeout poll on every backend, so an iteration that is about to
+    // block takes one syscall, not two.
     if (!tasks_processed && !__yo_thread_async_queue.head
         && !__yo_async_has_pending_yield() && !__yo_async_has_xwake()
         && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
@@ -535,6 +550,7 @@ static void __yo_async_wait_all(void) {
       __yo_io_wait();
       continue;
     }
+    __yo_io_poll();
     if (!__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
         && !__yo_async_has_xwake() && !__yo_async_has_blocking_inflight()
         && !__yo_async_foreign_wake_possible() && !__yo_has_pending_io()) {

@@ -1,0 +1,330 @@
+pragma(Pragma.AllowUnsafe);
+// Yo twin of bench_uv.c: pingpong / timers on ONE event loop, small payloads
+// so per-operation overhead dominates. Sizes come from BENCH_COUNT (default
+// 100000 round trips / 200000 timer fires over BENCH_K=5000 timers).
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ Exception, IoExn } :: import("std/error");
+{ sleep } :: import("std/sys/timer");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+{ printf } :: import("std/libc/stdio");
+{ env } :: import("std/env");
+{ String } :: import("std/string");
+{ Channel } :: import("std/async/channel");
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+
+_env_count :: (fn(name : String, deflt : i64) -> i64)(
+  match(
+    env.get(name),
+    .Some(c) => match(
+      c.parse(i64),
+      .Ok(n) => n,
+      .Err(_) => deflt
+    ),
+    .None => deflt
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  mode := match(
+    env.get(`BENCH_MODE`),
+    .Some(m) => m.to_string(),
+    .None => `pingpong`.to_string()
+  );
+  cond(
+    (mode == `timers`) => {
+      _run_timers(io);
+    },
+    (mode == `multi`) => {
+      _run_multi(io);
+    },
+    true => {
+      _run_pingpong(io);
+    }
+  );
+});
+
+_run_pingpong :: (fn(io : Io) -> unit)({
+  count := _env_count(`BENCH_COUNT`.to_string(), i64(100000));
+  bind_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(
+    TcpListener.bind(SocketAddr.loopback(u16(0)), io),
+    IoExn(io : io, exn : bind_exn)
+  );
+  addr := listener.local_addr();
+  server := io.async((io : Io) => {
+    exn := Exception(
+      throw : (
+        err -> {
+          unwind(());
+        }
+      )
+    );
+    e := IoExn(io : io, exn : exn);
+    s := io.await(listener.accept(io), e);
+    io.await(s.set_nodelay(true, io), e);
+    rbuf := (*u8)(malloc(usize(64)).unwrap());
+    (running : bool) = true;
+    while(runtime(running), {
+      n := io.await(s.read(rbuf, usize(64), io), e);
+      cond(
+        (n == usize(0)) => {
+          running = false;
+        },
+        true => {
+          io.await(s.write(rbuf, n, io), e);
+        }
+      );
+    });
+    free(.Some((*void)(rbuf)));
+    io.await(s.close(io), e);
+  });
+  client := io.async((io : Io) => {
+    exn := Exception(
+      throw : (
+        err -> {
+          unwind(());
+        }
+      )
+    );
+    e := IoExn(io : io, exn : exn);
+    c := io.await(TcpStream.connect(addr, io), e);
+    io.await(c.set_nodelay(true, io), e);
+    rbuf := (*u8)(malloc(usize(64)).unwrap());
+    io.await(c.write(rbuf, usize(1), io), e);
+    t0 := Instant.now();
+    (rtt : i64) = i64(0);
+    while(runtime(rtt < count), {
+      n := io.await(c.read(rbuf, usize(64), io), e);
+      cond(
+        (n == usize(0)) => {
+          rtt = count;
+        },
+        true => {
+          io.await(c.write(rbuf, n, io), e);
+          rtt = (rtt + i64(1));
+        }
+      );
+    });
+    secs := t0.elapsed().as_secs_f64();
+    unsafe(
+      printf(
+        "%lld round trips in %.3f ms -> %.0f rt/s (%.2f us/rt)\n",
+        rtt,
+        secs * f64(1000.0),
+        f64(rtt) / secs,
+        (secs * f64(1000000.0)) / f64(rtt)
+      )
+    );
+    free(.Some((*void)(rbuf)));
+    io.await(c.close(io), e);
+  });
+  io.spawn(server, io);
+  io.spawn(client, io);
+  io.await(client, io);
+  io.await(server, io);
+  {
+    exn := Exception(
+      throw : (
+        err -> {
+          unwind(());
+        }
+      )
+    );
+    io.await(listener.close(io), IoExn(io : io, exn : exn));
+  }
+});
+
+_run_timers :: (fn(io : Io) -> unit)({
+  total := _env_count(`BENCH_COUNT`.to_string(), i64(200000));
+  ktimers := _env_count(`BENCH_K`.to_string(), i64(5000));
+  per := (((total + ktimers) - i64(1)) / ktimers);
+  t0 := Instant.now();
+  done := Channel(unit).new(usize(ktimers));
+  (fi : i64) = i64(0);
+  while(runtime(fi < ktimers), {
+    (left_i : i64) = per;
+    task := io.async((io : Io) => {
+      (left : i64) = left_i;
+      while(runtime(left > i64(0)), {
+        io.await(sleep(u64(1)), io);
+        left = (left - i64(1));
+      });
+      match(done.try_send(()), .Ok(_) => (), .Err(_) => ());
+    });
+    io.spawn(task, io);
+    fi = (fi + i64(1));
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  (ri : i64) = i64(0);
+  while(runtime(ri < ktimers), {
+    io.await(done.recv(io), e);
+    ri = (ri + i64(1));
+  });
+  secs2 := t0.elapsed().as_secs_f64();
+  unsafe(
+    printf(
+      "%lld timer fires in %.3f ms -> %.0f fires/s\n",
+      total,
+      secs2 * f64(1000.0),
+      f64(total) / secs2
+    )
+  );
+});
+export(main);
+
+_run_multi :: (fn(io : Io) -> unit)({
+  count := _env_count(`BENCH_COUNT`.to_string(), i64(16000));
+  (npair : i64) = match(
+    env.get(`BENCH_K`),
+    .Some(c) => match(
+      c.parse(i64),
+      .Ok(n) => n,
+      .Err(_) => i64(8)
+    ),
+    .None => i64(8)
+  );
+  per := (((count + npair) - i64(1)) / npair);
+  bind_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  listeners := ArrayList(TcpListener).new();
+  (li : i64) = i64(0);
+  while(runtime(li < npair), {
+    l := io.await(
+      TcpListener.bind(SocketAddr.loopback(u16(0)), io),
+      IoExn(io : io, exn : bind_exn)
+    );
+    listeners.push(l);
+    li = (li + i64(1));
+  });
+  done := Channel(unit).new(usize(npair));
+  (pi : i64) = i64(0);
+  while(runtime(pi < npair), {
+    lst := match(
+      listeners.get(usize(pi)),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
+    addr_i := lst.local_addr();
+    server := io.async((io : Io) => {
+      exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      e := IoExn(io : io, exn : exn);
+      s := io.await(lst.accept(io), e);
+      io.await(s.set_nodelay(true, io), e);
+      rbuf := (*u8)(malloc(usize(64)).unwrap());
+      (running : bool) = true;
+      while(runtime(running), {
+        n := io.await(s.read(rbuf, usize(64), io), e);
+        cond(
+          (n == usize(0)) => {
+            running = false;
+          },
+          true => {
+            io.await(s.write(rbuf, n, io), e);
+          }
+        );
+      });
+      free(.Some((*void)(rbuf)));
+      io.await(s.close(io), e);
+    });
+    client := io.async((io : Io) => {
+      exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      e := IoExn(io : io, exn : exn);
+      c := io.await(TcpStream.connect(addr_i, io), e);
+      io.await(c.set_nodelay(true, io), e);
+      rbuf := (*u8)(malloc(usize(64)).unwrap());
+      io.await(c.write(rbuf, usize(1), io), e);
+      (rtt : i64) = i64(0);
+      while(runtime(rtt < per), {
+        n := io.await(c.read(rbuf, usize(64), io), e);
+        cond(
+          (n == usize(0)) => {
+            rtt = per;
+          },
+          true => {
+            io.await(c.write(rbuf, n, io), e);
+            rtt = (rtt + i64(1));
+          }
+        );
+      });
+      free(.Some((*void)(rbuf)));
+      io.await(c.close(io), e);
+      match(done.try_send(()), .Ok(_) => (), .Err(_) => ());
+    });
+    io.spawn(server, io);
+    io.spawn(client, io);
+    pi = (pi + i64(1));
+  });
+  t0 := Instant.now();
+  exn2 := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e2 := IoExn(io : io, exn : exn2);
+  (ri : i64) = i64(0);
+  while(runtime(ri < npair), {
+    io.await(done.recv(io), e2);
+    ri = (ri + i64(1));
+  });
+  total_rt := (per * npair);
+  secs := t0.elapsed().as_secs_f64();
+  unsafe(
+    printf(
+      "%lld round trips in %.3f ms -> %.0f rt/s (%.2f us/rt)\n",
+      total_rt,
+      secs * f64(1000.0),
+      f64(total_rt) / secs,
+      (secs * f64(1000000.0)) / f64(total_rt)
+    )
+  );
+  (ci : i64) = i64(0);
+  while(runtime(ci < npair), {
+    l := match(
+      listeners.get(usize(ci)),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    io.await(l.close(io), e2);
+    ci = (ci + i64(1));
+  });
+});
