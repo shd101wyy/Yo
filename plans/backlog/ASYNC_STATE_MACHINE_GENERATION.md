@@ -441,10 +441,27 @@ Each fix ships with the issue's repro as a regression test.
 8. The recursive condition-await hoist inside arms
    (`if-await-in-a-match-arm-…`). Phase 4 subsumes this; do it only if
    phase 4 slips.
-9. The open still-reproducing shape issues (§3.3) that do not need the new
-   lowering: non-ASCII setter member names, unit locals across an await,
-   the `cond_branch_N` numbering, the duplicate while labels, and the
-   sync-future `Impl(Fn)` capture.
+9. The still-reproducing shape issues (§3.3 and §3.2) that do not need the
+   new lowering:
+   - non-ASCII setter member names;
+   - unit locals across an await;
+   - the sync-future `Impl(Fn)` capture;
+   - braced `case` bodies
+     (`tail-primitive-match-with-three-arms-redefines-continuation-fn`);
+   - the `=`-reassign old-value drop
+     (`reassigning-a-heap-local-from-an-await-leaks-the-old-value`);
+   - the thread-exit frees (`thread-local-async-registries-leak-at-thread-exit`);
+   - the sync `while` step block
+     (`a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local`).
+
+   Everything in the control-flow family is left to phase 5 on purpose.
+   That covers the `cond_branch_N` numbering, the duplicate labels, the
+   3-deep loop, the two-await arm, `break`/`continue` in arms, a hoisted
+   condition plus an arm await, step+body awaits, primitive-match drift and
+   the arm-reassign leak. Each would be another special case in the
+   continuation emitters that phase 5 deletes. Phase 0.2 makes the ones
+   that are silent today loud where the fall-through is detectable, and
+   the shape corpus pins them.
 
 ### Phase 2: the runtime protocol (waiters, abort, cancellation)
 
@@ -526,7 +543,12 @@ and the shadow diff is empty or fully explained.
    Exit: every `known-unsupported` shape in the corpus passes, the
    macro-await repro and `for_await` work inside a task (unblocking
    `FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`), and the §3.1 issue
-   families are closed.
+   families are closed. That is, every §8 failing row, plus
+   `async-nested-cond-await-duplicate-while-labels`,
+   `async-postwhile-multiple-await-ifs`,
+   `async-cond-value-with-throwing-arm-after-await-undeclared-temp`,
+   `if-await-in-a-match-arm-…`, `io-await-inside-a-macro-expansion-…`,
+   and `await-placement-rules-only-enforced-in-codegen` (E0904 retired).
 
 ### Phase 6: layout from liveness
 
