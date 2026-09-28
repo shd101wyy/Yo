@@ -1675,7 +1675,7 @@ _collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       names.push(name.clone());
       types.push(ty);
     },
@@ -1706,7 +1706,7 @@ _collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String
         .None => ()
       );
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       names.push(name.clone());
       types.push(ty);
       recur(sub, ty, names, types);
@@ -1774,7 +1774,7 @@ _emit_pattern_chain :: (
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {
@@ -1930,7 +1930,7 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       em.emit_string_line(dl);
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {

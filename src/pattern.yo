@@ -38,8 +38,10 @@ Pattern :: ref(
   enum(
     /// `_` — matches anything, binds nothing.
     Wildcard,
-    /// `name` — matches anything, binds the value at this position.
-    Bind(name : String, token : Token),
+    /// `name` — matches anything, binds the value at this position. `atom`
+    /// is the binding's source identifier (the async emitter resolves the
+    /// binding's state-machine field through its ExprInfo).
+    Bind(name : String, token : Token, atom : AstExpr),
     /// A compile-time constant compared with `==` (literal, `::` constant,
     /// typed literal call, string literal, …).
     Const(value : EvalValue, ty : TypeValue, src : AstExpr, subject : String, test : AstExpr),
@@ -62,7 +64,7 @@ Pattern :: ref(
     /// `(p | q)` — every alternative binds the same names.
     Or(alts : ArrayList(Self)),
     /// `(name := p)` — bind the whole value AND match `p` against it.
-    At(name : String, token : Token, sub : Self),
+    At(name : String, token : Token, atom : AstExpr, sub : Self),
     /// A structural sub-pattern applied at a `Box(T)` position: the box is
     /// looked through, `sub` matches `T`, and the access path dereferences
     /// the box (`path-><first field>`). `Bind`/`Wildcard`/`At` never sit
@@ -285,7 +287,7 @@ _push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       out.push(name.clone());
     },
     .Const(_, _, _, _, _) => (),
@@ -314,7 +316,7 @@ _push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
         .None => ()
       );
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       out.push(name.clone());
       recur(sub, out);
     },
@@ -360,7 +362,7 @@ pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
   match(
     p,
     .Wildcard => true,
-    .Bind(_, _) => true,
+    .Bind(_, _, _) => true,
     .Const(_, _, _, _, _) => false,
     .Range(_, _, _, _, _, _, _) => false,
     .Variant(_, _, _, _, _, _, _) => false,
@@ -379,7 +381,7 @@ pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
       });
       any_irref
     },
-    .At(_, _, sub) => recur(sub),
+    .At(_, _, _, sub) => recur(sub),
     .ThroughBox(_, _, sub) => recur(sub),
     .Tuple(subs, _) => _all_subs_irrefutable(subs),
     .Struct(_, _, subs, _) => _all_subs_irrefutable(subs)
@@ -407,7 +409,7 @@ pattern_to_string :: (fn(p : Pattern) -> String)(
   match(
     p,
     .Wildcard => String.from("_"),
-    .Bind(name, _) => name.clone(),
+    .Bind(name, _, _) => name.clone(),
     .Const(_, _, src, _, _) => ast_expr_to_string(src),
     .Range(src, _, _, _, _, _, _) => ast_expr_to_string(src),
     .Variant(name, _, field_idx, subs, enum_ty, _, arity) => {
@@ -462,7 +464,7 @@ pattern_to_string :: (fn(p : Pattern) -> String)(
       out.push_str(")");
       out
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       out := String.from("(");
       out.push_string(name.clone());
       out.push_str(" := ");
@@ -665,7 +667,7 @@ _expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Arra
           row.get(usize(0)),
           .Some(head) => match(
             head,
-            (.At(_, _, sub) | .ThroughBox(_, _, sub)) => {
+            (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
               nr := ArrayList(Pattern).new();
               nr.push(sub);
               rest := _tail_patterns(row);
@@ -744,7 +746,7 @@ _const_key :: (fn(p : Pattern) -> String)(
   )
 );
 _head_is_wild :: (fn(p : Pattern) -> bool)(
-  match(p, .Wildcard => true, .Bind(_, _) => true, _ => false)
+  match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false)
 );
 /// Specialize the matrix by variant constructor `name` of arity `arity`.
 _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
@@ -765,7 +767,7 @@ _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, 
           .Wildcard => {
             out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
           },
-          .Bind(_, _) => {
+          .Bind(_, _, _) => {
             out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
           },
           _ => ()
@@ -801,7 +803,7 @@ _specialize_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern)), n : usize) ->
           .Wildcard => {
             out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
           },
-          .Bind(_, _) => {
+          .Bind(_, _, _) => {
             out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
           },
           _ => ()
@@ -1441,7 +1443,7 @@ _useful :: (
   // An integer column: intervals decide it exactly.
   if(match(
     head0,
-    .At(_, _, _) => false,
+    .At(_, _, _, _) => false,
     .ThroughBox(_, _, _) => false,
     .Or(_) => false,
     .Variant(_, _, _, _, _, _, _) => false,
@@ -1461,7 +1463,7 @@ _useful :: (
   });
   match(
     head0,
-    (.At(_, _, sub) | .ThroughBox(_, _, sub)) => {
+    (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
       nq := ArrayList(Pattern).new();
       nq.push(sub);
       return(recur(rows, _concat_patterns(nq, q_rest), tys, gadt_exact));
@@ -1776,7 +1778,7 @@ _top_alternatives :: (fn(p : Pattern, out : ArrayList(Pattern)) -> unit)(
         i = (i + usize(1));
       });
     },
-    .At(_, _, sub) => recur(sub, out),
+    .At(_, _, _, sub) => recur(sub, out),
     _ => ()
   )
 );
@@ -1825,7 +1827,7 @@ _part_reach :: (fn(part : Pattern, whole : bool, rows : ArrayList(ArrayList(Patt
 arm_reachability :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue, gadt_exact : bool) -> ArmReach)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(ArmReach.Reachable));
   if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
-    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
+    if(match(arm.pattern, .Wildcard => true, .Bind(_, _, _) => true, _ => false), {
       return(ArmReach.Reachable);
     });
   });
@@ -1858,7 +1860,7 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
   match(
     p,
     .Wildcard => (),
-    .Bind(_, _) => (),
+    .Bind(_, _, _) => (),
     .Const(_, _, _, _, test) => {
       out.push(test);
     },
@@ -1891,7 +1893,7 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
         i = (i + usize(1));
       });
     },
-    .At(_, _, sub) => {
+    .At(_, _, _, sub) => {
       recur(sub, out);
     },
     .ThroughBox(_, _, sub) => {

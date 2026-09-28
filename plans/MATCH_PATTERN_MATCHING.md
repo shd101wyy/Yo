@@ -62,12 +62,21 @@ Three deviations from the design below, each measured on the tree:
    emitter's goto chain is not dispatch-aware; §4.9's shared helpers are the
    follow-up.
 
-Still open: the async general lowering (deviation 3's follow-up), P5's
-adoption sweep in `src/`/`std/` (now UNBLOCKED — `SEED_VERSION` v0.2.45
-carries every P1–P3 form), P6 (verifier). §8's decisions were taken as
-recommended: the new modules (under `evaluator/exprs/` and beside
-`expr_info.yo` rather than `src/pattern_emit.yo`), `(p && (g))`,
-`(name := p)`, errors not warnings (narrowed per deviation 2).
+Still open: P5's adoption sweep in `src/`/`std/` (now UNBLOCKED —
+`SEED_VERSION` v0.2.45 carries every P1–P3 form), P6 (verifier). The async
+general lowering LANDED 2026-09-29: `_generate_match_with_await_impl`
+dispatches a non-classic match through `_aw_generate_general_match` — an
+ordered test chain over the compiled arms (`_aw_emit_general_pattern`, the
+async twin of the sync `_emit_pattern_chain`, bindings routed through
+`_resolve_pattern_binding_sm_field` so a cross-await binding writes the state
+machine field the resume reads) — and the arm body keeps the ordinary
+cond_branch/suspension path. E0904 for match arms is gone;
+`tests/match_async_arms.test.yo` covers nested/or/guard/string/range/
+catch-all/`:=`/tuple/struct/Box arms with awaits (15 tests). Deviation 3 is
+therefore closed. §8's decisions were taken as recommended: the new modules
+(under `evaluator/exprs/` and beside `expr_info.yo` rather than
+`src/pattern_emit.yo`), `(p && (g))`, `(name := p)`, errors not warnings
+(narrowed per deviation 2).
 
 Companion of PR #661 (`match: a literal payload in an enum pattern is COMPARED,
 not bound`), the narrow stop-gap for one row of the audit below. §3 says what it
