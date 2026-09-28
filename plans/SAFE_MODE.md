@@ -11,10 +11,9 @@ audit's open-work list, closed 2026-09-28): the std unwrap ratchet, the
 comptime-panic diagnostic, the docs and instruction debt, the trap/OOM
 oracles, the UBSan acceptance run with its function-type class fixed, the
 standing UBSan workflow (D6, `.github/workflows/ubsan.yml`), the class-1
-governance cross-check, and the 5b design. Open: a safe file can read an
-inactive union member (UB for `bool` and other types with invalid bit
-patterns; needs a language decision,
-`issues/safe-code-can-read-an-inactive-union-member.md`), 5b's implementation
+governance cross-check, the 5b design, and the union read gate that the
+first full-suite UBSan run motivated
+(`issues/fixed/safe-code-can-read-an-inactive-union-member.md`). Open: 5b's implementation
 (`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), and 6, which is gated
 on it.**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
@@ -136,7 +135,7 @@ Safe mode's promises cover **Yo-emitted C in files that do not carry
 `pragma(Pragma.AllowUnsafe)`**. Explicitly outside the guarantee:
 
 - `extern`/`c_include` FFI, inline `asm`, raw pointer types, `&` address-of,
-  `unsafe(...)` — gated behind the pragma today (`src/evaluator/memory_safety.yo`),
+  `unsafe(...)`, union member reads (since 2026-09-28) — gated behind the pragma today (`src/evaluator/memory_safety.yo`),
   audited by `yo unsafe-report` / `public_safe_report`.
 - The C compiler and libc themselves (miscompiles, libc bugs).
 - Stack exhaustion on unbounded recursion — best-effort forever (1 GiB worker stack +
@@ -895,8 +894,10 @@ as #866. The function-type class (R6 run 2), D6, R7 and R8 landed together on
     `MaybeUninit(T).new()` copied an indeterminate value, which was fixed by
     zero-initializing it
     (`issues/fixed/maybe-uninit-new-copies-an-indeterminate-value.md`). A union
-    read of an inactive `bool` member remains open, because safe files may
-    read union members at all (`issues/safe-code-can-read-an-inactive-union-member.md`).
+    read of an inactive `bool` member exposed that safe files could read union
+    members at all. Ruled 2026-09-28: a union member read now needs
+    `pragma(Pragma.AllowUnsafe)`, the same tier as raw pointers
+    (`issues/fixed/safe-code-can-read-an-inactive-union-member.md`).
   - D6's leg landed with the fix (see D6 in §13).
 - **R7 — governance cross-check. DONE 2026-09-28, and it found a hole.**
   `scan_class1_extractions` (`src/public_safe_report.yo`) lists every

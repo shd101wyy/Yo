@@ -112,6 +112,26 @@ is_implicitly_unsafe_capable_file :: (fn(module_path : Option(String)) -> bool)(
     )
   )
 );
+/// May code at `module_path` READ a member of a `union(...)`?
+///
+/// An untagged union does not record which member was written last, so a
+/// read reinterprets another member's bytes. For a member type with invalid
+/// bit patterns (`bool`, a fieldless enum lowered to an integer, a reference)
+/// that is C undefined behavior, which safe mode's Promise A excludes. A read
+/// is therefore raw-memory reinterpretation, like `*T` and `unsafe.cast`: it
+/// needs `pragma(Pragma.AllowUnsafe)` (or an `unsafe(...)` region, which itself
+/// needs the pragma). Construction and member writes stay legal everywhere.
+/// See issues/fixed/safe-code-can-read-an-inactive-union-member.md.
+is_union_member_read_capable :: (fn(module_path : Option(String), in_unsafe_context : bool) -> bool)(
+  in_unsafe_context || is_implicitly_unsafe_capable_file(module_path)
+);
+/// The diagnostic both union-read gates raise (property access and
+/// destructuring).
+union_member_read_error_message :: (fn(member : String, union_type : String) -> String)(
+  `Reading union member \`${member}\` of \`${union_type}\` requires \`pragma(Pragma.AllowUnsafe);\` in this file.
+
+A union does not record which member was written last, so this read may reinterpret another member's bytes, which is undefined behavior for a \`bool\`, an enum or a reference. For a checked sum type use an \`enum\` and \`match\` on its variants.`
+);
 /// Is this module path a compiler-synthesized expansion (macro, derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
 is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
@@ -345,6 +365,8 @@ export(
   is_macro_def_capable_file,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
+  is_union_member_read_capable,
+  union_member_read_error_message,
   is_class1_panic_method_name,
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
