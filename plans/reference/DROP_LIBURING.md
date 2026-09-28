@@ -6,6 +6,13 @@ self-contained**. It vendors the io_uring ring layer, falls back to epoll behind
 a ring → epoll → degraded ladder, and CI enforces its syscall budgets. That
 supersedes the liburing-trap sections of `PORTABLE_C_DISTRIBUTION.md`.
 
+**Later (2026-09-28):** `plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md` supersedes this
+doc's timer mechanics (sleeps are now a userspace heap on both backends; no
+`IORING_OP_TIMEOUT` per sleep, no timerfd) and the epoll fallback's per-park
+ADD/DEL (now a one-shot interest re-armed with one MOD). It also updates the
+syscall budgets and bench numbers below. The ring layer and the backend
+ladder described here stand.
+
 **Closing outcomes (measured):**
 - **No liburing anywhere.** v0.2.45 is the first release built from Phase 1:
   - its portable C uses the vendored `__yo_uring_*` layer;

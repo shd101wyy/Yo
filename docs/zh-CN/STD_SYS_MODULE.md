@@ -195,7 +195,7 @@ C 运行时被拆分为 `src/codegen/async/` 下的多个专注模块：
 | **readlink**                | ✅（同步）            | ✅（同步）            | ✅ (GetFinalPathNameByHandleW)                     |
 | **dup/dup2/pipe**           | ✅（同步）            | ✅（同步）            | ✅（同步）                                         |
 | **Socket 操作**             | ✅                    | ✅（kqueue 就绪通知） | ✅ (IOCP WSASend/WSARecv)                          |
-| **定时器 (sleep)**          | ✅ (io_uring TIMEOUT; epoll fallback: timerfd) | ✅ (EVFILT_TIMER)     | ✅（IOCP 等待超时）                                |
+| **定时器 (sleep)**          | ✅（每线程定时器堆，限定 io_uring/epoll 的等待） | ✅ (EVFILT_TIMER)     | ✅（IOCP 等待超时）                                |
 | **getdents/readdir**        | ✅ (getdents64)       | ✅（readdir 模拟）    | ✅ (FindFirstFileW/FindNextFileW)                  |
 | **access/realpath**         | ✅（同步）            | ✅（同步）            | ✅（同步）                                         |
 | **utime**                   | ✅（同步）            | ✅（同步）            | ✅（同步，FILE_WRITE_ATTRIBUTES 重新打开）         |
@@ -401,7 +401,7 @@ case STATE_AWAIT_READ:
 ## 已修复的已知问题
 
 - **errno 命名冲突**：枚举变体解构（`.Other(errno)`）现在会在 C 代码生成中对变量名进行清洁化处理，以避免与 C 的 `errno` 宏冲突。
-- **定时器资源泄漏（Linux）**：epoll 回退的 timerfd 和读取缓冲区通过扩展 future 结构上的 `dispose_fn` 被正确跟踪和清理（io_uring 后端的 sleep 是 `IORING_OP_TIMEOUT`，不占用任何描述符）。
+- **定时器资源（Linux）**：两个后端上的 sleep 都不占用描述符或缓冲区——它是事件循环线程定时器堆中的一个节点，触发或取消时即释放。
 - **c_include 常量上的位或运算**：`c_include` 常量（O_WRONLY、O_CREAT 等）持有 `UnknownValue`，导致选择了 `ComptimeBitOr`。在 `identifer-and-operator.ts` 中修复，将 extern "c" unknown 视为运行时值。
 - **导入命名空间常量的 C 代码生成访问**：像 `fcntl_io.O_NONBLOCK` 这样的表达式生成了无效的 C 代码（`/* skip generating: namespace */.FIELD`），因为导入的编译期命名空间值不会作为运行时表达式生成。在 `src/codegen/exprs/property-access.ts` 中修复。
 - **移除了 barrel 重导出**：`std/sys/index.yo` 已移除以避免命名冲突。用户直接导入子模块。

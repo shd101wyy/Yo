@@ -13,6 +13,7 @@
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
+{ is_target_windows } :: import("../../target.yo");
 { CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
@@ -313,7 +314,14 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   em.emit_declaration_line("static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root");
   em.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
   em.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
-  em.emit_declaration_line("static void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc");
+  // Per THREAD: the hook frees the exiting thread's own pools, and each
+  // thread installs it the first time it allocates one. As a process global
+  // every thread's first enqueue wrote it while exiting threads read it — a
+  // data race ThreadSanitizer reported in tests/thread, thread_pool,
+  // cross_thread_wake and spawn_blocking (the value was always the same
+  // function, which is not a synchronization).
+  thread_local_kw := if(is_target_windows(context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
+  em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc`);
   em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
   // Per-object constructor declarations.
   vals := context.types.values();

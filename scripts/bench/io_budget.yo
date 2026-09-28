@@ -38,8 +38,8 @@ main :: (fn(io : Io) -> unit)({
   // --- Budget A: an N-round socketpair ping-pong whose every op can complete
   // at once (each send precedes its recv) is LINEAR in the syscall total —
   // no storms, batching preserved. Expected: ONE syscall per op on both
-  // backends — the ring submits and reaps each op in a single enter, the
-  // epoll fallback does it as one inline syscall. 6 per round (4 ops) + 64
+  // backends — each op is tried inline (MSG_DONTWAIT) and completes there,
+  // with no enter at all on the ring. 6 per round (4 ops) + 64
   // leaves headroom and still catches the ring's old two-enters-per-op poll
   // (8 per round; issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md)
   // as well as any per-op storm.
@@ -69,10 +69,11 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // --- Budget D: the same ping-pong with every recv issued BEFORE its peer
-  // sends, so each one PARKS: readiness registration, a blocking wait, and
-  // the retry. Linear too: the fallback pays recv (EAGAIN) + epoll_ctl +
-  // epoll_wait + recv + epoll_ctl per parked op, the ring one SQE and the
-  // wait that reaps it. 16 per round (2 parked recvs, 2 sends) + 64.
+  // sends, so each one PARKS: the inline attempt fails, then readiness
+  // registration, a wait, and the retry. Linear too: the fallback pays recv
+  // (EAGAIN) + one EPOLLONESHOT re-arm (epoll_ctl) + epoll_wait + recv per
+  // parked op, the ring the failed recv plus the enter that submits and reaps
+  // the SQE. 16 per round (2 parked recvs, 2 sends) + 64.
   before = _syscalls();
   i = usize(0);
   while(i < N_ECHO, {
@@ -93,10 +94,11 @@ main :: (fn(io : Io) -> unit)({
   io.await(tcp.close(fd_a), io);
   io.await(tcp.close(fd_b), io);
 
-  // --- Budget B: N timer ticks are LINEAR in the syscall total (the ring: one
-  // TIMEOUT SQE and the wait that reaps it; the fallback: the timerfd's
-  // epoll_ctl pair, the wait and its read — timerfd_create/settime/close are
-  // in the timer section and not counted).
+  // --- Budget B: N timer ticks are LINEAR in the syscall total. A sleep is a
+  // node in the loop's userspace timer heap on both backends: arming it costs
+  // nothing, and the only syscall per tick is the wait it bounds (plus a
+  // non-blocking poll). It used to be a TIMEOUT SQE on the ring and a timerfd
+  // (create/settime/epoll_ctl/read/epoll_ctl/close) on the fallback.
   before = _syscalls();
   i = usize(0);
   while(i < N_TIMERS, {

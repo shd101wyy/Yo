@@ -195,7 +195,7 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | **readlink**                | ✅ (sync)             | ✅ (sync)              | ✅ (GetFinalPathNameByHandleW)                        |
 | **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
 | **Socket ops**              | ✅                    | ✅ (kqueue readiness)  | ✅ (IOCP WSASend/WSARecv)                             |
-| **Timer (sleep)**           | ✅ (io_uring TIMEOUT; epoll fallback: timerfd) | ✅ (EVFILT_TIMER)      | ✅ (IOCP wait timeout)                                |
+| **Timer (sleep)**           | ✅ (per-thread timer heap bounding the io_uring/epoll wait) | ✅ (EVFILT_TIMER)      | ✅ (IOCP wait timeout)                                |
 | **getdents/readdir**        | ✅ (getdents64)       | ✅ (readdir emulation) | ✅ (FindFirstFileW/FindNextFileW)                     |
 | **access/realpath**         | ✅ (sync)             | ✅ (sync)              | ✅ (sync)                                             |
 | **utime**                   | ✅ (sync)             | ✅ (sync)              | ✅ (sync, FILE_WRITE_ATTRIBUTES reopen)               |
@@ -401,7 +401,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 ## Known Issues Fixed
 
 - **errno naming conflict**: Enum variant destructuring (`.Other(errno)`) now sanitizes variable names in C codegen to avoid conflicts with C's `errno` macro.
-- **Timer resource leak (Linux)**: the epoll fallback's timerfd and read buffer are tracked and cleaned up via `dispose_fn` on an extended future struct (the io_uring backend's sleep is an `IORING_OP_TIMEOUT` and owns no descriptor).
+- **Timer resources (Linux)**: a sleep owns no descriptor or buffer on either backend — it is a node in the loop thread's timer heap, released when it fires or is cancelled.
 - **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue`, causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
 - **Imported namespace constant access in C codegen**: Expressions like `fcntl_io.O_NONBLOCK` emitted invalid C (`/* skip generating: namespace */.FIELD`) because imported comptime namespace values are not emitted as runtime expressions. Fixed in `src/codegen/exprs/property-access.ts`.
 - **Barrel re-export removed**: `std/sys/index.yo` removed to avoid naming conflicts. Users import submodules directly.

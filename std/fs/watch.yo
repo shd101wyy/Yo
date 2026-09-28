@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, IoExn } :: import("../error");
 { ToString } :: import("../fmt");
 events :: import("../sys/events");
-{ yield } :: import("../async");
+{ Park, Waker } :: import("../async/waker");
 { Stream } :: import("../async/stream");
 /// What happened to the entry.
 FsEventKind :: enum(
@@ -105,9 +105,21 @@ Watcher :: ref(
     /// Index of the first unread event in `_queue`; the list is compacted
     /// whenever it has been fully drained.
     _head : usize,
-    _active : bool
+    _active : bool,
+    /// Tasks suspended in `next`, woken by the next event or by `close`.
+    _waiters : ArrayList(Waker)
   )
 );
+/// Resume every task suspended in `next`: an event arrived, or the watch
+/// closed. Each re-checks the queue, so waking all of them is safe.
+_wake_waiters :: (fn(w : Watcher) -> unit)({
+  pending := w._waiters;
+  w._waiters = ArrayList(Waker).new();
+  (i : usize) = usize(0);
+  while(i < pending.len(), i = (i + usize(1)), {
+    pending(i).wake();
+  });
+});
 /// The runtime callback: runs on the event loop thread, so touching the
 /// watcher's queue needs no lock. `user_data` is the `Watcher` handle itself.
 _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
@@ -129,6 +141,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
     if((mask & events.FS_EVENT_CHANGE) != i32(0), {
       w._queue.push(FsEvent(name : name, kind : FsEventKind.Change));
     });
+    _wake_waiters(w);
   });
 });
 /// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
@@ -139,7 +152,8 @@ watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
     _root : path,
     _queue : ArrayList(FsEvent).new(),
     _head : usize(0),
-    _active : false
+    _active : false,
+    _waiters : ArrayList(Waker).new()
   );
   cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
@@ -184,6 +198,7 @@ impl(
       self._active = false;
       events.fs_event_stop(self._handle);
       events.fs_event_close(self._handle);
+      _wake_waiters(self);
     });
   })
 );
@@ -198,12 +213,17 @@ impl(
   Stream(
     Item : FsEvent,
     /// Wait for the next event. Resolves `.None` once the watcher is closed
-    /// and its queue drained. Suspends through `yield`, so it is safe inside
-    /// tasks (no nested event loop).
+    /// and its queue drained. PARKS until the event callback (or `close`)
+    /// wakes it — no nested event loop, and no CPU while it waits. It used to
+    /// re-`yield` in a loop, which kept the task always runnable: a waiting
+    /// watcher spun a core and the loop never blocked
+    /// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
     next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
       io.async((io : Io) => {
         while(runtime((self._head >= self._queue.len()) && self._active), {
-          io.await(yield(io), io);
+          p := Park.new();
+          self._waiters.push(p.waker());
+          io.await(p.wait(io), io);
         });
         self.poll()
       })
