@@ -112,8 +112,14 @@ test("an aborted task drops its Option and value-struct locals", {
     h.abort();
     r := h.await(io);
     assert(r.is_none(), "the task was aborted");
-    io.await(yield(io), io);
   };
+  // The aborted task's queued resume runs its aborted-entry guard, which
+  // releases it: give the loop the turns that takes.
+  (spins : i32) = i32(0);
+  while(runtime((g_disposed < (before + i32(2))) && (spins < i32(100))), {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
   assert(g_disposed == (before + i32(2)), "the Option's and the struct's Things are dropped");
 });
 
@@ -216,4 +222,22 @@ test("a value-position cond or match with an awaiting arm inside a while", {
   // 1 + 10 + 100 + 10
   assert(io.await(_classify_cond(i32(4), io), io) == i32(121), "cond value");
   assert(io.await(_classify_match(i32(4), io), io) == i32(121), "match value");
+});
+
+// issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md
+(g_counter : i32) = i32(0);
+test("two io.async closures that update a module global", {
+  t1 := io.async((io : Io) => {
+    io.await(yield(io), io);
+    g_counter = (g_counter + i32(1));
+  });
+  t2 := io.async((io : Io) => {
+    io.await(yield(io), io);
+    g_counter = (g_counter + i32(2));
+  });
+  h1 := io.spawn(t1, io);
+  h2 := io.spawn(t2, io);
+  _a := h1.await(io);
+  _b := h2.await(io);
+  assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
 });
