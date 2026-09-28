@@ -526,6 +526,40 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 // mismatch. Expected usize, but got Type" — the array-family hollow).
 // Single-threaded evaluator; cleared at each try_match entry.
 (g_last_match_binding_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+/// The forall `fa_some`'s binding: the one the receiver pattern gave it before
+/// the where pass (`pre_where`, index-aligned with `forall_somes`),
+/// else the scoped lookup in `env`.
+_pre_where_or_resolve :: (
+  fn(forall_somes : ArrayList(TypeValue), pre_where : ArrayList(Option(TypeValue)), env : Environment, fa_some : TypeValue, fa_name : String, min_frame : usize) -> Option(TypeValue)
+)({
+  fa_id := match(fa_some, .SomeT({ id : fid }) => fid, _ => String.from(""));
+  (pi : usize) = usize(0);
+  while(pi < forall_somes.len(), {
+    match(
+      forall_somes.get(pi),
+      .Some(ps) => match(
+        ps,
+        .SomeT({ id : pid }) => if((fa_id.len() > usize(0)) && (pid == fa_id), {
+          match(
+            pre_where.get(pi),
+            .Some(pw) => match(
+              pw,
+              .Some(b) => {
+                return(Option(TypeValue).Some(b));
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  _resolve_one_forall_binding_from(env, fa_some, fa_name, min_frame)
+});
 _resolve_one_forall_binding :: (
   fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
 )({
@@ -1227,6 +1261,32 @@ try_match_generic_impl :: (
   // is NOT a rejection: only a param that IS bound and demonstrably fails
   // its trait removes the impl.
   (match_env : Environment) = synth_result.expected_env;
+  // The receiver pattern fixes every forall it binds; a where clause can only
+  // constrain those, and bind the ones the pattern leaves open. So each
+  // forall's binding is taken BEFORE the where pass. The pass checks a clause
+  // with the full env-returning trait check, which writes its bindings back
+  // into `match_env`, and a clause over the SAME impl (a receiver
+  // `StreamMap(StreamMap(Channel, …), …)` checks its inner `S <: Stream`
+  // against `StreamMap`'s impl again, whose binders are this entry's) wrote
+  // the inner `S := Channel(i32)` over the outer one, so a third
+  // `map`/`filter` in a chain dispatched on the first one's type
+  // (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
+  pre_where_bindings := ArrayList(Option(TypeValue)).new();
+  {
+    (pwi : usize) = usize(0);
+    while(pwi < n_forall, {
+      pw_name := match(entry.forall_names.get(pwi), .Some(n) => n, .None => String.from(""));
+      pw_some := match(entry.forall_some_types.get(pwi), .Some(st) => st, .None => t_unit());
+      pre_where_bindings.push(
+        match(
+          _resolve_one_forall_binding_from(match_env, pw_some, pw_name, unify_base - usize(1)),
+          .Some(pw_b) => if(is_some_type(pw_b), Option(TypeValue).None, Option(TypeValue).Some(pw_b)),
+          .None => Option(TypeValue).None
+        )
+      );
+      pwi = (pwi + usize(1));
+    });
+  };
   (wc_ok : bool) = true;
   {
     (wcj : usize) = usize(0);
@@ -1236,7 +1296,7 @@ try_match_generic_impl :: (
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
       wcj_name := match(wcj_some, .SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
       match(
-        _resolve_one_forall_binding_from(match_env, wcj_some, wcj_name, unify_base - usize(1)),
+        _pre_where_or_resolve(entry.forall_some_types, pre_where_bindings, match_env, wcj_some, wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
           g_type_implements_trait_full_fn,
           .Some(wcj_f) => {
@@ -1294,7 +1354,7 @@ try_match_generic_impl :: (
       });
     };
     match(
-      _resolve_one_forall_binding_from(match_env, fa_some2, fa_name2, unify_base - usize(1)),
+      _pre_where_or_resolve(entry.forall_some_types, pre_where_bindings, match_env, fa_some2, fa_name2, unify_base - usize(1)),
       .Some(t) => {
         bindings.push(t);
         g_last_match_binding_vals.push(fa_val2);

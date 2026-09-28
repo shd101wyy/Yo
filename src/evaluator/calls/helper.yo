@@ -1657,9 +1657,19 @@ _find_specialization_cache :: (
                           // type arguments).
                           // Require type_key equality — the exact identity the
                           // emitted C is keyed by — before reusing the spec.
+                          //
+                          // The same holds for any instantiation with type
+                          // arguments: substitution keeps an instance's
+                          // def-era struct id, and `are_types_compatible_exact`
+                          // judges two instances of one id equal without
+                          // their arguments, so `StreamMap(StreamMap(…), …)`
+                          // reused the spec built for `StreamMap(Channel, …)`
+                          // and a third `map` in a chain returned the second's
+                          // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
                           ck_tyargs := ArrayList(TypeValue).new();
                           _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
-                          if(ck_tyargs.len() > usize(0), {
+                          ck_has_args := match(cached_ty, .Struct({ type_arguments : ck_tas }) => (ck_tas.len() > usize(0)), _ => false);
+                          if((ck_tyargs.len() > usize(0)) || ck_has_args, {
                             if(!(type_key(cached_ty) == type_key(current_ty)), {
                               rt_match = false;
                             });
