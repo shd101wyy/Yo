@@ -315,7 +315,7 @@ _names_unique :: (fn(rp : VerifyFnReport) -> bool)({
 test("obligation names are unique and guard obligations carry their site", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/obligation_sites.yo"), io);
   match(
-    _fn_report_named(reports, String.from(":11")),
+    _fn_report_named(reports, String.from(":10")),
     .Some(rp) => {
       assert(_names_unique(rp), "two_divs: two divisions give two distinct obligation names");
       (rows : ArrayList(usize)) = ArrayList(usize).new();
@@ -341,11 +341,11 @@ test("obligation names are unique and guard obligations carry their site", {
       assert(rows(usize(0)) != rows(usize(1)), "each division's site is its own line");
     },
     .None => {
-      assert(false, "two_divs (line 11) must be reported");
+      assert(false, "two_divs (fn_id row 10, 0-based) must be reported");
     }
   );
   match(
-    _fn_report_named(reports, String.from(":17")),
+    _fn_report_named(reports, String.from(":16")),
     .Some(rp2) => {
       assert(_names_unique(rp2), "two_calls: two calls of safe_div give two distinct requires#0 names");
       (ri : usize) = usize(0);
@@ -361,7 +361,7 @@ test("obligation names are unique and guard obligations carry their site", {
       assert(n_req == usize(2), `two_calls discharges safe_div's requires#0 twice (got ${n_req.to_string()})`);
     },
     .None => {
-      assert(false, "two_calls (line 17) must be reported");
+      assert(false, "two_calls (fn_id row 16, 0-based) must be reported");
     }
   );
 });

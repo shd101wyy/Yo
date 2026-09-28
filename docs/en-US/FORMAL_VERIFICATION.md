@@ -336,7 +336,14 @@ Each function entry (`functions[]`) carries `fn_id`, `mode`, `outcome`,
 one object per obligation with `name`, `verdict` (`proved` / `refuted` /
 `unproven` / `solver-error`), `cached`, `folded`, `goal` (the obligation
 rendered as SMT-LIB — what the solver was asked), and `model` (the
-counter-example bindings, `refuted` only).
+counter-example bindings, `refuted` only), and `site`. An obligation that
+discharges a runtime guard (`divisor-nonzero`, `shift-in-width`,
+`index-in-bounds`) names it: `"site": {"module", "row", "column", "class"}`,
+1-based like the guard's own `(at file:row:col)` message. Contract, loop and
+assert obligations have `"site": null`. Names are unique within a function: a
+guard obligation carries its position (`…/divisor-nonzero@12:9`), and a name
+that repeats anyway (two calls of one callee's `requires#0`) gets `~2`, `~3`,
+… in walk order.
 
 `--explain <pattern>` narrows the report to functions whose id matches
 (substring — a bare name or a `file:line` both work) and forces the
