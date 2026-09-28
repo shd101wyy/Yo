@@ -46,7 +46,12 @@ AwaitPoint :: ref(
     /// The variable ID of the Future being awaited.
     /// Used to reference the captured Future variable instead of creating a separate
     /// `await_future_X` field.
-    future_variable_id : Option(String)
+    future_variable_id : Option(String),
+    /// The await's result REASSIGNS an existing variable (`x = io.await(…)`)
+    /// rather than binding a fresh one (`x := …`): the extraction must release
+    /// the value it overwrites
+    /// (issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md).
+    target_is_reassign : bool
   )
 );
 // ---------------------------------------------------------------------------

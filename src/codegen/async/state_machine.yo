@@ -13,7 +13,7 @@
 { lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store, _branch_await_target_is_reassign } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -31,7 +31,7 @@
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
-{ get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
+{ get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 /// Information about a generated state machine.
 StateMachineInfo :: ref(
   struct(
@@ -2304,18 +2304,8 @@ _emit_dispatch_extraction_case :: (
             .Some(d) => {
               rt := match(rt_opt, .Some(t) => t, .None => TypeValue.Unit);
               em.emit_string_line(`          // Extract result from await ${prev_idx_s} (branch ${branch.index.to_string()})`);
-              if(type_contains_rc_type(rt), {
-                match(
-                  get_dup_function_for_type(rt, context),
-                  .Some(dup) => em.emit_string_line(`          ${d} = ${dup}(${acc}->result);`),
-                  .None => {
-                    dup_code := generate_dup_code_for_value(`${acc}->result`, rt, context);
-                    em.emit_string_line(`          ${d} = ${dup_code};`);
-                  }
-                );
-              }, {
-                em.emit_string_line(`          ${d} = ${acc}->result;`);
-              });
+              branch_reassign := (branch.await_target_variable_id.is_some() && _branch_await_target_is_reassign(branch.value, context));
+              _emit_await_result_store(d, `${acc}->result`, rt, branch_reassign, String.from("          "), context);
             },
             .None => ()
           );
@@ -2362,6 +2352,42 @@ _emit_prev_await_result_extraction_dispatch :: (
   em.emit_string_line(`        default: break;`);
   em.emit_string_line(`      }`);
   em.emit_string_line(String.from(""));
+});
+/// Store an awaited future's result into `dest`, taking the reference `dest`
+/// owns (an RC result is dup'd — the future keeps its own until it is
+/// disposed). For a REASSIGNMENT (`x = io.await(…)`) `dest` already holds a
+/// live value: it is dropped AFTER the new value is dup'd (the two may be the
+/// same object), where the old store simply overwrote it — one leaked value
+/// per await (issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md).
+_emit_await_result_store :: (
+  fn(dest : String, src : String, rt : TypeValue, is_reassign : bool, ind : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  if(!(type_contains_rc_type(rt)), {
+    em.emit_string_line(`${ind}${dest} = ${src};`);
+    return();
+  });
+  dup_expr := match(
+    get_dup_function_for_type(rt, context),
+    .Some(dup) => `${dup}(${src})`,
+    // No ___dup methods are synthesized, so this is the ordinary path: a
+    // shallow copy would hand `dest` a BORROWED reference that the future's
+    // dispose later frees (issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md).
+    .None => generate_dup_code_for_value(src.clone(), rt, context)
+  );
+  if(!(is_reassign), {
+    em.emit_string_line(`${ind}${dest} = ${dup_expr};`);
+    return();
+  });
+  tmp := fresh_local_name(String.from("__yo_await_new_"), context.base.current_function_name);
+  em.emit_string_line(`${ind}{`);
+  em.emit_string_line(`${ind}  ${get_type_string(rt, context.base)} ${tmp} = ${dup_expr};`);
+  drop_code := generate_drop_code_for_value(dest.clone(), rt, context);
+  if(drop_code.len() > usize(0), {
+    em.emit_string_line(`${ind}  ${drop_code};`);
+  });
+  em.emit_string_line(`${ind}  ${dest} = ${tmp};`);
+  em.emit_string_line(`${ind}}`);
 });
 /// Emit the previous-await result extraction at the top of a resume state: the
 /// abort check (Future state == -2 → escape), the result copy (into
@@ -2433,35 +2459,11 @@ _emit_prev_await_result_extraction :: (
         .None => ()
       );
     });
+    // The await_result_N field is a fresh temporary; only the named target
+    // itself can hold a value this store overwrites.
     match(
       result_target,
-      .Some(rt) => if(type_contains_rc_type(prev_await.result_type), {
-        match(
-          get_dup_function_for_type(prev_await.result_type, context),
-          .Some(dup) => em.emit_string_line(`      ${rt} = ${dup}(sm->${pffn}->result);`),
-          // No ___dup methods are synthesized, so get_dup_function_for_type
-          // is ALWAYS None here — a bare shallow copy would hand the
-          // state-machine slot a
-          // BORROWED reference that the Future's dispose then frees, so every
-          // awaited RC result was a use-after-free waiting for a reader. Lower
-          // the dup INLINE instead, exactly as this compiler lowers every other
-          // dup and drop it has no method for (generate_dup_code_for_value emits
-          // its statements through the same emitter and returns the expression).
-          //
-          // MEASURED: `public-safe-report` read its
-          // totals out of freed memory (0xDFDFDFDFDFDFDFDF, mimalloc's freed-block
-          // fill) and corrupted the free list once more than one file was
-          // scanned, because `entries := await fs_walker.walk(...)` — an
-          // ArrayList of RC'd entries — was shallow-copied into its slot. See
-          // issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md.
-          .None => {
-            dup_code := generate_dup_code_for_value(`sm->${pffn}->result`, prev_await.result_type, context);
-            em.emit_string_line(`      ${rt} = ${dup_code};`);
-          }
-        );
-      }, {
-        em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
-      }),
+      .Some(rt) => _emit_await_result_store(rt, `sm->${pffn}->result`, prev_await.result_type, (prev_await.target_is_reassign && !(use_await_result_field)), String.from("      "), context),
       .None => ()
     );
     if(use_await_result_field, {
@@ -2469,6 +2471,14 @@ _emit_prev_await_result_extraction :: (
         prev_await.base.target_variable_id,
         .Some(tvid) => {
           fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+          // A reassigned target holds a live value: release it before the
+          // (already dup'd) result moves in.
+          if(prev_await.target_is_reassign && type_contains_rc_type(prev_await.result_type), {
+            old_drop := generate_drop_code_for_value(`sm->${fname}`, prev_await.result_type, context);
+            if(old_drop.len() > usize(0), {
+              em.emit_string_line(`      ${old_drop};`);
+            });
+          });
           em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_idx_s};`);
         },
         .None => ()

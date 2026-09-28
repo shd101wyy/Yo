@@ -2083,6 +2083,12 @@ generate_cond_branch_with_await :: (
                     }),
                     .None => ()
                   );
+                }, {
+                  // The bound value holds the await inside a larger
+                  // expression (`x := (io.await(f, io) + 1)`): nothing below
+                  // can split it, and falling through dropped the statement
+                  // (issues/fixed/await-inside-an-expression-in-a-later-cond-arm-is-dropped.md).
+                  codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(value_expr, false, false));
                 }),
                 .None => ()
               );
@@ -2136,6 +2142,13 @@ generate_cond_branch_with_await :: (
                   // Nested while.
                   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
                     _call_generate_while_with_await(expr, await_point, indent, context);
+                  }, {
+                    // Any other statement holds the await inside a larger
+                    // expression — `x = (x + io.await(f, io))`, `g(io.await(f, io))`.
+                    // This used to fall through and emit NOTHING: the future
+                    // was never created and the statement silently vanished
+                    // (issues/fixed/await-inside-an-expression-in-a-later-cond-arm-is-dropped.md).
+                    codegen_user_error(ast_expr_token(await_point.base.expr), _unsupported_await_message(expr, false, false));
                   });
                 });
               });
@@ -2533,6 +2546,52 @@ _find_branch_await_target_variable_id :: (
         i = (i + usize(1));
       });
       Option(String).None
+    }
+  )
+});
+/// Whether the statement `_find_branch_await_target_variable_id` finds for
+/// this branch REASSIGNS its target (`x = io.await(…)`) rather than binding a
+/// fresh one (`x := …`) — the same walk, answering the other question. The
+/// dispatch extraction releases the overwritten value for the former
+/// (issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md).
+_branch_await_target_is_reassign :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)({
+  if(!(ast_expr_is_fn_call(expr)) || is_io_async_call(expr.clone()), {
+    return(false);
+  });
+  is_define := ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None);
+  is_assign := ast_expr_is_fn_call_of(expr.clone(), "=", Option(usize).Some(usize(2)));
+  if(is_define || is_assign, {
+    match(
+      match(expr.clone(), .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None),
+      .Some(rhs) => if(ast_expr_is_fn_call(rhs) && is_io_await_call(rhs.clone()), {
+        if(extract_target_variable_id(Option(AstExpr).Some(expr.clone()), (e : AstExpr) => context.base.get_expr_info(e)).is_some(), {
+          return(is_assign);
+        });
+      }),
+      .None => ()
+    );
+  });
+  match(
+    expr.clone(),
+    .Atom(_, _) => false,
+    .FnCall(_, f, args, _, _) => {
+      // The first matching statement decides, exactly as in the target walk:
+      // recurse only while no binding has been found.
+      if(_find_branch_await_target_variable_id(f, context).is_some(), {
+        return(recur(f, context));
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a2) => if(_find_branch_await_target_variable_id(a2, context).is_some(), {
+            return(recur(a2, context));
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
     }
   )
 });
@@ -3157,6 +3216,12 @@ generate_primitive_match_with_await :: (
             }
           );
         });
+        // Each case body is its own C block: a non-awaiting arm's completion
+        // declares `continuation_fn` / `continuation_sm`, and with three or
+        // more arms two of those landed in one scope — "redefinition of
+        // 'continuation_fn'"
+        // (issues/fixed/tail-primitive-match-with-three-arms-redefines-continuation-fn.md).
+        em.emit_string_line(`${indent}  {`);
         em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${(cond_branch_base + i).to_string()};`);
         if(branch_has_await(case_body), {
           emission := generate_cond_branch_with_await(case_body, await_point, `${indent}    `, context);
@@ -3170,6 +3235,7 @@ generate_primitive_match_with_await :: (
           branches_with_await.push(_make_cond_branch(cond_branch_base + i, case_body, false, Option(ArrayList(AstExpr)).None, context));
         });
         em.emit_string_line(`${indent}    break;`);
+        em.emit_string_line(`${indent}  }`);
       }),
       .None => ()
     );
@@ -4054,6 +4120,7 @@ register_fsm_emitters_impl :: (fn() -> unit)({
 });
 export(
   _single_part_codes,
+  _branch_await_target_is_reassign,
   emit_await_future_store,
   _single_part_len,
   hoist_non_splittable_awaits,

@@ -1142,18 +1142,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     ei = (ei + usize(1));
   });
 });
-/// The RETAIN line for an RC-bearing capture field at `field_ref`, or `None` if
-/// the type needs none. The exact mirror of `_rc_field_drop_line` below — every
-/// branch there has its counterpart here, so a field that gets dropped on
-/// dispose is the one that gets retained on construction.
-///
-/// Needed because the state machine's dispose DOES drop these fields, but
-/// nothing retained them: no per-type `___dup` helper is synthesized (zero are
-/// emitted), and the deferred-dup path is deliberately skipped inside a state
-/// machine. The result was an unbalanced drop: a future re-created each
-/// iteration of a loop freed the captured value under the loop (rc=139).
-/// See issues/fixed/await-in-branch-positions-matrix.md.
-_ /// The INLINE retain (`is_drop == false`) or drop line for an RC-bearing
+/// The INLINE retain (`is_drop == false`) or drop line for an RC-bearing
 /// value that has no synthesized `___dup`/`___drop` function — a String, an
 /// Option, a value struct or an enum with an RC payload; synthesized helpers
 /// are the exception, so this is the ordinary case. The general generators may
@@ -1198,7 +1187,18 @@ _inline_rc_field_line :: (fn(field_ref : String, field_type : TypeValue, indent 
   });
   if(out.len() > usize(0), Option(String).Some(out), Option(String).None)
 });
-rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
+/// The RETAIN line for an RC-bearing capture field at `field_ref`, or `None` if
+/// the type needs none. The exact mirror of `_rc_field_drop_line` below — every
+/// branch there has its counterpart here, so a field that gets dropped on
+/// dispose is the one that gets retained on construction.
+///
+/// Needed because the state machine's dispose DOES drop these fields, but
+/// nothing retained them: no per-type `___dup` helper is synthesized (zero are
+/// emitted), and the deferred-dup path is deliberately skipped inside a state
+/// machine. The result was an unbalanced drop: a future re-created each
+/// iteration of a loop freed the captured value under the loop (rc=139).
+/// See issues/fixed/await-in-branch-positions-matrix.md.
+_rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_retain((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
     (is_iso_type(field_type) || is_atomic_reference_struct_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
