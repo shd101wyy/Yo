@@ -271,7 +271,9 @@ if "--rc-events" in sys.argv or "--rc-balance" in sys.argv:
     print("rc-event hooks:", n1, n2)
     disp_fns = []
     for b in bases:
-        d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = (?:\(void\(\*\)\(void\*\)\))?(?:__yo_dispose_thunk_)?(yo_id_\d+);" % (b, b), src, re.S)
+        # The pointer the header STORES: the thunk when #969's typed dispose
+        # thunks are in use, else the dispose function itself.
+        d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = (?:\(void\(\*\)\(void\*\)\))?((?:__yo_dispose_thunk_)?yo_id_\d+);" % (b, b), src, re.S)
         disp_fns.append(d.group(1))
     tgt = "static int __hs_is_target(void* p) { void* fn = (void*)((__yo_rc_prefix_t*)p)->dispose_fn; return " + " || ".join("fn == (void*)%s" % d for d in disp_fns) + "; }\n"
     src = src + tgt
