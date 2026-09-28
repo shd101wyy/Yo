@@ -217,9 +217,13 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
 ### 3.4 Token diet (80 B × about 1.9 M)
 
 LANDED on branch `mem/token-u32` (plan §0.22): the four positions are `u32`,
-80 → 64 B a token, −30.1 MB max RSS. Still open on the same object:
-`module_path` + `input` could share one source-record handle (−8 B, a 56 B
-class on mimalloc). The edit is big but mechanical.
+80 → 64 B a token, −30.1 MB max RSS. Sharing `module_path` + `input` in
+one source record was built and REJECTED 2026-09-29 (plan §0.24). It saves
+17 MB under glibc, but costs about +4.5 MB under mimalloc and nothing is
+saved on macOS/Windows (16 B quanta). The per-lexing records (one per
+synthesized snippet) outweigh the 8 B a token. What remains open is a
+4-byte source index in place of both handles (no new object, but the table
+needs an owner purge).
 
 ### 3.5 Plan steps still open
 

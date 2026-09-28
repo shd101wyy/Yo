@@ -2248,6 +2248,41 @@ Stage-1 `check src/main.yo` max RSS: **1,143,324 → 1,098,652 kB (−44.7 MB,
 Remaining copies: the label family (`self`, `Self`, `T`, `value`, `K`,
 `V`), about 1.2 MB; `g_struct_finals` keys, 3.7 MB; the rest spread thin.
 
+### 0.24 One `TokenSource` per lexing: built, measured, rejected (2026-09-29)
+
+Branch `mem/token-source-record` (`418d9bb23`, not merged). `Token`'s
+`module_path` + `input` became one shared `src : TokenSource` handle: 64 →
+56 B a token, confirmed in the emitted C. Every constructor that copied the
+pair from another token shares that token's record. The lexer makes one
+record per lexing and the parser one per `Parser`.
+
+Stage-2 `check src/main.yo`, same input tree, max RSS:
+
+| build | base | branch | Δ |
+| --- | --- | --- | --- |
+| glibc malloc, `clang -O2` | 1,070.5 MB | 1,053.1 MB | −17.4 MB |
+| glibc malloc, `-O1` (census build) | 1,073.7 MB | 1,057.7 MB | −16.0 MB |
+| mimalloc (the shipped Linux allocator), 3–4 runs | 970.3 / 970.6 / 971.8 | 982.4 / 975.2 / 975.3 / 975.3 | about +4.5 MB |
+
+Why the allocator decides it:
+- **glibc** rounds a 64 B request to an 80 B chunk and 56 B to 64 B, so
+  it saves 16 B a token.
+- **mimalloc** has 56 B and 64 B bins, so it saves 8 B a token (≈ 15 MB).
+  The new 32 B records cancel that.
+- **macOS libsystem and the Windows heap** have 16 B quanta, so a 56 B
+  request still takes 64 B. They save nothing and pay for the records.
+
+The records do not amortize because most lexings are tiny.
+`generate_expr_from_code` lexes every synthesized snippet under its own
+`auto-generated://…${code}…` module path, a few tokens each. The path is
+part of func ids and diagnostics, so snippets cannot share one record.
+No shipped configuration gains, so the lever is closed. A future Token diet
+should remove bytes without adding an object. One option is a 4-byte
+source index into a module-level table in place of both handles (64 → 48 B
+on every allocator). The table would then keep each lexing's strings alive,
+so it needs a purge story for the LSP and for transient snippets before it
+is a win.
+
 ## 6. Gates (every phase)
 
 1. `yo check ./src --std-path ./std` and `yo check ./std --std-path ./std`.
