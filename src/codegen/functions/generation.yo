@@ -31,7 +31,7 @@
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
-{ UnwindCatch, unwind_origin_id, unwind_catches_of_body } :: import("../exprs/async_completion.yo");
+{ unwind_origin_id, unwind_catches_of_body } :: import("../exprs/async_completion.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
 { eprintln } :: import("std/fmt");
@@ -683,7 +683,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       prev_unwind_origin := context.current_unwind_origin;
       prev_unwind_catches := context.unwind_catches;
       context.current_unwind_origin = Option(String).Some(unwind_origin_id(body_box));
-      context.unwind_catches = Option(ArrayList(UnwindCatch)).Some(unwind_catches_of_body(body_box));
+      context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(body_box));
       if(is_effect_record_member(func_id.clone()), {
         context.is_effect_record_member_function = true;
       });

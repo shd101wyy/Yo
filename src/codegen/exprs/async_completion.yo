@@ -8,7 +8,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Emitter } :: import("../../emitter.yo");
-{ AstExpr, ast_expr_token, ast_expr_is_fn_call_of, is_function_boundary_arrow, BF_UNWIND, BK_COND, BK_MATCH } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_is_fn_call_of, is_function_boundary_arrow, BK_COND, BK_MATCH } :: import("../../expr.yo");
+{ evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { fnv1a64, canonical_module_path } :: import("../../utils.yo");
 /// Emits the C code to complete an async Future state machine:
 ///   1. Optionally store the result value
@@ -98,13 +99,6 @@ unwind_origin_id :: (fn(body : AstExpr) -> String)({
   });
   `${h.to_string()}ULL`
 });
-/// A handler literal that `unwind`s to the frame it appears in.
-UnwindCatch :: struct(
-  /// `unwind_origin_id` of the literal's body.
-  id : String,
-  /// The `unwind(...)` calls in the body, for the frame to type-check.
-  unwinds : ArrayList(AstExpr)
-);
 /// The body of a function-boundary node (`is_function_boundary_arrow`):
 /// the last argument of `params -> body` / `=>`, the only one of
 /// `(fn(...) -> T)(body)`.
@@ -155,31 +149,13 @@ _same_frame_children :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
   );
   out
 });
-/// The `unwind(...)` calls of `e` that belong to `e`'s own function.
-_collect_frame_unwinds :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)({
-  if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
-    out.push(e);
-    return(());
-  });
-  if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
-    return(());
-  });
-  kids := _same_frame_children(e);
-  (i : usize) = usize(0);
-  while(i < kids.len(), {
-    match(kids.get(i), .Some(k) => _collect_frame_unwinds(k, out), .None => ());
-    i = (i + usize(1));
-  });
-});
-_collect_unwind_catches :: (fn(e : AstExpr, out : ArrayList(UnwindCatch)) -> unit)({
+_collect_unwind_catches :: (fn(e : AstExpr, out : ArrayList(String)) -> unit)({
   if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
     match(
       _boundary_body(e),
       .Some(body) => {
-        unwinds := ArrayList(AstExpr).new();
-        _collect_frame_unwinds(body, unwinds);
-        if(unwinds.len() > usize(0), {
-          out.push(UnwindCatch(id : unwind_origin_id(body), unwinds : unwinds));
+        if(evaluated_body_contains_unwind(body), {
+          out.push(unwind_origin_id(body));
         });
       },
       .None => ()
@@ -200,13 +176,13 @@ _collect_unwind_catches :: (fn(e : AstExpr, out : ArrayList(UnwindCatch)) -> uni
 /// handler and typed by that frame, never by whichever frame happens to see
 /// the abort first
 /// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
-unwind_catches_of_body :: (fn(body : AstExpr) -> ArrayList(UnwindCatch))({
-  out := ArrayList(UnwindCatch).new();
+unwind_catches_of_body :: (fn(body : AstExpr) -> ArrayList(String))({
+  out := ArrayList(String).new();
   _collect_unwind_catches(body, out);
   out
 });
 /// `(__yo_unwind_target == id1 || ...)` for `catches`, or `.None` when empty.
-unwind_catch_condition :: (fn(catches : ArrayList(UnwindCatch)) -> Option(String))({
+unwind_catch_condition :: (fn(catches : ArrayList(String)) -> Option(String))({
   if(catches.len() == usize(0), {
     return(Option(String).None);
   });
@@ -215,11 +191,11 @@ unwind_catch_condition :: (fn(catches : ArrayList(UnwindCatch)) -> Option(String
   while(i < catches.len(), {
     match(
       catches.get(i),
-      .Some(uc) => {
+      .Some(id) => {
         if(i > usize(0), {
           c.push_str(" || ");
         });
-        c.push_string(`__yo_unwind_target == ${uc.id}`);
+        c.push_string(`__yo_unwind_target == ${id}`);
       },
       .None => ()
     );
@@ -260,4 +236,4 @@ emit_sm_unwind_catch :: (fn(emitter : Emitter, indent : String, catch : Option(S
     .None => ()
   )
 );
-export(emit_async_future_completion, emit_async_future_escape, unwind_origin_id, UnwindCatch, unwind_catches_of_body, unwind_catch_condition, SmUnwindCatch, emit_sm_unwind_catch);
+export(emit_async_future_completion, emit_async_future_escape, unwind_origin_id, unwind_catches_of_body, unwind_catch_condition, SmUnwindCatch, emit_sm_unwind_catch);

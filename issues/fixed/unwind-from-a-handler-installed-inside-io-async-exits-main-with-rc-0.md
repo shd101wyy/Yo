@@ -128,16 +128,15 @@ The fix identifies the installer at run time instead of guessing it:
   run and may unwind, so the task-abort registry entry now carries the target
   and a copy of the value. `__yo_task_abort_take_unwind` restores them for the
   awaiter.
-- **Types.** The evaluator does not check an `unwind` value against an
-  `io.async` block's inferred result type, so codegen does. A mismatch is a
-  user error at the `unwind`, where it used to be a byte reinterpretation.
+- **Types.** The value must have the block's result type. The evaluator
+  checks every `unwind` against the frame its handler exits. A mismatch
+  inside an `io.async` body is detected, but it is swallowed into a generic
+  E0905 (handled on its own branch).
 
 Tests:
 
 - `tests/async/sm_protocol.test.yo` covers both shapes of this doc and an
   unwind that passes through tasks to a synchronous installer.
-- `tests/cli-cases/async-unwind-value-must-have-the-block-result-type` covers
-  the type check.
 
 Item 1 (rc 0) no longer arises: `main` cannot take an `Exception` any more,
 and an unwind nobody catches reaches the top-level belt, which aborts loudly.

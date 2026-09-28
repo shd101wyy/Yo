@@ -101,7 +101,6 @@
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { SmUnwindCatch, unwind_catches_of_body, unwind_catch_condition } :: import("./async_completion.yo");
-{ type_to_string } :: import("../../types/string.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -2253,47 +2252,17 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
 /// for one deferred block, registers closure-param slots as SM variables, and emits
 /// the resume + set_effect + dispose + constructor for that block.
 /// How the block catches the unwinds of handlers written in its own body, or
-/// `.None` when it has none. Each such `unwind` must carry the block's result
-/// type: it resolves the block's future
+/// `.None` when it has none: such an unwind resolves the block's future. Its
+/// value has the block's result type: the evaluator checks every `unwind`
+/// against the frame its handler exits
 /// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
-_sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> Option(SmUnwindCatch))({
-  catches := unwind_catches_of_body(block.body_expr);
-  cond_opt := unwind_catch_condition(catches);
-  if(cond_opt.is_none(), {
-    return(Option(SmUnwindCatch).None);
-  });
-  result_is_unit := is_unit_type(block.result_type);
-  result_c := get_type_string(block.result_type, context.base);
-  (ci : usize) = usize(0);
-  while(ci < catches.len(), {
-    match(
-      catches.get(ci),
-      .Some(uc) => {
-        (ui : usize) = usize(0);
-        while(ui < uc.unwinds.len(), {
-          match(
-            uc.unwinds.get(ui),
-            .Some(u) => match(
-              context.base.get_expr_info(u),
-              .Some(uei) => {
-                u_unit := is_unit_type(uei.ty);
-                if(!((u_unit && result_is_unit) || (!(u_unit) && !(result_is_unit) && (get_type_string(uei.ty, context.base) == result_c))), {
-                  codegen_user_error(ast_expr_token(u), `this \`unwind\` exits the \`io.async\` block its handler is written in, so its value resolves that block's future: it must be a ${type_to_string(block.result_type)}, not a ${type_to_string(uei.ty)}`);
-                });
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
-          ui = (ui + usize(1));
-        });
-      },
-      .None => ()
-    );
-    ci = (ci + usize(1));
-  });
-  match(cond_opt, .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : result_is_unit, label : block.async_block_id.clone())), .None => Option(SmUnwindCatch).None)
-});
+_sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> Option(SmUnwindCatch))(
+  match(
+    unwind_catch_condition(unwind_catches_of_body(block.body_expr)),
+    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(block.result_type), label : block.async_block_id.clone())),
+    .None => Option(SmUnwindCatch).None
+  )
+);
 _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   saved_sm_vars := context.state_machine_variables;

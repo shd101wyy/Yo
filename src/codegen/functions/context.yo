@@ -12,7 +12,7 @@
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
-{ UnwindCatch, SmUnwindCatch } :: import("../exprs/async_completion.yo");
+{ SmUnwindCatch } :: import("../exprs/async_completion.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
 /// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
 /// slot on the SM struct. Defined here (not in exprs/async.yo) so
@@ -418,7 +418,7 @@ FunctionGenerationContext :: ref(
     /// The handler literals whose `unwind` exits the frame being generated
     /// (the function, or the async block inside a state machine's resume
     /// function): the unwinds this frame catches.
-    unwind_catches : Option(ArrayList(UnwindCatch)),
+    unwind_catches : Option(ArrayList(String)),
     /// Set while a state machine whose body installs unwinding handlers is
     /// generated: how its abort points catch those handlers' unwinds.
     sm_unwind_catch : Option(SmUnwindCatch),
@@ -585,7 +585,7 @@ impl(
       current_closure_capture_type_c_name : Option(String).None,
       is_effect_record_member_function : false,
       current_unwind_origin : Option(String).None,
-      unwind_catches : Option(ArrayList(UnwindCatch)).None,
+      unwind_catches : Option(ArrayList(String)).None,
       sm_unwind_catch : Option(SmUnwindCatch).None,
       variable_id_remapping : Option(HashMap(String, String)).None,
       pending_deferred_drops : Option(ArrayList(AstExpr)).None,
