@@ -4547,14 +4547,15 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   em.emit_string_line(`${indent}}`);
   em.emit_string_line(`${indent}${label}: ;`);
   low.suspensions.push(InlineSuspension(state : k, in_slot : !(is_named), is_io : is_io));
-  // The awaited future was aborted: this task escapes too (the awaiter
-  // observes the abort).
+  // The awaited future was aborted: this task takes over its unwind, and
+  // catches it (its own handler) or escapes too.
   em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
-  em.emit_string_line(`${inner}__yo_task_abort_observed((void*)${acc});`);
+  em.emit_string_line(`${inner}__yo_task_abort_take_unwind((void*)${acc});`);
   if(!(is_named), {
     em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
     em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
   });
+  emit_sm_unwind_catch(em, inner.clone(), context.sm_unwind_catch);
   emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
   em.emit_string_line(`${indent}}`);
   rt := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
