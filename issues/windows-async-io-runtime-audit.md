@@ -1,6 +1,6 @@
 # Windows async I/O runtime audit — findings register
 
-**Status: OPEN (audit 2026-09-12, branch `audit/windows-async-io`).** A
+**Status: OPEN (audit 2026-09-12, branch `audit/windows-async-io`; performance pass 2026-09-28, branch `perf/windows-async-io`).** A
 full read of `src/codegen/async/runtime_io_windows.yo` (both emitted
 sections) against `runtime_io_linux.yo`, `runtime_io_macos.yo`,
 `runtime_core.yo` and the std call sites, with every suspected bug
@@ -8,6 +8,55 @@ reproduced (or explicitly dispositioned) before fixing. Five defects were
 fixed in the same branch; this register records them and everything
 inspected and deliberately NOT changed, so the next audit starts from
 evidence rather than re-derivation.
+
+## 2026-09-28 performance pass (branch `perf/windows-async-io`)
+
+Four latency/syscall changes and two latent-race fixes, all in
+`runtime_io_windows.yo`:
+
+- **1 ms wait resolution.** `__yo_io_init` now calls `timeBeginPeriod(1)`
+  (winmm resolved dynamically — no new link dependency) and `__yo_io_cleanup`
+  releases it. Every GetQueuedCompletionStatusEx timeout — i.e. every sleep
+  and deadline on this backend — used to round up to the ~15.6 ms timer
+  interrupt. Measured (this host, `-O2`, seed vs rebuilt binary):
+  **avg sleep(4ms) 14–15 ms → 3–4 ms; worst 16–18 ms → 4–5 ms**. Regression
+  oracle: `tests/time/sleep.test.yo` "sub-tick sleeps honor their deadline"
+  (fails on the seed, passes after).
+- **fs.watch delivers through the IOCP** instead of the tick's
+  GetOverlappedResult probe: directory watch handles are associated with the
+  port, completions are consumed as packets (`__yo_win_finish_fs_event`),
+  and the same overlapped struct is re-armed per batch. Watch latency drops
+  from up to 50 ms (the wait cap the probe forced) plus the 10 ms watch-only
+  Sleep poll to an immediate wake; the probe syscall per wait is gone. The
+  structural hardening this register asked for under "RDCW consume/re-arm
+  pattern" below is now done. `__yo_fs_event_stop` no longer frees state the
+  kernel may still write (the old embedded OVERLAPPED was freed at close time
+  while a cancellation could still be in flight); ownership is now one packet
+  per arm, freed by whoever observes it last.
+- **Per-op IOCP association cache.** `__yo_win_associate_handle` consults a
+  thread-local open-addressing set of already-associated handle values, so
+  send/recv/read/write/... stop paying two syscalls per op (the failing
+  CreateIoCompletionPort attempt + re-setting the sticky completion mode).
+  Removal rides every close funnel (`__yo_file_close`,
+  `__yo_async_close_start`, the openat error path) because the kernel reuses
+  handle values; a stale entry would hang operations on the reused value.
+- **Bigger batch + idle skip.** GetQueuedCompletionStatusEx batch 64 → 128,
+  and `__yo_io_poll` skips the syscall entirely on steps with no pending I/O,
+  watches or parked pipe reads (stale cross-thread wake packets are allowed
+  to linger; they cost one spurious iteration, never a hang).
+- **Race fixes:** the dir-state CRITICAL_SECTION (process-global list,
+  per-loop init/delete) became a static SRWLOCK
+  (`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`);
+  the pid→HANDLE list got the same SRWLOCK treatment
+  (`windows-process-handle-list-is-an-unlocked-process-global.md`);
+  `__yo_io_cleanup` now resets `__yo_pending_io_count` so a loop that tears
+  down with live timers (a still-sleeping spawned task) does not leak its
+  count into the next loop on that thread.
+
+Also filed from this pass, unrelated to the runtime change:
+`an-async-closure-returning-a-cond-tail-drops-the-awaited-value-at-codegen.md`
+(a cond tail as an `io.async` return emits an empty argument at the consumer;
+pre-existing on the v0.2.45 seed).
 
 ## Fixed in this audit
 

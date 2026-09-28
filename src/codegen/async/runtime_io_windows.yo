@@ -2436,6 +2436,11 @@ static void __yo_io_cleanup(void) {
     __yo_win_assoc_cap = 0;
     __yo_win_assoc_count = 0;
   }
+  // Operations still "pending" died with the port above (their completions
+  // were never delivered and never will be): a loop that re-initializes on
+  // this thread must not inherit their counts, or __yo_has_pending_io reports
+  // phantom work forever and a later wait parks on a port with nothing left.
+  __yo_pending_io_count = 0;
   __yo_win_release_timer_resolution();
   WSACleanup();
   __yo_io_initialized = false;
@@ -4825,6 +4830,11 @@ static void* __yo_fs_event_init(void) {
 }
 
 static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
+  // The watch arms an IOCP operation NOW, and the caller may reach this from
+  // ahead of any event loop turn (watch() before the first await): bring the
+  // backend up on demand exactly like every other *_start, so the port the
+  // directory is associated with is the one the loop will later wait on.
+  __yo_io_init();
   __yo_fs_event_t* handle = (__yo_fs_event_t*)h;
   if (!handle || !path || !callback) return -EINVAL;
 

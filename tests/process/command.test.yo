@@ -579,16 +579,18 @@ test("take_stderr reads a child's stderr as a Reader", {
 // — but a wrong exit status, an ESRCH-flavored error, or a crash here is this
 // bug's signature.
 _spawn_wait_rounds :: (fn(io : Io) -> unit)({
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
-        unwind(());
-      }
-    )
-  );
-  e := IoExn(io : io, exn : exn);
+  // The IoExn is built INSIDE the async body: an exception value carries its
+  // control function, and a closure cannot capture a control-bound value.
   task := io.async((io : Io) => {
+    exn := Exception(
+      throw : (
+        err -> {
+          assert(false, `unexpected exception: ${err.to_string()}`);
+          unwind(());
+        }
+      )
+    );
+    e := IoExn(io : io, exn : exn);
     (n : i64) = i64(0);
     while(runtime(n < i64(12)), {
       cmd := cond(
