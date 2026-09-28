@@ -47,7 +47,41 @@ combinators (`map(...).filter(...)`, `filter(...).map(...)`) and `take(...).take
 - Reproduces with the develop compiler, before and after the p37 substitution
   changes (the name-keyed rewrite of a resolved SomeT is not the cause).
 
-## Not yet known
+It happens with Iterator combinators too: `xs.into_iter().map(f).map(g).count()` fails the
+same way, on develop as well.
 
-Which site builds the specialization's declared result type, and why its type
-arguments stay abstract while its fields are concrete.
+## Root cause (measured with probes on the branch `tss/stream-repeat`)
+
+The root is that **a substituted instance keeps its def-era struct id**. So
+`StreamMap(StreamMap(Channel, …), …)` nests two different instances under one id
+(`struct_async__stream_StreamMap_r1c6_n1`), and three identity mechanisms keyed by that id
+read the nesting as a cycle or as a match:
+
+1. **`type_key`'s cycle guard** (`types/type_key.yo`, `g_tk_visited`) cut the inner
+   instance to its bare id. So the spec's declared result
+   (`StreamMap(Self, B, F)`, whose `Self` is the inner instance) and the value it builds
+   got different keys. A probe on `evaluate_function_return_type_again` showed the outer
+   result's first argument rendered as `struct_…_n1` instead of the inner `gs_…` key.
+   *Fix (on the branch):* a path entry is the id plus the type arguments' identities
+   (`_tk_node_id`). This alone fixes every two-deep repeat.
+2. **The specialization cache** (`_find_specialization_cache`) accepts
+   `are_types_compatible_exact`, which judges two instances of one id equal without their
+   arguments. It checked `type_key` only when the cached type carried SomeTs.
+   *Fix:* require `type_key` equality for any instantiation with type arguments.
+3. **The intern key** (`types/intern.yo`, `S:<id>` visited token) has the same id-only
+   guard. The third `map`'s substituted result `StreamMap(SM2, B, F)` interned to the
+   second's `StreamMap(SM1, B, F)`: both nested instances rendered as `S:n1`, with the same
+   still-open `B`/`F`. A probe after the method-type `substitute` in
+   `find_methods_from_generic_impls` showed the match bound `S := SM2` while the
+   substituted result's argument was `SM1`.
+   *Fix (on the branch, not yet built):* the token carries the type arguments' identities
+   (`_ik_node_token`).
+
+Also on the branch: impl matching takes each forall's receiver-pattern binding before the
+where pass (`pre_where_bindings`, `values/impl.yo`), because the pass's env write-back let
+a nested match of the same impl overwrite it.
+
+## Status
+
+Two-deep repeats and alternating chains are fixed and tested on the branch. Three-deep and
+deeper repeats await a build of fix 3.
