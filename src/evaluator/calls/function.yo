@@ -2892,7 +2892,14 @@ _funcval_bind_foralls :: (
             .Some(se_val) => match(
               se_val,
               .TypeVal(se_tb) => {
-                if(!(is_some_type(se_tb)), {
+                // Concrete the way codegen means it: a type variable carrying
+                // an `io.async` body's `Future` or a closure's `Fn` lowers to its
+                // state machine / capture struct, so it IS the binding. The
+                // strict `!is_some_type` test dropped it, and
+                // `call_it(() => io.async(...))` with
+                // `fn(generic(T), f : Impl(Fn() -> T)) -> T` reported E0613
+                // (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+                if(!(type_contains_some_type_deep(se_tb)), {
                   fa_bound_names.push(fa_name.clone());
                   fa_bound_types.push(se_tb.clone());
                   _add_forall_sy := add_variable_to_env(

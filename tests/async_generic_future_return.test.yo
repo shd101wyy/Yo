@@ -142,4 +142,7 @@ test("a generic T bound by a closure that returns an io.async future", {
   pair_task := _call_it(() => io.async((io : Io) => _Pair(lo : i32(2), hi : i32(5))));
   p := io.await(pair_task, io);
   assert((p.lo + p.hi) == i32(7), "a second T");
+  // Annotating the binding names the same type and binds the same way.
+  (annotated : Impl(Future(i32, Io))) = _call_it(() => io.async((io : Io) => i32(9)));
+  assert(io.await(annotated, io) == i32(9), "an annotated binding");
 });
