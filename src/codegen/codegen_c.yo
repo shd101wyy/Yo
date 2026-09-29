@@ -294,20 +294,22 @@ static int __yo_dispose_dispatch(void* ptr) {
 /// defined once every pooled type has its index. Pooled types are the ones
 /// whose constructor asked for an index: under lightweight RC only, since the
 /// cycle collector frees through its own path.
-emit_sm_pools :: (fn(context : CodeGenContext) -> unit)({
+emit_sm_pools :: (fn(context : CodeGenContext, uses_async : bool) -> unit)({
   em := context.emitter;
   n := context.sm_pool_ids.len();
-  if(n == usize(0), {
+  // Without the async runtime there is no thread-exit hook to drain a pool,
+  // so every machine is freed as before.
+  if((n == usize(0)) || !uses_async, {
     em.emit_string_line(
-      `static void* __yo_sm_take(size_t pool, size_t size) { (void)pool; return __yo_rc_alloc(size); }
-static int __yo_sm_give(size_t pool, void* p) { (void)pool; (void)p; return 0; }
-static void __yo_sm_pools_drain(void) { }`
+      `static inline void* __yo_sm_take(size_t pool, size_t size) { (void)pool; return __yo_rc_alloc(size); }
+static inline int __yo_sm_give(size_t pool, void* p) { (void)pool; (void)p; return 0; }
+static inline void __yo_sm_pools_drain(void) { }`
     );
     return();
   });
   em.emit_string_line(
     `static _Thread_local __yo_sm_pool_t __yo_sm_pools[${n.to_string()}];
-static void* __yo_sm_take(size_t pool, size_t size) {
+static inline void* __yo_sm_take(size_t pool, size_t size) {
 #if __YO_SM_POOLS
   __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
   void* p = sp->head;
@@ -321,7 +323,7 @@ static void* __yo_sm_take(size_t pool, size_t size) {
 #endif
   return __yo_rc_alloc(size);
 }
-static int __yo_sm_give(size_t pool, void* p) {
+static inline int __yo_sm_give(size_t pool, void* p) {
 #if __YO_SM_POOLS
   __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
   if (sp->count < __YO_SM_POOL_CAP) {
@@ -336,7 +338,7 @@ static int __yo_sm_give(size_t pool, void* p) {
 #endif
   return 0;
 }
-static void __yo_sm_pools_drain(void) {
+static inline void __yo_sm_pools_drain(void) {
   for (size_t i = 0; i < ${n.to_string()}; i++) {
     while (__yo_sm_pools[i].head) {
       void* p = __yo_sm_pools[i].head;
@@ -550,9 +552,7 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
-  if(ctx.uses_async, {
-    emit_sm_pools(base);
-  });
+  emit_sm_pools(base, ctx.uses_async);
   raise_codegen_error(exn);
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;

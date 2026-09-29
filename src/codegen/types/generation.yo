@@ -1091,6 +1091,36 @@ static inline void __yo_future_set_bundle(void* fut, const void* value) {
   const __yo_future_vtable_t* vt = ((__yo_future_header_t*)fut)->vt;
   if (vt && vt->bundle_size) memcpy((char*)fut + vt->bundle_offset, value, vt->bundle_size);
 }
+// Per-type pools of released state machines
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7). A task's memory goes back
+// to its type's pool when its last reference is released, and the next task
+// of that type takes it: a pop and a push instead of malloc and free, which
+// were half of a cold await. A pool is thread-local, like the loop that runs
+// its tasks, holds at most __YO_SM_POOL_CAP blocks, and is drained with the
+// continuation pool below. Off under AddressSanitizer, which has to see every
+// task freed to catch a use after free, and off in a program without the
+// async runtime (a sync future nothing awaits), which has no thread-exit hook
+// to drain them. The pools and these functions are defined at the end of the
+// program, where the number of pooled types is known (emit_sm_pools,
+// codegen_c.yo).
+#define __YO_SM_POOL_CAP 32
+#if defined(__SANITIZE_ADDRESS__)
+#define __YO_SM_POOLS 0
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define __YO_SM_POOLS 0
+#endif
+#endif
+#ifndef __YO_SM_POOLS
+#define __YO_SM_POOLS 1
+#endif
+typedef struct __yo_sm_pool_t {
+  void* head;
+  uint32_t count;
+} __yo_sm_pool_t;
+static void* __yo_sm_take(size_t pool, size_t size);
+static int __yo_sm_give(size_t pool, void* p);
+static void __yo_sm_pools_drain(void);
 
 // Generic I/O Future type for extern "Yo" functions returning Impl Future(T).
 // The same prefix as __yo_future_header_t, spelled out because the loop's
