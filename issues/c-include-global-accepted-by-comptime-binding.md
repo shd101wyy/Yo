@@ -1,5 +1,7 @@
 # `::` accepts a `c_include`d extern global and emits an undeclared C name
 
+**Severity:** S2 — impl assoc-const from a c_include constant passes check, fails as a pasted C-comment syntax error
+
 **Status:** PARTIALLY FIXED 2026-09-08 — the `::` half is fixed, the ASSOCIATED-CONST half is not
 **Found:** 2026-09-08, alongside `issues/fixed/c-include-global-does-not-emit-its-header.md`.
 

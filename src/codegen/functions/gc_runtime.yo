@@ -152,6 +152,7 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
     }, {
       em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
     });
+    em.emit_declaration_line("#define __YO_UNWIND_VALUE_SIZE 64");
     return();
   });
   decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
@@ -196,6 +197,7 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
     decl.push_str("} __yo_unwind_value_storage;\n");
     decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
   });
+  decl.push_str("\n#define __YO_UNWIND_VALUE_SIZE sizeof(__yo_unwind_value_storage)");
   em.emit_declaration_string_line(decl);
 });
 // ---------------------------------------------------------------------------
@@ -215,39 +217,79 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
 /// it is freed, so a reused address can never match a stale entry.
 emit_task_abort_registry :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  em.emit_declaration_line("typedef struct { void** items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
+  // Each entry also carries the unwind that aborted the task: its target (the
+  // handler whose `unwind` it was, `__yo_unwind_target`) and a copy of the
+  // unwound value. Between a task's abort and the moment its awaiter reads it,
+  // other tasks run and may unwind themselves, so the thread-local pair is
+  // stale by then; the entry is what the awaiter restores
+  // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+  em.emit_declaration_line("typedef struct { void* fut; uint64_t target; void* value; } __yo_task_abort_entry_t;");
+  em.emit_declaration_line("typedef struct { __yo_task_abort_entry_t* items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
   if(context.base.chunk_mode, {
     em.emit_declaration_line("extern _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    em.emit_declaration_line("extern _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
     cgb := context.base;
     cgb.chunk_globals.push_string(String.from("_Thread_local __yo_task_abort_registry_t __yo_task_aborts;\n"));
+    cgb.chunk_globals.push_string(String.from("_Thread_local uint64_t __yo_unwind_target;\n"));
   }, {
     em.emit_declaration_line("static _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    em.emit_declaration_line("static _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
   });
   em.emit_declaration_string_line(
     `static void __yo_task_abort_register(void* fut) {
   if (__yo_task_aborts.len == __yo_task_aborts.cap) {
     size_t cap = (__yo_task_aborts.cap == 0) ? 8 : (__yo_task_aborts.cap * 2);
-    void** items = (void**)__yo_realloc(__yo_task_aborts.items, cap * sizeof(void*));
-    if (items == NULL) __yo_alloc_fail(cap * sizeof(void*));
+    __yo_task_abort_entry_t* items = (__yo_task_abort_entry_t*)__yo_realloc(__yo_task_aborts.items, cap * sizeof(__yo_task_abort_entry_t));
+    if (items == NULL) __yo_alloc_fail(cap * sizeof(__yo_task_abort_entry_t));
     __yo_task_aborts.items = items;
     __yo_task_aborts.cap = cap;
   }
-  __yo_task_aborts.items[__yo_task_aborts.len++] = fut;
+  void* value = NULL;
+  if (__yo_unwind_target != 0) {
+    value = __yo_malloc(__YO_UNWIND_VALUE_SIZE);
+    if (value == NULL) __yo_alloc_fail(__YO_UNWIND_VALUE_SIZE);
+    memcpy(value, __yo_unwind_value, __YO_UNWIND_VALUE_SIZE);
+  }
+  __yo_task_abort_entry_t e = { fut, __yo_unwind_target, value };
+  __yo_task_aborts.items[__yo_task_aborts.len++] = e;
+  __yo_unwind_target = 0;
 }
-static int __yo_task_abort_take(void* fut) {
+// Remove fut's entry. With restore, its unwind becomes the in-flight one
+// again (target 0 when the task was cancelled rather than unwound).
+static int __yo_task_abort_take_entry(void* fut, int restore) {
+  if (restore) __yo_unwind_target = 0;
   for (size_t i = __yo_task_aborts.len; i > 0; i--) {
-    if (__yo_task_aborts.items[i - 1] == fut) {
-      __yo_task_aborts.items[i - 1] = __yo_task_aborts.items[--__yo_task_aborts.len];
+    __yo_task_abort_entry_t* e = &__yo_task_aborts.items[i - 1];
+    if (e->fut == fut) {
+      if (e->value) {
+        if (restore) {
+          __yo_unwind_target = e->target;
+          memcpy(__yo_unwind_value, e->value, __YO_UNWIND_VALUE_SIZE);
+        }
+        __yo_free(e->value);
+      }
+      *e = __yo_task_aborts.items[--__yo_task_aborts.len];
       return 1;
     }
   }
   return 0;
 }
+static int __yo_task_abort_take(void* fut) {
+  return __yo_task_abort_take_entry(fut, 0);
+}
 // An awaiter or handle read the Aborted state: the abort is handled.
 static void __yo_task_abort_observed(void* fut) {
   if (__yo_task_aborts.len != 0) (void)__yo_task_abort_take(fut);
 }
-// The task's last reference is gone: nobody can observe the abort any more.
+// An awaiter read the Aborted state and takes over the unwind that caused it:
+// it either catches it (its own handler unwound) or propagates it.
+static void __yo_task_abort_take_unwind(void* fut) {
+  (void)__yo_task_abort_take_entry(fut, 1);
+}
+`
+  );
+  em.emit_declaration_string_line(
+    `// The task's last reference is gone: nobody can observe the abort any more.
 static void __yo_task_abort_released(void* fut) {
   if (__yo_task_aborts.len != 0 && __yo_task_abort_take(fut)) {
     fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
@@ -257,6 +299,7 @@ static void __yo_task_abort_released(void* fut) {
 static void __yo_task_abort_report_unobserved(void) {
   for (size_t i = 0; i < __yo_task_aborts.len; i++) {
     fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
+    if (__yo_task_aborts.items[i].value) __yo_free(__yo_task_aborts.items[i].value);
   }
   __yo_task_aborts.len = 0;
 }`

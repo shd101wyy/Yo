@@ -81,6 +81,7 @@ pragma(Pragma.AllowUnsafe);
   flow_violation_pending,
   flow_violation_error,
   raise_flow_violation,
+  reraise_flow_violation,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1744,14 +1745,14 @@ Result type: ${type_to_string(result_box)}`
           // not fit its parameter, … anywhere in the body). The handler is
           // capture-free so it could not propagate it directly; the raise site
           // flagged the error instead, and we re-throw that same error, at its
-          // own span, via the real `exn`. Unconditional (NOT under
+          // own span, via the real `exn`, flagged again for an enclosing
+          // trial (`reraise_flow_violation`). Unconditional (NOT under
           // `result_is_ref`) because the enclosing function may return any
           // type — e.g. `fn() -> unit`.
           match(
             flow_violation_error(),
             .Some(viol_err) => {
-              clear_flow_violation();
-              exn.throw(dyn(viol_err));
+              reraise_flow_violation(viol_err, ctx, exn);
             },
             .None => ()
           );

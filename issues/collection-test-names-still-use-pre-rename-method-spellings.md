@@ -1,5 +1,7 @@
 # 37 collection tests are named after methods that no longer exist (`add`, `has`, `set`, `min`/`max`, `iter_ptr`)
 
+**Severity:** S3 — 37 green tests named after deleted methods — name-pattern and coverage greps mislead
+
 **Status:** OPEN
 **Severity:** papercut — the assertions are correct and green; only the test
 *names* are wrong, and they are the tree's index of collection coverage.

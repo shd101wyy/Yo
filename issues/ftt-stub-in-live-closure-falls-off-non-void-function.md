@@ -1,5 +1,7 @@
 # A `Failed to transpile` marker in a LIVE closure falls off a value-returning C function
 
+**Severity:** S1 — failed-transpile statements are silently dropped from live closures — programs run with missing side effects
+
 **Status: PARTIALLY FIXED — still OPEN for the `unit`-returning case.**
 
 The half described below, where the enclosing C function RETURNS A VALUE, is
@@ -216,6 +218,6 @@ spaces/tabs and require a newline (or buffer start).
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: no longer silent.** The committed repro (with its effect bundle fixed) and unit-returning variants, with or without an await, now fail `yo compile` with the generic E0905. `yo check` still exits 0, and the real error (`E0610 No method "no_such_method_at_all"`) is visible only through `YO_DEBUG_SWALLOW=1`.

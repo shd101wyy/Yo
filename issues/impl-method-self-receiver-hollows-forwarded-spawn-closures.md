@@ -1,5 +1,7 @@
 # A closure parameter forwarded into a spawn primitive from a `self`-receiver method is specialized only once
 
+**Severity:** S1 — forwarded task closures emit FTT comments for all but the first — the program silently does nothing for N−1 tasks
+
 **Status:** OPEN — worked around in `std/thread.yo` (its `spawn` is a
 module-level function, not a `pool.spawn(cb)` method).
 

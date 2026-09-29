@@ -1,5 +1,7 @@
 # walker follow_symlinks is gated off on Windows — the follow path dies with "unknown I/O error"
 
+**Severity:** S3 — the walker cannot follow directory symlinks on Windows — the capability is comptime-gated off on that platform
+
 **Status: OPEN.** Found 2026-08-22 on PR #229's `test (windows-latest)` leg.
 
 ## Symptom

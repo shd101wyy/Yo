@@ -1,5 +1,7 @@
 # An assignment's old-value save reads uninitialized memory for POD types
 
+**Severity:** S1 — generated C reads uninitialized malloc'd memory for POD assignment saves — undefined behavior
+
 Found while running the tier-1 battery locally under `zig cc` (the deck box
 has no clang; a `cc` shim wrapping `zig cc` stands in): `tests/rand.test.yo`
 died with

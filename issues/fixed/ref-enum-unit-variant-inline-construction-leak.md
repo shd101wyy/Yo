@@ -203,7 +203,7 @@ gates them.
 > **NOTE (2026-08-06):** the "Adjacent gaps" example below uses a function named
 > `consume`, which the builtin `consume` silently shadows — the observation it makes is
 > an artifact of that shadowing, not a codegen gap. See
-> `issues/builtin-name-shadows-user-definition.md`.
+> `issues/questions/builtin-name-shadows-user-definition.md`.
 > found and deliberately left out of scope
 
 - `issues/retired/ctfe-elided-unit-call-arg-temp-leak.md` — when the callee is _fully_ elided by

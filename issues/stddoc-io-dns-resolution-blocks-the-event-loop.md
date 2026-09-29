@@ -1,5 +1,7 @@
 # "Async DNS resolution" blocks the whole event loop — `getaddrinfo` runs synchronously on the loop thread
 
+**Severity:** S2 — `getaddrinfo` runs synchronously on the single-threaded loop — every DNS lookup stalls all concurrent tasks
+
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
 **Status:** open. Filed, not fixed — the sweep is documentation-only. The doc
 comments in `std/net/dns.yo` were corrected in the sweep to describe what the

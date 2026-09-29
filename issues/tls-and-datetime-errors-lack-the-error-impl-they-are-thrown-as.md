@@ -1,5 +1,7 @@
 # `TlsError` is thrown as an `AnyError` without implementing `Error` — and `DateTimeError`/`PercentError` are missing the impl too
 
+**Severity:** S3 — the remaining open item (PercentError) has neither ToString nor Error impls — a std error type cannot render (partially fixed)
+
 **Status:** PARTIALLY FIXED 2026-09-05 — items 1 (`TlsError`) and 2
 (`DateTimeError`) landed with the `dyn()` bound check (C69,
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`), which

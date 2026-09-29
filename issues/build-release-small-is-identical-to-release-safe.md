@@ -1,5 +1,7 @@
 # `ReleaseSmall` builds exactly like `ReleaseSafe`, and `std/build.yo` documents `-g` that is never passed
 
+**Severity:** S3 — ReleaseSmall emits byte-identical cc argv to ReleaseSafe — the advertised build-mode distinctions do not exist
+
 **Status:** OPEN
 **Found:** 2026-08-25, auditing the `yo compile` optimization flags.
 **Severity:** low-but-dishonest — the build system advertises two optimization

@@ -1,5 +1,7 @@
 # `yo fmt` gives two different verdicts for the SAME pointer-type spelling
 
+**Severity:** S3 — the identical pointer spelling gets opposite `fmt --check` verdicts per file — the CI gate fails copied code
+
 **Status:** OPEN. Observed 2026-09-07 while integrating the D-batch PRs
 (`plans/archive/STD_API_STABILIZATION.md`). Not a blocker — the fix is to run `yo fmt`
 and take whatever it produces — but it makes `fmt --check` unpredictable when

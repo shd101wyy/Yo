@@ -1,5 +1,7 @@
 # Async abort-dispose double-drops: moved-into-dyn payloads (open) and awaitless-match bindings (FIXED)
 
+**Severity:** S1 — abort-dispose double-frees a moved enum payload (ASan-confirmed heap-use-after-free)
+
 **Status: the binding pair is FIXED in TS (2026-08-11); the move-out pair
 remains band-aided by a call-site clone.** Found by the new
 `tests/internal/version.test.yo` "read_yo_version: throws on invalid
@@ -75,6 +77,22 @@ moves the payload into a value that outlives the abort) + ASan on Linux.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: now a LEAK, not a double drop** (tree build). The doc had no runnable repro. `issues/repros/async-abort-dispose-leaks-local-slots.yo` builds the shape: a `match` on an SM-held `Result` whose `.Err(msg)` arm throws `dyn(msg)` without a clone, and the handler unwinds. ASan reports no double-free or UAF. LSan reports `171 byte(s) leaked in 5 allocation(s)`: the moved `msg`, `content`, their String headers, and the 64 B `__yo_task_abort_register` array. The emitted `_state_dispose` drops the captures and, only when `state == -1`, the result. It drops no local slot on abort (`local_var_drops` is empty for this body; `generate_async_block_state_dispose_function`, `src/codegen/exprs/async.yo`). Per-state drop tables (plan phase 4) are the structural fix.
+
+## The binding pair, self-hosted (2026-09-29, async state-machine plan phase 1)
+
+The self-hosted compiler now stores pattern bindings into SM slots (`match.yo`'s
+state-machine storage parity store, and the two `state_code_gen.yo` binding
+stores), so the binding pair came back: the `state == -2` dispose dropped
+`sm->var_<binding>` and the scrutinee slot. For a `ref` payload (`Option(Thing)`
+matched as `.Some(q)` across an await) this was a use-after-free already; once
+the abort dispose learned to drop String locals it also hit
+`tests/async_await.test.yo` "abort dispose skips awaitless-match pattern
+bindings". **Fixed** the way the TS did it: every binding-store site records the
+variable id in `FunctionGenerationContext.state_machine_binding_ids`, and
+`generate_async_block_state_dispose_function` skips those ids. Test:
+`tests/async/sm_ownership.test.yo` "an aborted task drops a pattern binding's
+scrutinee once" (ASan UAF before, passes after). The moved-payload pair above
+stays open.

@@ -1,5 +1,7 @@
 # `yo version install` fails with "cross-device link" when /tmp is tmpfs
 
+**Severity:** S2 — `yo version install` aborts "cross-device link" after the download on any Linux where /tmp is tmpfs (fix on a branch; still OPEN here)
+
 **Status: OPEN** (hit 2026-09-08 installing the v0.2.28 seed on a normal
 Linux desktop — Steam Deck, /tmp tmpfs, /home ext4).
 

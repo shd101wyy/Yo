@@ -399,6 +399,24 @@ standalone, not closures" is the implementation-side statement of the same rule.
   [Handler Functions Are Not Closures](#handler-functions-are-not-closures).
 - `return(value)` is **one-shot** — the captured continuation can be
   resumed at most once.
+- `unwind(value)` exits the frame that **installed** the handler: the
+  function or the `io.async` block whose body the handler literal is written
+  in. Frames in between, including async tasks, are unwound through (a task in
+  between is aborted). When the installer is an `io.async` block, the value
+  **resolves that block's future**, so it must have the block's result type:
+
+  ```rust
+  guarded := io.async((e : IoExn) => {
+    local := Exception(throw : (err -> { unwind(Result(String, String).Err(err.to_string())); }));
+    raw := e.io.await(may_fail(e.io), IoExn(io : e.io, exn : local));
+    Result(String, String).Ok(raw)
+  });
+  // .Err("...") when may_fail threw: the error is caught per task.
+  r := io.await(guarded, e);
+  ```
+
+  A frame that only passes a handler along never catches its unwind, so no
+  frame reads another frame's value as its own.
 - An `unwind` that no handler catches is **never lost**.
   - One that ends an async task aborts the task, and the abort is reported
     only if nobody observes it. Observing is silent: `JoinHandle.await`

@@ -1,5 +1,7 @@
 # An INHERENT associated constant does not resolve as an `Array` length
 
+**Severity:** S2 — `Array(u8, T.BYTES)` spelled as an inherent assoc const is wrongly rejected (trait-member spelling works)
+
 **Status:** OPEN. Found 2026-09-16 while preparing the `std/` adoption that
 value substitution (#714) exists to unblock. It is a LIMITATION of that
 feature, not a regression — the case errors cleanly and never miscompiles.

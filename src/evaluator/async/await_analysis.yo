@@ -63,7 +63,8 @@ AwaitPointExtra :: ref(
   struct(
     result_type : TypeValue,
     future_type : Option(TypeValue),
-    future_variable_id : Option(String)
+    future_variable_id : Option(String),
+    target_is_reassign : bool
   )
 );
 // ---------------------------------------------------------------------------
@@ -342,6 +343,9 @@ detect_await_expr_ :: (
       future_variable_id := get_future_variable_id_(await_arg.clone(), get_info);
       // Get the target variable ID from the parent := assignment, if any
       target_variable_id := extract_target_variable_id(parent_expr.clone(), get_info);
+      // `x = io.await(…)` overwrites a live value (its old reference must be
+      // released); `x := io.await(…)` binds a fresh one.
+      target_is_reassign := (target_variable_id.is_some() && match(parent_expr.clone(), .Some(pe) => ast_expr_is_fn_call_of(pe, "=", Option(usize).Some(usize(2))), .None => false));
       // Store async-specific extras in the side-channel, keyed by token position
       expr_char_key := usize(tok.character).to_string();
       await_extras.insert(
@@ -349,7 +353,8 @@ detect_await_expr_ :: (
         AwaitPointExtra(
           result_type : result_type.clone(),
           future_type : Option(TypeValue).Some(future_module_type),
-          future_variable_id : future_variable_id
+          future_variable_id : future_variable_id,
+          target_is_reassign : target_is_reassign
         )
       );
       // Push the base suspension point (walk_expr_ will fill in structural fields)
@@ -466,7 +471,8 @@ analyze_await_points :: (
           base : sp,
           result_type : extra.result_type,
           future_type : extra.future_type,
-          future_variable_id : extra.future_variable_id
+          future_variable_id : extra.future_variable_id,
+          target_is_reassign : extra.target_is_reassign
         );
         await_points.push(ap);
       }

@@ -1,5 +1,7 @@
 # `json_stringify` renders every number through `%g` — `123456789` serialises to `1.23457e+08` and parses back as `123457000`
 
+**Severity:** S2 — `%g`'s 6 significant digits silently corrupt JSON numbers (123456789 → 1.23457e+08 → 123457000)
+
 **Status:** OPEN — wrong value on a shipped serializer; JSON output is not a
 round-trip. Found 2026-09-04 in the std-API-audit re-measurement of the
 encoding/TOML row, while deciding how a future TOML writer should render

@@ -1,5 +1,7 @@
 # A same-operator chain of FOUR or more operands is not left-associative — `20 - 5 - 4 - 3` is 16
 
+**Severity:** S1 — a 4+-operand same-operator chain parses one level off — `20 - 5 - 4 - 3` silently evaluates to 16
+
 **Status: OPEN. Not fixed — see "Why this is not a small fix".**
 
 **Severity: language semantics.** Yo has no operator precedence; the rule is

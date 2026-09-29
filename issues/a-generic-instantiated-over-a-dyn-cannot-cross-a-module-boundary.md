@@ -1,5 +1,7 @@
 # A generic instantiated over a `Dyn` cannot cross a module boundary
 
+**Severity:** S1 — valid program ICEs (or silently degrades to an abort stub) when a generic over a Dyn crosses a module boundary
+
 **Status:** open
 **Found:** 2026-09-15 writing `error_chain`; **re-diagnosed 2026-09-16 — the first
 characterization in this file was WRONG and is corrected below.**

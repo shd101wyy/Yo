@@ -1,5 +1,7 @@
 # Mutual recursion between a free fn and a trait-impl body silently produces an abort() stub
 
+**Severity:** S2 — fn ↔ trait-impl mutual recursion is wrongly rejected (E0610 on a valid recursive-tree `Eq`)
+
 **Status: OPEN.** Found 2026-09-09 while writing `Eq` for the recursive
 `JsonValue` tree.
 

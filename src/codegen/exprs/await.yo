@@ -52,6 +52,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ unwind_catch_condition } :: import("./async_completion.yo");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
@@ -334,48 +335,6 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
     )
   );
 });
-/// True when the current function is the handler-installation point for an
-/// algebraic effect that could cause a Future abort (the effect is locally
-/// installed, not forwarded via evidence params).
-is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, context : FunctionGenerationContext) -> bool)({
-  effect := match(_first_future_effect(future_trait_type), .Some(e) => e, .None => return(false));
-  if(is_function_type(effect.ty), {
-    key := `${effect.label.clone()}.${effect.label.clone()}`;
-    forwarded := match(context.current_evidence_params, .Some(eps) => eps.contains_key(key), .None => false);
-    if(!forwarded, {
-      return(true);
-    });
-  }, {
-    if(is_module_type(effect.ty) || is_struct_type(effect.ty), {
-      prefix := `${effect.label.clone()}.`;
-      (is_forwarded : bool) = false;
-      match(
-        context.current_evidence_params,
-        .Some(eps) => {
-          it := eps.into_iter();
-          (go : bool) = true;
-          while(go, {
-            match(
-              it.next(),
-              .Some(e) => if(e.key.starts_with(prefix.clone()), {
-                is_forwarded = true;
-                go = false;
-              }),
-              .None => {
-                go = false;
-              }
-            );
-          });
-        },
-        .None => ()
-      );
-      if(!is_forwarded, {
-        return(true);
-      });
-    });
-  });
-  false
-});
 /// `await` — extract a value from a Future. Inside a state machine, returns "" (the
 /// FSM resume generator handles the suspension). For `io.await` outside a state
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract).
@@ -485,9 +444,10 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   em.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}  if (__await_state == -2) {`);
-  // Awaiting an unwind-aborted task observes the abort (the unwind
-  // propagates or the handler installs here), so it is not "unhandled".
-  em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed((void*)${sync_future_var.clone()});`);
+  // Awaiting an unwind-aborted task observes the abort, so it is not
+  // "unhandled", and takes over the unwind that caused it (below: caught here
+  // or propagated).
+  em.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
   // Determine whether the future carries algebraic effects (resolve SomeType).
   effect_opt := _first_future_effect(future_trait_type);
   effect_type_resolved := match(
@@ -536,39 +496,55 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    is_handler_installation := is_await_unwind_handler_installation(future_trait_type, context);
     return_type := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
-    if(is_handler_installation, {
-      em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
-      match(
-        return_type,
-        .Some(rt) => if(!is_unit_type(rt), {
-          caller_c_type := get_type_string(rt, context.base);
-          if(caller_c_type != "void", {
-            em.emit_string_line(`${indent.clone()}    ${caller_c_type.clone()} _unw_result;`);
-            em.emit_string_line(`${indent.clone()}    memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
-            em.emit_string_line(`${indent.clone()}    return _unw_result;`);
+    // Caught here only when the handler that unwound was installed in THIS
+    // function, so the value has this function's return type. Deciding by the
+    // effect bundle (a bundle built here counted as an installation) let a
+    // frame that merely passed a handler along read another frame's value as
+    // its own result: type confusion, a SIGSEGV or a silent rc 0
+    // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+    match(
+      match(context.unwind_catches, .Some(ucs) => unwind_catch_condition(ucs), .None => Option(String).None),
+      .Some(catch_cond) => {
+        em.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
+        em.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
+        em.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
+        match(
+          return_type,
+          .Some(rt) => if(!is_unit_type(rt), {
+            caller_c_type := get_type_string(rt, context.base);
+            if(caller_c_type != "void", {
+              em.emit_string_line(`${indent.clone()}      ${caller_c_type.clone()} _unw_result;`);
+              em.emit_string_line(`${indent.clone()}      memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
+              em.emit_string_line(`${indent.clone()}      return _unw_result;`);
+            }, {
+              em.emit_string_line(`${indent.clone()}      return;`);
+            });
           }, {
-            em.emit_string_line(`${indent.clone()}    return;`);
-          });
-        }, {
-          em.emit_string_line(`${indent.clone()}    return;`);
-        }),
-        .None => em.emit_string_line(`${indent.clone()}    return;`)
-      );
-    }, {
-      em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
-      match(
-        return_type,
-        .Some(rt) => if(!is_unit_type(rt), {
-          return_type_str := get_type_string(rt, context.base);
+            em.emit_string_line(`${indent.clone()}      return;`);
+          }),
+          .None => em.emit_string_line(`${indent.clone()}      return;`)
+        );
+        em.emit_string_line(`${indent.clone()}    }`);
+      },
+      .None => ()
+    );
+    // Anyone else's unwind (or a cancellation) propagates to this caller.
+    em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
+    match(
+      return_type,
+      .Some(rt) => if(!is_unit_type(rt), {
+        return_type_str := get_type_string(rt, context.base);
+        if(return_type_str != "void", {
           em.emit_string_line(`${indent.clone()}    return (${return_type_str}){0};`);
         }, {
           em.emit_string_line(`${indent.clone()}    return;`);
-        }),
-        .None => em.emit_string_line(`${indent.clone()}    return;`)
-      );
-    });
+        });
+      }, {
+        em.emit_string_line(`${indent.clone()}    return;`);
+      }),
+      .None => em.emit_string_line(`${indent.clone()}    return;`)
+    );
   }, {
     em.emit_string_line(`${indent.clone()}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
     em.emit_string_line(`${indent.clone()}    abort();`);
@@ -717,15 +693,10 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   var_decl := get_variable_type_string(option_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}${var_decl};`);
   em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}.__future;`);
+  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}->__future;`);
   em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
-  em.emit_string_line(`${indent.clone()}    __yo_ref_header_t header;`);
-  em.emit_string_line(`${indent.clone()}    int state;`);
-  em.emit_string_line(`${indent.clone()}    void (*cancel_pending_fn)(void*);`);
+  em.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
   em.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
-  em.emit_string_line(`${indent.clone()}    void (*continuation_fn)(void*);`);
-  em.emit_string_line(`${indent.clone()}    void* continuation_sm;`);
-  em.emit_string_line(`${indent.clone()}    void (*__yo_resume_fn)(void*);`);
   em.emit_string_line(`${indent.clone()}  };`);
   em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()}* ${header_var.clone()} = (struct ${header_struct_name.clone()}*)${fut_var.clone()};`);
   em.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
@@ -767,14 +738,9 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // Release the reference the handle took at io.spawn (see _generate_io_spawn's
-  // ownership comment). AFTER the result is read and dup'd above, since this
-  // may be the last reference and free the state machine. Pairing the two is
-  // what keeps the fix leak-free; it does mean a handle must be awaited AT MOST
-  // ONCE, which is how every spawn site in the corpus uses it (verified: 18
-  // handles, zero double-awaits) and is the same single-use contract Rust's
-  // JoinHandle::join enforces by taking self by value.
-  em.emit_string_line(`${indent.clone()}  __yo_decr_rc(${fut_var.clone()});  // release the JoinHandle's reference`);
+  // The future stays referenced by the handle itself (a `ref` struct whose
+  // Dispose releases it), so awaiting neither consumes the handle nor
+  // releases the task: a handle awaited twice reads the same result.
   em.emit_string_line(`${indent.clone()}}`);
   result_var
 });
@@ -784,7 +750,6 @@ export(
   emit_effect_record_injection,
   emit_io_spawn_effect_injection,
   emit_effect_injection_for_await,
-  is_await_unwind_handler_installation,
   generate_await,
   generate_state,
   generate_join_handle_await

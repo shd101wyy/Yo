@@ -1,5 +1,7 @@
 # A symlinked `YO_STD` (e.g. macOS `/tmp`) silently loses the std pragma exemptions
 
+**Severity:** S2 — a symlinked std root breaks the lexical exemption prefix check — std's own macro modules rejected as user code
+
 **Status:** OPEN
 **Found:** 2026-08-24, running a scratch battery with `YO_STD=/tmp/yo-unitfix/std`.
 **Severity:** low, but the error message points nowhere near the cause.

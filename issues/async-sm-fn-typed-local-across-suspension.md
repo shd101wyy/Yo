@@ -1,5 +1,7 @@
 # An async state machine cannot carry a fn-typed local across a suspension point
 
+**Severity:** S2 — fn-typed local across a suspension point emits an undeclared identifier — C compile failure (once broke self-compile)
+
 OPEN (2026-09-16). Surfaced by §7 step 2 of
 plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md (in-process watch compiles):
 `run_build`'s async body read a global `Option(InProcessCompileFn)` (a
@@ -51,6 +53,6 @@ main :: (fn(io : Io) -> i32)({
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Five variants all run correctly: the doc's global `Option(F)`, a fn-typed local held across an await, fn-typed struct fields across awaits, and an effectful fn type with `Exception`. The original `run_build` shape (#728) was not rebuilt.

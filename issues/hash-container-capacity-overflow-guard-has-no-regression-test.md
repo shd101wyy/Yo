@@ -1,5 +1,7 @@
 # The `HashMap`/`HashSet` half of the C35 heap-corruption guard has no test, and the audit row claims it does
 
+**Severity:** S3 — nothing in the suite would notice if the HashMap capacity-overflow (heap-corruption) guard were reverted
+
 **Found**: 2026-09-04, by the std-API-audit coverage read — `HashMapError` and
 `HashSetError` are both exported, and their `CapacityOverflow` variant is the
 one name in each enum that appears nowhere under `tests/`. **Class**: papercut

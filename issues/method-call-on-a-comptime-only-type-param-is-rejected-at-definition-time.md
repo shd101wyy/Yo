@@ -1,5 +1,7 @@
 # A method call on a value typed from a `comptime(T) : Type` parameter is rejected at definition time
 
+**Severity:** S2 — method calls on comptime-only type params are rejected at definition time — prelude surface unreachable in comptime helpers
+
 **Status:** OPEN
 **Found:** 2026-09-04, measuring the `error`/`assert` row of the std API audit —
 writing the row's `is(err, T)` helper as

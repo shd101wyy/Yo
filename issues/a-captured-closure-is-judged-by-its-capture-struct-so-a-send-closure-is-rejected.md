@@ -1,5 +1,7 @@
 # A captured closure is judged for `Send` by its own capture struct, so a closure whose captures are all `Send` is rejected
 
+**Severity:** S2 — valid Send-closure spawn helpers are rejected because Send is judged on the capture struct, not the closure's type
+
 **Status:** OPEN. **Class**: valid code rejected. **Split out 2026-09-14** from
 `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`,
 whose two *emission* symptoms are fixed (`issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`)

@@ -1,5 +1,7 @@
 # `FunctionInfo.is_closure` is hardcoded `false`, so reflection reports every `Fn` trait as a non-closure
 
+**Severity:** S2 — the public reflection field is hardcoded false — code branching on it silently takes the wrong path
+
 **Found**: 2026-09-04, by the std-API-audit coverage read — `FunctionInfo` is
 reachable from `tests/type_reflection.test.yo`, but its `is_closure` field is
 never asserted anywhere, and the compiler's only construction site writes a

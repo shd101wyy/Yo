@@ -1,5 +1,7 @@
 # The wasm runtime omits 6 `__yo_statx_*` accessors that `std/sys/externs.yo` declares and exports — any Yo caller fails the C compile on wasm only
 
+**Severity:** S2 — six `__yo_statx_*` accessors std declares are missing on wasm — a late cryptic implicit-declaration failure ~52 min into the leg
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row
 (the "Metadata: real `btime`" item — its first std consumer would trip this).
 **Status**: OPEN. **Severity**: api-lie — `std` promises symbols that do not

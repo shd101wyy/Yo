@@ -1,5 +1,7 @@
 # Self-hosted-emit leak debt: 50 corpus files fail LeakSanitizer (post sync-await fix)
 
+**Severity:** S1 — self-hosted-emitted binaries leak on 50 corpus files — unbounded in long-running programs
+
 **Status: OPEN — the map for the next RC campaign.** Measured 2026-08-14 on
 PR #122 round 3 (Linux, functional ASan), AFTER the sync-await future leak
 fix (`issues/fixed/sync-await-future-never-dropped.md`) cleared 29 of the

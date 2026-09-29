@@ -1,5 +1,7 @@
 # `yo fmt` walks `.gitignore`d files, so `--check ./tests` fails on test-runner scratch
 
+**Severity:** S3 — `fmt --check` reports false formatting failures on gitignored test-runner scratch files invisible in `git status`
+
 **Status: OPEN.** Found 2026-09-09.
 
 ## Symptom

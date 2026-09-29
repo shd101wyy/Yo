@@ -35,7 +35,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -948,6 +948,13 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               smb_store.push_string(dvn.clone());
               smb_store.push_str(";");
               em.emit_string_line(smb_store);
+              match(
+                context.state_machine_binding_ids,
+                .Some(bids) => {
+                  bids.insert(smb_id.clone());
+                },
+                .None => ()
+              );
             });
           });
         },
@@ -1644,13 +1651,31 @@ _variant_field_code :: (fn(enum_ty : TypeValue, vname : String, label : String, 
   f.push_string(sanitize_for_c_identifier(label.clone(), false));
   f
 });
+/// A struct type's DECLARED field labels in declaration order (a struct
+/// pattern's `field_idx` indexes these, comptime fields included; unlike
+/// `get_runtime_struct_fields`, which skips them).
+_struct_pattern_labels :: (fn(t : TypeValue) -> ArrayList(String))(
+  match(
+    t,
+    .Struct({ field_labels : fls }) => fls,
+    _ => ArrayList(String).new()
+  )
+);
+/// A struct type's DECLARED field types in declaration order.
+_struct_pattern_field_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+  match(
+    t,
+    .Struct({ field_types : fts }) => fts,
+    _ => ArrayList(TypeValue).new()
+  )
+);
 /// Collect `(name, type)` for every binding of `p` at a position of type `ty`
 /// (the declarations an or-pattern hoists before its alternatives).
 _collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String), types : ArrayList(TypeValue)) -> unit)({
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       names.push(name.clone());
       types.push(ty);
     },
@@ -1681,10 +1706,43 @@ _collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String
         .None => ()
       );
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       names.push(name.clone());
       types.push(ty);
       recur(sub, ty, names, types);
+    },
+    .ThroughBox(_, inner_ty, sub) => {
+      recur(sub, inner_ty, names, types);
+    },
+    .Tuple(subs, elem_tys) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, ety, names, types);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Struct(struct_ty, field_idx, subs, _) => {
+      ftys := _struct_pattern_field_tys(struct_ty);
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fty, names, types);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
     }
   );
 });
@@ -1716,7 +1774,7 @@ _emit_pattern_chain :: (
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {
@@ -1872,7 +1930,7 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       em.emit_string_line(dl);
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         if(assign_binds, {
@@ -1889,6 +1947,71 @@ _emit_pattern_chain :: (
         shadows.push(cname);
       });
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+    },
+    .ThroughBox(box_ty, inner_ty, sub) => {
+      // A Box value in C is a pointer to a reference-semantics struct whose
+      // single field holds the inner value; look through it (the label is the
+      // sanitized `*`, as `t.*` emits).
+      fields := get_runtime_struct_fields(box_ty);
+      label := match(
+        fields.get(usize(0)),
+        .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
+        .None => String.from("_u42_")
+      );
+      fcode := path.clone();
+      fcode.push_str("->");
+      fcode.push_string(label);
+      recur(sub, fcode, inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+    },
+    .Tuple(subs, elem_tys) => {
+      // A tuple is a value struct in C; elements are `._N`. A pointer to a
+      // tuple is dereferenced first.
+      base := path.clone();
+      if(is_pointer_type(ty), {
+        wrapped := String.from("(*");
+        wrapped.push_string(path.clone());
+        wrapped.push_str(")");
+        base = wrapped;
+      });
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        fcode := base.clone();
+        fcode.push_str("._");
+        fcode.push_string(i.to_string());
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fcode, ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Struct(struct_ty, field_idx, subs, _) => {
+      // A value struct's fields are `path.f`; a reference-semantics struct is
+      // a pointer in C, so `path->f`.
+      ptrish := _position_is_ptrish(ty);
+      flabels := _struct_pattern_labels(struct_ty);
+      ftys := _struct_pattern_field_tys(struct_ty);
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        flabel := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fcode := path.clone();
+        fcode.push_str(cond(ptrish => "->", true => "."));
+        fcode.push_string(sanitize_for_c_identifier(flabel.clone(), false));
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fcode, fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
     }
   );
 });
@@ -2151,3 +2274,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
   _gen_tagged_union_match(expr, indent.clone(), context, matched_value_code, match_value_type, enum_type, is_ptr || is_ref_sem, temp_var_opt, is_unit)
 });
 export(generate_case_body, generate_primitive_match_expression, generate_match_expression, _emit_pattern_binding_decl);
+// Shared with the async state-machine emitter's general pattern dispatch
+// (plans/MATCH_PATTERN_MATCHING.md §4.9): the access-path renderers and the
+// test/decl helpers are the same code on both sides.
+export(_variant_test_code, _variant_field_code, _position_is_ptrish, _struct_pattern_labels, _struct_pattern_field_tys, _collect_bind_decls);

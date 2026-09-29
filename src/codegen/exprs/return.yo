@@ -16,7 +16,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
+{ emit_async_future_escape, emit_async_future_completion, emit_sm_unwind_catch } :: import("./async_completion.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_future_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -1334,6 +1334,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
     });
+    emit_sm_unwind_catch(em, inner.clone(), context.sm_unwind_catch);
     emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).None);
   }, {
     // skip_env_check=true: use the block-scope-stack liveness signal in
@@ -1366,6 +1367,13 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   });
   em.emit_string_line(`${indent.clone()}}`);
 });
+/// Record whose unwind is in flight: the handler being generated. The frame
+/// that installed it (`unwind_catches_of_body`) is the one that catches it.
+_emit_unwind_target :: (fn(indent : String, context : FunctionGenerationContext) -> unit)({
+  origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
+  em := context.base.emitter;
+  em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
+});
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
 /// function. Async-state-machine context routes through
 /// `emit_async_future_escape` (Future aborted). Synchronous effect handlers set
@@ -1390,6 +1398,8 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     _emit_effect_handler_param_drops(context, indent.clone());
     generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
     generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None, Option(String).None);
+    // No handler's unwind: the abort carries no value for anyone to catch.
+    em.emit_string_line(`${indent.clone()}__yo_unwind_target = 0;`);
     emit_async_future_escape(em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
     return(String.from(""));
   });
@@ -1405,6 +1415,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   match(
     arg_opt,
     .None => {
+      _emit_unwind_target(indent.clone(), context);
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
@@ -1415,6 +1426,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     },
     .Some(arg) => {
       argc := _call_generate_expr(arg, indent.clone(), context);
+      _emit_unwind_target(indent.clone(), context);
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);

@@ -1,5 +1,7 @@
 # Emitted C identifiers collide with macros from included headers
 
+**Severity:** S1 — Yo identifiers can collide with header macros — C failure, or silent computation with the macro's value
+
 **Found:** 2026-09-24, building the compiler with a new helper in `src/evaluator/calls/function.yo`
 (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Status:** OPEN.

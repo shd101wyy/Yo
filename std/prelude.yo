@@ -12012,12 +12012,22 @@ impl(
 );
 export(FutureState);
 /// JoinHandle — a handle to a spawned async task.
-/// Wraps a raw pointer to the spawned future's state machine.
 /// Generic over `T`, the return type of the spawned task.
+///
+/// The handle OWNS a reference to the task's future: the task (and its
+/// result) stay alive for as long as some copy of the handle does, and
+/// dropping the last copy releases it. A handle that is dropped without being
+/// awaited DETACHES the task — it keeps running and frees itself when it
+/// finishes — which is what makes a fire-and-forget `io.spawn(…)` statement
+/// correct (it used to leak the whole state machine,
+/// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md). Awaiting
+/// does not consume the handle; awaiting it twice reads the same result.
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
-    __future : *(T)
+  ref(
+    struct(
+      /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
+      __future : *(T)
+    )
   )
 );
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
@@ -12071,14 +12081,24 @@ impl(
   await : __yo_join_handle_await
 );
 /// JoinHandle introspection + cancellation. The raw helpers read/write the
-/// common spawned-future header (`{__yo_ref_header_t; int state; void
-/// (*cancel_pending_fn)(void*);}`) emitted
-/// by the async runtime; state mapping follows `io.state`: any positive step
-/// index reads as Running.
+/// prefix every future shares (`__yo_future_header_t`: header, state, abort
+/// hook, waiter slot) emitted by the async runtime; state mapping follows
+/// `io.state`: any positive step index reads as Running.
 extern(
   "Yo",
   __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
-  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit)
+  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit),
+  __yo_join_handle_release_raw : (fn(fut : *(void)) -> unit)
+);
+impl(
+  generic(T : Type),
+  JoinHandle(T),
+  /// Dropping the last copy of the handle releases the task's future.
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(
+      __yo_join_handle_release_raw((*void)(self.__future))
+    )
+  )
 );
 impl(
   generic(T : Type),

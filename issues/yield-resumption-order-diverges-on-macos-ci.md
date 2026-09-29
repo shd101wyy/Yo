@@ -1,5 +1,7 @@
 # `yield` resumption order diverges on macOS CI legs (and the queue is NOT the cause) — "Test basic spawn of two futures" fails intermittently
 
+**Severity:** S2 — the documented yield resumption order is intermittently violated on macOS CI legs — a memory-corruption cause is explicitly not excluded
+
 **Status: OPEN — observed TWICE on CI, on two DIFFERENT macOS legs, from two
 unrelated PRs. Never reproduced locally on `aarch64-apple-darwin`.**
 First seen 2026-09-06, again 2026-09-09.

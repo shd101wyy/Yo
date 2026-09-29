@@ -500,6 +500,14 @@ static inline uint64_t __yo_sat_u64(double v, uint64_t hi) {
 static inline void* __yo_rc_alloc(size_t size) {
   void* p = __yo_malloc(size);
   if (p == NULL) __yo_alloc_fail(size);
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
+  // Callers zero the object right after (every constructor memsets it), and
+  // clang fuses malloc + memset into calloc — which glibc serves off its slow
+  // path, bypassing the tcache: a cold await cost 852 instructions instead of
+  // 495 (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4). An empty asm that
+  // "uses" the pointer keeps the two calls apart; it emits no instruction.
+  __asm__ volatile("" : "+r"(p));
+#endif
   return p;
 }`
   );

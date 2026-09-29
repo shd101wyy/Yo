@@ -1,5 +1,7 @@
 # A begin-block step in a 3-argument `while` reads an undeclared C local (sync code)
 
+**Severity:** S2 — a begin-block step in a 3-argument `while` fails the C compile on a valid program (undeclared-identifier error)
+
 **Status: OPEN.** Found 2026-09-28 by the async state-machine audit's shape sweep. This one is NOT async: it reproduces in a plain synchronous function. Tree build of develop `af62bdb28`.
 
 ## Symptom

@@ -66,7 +66,7 @@
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -100,6 +100,7 @@
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
+{ SmUnwindCatch, unwind_catches_of_body, unwind_catch_condition } :: import("./async_completion.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -582,22 +583,18 @@ emit_async_block_struct_definition :: (
   em := context.base.emitter;
   em.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(info.result_type, context.base)})`);
   em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
-  em.emit_declaration_line("  __yo_ref_header_t header;  // Reference counting header (must be first)");
-  em.emit_declaration_line("  int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)");
-  // Part of the common spawned-future header: JoinHandle.abort reaches the
-  // suspension through it (runtime_core.yo, __yo_join_handle_abort_raw), so it
-  // must sit at the same offset in every future struct.
-  em.emit_declaration_line("  void (*cancel_pending_fn)(void*);  // Cancel the I/O operation the task is suspended in");
-  // Always include a result field to keep continuation_fn/continuation_sm at
-  // consistent offsets. For unit type, use uint8_t as a dummy (cannot use void).
+  // The prefix every future shares (types/generation.yo): header, state
+  // (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted), the abort
+  // hook, and the waiter slot. JoinHandle and the runtime read only this.
+  em.emit_declaration_line("  __YO_FUTURE_PREFIX");
+  // Always include a result field so the erased interface's __yo_resume_fn
+  // and __yo_set_effect_fn keep their offsets. For unit, a uint8_t dummy
+  // (cannot use void).
   if(is_unit_type(info.result_type), {
     em.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
   }, {
     em.emit_declaration_string_line(`  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(info.result_type, context.base)}`);
   });
-  // Continuation tracking fields for await chaining.
-  em.emit_declaration_line("  void (*continuation_fn)(void*);  // Resume function of awaiting task");
-  em.emit_declaration_line("  void* continuation_sm;  // State machine of awaiting task");
   em.emit_declaration_line("");
   // Resume function pointer for lazy start at await.
   em.emit_declaration_line("  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/spawn)");
@@ -1142,6 +1139,51 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     ei = (ei + usize(1));
   });
 });
+/// The INLINE retain (`is_drop == false`) or drop line for an RC-bearing
+/// value that has no synthesized `___dup`/`___drop` function — a String, an
+/// Option, a value struct or an enum with an RC payload; synthesized helpers
+/// are the exception, so this is the ordinary case. The general generators may
+/// emit helper statements of their own (a tuple/array walk), so they run
+/// against a scratch emitter and everything they produced comes back as the
+/// line, in order. Without this both helpers returned `.None` for these types:
+/// an aborted task never dropped its String locals, and a nested `io.async`
+/// capture of a String was dropped by the inner future without ever being
+/// retained — a use-after-free
+/// (issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md,
+/// issues/fixed/nested-io-async-string-capture-is-not-retained.md).
+_inline_rc_field_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, is_drop : bool, context : FunctionGenerationContext) -> Option(String))({
+  saved := context.base.emitter;
+  scratch := Emitter.new();
+  context.base.emitter = scratch;
+  code := if(is_drop, generate_drop_code_for_value(field_ref.clone(), field_type, context), generate_dup_code_for_value(field_ref.clone(), field_type, context));
+  context.base.emitter = saved;
+  out := String.from("");
+  pre := scratch.print().trim();
+  if(pre.len() > usize(0), {
+    plines := pre.split("\n");
+    (pi : usize) = usize(0);
+    while(pi < plines.len(), pi = (pi + usize(1)), {
+      match(
+        plines.get(pi),
+        .Some(l) => if(l.trim().len() > usize(0), {
+          if(out.len() > usize(0), {
+            out.push_str("\n");
+          });
+          out.push_string(`${indent.clone()}${l.trim()}`);
+        }),
+        .None => ()
+      );
+    });
+  });
+  if(code.len() > usize(0), {
+    if(out.len() > usize(0), {
+      out.push_str("\n");
+    });
+    stmt := if(is_drop, `${code};`, `${field_ref.clone()} = ${code};`);
+    out.push_string(`${indent.clone()}${stmt}`);
+  });
+  if(out.len() > usize(0), Option(String).Some(out), Option(String).None)
+});
 /// The RETAIN line for an RC-bearing capture field at `field_ref`, or `None` if
 /// the type needs none. The exact mirror of `_rc_field_drop_line` below — every
 /// branch there has its counterpart here, so a field that gets dropped on
@@ -1165,7 +1207,7 @@ _rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent 
     type_contains_rc_type(field_type) => match(
       get_dup_function_for_type(field_type, context),
       .Some(dup_fn) => Option(String).Some(`${indent.clone()}${field_ref.clone()} = ${dup_fn}(${field_ref.clone()});`),
-      .None => Option(String).None
+      .None => _inline_rc_field_line(field_ref, field_type, indent, false, context)
     ),
     true => Option(String).None
   )
@@ -1184,7 +1226,7 @@ _rc_field_drop_line :: (fn(field_ref : String, field_type : TypeValue, indent : 
     type_contains_rc_type(field_type) => match(
       get_drop_function_for_type(field_type, context),
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}${drop_fn}(${field_ref.clone()});`),
-      .None => Option(String).None
+      .None => _inline_rc_field_line(field_ref, field_type, indent, true, context)
     ),
     true => Option(String).None
   )
@@ -1322,7 +1364,10 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning), {
+        // A pattern binding's slot borrows the scrutinee's payload: the
+        // scrutinee's own drop releases it.
+        is_binding := match(context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
+        if((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding), {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
@@ -1341,14 +1386,23 @@ generate_async_block_state_dispose_function :: (
   if(local_drop_lines.len() > usize(0), {
     em.emit_line("  // Drop local variables on escape (state == -2)");
     em.emit_line("  if (sm->state == -2) {");
+    em.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
+    em.emit_line("  }");
+  });
+  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  em.emit_line("}");
+  // The locals' drops on their own: the abort dispose above, and a block that
+  // catches one of its own handlers' unwinds before completing
+  // (`emit_sm_unwind_catch`).
+  em.emit_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
+  if(local_drop_lines.len() > usize(0), {
+    em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
     (j : usize) = usize(0);
     while(j < local_drop_lines.len(), {
       match(local_drop_lines.get(j), .Some(line) => em.emit_string_line(line), .None => ());
       j = (j + usize(1));
     });
-    em.emit_line("  }");
-  });
-  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  }, em.emit_line("  (void)sm_ptr;"));
   em.emit_line("}");
 });
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
@@ -2057,6 +2111,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   em := context.base.emitter;
   // Forward declarations.
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
+  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops`);
   em.emit_declaration_line("");
   em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
   em.emit_declaration_line("");
@@ -2196,6 +2251,18 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
 /// Build the filtered captured-variable list + SM-var map + merged field aliases
 /// for one deferred block, registers closure-param slots as SM variables, and emits
 /// the resume + set_effect + dispose + constructor for that block.
+/// How the block catches the unwinds of handlers written in its own body, or
+/// `.None` when it has none: such an unwind resolves the block's future. Its
+/// value has the block's result type: the evaluator checks every `unwind`
+/// against the frame its handler exits
+/// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+_sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> Option(SmUnwindCatch))(
+  match(
+    unwind_catch_condition(unwind_catches_of_body(block.body_expr)),
+    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(block.result_type), label : block.async_block_id.clone())),
+    .None => Option(SmUnwindCatch).None
+  )
+);
 _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   saved_sm_vars := context.state_machine_variables;
@@ -2324,6 +2391,10 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.base.declared_scopes.push(String.from("sm"));
   em.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
   em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
+  saved_binding_ids := context.state_machine_binding_ids;
+  context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
+  saved_sm_unwind_catch := context.sm_unwind_catch;
+  context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
   local_var_drops := generate_async_block_resume_function(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context, Option(HashSet(String)).Some(cross_boundary_ids));
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
@@ -2344,6 +2415,8 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   em.emit_string_line(String.from(""));
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
+  context.state_machine_binding_ids = saved_binding_ids;
+  context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);
@@ -2773,16 +2846,12 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em := context.base.emitter;
   // Struct definition (embeds __capture so it outlives the call).
   em.emit_declaration_string_line(`struct ${struct_name.clone()}_struct {`);
-  em.emit_declaration_line("  __yo_ref_header_t header;");
-  em.emit_declaration_line("  int state;");
-  em.emit_declaration_line("  void (*cancel_pending_fn)(void*);");
+  em.emit_declaration_line("  __YO_FUTURE_PREFIX");
   if(is_unit_type(result_type), {
     em.emit_declaration_line("  uint8_t result;");
   }, {
     em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
   });
-  em.emit_declaration_line("  void (*continuation_fn)(void*);");
-  em.emit_declaration_line("  void* continuation_sm;");
   em.emit_declaration_line("  void (*__yo_resume_fn)(void*);");
   em.emit_declaration_line("  void (*__yo_set_effect_fn)(void*, const char*, void*);");
   em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);

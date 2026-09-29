@@ -24,6 +24,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 {
   AstExpr,
   ast_expr_id,
@@ -3273,7 +3274,91 @@ d1_record_global_write :: (fn(decl : Token, name : String, write_tok : Token) ->
   );
   g_d1_reached.get(key)
 });
-_GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(TypeValue)));
+/// `fid` is the function whose body this walk covers: the globals it reads and
+/// the functions it calls are recorded under it (`g_gr_reads_by_fid`,
+/// `g_gr_callees_by_fid`), and only published as "reached by another thread"
+/// when a caller establishes that it runs on one (`d1_note_thread_reach`).
+_GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(TypeValue), fid : String));
+/// Per function: the non-thread-local module globals its own body reads
+/// (key → first read location), and the functions its body calls. The walk
+/// used to write `g_d1_reached` directly — but it walks EVERY closure (the
+/// verdict is memoized for later type judgements), so an ordinary closure
+/// reading a global marked it thread-reached, and the next write anywhere
+/// was rejected (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
+(g_gr_reads_by_fid : HashMap(String, HashMap(String, String))) = HashMap(String, HashMap(String, String)).new();
+(g_gr_callees_by_fid : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+_gr_note_read :: (fn(fid : String, key : String, loc : String) -> unit)({
+  reads := match(g_gr_reads_by_fid.get(fid.clone()), .Some(m) => m, .None => HashMap(String, String).new());
+  if(!(reads.contains_key(key.clone())), {
+    reads.insert(key, loc);
+  });
+  g_gr_reads_by_fid.insert(fid, reads);
+});
+_gr_note_callee :: (fn(ctx : _GrCtx, callee : String) -> unit)({
+  set := match(g_gr_callees_by_fid.get(ctx.fid.clone()), .Some(c) => c, .None => HashSet(String).new());
+  set.insert(callee);
+  g_gr_callees_by_fid.insert(ctx.fid.clone(), set);
+});
+/// Function `fid` runs on another thread (it is a `Send` closure, or code a
+/// `Send` value exposes): every global it or anything it calls reads is now
+/// thread-reached, so a later write to one is a D1 violation. Transitive over
+/// the recorded call graph, which also covers the recursive calls the walk
+/// itself cuts short.
+d1_note_thread_reach :: (fn(fid : String) -> unit)({
+  seen := HashSet(String).new();
+  todo := ArrayList(String).new();
+  todo.push(fid);
+  while(runtime(todo.len() > usize(0)), {
+    f := match(todo.pop(), .Some(x) => x, .None => String.new());
+    if(!(seen.contains(f.clone())), {
+      seen.insert(f.clone());
+      match(
+        g_gr_reads_by_fid.get(f.clone()),
+        .Some(reads) => {
+          it := reads.keys();
+          (go : bool) = true;
+          while(go, {
+            match(
+              it.next(),
+              .Some(k) => if(!(g_d1_reached.contains_key(k.clone())), {
+                match(
+                  reads.get(k.clone()),
+                  .Some(loc) => {
+                    g_d1_reached.insert(k, loc);
+                  },
+                  .None => ()
+                );
+              }),
+              .None => {
+                go = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+      match(
+        g_gr_callees_by_fid.get(f.clone()),
+        .Some(cs) => {
+          cit := cs.into_iter();
+          (cgo : bool) = true;
+          while(cgo, {
+            match(
+              cit.next(),
+              .Some(c) => {
+                todo.push(c);
+              },
+              .None => {
+                cgo = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+});
 _gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
@@ -3306,13 +3391,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   if(send_ok, {
     // A Send global another thread reads: a violation iff it is also written.
     key := _d1_global_key(v.token, name.clone());
-    match(
-      g_d1_reached.get(key.clone()),
-      .Some(_) => (),
-      .None => {
-        g_d1_reached.insert(key.clone(), _d1_location(tok));
-      }
-    );
+    _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(tok));
     return(
       match(
         g_d1_written.get(key),
@@ -3345,11 +3424,10 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
       v.value.get(usize(0)),
       .Some(vv) => match(
         vv,
-        .FuncVal(fvd, _) => match(
-          function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.table, env),
-          .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`),
-          .None => Option(String).None
-        ),
+        .FuncVal(fvd, _) => match({
+          _gr_note_callee(ctx, fvd.*.func_id.clone());
+          function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.table, env)
+        }, .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`), .None => Option(String).None),
         _ => Option(String).None
       ),
       .None => Option(String).None
@@ -3389,6 +3467,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
         if(is_extern, {
           return(Option(String).None);
         });
+        _gr_note_callee(ctx, fid.clone());
         match(
           function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
           .Some(m) => Option(String).Some(`uses the function '${ast_expr_to_string(e)}' as a value (whatever receives it may call it), which ${m}`),
@@ -3473,6 +3552,7 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
                 _ => ()
               );
               if(!is_extern, {
+                _gr_note_callee(ctx, fid.clone());
                 match(
                   function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
                   .Some(m) => {
@@ -3558,7 +3638,7 @@ function_reaches_non_send_global :: (
     return(Option(String).Some(String.from("has a body that was never evaluated (a forward reference?) — a closure that runs on another thread may only call functions whose bodies are known")));
   });
   g_gr_in_progress.insert(fid, true);
-  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")));
+  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")), fid : fid.clone());
   r := _gr_walk(body, ctx);
   g_gr_in_progress.remove(fid.clone());
   g_gr_by_fid.insert(fid, r);
@@ -3571,4 +3651,4 @@ function_reaches_non_send_global :: (
 d1_reach_memo :: (fn(fid : String) -> Option(Option(String)))(
   g_gr_by_fid.get(fid)
 );
-export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo);
+export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

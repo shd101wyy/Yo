@@ -82,8 +82,11 @@ impl(
   /// Make the parked task runnable. A no-op if it was already woken, or if
   /// its task ended without ever suspending.
   wake : (fn(self : Self) -> unit)(unsafe(__yo_waker_wake(self._p))),
-  /// Whether the park has already been woken. Non-blocking, and only useful
-  /// for diagnostics: by the time a caller acts on `false` it may be `true`.
+  /// Whether the park has been woken. Non-blocking. `false` for a park whose
+  /// task was cancelled (it will never run): a waiter list that just called
+  /// `wake` asks this to learn whether the wake reached a live task, and
+  /// passes it on to the next waiter if not. From another thread, `false`
+  /// may still turn `true` once the owner loop drains the wake.
   is_woken : (fn(self : Self) -> bool)(unsafe(__yo_waker_is_woken(self._p)))
 );
 impl(

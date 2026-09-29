@@ -1,5 +1,7 @@
 # Loop-variant obligations hardcode SIGNED comparisons, like `decreases` did
 
+**Severity:** S2 — loop-variant obligations hardcode signed comparisons — a sound program with an unsigned `decreases` measure is falsely refuted
+
 **Status:** open
 **Found:** 2026-09-15, reviewing PR #695
 

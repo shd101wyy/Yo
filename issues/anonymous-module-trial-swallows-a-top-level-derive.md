@@ -1,5 +1,7 @@
 # The anonymous-module trial can swallow a top-level `derive` entirely
 
+**Severity:** S2 — a failing derive_rule body is swallowed — impl permanently missing while check and compile both exit 0
+
 **Status: OPEN.** Split out of
 `issues/fixed/derive-swallows-the-rule-error.md` on 2026-09-09, whose
 reproducer 2 is this defect. That issue's own half — `derive` losing the rule's

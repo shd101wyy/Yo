@@ -1,5 +1,7 @@
 # `Metadata.status_changed()` on Windows mixes creation seconds with write-time nanoseconds
 
+**Severity:** S2 — Windows `status_changed` composes creation-time seconds with last-write nanoseconds — a timestamp of no real event
+
 **Found:** 2026-09-11, during the `std/` `///` documentation sweep (reading, not running).
 **Status:** OPEN — filed, not fixed (documentation-only PR).
 **Severity:** wrong value, Windows only. Not memory-unsafe.

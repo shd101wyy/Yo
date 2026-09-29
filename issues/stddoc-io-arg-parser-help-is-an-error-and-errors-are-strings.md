@@ -1,5 +1,7 @@
 # `ArgParser.parse` reports `--help` as an error, and every error is a bare `String`
 
+**Severity:** S2 — `--help` is `.Err(String)` indistinguishable from usage errors — callers cannot pick exit codes and must string-match help
+
 Found during the `std/` `///` doc sweep while documenting
 `std/cli/arg_parser.yo`. **Not fixed** — it changes `parse`'s signature.
 

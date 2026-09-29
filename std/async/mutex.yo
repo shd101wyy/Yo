@@ -120,13 +120,15 @@ impl(
   unlock : (fn(self : Self) -> unit)({
     assert(self._locked, "Mutex.unlock: not locked");
     self._locked = false;
-    cond(
-      (self._waiters.len() > usize(0)) => {
-        w := self._waiters.remove(usize(0));
-        w.wake();
-      },
-      true => ()
-    );
+    // A waiter whose task was cancelled refuses the wake (its park was taken
+    // back), so keep going until a live waiter has it — spending the one wake
+    // on a dead waiter left the next one suspended on a free lock.
+    (woken : bool) = false;
+    while(runtime(!woken && (self._waiters.len() > usize(0))), {
+      w := self._waiters.remove(usize(0));
+      w.wake();
+      woken = w.is_woken();
+    });
   }),
   /// True while some task holds the lock.
   is_locked : (fn(self : Self) -> bool)(
