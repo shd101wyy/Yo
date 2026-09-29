@@ -52,8 +52,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   get_variables_from_env,
   get_all_variables_from_env,
-  update_existing_variable,
-  copy_frames
+  update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
@@ -727,7 +726,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -741,7 +740,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -1151,7 +1150,7 @@ evaluate_assignment :: (
       match(
         binding_info_opt,
         .Some(info) => {
-          env.frames = copy_frames(info.env.frames);
+          env.frames = info.env.frames;
           env.module_path = info.env.module_path;
           env.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env.input_string = info.env.input_string;
@@ -1364,7 +1363,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       );
     });
   });
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -1424,7 +1423,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
     .Some(ri_after_dup) => {
-      env.frames = copy_frames(ri_after_dup.env.frames);
+      env.frames = ri_after_dup.env.frames;
       env.module_path = ri_after_dup.env.module_path;
       env.function_declaration_frame_level = ri_after_dup.env.function_declaration_frame_level;
       env.input_string = ri_after_dup.env.input_string;
