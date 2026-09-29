@@ -1,6 +1,7 @@
 # Explicit Allocators — the landed decisions
 
-> **Status: LANDED (P0–P5)**, 2026-09-30. The one open item is P3c
+> **Status: IMPLEMENTED (P0–P5), 2026-09-30, as a stack of draft PRs on
+> #1015; authoritative once the stack merges.** The one open item is P3c
 > (default mutable-container constructors follow the scope), parked behind
 > the seed and tracked in the active plan
 > [`plans/EXPLICIT_ALLOCATORS.md`](../EXPLICIT_ALLOCATORS.md), which holds
@@ -39,8 +40,8 @@ No container grew a field: the owner bit lives in a word each already had.
   context first; frozen. Global vtables are module-level `:=` values
   (D9).
 - `with_allocator(a, f)` — a std function, not a keyword (D2). It makes `a`
-  current on this thread while `f` runs; an RAII guard restores the previous
-  scope on every exit. The six user-visible RC constructor sites (`ref`
+  current on this thread while `f` runs; an RAII guard (a plain `ref`
+  struct, not generic in `T`) restores the previous scope on every exit. The six user-visible RC constructor sites (`ref`
   struct and enum, `box`/`arc`, `dyn`, `Iso`, async state machines) consult
   it; the runtime's own blocks never do. `current_allocator()` reads it.
 - A task keeps the scope it was created in: its resume wrapper reinstates
