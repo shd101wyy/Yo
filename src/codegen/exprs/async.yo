@@ -1954,15 +1954,18 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
   });
   // 2. The wrapper's parameters, prologue and capture construction, in a C
   // block of their own (their names are the wrapper's), with no
-  // state-machine variables in scope: they are the wrapper function's locals.
+  // state-machine variables in scope: they are the wrapper function's locals,
+  // read by their C names as in the wrapper's own function. (An EMPTY map is
+  // not the same: the atom resolver then falls back to the expression's own
+  // temp name, which for the capture literal is the io.async call's.)
   em.emit_string_line(`${indent}{`);
   inner := indent.clone();
   inner.push_str("  ");
   saved_smv := context.state_machine_variables;
   saved_aliases := context.state_machine_field_aliases;
   saved_remap := context.variable_id_remapping;
-  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(HashMap(String, CapturedVariable).new());
-  context.state_machine_field_aliases = Option(HashMap(String, String)).Some(HashMap(String, String).new());
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
+  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
   context.variable_id_remapping = Option(HashMap(String, String)).None;
   match(
     get_func_type(site.wrapper_fid.clone()),
