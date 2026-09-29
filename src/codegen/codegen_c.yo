@@ -406,6 +406,9 @@ typedef enum {
     eprintln(`[spec-report] registered_fns=${registered_func_type_count().to_string()} forced_defs=${force_pending_count().to_string()} collected_fns=${base.functions.len().to_string()}`);
   });
   (prof_collect_ns : i64) = prof_collect_t0.elapsed().as_nanos();
+  // Recorded here, not with "emit" below, so its memory sample is taken at the
+  // end of collect.
+  profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
   // Second pass: type declarations (runtime preamble + topo-sorted types).
@@ -526,7 +529,6 @@ static Slice_uint8_t_u42_ __yo_args;
   // classification matches the defining module's token path against the
   // std root; a RELATIVE std root ("./std", the cwd fallback) is loosened to
   // a "/std/" segment test because token paths are absolute `file://` URLs.
-  profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   profile_record_phase(String.from("codegen: emit"), prof_emit_t0.elapsed().as_nanos());
   (prof_std_key : String) = eval_ctx.std_path.clone();
   if(prof_std_key.starts_with(String.from("./")), {
