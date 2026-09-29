@@ -68,7 +68,7 @@
 } :: import("../../evaluator/trait_checking.yo");
 { get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
-{ generate_atom, _generate_sm_atom } :: import("./atom.yo");
+{ generate_atom, captured_value_source_code } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_evidence_parameters, awaited_future_c_type_override } :: import("../functions/declarations.yo");
 {
@@ -76,8 +76,6 @@
   get_type_string,
   can_optimize_as_nullable_pointer,
   get_variable_type_string,
-  get_variable_name_for_codegen,
-  scope_stack_contains,
   mark_uses_parallelism,
   mark_uses_tls,
   fresh_local_name
@@ -1602,18 +1600,8 @@ _build_async_capture_struct_literal :: (
               // here referenced identifiers that do not exist in the resume
               // fn ("use of undeclared identifier 'total'/'val'", async
               // subtask-in-while arms).
-              sm_mapped := _generate_sm_atom(expr, label.clone(), context);
-              match(
-                sm_mapped,
-                .Some(sm_name) => {
-                  parts.push(`.${label} = ${sm_name}`);
-                },
-                .None => {
-                  cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
-                  cname := get_variable_name_for_codegen(label.clone(), cap_env);
-                  parts.push(`.${label} = ${cname}`);
-                }
-              );
+              cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
+              parts.push(`.${label} = ${captured_value_source_code(expr, label.clone(), cap_env, context)}`);
             }
           );
         });
@@ -3107,37 +3095,15 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       lit.push_str(".");
       lit.push_string(lbl.clone());
       lit.push_str(" = ");
-      // A captured field is normally the same-named variable in scope at the
-      // io.async call site. When the call sits INSIDE another closure whose
-      // OWN captures hold the name, it is only reachable through the enclosing
-      // capture context (`((<cap>*)closure_context)->name`) — nested async
-      // blocks emitted `.total = total` as an undeclared identifier. PRECEDENCE
-      // (the v11 lesson, issues/yo-self-async-emission-cluster.md): an
-      // IN-SCOPE C local/param wins — the captures side-table can hold names
-      // that are REAL C parameters of the current fn (the SM bundle param
-      // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := scope_stack_contains(context.base.declared_scopes, lbl.clone());
-      lbl_read := cond(
-        lbl_in_scope => lbl.clone(),
-        match(
-          context.current_closure_captures,
-          .Some(caps9) => caps9.contains(lbl.clone()),
-          .None => false
-        ) => match(
-          context.current_closure_capture_type_c_name,
-          .Some(ecap9) => `((${ecap9}*)closure_context)->${lbl.clone()}`,
-          .None => `closure_context->${lbl.clone()}`
-        ),
-        // Inside an ENCLOSING state machine (a sync io.async future built in
-        // an async while-loop body), the captured variable is an SM field —
-        // map it through the sm-> alias/capture resolution. A bare label
-        // referenced identifiers that do not exist in the resume fn ("use of
-        // undeclared identifier 'i'/'a'/'responses'", sync-future-in-SM arms).
-        true => match(
-          _generate_sm_atom(expr, lbl.clone(), context),
-          .Some(sm_lbl) => sm_lbl,
-          .None => lbl.clone()
-        )
+      // The same-named variable as the io.async call site reads it: a local,
+      // an `sm->` field inside an enclosing state machine, or the enclosing
+      // closure's context when the call sits inside another closure (nested
+      // async blocks emitted `.total = total` as an undeclared identifier).
+      lbl_read := captured_value_source_code(
+        expr,
+        lbl.clone(),
+        match(context.base.get_expr_info(expr), .Some(lei) => Option(Environment).Some(lei.env), .None => Option(Environment).None),
+        context
       );
       lit.push_string(lbl_read);
       cli = (cli + usize(1));

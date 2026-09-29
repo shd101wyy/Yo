@@ -29,8 +29,8 @@
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
-{ register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
-{ _generate_sm_atom } :: import("./exprs/atom.yo");
+{ register_impl_closure_call_mappings, set_capture_source_resolver } :: import("./exprs/closures.yo");
+{ captured_value_source_code } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
@@ -305,9 +305,9 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   register_on_demand_declare();
   register_find_function_calls_in_expr();
   register_generate_expr();
-  // Closure-capture SM-field resolution (closures.yo cannot import atom.yo —
-  // atom.yo imports closures.yo).
-  set_sm_atom_resolver(_generate_sm_atom);
+  // How a capture struct reads a captured name (closures.yo cannot import
+  // atom.yo — atom.yo imports closures.yo).
+  set_capture_source_resolver(captured_value_source_code);
   // Register the FSM await/cond/match/while emitter indirections.
   register_fsm_emitters_impl();
   // Inject the resolved-concrete lookup into the low-level type guards so

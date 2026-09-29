@@ -742,4 +742,32 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
   )
 });
-export(generate_atom, _generate_sm_atom);
+/// The C code that reads the variable `name` (bound in `env_opt`) where a
+/// capture struct is built: a closure literal's, or an `io.async` block's.
+/// Every builder resolves a captured name the same way, in this order:
+/// 1. a C local or parameter in scope. The enclosing closure's capture list
+///    can name a real parameter of the current function (an SM bundle `e`),
+///    and the parameter wins;
+/// 2. a state-machine field inside a resume function, which has no
+///    `closure_context` of its own;
+/// 3. a capture of the enclosing closure, through `closure_context`;
+/// 4. the variable's C name.
+/// A closure built inside another closure's body read (4) where it needed (3):
+/// `{ .n = n }` for a captured `n`, an undeclared identifier
+/// (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md).
+captured_value_source_code :: (fn(expr : AstExpr, name : String, env_opt : Option(Environment), context : FunctionGenerationContext) -> String)({
+  cname := get_variable_name_for_codegen(name.clone(), env_opt);
+  if(scope_stack_contains(context.base.declared_scopes, cname.clone()), {
+    return(cname);
+  });
+  match(_generate_sm_atom(expr, name.clone(), context), .Some(sm_code) => return(sm_code), .None => ());
+  cond(
+    _is_captured_here(name.clone(), env_opt, context) => match(
+      context.current_closure_capture_type_c_name,
+      .Some(cap_ty) => `((${cap_ty}*)closure_context)->${cname}`,
+      .None => `closure_context->${cname}`
+    ),
+    true => cname
+  )
+});
+export(generate_atom, _generate_sm_atom, captured_value_source_code);
