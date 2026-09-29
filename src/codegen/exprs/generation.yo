@@ -423,7 +423,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // loop body is such a scope: issues/fixed/io-spawn-in-loop-or-recursion-hangs.md),
   // and keying the reference on a BOUND handle leaked every statement-level
   // spawn, since the evaluator names every value
-  // (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
+  // (issues/statement-level-io-spawn-leaks-the-state-machine.md).
   em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
   match(
     join_handle_type_name,
@@ -436,7 +436,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       // releases a DISCARDED handle (a statement-level spawn). Returned as an
       // expression it had no C name, so the drop was skipped and every
       // fire-and-forget spawn leaked its handle and the state machine
-      // (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
+      // (issues/statement-level-io-spawn-leaks-the-state-machine.md).
       if(name_suffix.len() > usize(0), {
         em.emit_string_line(`${indent.clone()}${jh} ${name_suffix.clone()} = ${handle_code};`);
         _store_temp_var_to_state_machine_if_needed(name_suffix.clone(), indent.clone(), context);

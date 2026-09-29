@@ -207,30 +207,10 @@ test("an unwind to a synchronous installer passes through the tasks", {
   assert(_outer_catch(io) == `caught framing broke`, "the caller's handler value");
 });
 
-// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md
-// A task's result lives in its state machine, so the result's Dispose runs
-// only when the state machine itself is freed.
-test("a statement-level spawn detaches the task, which frees itself", {
-  before := g_disposed;
-  (i : i32) = i32(0);
-  while(runtime(i < i32(20)), {
-    io.spawn(
-      io.async((io : Io) => {
-        io.await(yield(io), io);
-        Thing(n : i)
-      }),
-      io
-    );
-    i = (i + i32(1));
-  });
-  (spins : i32) = i32(0);
-  while(runtime((g_disposed < (before + i32(20))) && (spins < i32(100))), {
-    io.await(yield(io), io);
-    spins = (spins + i32(1));
-  });
-  assert(g_disposed == (before + i32(20)), "every detached task freed its state machine");
-});
-
+// "a statement-level spawn detaches the task, which frees itself" needs the
+// OWNING JoinHandle, which waits for the seed: it lives in
+// issues/repros/statement-level-spawn-detaches-the-task.yo until the flip
+// (issues/join-handle-ownership-waits-for-the-seed.md).
 // issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md
 test("a JoinHandle of a raw I/O future reads its result and can abort it", {
   // A socket's result is its (non-zero) fd, which a handle reading the
