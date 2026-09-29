@@ -1961,6 +1961,13 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
   em.emit_string_line(`${indent}{`);
   inner := indent.clone();
   inner.push_str("  ");
+  // The fused nodes are also emitted in the wrapper's own function and state
+  // machine: the per-program sets that stop a temp from being declared, or a
+  // drop from being emitted, twice must not carry over between the two.
+  saved_temps := context.declared_temp_vars;
+  saved_drop_ids := context.emitted_deferred_drop_ids;
+  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
+  context.emitted_deferred_drop_ids = HashSet(usize).new();
   saved_smv := context.state_machine_variables;
   saved_aliases := context.state_machine_field_aliases;
   saved_remap := context.variable_id_remapping;
@@ -1997,14 +2004,23 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
   context.state_machine_variables = saved_smv;
   context.state_machine_field_aliases = saved_aliases;
   context.variable_id_remapping = saved_remap;
+  context.declared_temp_vars = saved_temps;
+  context.emitted_deferred_drop_ids = saved_drop_ids;
   em.emit_string_line(`${indent}}`);
   // The call's own drops (its argument temps), as after the call.
   generate_deferred_drop_expressions(site.call, indent.clone(), context);
   // 3. The block's bundle is the await's effects, as set_effect would copy it.
   eff_code := _call_generate_expr(effects_arg, indent.clone(), context);
   em.emit_string_line(`${indent}sm->${site.prefix}param_0 = ${eff_code};`);
-  // 4. The block, with the wrapper block's names over the site's fields. Its
-  // awaits suspend the CALLER; each is keyed and moved-read per site.
+  // 4. The block, with the wrapper block's names over the site's fields, in a
+  // C block of its own (two sites of one wrapper would declare the same
+  // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
+  // site.
+  em.emit_string_line(`${indent}{`);
+  saved_temps2 := context.declared_temp_vars;
+  saved_drop_ids2 := context.emitted_deferred_drop_ids;
+  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
+  context.emitted_deferred_drop_ids = HashSet(usize).new();
   saved_slot := context.sm_capture_slot;
   saved_prefix := context.fusion_field_prefix;
   saved_analysis := low.analysis;
@@ -2022,18 +2038,21 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
   pdd := match(saved_pdd, .Some(p) => _copy_expr_list(p), .None => ArrayList(AstExpr).new());
   match(context.base.get_expr_info(site.block.body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => _append_expr_list(pdd, d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
-  tail := _emit_fused_statements(_fused_statements(site.block.body_expr), indent.clone(), context);
+  tail := _emit_fused_statements(_fused_statements(site.block.body_expr), inner.clone(), context);
   (out : String) = String.from("");
   match(
     outer_field,
     .Some(rf) => if(tail.len() > usize(0), {
-      em.emit_string_line(`${indent}sm->${rf.name} = ${tail};`);
+      em.emit_string_line(`${inner}sm->${rf.name} = ${tail};`);
       out = `sm->${rf.name}`;
     }),
     .None => ()
   );
-  _emit_fused_drops(site.block.body_expr, indent.clone(), context);
-  _emit_fused_site_releases(site, indent.clone(), true, context);
+  _emit_fused_drops(site.block.body_expr, inner.clone(), context);
+  _emit_fused_site_releases(site, inner.clone(), true, context);
+  em.emit_string_line(`${indent}}`);
+  context.declared_temp_vars = saved_temps2;
+  context.emitted_deferred_drop_ids = saved_drop_ids2;
   context.state_machine_variables = saved_smv;
   context.state_machine_field_aliases = saved_aliases;
   context.variable_id_remapping = saved_remap;
