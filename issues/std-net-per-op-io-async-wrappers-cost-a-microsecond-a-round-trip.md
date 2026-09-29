@@ -66,6 +66,16 @@ budget = queue length + 64, yields drained after the loop) did **not** move
 the row (3.61–3.70 µs, before and after). So the step count is not the cost;
 the per-operation work is.
 
+## After #991 (measured 2026-09-29)
+
+#991's await rewrite (inline continue after a synchronous completion, same-step
+waiter handoff) left both std rows where they were: ping-pong 0.90 → 0.91,
+8 connections 0.86 → 0.85 of libuv. `--allocator mimalloc` did not help
+either. Of the ~0.5 µs a round trip, ~0.2 µs is `send` over libuv's `write` on
+TCP (0.08–0.11 µs a call, measured in C), and ~0.3 µs is the user-side work
+above (`sample`: ~0.35 µs of user leaf time a round trip vs ~0.03 µs for
+libuv). The second part is this issue.
+
 ## Directions
 
 - Let a std wrapper that only maps an error await the raw future without its
