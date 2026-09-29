@@ -238,7 +238,7 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   the SPAWN site (`No matching call found with arguments: (h.await)(io)`), not
   on the closure. A `(fn(x : T) -> R)(...)` literal in the same position works,
   and so does the same call outside the body
-  (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
+  (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
 - **Do not bind a captured value to a local and then call a SUSPENDING method
   on the local** inside an async body: `local := captured_stream;` followed by
   `io.await(local.next(io), io)` emits invalid C (a state-machine field

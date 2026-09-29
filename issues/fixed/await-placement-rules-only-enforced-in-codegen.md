@@ -30,7 +30,7 @@ The repro is `if(!(e.await(_b(e), e)), { return(i32(1)); })` inside
 - AGENTS.md already works around it: "async state-machine rules are enforced
   in codegen, so gate those with `yo compile src/main.yo --skip-c-compiler`".
   That rule costs about 3 minutes per check of the compiler tree.
-- `issues/questions/yoself-accepts-await-in-cond-that-ts-rejects.md` is a related
+- `issues/retired/yoself-accepts-await-in-cond-that-ts-rejects.md` is a related
   earlier symptom of the same split (the rule's location decided which
   compiler rejected the program).
 

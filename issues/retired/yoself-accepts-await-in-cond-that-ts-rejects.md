@@ -2,7 +2,7 @@
 
 **Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
 
-**Status: OPEN.** Found 2026-08-15 when the divergence blocked the v0.2.5
+**Status: RETIRED (2026-09-29).** See the section at the end.
 release.
 
 ## The divergence
@@ -101,3 +101,7 @@ lowering is built around, per `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`
 §3.3), fix the one known false rejection through the already-filed bug
 (`issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`), and
 retire this doc once that lands — the exit the re-verification above proposes.
+
+## Retired (2026-09-29, async state-machine plan)
+
+Both halves are gone: the TypeScript compiler was retired (2026-08-20), and the single-pass lowering (phase 5) makes an `if` whose condition awaits inside a match arm legal and tested (`tests/async_await.test.yo` "an if whose condition awaits, inside a match arm").

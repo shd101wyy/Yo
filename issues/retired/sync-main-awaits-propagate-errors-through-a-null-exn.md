@@ -2,7 +2,7 @@
 
 **Severity:** S1 — a propagated IoError calls a NULL `exn.throw` — SIGSEGV at PC 0 instead of an error report
 
-**Status: OPEN** (found 2026-09-08 while validating the version-install
+**Status: RETIRED (2026-09-29).** See the section at the end.
 cross-device fix; reproduced under gdb).
 
 ## Error
@@ -80,3 +80,7 @@ remaining direct call-through (currently only the sync-await bridge and
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED by rejection.** `main(io, exn : Exception)` is now a compile error ("main accepts at most an `io : Io` parameter…", #828, `da73f420c`). With a local `exn`, the ENOENT `create_dir` exits cleanly. Candidate for `retired/` (its subject was removed rather than fixed).
+
+## Retired (2026-09-29, async state-machine plan)
+
+Its subject was removed rather than fixed: `main(io, exn : Exception)` is a compile error since #828, and with a local `exn` the `create_dir` ENOENT exits cleanly.

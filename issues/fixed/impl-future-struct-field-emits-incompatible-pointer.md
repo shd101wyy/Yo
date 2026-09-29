@@ -2,7 +2,7 @@
 
 **Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit
+**Status: FIXED (2026-09-29).**
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
 
@@ -76,3 +76,7 @@ make `check` and codegen agree first by whichever lands sooner — if the
 support fix drags, an interim check-time rejection with a diagnostic naming
 the alternatives is acceptable, but today's silent C-compile failure is not.
 Slot the support work into `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`.
+
+## Fix (2026-09-29, async state-machine plan)
+
+Decided for option 2 (support), as the triage recommended; the plan's phase 1 item 7 names both options. The field is the type-erased future interface, and a concrete future stored into it is upcast at the constructor, in a value-struct literal and at an assignment (`_future_field_upcast`, `src/codegen/exprs/other_fn_call.yo`; `assignment.yo`). The await already goes through the generic interface. Test: `tests/async_await.test.yo` "an Impl(Future) struct field is stored, reassigned and awaited" (a C compile error on the v0.2.45 seed). `ArrayList(Impl(Future(...)))` is still rejected at check (E0610), which is consistent: no silent C failure remains.

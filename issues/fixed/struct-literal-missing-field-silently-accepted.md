@@ -279,7 +279,7 @@ Note step 5 only reproduces the SIGSEGV with a `yo` binary that predates
 ## Related
 
 Same family as the evaluator's other silent acceptances:
-- `issues/yo-self-async-await-argcount-overpermissive.md`
+- `issues/fixed/yo-self-async-await-argcount-overpermissive.md`
 - the def-time swallow surface in
   `issues/fixed/self-hosted-compile-swallows-undefined-call.md`, whose "wider
   strict mode — the ~220 type-level swallow classes" is recorded as still OPEN.

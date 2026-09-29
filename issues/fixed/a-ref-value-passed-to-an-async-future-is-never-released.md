@@ -2,7 +2,7 @@
 
 **Severity:** S1 — a ref captured by an async future is dup'd and never released — unbounded leak, Dispose never runs
 
-**Status: OPEN.** Found 2026-09-11 while building `std/http`'s connection pool
+**Status: FIXED (2026-09-29).**
 (`HttpClient`), whose `Dispose` this defect makes unreachable.
 
 ## Symptom
@@ -72,3 +72,7 @@ dispose emitter are the places to start.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED, not yet moved.** `io.async: created=50 disposed=50` on both binaries. The repro's `main(io, exn)` signature no longer compiles, so `exn` was moved into the body for the check. This duplicates `issues/fixed/io-async-closure-captures-never-released.md`, whose regression test is in `tests/async_await.test.yo` (~line 5686). Next step: move this doc to `fixed/` with a pointer to that test.
+
+## Fix (2026-09-29, async state-machine plan)
+
+Re-verified FIXED on 2026-09-28 (`io.async: created=50 disposed=50` on the seed and the tree). It duplicates `issues/fixed/io-async-closure-captures-never-released.md`, whose regression test in `tests/async_await.test.yo` pins it.

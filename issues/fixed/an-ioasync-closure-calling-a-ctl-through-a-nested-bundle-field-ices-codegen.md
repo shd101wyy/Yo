@@ -84,3 +84,7 @@ sync-future emit path asserts. A regression test belongs next to
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED.** No longer an ICE: `yo compile` now reports the coded `E0905` (#917), and `yo check` still exits 0. `YO_DEBUG_SWALLOW=1 yo check` shows that the swallowed cause is a real user error in the repro (`E0601 Cannot unify "String" and "dyn(ToString + Error)"`: it throws a bare string). The valid form `e.exn.throw(dyn(IoError.from_errno(2)))` compiles and prints `caught`/`after`. What remains is the def-time swallow hiding the real message (R2 in `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+
+## Fix (2026-09-29, async state-machine plan)
+
+The current face: an error inside an `io.async` body (the reproducer passes a `String` to `exn.throw`, which takes `dyn(ToString + Error)`) is swallowed by the body's definition-time trial, nothing evaluates the body again, and codegen reported only the generic E0905. The trial now records what it swallowed, keyed by the body's position (`record_hollow_body_error`, `src/expr_info.yo`), and codegen reports that error with its own code, span and help instead (`_report_hollow_async_body`, `src/codegen/exprs/async.yo`). Test: CLI case `compile-io-async-body-swallowed-error` (E0905 on the v0.2.45 seed).

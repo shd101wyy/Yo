@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 { Instant } :: import("std/time/instant");
 { EEXIST } :: import("std/libc/errno");
+{ Channel : SyncChannel } :: import("std/sync/channel");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -6565,4 +6566,92 @@ _unit_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 test("a unit local read across awaits", {
   assert(io.await(_unit_across_awaits(io), io) == i32(5), "the body runs to its value");
+});
+// ---------------------------------------------------------------------------
+// A non-ASCII field of an effect bundle, injected through a nested await.
+//
+// The effect setter wrote the raw field name as the C member (`sm->….é`),
+// while the struct declares its sanitized C name: clang rejected the program
+// (issues/fixed/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md).
+// ---------------------------------------------------------------------------
+_NaHandler :: (fn(msg : String) -> i32);
+_NaEff :: struct(io : Io, é : _NaHandler);
+_na_inner :: (fn(io : Io) -> Impl(Future(i32, _NaEff)))(
+  io.async(e => {
+    v := e.é(String.from("hi"));
+    return(v);
+  })
+);
+_na_work :: (fn(io : Io) -> Impl(Future(i32, _NaEff)))(
+  io.async(e => {
+    r := e.io.await(_na_inner(io), e);
+    return(r);
+  })
+);
+test("a non-ASCII effect bundle field reaches a nested await", {
+  (h : _NaHandler) = (
+    m -> {
+      return(i32(7));
+    }
+  );
+  eff := _NaEff(io : io, é : h);
+  assert(io.await(_na_work(io), eff) == i32(7), "the handler ran");
+});
+// ---------------------------------------------------------------------------
+// A `=>` closure passed to a generic callback inside an io.async body keeps
+// the future's result type (`h.await(io)` used to find no matching call).
+// issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md
+// ---------------------------------------------------------------------------
+_ca_apply :: (fn(generic(A : Type, B : Type, F : Type), v : A, f : F, where(F <: (Fn(item : A) -> B))) -> B)((f)(v));
+test("a closure argument inside an io.async body keeps the future's result type", {
+  task := io.async((io : Io) => {
+    r := _ca_apply(i32(5), x => (x + i32(1)));
+    r
+  });
+  h := io.spawn(task, io);
+  got := h.await(io);
+  assert(match(got, .Some(v) => (v == i32(6)), .None => false), "the spawned task's value");
+});
+// ---------------------------------------------------------------------------
+// An `Impl(Fn)` parameter captured by a closure built inside a no-await
+// io.async block: the inner capture struct read `cb` bare in the block's
+// closure function, where it lives in `closure_context`.
+// issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md
+// ---------------------------------------------------------------------------
+_if_run_it :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
+_if_relay :: (
+  fn(generic(T : Type), cb : Impl(Fn() -> T, Send), io : Io, where(T <: (Send, Acyclic))) -> Impl(Future(T, Io))
+)(
+  io.async((io : Io) => {
+    chan := SyncChannel(T).new(usize(1));
+    sink := chan;
+    _if_run_it(() => {
+      sink.send(cb());
+      ()
+    });
+    match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
+  })
+);
+test("an Impl(Fn) parameter captured inside a no-await io.async block", {
+  assert(io.await(_if_relay(() => i32(42), io), io) == i32(42), "the callback's value");
+});
+// ---------------------------------------------------------------------------
+// An `Impl(Future(T, E))` struct field: the field is the type-erased future
+// interface, and the concrete future stored into it is upcast (at the
+// constructor and at a reassignment).
+// issues/fixed/impl-future-struct-field-emits-incompatible-pointer.md
+// ---------------------------------------------------------------------------
+_IfHolder :: ref(struct(fut : Impl(Future(i32, Io))));
+_if_mk :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => v));
+_if_mk_awaiting :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    v + i32(1)
+  })
+);
+test("an Impl(Future) struct field is stored, reassigned and awaited", {
+  h := _IfHolder(fut : _if_mk(i32(41), io));
+  assert(io.await(h.fut, io) == i32(41), "a sync future through the field");
+  h.fut = _if_mk_awaiting(i32(1), io);
+  assert(io.await(h.fut, io) == i32(2), "a state machine through the field");
 });

@@ -2,7 +2,7 @@
 
 **Severity:** S3 — nearly every idiomatic io.async closure carries a dead 32-byte copy of the shadowed outer binding in its capture struct — results correct today
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).**
 
 ## Symptom
 
@@ -41,3 +41,7 @@ an environment in which they already shadow outer names. Regression test:
 assert via `--emit-c` that the capture struct of the repro's `_a` has only
 `x`, or, behaviourally, that a shadowed RC outer value is released when the
 outer scope ends and not when the future dies.
+
+## Fix (2026-09-29, async state-machine plan)
+
+The capture tracker (`track_variable_usage`, `src/evaluator/context.yo`) searched the body env outermost-first, so a closure parameter shadowing an outer name resolved to the outer binding, the parameter-frame exclusion never fired, and the outer name was captured. It now takes the innermost binding at or below the frame the read resolved in. Test: `tests/internal/context.test.yo` "track_variable_usage: a parameter shadowing an outer name is not a capture".

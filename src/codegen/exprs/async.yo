@@ -81,7 +81,8 @@
   scope_stack_contains,
   mark_uses_parallelism,
   mark_uses_tls,
-  fresh_local_name
+  fresh_local_name,
+  sanitize_for_c_identifier
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -101,7 +102,7 @@
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
-{ codegen_fatal, codegen_user_error, codegen_report_error } :: import("../constants.yo");
+{ codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_report_error } :: import("../constants.yo");
 { yo_error_from_diagnostics } :: import("../../error.yo");
 { SmUnwindCatch, unwind_catches_of_body, unwind_catch_condition } :: import("./async_completion.yo");
 { panic, assert } :: import("std/assert");
@@ -210,13 +211,13 @@ _visit_effect_struct_fields :: (
     ftype := match(ftypes.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(is_function_type(ftype), {
       el := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
-      ap := `${base_path}.${flabel}`;
+      ap := `${base_path}.${sanitize_for_c_identifier(flabel.clone(), false)}`;
       _add_mapping(mappings, el, ap);
     }, {
       has_fields := match(ftype, .Struct({ field_labels : sfl }) => (sfl.len() > usize(0)), _ => false);
       if(is_struct_type(ftype) && has_fields, {
         sub_label := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
-        sub_path := `${base_path}.${flabel}`;
+        sub_path := `${base_path}.${sanitize_for_c_identifier(flabel.clone(), false)}`;
         recur(ftype, sub_path, sub_label, mappings);
       });
     });
@@ -313,7 +314,7 @@ get_injectable_future_effect_field_mappings :: (
       // Function-typed effect → matching capture field.
       match(
         capture_type,
-        .Some(ct) => match(_find_capture_field(ct, elabel, etype), .Some(cf) => _add_mapping(mappings, elabel, `__capture.${cf}`), .None => ()),
+        .Some(ct) => match(_find_capture_field(ct, elabel, etype), .Some(cf) => _add_mapping(mappings, elabel, `__capture.${sanitize_for_c_identifier(cf, false)}`), .None => ()),
         .None => ()
       );
     }, {
@@ -329,7 +330,7 @@ get_injectable_future_effect_field_mappings :: (
               flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
               ftype := match(ef_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
               if(is_function_type(ftype), {
-                match(_find_capture_field(ct, flabel, ftype), .Some(cf) => _add_mapping(mappings, flabel, `__capture.${cf}`), .None => ());
+                match(_find_capture_field(ct, flabel, ftype), .Some(cf) => _add_mapping(mappings, flabel, `__capture.${sanitize_for_c_identifier(cf, false)}`), .None => ());
               });
               fi = (fi + usize(1));
             });
@@ -1139,7 +1140,7 @@ generate_async_block_state_dispose_function :: (
     capture_type,
     .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
       if(!(_capture_type_entry_exists(cap_ty, context)), {
-        em.emit_line("  /* Error: capture struct type not found in context */");
+        codegen_fatal(String.from("the capture struct type of an async block is not registered, so its captures cannot be released"));
       }, {
         match(
           get_drop_function_for_type(cap_ty, context),
@@ -1743,7 +1744,7 @@ _report_hollow_async_body :: (fn(body_expr : AstExpr, via_fsm : bool) -> unit)({
   );
 });
 generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: async block missing ExprInfo */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("async block missing ExprInfo"))));
   // The io.async closure body is extracted ONCE by the dispatcher (via
   // io_async_closure_body) and passed in — reading `cei.value` is a DESTRUCTIVE
   // move (Option(EvalValue) field reads move; see the dyn.yo use-after-move
@@ -1755,7 +1756,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     io_async_body,
     match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => Option(AstExpr).Some(x), .None => Option(AstExpr).None), _ => Option(AstExpr).None)
   );
-  body_expr := match(body_expr_opt, .Some(b) => b, .None => return(String.from("/* Error: async requires exactly 1 argument */")));
+  body_expr := match(body_expr_opt, .Some(b) => b, .None => return(codegen_fatal_expr(String.from("async requires exactly 1 argument"))));
   // POISON GATE (partially-hollow body, FSM path): the io.async closure's
   // body block must carry ExprInfo — a deferred trial that swallowed an
   // error leaves the block unevaluated even when earlier statements (e.g.
@@ -1770,9 +1771,9 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   });
   future_type := ei.ty;
   if(!(type_implements_future(future_type)), {
-    return(String.from("/* Error: async block must have Future type */"));
+    return(codegen_fatal_expr(String.from("async block must have Future type")));
   });
-  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(String.from("/* Error: Could not extract Future trait type */")));
+  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // State-machine struct name (this struct IS the Future implementation).
   async_block_id := match(
     ei.variable_name,
@@ -2493,19 +2494,19 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
 /// closure's runtime params + evidence come from the closure-arg's Func type
 /// directly.
 generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: io.async missing ExprInfo */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.async missing ExprInfo"))));
   future_type := ei.ty;
   if(!(type_implements_future(future_type)), {
-    return(String.from("/* Error: io.async must return a Future type */"));
+    return(codegen_fatal_expr(String.from("io.async must return a Future type")));
   });
-  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(String.from("/* Error: Could not extract Future trait type */")));
+  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // Closure argument expression + its info.
   closure_arg := match(
     ei.runtime_arg_exprs_in_order,
-    .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(String.from("/* Error: Missing closure argument for io.async */"))),
-    .None => return(String.from("/* Error: Missing closure argument for io.async */"))
+    .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))),
+    .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))
   );
-  cei := match(context.base.get_expr_info(closure_arg), .Some(c) => c, .None => return(String.from("/* Error: Missing closure argument for io.async */")));
+  cei := match(context.base.get_expr_info(closure_arg), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async"))));
   // The closure-typing metadata (closure_function_value / capture_type) is set by
   // closure_type.yo on the ORIGINAL closure expr (the FnCall's args[0]); the
   // runtime-arg expr may be a distinct node carrying only the plain value. Consult
@@ -2610,7 +2611,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     register_some_resolved_concrete(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
-  struct_name := match(expr_info_async_state_machine_struct_name(ei), .Some(s) => s, .None => return(String.from("/* Error: Missing sync future struct name */")));
+  struct_name := match(expr_info_async_state_machine_struct_name(ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));
   dispose_function_name := `${struct_name.clone()}_dispose`;
   resume_function_name := `${struct_name.clone()}_resume`;
   // Generate the closure argument value (registers the closure fn + emits capture
@@ -2659,8 +2660,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   );
   capture_c_name := match(eff_capture_type, .Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)), .None => Option(String).None);
   capture_field_count := match(eff_capture_type, .Some(cap_ty) => match(cap_ty, .Struct({ field_labels : fl }) => fl.len(), _ => usize(0)), .None => usize(0));
-  cfn := match(closure_function_c_name, .Some(n) => n, .None => return(String.from("/* Error: no closure FUNCTION for io.async sync path */")));
-  ccn := match(capture_c_name, .Some(n) => n, .None => return(String.from("/* Error: no CAPTURE type for io.async sync path */")));
+  cfn := match(closure_function_c_name, .Some(n) => n, .None => return(codegen_fatal_expr(String.from("no closure FUNCTION for io.async sync path"))));
+  ccn := match(capture_c_name, .Some(n) => n, .None => return(codegen_fatal_expr(String.from("no CAPTURE type for io.async sync path"))));
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
   // Func.param_types already excludes comptime params.
   sync_param_slots := ArrayList(SyncParamSlot).new();
@@ -2956,7 +2957,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       // OWN captures hold the name, it is only reachable through the enclosing
       // capture context (`((<cap>*)closure_context)->name`) — nested async
       // blocks emitted `.total = total` as an undeclared identifier. PRECEDENCE
-      // (the v11 lesson, issues/yo-self-async-emission-cluster.md): an
+      // (the v11 lesson, issues/retired/yo-self-async-emission-cluster.md): an
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.

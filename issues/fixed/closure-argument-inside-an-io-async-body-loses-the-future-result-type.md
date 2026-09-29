@@ -2,7 +2,7 @@
 
 **Severity:** S2 — an `=>` closure argument inside io.async leaves the future result unresolved — misattributed no-match error
 
-**Status: OPEN** (found 2026-09-11 while implementing `std/async/stream.yo`,
+**Status: FIXED (2026-09-29).**
 `plans/reference/ASYNC_ITERATION_STREAM.md`). **Severity:** MEDIUM — the error
 lands on the caller's `await`, nowhere near the closure, and the working
 spelling (build the chain outside the async body, or use a `fn` literal) is
@@ -75,3 +75,7 @@ the one the spawn site reads. The C27 fix is the model.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED, not yet moved.** The committed repro prints `got=6` on both binaries. Next step: add a regression test (the repro's shape in `tests/async/`) and move this doc to `fixed/`.
+
+## Fix (2026-09-29, async state-machine plan)
+
+Fixed by an earlier evaluator change (the committed reproducer prints `got=6` on the v0.2.45 seed and on the tree). Pinned by `tests/async_await.test.yo` "a closure argument inside an io.async body keeps the future's result type".

@@ -74,3 +74,7 @@ correct as-is). Tracked under Phase 5 / post-FSM faithfulness.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED.** `yo check` reports `E0603 Argument count mismatch: expected 2 arguments, got 1` for `io.await(f)`, both inside `io.async` and in `main`, and for the struct field-fn `o.add(i32(1))`. Next step: confirm a test pins this, then move to `fixed/`.
+
+## Fix (2026-09-29, async state-machine plan)
+
+Fixed: `yo check` reports E0603 for `io.await(f)`, inside `io.async` and in `main`, and for the struct field-fn call. Pinned by the CLI case `check-wrong-arity-async-body`.

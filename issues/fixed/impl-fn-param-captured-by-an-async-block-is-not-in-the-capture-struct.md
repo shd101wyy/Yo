@@ -86,3 +86,7 @@ this.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES for the committed repro, but at a different site** (seed and tree build): `error: use of undeclared identifier 'cb'` in `.cb = cb`. It now fires in the SYNC-future closure (`closure_yo_id_…`, a body with no await), which never reads `closure_context`. With an `io.await` added (the resume-function shape the doc describes), it works (`n=42`). What remains: `generate_io_async_sync_call` plus the capture-init fallback, i.e. the io.async closure's transitive capture of an `Impl(Fn)` parameter.
+
+## Fix (2026-09-29, async state-machine plan)
+
+A closure built inside a no-await `io.async` block initialized its capture struct with a bare name for a variable the block itself captured. The fallback in `generate_closure_construction` (`src/codegen/exprs/closures.yo`) now reads it through `closure_context`, with the same membership test `generate_atom` uses (`_enclosing_closure_capture_read`). Test: `tests/async_await.test.yo` "an Impl(Fn) parameter captured inside a no-await io.async block" (a C compile error on the v0.2.45 seed).

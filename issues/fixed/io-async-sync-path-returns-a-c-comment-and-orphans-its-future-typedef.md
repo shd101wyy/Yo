@@ -2,7 +2,7 @@
 
 **Severity:** S3 — the failing sync-future emitter returns a `/* Error */` C comment — seven clang errors instead of a Yo diagnostic
 
-**Status:** OPEN
+**Status: FIXED (2026-09-29).**
 **Severity:** papercut in its observed face — the build fails loudly, but with
 seven clang errors that name compiler temporaries instead of the source mistake,
 and `yo check` passes first. The underlying marker class is worse than a
@@ -163,3 +163,7 @@ extinct.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **LATENT.** The source trigger `io.async({…})` is now `E0606 … not callable` (#924). The defects remain in the code: `/* Error: … */` returns in `generate_io_async_sync_call` and `generate_async_block` (`src/codegen/exprs/async.yo`, 37 such markers under `src/codegen/`), plus the unconditional forward typedef. Plan phase 0 turns these into `codegen_fatal`.
+
+## Fix (2026-09-29, async state-machine plan)
+
+No source reaches the sync-future path this way any more (`io.async({…})` is E0606 since #924), so there is no reproducer. The defect class is removed: every `/* Error: … */` marker in `src/codegen/exprs/async.yo` is now `codegen_fatal_expr` / `codegen_fatal`, so a hit fails the compile with a report instead of emitting a C comment. The markers elsewhere in `src/codegen/` (25, outside the async emitters) are left to their own areas.

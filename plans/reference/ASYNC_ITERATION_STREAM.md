@@ -47,7 +47,7 @@
 > `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.6, and a blanket combinator can now be
 > called on a generic stream parameter), and a chain built
 > INSIDE an `io.async` body loses the future's result type
-> (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)
+> (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)
 > — build the chain outside, await it inside.
 
 **Status:** LANDED 2026-09-11 (was: BACKLOG, written 2026-09-10 because

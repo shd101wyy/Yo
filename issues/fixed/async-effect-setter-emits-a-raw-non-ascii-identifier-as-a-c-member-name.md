@@ -2,7 +2,7 @@
 
 **Severity:** S2 — non-ASCII effect field emitted raw as a C member name — clang rejects a valid program
 
-**Status: OPEN.** Found 2026-08-26 while reviewing D4 PR 3 (the `String`
+**Status: FIXED (2026-09-29).**
 byte-index flip). **Pre-existing and unrelated to D4** — it reproduces on the
 seed compiler `yo 0.2.17`, whose `std` is still rune-indexed.
 
@@ -101,3 +101,7 @@ issue is the struct-FIELD variant, which that file deliberately does not use.
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `error: no member named 'é' in 'struct …'` at `sm->__yo_param_0.é = value;`. `access_path` from `_visit_effect_struct_fields` reaches `generate_future_effect_setter` (`src/codegen/exprs/async.yo`) unsanitized.
+
+## Fix (2026-09-29, async state-machine plan)
+
+The setter's access paths sanitize each field label (`sanitize_for_c_identifier`), as the struct declaration does; the `strcmp` labels stay the Yo names. Test: `tests/async_await.test.yo` "a non-ASCII effect bundle field reaches a nested await" (a C compile error on the v0.2.45 seed).
