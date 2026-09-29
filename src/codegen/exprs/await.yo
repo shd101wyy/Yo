@@ -104,7 +104,7 @@ resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionG
             cv := e.value;
             is_outer := match(cv.kind, .Outer => true, _ => false);
             if((cv.base.name == field_label) && is_outer, {
-              o := String.from("sm->__capture.");
+              o := `sm->${context.sm_capture_slot}.`;
               o.push_string(field_label.clone());
               return(Option(String).Some(o));
             });
@@ -199,7 +199,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_ty
                 cv := e.value;
                 is_outer := match(cv.kind, .Outer => true, _ => false);
                 if((cv.base.name == flbl) && is_outer, {
-                  o := String.from("sm->__capture.");
+                  o := `sm->${context.sm_capture_slot}.`;
                   o.push_string(flbl.clone());
                   member_code = Option(String).Some(o);
                   go = false;

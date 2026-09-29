@@ -184,6 +184,11 @@ FunctionGenerationContext :: ref(
     in_async_state_machine : Option(InAsyncStateMachine),
     /// Set while an async block is lowered by the single-pass emitter.
     sm_inline_lowering : Option(InlineSmLowering),
+    /// The state-machine field that holds the capture struct an `Outer`
+    /// variable is read from: `__capture`, or, while a fused wrapper's block
+    /// is emitted into its caller, that site's capture slot
+    /// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F2).
+    sm_capture_slot : String,
     /// Variables captured in the async state machine (variable id → captured
     /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
     state_machine_variables : Option(HashMap(String, CapturedVariable)),
@@ -266,6 +271,7 @@ impl(
       uses_parallelism : false,
       in_async_state_machine : Option(InAsyncStateMachine).None,
       sm_inline_lowering : Option(InlineSmLowering).None,
+      sm_capture_slot : String.from("__capture"),
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       state_machine_binding_ids : Option(HashSet(String)).None,
@@ -322,7 +328,7 @@ resolve_var_name_in_context :: (
               // See issues/fixed/fixpoint-linux-only-capture-field-numeric-name.md.
               result = match(
                 cv.kind,
-                .Outer => `sm->__capture.${cv.base.name.clone()}`,
+                .Outer => `sm->${context.sm_capture_slot}.${cv.base.name.clone()}`,
                 .Local => `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`
               );
             })
