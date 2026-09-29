@@ -18,6 +18,7 @@ _Speak :: trait(speak : (fn(self : Self) -> i32));
 _Dog :: struct(volume : i32);
 impl(_Dog, _Speak(speak : (fn(self : Self) -> i32)(self.volume)));
 _arena :: (fn() -> Arena)(Arena.new(usize(1) << usize(20)));
+_make_speaker :: (fn() -> Dyn(_Speak))(dyn(_Dog(volume : i32(6))));
 test("A ref struct constructed in the scope comes from the arena", {
   arena := _arena();
   {
@@ -50,7 +51,7 @@ test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
     flag := arena.scoped(() => AtomicBool.new(true));
     assert(flag.load(MemoryOrder.Acquire), "atomic value");
     assert(arena.live_blocks() == usize(4), "an atomic ref struct");
-    d := arena.scoped(() => (Dyn(_Speak))(dyn(_Dog(volume : i32(6)))));
+    d := arena.scoped(() => _make_speaker());
     assert(d.speak() == i32(6), "dyn dispatch");
     assert(arena.live_blocks() == usize(5), "dyn box");
   };

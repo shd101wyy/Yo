@@ -133,3 +133,13 @@ test("a future result containing a binder named T", {
   b := io.await(_wrap_opt_t(_Pair(lo : i32(3), hi : i32(5)), io), io);
   assert(match(b, .Some(p) => ((p.lo + p.hi) == i32(8)), .None => false), "value-struct instantiation");
 });
+// The inverse direction: `T` is bound ONLY by a closure whose result is itself
+// an `io.async` future (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+_call_it :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)(f());
+test("a generic T bound by a closure that returns an io.async future", {
+  task := _call_it(() => io.async((io : Io) => i32(8)));
+  assert(io.await(task, io) == i32(8), "the future's value");
+  pair_task := _call_it(() => io.async((io : Io) => _Pair(lo : i32(2), hi : i32(5))));
+  p := io.await(pair_task, io);
+  assert((p.lo + p.hi) == i32(7), "a second T");
+});
