@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ Instant } :: import("std/time/instant");
 { HashSet } :: import("std/collections/hash_set");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
@@ -1015,51 +1016,34 @@ expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize))
 /// the same order, with the same module path, declaration frame level and
 /// input string, are indistinguishable to every reader. Each entry is pointed
 /// at the first such env, which is frozen: after this nothing may mutate a
-/// recorded env in place (`YO_DEBUG_FROZEN=1` enforces it). The table's
-/// 1.58 M envs share 337 K frame lists (§0.6). Returns the number of
-/// canonical envs.
+/// recorded env in place (`YO_DEBUG_FROZEN=1` enforces it). The self-build's
+/// 2.89 M entries hold 264 K distinct envs. Returns the number of canonical
+/// envs.
 (g_interned_env_count : usize) = usize(0);
 (g_interned_env_entries : usize) = usize(0);
+(g_interned_env_ns : i64) = i64(0);
 expr_info_table_intern_envs :: (fn(table : ExprInfoTable) -> usize)({
-  buckets := HashMap(u64, ArrayList(Environment)).new();
-  canon := ArrayList(Environment).new();
+  t0 := Instant.now();
+  canon := HashMap(u64, Environment).new();
   table.data.retain((_k, info) => {
     e := info.env;
     h := _env_identity_hash(e);
     match(
-      buckets.get(h),
-      .Some(bucket) => {
-        (found : bool) = false;
-        (bi : usize) = usize(0);
-        while((!found) && (bi < bucket.len()), {
-          match(
-            bucket.get(bi),
-            .Some(c) => if(_env_same_identity(c, e), {
-              info.env = c;
-              found = true;
-            }),
-            .None => ()
-          );
-          bi = (bi + usize(1));
-        });
-        if(!found, {
-          e.frozen = true;
-          bucket.push(e);
-          canon.push(e);
-        });
-      },
+      canon.get(h),
+      // A 64-bit collision with a different scope keeps its own env.
+      .Some(c) => if(_env_same_identity(c, e), {
+        info.env = c;
+      }),
       .None => {
         e.frozen = true;
-        fresh := ArrayList(Environment).new();
-        fresh.push(e);
-        buckets.insert(h, fresh);
-        canon.push(e);
+        canon.insert(h, e);
       }
     );
     true
   });
   g_interned_env_count = canon.len();
   g_interned_env_entries = table.data.len();
+  g_interned_env_ns = t0.elapsed().as_nanos();
   canon.len()
 });
 _env_identity_hash :: (fn(e : Environment) -> u64)({
@@ -2176,7 +2160,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()} interned_envs=${g_interned_env_count.to_string()} of ${g_interned_env_entries.to_string()}`);
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()} interned_envs=${g_interned_env_count.to_string()} of ${g_interned_env_entries.to_string()} interned_envs_ms=${(g_interned_env_ns / i64(1000000)).to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);
