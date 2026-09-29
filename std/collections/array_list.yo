@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 // the passing `outside-subset`/trivial walks. In runtime mode the
 // requires lower to the ordinary entry asserts (belt to the panics).
 pragma(Pragma.Verify);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { SIZE_MAX } :: import("../libc/stdint.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
@@ -167,12 +167,17 @@ impl(
     );
   }),
   /// Empty list. Allocates nothing — the first `push` buys the buffer (four
-  /// elements), as Rust's `Vec::new` does.
+  /// elements), as Rust's `Vec::new` does. Inside `with_allocator(a, …)` it is
+  /// `new_in(a)`: the buffer, and every growth of it, lives in `a`.
   new : (fn(ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
-    Self(
-      _ptr : .None,
-      _length : usize(0),
-      _capacity : usize(0)
+    match(
+      current_allocator(),
+      .Some(a) => Self.with_capacity_in(a, usize(0)),
+      .None => Self(
+        _ptr : .None,
+        _length : usize(0),
+        _capacity : usize(0)
+      )
     )
   ),
   /// Owned copy of the elements in `[r.start, r.end)` — JS-style range
@@ -238,6 +243,9 @@ impl(
     cond(
       (cap == usize(0)) =>
         Self.new(),
+      // Inside `with_allocator(a, …)`: `with_capacity_in(a, cap)`.
+      current_allocator().is_some() =>
+        Self.with_capacity_in(current_allocator().unwrap(), cap),
       // `sizeof(T) * cap` is computed in usize and WRAPS. Without this guard a
       // capacity from untrusted input (a length prefix off a socket, say) hands
       // malloc a tiny — or zero — size while the list still reports `cap`, so

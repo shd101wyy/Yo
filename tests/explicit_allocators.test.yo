@@ -15,6 +15,9 @@ Gc :: import("std/gc");
 { Vec } :: import("std/imm/vec");
 { Map } :: import("std/imm/map");
 { ImmString } :: import("std/imm/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ String } :: import("std/string");
 _Point :: ref(struct(x : i32, y : i32));
 _Shape :: ref(enum(Circle(r : i32), Square(side : i32)));
 _Node :: ref(struct(value : i32, next : Option(Self)));
@@ -227,6 +230,39 @@ test("An imm Map and ImmString built in the scope release into the arena", {
     s := arena.scoped(() => ImmString.from("hello, arena"));
     assert(s.len() == usize(12), "string len");
     assert(arena.live_blocks() > usize(2), "nodes and buffers are in the arena");
+  };
+  assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
+});
+// ===== P3c: the core containers' default constructors follow the scope =====
+test("A default ArrayList created in the scope keeps growing in the arena after it", {
+  arena := _arena();
+  {
+    list := arena.scoped(() => ArrayList(i32).new());
+    assert(list.allocator().is_some(), "new() inside the scope is new_in(scope)");
+    i := i32(0);
+    while(runtime(i < i32(500)), {
+      list.push(i);
+      i = (i + i32(1));
+    });
+    assert(list.allocator().unwrap().same(arena.allocator()), "growth outside the scope stays in the arena");
+    outside := ArrayList(i32).new();
+    outside.push(i32(1));
+    assert(outside.allocator().is_none(), "a list created outside is global");
+  };
+  assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
+});
+test("A default HashMap and a String built in the scope are placed there", {
+  arena := _arena();
+  {
+    m := arena.scoped(() => {
+      acc := HashMap(i32, i32).new();
+      acc.insert(i32(1), i32(10));
+      acc
+    });
+    assert(m.allocator().is_some(), "the map's tables");
+    s := arena.scoped(() => `joined ${i32(7)} ${String.from("words")}`);
+    assert(s == `joined 7 words`, "string contents");
+    assert(arena.live_blocks() > usize(2), "the map object, its tables and the string's bytes");
   };
   assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
 });

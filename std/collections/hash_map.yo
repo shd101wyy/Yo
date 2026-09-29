@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 // `outside-subset`), and the internals stay parked with the heap model
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
@@ -141,7 +141,9 @@ impl(
   HashMap(K, V),
   /// Allocate memory for HashMap with given capacity
   /// Initializes all control bytes to EMPTY
-  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(.None, capacity)),
+  // The default constructors' tables: from the allocator `with_allocator`
+  // made current, or the global one.
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(current_allocator(), capacity)),
   // Allocate both buffers from `alloc` (the global allocator when `.None`).
   _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize) -> ?*void)(
     match(

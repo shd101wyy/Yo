@@ -28,7 +28,7 @@
 //! wrap-around cases. Missing pieces such as `Debug` or a `retain` would be
 //! additive.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator");
 { SIZE_MAX } :: import("../libc/stdint");
 { assert } :: import("../assert");
 { malloc, realloc, free } :: GlobalAllocator;
@@ -54,8 +54,13 @@ impl(
   generic(T : Type),
   Deque(T),
   /// Empty deque. Allocates nothing — the first push buys an 8-slot ring.
+  /// Inside `with_allocator(a, …)` it is `new_in(a)`.
   new : (fn() -> Self)(
-    Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
+    match(
+      current_allocator(),
+      .Some(a) => Self.new_in(a),
+      .None => Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
+    )
   ),
   /// Empty deque whose ring lives in `alloc`. Every growth and the final
   /// release go through `alloc`. Takes one allocation right away — a block
