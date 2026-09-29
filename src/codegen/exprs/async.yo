@@ -2119,6 +2119,37 @@ _block_cross_boundary :: (fn(block : DeferredAsyncBlock, context : FunctionGener
       pci = (pci + usize(1));
     });
   });
+  // A local sharing the RC value of a local of this body is read and written
+  // through the owner's slot (`sm_storage_id`), so it gets no field.
+  body_locals := HashSet(String).new();
+  (bli : usize) = usize(0);
+  while(bli < block.analysis.captured_variables.len(), bli = (bli + usize(1)), {
+    match(
+      block.analysis.captured_variables.get(bli),
+      .Some(bv) => match(
+        bv.kind,
+        .Local => {
+          body_locals.insert(bv.base.id.to_string());
+        },
+        .Outer => ()
+      ),
+      .None => ()
+    );
+  });
+  (ali : usize) = usize(0);
+  while(ali < block.analysis.captured_variables.len(), ali = (ali + usize(1)), {
+    match(
+      block.analysis.captured_variables.get(ali),
+      .Some(av) => match(
+        av.is_owning_the_same_rc_value_as,
+        .Some(ob) => if(body_locals.contains(ob.*.base.id.to_string()), {
+          _dropped := cbr.cross_boundary_ids.remove(av.base.id.to_string());
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
     match(
       block.closure_param_slots,

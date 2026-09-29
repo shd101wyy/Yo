@@ -6755,3 +6755,17 @@ _inout_for :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("a for loop's inout element, written after an await in the body", {
   assert(io.await(_inout_for(io), io) == i32(23), "both elements are written in place");
 });
+// issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
+_AliasSrc :: ref(struct(n : i32));
+test("a local copied from a captured value, written and read across awaits", {
+  c := _AliasSrc(n : i32(5));
+  task := io.async((io : Io) => {
+    s := c;
+    io.await(yield(io), io);
+    s.n = (s.n + i32(1));
+    io.await(yield(io), io);
+    s.n
+  });
+  assert(io.await(task, io) == i32(6), "the write through s is read back");
+  assert(c.n == i32(6), "s and c are one object");
+});

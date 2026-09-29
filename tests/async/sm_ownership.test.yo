@@ -410,3 +410,22 @@ test("a pinned object is released once when the task is aborted", {
   _abort_pinned(io);
   assert(g_disposed == i32(2), "the abort disposes the pin and the handle's object once each");
 });
+// issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
+_alias_sleeper :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    s := t;
+    e.await(sleep(u64(50)), e);
+    s.n
+  })
+);
+_abort_alias :: (fn(io : Io) -> unit)({
+  h := io.spawn(_alias_sleeper(Thing(n : i32(1)), io), io);
+  io.await(sleep(u64(10)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("an aborted task does not release a local copied from its capture", {
+  g_disposed = i32(0);
+  _abort_alias(io);
+  assert(g_disposed == i32(1), "the capture releases it once; the copy owns nothing");
+});

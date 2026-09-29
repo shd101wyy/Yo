@@ -19,7 +19,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name, get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, get_state_machine_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
@@ -354,21 +354,10 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         match(
           sm_bind_vars.get(sm_bind_vars.len() - usize(1)),
           .Some(sm_bind_var) => {
-            (sm_bind_id : String) = match(
-              sm_bind_var.is_owning_the_same_rc_value_as,
-              .Some(ob) => ob.*.id.to_string(),
+            sm_bind_id := match(
+              context.state_machine_variables,
+              .Some(smv0) => sm_storage_id(sm_bind_var, smv0, context.variable_id_remapping),
               .None => sm_bind_var.id.to_string()
-            );
-            match(
-              context.variable_id_remapping,
-              .Some(rm) => match(
-                rm.get(sm_bind_id.clone()),
-                .Some(mapped) => {
-                  sm_bind_id = mapped;
-                },
-                .None => ()
-              ),
-              .None => ()
             );
             sm_has := match(
               context.state_machine_variables,

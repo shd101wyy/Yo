@@ -492,10 +492,16 @@ analyze_await_points :: (
       },
       .Some(v) => v
     );
+    // A variable that shares its owner's RC value does not own a reference
+    // of its own (the dispose and slot sharing skip it).
     cv := CapturedVariable(
       base : sv,
       kind : CapturedVariableKind.Local,
-      is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+      is_owning_the_same_rc_value_as : match(
+        sv.is_owning_the_same_rc_value_as,
+        .Some(owner_sv) => Option(Box(CapturedVariable)).Some(box(CapturedVariable(base : owner_sv.*, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None))),
+        .None => Option(Box(CapturedVariable)).None
+      )
     );
     captured_variables.push(cv);
     ci = (ci + usize(1));

@@ -28,7 +28,7 @@
   fresh_local_name
 } :: import("../utils/index.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
@@ -67,23 +67,9 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         match(
           vars.get(vars.len() - usize(1)),
           .Some(variable) => {
-            (var_id : String) = match(
-              variable.is_owning_the_same_rc_value_as,
-              .Some(owner_box) => owner_box.*.id.to_string(),
-              .None => variable.id.to_string()
-            );
-            // SSA-renamed ids (loop reassignment) resolve to the canonical id.
-            match(
-              context.variable_id_remapping,
-              .Some(rm) => match(
-                rm.get(var_id.clone()),
-                .Some(mapped) => {
-                  var_id = mapped;
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
+            // The owner's slot for a local sharing a body local's value, else
+            // its own (SSA-renamed ids resolve to the canonical id).
+            (var_id : String) = sm_storage_id(variable, smv, context.variable_id_remapping);
             match(
               smv.get(var_id.clone()),
               .Some(cv) => {
@@ -243,7 +229,10 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 match(
                   it3.next(),
                   .Some(e3) => {
-                    if((e3.value.base.name == owner_name) || (e3.key == owner_id), {
+                    // An owner from outside the body is a capture, not this
+                    // local's storage: the local has its own (step 1 or 5).
+                    is_outer_owner := match(e3.value.kind, .Outer => true, .Local => false);
+                    if(((e3.value.base.name == owner_name) || (e3.key == owner_id)) && !is_outer_owner, {
                       field_name3 := match(
                         e3.value.kind,
                         .Outer => `__capture.${owner_name.clone()}`,

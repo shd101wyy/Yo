@@ -242,7 +242,12 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
       _pos := _lv_pos(tok, w);
       match(
         _lv_resolve(e, tok.value.clone(), w, context),
-        .Some(v) => _lv_use(_lv_id(v, w), stmt_end, w),
+        .Some(v) => {
+          _lv_use(_lv_id(v, w), stmt_end, w);
+          // A local sharing an owner's value is read through the owner's
+          // slot (`sm_storage_id`), so the owner is live wherever it is.
+          match(v.is_owning_the_same_rc_value_as, .Some(ob) => _lv_use(_lv_id(ob.*, w), stmt_end, w), .None => ());
+        },
         // No environment to resolve it in: every local of this name is taken
         // as read here, which can only lengthen a range.
         .None => match(
