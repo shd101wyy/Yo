@@ -24,8 +24,9 @@
 { Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
-{ expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
+{ expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
@@ -1028,6 +1029,18 @@ _inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAw
   });
   by_pos
 });
+/// `YO_DEBUG_FUSION`: print one line per await of the single-pass lowering
+/// with the fusion verdict the evaluator recorded for its future
+/// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F1).
+_report_await_fusion :: (fn(await_expr : AstExpr, future_arg : AstExpr) -> unit)({
+  tok := ast_expr_token(await_expr);
+  (verdict : String) = match(
+    await_fusion_candidate(future_arg),
+    .Some(c) => if(c.verdict.len() == usize(0), `fusable ${c.func_id}`, `rejected ${c.func_id}: ${c.verdict}`),
+    .None => if(ast_expr_is_atom(future_arg), String.from("not a call"), String.from("no io.async wrapper callee"))
+  );
+  eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} ${verdict}`);
+});
 /// Emit one suspension point of the single-pass lowering, where the
 /// expression generator reached `io.await(future, effects)`, and return the C
 /// code of its result (empty for unit).
@@ -1070,6 +1083,9 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       return(String.from(""));
     }
   );
+  if(debug_knob(`YO_DEBUG_FUSION`).is_some(), {
+    _report_await_fusion(expr, future_arg);
+  });
   is_io := is_io_future_type(future_ty);
   k := low.next_state;
   low.next_state = (k + usize(1));

@@ -90,6 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
+{ record_await_fusion_candidate } :: import("../../expr_traversal.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place } :: import("../utils.yo");
 {
   EvalContext,
@@ -3685,6 +3686,16 @@ _evaluate_funcval_runtime_call :: (
   // registered under the async-block future's identity, which only the
   // body's stamped ExprInfo carries (the async-future family root,
   // issues/yo-self-async-emission-cluster.md 2026-07-20 convergence).
+  // Await-site fusion F1 (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): when the
+  // callee is an `io.async` wrapper, record it and whether its body can run
+  // in an awaiting caller's frame; codegen reads the record at the await.
+  if(is_some_type(resolved_ret), {
+    match(
+      cv,
+      .FuncVal(fz_fvd, _) => record_await_fusion_candidate(expr, fz_fvd.*.func_id.clone(), fz_fvd.*.body),
+      _ => ()
+    );
+  });
   // One SomeT-with-resolution level of the body type is unwrapped first,
   // as the async delegation wrappers require.
   if(is_some_type(resolved_ret), {
