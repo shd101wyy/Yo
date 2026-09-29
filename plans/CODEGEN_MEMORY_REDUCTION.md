@@ -488,3 +488,56 @@ Proposed, to confirm after Phase 0:
 - stage-2 `compile src/main.yo --skip-c-compiler` below **2.0 GB** max RSS on
   mimalloc (from 3.25 GB);
 - the CI cgroup peak (C compiler included) below **2.5 GB** (from 3.36 GiB).
+
+## 6. Design (not started): env-free codegen, for §0.6's 746 MB
+
+**Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
+(§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
+them until the last function is written.
+
+**What codegen asks** (2026-09-30: every `<x>.env` read under `src/codegen`,
+about 100 sites in 25 files; `exprs/return.yo`, `async/state_code_gen.yo`,
+`exprs/drop_dup.yo`, `exprs/cond.yo` and `exprs/atom.yo` carry most):
+
+| query | sites | what it needs |
+| --- | --- | --- |
+| `get_variable_name_for_codegen(name, Some(env))` | 42 | the innermost `Variable` named `name` visible in that scope (its C name, extern-ness, module qualification) |
+| `is_temp_variable_name(env.module_path, name)` | 28 | only the env's module path |
+| `get_variables_from_env(env, name)` | 22 | the visible `Variable`s named `name`, innermost last |
+| `_last_is_module_level` / `_last_is_compile_time_only` (`exprs/assignment.yo`) | 5 | two flags of the innermost `Variable` |
+
+**The shape.** Every query is `(env, name)` → the visible `Variable`s of one
+name, plus the module path. The names are not arbitrary. At each site the
+name is one of:
+- the node's own identifier token;
+- its `ExprInfo.variable_name`;
+- the atom name of one of its deferred dup/drop/consumed expressions;
+- a name codegen derived from those.
+
+**Proposed.**
+1. **Enumerate the names.** Log each site's `(ExprInfo key, name)` under a
+   knob (the `YO_CODEGEN_READS` pattern), run the self-compile and
+   `gates_fast`'s corpus, and check that every queried name comes from the
+   four sources above. Any site that queries another name is redesigned
+   first.
+2. **Resolve at the end of evaluation.** Per `ExprInfo` that codegen can
+   read, resolve those names once. Store the results in a side table keyed
+   like the ExprInfo table (`ExprId → [(name, [Variable])]`), and keep the
+   module path as a shared `String`.
+3. **Switch codegen over.** Answer the four queries from the side table. Then
+   point every recorded env at one empty env before collect.
+4. **Gates:**
+   - byte-identical self-emit;
+   - `gates_fast`'s corpus;
+   - a knob that panics when an emptied env is queried;
+   - `YO_DEBUG_FROZEN=1`.
+
+**Open questions.**
+- **Lazy evaluation during collect.** Specializations are forced while
+  collect runs, and table entries grow 2.887 M → 2.953 M. Their envs are
+  resolved when they are created, or collect keeps envs until it ends.
+- **Late readers.** `generate_deferred_async_blocks` and dyn wrappers read
+  bodies late. §0.8 found a borrow check that reads another function's body.
+- **The side table's own size.** The `Variable`s it keeps are a subset of
+  what the envs keep, and the freed remainder must be measured, not assumed.
+
