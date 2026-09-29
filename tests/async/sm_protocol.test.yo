@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { Channel } :: import("std/async/channel");
 { Mutex } :: import("std/async/mutex");
 { __yo_async_socket_start, __yo_async_yield_start } :: import("std/sys/externs");
-{ close } :: import("std/libc/unistd");
+tcp :: import("std/sys/tcp");
 
 (g_disposed : i32) = i32(0);
 Thing :: ref(struct(n : i32));
@@ -218,7 +218,9 @@ test("a JoinHandle of a raw I/O future reads its result and can abort it", {
   h := io.spawn(unsafe(__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
   fd := match(h.await(io), .Some(v) => v, .None => i32(-99));
   assert(fd > i32(2), "the handle read the operation's fd");
-  _c := unsafe(close(int(fd)));
+  // Through the runtime: on Windows the fd is a SOCKET, and the CRT's
+  // close() on it hits the invalid-parameter handler (abort, exit code 22).
+  _c := io.await(tcp.close(fd), io);
   h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
   h2.abort();
   assert(h2.await(io).is_none(), "the aborted raw future reads .None");

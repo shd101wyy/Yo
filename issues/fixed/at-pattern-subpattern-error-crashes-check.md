@@ -1,6 +1,7 @@
 # A `:=` whole-value pattern whose sub-pattern fails evaluation SIGFAULTS `yo check`
 
 **Opened:** 2026-09-28
+**Status:** FIXED — codegen in #993; the seed-safe source form in #996 (see "The seed" below).
 **Reproduced on:** seed `yo 0.2.45` (installed 2026-09-28), tree `12a69ed8b`
 (develop, #985).
 
@@ -91,3 +92,17 @@ E0609 after).
 Note: inside a `test("…", { … })` body the crash does not reproduce under
 `yo check` — check does not semantically evaluate `test` bodies — so the
 repro must be at module level.
+
+## The seed (#996)
+
+The codegen fix only reaches a compiler built BY a compiler that has it. Stage 1
+is built by the v0.2.45 seed, which emits `recur` without the check, so the
+stage-1 binary kept the hole in its own `compile_pattern` and both regression
+cases still SIGSEGV'd on it (measured on #996 merged with develop `2914215b0`:
+`yo check` rc=139; stage 2 was clean). `gates_fast.sh` runs the cli-cases with
+stage 1, so develop's battery would have failed them. `compile_pattern`'s three
+self-calls that can throw (the `:=` sub-pattern, the Box look-through, the
+or-alternative) now call `compile_pattern(...)` by name, which every seed
+compiles with the check. The other `recur(..., exn)` sites in `src/` keep the
+hole in stage 1 only until `SEED_VERSION` carries #993 (the release after
+v0.2.45); the shipped binary is stage 2 and never had it.
