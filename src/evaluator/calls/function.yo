@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   record_method_callee_type,
   record_method_callee_value,
+  lookup_method_callee_value,
   record_io_builtin_struct_field,
   lookup_io_builtin_struct_field,
   record_io_builtin_call,
@@ -8362,6 +8363,12 @@ Fix: wrap the call:
                 );
               }
             )
+          );
+          // Await-site fusion F1: the resolved method, as for the FuncVal arm.
+          match(
+            lookup_method_callee_value(ast_expr_id(expr)),
+            .Some(fz_mv) => match(fz_mv, .FuncVal(fz_mfvd, _) => record_await_fusion_candidate(expr, fz_mfvd.*.func_id.clone(), fz_mfvd.*.body), _ => ()),
+            .None => ()
           );
           // CTFE-execute comptime-returning methods. `try_to_call...`
           // resolves the return TYPE but never runs the body

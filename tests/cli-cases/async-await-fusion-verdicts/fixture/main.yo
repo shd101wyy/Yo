@@ -32,16 +32,6 @@ early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
     r
   })
 );
-// An early return from the block.
-early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
-  io.async((e : Io) => {
-    r := e.await(leaf(e, n), e);
-    if(r > i32(100), {
-      return(i32(0));
-    });
-    r
-  })
-);
 // No io.async at all: a delegation.
 delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(one_await(io, n));
 driver :: (fn(io : Io) -> Impl(Future(i32)))(
@@ -50,7 +40,6 @@ driver :: (fn(io : Io) -> Impl(Future(i32)))(
     b := e.await(two_awaits(e, i32(2)), e);
     c := e.await(await_operand(e, i32(3)), e);
     d := e.await(delegate(e, i32(4)), e);
-    h := e.await(early_return(e, i32(6)), e);
     h := e.await(early_return(e, i32(6)), e);
     f := leaf(e, i32(5));
     g := e.await(f, e);
