@@ -19,7 +19,7 @@
 { host_target } :: import("../../src/target.yo");
 { CodeGenContext } :: import("../../src/codegen/utils/index.yo");
 { FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
-{ generate_atomic_gc_runtime_functions } :: import("../../src/codegen/functions/gc_runtime.yo");
+{ generate_atomic_gc_runtime_functions, emit_task_abort_registry } :: import("../../src/codegen/functions/gc_runtime.yo");
 { generate_parallelism_runtime } :: import("../../src/codegen/parallelism/runtime.yo");
 { dispose_fn_thunk } :: import("../../src/codegen/functions/constructors.yo");
 { assert, panic } :: import("std/assert");
@@ -178,4 +178,21 @@ test("a dispose_fn slot holds a void* thunk, emitted once per dispose function",
   at := must_find(c, thunk, usize(0));
   assert(match(c.index_of(thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
+});
+// issues/fixed/the-task-abort-registry-array-is-never-freed.md
+// The registry is thread-local; its array must be released when the registry
+// empties, or every thread that ever registered an abort leaks it at exit.
+test("the task-abort registry frees its array when it empties", {
+  ctx := mk_context(false);
+  emit_task_abort_registry(ctx);
+  em := ctx.base.emitter;
+  c := em.print();
+  free_at := must_find(c, "static void __yo_task_abort_registry_free(void) {", usize(0));
+  assert(c.index_of("__yo_free(__yo_task_aborts.items);", free_at).is_some(), "the free releases the array");
+  take_at := must_find(c, "static int __yo_task_abort_take_entry(void* fut, int restore) {", usize(0));
+  take_end := must_find(c, "static int __yo_task_abort_take(void* fut) {", take_at);
+  empty_free := must_find(c, "if (__yo_task_aborts.len == 0) __yo_task_abort_registry_free();", take_at);
+  assert(empty_free < take_end, "taking the last entry frees the array");
+  report_at := must_find(c, "static void __yo_task_abort_report_unobserved(void) {", usize(0));
+  assert(c.index_of("__yo_task_abort_registry_free();", report_at).is_some(), "the end-of-program report frees the array");
 });

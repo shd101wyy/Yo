@@ -1,8 +1,8 @@
 # A dup-result temp in a state machine is released through an empty field (a leak per call)
 
-**Severity:** S2 — every unwound (escaped) task leaks the RC values its locals and awaits held, and the `dyn` error its handler received
+**Severity:** S2 — in a state machine, every call that takes a retained RC argument (an index result, a field read) leaks one reference, whether or not the task escapes
 
-**Status:** FIXED 2026-09-29 (branch `fix/sm-dup-temp-leak`, after the release; build verification pending).
+**Status:** FIXED 2026-09-29 (branch `fix/sm-dup-temp-leak`, after the release).
 **Filed as:** `issues/an-escaped-task-leaks-references-to-values-it-bound.md`. The leak turned out not to be specific to escaped tasks.
 **Found:** 2026-09-29, while fixing
 `issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md` (#996).
@@ -18,13 +18,20 @@ and keeps them in `keep`. A spawned task loops over them, and each iteration doe
 
 After the block that spawned and awaited the task has ended:
 
-| Compiler | Output (expected `rc0=1 rc1=1`) | `leaks --atExit` |
+| Compiler | Output (expected `rc0=2 rc1=2`) | `leaks --atExit` |
 | --- | --- | --- |
 | #996 (the double-drop fix) | `disposed=0 rc0=3 rc1=3` | both `Thing`s (32 B, from `main`), plus 96 B for the thrown `dyn(\`stop\`)` and its String |
 | `b6b828772` (#989) | `disposed=0 rc0=3 rc1=2` (the double drop of #996's fix, one release of `Thing(1)` too many) | — |
+| this fix | `disposed=0 rc0=2 rc1=2` | 96 B: the thrown error, a separate bug (below) |
 
-Two references per `Thing` are never released, on the value-enum path that the escape sweep and
-the scope-end drops share. The handler `err -> unwind(())` never drops the `err` it was given.
+The expected value is 2, not 1: `keep` holds one reference and the pushed temporary holds the other
+until `main`'s scope ends. The same program without the spawn block prints `rc0=2 rc1=2`. (This
+document first said 1, and so counted two leaked references per `Thing`; there is one.)
+
+The remaining 96 B is the thrown error, a different temp with the same kind of defect:
+`issues/fixed/a-dyn-temp-in-a-state-machine-is-never-stored-to-its-field.md`. The first
+guess, that the handler `err -> unwind(())` never drops its `err`, was wrong: a synchronous
+throw to the same handler leaks nothing.
 
 ## Root cause (measured: an RC trace of the reproducer's emitted C)
 
@@ -53,5 +60,5 @@ field, like every other temp declaration site. The helper moved from `other_fn_c
 ## Test
 
 `tests/async/sm_protocol.test.yo`, "an index result passed to an async call in a task is released":
-after the task and its block, only `keep` and the test's own binding hold the `Thing`, so `rc` is 2.
-Before the fix it is 4. `tmp/idx_leak.yo` in this worktree is the same shape as a program.
+the `Thing`s are pushed in their own block, so after the task and its block only `keep` and the
+test's own binding hold `Thing(5)` and `rc` is 2. #996's binary gives 3 (the test fails there); the fix gives 2.

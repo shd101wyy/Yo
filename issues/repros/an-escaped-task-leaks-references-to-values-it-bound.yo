@@ -2,8 +2,10 @@
 // after the block that spawned and awaited it ends, each Thing should be held
 // only by `keep` (rc 1), and the thrown `dyn` error should be freed.
 //   yo compile issues/repros/an-escaped-task-leaks-references-to-values-it-bound.yo --optimize 2 -o a.out
-//   ./a.out                  # measured: disposed=0 rc0=3 rc1=3 (expected rc0=1 rc1=1)
-//   leaks --atExit -- ./a.out  # both Things (32 B, allocated in main) and the error value leak
+//   ./a.out                  # before the fix: disposed=0 rc0=3 rc1=3; fixed: rc0=2 rc1=2
+//                            # (2 = `keep` + the push temporary, alive until main ends:
+//                            # the same program without the spawn block prints 2 2)
+//   leaks --atExit -- ./a.out  # before: both Things (32 B, from main) and the thrown error; fixed: 0 leaks
 // issues/fixed/a-dup-result-temp-in-a-state-machine-is-released-through-an-empty-field.md
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");

@@ -340,8 +340,12 @@ _sm_pass_indexed :: (fn(keep : ArrayList(Thing), io : Io) -> Impl(Future(i32, Io
 );
 test("an index result passed to an async call in a task is released", {
   keep := ArrayList(Thing).new();
-  keep.push(Thing(n : i32(5)));
-  keep.push(Thing(n : i32(6)));
+  // Pushed in their own block: a pushed temporary holds its reference until
+  // the scope it was made in ends.
+  {
+    keep.push(Thing(n : i32(5)));
+    keep.push(Thing(n : i32(6)));
+  };
   {
     h := io.spawn(_sm_pass_indexed(keep, io), IoExn(io : io, exn : Exception(throw : (err -> unwind(())))));
     got := h.await(io);
@@ -349,4 +353,42 @@ test("an index result passed to an async call in a task is released", {
   };
   t0 := keep(usize(0));
   assert(rc(t0) == usize(2), `only keep and t0 hold Thing(5), rc ${rc(t0)}`);
+});
+
+// issues/fixed/a-dyn-temp-in-a-state-machine-is-never-stored-to-its-field.md
+// The error a task throws after an await is a `dyn` temp the state machine
+// hoists; the escape sweep releases its field, which was never assigned, so
+// the error leaked.
+_SmErr :: ref(struct(n : i32));
+impl(
+  _SmErr,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      return(String.from("sm error"));
+    })
+  )
+);
+impl(_SmErr, Error());
+impl(
+  _SmErr,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+_sm_throw_after_await :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    e.exn.throw(dyn(_SmErr(n : i32(1))));
+    i32(1)
+  })
+);
+test("an error a task throws after an await is released", {
+  before := g_disposed;
+  {
+    h := io.spawn(_sm_throw_after_await(io), IoExn(io : io, exn : Exception(throw : (err -> unwind(())))));
+    assert(h.await(io).is_none(), "the task unwound");
+  };
+  assert(g_disposed == (before + i32(1)), `the thrown error was disposed, ${g_disposed - before} times`);
 });
