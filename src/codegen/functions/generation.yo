@@ -18,7 +18,7 @@
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, expr_info_macro_expansion, expr_info_async_state_machine_struct_name, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -968,58 +968,6 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
   )
 );
 /// Generate all collected functions.
-/// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 0b: once a function's C is
-/// written, its body's recorded envs are dead — they are what keeps a scope's
-/// frames, variable lists and variables alive after evaluation (§0.6: 746 MB
-/// at the end of evaluation). Point them at one shared released env so emit
-/// reuses that memory. A nested function literal is emitted on its own and an
-/// `io.async` body later (generate_deferred_async_blocks), so the walk stops
-/// at both. Macro expansions are followed: codegen emits the expansion.
-(g_released_env : Environment) = Environment.new(String.from("<released>"));
-_release_function_envs :: (fn(value : EvalValue, context : FunctionGenerationContext) -> unit)({
-  body := match(value, .FuncVal(__fvr, _) => __fvr.*.body, _ => return(()));
-  stack := ArrayList(AstExpr).new();
-  stack.push(body);
-  (is_root : bool) = true;
-  while(stack.len() > usize(0), {
-    node := match(stack.pop(), .Some(n) => n, .None => body);
-    (descend : bool) = true;
-    match(
-      context.base.get_expr_info(node),
-      .Some(ei) => {
-        is_fn_literal := match(ei.value, .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false);
-        cond(
-          (!is_root && is_fn_literal) => {
-            descend = false;
-          },
-          expr_info_async_state_machine_struct_name(ei).is_some() => {
-            descend = false;
-          },
-          true => {
-            ei.env = g_released_env;
-            match(expr_info_macro_expansion(ei), .Some(me) => stack.push(me), .None => ());
-          }
-        );
-      },
-      .None => ()
-    );
-    is_root = false;
-    if(descend, {
-      match(
-        node,
-        .FnCall(_, f, call_args, _, _) => {
-          stack.push(f);
-          (ai : usize) = usize(0);
-          while(ai < call_args.len(), {
-            match(call_args.get(ai), .Some(a) => stack.push(a), .None => ());
-            ai = (ai + usize(1));
-          });
-        },
-        _ => ()
-      );
-    });
-  });
-});
 generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(String.from("// Function implementations"));
@@ -1084,7 +1032,6 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
             // final only then. Ranges are non-overlapping and ascending.
             fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
-            _release_function_envs(entry.value, context);
             if(context.base.chunk_mode, {
               context.base.chunk_fn_ranges.push(
                 ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len(), module : entry.def_module.clone())
