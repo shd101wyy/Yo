@@ -86,13 +86,45 @@ battery was running.
 | std 8 connections | 318,087 | 210,969 | 272,589 | 0.66 | 0.86 |
 | std 500 × 1 ms timers | 379,151 | 317,254 | 382,161 | 0.84 | 1.01 |
 
+**Re-measured 2026-09-29 with #991's await rewrite** (seed-built stage 1 of
+#999 on #988 + #996; 9 interleaved rounds, medians, ops/s):
+
+| workload | libuv | #988 | #988 + #991 | #988/uv | +#991/uv |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| socketpair echo | 3,042,172 | 2,607,562 | 2,671,832 | 0.86 | 0.88 |
+| TCP echo, 1 conn | 300,085 | 331,630 | 334,914 | 1.11 | 1.12 |
+| TCP echo, 64 conns | 1,077,922 | 1,046,718 | 1,039,966 | 0.97 | 0.96 |
+| zero-delay timers | 78,000 | 4,252,605 | 4,293,688 | 54.5 | 55.1 |
+| 16 KiB file cycle | 27,303 | 36,723 | 37,171 | 1.35 | 1.36 |
+| std TCP ping-pong | 71,852 | 64,528 | 65,728 | 0.90 | 0.91 |
+| std 8 connections | 316,760 | 272,675 | 267,868 | 0.86 | 0.85 |
+| std 500 × 1 ms timers | 379,344 | 382,300 | 384,253 | 1.01 | 1.01 |
+
+#991 did not move the std rows, and neither did `--allocator mimalloc`
+(std 8 connections: 3.60–3.87 vs 3.44–3.78 µs a round trip). Per round trip
+of the std 8-connection row (`sample`, leaf time):
+
+| | Yo | libuv |
+| --- | ---: | ---: |
+| `sendto` / `write` | 1.88 µs | 1.67 µs |
+| `read` | 0.55 µs | 0.55 µs |
+| `kevent` | 0.28 µs | 0.25 µs |
+| user code | ~0.35 µs | ~0.03 µs |
+
+The send line is the entry point, not the flags. A TCP loopback ping-pong in
+C timing only the call (medians of 9) gives `write` 1.40 µs, `send(0)` 1.51,
+`send(MSG_DONTWAIT|MSG_NOSIGNAL)` 1.48 and `send(MSG_NOSIGNAL)` 1.46. So ~0.2 µs
+of the ~0.5 µs std gap is `send` over `write`, kept for the reason below, and
+the rest is std's per-operation wrapper work
+(`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
+
 Reading the rows:
 
 - **Syscalls per round trip now equal libuv's** on every socket row: 2
   `kevent`, 2 `send`/`write` and 2 `read`, counted with an interposer. The
   socketpair gap that remains is the entry points. `send`, which the documented
   `MSG_DONTWAIT` / `MSG_NOSIGNAL` contract needs, costs 0.033 µs more than
-  `write`, and each park's `EV_ENABLE` costs ~0.02 µs. That re-enable is what
+  `write` on a socketpair (0.08–0.11 µs on TCP loopback), and each park's `EV_ENABLE` costs ~0.02 µs. That re-enable is what
   keeps a park correct after a close on another thread, the same choice as
   Linux's per-park `EPOLL_CTL_MOD`. The 64-connection row is the same two
   costs: over 1,280,000 sends Yo spends 2.24 s in the kernel and libuv 2.16 s,
