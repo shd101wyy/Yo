@@ -1,4 +1,5 @@
-//! lsp/rename — textDocument/rename (plans/archive/P4_LSP.md slice 5).
+//! lsp/rename — textDocument/rename + textDocument/prepareRename
+//! (plans/archive/P4_LSP.md slice 5; the 2026-09-29 audit's §2 fixes).
 //!
 //! Renames the BINDING under the cursor: the occurrences come from
 //! references.yo's `collect_symbol_occurrences` (declaration identity, not
@@ -6,17 +7,160 @@
 //! document uri to one TextEdit per occurrence. A cursor on a member name or
 //! a label answers nothing, so the client shows "cannot rename" instead of
 //! rewriting a field.
+//!
+//! `newName` is VALIDATED before any edit is built
+//! (`rename_rejection`, issues/fixed/lsp-rename-accepts-any-new-name.md): a name
+//! that is not a legal binding identifier used to be spliced into every
+//! occurrence verbatim — renaming to `"1 bad name"` or the keyword `fn`
+//! rewrote the buffer into something unlexable.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
-{ Token, TokenKind } :: import("../token.yo");
+{ Token, TokenKind, is_reserved_builtin_binding_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr } :: import("../expr.yo");
+{ parse } :: import("../parser.yo");
+{ AstExpr, ast_expr_is_fn_call_of } :: import("../expr.yo");
 { ExprInfoTable } :: import("../expr_info.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, j_range_in } :: import("./protocol.yo");
 { _find_token_at } :: import("./hover.yo");
 { collect_symbol_occurrences } :: import("./references.yo");
+{ keyword_names } :: import("./completion.yo");
+
+/// True iff `` `${new_name} :: i32;` `` parses as a top-level `::` binding
+/// whose name atom is exactly `new_name`. The PARSER is the authority on
+/// identifier SHAPE: operators, literals, digits and embedded spaces never
+/// parse as binding names. It cannot speak for keywords — the language
+/// technically accepts a keyword-named binding (`fn :: i32;` parses; the
+/// parser only gives keywords their meaning in type/call position), so the
+/// keyword half of the gate is the curated list completion.yo serves
+/// (`keyword_names`). Own frame: the swallowing handler's `unwind` exits
+/// this bool-typed frame, and an effect handler cannot capture outer
+/// runtime variables.
+_parses_as_binding :: (fn(new_name : String) -> bool)({
+  parse_exn := Exception(
+    throw : (
+      _err -> unwind(false)
+    )
+  );
+  exprs := parse(
+    `${new_name} :: i32;`,
+    String.from("/virtual/rename-validation.yo"),
+    parse_exn
+  );
+  match(
+    exprs.get(usize(0)),
+    .Some(e) => cond(
+      ast_expr_is_fn_call_of(e, "::", .Some(usize(2))) => match(
+        e,
+        .FnCall(_, _, args, _, _) => match(
+          args.get(usize(0)),
+          .Some(lhs) => match(
+            lhs,
+            // Identifier KIND, not just shape: `123 :: i32;` also parses as
+            // an infix `::` call whose left side is a literal atom, and
+            // `true`/`"s"` lex as Bool/StringLit — none of those are names.
+            .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == new_name)),
+            .FnCall(_, _, _, _, _) => false
+          ),
+          .None => false
+        ),
+        .Atom(_, _) => false
+      ),
+      true => false
+    ),
+    .None => false
+  )
+});
+
+/// True iff `new_name` is one of the language's word-shaped keywords —
+/// rename refuses to CREATE one even though the parser would accept the
+/// binding: every mainstream server rejects keyword renames, and a variable
+/// spelled `while` or `fn` breaks the code's readability and tooling.
+_is_keyword_name :: (fn(new_name : String) -> bool)({
+  kws := keyword_names();
+  (i : usize) = usize(0);
+  while(i < kws.len(), {
+    kw := match(
+      kws.get(i),
+      .Some(k) => k,
+      .None => String.new()
+    );
+    if(kw == new_name, {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+
+/// Validate a rename target name: `.None` when it is a legal binding name,
+/// `.Some(reason)` when it is not — the dispatch answers a RequestFailed
+/// error carrying the reason, so the client shows it in the rename input
+/// box instead of applying a broken edit
+/// (issues/fixed/lsp-rename-accepts-any-new-name.md).
+rename_rejection :: (fn(new_name : String) -> Option(String))({
+  if(!_parses_as_binding(new_name.clone()), {
+    return(
+      Option(String).Some(`"${new_name}" is not a legal identifier (operators, literals and spaces cannot be bound)`)
+    );
+  });
+  if(_is_keyword_name(new_name.clone()), {
+    return(
+      Option(String).Some(`"${new_name}" is a keyword`)
+    );
+  });
+  if(is_reserved_builtin_binding_name(new_name.clone()), {
+    return(
+      Option(String).Some(`"${new_name}" is reserved for a builtin binding — a user binding of that name is silently hijacked`)
+    );
+  });
+  Option(String).None
+});
+
+/// `textDocument/prepareRename`: the identifier's range (and placeholder)
+/// when the symbol at the cursor is renameable, `.None` otherwise —
+/// advertised with `prepareProvider : true` so clients only open the rename
+/// box on symbols they can actually rename. Same renameability gate as
+/// rename itself (occurrences empty ⇒ member, label or unresolvable). RUNE
+/// positions in, wire-encoded range out.
+handle_prepare_rename :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    lines : ArrayList(String),
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> Option(JsonValue)
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(Option(JsonValue).None)
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  if(target.kind != TokenKind.Identifier, {
+    return(Option(JsonValue).None);
+  });
+  if(collect_symbol_occurrences(exprs, info_table, target).len() == usize(0), {
+    return(Option(JsonValue).None);
+  });
+  Option(JsonValue).Some(
+    jb().put(
+      "range",
+      j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.chars().count())
+    ).put("placeholder", jstr(target.value.clone())).obj()
+  )
+});
 
 /// Build the WorkspaceEdit for renaming the symbol at (line, character), or
 /// `.None` when there is nothing renameable under the cursor. RUNE positions
@@ -79,4 +223,4 @@ handle_rename :: (
     jb().put("changes", JsonValue.Object(keys : changes_keys, values : changes_vals)).obj()
   )
 });
-export(handle_rename);
+export(handle_rename, handle_prepare_rename, rename_rejection);

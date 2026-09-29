@@ -80,6 +80,21 @@ collect_symbol_occurrences :: (
     info_table : ExprInfoTable,
     target : Token
   ) -> ArrayList(Token)
+)(
+  collect_symbol_occurrences_with_decl(exprs, info_table, target, ArrayList(Token).new())
+);
+/// `collect_symbol_occurrences`, additionally reporting the binding's
+/// declaration token (`decl_out`, empty when it cannot be resolved or the
+/// target is a member/label) — `handle_references` drops the declaration
+/// occurrence when the client sends `context.includeDeclaration == false`
+/// (issues/fixed/lsp-references-ignore-include-declaration.md).
+collect_symbol_occurrences_with_decl :: (
+  fn(
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    target : Token,
+    decl_out : ArrayList(Token)
+  ) -> ArrayList(Token)
 )({
   out := ArrayList(Token).new();
   cands := ArrayList(AstExpr).new();
@@ -102,6 +117,11 @@ collect_symbol_occurrences :: (
       });
       def = _binding_token_of(best, target, info_table);
     },
+    .None => ()
+  );
+  match(
+    def,
+    .Some(d) => decl_out.push(d),
     .None => ()
   );
   seen := HashSet(String).new();
@@ -169,7 +189,8 @@ _collect_occurrences :: (
 });
 
 /// All same-file references to the symbol at (line, character) — RUNE
-/// positions in, wire-encoded ranges out.
+/// positions in, wire-encoded ranges out. `include_declaration == false`
+/// drops the declaration occurrence (`context.includeDeclaration`, LSP).
 handle_references :: (
   fn(
     text : String,
@@ -179,7 +200,8 @@ handle_references :: (
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable,
     line : usize,
-    character : usize
+    character : usize,
+    (include_declaration : bool) ?= true
   ) -> JsonValue
 )({
   empty := ArrayList(JsonValue).new();
@@ -199,17 +221,25 @@ handle_references :: (
   if(target.kind != TokenKind.Identifier, {
     return(JsonValue.Array(items : empty));
   });
-  occurrences := collect_symbol_occurrences(exprs, info_table, target);
+  decl := ArrayList(Token).new();
+  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, target, decl);
   out := ArrayList(JsonValue).new();
   (oi : usize) = usize(0);
   while(oi < occurrences.len(), {
     match(
       occurrences.get(oi),
       .Some(tk) => {
-        // RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-        out.push(
-          jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).obj()
+        is_decl := match(
+          decl.get(usize(0)),
+          .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
+          .None => false
         );
+        if(include_declaration || !is_decl, {
+          // RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+          out.push(
+            jb().put("uri", jstr(uri.clone())).put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).obj()
+          );
+        });
       },
       .None => ()
     );
@@ -217,4 +247,4 @@ handle_references :: (
   });
   JsonValue.Array(items : out)
 });
-export(handle_references, collect_symbol_occurrences);
+export(handle_references, collect_symbol_occurrences, collect_symbol_occurrences_with_decl);

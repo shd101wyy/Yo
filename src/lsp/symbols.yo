@@ -69,6 +69,55 @@ _symbol_kind_of :: (fn(value_expr : AstExpr) -> usize)({
   usize(14)
 });
 
+/// A top-level typed declaration `(name : T) = value`: an infix `=` whose
+/// first argument is a `name : T` pair with an Atom left side — the mutable
+/// module-constant form every file in `src/` uses
+/// (`(g_shutdown_requested : bool) = false;`). Reported as a Variable
+/// (kind 13): the binding is a mutable slot regardless of the value's shape
+/// (issues/fixed/lsp-document-symbol-misses-typed-declarations.md).
+_typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(JsonValue))({
+  if(!ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
+    return(Option(JsonValue).None);
+  });
+  match(
+    e,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(lhs) => {
+        if(!ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+          return(Option(JsonValue).None);
+        });
+        match(
+          lhs,
+          .FnCall(_, _, pair, _, _) => match(
+            pair.get(usize(0)),
+            .Some(name_expr) => {
+              if(!ast_expr_is_atom(name_expr), {
+                return(Option(JsonValue).None);
+              });
+              name_tok := ast_expr_token(name_expr);
+              rng := j_range_in(
+                lines,
+                usize(name_tok.row),
+                usize(name_tok.column),
+                usize(name_tok.row),
+                usize(name_tok.column) + name_tok.value.chars().count()
+              );
+              Option(JsonValue).Some(
+                jb().put("name", jstr(name_tok.value.clone())).put("kind", jnum(usize(13))).put("range", rng).put("selectionRange", rng).obj()
+              )
+            },
+            .None => Option(JsonValue).None
+          ),
+          .Atom(_, _) => Option(JsonValue).None
+        )
+      },
+      .None => Option(JsonValue).None
+    ),
+    .Atom(_, _) => Option(JsonValue).None
+  )
+});
+
 /// Collect DocumentSymbols from the top-level statements. Ranges are
 /// converted to the wire encoding against `lines`.
 handle_document_symbols :: (
@@ -106,6 +155,17 @@ handle_document_symbols :: (
           });
         },
         .Atom(_, _) => ()
+      );
+    }, {
+      // Not a `::` binding: a top-level typed declaration `(name : T) = …`
+      // is still a symbol
+      // (issues/fixed/lsp-document-symbol-misses-typed-declarations.md).
+      match(
+        _typed_decl_symbol(e, lines),
+        .Some(sym) => {
+          items.push(sym);
+        },
+        .None => ()
       );
     });
     i = (i + usize(1));

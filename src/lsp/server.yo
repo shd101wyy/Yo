@@ -27,7 +27,6 @@ json :: import("std/encoding/json");
   jstr,
   jnum,
   j_diagnostic,
-  j_range,
   j_range_in,
   j_response,
   j_error_response,
@@ -43,7 +42,7 @@ json :: import("std/encoding/json");
 { handle_document_symbols } :: import("./symbols.yo");
 { handle_references } :: import("./references.yo");
 { handle_folding_ranges } :: import("./folding.yo");
-{ handle_rename } :: import("./rename.yo");
+{ handle_rename, handle_prepare_rename, rename_rejection } :: import("./rename.yo");
 { handle_signature_help } :: import("./signature_help.yo");
 { handle_completion } :: import("./completion.yo");
 { format_yo_source } :: import("../formatter.yo");
@@ -72,10 +71,12 @@ DocState :: ref(
   )
 );
 
-/// `shutdown` latch: the LSP spec's `exit` notification exits 0 only when a
-/// `shutdown` request preceded it. Module-level because it must survive
-/// across `_handle_message` calls.
-(g_shutdown_requested : bool) = false;
+/// Lifecycle state (LSP's `initialize`/`shutdown`/`exit` sequence): 0 =
+/// uninitialized (only `initialize` and `exit` are served), 1 = running,
+/// 2 = shut down (only `exit` is served; `exit` then exits 0). Module-level
+/// because it must survive across `_handle_message` calls
+/// (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
+(g_server_state : usize) = usize(0);
 
 /// Read a string field out of a JSON object; empty string when absent.
 _jfield_str :: (fn(v : JsonValue, key : str) -> String)(
@@ -93,6 +94,14 @@ _jfield_usize :: (fn(v : JsonValue, key : str) -> usize)(
     // arm every one of them would silently read 0.
     .Some(f) => match(f, .Int(i) => usize(i), .Number(n) => usize(n), _ => usize(0)),
     .None => usize(0)
+  )
+);
+/// Read a boolean field; `dflt` when absent or not a boolean.
+_jfield_bool :: (fn(v : JsonValue, key : str, dflt : bool) -> bool)(
+  match(
+    v.get(String.from(key)),
+    .Some(f) => match(f, .Bool(b) => b, _ => dflt),
+    .None => dflt
   )
 );
 /// `params.textDocument.uri`; empty string when absent.
@@ -250,7 +259,7 @@ _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
   utf32 := _client_offers_utf32(params);
   set_utf16_positions(!utf32);
   encoding := cond(utf32 => String.from("utf-32"), true => String.from("utf-16"));
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -273,11 +282,17 @@ _format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
   if(formatted == text, {
     return(JsonValue.Array(items : ArrayList(JsonValue).new()));
   });
-  line_count := text.split(String.from("\n")).len();
+  lines := text.split(String.from("\n"));
+  line_count := lines.len();
   edits := ArrayList(JsonValue).new();
   edits.push(
-    // Column 0 is the same in every encoding, so no conversion here.
-    jb().put("range", j_range(usize(0), usize(0), line_count, usize(0))).put("newText", jstr(formatted)).obj()
+    // The replacement ends INSIDE the document — at the last line's end —
+    // never one line past it: an out-of-bounds end is a protocol violation
+    // strict clients reject, and it used to be pinned in the lsp-handshake
+    // golden (issues/fixed/lsp-formatting-edit-end-position-past-document-end.md).
+    // Column 0 needs no wire conversion; the end column runs through
+    // j_range_in like every emitted column.
+    jb().put("range", j_range_in(lines, usize(0), usize(0), line_count - usize(1), line_at(lines, line_count - usize(1)).chars().count())).put("newText", jstr(formatted)).obj()
   );
   JsonValue.Array(items : edits)
 });
@@ -318,16 +333,74 @@ _handle_message :: (
   params_opt := v.get(String.from("params"));
   cond(
     (method == String.from("initialize")) => {
-      params := match(params_opt, .Some(p) => p, .None => JsonValue.Null);
-      _respond(id_opt, _initialize_result(params));
+      // One initialize per connection (LSP): a second is InvalidRequest,
+      // like any request after shutdown.
+      cond(
+        (g_server_state == usize(0)) => {
+          g_server_state = usize(1);
+          params := match(params_opt, .Some(p) => p, .None => JsonValue.Null);
+          _respond(id_opt, _initialize_result(params));
+        },
+        true => {
+          match(
+            id_opt,
+            .Some(id) => write_lsp_message(
+              json.stringify(
+                j_error_response(id, i64(0) - i64(32600), `initialize may only be sent once`)
+              )
+            ),
+            .None => ()
+          );
+        }
+      );
+    },
+    (method == String.from("exit")) => {
+      return(cond((g_server_state == usize(2)) => i32(10), true => i32(11)));
+    },
+    method.starts_with(String.from("$/")) => {
+      // "$/ requests must be answered with MethodNotFound so clients can
+      // feature-probe; $/ NOTIFICATIONS are ignored" (LSP 3.17, "$ /
+      // Requests") — a request dropped here would leave the client waiting
+      // forever (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json.stringify(
+            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
+          )
+        ),
+        .None => ()
+      );
+    },
+    (g_server_state == usize(0)) => {
+      // Requests before initialize are ServerNotInitialized; notifications
+      // (e.g. an early `initialized`) are ignored.
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json.stringify(
+            j_error_response(id, i64(0) - i64(32002), `server not initialized: ${method} arrived before initialize`)
+          )
+        ),
+        .None => ()
+      );
+    },
+    (g_server_state == usize(2)) => {
+      // After `shutdown` only `exit` is served; requests are InvalidRequest.
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json.stringify(
+            j_error_response(id, i64(0) - i64(32600), `server is shut down: ${method} arrived after shutdown`)
+          )
+        ),
+        .None => ()
+      );
     },
     (method == String.from("initialized")) => (),
     (method == String.from("shutdown")) => {
-      g_shutdown_requested = true;
+      g_server_state = usize(2);
       _respond(id_opt, JsonValue.Null);
-    },
-    (method == String.from("exit")) => {
-      return(cond(g_shutdown_requested => i32(10), true => i32(11)));
     },
     (method == String.from("textDocument/hover")) => {
       (hover_result : JsonValue) = JsonValue.Null;
@@ -394,11 +467,19 @@ _handle_message :: (
         params_opt,
         .Some(params) => {
           uri := _params_uri(params);
+          // `context.includeDeclaration` (LSP) — absent context keeps the
+          // declaration, the pre-audit behavior
+          // (issues/fixed/lsp-references-ignore-include-declaration.md).
+          include_decl := match(
+            params.get(String.from("context")),
+            .Some(ctx) => _jfield_bool(ctx, "includeDeclaration", true),
+            .None => true
+          );
           match(
             docs.get(uri.clone()),
             .Some(st) => {
               pos := _rune_position(params, st.lines);
-              refs_result = handle_references(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character);
+              refs_result = handle_references(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, include_decl);
             },
             .None => ()
           );
@@ -422,31 +503,77 @@ _handle_message :: (
       );
       _respond(id_opt, fold_result);
     },
+    (method == String.from("textDocument/prepareRename")) => {
+      (pr_result : JsonValue) = JsonValue.Null;
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            match(
+              handle_prepare_rename(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              .Some(pr) => {
+                pr_result = pr;
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, pr_result);
+    },
     (method == String.from("textDocument/rename")) => {
+      // newName is validated BEFORE any edit is built: an illegal identifier
+      // gets a RequestFailed error (the client shows the reason in the
+      // rename box) instead of a WorkspaceEdit that corrupts the buffer
+      // (issues/fixed/lsp-rename-accepts-any-new-name.md).
       (rn_result : JsonValue) = JsonValue.Null;
+      (rn_rejected : bool) = false;
       match(
         params_opt,
         .Some(params) => {
           uri := _params_uri(params);
           new_name := _jfield_str(params, "newName");
           match(
-            docs.get(uri.clone()),
-            .Some(st) => {
-              pos := _rune_position(params, st.lines);
+            rename_rejection(new_name.clone()),
+            .Some(reason) => {
+              rn_rejected = true;
               match(
-                handle_rename(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, new_name),
-                .Some(we) => {
-                  rn_result = we;
-                },
+                id_opt,
+                .Some(id) => write_lsp_message(
+                  json.stringify(
+                    j_error_response(id, i64(0) - i64(32803), `rename rejected: ${reason}`)
+                  )
+                ),
                 .None => ()
               );
             },
-            .None => ()
+            .None => {
+              match(
+                docs.get(uri.clone()),
+                .Some(st) => {
+                  pos := _rune_position(params, st.lines);
+                  match(
+                    handle_rename(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, new_name),
+                    .Some(we) => {
+                      rn_result = we;
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              );
+            }
           );
         },
         .None => ()
       );
-      _respond(id_opt, rn_result);
+      if(!rn_rejected, {
+        _respond(id_opt, rn_result);
+      });
     },
     (method == String.from("textDocument/codeAction")) => {
       // Quickfixes = the compiler's own `Repair`s (plans/backlog/
@@ -633,7 +760,6 @@ _handle_message :: (
         .None => ()
       );
     },
-    method.starts_with(String.from("$/")) => (),
     true => {
       // Unknown REQUESTS get MethodNotFound; unknown notifications are
       // ignored per the JSON-RPC spec.
