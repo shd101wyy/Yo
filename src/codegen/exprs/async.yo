@@ -18,7 +18,8 @@
   BK_BEGIN
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ stable_position_id, stable_label_id } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 {
   is_function_type,
@@ -1431,8 +1432,15 @@ _build_async_capture_struct_literal :: (
                   parts.push(`.${label} = ${sm_name}`);
                 },
                 .None => {
-                  cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
-                  cname := get_variable_name_for_codegen(label.clone(), cap_env);
+                  // A C local of the enclosing body (phase 6: not live
+                  // across a suspension, so it has no field) is read by its
+                  // own name while its block is open; the name lookup
+                  // through the call's env could land on an unrelated temp.
+                  local_c := sanitize_for_c_identifier(label.clone(), false);
+                  cname := if(scope_stack_contains(context.base.declared_scopes, local_c.clone()), local_c, {
+                    cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
+                    get_variable_name_for_codegen(label.clone(), cap_env)
+                  });
                   parts.push(`.${label} = ${cname}`);
                 }
               );
@@ -2162,6 +2170,22 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     },
     .None => ()
   );
+  if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
+    match(
+      block.closure_param_slots,
+      .Some(dslots) => {
+        (dsi : usize) = usize(0);
+        while(dsi < dslots.len(), dsi = (dsi + usize(1)), {
+          match(dslots.get(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
+        });
+      },
+      .None => ()
+    );
+    (dci : usize) = usize(0);
+    while(dci < block.analysis.captured_variables.len(), dci = (dci + usize(1)), {
+      match(block.analysis.captured_variables.get(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
+    });
+  });
   if(param_sites.len() > usize(0), {
     (pci : usize) = usize(0);
     pcvs := block.analysis.captured_variables;

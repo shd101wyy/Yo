@@ -50,6 +50,13 @@ CrossBoundaryResult :: ref(
 /// the end of the statement that uses it), extended to `scope_end` when it
 /// must survive to a scope-end drop or has its address taken.
 _LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end : bool));
+/// Await sites (`module:row:col`) whose result needs no task field: no later
+/// await in the same statement can suspend between the result's extraction
+/// and its use, so it is a C local (phase 6). Filled by
+/// `compute_cross_boundary_variables`, read by the struct emitter
+/// (`inline_await_result_fields`) and `emit_inline_await`.
+(g_local_await_results : HashSet(String)) = HashSet(String).new();
+_site_of :: (fn(tok : Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
 /// State of the live-range walk over one `io.async` body.
 _LiveWalk :: ref(
   struct(
@@ -61,7 +68,12 @@ _LiveWalk :: ref(
     remap : HashMap(String, String),
     loop_starts : ArrayList(u64),
     loop_ends : ArrayList(u64),
-    span_ends : HashMap(usize, u64)
+    span_ends : HashMap(usize, u64),
+    /// Every await the walk meets: its site, position, and the end of the
+    /// statement it is in.
+    await_sites : ArrayList(String),
+    await_pos : ArrayList(u64),
+    await_stmt_end : ArrayList(u64)
   )
 );
 /// A token's source position as one ordered key (row major).
@@ -207,6 +219,12 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
       match(_lv_resolve(e, tok.value.clone(), w, context), .Some(v) => _lv_use(_lv_id(v, w), stmt_end, w), .None => ());
     }),
     .FnCall(_, func_box, args, _, _) => {
+      if(is_io_await_call(e.clone()), {
+        atok := ast_expr_token(e.clone());
+        w.await_sites.push(_site_of(atok));
+        w.await_pos.push(_lv_pos(atok, w));
+        w.await_stmt_end.push(stmt_end);
+      });
       cond(
         // `x := v` / `(x : T) = v`: the initializer first, then the binding.
         (ast_expr_is_fn_call_of(e.clone(), ":=", Option(usize).Some(usize(2))) || (ast_expr_is_fn_call_of(e.clone(), "=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(l) => ast_expr_is_fn_call_of(l, ":", Option(usize).None), .None => false))) => {
@@ -313,7 +331,10 @@ compute_cross_boundary_variables :: (
     remap : analysis.variable_id_remapping,
     loop_starts : ArrayList(u64).new(),
     loop_ends : ArrayList(u64).new(),
-    span_ends : HashMap(usize, u64).new()
+    span_ends : HashMap(usize, u64).new(),
+    await_sites : ArrayList(String).new(),
+    await_pos : ArrayList(u64).new(),
+    await_stmt_end : ArrayList(u64).new()
   );
   body_end := _lv_span_end(body_expr.clone(), w);
   _lv_walk(body_expr.clone(), body_end, body_end, w, context);
@@ -361,6 +382,32 @@ compute_cross_boundary_variables :: (
       ),
       .None => ()
     );
+  });
+  // An await's result is a C local unless a later await in its statement can
+  // suspend before the statement consumes it (`f(await a, await b)`).
+  if(!(w.foreign), {
+    (wi : usize) = usize(0);
+    while(wi < w.await_sites.len(), wi = (wi + usize(1)), {
+      p := match(w.await_pos.get(wi), .Some(x) => x, .None => u64(0));
+      se := match(w.await_stmt_end.get(wi), .Some(x) => x, .None => u64(0));
+      (later : bool) = false;
+      (qi : usize) = usize(0);
+      while((qi < w.await_pos.len()) && !(later), qi = (qi + usize(1)), {
+        q := match(w.await_pos.get(qi), .Some(x) => x, .None => u64(0));
+        if((q > p) && (q <= se), {
+          later = true;
+        });
+      });
+      if(!(later), {
+        match(
+          w.await_sites.get(wi),
+          .Some(site) => {
+            g_local_await_results.insert(site);
+          },
+          .None => ()
+        );
+      });
+    });
   });
   all_ids := HashSet(String).new();
   (ai : usize) = usize(0);
@@ -1318,7 +1365,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize)) -> unit)({
-    if(!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t)), {
+    if((!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t))) && !(g_local_await_results.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
@@ -1472,8 +1519,18 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       out = field;
     },
     .None => {
-      if(!(_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context))), {
-        codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+      rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
+      if(!(_inline_result_is_unit(rty)), {
+        if(g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))), {
+          // No suspension between here and the statement's use of it.
+          local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
+          em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
+          context.base.declared_c_var_names.insert(local.clone());
+          _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
+          out = local;
+        }, {
+          codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+        });
       });
     }
   );
