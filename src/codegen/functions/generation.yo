@@ -57,10 +57,12 @@ _insert_attr_before_first_decl :: (
   nlen := nb.len();
   (bi : usize) = usize(0);
   while(bi < usize(3), {
+    // Read-only search: share the buffer (a `.clone()` copied the whole
+    // ~110 MB code buffer per stub).
     hay_s := cond(
-      (bi == usize(0)) => em.headers.clone(),
-      (bi == usize(1)) => em.declarations.clone(),
-      true => em.code.clone()
+      (bi == usize(0)) => em.headers,
+      (bi == usize(1)) => em.declarations,
+      true => em.code
     );
     hay := hay_s.as_bytes();
     limit := cond((bi == usize(2)) => code_limit_b, true => hay.len());
@@ -892,9 +894,9 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // now says its own name and aborts instead of quietly doing less than
       // the source said.
       if(stub_found_ftt, {
-        // Rebuild the prefix from bytes once. Byte-exact equivalent of the
-        // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
-        // at the same buffer position.
+        // Truncate at the marker, in place. stub_mark_b is a byte offset taken
+        // at an emission point (a char boundary), so this is byte-exact with
+        // the former `substring(0, stub_mark)` and copies nothing.
         pb := em.code.as_bytes();
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
           // The rewrite below TRUNCATES the body at the marker, destroying the
@@ -913,13 +915,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           });
           eprintln(`[fttstub] fn=${c_function_name.clone()} at=${stub_mark_b.to_string()} marker=${String.from_bytes(mk_win)}`);
         });
-        prefix_bytes := ArrayList(u8).new();
-        (pi : usize) = usize(0);
-        while(pi < stub_mark_b, {
-          prefix_bytes.push(match(pb.get(pi), .Some(b2) => b2, .None => u8(0)));
-          pi = (pi + usize(1));
-        });
-        em.code = String.from_bytes(prefix_bytes);
+        em.code.truncate(stub_mark_b);
         // The error attribute makes the C COMPILER the deadness oracle: the
         // build fails IFF a call to the stub survives — a dead generic
         // original (no callers) compiles clean, while a LIVE stub (a body
