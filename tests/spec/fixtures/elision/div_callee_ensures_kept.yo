@@ -1,0 +1,18 @@
+// expect-elided: 0
+// 5b twin: a divisor known non-zero only through a callee's `ensures` is an
+// unenforced assumption in Phase 1 (§5.1 rule 3 table), so the guard stays.
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+at_least_one :: (fn(x : u32, ensures(result != u32(0))) -> (result : u32))(
+  x | u32(1)
+);
+
+udiv :: (fn(a : u32, b : u32) -> u32)(
+  a / at_least_one(b)
+);
+
+main :: (fn() -> unit)({
+  println(udiv(u32(10), u32(2)));
+});
+export(main);
