@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 165 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 167 open bug
 docs in `issues/` root and the 11 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 12 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 24 | 6 |
-| **Total** | **165** | **31** |
+| Other | 26 | 6 |
+| **Total** | **167** | **31** |
 
 ## Counts by severity
 
@@ -47,7 +47,10 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 34 |
 | S2 | 84 |
-| S3 | 47 |
+| S3 | 48 |
+| (missing) | 1 |
+
+- MISSING SEVERITY: `ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`
 
 ## Design questions (issues/questions/)
 
@@ -330,7 +333,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (24)
+### Other (26)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -341,12 +344,14 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
+| [`defining-a-deep-struct-dag-is-exponential.md`](./defining-a-deep-struct-dag-is-exponential.md) | S3 | OPEN (filed 2026-09-29) | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
+| [`ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`](./ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md) | — | — | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
 | [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |
