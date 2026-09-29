@@ -3859,6 +3859,13 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   return future;
 }
 
+// Stream write on a socket std/net owns (see the macOS runtime). Windows has
+// no SIGPIPE, so this is the ordinary overlapped send.
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags);
+static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {
+  return __yo_async_send_start(sockfd, buf, len, 0);
+}
+
 static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
 

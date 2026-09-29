@@ -211,3 +211,13 @@ test("common runtime (macos): sleep arms the heap; watches use the watch kqueue"
   assert(!c.contains(String.from("handle->watch_fd = kqueue();")), String.from("a private kqueue per watch came back"));
   assert(c.contains(String.from("if (ph->active && (ph->ready || ph->unpollable)) {")), String.from("the tick polls every poll handle again"));
 });
+test("the stream-write op: write(2) on macOS, send(MSG_NOSIGNAL) on Linux", {
+  // std/net's own sockets (non-blocking, SO_NOSIGPIPE on Apple) take the
+  // cheaper write(2) entry point; plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md.
+  m := emit_macos_runtime();
+  assert(m.contains(String.from("static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {")), String.from("the macOS stream-write op is missing"));
+  assert(m.contains(String.from("    ssize_t r = write(sockfd, buf, (size_t)size);")), String.from("the macOS stream write does not use write(2)"));
+  assert(m.contains(String.from("__yo_kq_park_or_fail(__YO_IO_OP_WRITE, future, sockfd, EVFILT_WRITE);")), String.from("a would-block stream write does not park as a WRITE"));
+  l := emit_linux_runtime();
+  assert(l.contains(String.from("  return __yo_async_send_start(sockfd, buf, len, MSG_NOSIGNAL);")), String.from("the Linux stream write lost its MSG_NOSIGNAL"));
+});
