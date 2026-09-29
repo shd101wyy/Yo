@@ -1,5 +1,6 @@
 # `&(K)` of a module-level `::` constant emits `/* skip generating value */`
 
+**Status:** FIXED 2026-09-29 (branch `explicit-allocators-fixes`)
 **Severity:** S2 — a valid program fails at the C compiler with "expected expression"; binding the value with `:=` instead of `::` is the workaround
 **Found:** 2026-09-29, implementing `plans/EXPLICIT_ALLOCATORS.md` P0 (an immortal pointer to a std allocator vtable).
 
@@ -45,3 +46,19 @@ dangles as soon as the pointer is returned from the function.
 A pointer to static storage holding the constant's value, the way Rust
 promotes `&CONST` to a static: stable for the life of the program, so it can
 be returned and stored.
+
+## Resolution (2026-09-29)
+
+`generate_comptime_value` (`src/codegen/exprs/comptime_value.yo`) gained a
+`PtrVal` arm. A pointer to a whole compile-time value renders the value as the
+initializer of a file-scope static and returns its address:
+`static T __yo_cptr_N = (T){ ... };` and `(&__yo_cptr_N)`. The static is keyed
+by `<C type>=<initializer>` (`CodeGenContext.comptime_pointer_static`), so every
+site addressing the same constant shares one object, and under
+`--emit-chunks` it is split like a typeid static: `extern` in the header, one
+definition in chunk 0, one address across translation units. A value that
+allocates reference-counted objects cannot be a static initializer and keeps
+the placeholder.
+
+Test: `tests/ptr_constant_address.test.yo` (a struct constant, identity across
+sites, a constant holding a function pointer, a scalar, a `::`-bound pointer).

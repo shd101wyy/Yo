@@ -704,9 +704,13 @@ two new CLI cases.
    `Allocator.owner_of(ptr)`, `a.same(b)`. The first draft's
    `free(self, ptr)` / `free_routed(ptr)` split is gone: every release routes.
    **D9 resolved**: the vtables are module-level `:=` runtime globals
-   (`_GLOBAL_VTABLE`, `_ARENA_VTABLE`), addressed with `&(...)`. A `::`
-   constant cannot be addressed today
-   (`issues/address-of-a-module-level-constant-emits-a-placeholder.md`).
+   (`_GLOBAL_VTABLE`, `_ARENA_VTABLE`), addressed with `&(...)`. Addressing
+   a `::` constant emitted invalid C when P0 was written; that bug and its
+   element/field twin were fixed on the way
+   (`issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md`,
+   `issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md`),
+   but the seed that compiles `std/allocator.yo` into the compiler predates the
+   fix, so the vtables stay `:=` globals.
    The pragma'd module is the audited base for the D1 reach walk, so a spawn
    body may reach them.
 2. `std/arena.yo`: `Arena.new(capacity)`, `allocator()`, `live_blocks()`,
@@ -890,7 +894,7 @@ live), new `tests/explicit_allocators.test.yo`.
 | D6 | `Allocator` name collision with `std/build.yo` | keep both names; rename the runtime type to `Mem.Allocator` only if review finds real confusion |
 | D7 | allocator-aware `Dispose` | not introduced — dispose stays allocator-blind; the buffer routes through its prefix, the object through its prefix |
 | D8 | nested arenas (arena backed by arena) | out of scope; explicit backing-allocator parameter on `Arena.new` as a later addition |
-| D9 | how std obtains an immortal `*(AllocatorVTable)` | **resolved in P0**: a module-level `:=` runtime global addressed with `&(...)`. Addressing a `::` constant emits invalid C today (`issues/address-of-a-module-level-constant-emits-a-placeholder.md`) |
+| D9 | how std obtains an immortal `*(AllocatorVTable)` | **resolved in P0**: a module-level `:=` runtime global addressed with `&(...)`. Addressing a `::` constant emitted invalid C until `issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md` |
 | D10 | over-aligned buffers (`alignof(T) > max_align_t`) | out of scope, as today (containers use the plain family); if added, it is an `aligned_alloc`/`aligned_free` **pair** on the vtable, never a single `free` |
 
 ## 7. References

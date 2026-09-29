@@ -1,5 +1,6 @@
 # `atomic_bool(false)` is rejected although a `bool` fills an `atomic_bool` slot
 
+**Status:** FIXED 2026-09-29 (branch `explicit-allocators-fixes`)
 **Severity:** S3 — a valid conversion is rejected with a misleading message ("converts integers, floats, enum discriminants and C-compatible values only"); writing the plain `bool` into the slot is the other spelling
 **Found:** 2026-09-29, writing `std/arena.yo` for `plans/EXPLICIT_ALLOCATORS.md` P0.
 
@@ -37,3 +38,12 @@ rejected, even though C casts a `bool` to `atomic_bool` directly.
 Accept a `bool` source when the target is extern-opaque, the same rule the
 implicit coercion applies. A numeric target still rejects `bool`
 (`usize(flag)`, `issues/fixed/numeric-conversion-of-a-non-numeric-source-checks-clean-and-emits-a-hollow-stub.md`).
+
+## Resolution (2026-09-29)
+
+`evaluate_numeric_type_call` accepts a `bool` source when the target is
+`ExternOpaqueT`; it lowers to the runtime cast `(atomic_bool)(false)`, which
+C permits. A numeric target still rejects `bool`.
+
+Test: `tests/extern_opaque_conversion.test.yo` (a literal, a runtime `bool`,
+and `usize(flag)` still an error).
