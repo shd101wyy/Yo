@@ -7,15 +7,27 @@
 { AstExpr, ast_expr_is_fn_call } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_variable_name_for_codegen, get_type_string, get_variable_type_string } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ emit_effect_unwind_check } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call).
+///
+/// The call is wrapped in the escape protocol every may-unwind direct call
+/// gets (`__yo_effect_escaped = 0; call; if (escaped) { drops; return …; }`).
+/// A recursive callee can throw as readily as any other call — it runs the
+/// same body — but this emitter never had the wrap, so an escape raised
+/// inside the callee was LOST here: the next call's pre-call reset cleared
+/// the flag and the caller CONTINUED with the callee's `{0}` early-return
+/// value as if it were a result. In `compile_pattern`'s `(name := p)` case
+/// that meant a `Pattern.At` with a NULL sub and a SIGSEGV the moment
+/// anything walked it
+/// (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
 generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
@@ -155,6 +167,8 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                 context.declared_temp_vars = Option(HashSet(String)).Some(ns);
               }
             );
+            em := context.base.emitter;
+            em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
             line := indent.clone();
             line.push_string(c_type);
             line.push_str(" ");
@@ -162,7 +176,6 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             line.push_str(" = ");
             line.push_string(call_code.clone());
             line.push_str(";");
-            em := context.base.emitter;
             em.emit_string_line(line);
             // Deferred drops on the recur node — flushed AFTER the call is
             // emitted (aliasing Stage 0 attaches the balancing drop of a
@@ -172,6 +185,10 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             // +5320, consumed at +5340). Expression-level flush: skip
             // param-targeted drops (drop_dup.yo _drop_target_is_parameter).
             generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            // Escape propagation (see generate_recur's doc comment): drops
+            // and a dummy return, so a throw inside the recursion cannot be
+            // mistaken for a result.
+            emit_effect_unwind_check(indent.clone(), context, false, expr);
           });
           return(temp_var_name);
         }),
@@ -184,15 +201,44 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       // reference per call (`recur(values(i), out)` in std/encoding/json.yo
       // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
       if(is_unit_type(ei.ty), {
+        uem := context.base.emitter;
+        uem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
         uline := indent.clone();
         uline.push_string(call_code);
         uline.push_str(";");
-        uem := context.base.emitter;
         uem.emit_string_line(uline);
         generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+        emit_effect_unwind_check(indent.clone(), context, false, expr);
         return(String.from(""));
       });
-      call_code
+      // No result variable name: materialise the call into a fresh temp so
+      // the escape wrap has a statement to guard (same shape as the
+      // named-temp path above).
+      fresh := fresh_local_name(String.from("__yo_recur"), context.base.current_function_name.clone());
+      match(
+        context.declared_temp_vars,
+        .Some(s) => {
+          s.insert(fresh.clone());
+        },
+        .None => {
+          ns2 := HashSet(String).new();
+          ns2.insert(fresh.clone());
+          context.declared_temp_vars = Option(HashSet(String)).Some(ns2);
+        }
+      );
+      fem := context.base.emitter;
+      fem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      fline := indent.clone();
+      fline.push_string(get_type_string(ei.ty, context.base));
+      fline.push_str(" ");
+      fline.push_string(fresh.clone());
+      fline.push_str(" = ");
+      fline.push_string(call_code.clone());
+      fline.push_str(";");
+      fem.emit_string_line(fline);
+      generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+      emit_effect_unwind_check(indent.clone(), context, false, expr);
+      fresh
     },
     .None => codegen_fatal_expr(String.from("No arguments for recur call"))
   )

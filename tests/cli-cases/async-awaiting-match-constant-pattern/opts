@@ -1,6 +1,7 @@
-# An io.await in this position used to be rejected (E0904) or miscompiled by
-# the segment lowering. The single-pass lowering suspends wherever the await
+# A typed-literal arm in a `match` whose arms await inside an `io.async`
+# block pinned the E0904 rejection before. The single-pass lowering emits
+# the match with the ordinary pattern chain and suspends wherever the await
 # sits, so the program runs and prints its value
-# (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+# (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5; plans/MATCH_PATTERN_MATCHING.md §4.9).
 stdout_keep_match=^result: .*|^first|^second|^not taken|^done|error.*|panic.*
 timeout=300
