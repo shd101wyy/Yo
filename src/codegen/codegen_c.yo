@@ -11,7 +11,7 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, lookup_some_resolved_concrete, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ ExprInfoTable, lookup_some_resolved_concrete, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys, expr_info_table_intern_envs } :: import("../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
@@ -394,6 +394,10 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   if(cg_log_reads, {
     codegen_read_log_set(true);
   });
+  // Evaluation is done: share one frozen env per distinct recorded scope
+  // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 0a).
+  _interned := expr_info_table_intern_envs(info);
+  profile_memory_mark("codegen: envs interned");
   prof_collect_t0 := Instant.now();
   // First pass: collect functions and types reachable from the module exports.
   collect_required_functions(module_value, base, info, true);
