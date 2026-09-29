@@ -25,6 +25,7 @@ doc.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
+- [`LSP_AUDIT_2026-09-29.md`](LSP_AUDIT_2026-09-29.md) — the `yo lsp` audit: one S1 (Windows text-mode framing kills the handshake), five smaller verified defects, ranked feature gaps, and the phased fix/sequencing plan.
 
 ## Reference (`reference/`)
 
