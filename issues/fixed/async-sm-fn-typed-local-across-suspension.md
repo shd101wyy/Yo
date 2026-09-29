@@ -2,7 +2,7 @@
 
 **Severity:** S2 — fn-typed local across a suspension point emits an undeclared identifier — C compile failure (once broke self-compile)
 
-OPEN (2026-09-16). Surfaced by §7 step 2 of
+**Status: FIXED (2026-09-29).** Found 2026-09-16. Surfaced by §7 step 2 of
 plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md (in-process watch compiles):
 `run_build`'s async body read a global `Option(InProcessCompileFn)` (a
 fn-typed Option) inside a `cond`, and the self-compile died with:
@@ -56,3 +56,13 @@ main :: (fn(io : Io) -> i32)({
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Five variants all run correctly: the doc's global `Option(F)`, a fn-typed local held across an await, fn-typed struct fields across awaits, and an effectful fn type with `Exception`. The original `run_build` shape (#728) was not rebuilt.
+
+## Fix (2026-09-29, async state-machine plan phase 5)
+
+Re-verified on the v0.2.45 seed with a minimal shape: a fn-typed local read
+after an await, and a fn-typed payload binding read after an await in its
+arm, compile but return `0` (the value is lost across the suspension). Under
+the single-pass lowering every captured local, a fn-typed one included, lives
+in the task (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5), and both
+return the right value. Regression test: `tests/async_await.test.yo`
+"fn-typed locals across suspensions".

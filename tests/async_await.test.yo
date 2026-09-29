@@ -6492,3 +6492,31 @@ test("an if whose condition awaits, inside a match arm", {
   assert(io.await(_t_im(.Some(i32(0)), io), b) == i32(0), "the condition fails");
   assert(io.await(_t_im(.None, io), b) == i32(0), "the other arm");
 });
+// ---------------------------------------------------------------------------
+// fn-typed locals across suspensions
+// issues/fixed/async-sm-fn-typed-local-across-suspension.md
+// ---------------------------------------------------------------------------
+_Op_fl :: (fn(x : i32) -> i32);
+_double_fl :: (fn(x : i32) -> i32)(x * i32(2));
+(g_op_fl : Option(_Op_fl)) = Option(_Op_fl).None;
+_run_fl :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    f := _double_fl;
+    e.await(yield(e), e);
+    a := f(n);
+    (b : i32) = match(
+      g_op_fl,
+      .Some(h) => {
+        e.await(yield(e), e);
+        h(a)
+      },
+      .None => a
+    );
+    b
+  })
+);
+test("fn-typed locals across suspensions", {
+  assert(io.await(_run_fl(i32(3), io), io) == i32(6), "a fn local read after an await");
+  g_op_fl = Option(_Op_fl).Some(_double_fl);
+  assert(io.await(_run_fl(i32(3), io), io) == i32(12), "a fn payload binding read after an await");
+});

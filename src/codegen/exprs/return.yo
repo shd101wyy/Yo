@@ -928,10 +928,17 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           .None => ()
         );
       });
+      // A return temp named after the self-named argument atom is that
+      // variable: there is nothing to declare, and its value is the atom's
+      // rendering (a state-machine slot under the single-pass lowering).
       return_temp_var := if(
         arg_is_ref_atom,
         Option(String).None,
-        match(ei.variable_name, .Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))), .None => Option(String).None)
+        match(
+          ei.variable_name,
+          .Some(vn) => if(is_self_named_atom(arg, vn.clone()), Option(String).None, Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env)))),
+          .None => Option(String).None
+        )
       );
       match(
         return_temp_var,

@@ -186,6 +186,11 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
               save_sm.push_str(" = ");
               save_sm.push_string(lhs_code.clone());
               save_sm.push_str("; // Save old value for deferred drop");
+              // The slot is this temp's storage, so it is declared: the
+              // scope-end drop of an undeclared minted temp is skipped, which
+              // leaked the old value of every such reassignment
+              // (issues/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md).
+              context.base.declared_c_var_names.insert(temp_var_name.clone());
             },
             .None => {
               save_sm.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
