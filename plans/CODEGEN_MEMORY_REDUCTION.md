@@ -97,6 +97,73 @@ stated (drop unread entries) is small. The 1.7 GB is held by what the
 entries point at, which is step 2's (the phase-time census) question to
 answer before any lever is ranked.
 
+### 0.3 What holds the 1.7 GB (Phase 0 step 2, 2026-09-29)
+
+A phase-time holder census (`HOLDER_AT_PHASE`, `HOLDER_DEEP` +
+`HOLDER_SCAN`) of `compile src/main.yo`, stage-2 C of `dda139de0` built
+`-O1` with glibc. The objects reachable from globals total **1,934 MB at the
+end of evaluation and 1,910 MB at the end of emit**.
+
+So codegen's own +0.36 GB of RSS is not in any global's graph. It is
+codegen's local working set:
+- the emitter buffers, holding ~125 MB of C text;
+- per-function state.
+
+The census cannot see it, and step 4 below needs a separate accounting of
+it.
+
+What `compile` keeps that `check` lets die with each module's walk. First-reach
+attribution gives nearly all of it to `g_type_intern`, so read it by type:
+
+| type | objects | MB |
+| --- | --- | --- |
+| `ExprInfo` (+ `ExprInfoRare` 52 MB) | 2.22 M | 340 |
+| `ArrayList(Frame)` | 1.44 M | 206 |
+| `AstExpr` | 2.98 M | 183 |
+| strings (`ArrayList(u8)`) | 1.82 M | 181 |
+| `ArrayList(Variable)` | 243 K | 157 |
+| `ArrayList(Self)` (AST argument lists) | 1.92 M | 134 |
+| `Environment` | 1.44 M | 133 |
+| `Variable` | 786 K | 109 |
+| `Token` | 1.71 M | 104 |
+| `EvalValue` | 994 K | 77 |
+| `HashMap(String, WhereClauseConstraints)` | 219 K | 70 |
+
+- **Environments.** In `compile` the snapshot ring has 3,011,183 hits and
+  461,751 misses (`YO_SPEC_REPORT`), so only ~0.46 M of the 1.44 M live
+  environments are ring snapshots. A `HOLDER_DEEP_PATH=Environment` census
+  names the rest; `expr_info_adopt_env` takes a private `snapshot_env` per
+  call.
+- **The per-frame map.** Every `Frame` carries an EMPTY
+  `where_clause_constraints` map, and `HashMap.new()` allocated 16 buckets
+  eagerly.
+- **The AST.** It includes 1,531,087 specialization-clone nodes in
+  `compile`, the evaluator plan's parked Phase 4 Design 1.
+
+### 0.4 Landed lever: lazy `HashMap` allocation (2026-09-29)
+
+`HashMap.new()` (and `HashSet`, which wraps it) now allocates no bucket
+arrays: capacity is 0 until the first insert, which grows it to
+`DEFAULT_CAPACITY`.
+- `_find_bucket` and `_probe` answer "absent/vacant" at capacity 0.
+- `_resize` skips the old-bucket walk when there are no buckets.
+- `clear` returns early.
+
+The map OBJECT still exists and is shared by frame copies as before, so
+sharing semantics are unchanged. Tests: `tests/collections/hash_map.test.yo`
+"HashMap.new allocates nothing until the first insert" (fails on the eager
+map) and a Dispose-counter guard for growth from capacity 0.
+
+Stage-2 A/B, same tree, same input (develop `b6b828772`), mimalloc:
+
+| | base | lazy |
+| --- | --- | --- |
+| `check src/main.yo` max RSS, two runs | 1,081.4 / 1,081.6 MB | 1,061.8 / 1,061.8 MB (−19.6, −1.8 %) |
+| `compile … --skip-c-compiler` max RSS | 3,524 MB | 3,441 MB (−83, −2.3 %) |
+| end of evaluation (`--profile`) | 2,969 MB | 2,890 MB |
+| instructions, `check src/types/intern.yo` | 201,392,029,506 | 201,215,315,433 (−0.09 %) |
+| emitted C | | byte-identical |
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
