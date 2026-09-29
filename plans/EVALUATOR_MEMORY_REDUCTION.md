@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-28 — (§0.22) `Token` positions are `u32`: 80 → 64 B a token, −2.5 % max RSS. (§0.21) The codegen-only tables are skipped in `check`/`verify`/`doc`/`lsp` and the arm windows are construct-local: −2.8 % max RSS. (§0.19) Closures now release their captures: 38 leaked `ExprInfoTable`s were the LEAK group; stage-2 `check src/main.yo` max RSS −10.4 % (mimalloc, 1,193 → 1,069 MB), exit census 942 → 763 MB, wall flat. The Linux census is exact. Earlier: `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. (§0.16) A FuncVal with registered handles keeps no capture value snapshot: ≈ −310 MB, and its +3 % lookup cost is paid back (§0.16, 2026-09-26: −2.9 % wall). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: PAUSED 2026-09-29 at its goal.** Stage-2 `check src/main.yo` peaks at 970 MB (Linux, mimalloc, the shipped build; 1,070 MB under glibc), down from 19.9 GB. The next campaign is `plans/CODEGEN_MEMORY_REDUCTION.md`. **To resume, read §8 first**: the current state, the measuring rules, the ranked remaining work (Phase 4 Design 1 is parked half-built on `mem/phase4-spec-keys`) and the rejected levers. The per-step results are in §0.2b–§0.24; the audit that opened the campaign follows.
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1221,6 +1221,8 @@ tree, not from the status line):
 | Phase 7 F8 fix + ExprInfo diet | done |
 | `_find_specialization_cache` linear scan (time lever, §0.2d) | not changed |
 
+(A dated audit, kept as history. The current state is §8.)
+
 **Baseline re-measured** (quiet machine, v0.2.41 seed = develop): `check
 src/main.yo` **9.86 GB / 120 s**; self-emit (`compile src/main.yo --emit-c
 --skip-c-compiler --optimize 2`) **13.04 GB / 206 s** (22.27 GB on 2026-09-20).
@@ -2312,3 +2314,117 @@ is a win.
 - F8's mechanism. Until it is known, treat every added call in
   `src/evaluator/calls/*.yo` and `types/synthesizer.yo` as a footprint risk
   and measure the seed compile before merging.
+
+## 8. Handoff (2026-09-29): paused at the goal — start here
+
+The campaign is PAUSED by the user's decision: its goal, the evaluator below
+1 GB, is met on the shipped configuration. Codegen memory is the next
+campaign (`plans/CODEGEN_MEMORY_REDUCTION.md`). Everything below is what
+the next agent needs to pick this one up again.
+
+### 8.1 Where it stands
+
+Stage-2 `check src/main.yo`, develop `af62bdb28`, Linux x86_64, max RSS:
+- **mimalloc** (what the Linux release ships): 970.3 / 970.6 / 971.8 /
+  970.4 MB over four runs;
+- **glibc malloc**, `clang -O2`: 1,070.5 / 1,071.0 MB;
+- macOS: not measured this round.
+
+The starting point was 19.9 GB (§0.1). The LSP is flat for documents the
+user edits; editing a std module that the cached prelude imports still
+grows ~19 MB a round (`issues/lsp-memory-grows-per-open-edit-close-round.md`).
+The dated audit table in §0.5 is history: Phase 1 steps 2/3, Phase 3
+(§0.17) and the CI ratchet (Phase 0 step 6) have all landed since.
+
+### 8.2 How to measure (every rule here cost a day when broken)
+
+- **Stage-2 only.** A seed-built `yo build` binary runs the SEED's codegen
+  and showed ~100 MB/round LSP leaks the tree had already fixed. Build
+  `<stage-1> compile src/main.yo --optimize 2 --allocator mimalloc -o yo-s2`,
+  and the baseline stage-2 the same way from the base commit.
+- **Same input for A and B.** Check one fixed tree (a detached worktree),
+  not each branch's own source.
+- **mimalloc decides.** A lever that changes object sizes must also be
+  checked under glibc and reasoned about for macOS/Windows (16 B quanta):
+  §0.24's Token record saved 17 MB under glibc and COST 4.5 MB under
+  mimalloc.
+- **Interleave A/B/A/B.** Max RSS repeats to ±2 MB; wall time on the
+  shared box does not (±30 %, handover §3.6). Measure speed as instruction
+  counts (callgrind on a small input such as `check src/types/intern.yo`,
+  §0.23).
+- **Tools:** the holder census (`scripts/bootstrap/holder_census_t.py`,
+  handover §4.1; `HOLDER_DEEP`, `HOLDER_DEEP_LAST`, `HOLDER_DUPSTR`),
+  `alloc_site_census_t.py --rc-balance`, `lsp_plateau.py`, `YO_SPEC_REPORT=1`.
+- **Seed gate.** On 2026-09-28 a plain local `yo build` missed two std
+  seed breaks (#989, #991) that CI's stage-1 job caught; #996 has the
+  reproduction. Build stage-1 the way CI does before merging std changes.
+
+### 8.3 Remaining work, ranked
+
+Estimates are this author's, not measurements; §0.24 and the LSP purge
+both came in below their estimates.
+
+1. **Phase 4 Design 1: specializations share the body instead of a fresh-id
+   clone.** PARKED on branch `mem/phase4-spec-keys`.
+   - **Target.** 1.43 M cloned nodes (§Phase 4, "Re-measured and
+     inventoried"); estimated 80–150 MB. The inventory there lists every
+     table and site. Read it first.
+   - **Done: step A** (commit `d70a26942`, based on #989 because develop
+     did not build with the seed until #996). `spec_key(id)` =
+     `spec * 2^40 + id` keys `ExprInfoTable`, the four ExprId side tables,
+     the pre-evaluated marks, the match-arms registry, the SomeT lineage
+     ids, the fn-type-expr registries, callsite contracts, the io-async
+     closure map and id-bearing C names. The state lives in `expr.yo`
+     (`enter_spec`/`leave_spec`/`mint_spec_id`). The spec is always 0, so
+     step A changes nothing: the self-emit C is byte-identical (checked 2026-09-29: stage-1 of #989 vs stage-1 of the branch, both emitting the #989 tree).
+   - **Next steps, in order:**
+     1. Rebase onto develop.
+     2. Add `FuncValData.spec_id` (`?= 0`) and set it at the 19 literal
+        sites: new definitions and `make_err_expr` placeholders take
+        `current_spec()`; derived FuncVals copy the parent's.
+     3. In `create_specialized_function_inline`: mint a spec, evaluate the
+        ORIGINAL body inside `enter_spec`/`leave_spec`, and use the
+        guard-then-rethrow idiom (`_evaluate_expression_guarded_inner`) so
+        a throw cannot leak the spec.
+     4. Readers of a callee's body infos enter the CALLEE's spec (listed in
+        the inventory).
+     5. Codegen enters `fv.spec_id` in `generate_function` and in the
+        collection recursion into callee bodies.
+   - **Gate:** the amended one in §Phase 4 (C identical after normalizing
+     id-bearing names, plus the fixpoint), the fast suite by diff, and the
+     census showing the clones gone.
+2. **Phase 5b `Symbol` + the `type_intern` keys (handover §3.2).**
+   - Keys: a 64-bit hash plus the canonical node, verified by a structural
+     equality exactly as fine as `type_intern_key`. No probabilistic key
+     without the user's agreement.
+   - Estimated 30–60 MB.
+3. **Phase 6.**
+   - `RC_HEADER_SPLIT.md` step 2 (tracked header 56 → 32 B).
+   - `Variable.value` as an inline slot.
+   - Estimated 20–40 MB. ASan run required.
+4. **Registry sweep lever 2** (§0.21's sound design for the branch-init
+   log, about 16 MB).
+5. **The LEAK residue** (17.8 MB: `Variable` 43 K, `TypeValue` held from
+   untracked holders). Method: `--rc-balance` (handover §4.2).
+6. **The LSP std-module growth.** A purge has to treat the prelude's
+   imports as never-invalidated or re-analyze the prelude with them. The
+   rejected branch `mem/lsp-type-registry-purge` shows why the naive
+   owner purge loses.
+7. **LeakSanitizer reports** in the fast suite (297 at #973). The async
+   families belong to `plans/backlog/ASYNC_STATE_MACHINE_GENERATION.md`.
+8. **Tooling:** Phase 0 step 2 (peak histogram) and 0.3b (peak
+   composition).
+9. **Speed:** the cycle-collector lever (handover §3.6). It needs
+   instruction counts, and incremental and full scans measured separately.
+
+If all of it lands: roughly 750–820 MB on mimalloc.
+
+### 8.4 Do not retry (built, measured, rejected)
+
+- The owner purge of the type-id registries for the LSP: slower and
+  fatter, because the prelude keeps the old generation (issue doc,
+  2026-09-28).
+- One `TokenSource` record per lexing (§0.24).
+- Retention-point `TypeValue` interning (Phase 5a note).
+- Value-cell buffer capacity as a memory lever (Phase 6 note).
+- Everything in §3.
