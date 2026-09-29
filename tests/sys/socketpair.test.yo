@@ -186,6 +186,51 @@ test("an aborted task's pending recv does not swallow later data (epoll fallback
     _aborted_recv_leaves_the_data(io);
   });
 });
+// The test above starts its live recv only AFTER the peer's byte arrived, so
+// the live recv completes inline and never meets the aborted one. Here the
+// live recv parks FIRST, behind the aborted task's recv on the same socket.
+// The kqueue backend had no cancel path: the aborted recv kept its place at
+// the head of the socket's FIFO, took the byte into the dead task's buffer,
+// and the live recv waited forever
+// (issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md).
+_aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
+  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  sv := (*i32)(sv_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
+  fd0 := (sv.add(usize(0))).*;
+  fd1 := (sv.add(usize(1))).*;
+  assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
+  fut := io.async((io : Io) => {
+    b_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    b := (*u8)(b_uninit.as_ptr());
+    got := io.await(tcp.recv(fd0, b, usize(16), i32(0)), io);
+    got
+  });
+  h := io.spawn(fut, io);
+  io.await(yield(io), io);
+  h.abort();
+  assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
+  rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  rbuf := (*u8)(rbuf_uninit.as_ptr());
+  live := tcp.recv(fd0, rbuf, usize(16), i32(0));
+  io.await(yield(io), io);
+  assert(io.await(tcp.send(fd1, (*u8)("X"), usize(1), i32(0)), io) == i32(1), "peer send");
+  assert(io.await(live, io) == i32(1), "the live recv gets the byte");
+  assert(rbuf.* == u8(88), "and it is the byte that was sent");
+  io.await(tcp.close(fd0), io);
+  io.await(tcp.close(fd1), io);
+});
+test("an aborted task's parked recv does not take the bytes of a recv parked after it", {
+  if(platform != Platform.Windows, {
+    _aborted_recv_behind_a_live_one(io);
+  });
+});
+test("an aborted task's parked recv does not take the bytes of a recv parked after it (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _aborted_recv_behind_a_live_one(io);
+  });
+});
 // Both Linux backends try a recv inline before they park it. The inline
 // attempt must not overtake a recv already waiting on the same socket: the
 // earlier waiter is owed the first bytes. The second recv is started while the
@@ -238,6 +283,47 @@ test("a recv started behind a parked recv does not overtake it (epoll fallback)"
     _recvs_in_order(io, true);
   });
 });
+// A recv started while an earlier recv is still PARKED must queue behind it
+// even when the peer's bytes have already arrived (the loop has not polled
+// yet). The kqueue backend's inline attempt did not look for a parked waiter:
+// the second recv took the first byte and the parked one got the second
+// (issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md).
+_inline_recv_behind_a_parked_one :: (fn(io : Io) -> unit)({
+  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  sv := (*i32)(sv_uninit.as_ptr());
+  assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
+  fd0 := (sv.add(usize(0))).*;
+  fd1 := (sv.add(usize(1))).*;
+  assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
+  b1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  b1 := (*u8)(b1_uninit.as_ptr());
+  b2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  b2 := (*u8)(b2_uninit.as_ptr());
+  r1 := tcp.recv(fd0, b1, usize(1), i32(0));
+  io.await(yield(io), io);
+  // The send completes inline: the byte is in fd0's buffer, not yet reaped.
+  assert(io.await(tcp.send(fd1, (*u8)("A"), usize(1), i32(0)), io) == i32(1), "send A");
+  r2 := tcp.recv(fd0, b2, usize(1), i32(0));
+  assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
+  assert(io.await(r1, io) == i32(1), "the parked recv completes");
+  assert(io.await(r2, io) == i32(1), "the later recv completes");
+  unsafe(printf("  r1 got %c, r2 got %c\n", i32(b1.*), i32(b2.*)));
+  assert(b1.* == u8(65), "the parked recv gets the first byte");
+  assert(b2.* == u8(66), "the later recv gets the second byte");
+  io.await(tcp.close(fd0), io);
+  io.await(tcp.close(fd1), io);
+});
+test("an inline recv does not overtake a parked recv whose bytes already arrived", {
+  if(platform == Platform.Macos, {
+    _inline_recv_behind_a_parked_one(io);
+  });
+});
+test("an inline recv does not overtake a parked recv whose bytes already arrived (epoll fallback)", {
+  if(platform == Platform.Linux, {
+    env.set("YO_IO_BACKEND", "epoll");
+    _inline_recv_behind_a_parked_one(io);
+  });
+});
 // dup2(other, fd) CLOSES fd first. That close has to reach the async backend
 // like any other: a recv parked on fd used to wait forever — the ring's
 // request holds its own reference to the old socket, and epoll drops the
@@ -275,7 +361,8 @@ _dup2_over_parked_recv :: (fn(io : Io) -> unit)({
   io.await(tcp.close(b1), io);
 });
 test("dup2 over a descriptor with a parked recv fails the recv with EBADF", {
-  if(platform == Platform.Linux, {
+  // macOS: issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md
+  if(platform != Platform.Windows, {
     _dup2_over_parked_recv(io);
   });
 });

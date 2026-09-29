@@ -319,6 +319,23 @@ test("Test channel Stream combinators", {
   assert(got(usize(0)) == i32(10), "and the map applied");
   assert(got(usize(2)) == i32(50), "last");
 });
+// `map`'s and `filter`'s closure binders are both `F` at one frame level; a
+// name-keyed substitution once built `StreamFilter(_, <the map closure>)`, so
+// the filter called the map closure and its body failed bool-vs-i32 (E0905).
+test("Test channel Stream map then filter keeps each closure", {
+  ch := Channel(i32).new(usize(8));
+  (i : i32) = i32(1);
+  while(i <= i32(4), {
+    _s := ch.try_send(i);
+    i = (i + i32(1));
+  });
+  ch.close();
+  chain := ch.map(x => (x * i32(10))).filter(x => (x > i32(20)));
+  got := io.await(chain.collect(io), io);
+  assert(got.len() == usize(2), "30 and 40 pass the filter");
+  assert(got(usize(0)) == i32(30), "the map ran before the filter");
+  assert(got(usize(1)) == i32(40), "last");
+});
 test("Test a consumer loop over a channel fed by another task", {
   ch := Channel(i32).new(usize(2));
   producer := io.async((io : Io) => {

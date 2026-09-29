@@ -306,15 +306,16 @@ On a kernel that has io_uring but predates an operation's row, the runtime compl
 
 macOS uses `kqueue` for async I/O — a single-threaded, pull-based event notification mechanism similar to Linux's io_uring.
 
-For **file I/O**, macOS uses synchronous `pread`/`pwrite` for regular files (fast on macOS with the unified buffer cache). For pipes, sockets, and TTYs, non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications is used.
+For **file I/O**, macOS uses synchronous `pread`/`pwrite` for regular files (fast on macOS with the unified buffer cache). A `pread` that answers `ESPIPE` (pipe, socket, FIFO) or `ENXIO` (tty) moves the operation to non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications; an `O_APPEND` descriptor writes at end-of-file (macOS `pwrite` would honor the offset).
 
-For **socket I/O**, all sockets are set to `O_NONBLOCK`:
+For **socket I/O**, every socket the runtime creates is `O_NONBLOCK`:
 
-- Each `accept`/`recv`/`recvfrom` first attempts a non-blocking call; if `EAGAIN`/`EWOULDBLOCK` occurs, a `EVFILT_READ` kevent with `EV_ONESHOT` is registered
-- `connect`/`send`/`sendto` use `EVFILT_WRITE` with `EV_ONESHOT`; connect completion checks `SO_ERROR`
+- Each `accept`/`recv`/`recvfrom`/`send`/`sendto` first attempts a non-blocking call (`MSG_DONTWAIT`), unless an earlier operation of the same direction is still parked on the descriptor; on `EAGAIN`/`EWOULDBLOCK` it parks on the descriptor's registration
+- A descriptor's registration is one `EV_DISPATCH` knote per direction, re-enabled per park (`EV_ADD|EV_ENABLE`, which rides the loop's next `kevent()`); parked operations are a FIFO per direction, found by `(ident, filter)` through a per-fd slot table; `connect` completion checks `SO_ERROR`
+- Aborting a task cancels its parked operation (`-ECANCELED`), and closing or `dup2`-ing over the descriptor fails its parked operations with `-EBADF`
 - All completions are harvested on the event loop thread via `kevent()` — no cross-thread synchronization needed
 
-**Timer**: `EVFILT_TIMER` with `EV_ONESHOT` and `NOTE_USECONDS` provides one-shot timer delivery.
+**Timer**: a per-thread timer heap; the loop's blocking `kevent()` is bounded by the earliest deadline, so arming and cancelling a sleep costs no syscall.
 
 ### Windows: IOCP
 
@@ -385,7 +386,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 | ------------------- | ---------------- |
 | io_uring submission | ~50–100 ns       |
 | io_uring completion | ~100–200 ns      |
-| kqueue kevent()     | ~200–500 ns      |
+| kqueue kevent()     | ~200 ns with an event ready; ~12 µs for a zero-timeout call that finds nothing (macOS 26), which the runtime avoids with a ~0.2 µs `select()` probe |
 | IOCP completion     | ~100–300 ns      |
 
 ---

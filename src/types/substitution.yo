@@ -14,6 +14,7 @@ pragma(Pragma.AllowUnsafe);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
 { t_dyn } :: import("./creators.yo");
+{ resolve_cell_chain } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
@@ -44,7 +45,15 @@ Substitution :: ref(
     /// rendering, which codegen spells as the comment `// Unknown type: ...`.
     /// Parallel arrays, name → concrete length.
     len_var_names : ArrayList(String),
-    len_var_values : ArrayList(usize)
+    len_var_values : ArrayList(usize),
+    /// SomeT ids whose OWN resolution (`SomeT.resolution`) this walk
+    /// adopts: each occurrence that carries a resolution is replaced by it,
+    /// and an occurrence without one is left to the (name, level) entries.
+    /// Never a (name, level) entry of its own: two SomeTs often share one —
+    /// `map`'s and `filter`'s `F`, or two calls of `map` in one chain, whose
+    /// copies even share an id — and a name-keyed entry for one rewrote the
+    /// others (`ch.map(f).filter(g)` built `StreamFilter(_, <f's capture>)`).
+    own_resolution_ids : ArrayList(String)
   )
 );
 /// Create an empty substitution.
@@ -57,7 +66,8 @@ subst_new :: (fn() -> Substitution)(
     self_from : ArrayList(TypeValue).new(),
     self_to : ArrayList(TypeValue).new(),
     len_var_names : ArrayList(String).new(),
-    len_var_values : ArrayList(usize).new()
+    len_var_values : ArrayList(usize).new(),
+    own_resolution_ids : ArrayList(String).new()
   )
 );
 /// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
@@ -105,7 +115,8 @@ _without_len_vars :: (fn(s : Substitution) -> Substitution)(
       self_from : s.self_from,
       self_to : s.self_to,
       len_var_names : ArrayList(String).new(),
-      len_var_values : ArrayList(usize).new()
+      len_var_values : ArrayList(usize).new(),
+      own_resolution_ids : s.own_resolution_ids
     )
   )
 );
@@ -113,8 +124,8 @@ _without_len_vars :: (fn(s : Substitution) -> Substitution)(
 /// Resolve an ASSOCIATED CONSTANT in a type position (`Array(u8, T.BYTES)`).
 ///
 /// `types/` is low-level and cannot import the evaluator's impl registry, so
-/// the lookup is injected at evaluator init — the same indirection as
-/// `set_lookup_some_resolved_concrete` (types/guards.yo). Unset (e.g. during
+/// the lookup is injected at evaluator init — the same indirection pattern as
+/// `set_compat_type_implements_trait_fn` (types/compatibility.yo). Unset (e.g. during
 /// early bootstrap) means "cannot resolve", which leaves the length variable
 /// in place exactly as before.
 AssocConstLookupFn :: (fn(recv : TypeValue, label : String) -> Option(usize));
@@ -229,6 +240,24 @@ subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue)
   s.names.push(name);
   s.levels.push(level);
   s.types.push(ty);
+});
+_is_some_t :: (fn(t : TypeValue) -> bool)(match(t, .SomeT({ id : _ }) => true, _ => false));
+/// Adopt the own resolution of every occurrence of the SomeT `id` that
+/// carries one (see `own_resolution_ids`).
+subst_adopt_own_resolution :: (fn(s : Substitution, id : String) -> unit)({
+  if(!_subst_adopts_own(s, id), {
+    s.own_resolution_ids.push(id);
+  });
+});
+_subst_adopts_own :: (fn(s : Substitution, id : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < s.own_resolution_ids.len(), {
+    if(match(s.own_resolution_ids.get(i), .Some(v) => (v == id), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
 });
 /// Look up a (name, frame_level) → Option(TypeValue).
 subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(TypeValue))({
@@ -348,7 +377,10 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
     self_from : s.self_from,
     self_to : s.self_to,
     len_var_names : ArrayList(String).new(),
-    len_var_values : ArrayList(usize).new()
+    len_var_values : ArrayList(usize).new(),
+    // An adopted own resolution belongs to its SomeT, never to a nested
+    // fn's binder (a distinct SomeT), so the mask never applies to it.
+    own_resolution_ids : s.own_resolution_ids
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
@@ -515,7 +547,23 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
           negative_trait_levels : nlvls,
           resolution : rcp
         ) => {
-          found := subst_lookup(s, n, lvl);
+          // A SomeT that carries its own resolution is already bound: a
+          // (name, level) entry names ANOTHER binder that shares its spelling
+          // (`filter`'s `F` vs the `map` `F` nested in its `Self`), so only
+          // an identity-keyed entry may replace it.
+          found := match(
+            rcp,
+            // Adopted only when the chain ends in a concrete type, so the
+            // recursion always leaves the SomeT arm.
+            .Some(_) => {
+              own_end := resolve_cell_chain(ty);
+              cond(
+                (_subst_adopts_own(s, orig_id) && !_is_some_t(own_end)) => Option(TypeValue).Some(recur(s, own_end, false)),
+                true => Option(TypeValue).None
+              )
+            },
+            .None => subst_lookup(s, n, lvl)
+          );
           match(
             found,
             .Some(replacement) => replacement,
@@ -698,6 +746,7 @@ export(
   subst_new,
   subst_set_self,
   subst_add,
+  subst_adopt_own_resolution,
   subst_lookup,
   subst_add_len_var,
   subst_lookup_len_var,
