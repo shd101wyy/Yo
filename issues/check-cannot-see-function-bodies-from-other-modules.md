@@ -1,6 +1,6 @@
-# `yo check` rejects a Send closure that calls a function from another module (E0906)
+# `yo check` cannot see function bodies from other modules, so body-walking rules reject valid code
 
-**Severity:** S2 — `check` rejects valid programs that `compile` accepts: a thread closure calling an imported function (e.g. `assert`) fails E0906
+**Severity:** S2 — `check` rejects valid programs that `compile` accepts: a thread closure calling an imported function fails E0906, and a `pragma(Pragma.StrictBorrow)` loop calling a read-only method is rejected
 
 **Status:** OPEN (root cause measured; fix designed, not yet implemented).
 **Found:** 2026-09-29, the `yo check --test-bodies` census (`plans/TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`
@@ -38,9 +38,29 @@ $ yo compile main.yo --optimize 2 -o a.out     # rc=0, and the program runs
 The same closure calling `println` passes `check` (std/fmt is an audited file, so the walk trusts
 it without looking at the body). Calling `assert` once before the spawn does not help.
 
+## Second symptom: StrictBorrow (measured)
+
+`tests/for_macro_borrow_strict.test.yo` fails strict. The same shape in an ordinary function fails
+plain `check` and passes `compile`, which runs and prints `1`:
+
+```rust
+pragma(Pragma.StrictBorrow);
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  total : (fn(self : Self) -> i32)({ t := i32(0); for(self.items, x => { t = (t + x); }); t }));
+main :: (fn() -> unit)({
+  bag := Bag(items : xs);
+  for(bag, inout(x) => { seen = (seen + bag.total()); });   // check: "may mutate … borrowed by this loop"
+});
+```
+
+`total` is read-only, but its per-parameter mutation mask is built by walking the bodies it
+calls: std's iterator methods, whose ExprInfo is in another module's table under `check`.
+
 ## Root cause
 
-Rule D1's reach walk (`function_reaches_non_send_global`,
+Both are walks over a callee's evaluated body. Rule D1's reach walk (`function_reaches_non_send_global`,
 `src/evaluator/effects/mutation_summary.yo`) descends into each callee's body and judges it
 "never evaluated" when the body has no ExprInfo in the walk's table:
 
@@ -59,11 +79,12 @@ evaluated in `std/assert.yo`'s table) is therefore always "never evaluated".
 ## Fix direction
 
 Retaining foreign tables would give `check` compile-sized memory. Instead, compute each function's
-D1 summary while its own module's table is alive: the non-Send globals its body reaches directly
-and the callee fids it calls. The walk then composes summaries across fids instead of re-walking a
-body from another module's table. The memo `g_gr_by_fid` already has that shape.
+summaries while its own module's table is alive: for D1, the non-Send globals its body reaches
+directly and the callee fids it calls; for StrictBorrow, the mutation mask (`g_msp_by_fid`). The
+walks then compose summaries across fids instead of re-walking a body from another module's
+table. Whatever the mechanism, `check` and `compile` must give the same verdict.
 
 ## Test
 
-When fixed: a `tests/cli-cases` case that `check`s the program above (rc=0), plus `check
---test-bodies` over the four test files above.
+When fixed: `tests/cli-cases` cases that `check` both programs above (rc=0), plus `check
+--test-bodies` over the five test files above.
