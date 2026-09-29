@@ -1,7 +1,6 @@
-# issues/defining-a-deep-struct-dag-is-exponential.md — a binary struct DAG
-# of depth 24 (2^24 leaves in the expanded field tree). Before the
-# universe-walk memo this cost ~minutes (each leaf path re-walked); with the
-# memo each distinct type is walked once. The 30 s timeout is the gate: the
-# unfixed build cannot finish it.
-stdout=ignore
+# issues/fixed/defining-a-deep-struct-dag-is-exponential.md: a binary struct DAG
+# of depth 64. Three type walks visited it once per path (2^depth): the type
+# universe, and the raw-pointer and slice-source flow predicates, whose depth-40
+# cap stood in for a cycle guard. Unfixed, depth 22 took 16 s and depth 26
+# over 100 s; fixed, depth 64 takes under a second. The timeout is the gate.
 timeout=30

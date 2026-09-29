@@ -2,24 +2,7 @@
 
 **Severity:** S3 — no real program has been seen hitting it; a struct type that holds the same struct type several times, nested deep, makes every check of the module slow
 
-**Status: FIXED** (2026-09-29): `type_of_type_with_visited`'s replacement
-`_universe_of` (`src/types/hierarchy.yo`) memoizes each named aggregate by
-its eval id — declaration-stable per declaration, eval-fresh per generic
-instantiation — within one top-level walk, so a struct DAG's shared subtrees
-are walked once per distinct type instead of once per leaf path. Entries
-computed while the name-cycle guard fired are not stored (their result is
-path-dependent). Unions are not memoized (they carry no eval id; a name key
-would be unsound across modules) — a union DAG stays path-walked; filed as
-the residual below. Measured after the fix (same machine as the table above): depth 22
-48 s → 2.8 s, depth 26 >100 s → 6.2 s, depth 28 (unmeasurable before)
-19.3 s. Still superlinear (~3× per +2 depth) — a second walk with the same
-shape remains; attribution open. Regression:
-`tests/cli-cases/deep-struct-dag-defines-fast` (depth-24 binary DAG behind a
-30 s timeout — the unfixed build times out at rc 124; the fixed build
-passes).
-
-**Status:** OPEN (filed 2026-09-29). RESIDUAL: union-typed DAGs are still
-path-walked (no eval id to key on).
+**Status:** FIXED 2026-09-30 (#1022).
 **Found:** building the regression fixture for
 `issues/fixed/match-exhaustiveness-walks-the-whole-field-tree-of-an-unmatched-struct.md`, whose first
 reproducer (a binary DAG) was slow with or without a `match`.
@@ -34,19 +17,59 @@ S2 :: struct(a : S1, b : S1);
 count :: (fn(o : S(d)) -> i32)(i32(0));
 ```
 
-`yo check`; the numbers are the same for `yo-dev` (develop, 2026-09-28) and #996:
+`yo check`, macOS arm64 (the same for `yo-dev` from 2026-09-28 and for #996):
 
 | depth | 16 | 18 | 20 | 22 | 26 |
 | --- | --- | --- | --- | --- | --- |
-| time | 1.0 s | 1.6 s | 4.1 s | 15.8 s | over 100 s |
+| before | 1.0 s | 1.6 s | 4.1 s | 15.8 s | over 100 s |
 
 Each extra level of depth roughly doubles the time, so the cost follows the 2^depth leaves of the
 type's expanded field tree, not the d + 1 type definitions.
 
-## Where (measured, not yet root-caused)
+## Root cause (measured: `sample` of the slow check, one walk at a time)
 
-A `sample` at depth 22 is dominated by `type_of_type_with_visited` (`src/types/hierarchy.yo`). For a
-struct, it recurses into the fields, and `visited` guards against cycles by name along the current
-path only. Nothing remembers a struct already computed, so a type reached along 2^k paths is walked
-2^k times. Whether other walks (`type_key`, size or layout) have the same shape is
-still open as of the fix; the fix covers `type_of_type` only.
+Three recursive walks over a type visited a shared subtype once per path to it:
+
+1. `type_of_type` (`src/types/hierarchy.yo`), the type-universe walk. Its cycle guard is the list of
+   names on the current path, and nothing remembered a struct already computed. This was the whole
+   cost at depth 22.
+2. `type_representation_contains_raw_ptr` (`src/types/utils.yo`), a flow predicate asked about every
+   parameter type. This dominated once walk 1 was memoized: depth 26 still took 3.1 s and doubled
+   every two levels.
+3. `type_may_provide_slice_source`, its sibling. Both capped recursion at depth 40 "in place of an
+   object-identity visited set", so a DAG 40 or more levels deep reached the cap on every path.
+
+## Fix
+
+Each walk memoizes named aggregates (structs and enums) within one top-level call.
+
+- **A hit requires the same type object, not just the same id.** Substitution and SomeT resolution
+  rebuild a struct under its id with different field types (`src/types/substitution.yo`,
+  `evaluator/calls/helper.yo`), and such copies can answer differently. Nothing mutates a type
+  object during one walk, so an identity hit is exact.
+- **A result that depends on the path is not stored.** The universe walk tracks whether its name
+  guard fired inside each entry; the flag is saved, cleared and OR-ed back, so a cycle elsewhere in
+  the walk does not switch off memoization for unrelated entries. The predicates detect a cycle by
+  the aggregates on the current path, and their depth limit becomes a 4096 stack backstop. A `false`
+  computed under a cycle or the backstop is not stored; a `true` is exact and always stored.
+- Unions carry no id, and two modules may define same-named unions, so unions are not memoized.
+
+The first version of #1022 keyed the universe memo by id alone, and a single guard flag disabled
+the memo for the rest of the walk once any cycle appeared. Its measurements (depth 22: 48 s → 2.8 s,
+on another machine) still doubled every two levels, which was walk 2.
+
+## After
+
+| depth | 22 | 26 | 30 | 40 | 64 |
+| --- | --- | --- | --- | --- | --- |
+| universe memo only | 0.9 s | 3.1 s | — | over 60 s | — |
+| all three walks | 0.8 s | 0.8 s | 0.8 s | 0.8 s | 0.8 s |
+
+(0.8 s is the prelude; the fixture adds nothing measurable.) The size and alignment walks in
+`src/types/utils.yo` have the same shape but `check` does not reach them for this fixture; they were
+not changed.
+
+## Test
+
+`tests/cli-cases/deep-struct-dag-defines-fast`: a depth-64 DAG whose function passes, returns and
+rebinds an `S64`, behind a 30 s `timeout`. #996's binary times out; the fixed binary passes in 0.8 s.
