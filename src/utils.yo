@@ -592,20 +592,41 @@ profile_enabled :: (fn() -> bool)(g_prof_enabled);
 /// process SUMS (the shape watch rounds will need); first record inserts.
 (g_prof_phase_names : ArrayList(String)) = ArrayList(String).new();
 (g_prof_phase_nanos : ArrayList(i64)) = ArrayList(i64).new();
+/// Memory at the END of each phase (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0
+/// step 1): resident set in MB and the shared codegen ExprInfoTable's entry
+/// count, sampled by the probes `main.yo` registers (this module cannot import
+/// either source). A phase entered twice keeps its last sample.
+(g_prof_phase_rss_mb : ArrayList(usize)) = ArrayList(usize).new();
+(g_prof_phase_table_entries : ArrayList(usize)) = ArrayList(usize).new();
+(g_prof_rss_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+(g_prof_table_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn() -> usize)) -> unit)({
+  g_prof_rss_probe = Option((fn() -> usize)).Some(rss_mb);
+  g_prof_table_probe = Option((fn() -> usize)).Some(table_entries);
+});
+_prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
+  match(probe, .Some(f) => f(), .None => usize(0))
+);
 profile_record_phase :: (fn(name : String, nanos : i64) -> unit)({
   if(!g_prof_enabled, {
     return(());
   });
+  rss := _prof_sample(g_prof_rss_probe);
+  entries := _prof_sample(g_prof_table_probe);
   (i : usize) = usize(0);
   while(i < g_prof_phase_names.len(), {
     if(g_prof_phase_names(i) == name, {
       g_prof_phase_nanos(i) = (g_prof_phase_nanos(i) + nanos);
+      g_prof_phase_rss_mb(i) = rss;
+      g_prof_phase_table_entries(i) = entries;
       return(());
     });
     i = (i + usize(1));
   });
   g_prof_phase_names.push(name.clone());
   g_prof_phase_nanos.push(nanos);
+  g_prof_phase_rss_mb.push(rss);
+  g_prof_phase_table_entries.push(entries);
 });
 profile_phase_count :: (fn() -> usize)(g_prof_phase_names.len());
 profile_phase_name_at :: (fn(i : usize) -> String)(
@@ -621,6 +642,12 @@ profile_phase_nanos_at :: (fn(i : usize) -> i64)(
     .Some(n) => n,
     .None => i64(0)
   )
+);
+profile_phase_rss_mb_at :: (fn(i : usize) -> usize)(
+  match(g_prof_phase_rss_mb.get(i), .Some(n) => n, .None => usize(0))
+);
+profile_phase_table_entries_at :: (fn(i : usize) -> usize)(
+  match(g_prof_phase_table_entries.get(i), .Some(n) => n, .None => usize(0))
 );
 /// Per-module read+parse and evaluation times, keyed by ABSOLUTE module path.
 /// Rows are EXCLUSIVE — the wall a module's evaluation spends demand-loading
@@ -1160,6 +1187,9 @@ export(
   profile_phase_count,
   profile_phase_name_at,
   profile_phase_nanos_at,
+  profile_phase_rss_mb_at,
+  profile_phase_table_entries_at,
+  profile_set_memory_probes,
   profile_record_module,
   profile_module_count,
   profile_module_path_at,

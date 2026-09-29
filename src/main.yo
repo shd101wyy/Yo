@@ -47,6 +47,9 @@ pragma(Pragma.AllowUnsafe);
   profile_phase_count,
   profile_phase_name_at,
   profile_phase_nanos_at,
+  profile_phase_rss_mb_at,
+  profile_phase_table_entries_at,
+  profile_set_memory_probes,
   profile_module_count,
   profile_module_path_at,
   profile_module_parse_ns_at,
@@ -2800,6 +2803,16 @@ _print_compile_profile :: (
     );
     i = (i + usize(1));
   });
+  // Memory at each phase's end: resident set and the shared codegen table's
+  // entries (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 1). Their own lines,
+  // so the `profile: phase` rows keep one shape.
+  (pmi : usize) = usize(0);
+  while(pmi < profile_phase_count(), {
+    eprintln(
+      `profile: memory ${profile_phase_name_at(pmi)} rss=${profile_phase_rss_mb_at(pmi).to_string()}MB table=${profile_phase_table_entries_at(pmi).to_string()}`
+    );
+    pmi = (pmi + usize(1));
+  });
   n := profile_module_count();
   k := cond((n < usize(20)) => n, true => usize(20));
   eprintln(
@@ -4095,6 +4108,7 @@ run_compile :: (
   profile_reset();
   if(profile, {
     profile_set_enabled(true);
+    profile_set_memory_probes(_current_rss_mb, _shared_table_entries);
   });
   {
     // EMISSION names (temps, labels) are per-artifact: reset on EVERY
@@ -5022,6 +5036,11 @@ TEST_BATCH_SIZE :: usize(100);
 /// ./tests/internal` accumulated 10.2 GB in one process while `--watch`'s
 /// `--max-rss-mb` was inert too
 /// (issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md).
+/// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
+/// `--profile`'s per-phase memory lines.
+_shared_table_entries :: (fn() -> usize)(
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.len(), .None => usize(0))
+);
 _current_rss_mb :: (fn() -> usize)(
   cond(
     (platform == Platform.Macos) => _current_rss_mb_darwin(),
