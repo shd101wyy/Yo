@@ -51,6 +51,28 @@ after the shared table was released, so these are not peak attributions:
   (`R 38488 38488 Pattern`). That is either a leak or a census blind spot for
   `ArrayList(Arm)` element buffers, and step 0.4 settles it.
 
+### 0.1 Phase 0 step 1 in use (2026-09-29)
+
+`--profile` now prints `profile: memory <phase> rss=…MB table=…` (step 1).
+Stage-2 of this branch (`dda139de0`), compiling the develop `b6b828772` tree
+(`compile src/main.yo --skip-c-compiler --emit-c --profile`):
+
+| end of phase | RSS | shared-table entries |
+| --- | --- | --- |
+| prelude evaluation | 77 MB | 28,624 |
+| entry module evaluation | 2,970 MB | 2,872,263 |
+| codegen: collect | 3,157 MB | 2,937,610 |
+| codegen: emit | 3,324 MB | 2,937,610 |
+| write C | 3,328 MB | 2,937,610 |
+
+- Max RSS: **3,526 MB**. That is higher than §0's 3.25 GB because both the
+  tree and the compiler are newer; this is the baseline from here on.
+- The peak falls between phase boundaries, about 200 MB above the end of
+  emit. Something transient, around the final C text assembly, is the
+  real peak, and step 2's census has to catch it there.
+- Codegen adds 65 K table entries. The 2.87 M entries at the end of
+  evaluation are the population lever 1 works on.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
