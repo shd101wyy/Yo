@@ -49,10 +49,23 @@ Each walk memoizes named aggregates (structs and enums) within one top-level cal
   object during one walk, so an identity hit is exact.
 - **A result that depends on the path is not stored.** The universe walk tracks whether its name
   guard fired inside each entry; the flag is saved, cleared and OR-ed back, so a cycle elsewhere in
-  the walk does not switch off memoization for unrelated entries. The predicates detect a cycle by
-  the aggregates on the current path, and their depth limit becomes a 4096 stack backstop. A `false`
-  computed under a cycle or the backstop is not stored; a `true` is exact and always stored.
+  the walk does not switch off memoization for unrelated entries. The predicates detect a cycle as
+  the same type object already on the current path, and their depth limit becomes a 1024 stack
+  backstop. A `false` computed under a cycle or the backstop is not stored; a `true` is exact and
+  always stored.
 - Unions carry no id, and two modules may define same-named unions, so unions are not memoized.
+
+## Two soundness bugs along the way
+
+- **The old depth-40 cap was a false negative.** The predicates answered `false` (no raw pointer)
+  for a pointer more than 40 levels down; `tests/internal/types_utils.test.yo` even pinned that
+  answer as its termination test. The test now expects `true`, and a separate test builds a type
+  object that contains itself to show the walk terminates.
+- **An id-based cycle guard is wrong.** An intermediate version of this fix compared ids along the
+  path. Two different types with one id (an empty id, or a substituted copy) then read as a cycle,
+  and the predicate said "no raw pointer": the unsafe direction. `types_utils.test.yo`'s nested
+  newtype test caught it, and a shared-id test now pins it. Against the id-based source, 3 tests
+  fail; with the object-identity guard all 71 pass.
 
 The first version of #1022 keyed the universe memo by id alone, and a single guard flag disabled
 the memo for the rest of the walk once any cycle appeared. Its measurements (depth 22: 48 s → 2.8 s,
