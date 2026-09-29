@@ -410,6 +410,7 @@ compute_cross_boundary_variables :: (
     });
   });
   all_ids := HashSet(String).new();
+  segments := HashMap(String, HashSet(usize)).new();
   (ai : usize) = usize(0);
   while(ai < captured_variables.len(), ai = (ai + usize(1)), {
     match(
@@ -441,6 +442,19 @@ compute_cross_boundary_variables :: (
             )
           );
           if(crosses, {
+            // Its live range, for slot sharing (`compute_overlapping_slots`
+            // reads the min and max of the set).
+            match(
+              w.vars.get(id.clone()),
+              .Some(lv2) => if(!(w.foreign), {
+                end2 := if((lv2.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv2.scope_end > lv2.last), lv2.scope_end, lv2.last);
+                seg := HashSet(usize).new();
+                seg.insert(usize(lv2.def_end));
+                seg.insert(usize(end2));
+                segments.insert(id.clone(), seg);
+              }),
+              .None => ()
+            );
             all_ids.insert(id);
           });
         }),
@@ -452,7 +466,7 @@ compute_cross_boundary_variables :: (
   CrossBoundaryResult(
     cross_boundary_ids : all_ids,
     await_future_temp_var_aliases : HashMap(String, String).new(),
-    variable_segments : HashMap(String, HashSet(usize)).new()
+    variable_segments : segments
   )
 });
 _SlotRange :: ref(struct(min : usize, max : usize));

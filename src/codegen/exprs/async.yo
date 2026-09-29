@@ -1398,8 +1398,12 @@ _build_async_capture_struct_literal :: (
                 dup_var,
                 .Some(vname) => {
                   // Temp variable: emit the decl (side effect), use the name.
-                  _drop := _call_generate_expr(dup_expr, indent.clone(), context);
-                  parts.push(`.${label} = ${vname}`);
+                  // A dup that declares nothing (a plain value read, such as a
+                  // C local of the body) hands back the value itself.
+                  dup_code := _call_generate_expr(dup_expr, indent.clone(), context);
+                  vname_c := sanitize_for_c_identifier(vname.clone(), false);
+                  declared := (context.base.declared_c_var_names.contains(vname.clone()) || scope_stack_contains(context.base.declared_scopes, vname_c));
+                  parts.push(`.${label} = ${if((declared || (dup_code.len() == usize(0))), vname, dup_code)}`);
                 },
                 .None => {
                   code := _call_generate_expr(dup_expr, indent.clone(), context);
