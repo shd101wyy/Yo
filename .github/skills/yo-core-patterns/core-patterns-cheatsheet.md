@@ -159,6 +159,7 @@ counts.insert(`yo`, i32(1));
 ```rust
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
+{ ArrayList } :: import("std/collections/array_list");
 arena := Arena.new(usize(1) << usize(20));
 list := ArrayList(i32).new_in(arena.allocator());    // the buffer lives in the arena
 p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // RC objects created inside
