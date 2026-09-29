@@ -18,6 +18,7 @@
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ current_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -181,7 +182,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key)), cv)
+        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key, spec_id : __fvm8.*.spec_id)), cv)
       ),
       _ => v
     )
@@ -2098,7 +2099,7 @@ _inject_forall_captures :: (
               register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(ifc_prefix, new_cvars));
             });
             // Flat names/types only when not aligned (see above).
-            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
+            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key, spec_id : __fvm9.*.spec_id)), new_cvs);
             owned_keys_record(g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
@@ -3205,7 +3206,7 @@ _materialize_default_body :: (
         body : body.clone(),
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),
-        func_id : fn_id.clone()
+        func_id : fn_id.clone(), spec_id : current_spec()
       )
     ),
     ArrayList(EvalValue).new()
@@ -5126,7 +5127,7 @@ evaluate_module_value :: (
                                 cap_names : d_fvd.*.cap_names,
                                 cap_tys : d_fvd.*.cap_tys,
                                 func_id : d_fresh_id.clone(),
-                                env_key : d_fvd.*.env_key
+                                env_key : d_fvd.*.env_key, spec_id : current_spec()
                               )
                             ),
                             d_cvs
@@ -5250,7 +5251,7 @@ evaluate_module_value :: (
                                   cap_names : d_fvd.*.cap_names,
                                   cap_tys : d_fvd.*.cap_tys,
                                   func_id : d_fvd.*.func_id,
-                                  env_key : d_fvd.*.env_key
+                                  env_key : d_fvd.*.env_key, spec_id : d_fvd.*.spec_id
                                 )
                               ),
                               d_cvs

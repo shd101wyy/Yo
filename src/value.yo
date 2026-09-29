@@ -32,7 +32,14 @@ FuncValData :: struct(
   // = absent: call paths fall back to the flat-capture rebuild
   // (`capture_env_for`). Clones share the key on purpose — derivations
   // share the definition env.
-  (env_key : usize) ?= usize(0)
+  (env_key : usize) ?= usize(0),
+  // The specialization whose per-node facts this FuncVal's body reads
+  // (`spec_key`, src/expr.yo; plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4
+  // Design 1). 0 = definition-time / non-generic evaluation. A FuncVal
+  // defined inside a specialized body takes that body's spec; a derived
+  // FuncVal (impl injection, ctl instance, comptime variant) keeps its
+  // parent's.
+  (spec_id : usize) ?= usize(0)
 );
 derive(FuncValData, Clone);
 /// The compile-time representation of an evaluated expression.

@@ -15,7 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT, spec_key } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -2129,7 +2129,7 @@ _gen_general_match :: (fn(expr : AstExpr, arms : ArrayList(Arm), indent : String
   body_indent := indent.clone();
   body_indent.push_str("  ");
   prefix := String.from("__yo_m");
-  prefix.push_string(ast_expr_id(expr).to_string());
+  prefix.push_string(spec_key(ast_expr_id(expr)).to_string());
   labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
   end_label := prefix.clone();
   end_label.push_str("_end");

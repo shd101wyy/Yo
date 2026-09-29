@@ -31,7 +31,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
   ast_expr_to_string,
-  make_err_expr
+  make_err_expr,
+  spec_key
 } :: import("../expr.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
@@ -5054,7 +5055,7 @@ _callee_call_term :: (
   // holds clones evaluated at this call site's concrete types) uses it
   // wholesale.
   match(
-    callsite_contracts_for(ast_expr_id(e).to_string()),
+    callsite_contracts_for(spec_key(ast_expr_id(e)).to_string()),
     .Some(cs) => {
       reqs = cs.reqs.clone();
       enss = cs.enss.clone();

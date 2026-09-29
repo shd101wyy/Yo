@@ -12,7 +12,8 @@
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_atom,
-  ast_expr_is_fn_call_of
+  ast_expr_is_fn_call_of,
+  spec_key
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob } :: import("../../utils.yo");
@@ -1551,7 +1552,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
         // under the CALL expr id so later readers (a re-entrant analysis
         // probe, closure-param slot collection) stay idempotent after the
         // ExprInfo fields are consumed.
-        register_io_async_closure_fid(ast_expr_id(expr).to_string(), __fvd1.*.func_id.clone());
+        register_io_async_closure_fid(spec_key(ast_expr_id(expr)).to_string(), __fvd1.*.func_id.clone());
         aa := get_closure_await_analysis(__fvd1.*.func_id);
         // FSM-routed closure: its body is emitted by the SM resume function —
         // mark it so the standalone closure emission is skipped (else the
@@ -1567,7 +1568,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
     // FuncVal already consumed from the arg's ExprInfo (an earlier analysis
     // read moved it out) — resolve through the expr→func_id registry instead.
     .None => match(
-      lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+      lookup_io_async_closure_fid(spec_key(ast_expr_id(expr)).to_string()),
       .Some(reg_fid) => {
         aa2 := get_closure_await_analysis(reg_fid.clone());
         if(aa2.is_some(), {
@@ -1855,7 +1856,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
         // (fs/file read_to_string: `__yo_t17* result`).
         (resolved_via_fn_ret : bool) = false;
         match(
-          lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+          lookup_io_async_closure_fid(spec_key(ast_expr_id(expr)).to_string()),
           .Some(res_fid) => match(
             get_func_type(res_fid.clone()),
             .Func({ result : frr }) => if(!(is_some_type(frr)) && !(type_implements_future(frr)), {
@@ -1929,7 +1930,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   closure_param_slots := ArrayList(ClosureParamSlot).new();
   if(is_io_async, {
     match(
-      lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+      lookup_io_async_closure_fid(spec_key(ast_expr_id(expr)).to_string()),
       .Some(closure_fid) => match(
         get_func_type(closure_fid.clone()),
         .Func({ param_types : pts, meta : __fm1 }) => {
@@ -2965,7 +2966,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
+  result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${spec_key(ast_expr_id(expr)).to_string()}`);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);

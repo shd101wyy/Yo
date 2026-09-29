@@ -7,6 +7,7 @@
 //!   3. `f(arg1, arg2, ...)` — simple FuncVal call.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ current_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -25,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   is_function_boundary_arrow,
   desugar_if_calls,
-  BF_YO_AS
+  BF_YO_AS,
+  spec_key
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
@@ -2690,7 +2692,7 @@ _fv_bind_unbound_forall_placeholders :: (
     if(sig_st.is_none(), {
       sig_st = Option(TypeValue).Some(
         TypeValue.SomeT(
-          `${fname}_wcforall_${ast_expr_id(call_expr).to_string()}`,
+          `${fname}_wcforall_${spec_key(ast_expr_id(call_expr)).to_string()}`,
           fname.clone(),
           usize(0),
           t_type(),
@@ -6158,7 +6160,7 @@ Fix: wrap the call:
                   body : pa_body,
                   cap_names : pa_cap_names,
                   cap_tys : pa_cap_tys,
-                  func_id : pa_fid
+                  func_id : pa_fid, spec_id : current_spec()
                 )
               ),
               pa_cap_vals
@@ -7116,7 +7118,7 @@ Fix: wrap the call:
               cap_names : cap_names,
               cap_tys : cap_tys,
               func_id : stable_func_id(String.from(""), recur_tok.module_path, usize(recur_tok.row), usize(recur_tok.column)),
-              env_key : fv_env_key
+              env_key : fv_env_key, spec_id : current_spec()
             )
           ),
           cap_vals

@@ -37,6 +37,7 @@ import("std/fmt");
   BK_TUPLE
 }
 :: import("../../expr.yo");
+{ spec_key } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -762,8 +763,8 @@ _evaluate_trait_field :: (
       // fn-type EXPRESSION id — module-local and unstable. Copy them
       // under the durable `${trait_id}::${label}` key so impl
       // registration can read them (variance obligations + inheritance).
-      __reqs := get_func_requires_exprs(ast_expr_id(type_expr).to_string());
-      __enss := get_func_ensures_exprs(ast_expr_id(type_expr).to_string());
+      __reqs := get_func_requires_exprs(spec_key(ast_expr_id(type_expr)).to_string());
+      __enss := get_func_ensures_exprs(spec_key(ast_expr_id(type_expr)).to_string());
       __trait_id := match(
         trait_ty,
         .TraitT(_, _, _, _, tid, _, _, _, _, _) => tid.clone(),
@@ -775,7 +776,7 @@ _evaluate_trait_field :: (
           label_str.clone(),
           __reqs,
           __enss,
-          get_func_return_label(ast_expr_id(type_expr).to_string())
+          get_func_return_label(spec_key(ast_expr_id(type_expr)).to_string())
         );
       });
     },

@@ -18,6 +18,7 @@
 //!   - Effect row spread expansion (uses existing implicit params as-is)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ current_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -1305,7 +1306,7 @@ evaluate_anonymous_function_implementation :: (
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),
         func_id : func_id.clone(),
-        env_key : fv_env_key
+        env_key : fv_env_key, spec_id : current_spec()
       )
     ),
     cap_vals
@@ -1563,7 +1564,7 @@ Result type: ${type_to_string(decl_result_ty)}`
           body : body_for_def_eval.clone(),
           cap_names : ArrayList(String).new(),
           cap_tys : ArrayList(TypeValue).new(),
-          func_id : func_id.clone()
+          func_id : func_id.clone(), spec_id : current_spec()
         )
       ),
       ArrayList(EvalValue).new()
@@ -1974,7 +1975,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // shadow the real definition's (codegen emitted the trial clone).
             // Positional-occurrence like every fid — the throwaway
             // takes this position's next ordinal, distinct from the real one.
-            func_id : stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column))
+            func_id : stable_func_id(String.from("fn_"), tok.module_path, usize(tok.row), usize(tok.column)), spec_id : current_spec()
           )
         ),
         ArrayList(EvalValue).new()

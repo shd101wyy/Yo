@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ cloned_expr_node_count } :: import("./expr.yo");
+{ cloned_expr_node_count, spec_key } :: import("./expr.yo");
 { Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
@@ -1029,7 +1029,7 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
   if(id == usize(0), {
     return(());
   });
-  table.data.insert(id, info);
+  table.data.insert(spec_key(id), info);
   ()
 });
 /// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
@@ -1042,8 +1042,8 @@ codegen_read_log_set :: (fn(on : bool) -> unit)({
 });
 codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
 _logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
-  _i := g_codegen_read_keys.insert(id);
-  table.data.get(id)
+  _i := g_codegen_read_keys.insert(spec_key(id));
+  table.data.get(spec_key(id))
 });
 /// Retrieve the ExprInfo for the given expression id, or None. Stays
 /// expression-bodied: a block body on this hot accessor's shape is what
@@ -1051,7 +1051,7 @@ _logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo)
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   cond(
     g_codegen_read_log_on => _logged_table_get(table, id),
-    true => table.data.get(id)
+    true => table.data.get(spec_key(id))
   )
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
@@ -1081,13 +1081,14 @@ expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize))
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
-  record_owned_expr_id(call_id);
-  g_method_callee_types.insert(call_id, ty);
+  k := spec_key(call_id);
+  record_owned_expr_id(k);
+  g_method_callee_types.insert(k, ty);
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
-  g_method_callee_types.get(call_id)
+  g_method_callee_types.get(spec_key(call_id))
 );
 // ---------------------------------------------------------------------------
 // Io-builtin marker side-tables.
@@ -1117,13 +1118,14 @@ lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) 
 (g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
 /// Record the io-builtin marker for a call expr id.
 record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
-  record_owned_expr_id(call_id);
-  g_io_builtin_calls.insert(call_id, marker);
+  k := spec_key(call_id);
+  record_owned_expr_id(k);
+  g_io_builtin_calls.insert(k, marker);
   ()
 });
 /// Look up the io-builtin marker for a call expr id, if any.
 lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
-  g_io_builtin_calls.get(call_id)
+  g_io_builtin_calls.get(spec_key(call_id))
 );
 // Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
 // generate_other_function_call dispatches via the callee's ExprInfo value, but a
@@ -1134,13 +1136,14 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
-  record_owned_expr_id(call_id);
-  g_method_callee_values.insert(call_id, v);
+  k := spec_key(call_id);
+  record_owned_expr_id(k);
+  g_method_callee_values.insert(k, v);
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
 lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
-  g_method_callee_values.get(call_id)
+  g_method_callee_values.get(spec_key(call_id))
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
 // `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
@@ -1905,13 +1908,14 @@ lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hol
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
-  record_owned_expr_id(call_id);
-  g_macro_expansions.insert(call_id, expanded);
+  k := spec_key(call_id);
+  record_owned_expr_id(k);
+  g_macro_expansions.insert(k, expanded);
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
 lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
-  g_macro_expansions.get(call_id)
+  g_macro_expansions.get(spec_key(call_id))
 );
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
@@ -2056,12 +2060,12 @@ export(
 // is never affected.
 (g_preevaluated_node_ids : HashSet(usize)) = HashSet(usize).new();
 mark_node_preevaluated :: (fn(id : usize) -> unit)({
-  _m := g_preevaluated_node_ids.insert(id);
+  _m := g_preevaluated_node_ids.insert(spec_key(id));
 });
 unmark_node_preevaluated :: (fn(id : usize) -> unit)({
-  _u := g_preevaluated_node_ids.remove(id);
+  _u := g_preevaluated_node_ids.remove(spec_key(id));
 });
-node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(id));
+node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(spec_key(id)));
 // `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
 // multiplicity behind the exponential method-chain cost,
 // issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
@@ -2233,16 +2237,17 @@ purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo :
   if((id < lo) || (id >= hi), {
     return(());
   });
+  k := spec_key(id);
   defines_fn := match(
-    table.data.get(id),
+    table.data.get(k),
     .Some(info) => match(info.value, .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {
     return(());
   });
-  _e := table.data.remove(id);
-  _purge_expr_side_tables_at(id);
+  _e := table.data.remove(k);
+  _purge_expr_side_tables_at(k);
   match(
     root,
     .FnCall(_, callee, args, _, _) => {

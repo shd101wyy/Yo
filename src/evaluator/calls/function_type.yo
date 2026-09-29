@@ -23,11 +23,12 @@
 //! impl.yo → function_type.yo → trait_checking.yo → impl.yo.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ current_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, spec_key } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution } :: import("../../expr_info.yo");
 {
@@ -886,7 +887,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : stable_func_id(String.from(""), rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column))
+              func_id : stable_func_id(String.from(""), rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column)), spec_id : current_spec()
             )
           ),
           ArrayList(EvalValue).new()
@@ -1049,7 +1050,7 @@ Result type: ${type_to_string(result_box)}`
       // expr, the same key the `copy_*` re-keying below uses.
       contract_key := match(
         expr,
-        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
+        .FnCall(_, ck_ft_box, _, _, _) => spec_key(ast_expr_id(ck_ft_box)).to_string(),
         .Atom(_, _) => String.from("")
       );
       ck_requires := get_func_requires_exprs(contract_key.clone());
@@ -1234,7 +1235,7 @@ Result type: ${type_to_string(result_box)}`
       match(
         expr,
         .FnCall(_, ct_ft_box, _, _, _) => {
-          ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
+          ct_flags_ft := get_func_param_comptime(spec_key(ast_expr_id(ct_ft_box)).to_string());
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
             ct_is_typeuni := match(
@@ -1271,7 +1272,7 @@ Result type: ${type_to_string(result_box)}`
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
             func_id : fn_val_id.clone(),
-            env_key : ft_env_key
+            env_key : ft_env_key, spec_id : current_spec()
           )
         ),
         cap_vals
@@ -1296,16 +1297,16 @@ Result type: ${type_to_string(result_box)}`
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_default_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_type_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_comptime(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_assigned_values(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_return_type_expr(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_contract_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_defaults(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_param_default_exprs(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_param_type_exprs(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_param_comptime(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_param_assigned_values(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_return_type_expr(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_macro_registration(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
+          copy_func_contract_exprs(spec_key(ast_expr_id(fn_type_box)).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -1525,13 +1526,13 @@ Result type: ${type_to_string(result_box)}`
           def_where_entries := match(
             expr,
             .FnCall(_, dwe_ft_box, _, _, _) =>
-              get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
+              get_func_where_constraints(spec_key(ast_expr_id(dwe_ft_box)).to_string()),
             .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
           );
           def_ct_flags := match(
             expr,
             .FnCall(_, ctf_ft_box, _, _, _) =>
-              get_func_param_comptime(ast_expr_id(ctf_ft_box).to_string()),
+              get_func_param_comptime(spec_key(ast_expr_id(ctf_ft_box)).to_string()),
             .Atom(_, _) => ArrayList(bool).new()
           );
           flow_env := _build_def_time_body_env(
@@ -1553,7 +1554,7 @@ Result type: ${type_to_string(result_box)}`
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box).to_string()),
+              get_func_variadic_param(spec_key(ast_expr_id(vp_ft_box)).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
                   flow_env,
@@ -1581,7 +1582,7 @@ Result type: ${type_to_string(result_box)}`
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column)), spec_id : current_spec()
               )
             ),
             ArrayList(EvalValue).new()
@@ -1952,12 +1953,12 @@ Result type: ${type_to_string(result_box)}`
           {
             dg_where := match(
               expr,
-              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
+              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(spec_key(ast_expr_id(dg_ft_box)).to_string()),
               .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
             );
             dg_ct_flags := match(
               expr,
-              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(dgc_ft_box).to_string()),
+              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(spec_key(ast_expr_id(dgc_ft_box)).to_string()),
               .Atom(_, _) => ArrayList(bool).new()
             );
             dg_env := _build_def_time_body_env(
@@ -1985,7 +1986,7 @@ Result type: ${type_to_string(result_box)}`
                   body : make_err_expr(),
                   cap_names : ArrayList(String).new(),
                   cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                  func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column)), spec_id : current_spec()
                 )
               ),
               ArrayList(EvalValue).new()

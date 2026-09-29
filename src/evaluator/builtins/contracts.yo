@@ -42,7 +42,8 @@
   BK_COND,
   alloc_global_expr_id,
   clone_expr_fresh_ids,
-  make_err_expr
+  make_err_expr,
+  spec_key
 } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
@@ -2033,7 +2034,7 @@ _stash_callsite_contracts :: (
     ei = (ei + usize(1));
   });
   site_env.pop_frame();
-  register_callsite_contracts(ast_expr_id(e).to_string(), ev_reqs, ev_enss);
+  register_callsite_contracts(spec_key(ast_expr_id(e)).to_string(), ev_reqs, ev_enss);
 });
 /// Conjoin a non-empty predicate list into ONE expression: nested `&&`
 /// (a single predicate passes through unwrapped). Fresh node ids.
@@ -3006,7 +3007,7 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
   (p_names : ArrayList(String)) = ArrayList(String).new();
   (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
   (ret_is_unit : bool) = false;
-  (key : String) = ast_expr_id(evaluated).to_string();
+  (key : String) = spec_key(ast_expr_id(evaluated)).to_string();
   (is_func : bool) = false;
   match(
     ft,
