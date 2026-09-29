@@ -730,13 +730,10 @@ _build_is_trial :: (
       .None => {
         trial = true;
       },
-      .Some(v) => match(
-        v,
-        .UnknownVal(_, _) => {
-          trial = true;
-        },
-        _ => ()
-      )
+      .Some(.UnknownVal(_, _)) => {
+        trial = true;
+      },
+      _ => ()
     );
     i = (i + usize(1));
   });

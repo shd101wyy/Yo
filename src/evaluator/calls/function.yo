@@ -1011,13 +1011,10 @@ _trait_display_name :: (fn(tid : String, env : Environment) -> String)({
               v.value.get(usize(0)),
               .Some(vv) => match(
                 vv,
-                .TypeVal(tt) => match(
-                  tt,
-                  .TraitT(_, _, _, _, t_id, _, _, _, _, _) => if(t_id == tid, {
-                    return(v.name.clone());
-                  }),
-                  _ => ()
-                ),
+                .TypeVal(.TraitT(_, _, _, _, t_id, _, _, _, _, _)) => if(t_id == tid, {
+                  return(v.name.clone());
+                }),
+                _ => (),
                 _ => ()
               ),
               .None => ()

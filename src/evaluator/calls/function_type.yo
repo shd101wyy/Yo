@@ -629,12 +629,9 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(rv_tv) => match(
-                    rv_tv,
-                    .SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _) =>
-                      resolve_some_binder_kind(rv_sname, rv_slvl),
-                    _ => Option(TypeValue).None
-                  ),
+                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _)) =>
+                    resolve_some_binder_kind(rv_sname, rv_slvl),
+                  _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
                 ),
                 .None => Option(TypeValue).None
