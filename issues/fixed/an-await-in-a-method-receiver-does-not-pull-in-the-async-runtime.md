@@ -53,3 +53,7 @@ macro call it walks the recorded expansion instead of the raw arguments, as
   await and an interpolated await) and pins both printed lines.
 - Recorded with the v0.2.46 seed before the fix, it failed with rc=1 on the
   undeclared `__yo_async_poll_step`.
+- With a compiler built from the fix: the case prints `receiver: 2` and
+  `interpolated: 3`, rc 0.
+- `gates_fast.sh` passed; its CLI scorecard was 314 passed, 0 golden diffs.
+- The fast language suite passed: 4,599 tests, 0 failures.
