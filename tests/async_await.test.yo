@@ -2658,9 +2658,10 @@ test("SM opt: multiple non-overlapping pairs share slots", {
   r := io.await(task, io);
   assert(r == i32(10), "multiple pairs should compute 10");
 });
-test("SM opt: RC types excluded from overlapping storage", {
-  // String is RC-typed. Even if s1 and s2 have non-overlapping reference
-  // ranges, they must NOT share a slot (RC deferred drops extend lifetime).
+test("SM opt: RC locals of one scope do not share a slot", {
+  // String is RC-typed: s1 and s2 are both dropped at the end of the body,
+  // so their live ranges overlap and each keeps its own slot, although the
+  // last reads of s1 come before s2 exists.
   task := io.async((io : Io) => {
     s1 := `hello`;
     io.await(yield(io), io);
@@ -2672,7 +2673,7 @@ test("SM opt: RC types excluded from overlapping storage", {
     return(n1 + n2);
   });
   r := io.await(task, io);
-  assert(r == usize(10), "RC types excluded from sharing, lengths should sum to 10");
+  assert(r == usize(10), "each RC local keeps its value to its scope end");
 });
 // Regression: multiple io.await calls in a single while loop body
 // Previously, the second await generated `int32_t temp = ;` (empty expression)

@@ -858,12 +858,21 @@ This is **not** static dispatch (where the concrete type is known and stack-allo
 
 ### State Machine Memory
 
-State machines are small (~32-500 bytes):
+A task is one heap allocation:
 
-- State ID: 4 bytes
-- Captured parameters: varies
-- Captured locals: varies
-- Pending Futures: 8 bytes each
+- a 40-byte header: the reference count, the state, a pointer to the type's
+  operations (resume, effect binding, abort hook), and the first waiter;
+- the result;
+- the captured values, and the closure's parameters (an `Io` is 32 bytes);
+- one pointer for the future it is suspended on;
+- one field per local that is live across an `await`.
+
+A local that is used only between two awaits stays a local of the C resume
+function and costs the task nothing. Locals whose live ranges do not overlap
+share one field when their C type is the same, heap-owning values included.
+Measured on x86_64, a task with one await and a small capture is 88 bytes.
+Sixteen sequential awaits whose results are all used at the end take 152
+bytes, of which 60 are the fifteen results still waiting to be added.
 
 ## Performance Characteristics
 
@@ -871,14 +880,14 @@ State machines are small (~32-500 bytes):
 
 **10,000 concurrent async operations:**
 
-- State machines: 10,000 × ~200 bytes = 2MB
+- State machines: 10,000 × ~100 bytes = 1MB
 - No thread stacks needed!
 
 **Comparison:**
 
 - 10,000 OS threads × 1MB stack = 10GB ❌
 - 10,000 Go goroutines × 2KB = 20MB
-- 10,000 Yo async tasks × 200 bytes = 2MB ✅
+- 10,000 Yo async tasks × ~100 bytes = 1MB ✅
 
 ### Throughput
 

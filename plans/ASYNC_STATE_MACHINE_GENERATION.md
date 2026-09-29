@@ -553,6 +553,16 @@ child ≤ 25 ns, depth 4 ≤ 120 ns, the same with parked I/O ≤ 150 ns.
 Exit: IR construction succeeds for every async block in the three trees,
 and the shadow diff is empty or fully explained.
 
+**Status: subsumed by phase 5 and phase 6, not built (2026-09-29).** Phase 5
+emits the body in one pass through the ordinary expression generators, so
+nothing needs a normalized tree to emit from: an await suspends where the
+generator reaches it, laziness is the C the generators already emit, and
+evaluation order is the source order. Its one remaining consumer, liveness
+(item 2), runs directly over the macro-expanded AST in phase 6
+(`_lv_walk` in `src/codegen/async/state_machine.yo`), with positions in
+source order. The shadow mode (item 3) compared the IR's slot set with the
+old segment analysis, which phase 5 deleted.
+
 ### Phase 5: the single-pass resumable emitter
 
 **Implementation design (refined 2026-09-29, from reading the emitters).**

@@ -318,4 +318,64 @@ test("an aborted task does not release a local it moved before its await", {
   assert(g_disposed == i32(0), "the moved value belongs to its new owner");
   g_kept_things.clear();
   assert(g_disposed == i32(1), "the new owner releases it exactly once");
-});
+  // issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md
+  _bare_block_then_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+    io.async((e : Io) => {
+      (seen : i32) = i32(-1);
+      {
+        a := Thing(n : i32(1));
+        e.await(yield(e), e);
+        seen = a.n;
+      };
+      seen = g_disposed;
+      e.await(yield(e), e);
+      seen
+    })
+  );
+  test("a bare block's heap local is released at the block's end, not the task's", {
+    g_disposed = i32(0);
+    r := io.await(_bare_block_then_await(io), io);
+    assert(r == i32(1), "the block's value is disposed before the next statement runs");
+    assert(g_disposed == i32(1), "and exactly once");
+  });
+  // Phase 6 (plans/ASYNC_STATE_MACHINE_GENERATION.md): heap locals of sibling
+  // scopes have disjoint live ranges, so they share one slot. Every drop of the
+  // slot zeroes it, and the abort dispose drops the slot once.
+  _sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
+    io.async((e : Io) => {
+      (sum : i32) = i32(0);
+      {
+        a := Thing(n : i32(1));
+        e.await(yield(e), e);
+        sum = (sum + a.n);
+      };
+      {
+        b := Thing(n : i32(2));
+        e.await(sleep(nap), e);
+        sum = (sum + b.n);
+      };
+      sum
+    })
+  );
+  test("two heap locals of sibling scopes share a slot, each disposed once", {
+    g_disposed = i32(0);
+    r := io.await(_sibling_scope_things(u64(0), io), io);
+    assert(r == i32(3), "each block reads its own value after its await");
+    assert(g_disposed == i32(2), "each value is disposed once");
+  });
+  /// Spawn the two-block task, abort it while it sleeps in the second block,
+  /// and drop the handle; the count seen before the abort is the result.
+  _abort_in_the_second_block :: (fn(io : Io) -> i32)({
+    h := io.spawn(_sibling_scope_things(u64(50), io), io);
+    io.await(sleep(u64(10)), io);
+    seen := g_disposed;
+    h.abort();
+    _r := h.await(io);
+    seen
+  });
+  test("aborting a task in the second of two sibling scopes that share a slot", {
+    g_disposed = i32(0);
+    seen := _abort_in_the_second_block(io);
+    assert(seen == i32(1), "the first block's value is gone, the second is held");
+    assert(g_disposed == i32(2), "the abort disposes the second value once");
+  });
