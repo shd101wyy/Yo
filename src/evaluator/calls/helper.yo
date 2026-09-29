@@ -266,15 +266,12 @@ _module_type_contains_ctl_field :: (
           if(is_func_field, {
             match(
               field_val_opt,
-              .Some(fv) => match(
-                fv,
-                .FuncVal(__fvd1, _) => {
-                  if(is_control_fn(__fvd1.*.func_id.clone()), {
-                    found = true;
-                  });
-                },
-                _ => ()
-              ),
+              .Some(.FuncVal(__fvd1, _)) => {
+                if(is_control_fn(__fvd1.*.func_id.clone()), {
+                  found = true;
+                });
+              },
+              .Some(_) => (),
               .None => ()
             );
           });
@@ -582,13 +579,10 @@ _trial_eval_ret_type_expr :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(rte_ei) => match(
       rte_ei.value,
-      .Some(rte_v) => match(
-        rte_v,
-        .TypeVal(rte_t) => {
-          out.push(rte_t);
-        },
-        _ => ()
-      ),
+      .Some(.TypeVal(rte_t)) => {
+        out.push(rte_t);
+      },
+      .Some(_) => (),
       .None => ()
     ),
     .None => ()
@@ -1873,16 +1867,13 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
       while(i < n, {
         match(
           fv_source_val(csrc, cvs, i),
-          .Some(cv) => match(
-            cv,
-            .TypeVal(tv) => {
-              out.push_string(fv_source_name(csrc, i));
-              out.push_str("=");
-              out.push_string(sanitize_for_sig(value_to_signature_string(EvalValue.TypeVal(tv))));
-              out.push_str(";");
-            },
-            _ => ()
-          ),
+          .Some(.TypeVal(tv)) => {
+            out.push_string(fv_source_name(csrc, i));
+            out.push_str("=");
+            out.push_string(sanitize_for_sig(value_to_signature_string(EvalValue.TypeVal(tv))));
+            out.push_str(";");
+          },
+          .Some(_) => (),
           .None => ()
         );
         i = (i + usize(1));
@@ -2576,11 +2567,8 @@ create_specialized_function_inline :: (
                         while((zbp < zb_pt.len()) && !(zb_done), {
                           zb_decl_nm := match(
                             zb_pt.get(zbp),
-                            .Some(zb_dt) => match(
-                              zb_dt,
-                              .SomeT(_, zdn, _, _, _, _, _, _, _, _, _) => zdn,
-                              _ => String.from("")
-                            ),
+                            .Some(.SomeT(_, zdn, _, _, _, _, _, _, _, _, _)) => zdn,
+                            .Some(_) => String.from(""),
                             .None => String.from("")
                           );
                           if((zb_decl_nm.len() > usize(0)) && (zb_decl_nm == zb_name), {
@@ -2700,14 +2688,11 @@ create_specialized_function_inline :: (
                           arg_values.forall_args.get(zbni),
                           .Some(zae) => match(
                             zae.value,
-                            .Some(zv) => match(
-                              zv,
-                              .TypeVal(ztb) => if(!(is_some_type(ztb)), {
-                                subst_add(zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
-                                zs_any = true;
-                              }),
-                              _ => ()
-                            ),
+                            .Some(.TypeVal(ztb)) => if(!(is_some_type(ztb)), {
+                              subst_add(zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
+                              zs_any = true;
+                            }),
+                            .Some(_) => (),
                             .None => ()
                           ),
                           .None => ()
@@ -3301,11 +3286,8 @@ create_specialized_function_inline :: (
                     arg_values.args.get(rbp_i),
                     .Some(cb_ae3) => match(
                       cb_ae3.value,
-                      .Some(cb_v3) => match(
-                        cb_v3,
-                        .FuncVal(cb_fvd3, _) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
-                        _ => ()
-                      ),
+                      .Some(.FuncVal(cb_fvd3, _)) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
+                      .Some(_) => (),
                       .None => match(
                         cb_ae3.arg_type,
                         .SomeT({ id : cb_sid3 }) => alias_closure_some_id(fresh_some_id.clone(), cb_sid3),
@@ -4232,15 +4214,12 @@ create_specialized_function_inline :: (
                             arg_values.forall_args.get(ybni),
                             .Some(yae) => match(
                               yae.value,
-                              .Some(yv) => match(
-                                yv,
-                                .TypeVal(ytb) => if(!(is_some_type(ytb)), {
-                                  subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
-                                  ys_added_names.push(yrst_name.clone());
-                                  ys_any = true;
-                                }),
-                                _ => ()
-                              ),
+                              .Some(.TypeVal(ytb)) => if(!(is_some_type(ytb)), {
+                                subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                ys_added_names.push(yrst_name.clone());
+                                ys_any = true;
+                              }),
+                              .Some(_) => (),
                               .None => ()
                             ),
                             .None => ()
@@ -5907,11 +5886,8 @@ try_to_call_function_with_arguments :: (
       n_args := adjusted_args.len();
       call_param_defaults := match(
         func_val,
-        .Some(fvv) => match(
-          fvv,
-          .FuncVal(__fvd11, _) => get_func_param_defaults(__fvd11.*.func_id.clone()),
-          _ => ArrayList(Option(EvalValue)).new()
-        ),
+        .Some(.FuncVal(__fvd11, _)) => get_func_param_defaults(__fvd11.*.func_id.clone()),
+        .Some(_) => ArrayList(Option(EvalValue)).new(),
         .None => ArrayList(Option(EvalValue)).new()
       );
       // Parallel to call_param_defaults: the omitted-parameter default-value
@@ -5919,11 +5895,8 @@ try_to_call_function_with_arguments :: (
       // C argument (codegen renders `runtime_arg_exprs_in_order`).
       call_param_default_exprs := match(
         func_val,
-        .Some(fvv2) => match(
-          fvv2,
-          .FuncVal(__fvd12, _) => get_func_param_default_exprs(__fvd12.*.func_id.clone()),
-          _ => ArrayList(Option(AstExpr)).new()
-        ),
+        .Some(.FuncVal(__fvd12, _)) => get_func_param_default_exprs(__fvd12.*.func_id.clone()),
+        .Some(_) => ArrayList(Option(AstExpr)).new(),
         .None => ArrayList(Option(AstExpr)).new()
       );
       // Parallel to call_param_defaults: per-param `is_compile_time_only` flags,
@@ -5931,22 +5904,16 @@ try_to_call_function_with_arguments :: (
       // the parameter's comptime modifier.
       call_param_comptime := match(
         func_val,
-        .Some(fvv3) => match(
-          fvv3,
-          .FuncVal(__fvd13, _) => get_func_param_comptime(__fvd13.*.func_id.clone()),
-          _ => ArrayList(bool).new()
-        ),
+        .Some(.FuncVal(__fvd13, _)) => get_func_param_comptime(__fvd13.*.func_id.clone()),
+        .Some(_) => ArrayList(bool).new(),
         .None => ArrayList(bool).new()
       );
       // Parallel to call_param_comptime: the per-param `= <value>` ASSIGNED
       // values, so Step 5b can reject a mismatching argument.
       call_param_assigned := match(
         func_val,
-        .Some(fvv4) => match(
-          fvv4,
-          .FuncVal(__fvd14, _) => get_func_param_assigned_values(__fvd14.*.func_id.clone()),
-          _ => ArrayList(Option(EvalValue)).new()
-        ),
+        .Some(.FuncVal(__fvd14, _)) => get_func_param_assigned_values(__fvd14.*.func_id.clone()),
+        .Some(_) => ArrayList(Option(EvalValue)).new(),
         .None => ArrayList(Option(EvalValue)).new()
       );
       (n_required : usize) = n_params;
@@ -6723,13 +6690,10 @@ try_to_call_function_with_arguments :: (
                       ew_fvars.get(ew_fvars.len() - usize(1)),
                       .Some(ew_fvar) => match(
                         ew_fvar.value.get(usize(0)),
-                        .Some(ew_fval) => match(
-                          ew_fval,
-                          .UnknownVal(_, _) => {
-                            ew_is_unknown = true;
-                          },
-                          _ => ()
-                        ),
+                        .Some(.UnknownVal(_, _)) => {
+                          ew_is_unknown = true;
+                        },
+                        .Some(_) => (),
                         .None => ()
                       ),
                       .None => ()
@@ -6797,13 +6761,10 @@ try_to_call_function_with_arguments :: (
                             ewa_lvars.get(ewa_lvars.len() - usize(1)),
                             .Some(lv) => match(
                               lv.value.get(usize(0)),
-                              .Some(lvv) => match(
-                                lvv,
-                                .TypeVal(lvt) => if(!(is_some_type(lvt)), {
-                                  ewa_target = Option(TypeValue).Some(lvt);
-                                }),
-                                _ => ()
-                              ),
+                              .Some(.TypeVal(lvt)) => if(!(is_some_type(lvt)), {
+                                ewa_target = Option(TypeValue).Some(lvt);
+                              }),
+                              .Some(_) => (),
                               .None => ()
                             ),
                             .None => ()
@@ -6840,13 +6801,10 @@ try_to_call_function_with_arguments :: (
                                       ewa_xvars.get(ewa_xvars.len() - usize(1)),
                                       .Some(xv) => match(
                                         xv.value.get(usize(0)),
-                                        .Some(xvv) => match(
-                                          xvv,
-                                          .TypeVal(xvt) => if(!(is_some_type(xvt)), {
-                                            ewa_unbound = false;
-                                          }),
-                                          _ => ()
-                                        ),
+                                        .Some(.TypeVal(xvt)) => if(!(is_some_type(xvt)), {
+                                          ewa_unbound = false;
+                                        }),
+                                        .Some(_) => (),
                                         .None => ()
                                       ),
                                       .None => ()
@@ -7047,13 +7005,10 @@ try_to_call_function_with_arguments :: (
               (omitted_val : EvalValue) = create_unknown_val(ptype);
               match(
                 call_param_defaults.get(pi),
-                .Some(d) => match(
-                  d,
-                  .Some(dv) => {
-                    omitted_val = dv;
-                  },
-                  .None => ()
-                ),
+                .Some(.Some(dv)) => {
+                  omitted_val = dv;
+                },
+                .Some(.None) => (),
                 .None => ()
               );
               add_variable_to_env(
@@ -7386,14 +7341,11 @@ try_to_call_function_with_arguments :: (
       // rejected here.
       match(
         func_val,
-        .Some(wfv) => match(
-          wfv,
-          .FuncVal(__fvd12, _) => {
-            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, ctx, exn);
-            reapply_where_clause_exprs_for_call(__fvd12.*.func_id.clone(), callee_env_m, ctx, exn);
-          },
-          _ => ()
-        ),
+        .Some(.FuncVal(__fvd12, _)) => {
+          validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, ctx, exn);
+          reapply_where_clause_exprs_for_call(__fvd12.*.func_id.clone(), callee_env_m, ctx, exn);
+        },
+        .Some(_) => (),
         .None => ()
       );
       // ----------------------------------------------------------------
@@ -8228,11 +8180,8 @@ try_to_call_function_with_arguments :: (
         });
         match(
           d3_target,
-          .Some(d3_tv) => match(
-            d3_tv,
-            .FuncVal(d3_fvd, _) => d3_check_pending(d3_pending, d3_fvd.*.func_id.clone(), d3_fvd.*.body, ctx, exn),
-            _ => ()
-          ),
+          .Some(.FuncVal(d3_fvd, _)) => d3_check_pending(d3_pending, d3_fvd.*.func_id.clone(), d3_fvd.*.body, ctx, exn),
+          .Some(_) => (),
           .None => ()
         );
       });

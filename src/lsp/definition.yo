@@ -235,15 +235,12 @@ _find_variant_decl :: (fn(e : AstExpr, variant : String, out : ArrayList(Token))
         while(i < args.len(), {
           match(
             args.get(i),
-            .Some(a) => match(
-              a,
-              .Atom(_, at) => if(at.value == variant, {
-                out.push(at);
-              }),
-              .FnCall(_, vf, _, _, _) => if(_atom_is(vf, variant.clone()), {
-                out.push(ast_expr_token(vf));
-              })
-            ),
+            .Some(.Atom(_, at)) => if(at.value == variant, {
+              out.push(at);
+            }),
+            .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(vf, variant.clone()), {
+              out.push(ast_expr_token(vf));
+            }),
             .None => ()
           );
           i = (i + usize(1));
@@ -459,13 +456,10 @@ _method_decl :: (
   });
   body_tok := match(
     value,
-    .Some(v) => match(
-      v,
-      .FuncVal(data, _) => ast_expr_token(data.*.body),
-      _ => {
-        return(Option(Token).None);
-      }
-    ),
+    .Some(.FuncVal(data, _)) => ast_expr_token(data.*.body),
+    .Some(_) => {
+      return(Option(Token).None);
+    },
     .None => {
       return(Option(Token).None);
     }
@@ -648,13 +642,10 @@ _member_definition :: (
                   owner = rinfo.ty;
                   match(
                     rinfo.value,
-                    .Some(rv) => match(
-                      rv,
-                      .TypeVal(tv) => {
-                        owner = tv;
-                      },
-                      _ => ()
-                    ),
+                    .Some(.TypeVal(tv)) => {
+                      owner = tv;
+                    },
+                    .Some(_) => (),
                     .None => ()
                   );
                   deref = owner;

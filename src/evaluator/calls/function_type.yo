@@ -1080,11 +1080,8 @@ Result type: ${type_to_string(result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(pt) => match(
-            pt,
-            .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
-            _ => String.from("")
-          ),
+          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _, _)) => name,
+          .Some(_) => String.from(""),
           .None => String.from("")
         );
         param_type_names.push(pt_name);

@@ -470,13 +470,10 @@ resolve_assoc_type_for_target :: (
           rat_entries.get(rat_i),
           .Some(re) => match(
             re.value,
-            .Some(rev) => match(
-              rev,
-              .TypeVal(re_t) => {
-                resolved_opt = Option(TypeValue).Some(re_t);
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(re_t)) => {
+              resolved_opt = Option(TypeValue).Some(re_t);
+            },
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -547,13 +544,10 @@ _check_associated_type_constraints :: (
             atc_entries.get(ae_i),
             .Some(ae) => match(
               ae.value,
-              .Some(aev) => match(
-                aev,
-                .TypeVal(ae_t) => {
-                  resolved_opt = Option(TypeValue).Some(ae_t);
-                },
-                _ => ()
-              ),
+              .Some(.TypeVal(ae_t)) => {
+                resolved_opt = Option(TypeValue).Some(ae_t);
+              },
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()

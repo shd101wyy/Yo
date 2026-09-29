@@ -296,11 +296,8 @@ evaluate_type_field :: (
     });
     field_type = match(
       te_info.value,
-      .Some(v) => match(
-        v,
-        .TypeVal(inner) => Option(TypeValue).Some(inner),
-        _ => Option(TypeValue).None
-      ),
+      .Some(.TypeVal(inner)) => Option(TypeValue).Some(inner),
+      .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
     );
   });

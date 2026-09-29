@@ -458,13 +458,10 @@ function_value_marker :: (
   });
   match(
     witness,
-    .Some(wv) => match(
-      wv,
-      .FuncVal(wfvd, _) => {
-        return(Option(Option(String)).Some(_function_value_offense(wfvd.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.body), marker, env, ctx)));
-      },
-      _ => ()
-    ),
+    .Some(.FuncVal(wfvd, _)) => {
+      return(Option(Option(String)).Some(_function_value_offense(wfvd.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.body), marker, env, ctx)));
+    },
+    .Some(_) => (),
     .None => ()
   );
   if(!_is_function_like(ty), {

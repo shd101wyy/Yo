@@ -426,11 +426,8 @@ _reject_class1_panic_method_call :: (
   c1_recv_banned := cond(
     c1_mi.is_static => match(
       c1_mi.receiver_value,
-      .Some(c1_rv) => match(
-        c1_rv,
-        .TypeVal(c1_tvb) => is_class1_panic_receiver_type(c1_tvb),
-        _ => false
-      ),
+      .Some(.TypeVal(c1_tvb)) => is_class1_panic_receiver_type(c1_tvb),
+      .Some(_) => false,
       .None => false
     ),
     true => match(
@@ -2507,14 +2504,11 @@ _fv_refine_closure_expected :: (
         while(ms_i < mentioned.len(), {
           match(
             mentioned.get(ms_i),
-            .Some(ms) => match(
-              ms,
-              .SomeT({ name : sg_n, frame_level : sg_l }) => if(sg_n == f_name, {
-                subst_add(sb, sg_n, sg_l, ft);
-                any = true;
-              }),
-              _ => ()
-            ),
+            .Some(.SomeT({ name : sg_n, frame_level : sg_l })) => if(sg_n == f_name, {
+              subst_add(sb, sg_n, sg_l, ft);
+              any = true;
+            }),
+            .Some(_) => (),
             .None => ()
           );
           ms_i = (ms_i + usize(1));
@@ -3822,16 +3816,13 @@ _evaluate_funcval_runtime_call :: (
           evaled_arg_infos.get(ou_cti),
           .Some(ou_ainfo) => match(
             ou_ainfo.value,
-            .Some(ou_v) => match(
-              ou_v,
-              .TypeVal(ou_tv) => if(get_all_some_types(ou_tv).len() > usize(0), {
-                ou_all_known = false;
-              }),
-              .UnknownVal(_, _) => {
-                ou_all_known = false;
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(ou_tv)) => if(get_all_some_types(ou_tv).len() > usize(0), {
+              ou_all_known = false;
+            }),
+            .Some(.UnknownVal(_, _)) => {
+              ou_all_known = false;
+            },
+            .Some(_) => (),
             .None => {
               ou_all_known = false;
             }
@@ -4207,14 +4198,11 @@ _evaluate_funcval_runtime_call :: (
     );
     match(
       rt_s1_spec_fv,
-      .Some(rt_d3_sv) => match(
-        rt_d3_sv,
-        .FuncVal(rt_d3_sfd, _) => {
-          rt_d3_fid = rt_d3_sfd.*.func_id.clone();
-          rt_d3_body = Option(AstExpr).Some(rt_d3_sfd.*.body);
-        },
-        _ => ()
-      ),
+      .Some(.FuncVal(rt_d3_sfd, _)) => {
+        rt_d3_fid = rt_d3_sfd.*.func_id.clone();
+        rt_d3_body = Option(AstExpr).Some(rt_d3_sfd.*.body);
+      },
+      .Some(_) => (),
       .None => ()
     );
     match(
@@ -4232,14 +4220,11 @@ _evaluate_funcval_runtime_call :: (
     );
     match(
       rt_s1_spec_fv,
-      .Some(rt_s1_sv) => match(
-        rt_s1_sv,
-        .FuncVal(rt_s1_sfd, _) => {
-          rt_s1_fid = rt_s1_sfd.*.func_id.clone();
-          rt_s1_body = Option(AstExpr).Some(rt_s1_sfd.*.body);
-        },
-        _ => ()
-      ),
+      .Some(.FuncVal(rt_s1_sfd, _)) => {
+        rt_s1_fid = rt_s1_sfd.*.func_id.clone();
+        rt_s1_body = Option(AstExpr).Some(rt_s1_sfd.*.body);
+      },
+      .Some(_) => (),
       .None => ()
     );
     (rt_s1_elided : bool) = false;
@@ -4325,13 +4310,10 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
               recv_is_module = is_module_type(d6_ri.ty);
               match(
                 d6_ri.value,
-                .Some(d6_v) => match(
-                  d6_v,
-                  .TypeVal(d6_t) => {
-                    recv_is_module = (recv_is_module || is_module_type(d6_t));
-                  },
-                  _ => ()
-                ),
+                .Some(.TypeVal(d6_t)) => {
+                  recv_is_module = (recv_is_module || is_module_type(d6_t));
+                },
+                .Some(_) => (),
                 .None => ()
               );
             },
@@ -5527,12 +5509,9 @@ Fix: wrap the call:
                 // the same reason.
                 iobp_ty := match(
                   iobp_v,
-                  .Some(iobp_ev) => match(
-                    iobp_ev,
-                    .FuncVal(iobp_fvd, _) => get_func_type(iobp_fvd.*.func_id),
-                    .UnknownVal(iobp_uty, _) => iobp_uty,
-                    _ => t_unit()
-                  ),
+                  .Some(.FuncVal(iobp_fvd, _)) => get_func_type(iobp_fvd.*.func_id),
+                  .Some(.UnknownVal(iobp_uty, _)) => iobp_uty,
+                  .Some(_) => t_unit(),
                   .None => t_unit()
                 );
                 if(struct_name == "Io", {
@@ -6214,11 +6193,8 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(ci.ty),
-              .Some(fv_ftt) => match(
-                fv_ftt,
-                .FnTraitT(_, _, _, _, _, _, _, fv_cprf) => fv_cprf,
-                _ => ArrayList(bool).new()
-              ),
+              .Some(.FnTraitT(_, _, _, _, _, _, _, fv_cprf)) => fv_cprf,
+              .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )
           ),
@@ -7178,13 +7154,10 @@ Fix: wrap the call:
             (omitted_val : EvalValue) = create_unknown_val(p_ty);
             match(
               fv_defaults.get(pi),
-              .Some(d) => match(
-                d,
-                .Some(dv) => {
-                  omitted_val = dv;
-                },
-                .None => ()
-              ),
+              .Some(.Some(dv)) => {
+                omitted_val = dv;
+              },
+              .Some(.None) => (),
               .None => ()
             );
             arg_info.value = Option(EvalValue).Some(omitted_val);
@@ -8300,13 +8273,10 @@ Fix: wrap the call:
           if(method_info.is_static, {
             match(
               method_info.receiver_value,
-              .Some(m_rv) => match(
-                m_rv,
-                .TypeVal(m_rt) => {
-                  ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
-                },
-                _ => ()
-              ),
+              .Some(.TypeVal(m_rt)) => {
+                ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
+              },
+              .Some(_) => (),
               .None => ()
             );
           }, {

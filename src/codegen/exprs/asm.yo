@@ -217,11 +217,8 @@ _cg_comptime_str :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Opt
     context.base.get_expr_info(e),
     .Some(info) => match(
       info.value,
-      .Some(v) => match(
-        v,
-        .StrLit(s) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
-        _ => Option(String).None
-      ),
+      .Some(.StrLit(s)) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
+      .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -232,11 +229,8 @@ _cg_is_type_value :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Op
     context.base.get_expr_info(e),
     .Some(info) => match(
       info.value,
-      .Some(v) => match(
-        v,
-        .TypeVal(t) => Option(TypeValue).Some(t),
-        _ => Option(TypeValue).None
-      ),
+      .Some(.TypeVal(t)) => Option(TypeValue).Some(t),
+      .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
