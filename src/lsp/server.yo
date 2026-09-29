@@ -21,7 +21,7 @@
 { eprintln } :: import("std/fmt");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
-{ read_lsp_message, write_lsp_message } :: import("./transport.yo");
+{ read_lsp_message, write_lsp_message, prepare_wire } :: import("./transport.yo");
 {
   jb,
   jstr,
@@ -653,6 +653,10 @@ _handle_message :: (
 
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
 run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
+  // Windows text-mode stdout would corrupt every frame header
+  // (issues/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
+  // to binary before anything can be written.
+  prepare_wire();
   // The server re-forces definitions of finished walks on every edit
   // (`mm_revalidate_apply`), but only OPEN documents' walks keep their
   // evaluation context (`mm_set_open_document`); a revalidation that reaches
