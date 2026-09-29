@@ -786,7 +786,7 @@ static _Thread_local bool __yo_iso_uq_failed = false;
 static void __yo_iso_uq_visit(void* child, void* child_traverse) {
   if (__yo_iso_uq_failed || child == NULL) return;
   if (child_traverse == (void*)__yo_traverse_atomic_stop) return;
-  if (child_traverse == NULL || ((__yo_rc_prefix_t*)child)->ref_count != 1) {
+  if (child_traverse == NULL || ((((__yo_rc_prefix_t*)child)->ref_count & __YO_RC_COUNT) != 1) {
     __yo_iso_uq_failed = true;
     return;
   }

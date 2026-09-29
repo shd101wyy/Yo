@@ -1049,6 +1049,37 @@ typedef struct __yo_ref_header_t {
 typedef __yo_ref_header_t __yo_rc_prefix_t;`
     );
   });
+  // Explicit allocators (plans/EXPLICIT_ALLOCATORS.md §3.4): the top bit of
+  // `ref_count` marks a block placed by an explicit `Allocator`; such a block
+  // carries a 16-byte owner prefix (`std/allocator.yo`'s `_AllocPrefix`, the
+  // same layout) and is released through its owner. Every reader that TESTS
+  // the count masks with __YO_RC_COUNT; writers (`++`, `--`, fetch_add/sub)
+  // keep the bit arithmetically. Emitted beside the header typedefs so every
+  // translation unit sees `__yo_rc_free` before any release site.
+  em.emit_declaration_string_line(
+    `
+#define __YO_RC_TAG 0x80000000u
+#define __YO_RC_COUNT 0x7fffffffu
+#define __YO_ALLOC_PREFIX_SIZE 16
+typedef struct { void* ctx; const void* vtable; } __yo_alloc_prefix_t;
+typedef struct {
+  void* (*alloc)(void* ctx, size_t size);
+  void* (*realloc)(void* ctx, void* ptr, size_t new_size);
+  void (*free)(void* ctx, void* ptr);
+} __yo_alloc_vtable_t;
+_Static_assert(sizeof(__yo_alloc_prefix_t) <= __YO_ALLOC_PREFIX_SIZE, "the owner prefix fits its 16 bytes");
+// Release an RC block to whoever allocated it: the global allocator, or the
+// explicit allocator recorded in its owner prefix.
+static inline void __yo_rc_free(void* ptr) {
+  if (((__yo_rc_prefix_t*)ptr)->ref_count & __YO_RC_TAG) {
+    char* raw = (char*)ptr - __YO_ALLOC_PREFIX_SIZE;
+    const __yo_alloc_prefix_t* pre = (const __yo_alloc_prefix_t*)raw;
+    ((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);
+  } else {
+    __yo_free(ptr);
+  }
+}`
+  );
   // Generic Future + I/O Future struct types.
   em.emit_declaration_string_line(
     `
