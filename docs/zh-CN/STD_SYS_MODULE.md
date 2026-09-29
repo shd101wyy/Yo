@@ -395,6 +395,7 @@ case STATE_AWAIT_READ:
 - **符号链接需要提升权限**：`CreateSymbolicLinkW` 需要管理员权限或开发者模式。`lutime` 符号链接测试在未提升权限时预期会失败。
 - **NTFS 纳秒精度为 100 ns**：FILETIME 以 100 纳秒为间隔存储时间。不能被 100 整除的纳秒值会被截断（例如 123456789 ns → 123456700 ns）。
 - **UDP sendto/recvfrom 是同步的**：与 TCP send/recv (IOCP) 不同，UDP 使用阻塞的 Winsock 调用（数据报在实践中会立即完成）。
+- **运行时 fd 只能通过运行时关闭**：在 Windows 上，socket fd 是以 `i32` 承载的 WinSock `SOCKET` 句柄。对它调用 `std/libc/unistd` 的 CRT `close()` 会触发 UCRT 的无效参数处理器并中止进程——退出码 22，没有任何消息。`std/sys/tcp`、`std/sys/udp`、`std/sys/unix` 和 `std/sys/file` 导出的 `close`（以及 `file.close_sync`）按运行时的 fd 注册表分派——socket 走 `closesocket`，CRT fd 走 `_close`——并清理逐 fd 的 Windows 记账（句柄关联缓存、append/dir 标记）；直接用 CRT close 关闭会留下过期条目。
 
 ---
 

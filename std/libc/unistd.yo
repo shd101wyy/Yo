@@ -2,10 +2,16 @@
 //!
 //! ## Stability
 //!
-//! unstable — a raw C binding, not a Yo design, and POSIX-only: including
-//! `<unistd.h>` on Windows does not compile, so every import must sit
-//! inside a non-Windows comptime arm (`tests/io/tty.test.yo` did not, and
-//! that was the bug — docs/en-US/STD_SYS_MODULE.md). The public surfaces
+//! unstable — a raw C binding, not a Yo design, and POSIX-only in intent.
+//! It loads on Windows (the generated C swaps `<unistd.h>` for `<io.h>`
+//! there), but the CRT fd functions it binds take CRT fds only, and the
+//! old "guard every import in a non-Windows comptime arm" advice describes
+//! an older compiler, not the current one. The hazard is at runtime: on
+//! Windows an async-runtime socket fd is a WinSock SOCKET handle carried
+//! in an i32, and `close` on one trips the UCRT invalid-parameter handler
+//! — the process aborts, exit code 22, no message
+//! (tests/async/sm_protocol.test.yo). Close a fd obtained from `std/sys`
+//! through that module's `close`, never through here. The public surfaces
 //! above it are `std/fs`, `std/env` and `std/process`; what they take is
 //! narrow — `getcwd` / `chdir` / `readlink` for `std/env`, `unlink` /
 //! `rmdir` for `std/fs/temp`. `read` / `write` / `close` are bound, but Yo

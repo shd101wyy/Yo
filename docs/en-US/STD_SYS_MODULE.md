@@ -395,6 +395,7 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 - **Symlinks require elevated privileges**: `CreateSymbolicLinkW` requires admin privileges or Developer Mode. The `lutime` symlink test is expected to fail without elevation.
 - **NTFS nanosecond precision is 100 ns**: FILETIME stores time in 100-nanosecond intervals. Nanosecond values not divisible by 100 are truncated (e.g., 123456789 ns → 123456700 ns).
 - **UDP sendto/recvfrom are synchronous**: Unlike TCP send/recv (IOCP), UDP uses blocking Winsock calls (datagrams complete instantly in practice).
+- **Runtime fds close only through the runtime**: On Windows a socket fd is a WinSock `SOCKET` handle carried in an `i32`. The CRT `close()` from `std/libc/unistd` on one trips the UCRT invalid-parameter handler and aborts the process — exit code 22, no message. The `close` exported by `std/sys/tcp`, `std/sys/udp`, `std/sys/unix` and `std/sys/file` (and `file.close_sync`) dispatches on the runtime's fd registry — `closesocket` for sockets, `_close` for CRT fds — and clears the per-fd Windows bookkeeping (handle-association cache, append/dir marks) a raw CRT close would leave stale.
 
 ---
 

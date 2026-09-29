@@ -40,7 +40,11 @@ pragma(Pragma.AllowUnsafe);
 openat :: (fn(dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture)(
   __yo_async_openat_start(dirfd, path, flags, mode)
 );
-// Close a file descriptor.
+// Close a file descriptor. On Windows use this close, not the CRT `close`
+// from std/libc/unistd: the runtime keeps per-fd Windows bookkeeping
+// (socket-fd registry, handle-association cache, append/dir marks) that
+// only its close funnels clear, and a socket fd under a CRT close aborts
+// the process outright.
 // Returns 0 on success, -errno on failure.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
@@ -83,7 +87,8 @@ ftruncate :: (fn(fd : i32, length : i64) -> IoFuture)(
 open_sync :: (fn(path : *u8, flags : i32, mode : i32) -> i32)(
   __yo_file_open(path, flags, mode)
 );
-// Close a file descriptor synchronously.
+// Close a file descriptor synchronously. Same Windows rule as `close`
+// above: the CRT `close` from std/libc/unistd must not see a runtime fd.
 close_sync :: (fn(fd : i32) -> unit)(
   __yo_file_close(fd)
 );

@@ -158,6 +158,13 @@ shutdown :: (fn(sockfd : i32, how : i32) -> IoFuture)(
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
 /// error code. Do not retry on `-EINTR`: the descriptor is gone either way,
 /// and retrying can close an unrelated fd that has since taken the number.
+///
+/// On Windows this is the ONLY correct close for a runtime fd: a socket fd
+/// from this module is a WinSock SOCKET handle carried in an i32, and the
+/// CRT `close` (`std/libc/unistd`) on one aborts the process — UCRT
+/// invalid-parameter handler, exit code 22, no message. This close
+/// dispatches on the runtime's fd registry: `closesocket` for sockets,
+/// `_close` for CRT fds.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );

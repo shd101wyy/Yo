@@ -115,7 +115,9 @@ recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
-/// errno. It does NOT unlink the socket file a `bind` created.
+/// errno. It does NOT unlink the socket file a `bind` created. On Windows
+/// a socket fd closes only through this (the CRT `close` aborts) — see
+/// `std/sys/tcp`'s `close`.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );

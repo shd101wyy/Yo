@@ -98,7 +98,9 @@ recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
 /// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
-/// error code. Do not retry on `-EINTR`; see `std/sys/tcp`'s `close`.
+/// error code. Do not retry on `-EINTR`; see `std/sys/tcp`'s `close`,
+/// including its Windows rule — only the runtime's close can close a
+/// runtime fd there (the CRT `close` aborts on a socket fd).
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
