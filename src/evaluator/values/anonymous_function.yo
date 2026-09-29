@@ -111,7 +111,7 @@ pragma(Pragma.AllowUnsafe);
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, track_variable_usage } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -1951,6 +1951,38 @@ Result type: ${type_to_string(decl_result_ty)}`
     // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
+    // A closure's captures are reads of the body it is written in, too: when
+    // that body is another closure's (or an io.async block's), a name read
+    // only in here must reach the ENCLOSING capture struct, which is what
+    // this closure's capture struct is built from. Re-tracked against the
+    // defining context, whose own filters drop the enclosing body's locals
+    // and parameters. Without it, `x => { (f : Impl(Fn(v : i32) -> i32)) =
+    // (v => (v + n)); f(x) }` built `{ .n = n }` from an `n` the enclosing
+    // closure never captured
+    // (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md).
+    if(is_creating_closure, {
+      match(
+        body_eval_ctx.captured_variables,
+        .Some(inner_caps) => {
+          inner_names := inner_caps.keys();
+          (more : bool) = true;
+          while(more, {
+            match(
+              inner_names.next(),
+              .Some(cap_name) => match(
+                inner_caps.get(cap_name.clone()),
+                .Some(cap_info) => track_variable_usage(cap_name, cap_info.frame_level, cap_info.usage, cap_info.token, ctx),
+                .None => ()
+              ),
+              .None => {
+                more = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+    });
   });
   // Deferred generic body: trial-evaluate a CLONE to catch a concrete
   // return against the declared generic return type (`(value -> i32(0))`
