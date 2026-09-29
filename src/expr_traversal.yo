@@ -671,6 +671,11 @@ async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
     if(match(stmts.get(i), .Some(st) => expr_contains_await(st), .None => false), {
       return(Option(String).Some(String.from("the prologue before io.async awaits")));
     });
+    // A prologue `return` leaves the wrapper before its future exists; fused,
+    // it would leave the caller.
+    if(match(stmts.get(i), .Some(st) => expr_tree_contains_return(st), .None => false), {
+      return(Option(String).Some(String.from("the prologue returns or unwinds")));
+    });
     i = (i + usize(1));
   });
   closure := match(last, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(c) => c, .None => return(Option(String).Some(String.from("io.async has no argument")))), _ => return(Option(String).None));

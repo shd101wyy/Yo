@@ -43,7 +43,10 @@ DeferredAsyncBlock :: ref(
     result_type_c_name : String,
     capture_type : Option(TypeValue),
     analysis : AwaitAnalysisResult,
-    closure_param_slots : Option(ArrayList(ClosureParamSlot))
+    closure_param_slots : Option(ArrayList(ClosureParamSlot)),
+    /// The `io.async(...)` call this block lowers (0 for a plain async
+    /// block): an await-site fusion finds a wrapper's block by it.
+    source_call_id : usize
   )
 );
 InAsyncStateMachine :: ref(struct(future_type : TypeValue));
@@ -189,6 +192,11 @@ FunctionGenerationContext :: ref(
     /// is emitted into its caller, that site's capture slot
     /// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F2).
     sm_capture_slot : String,
+    /// Prefixes the await-result field names while a fused wrapper's block is
+    /// emitted into its caller (its awaits get the site's own fields), and
+    /// keys that block's awaits in `InlineSmLowering.emitted` per site.
+    /// Empty outside a fused block.
+    fusion_field_prefix : String,
     /// Variables captured in the async state machine (variable id → captured
     /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
     state_machine_variables : Option(HashMap(String, CapturedVariable)),
@@ -272,6 +280,7 @@ impl(
       in_async_state_machine : Option(InAsyncStateMachine).None,
       sm_inline_lowering : Option(InlineSmLowering).None,
       sm_capture_slot : String.from("__capture"),
+      fusion_field_prefix : String.from(""),
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       state_machine_binding_ids : Option(HashSet(String)).None,

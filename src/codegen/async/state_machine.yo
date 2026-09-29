@@ -32,6 +32,7 @@
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
+{ _call_emit_fused_await } :: import("./_fsm.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 CLEANUP_SEGMENT :: usize.MAX;
@@ -977,12 +978,13 @@ _inline_result_is_unit :: (fn(t : TypeValue) -> bool)(
 /// The struct declares exactly these fields and the emitter stores into them,
 /// so both walk this one list.
 inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(InlineAwaitResultField))({
+  prefix := context.fusion_field_prefix.clone();
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
-  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize)) -> unit)({
+  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize), prefix : String) -> unit)({
     if(!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t)), {
       seen.insert(ast_expr_id(e));
-      out.push(InlineAwaitResultField(name : `__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
+      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
   });
   (i : usize) = usize(0);
@@ -994,10 +996,10 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
-            match(branch_exprs.get(j), .Some(be) => add(be, _inline_await_result_type(be, Option(AwaitAnalysisResult).None, context), out, seen), .None => ());
+            match(branch_exprs.get(j), .Some(be) => add(be, _inline_await_result_type(be, Option(AwaitAnalysisResult).None, context), out, seen, prefix.clone()), .None => ());
           });
         },
-        .None => add(ap.base.expr, ap.result_type, out, seen)
+        .None => add(ap.base.expr, ap.result_type, out, seen, prefix.clone())
       ),
       .None => ()
     );
@@ -1007,7 +1009,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
 /// The result field of the await expression `expr`: by node id, else by
 /// source position (an arm body can be generated from an evaluated copy whose
 /// await node is not the one the analysis walked; its position is the same).
-_inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
+inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
   eid := ast_expr_id(expr);
   tok := ast_expr_token(expr);
   (by_pos : Option(InlineAwaitResultField)) = Option(InlineAwaitResultField).None;
@@ -1066,6 +1068,8 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     return(String.from(""));
   });
   low.emitted.insert(eid);
+  // An await of a fusable wrapper call runs the wrapper here instead.
+  match(_call_emit_fused_await(expr, indent.clone(), context), .Some(fused_code) => return(fused_code), .None => ());
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   future_arg := match(
     args.get(usize(0)),
@@ -1142,7 +1146,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // read (`f(await a, await b)`), and a C local does not survive the jump.
   (out : String) = String.from("");
   match(
-    _inline_await_result_field_of(expr, inline_await_result_fields(low.analysis, context)),
+    inline_await_result_field_of(expr, inline_await_result_fields(low.analysis, context)),
     .Some(rf) => {
       field := `sm->${rf.name}`;
       _emit_await_result_store(field.clone(), `${acc}->result`, rf.ty, false, indent.clone(), context);
@@ -1356,6 +1360,7 @@ generate_async_block_cancel_pending_function_inline :: (
 export(
   is_io_future_type,
   inline_await_result_fields,
+  inline_await_result_field_of,
   get_state_machine_field_name,
   CrossBoundaryResult,
   compute_cross_boundary_variables,
