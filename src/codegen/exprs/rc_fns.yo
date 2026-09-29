@@ -96,7 +96,12 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
     .Some(value_arg) => {
       value_code := _call_generate_expr(value_arg, indent.clone(), context);
       value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
+      em := context.base.emitter;
+      code_len_before := em.code.as_bytes().len();
       drop_code := generate_drop_code_for_value(value_code.clone(), value_type, context);
+      // An enum/Option-typed drop is a multi-line `switch` the generator writes
+      // to the emitter itself, handing back "".
+      drop_written := (em.code.as_bytes().len() > code_len_before);
       // A local that lives in an async state machine (`sm->var_N`) is dropped
       // inline when its scope ends, but the state machine's dispose function
       // ALSO sweeps every cross-boundary local when the body escaped
@@ -107,18 +112,22 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
       // (heap-use-after-free; issues/fixed/async-scope-end-drop-then-escape-double-drop.md).
       // Clear the field right after the inline drop so the sweep's guards
       // (`!= NULL`, `.data != NULL`, enum tag) see an empty slot. `memset`
-      // covers every field shape (pointer, Option/Result, dyn) uniformly.
-      // Keyed on the FIELD REFERENCE itself: `sm->var_…` names a state-machine
-      // local and nothing else, while `context.in_async_state_machine` is set
-      // only around some of the generators that emit a state machine's code.
-      // A scope-end drop emitted from a branch's remaining code ran without it,
-      // and once the escape sweep also dropped value enums, Options and Strings
-      // (#989), an escape after that branch re-dropped them: a `fetch` task
-      // unwound on a malformed response freed its connection twice
-      // (issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md).
+      // covers every field shape (pointer, Option/Result, dyn) uniformly —
+      // including the drop written straight to the emitter: keying the clear
+      // on a non-empty returned string skipped exactly the value enums,
+      // Options and Strings, and once #989's escape sweep dropped those too, a
+      // `fetch` task unwound on a malformed response freed its connection
+      // twice (issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md).
+      // `sm->var_…` names a state-machine local and nothing else.
       in_sm_field := value_code.starts_with("sm->var_");
+      clear_stmt := `memset(&(${value_code}), 0, sizeof(${value_code}))`;
       cond(
-        ((drop_code.len() > usize(0)) && in_sm_field) => `${drop_code}; memset(&(${value_code}), 0, sizeof(${value_code}))`,
+        !in_sm_field => drop_code,
+        (drop_code.len() > usize(0)) => `${drop_code}; ${clear_stmt}`,
+        drop_written => {
+          em.emit_string_line(`${indent.clone()}${clear_stmt};`);
+          drop_code
+        },
         true => drop_code
       )
     },

@@ -50,16 +50,23 @@ A state machine's dispose sweeps every cross-boundary local when the body escape
 enums, Options and Strings, which it had leaked before
 (`issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md`). An earlier
 fix for the same class (`issues/fixed/async-scope-end-drop-then-escape-double-drop.md`) makes the
-inline scope-end drop clear the field right after it, but only when
-`context.in_async_state_machine` is set. That flag is set around some of the generators that emit
-a state machine's code, not all of them. The drop at the end of a `cond` branch's remaining code
-(`fresh`, and the save-old-value temp of `opt`) ran without it, so the field kept its value and
-the escape sweep released it again.
+inline scope-end drop clear the field right after it. `generate_drop` added that clear only when the
+drop generator RETURNED a non-empty statement. An enum- or Option-typed drop (a value enum, an
+Option, a String) is a multi-line `switch` that the generator writes to the emitter itself,
+returning `""`. So exactly the types #989 added to the sweep kept their values after the
+branch-end drop (`fresh`, and the save-old-value temp of `opt`), and the escape sweep released
+them again.
+
+(A first reading blamed `context.in_async_state_machine` not being set on the branch's
+remaining-code path. The rebuilt compiler still emitted no clear, so that was not the cause.
+The clear now keys on the field reference, `sm->var_…`, which names nothing else, instead of the
+flag.)
 
 ## Fix
 
-`generate_drop` (`src/codegen/exprs/rc_fns.yo`) clears the field whenever the drop target is a
-state-machine field (`sm->var_…`, which names nothing else), whichever generator emits it.
+`generate_drop` (`src/codegen/exprs/rc_fns.yo`) clears a state-machine field after its inline
+drop whether the drop came back as a statement or was written to the emitter (it compares the
+emitter's code length before and after).
 
 ## Test
 
