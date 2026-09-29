@@ -188,6 +188,17 @@ yet; F2's first commit checks each one.
 - **Drops.** The wrapper body's and the block's `deferred_drop_expressions`
   are emitted at the site's end, in the order the wrapper's own state
   machine emits them.
+- **The block comes from the closure's `FuncVal`, not the literal's AST.**
+  The closure literal in the wrapper's source is not the node codegen emits:
+  `io_async_await_analysis` (`src/codegen/exprs/async.yo`) reaches the
+  closure through the `io.async` call's `runtime_arg_exprs_in_order[0]`
+  and that argument's closure function value, whose body is the evaluated
+  one carrying the `ExprInfo`. The closure's own await analysis (its one
+  await point, result field and block locals) is already registered under
+  its `func_id` (`get_closure_await_analysis`). F2 merges that analysis into
+  the caller's, instead of re-walking the literal. The closure's captures
+  (`fd`, `buf`, `size`: `sm->__capture.x` in its own state machine) become
+  caller slots, initialized from the prologue that ran in the caller.
 - **`low.emitted` is keyed by (await node id, fused site).** The key stays
   a single node id for unfused awaits.
 - **v1 rejects a `return` in the block** (it would complete the caller).
