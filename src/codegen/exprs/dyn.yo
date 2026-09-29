@@ -24,7 +24,7 @@
 { DynImplEntry } :: import("../utils/index.yo");
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ generate_deferred_dup_expressions, _store_temp_var_to_state_machine_if_needed } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
@@ -184,7 +184,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   temp_var_name := match(ei.variable_name, .Some(tv) => tv, .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
   vtable_name := String.from("__yo_vtable_");
   vtable_name.push_string(impl_key);
-  // Track the temp var (SM-field routing is Phase 5, gated dead here).
+  // Track the temp var.
   already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
   if(
     !already,
