@@ -6533,14 +6533,15 @@ test("fn-typed locals across suspensions", {
 // ---------------------------------------------------------------------------
 _errno_after_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    match(
+    (r : i32) = match(
       Option(i32).Some(i32(1)),
       .Some(k) => {
         e.await(yield(e), e);
-        (i32(EEXIST) + k)
+        i32(EEXIST) + k
       },
       .None => i32(0)
-    )
+    );
+    r
   })
 );
 test("an imported constant read after an await in a match arm", {
