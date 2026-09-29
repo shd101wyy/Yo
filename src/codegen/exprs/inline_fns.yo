@@ -198,7 +198,9 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
     );
     return(`((${ct})__yo_${fnbase}_chk_u((unsigned long long)(${a}), (unsigned long long)(${b}), ${hi}${loc}))`);
   });
-  if(is_u64_type(ty), {
+  // A 64-bit `usize` is a u64: it traps too
+  // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md).
+  if(is_u64_type(ty) || is_usize_type(ty), {
     return(`(__yo_${fnbase}_chk_u64((${a}), (${b})${loc}))`);
   });
   // Non-integer (float): plain op.
