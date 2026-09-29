@@ -1036,7 +1036,7 @@ _report_await_fusion :: (fn(await_expr : AstExpr, future_arg : AstExpr) -> unit)
   tok := ast_expr_token(await_expr);
   (verdict : String) = match(
     await_fusion_candidate(future_arg),
-    .Some(c) => if(c.verdict.len() == usize(0), `fusable ${c.func_id}`, `rejected ${c.func_id}: ${c.verdict}`),
+    .Some(c) => if(c.verdict.len() == usize(0), `fusable (callee ${c.callee_at})`, `rejected (callee ${c.callee_at}): ${c.verdict}`),
     .None => if(ast_expr_is_atom(future_arg), String.from("not a call"), String.from("no io.async wrapper callee"))
   );
   eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} ${verdict}`);

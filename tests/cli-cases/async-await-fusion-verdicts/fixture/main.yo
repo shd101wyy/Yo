@@ -1,0 +1,42 @@
+{ println } :: import("std/fmt");
+// No await in the block.
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+// Fusable: a straight-line prologue, then one block whose single await is a
+// top-level binding.
+one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32)))({
+  m := (n + i32(1));
+  io.async((e : Io) => {
+    r := e.await(leaf(e, m), e);
+    (r + i32(1))
+  })
+});
+// Two awaiting statements.
+two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    a := e.await(leaf(e, n), e);
+    b := e.await(leaf(e, a), e);
+    (a + b)
+  })
+);
+// The await is an operand, not a statement.
+await_operand :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => (e.await(leaf(e, n), e) + i32(1)))
+);
+// No io.async at all: a delegation.
+delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(one_await(io, n));
+driver :: (fn(io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    a := e.await(one_await(e, i32(1)), e);
+    b := e.await(two_awaits(e, i32(2)), e);
+    c := e.await(await_operand(e, i32(3)), e);
+    d := e.await(delegate(e, i32(4)), e);
+    f := leaf(e, i32(5));
+    g := e.await(f, e);
+    ((((a + b) + c) + d) + g)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  v := io.await(driver(io), io);
+  println(`result: ${v}`);
+});
+export(main);

@@ -558,23 +558,41 @@ _fusion_statements :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
   one.push(e);
   one
 });
+/// Is `aw` an await whose own arguments do not await?
+_fusion_is_flat_await :: (fn(aw : AstExpr) -> bool)(
+  if(
+    is_io_await_call(aw),
+    match(
+      aw,
+      .FnCall(_, _, args, _, _) => {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          if(match(args.get(i), .Some(a) => expr_contains_await(a), .None => false), {
+            return(false);
+          });
+          i = (i + usize(1));
+        });
+        true
+      },
+      _ => false
+    ),
+    false
+  )
+);
 /// Is `stmt` an await in statement position: the await itself, or a binding
-/// whose whole right-hand side is the await (`r := await(...)`,
-/// `(r : T) = await(...)`)?
-_fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)({
-  if(is_io_await_call(stmt), {
-    return(true);
-  });
+/// whose whole right-hand side is the await (`r := e.io.await(...)`,
+/// `(r : T) = e.io.await(...)`), with no other await inside it?
+_fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)(
   match(
     stmt,
     .FnCall(_, f, args, _, _) => if(
       (ast_expr_is_atom_of(f, ":=") || ast_expr_is_atom_of(f, "=")) && (args.len() == usize(2)),
-      match(args.get(usize(1)), .Some(rhs) => is_io_await_call(rhs), .None => false),
-      false
+      match(args.get(usize(1)), .Some(rhs) => _fusion_is_flat_await(rhs), .None => false),
+      _fusion_is_flat_await(stmt)
     ),
     _ => false
   )
-});
+);
 /// Does `e` contain an arrow function literal (`=>`, `->`) whose body names `name`?
 _fusion_closure_mentions :: (fn(e : AstExpr, name : String, inside_closure : bool) -> bool)(
   match(
@@ -663,26 +681,31 @@ async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
   });
   Option(String).Some(String.from(""))
 });
-/// A recorded fusion candidate: the callee's func_id and its verdict
-/// (empty: fusable).
-FusionCandidate :: struct(func_id : String, verdict : String);
-// Call expression id -> callee func_id, and func_id -> verdict (computed
-// once per function).
+/// A recorded fusion candidate: the callee's func_id, where its body is (for
+/// reports: a func_id hashes the module path), and its verdict (empty:
+/// fusable).
+FusionCandidate :: struct(func_id : String, callee_at : String, verdict : String);
+// Call expression id -> callee func_id, and func_id -> candidate (`.None`:
+// the callee is no `io.async` wrapper), computed once per function.
 (g_fusion_callee_of_call : HashMap(String, String)) = HashMap(String, String).new();
-(g_fusion_verdict_of_fn : HashMap(String, String)) = HashMap(String, String).new();
+(g_fusion_candidate_of_fn : HashMap(String, Option(FusionCandidate))) = HashMap(String, Option(FusionCandidate)).new();
 /// Record that `call` invokes the function `func_id` with body `body`, when
 /// that body is an `io.async` wrapper. Called by the evaluator at the call.
 record_await_fusion_candidate :: (fn(call : AstExpr, func_id : String, body : AstExpr) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
   });
-  if(!g_fusion_verdict_of_fn.contains_key(func_id.clone()), {
-    match(
-      async_wrapper_fusion_verdict(body),
-      .Some(v) => {
-        g_fusion_verdict_of_fn.insert(func_id.clone(), v);
-      },
-      .None => return(())
+  if(!g_fusion_candidate_of_fn.contains_key(func_id.clone()), {
+    tok := ast_expr_token(body);
+    g_fusion_candidate_of_fn.insert(
+      func_id.clone(),
+      match(
+        async_wrapper_fusion_verdict(body),
+        .Some(v) => Option(FusionCandidate).Some(
+          FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v)
+        ),
+        .None => Option(FusionCandidate).None
+      )
     );
   });
   g_fusion_callee_of_call.insert(ast_expr_id(call).to_string(), func_id);
@@ -691,11 +714,7 @@ record_await_fusion_candidate :: (fn(call : AstExpr, func_id : String, body : As
 await_fusion_candidate :: (fn(call : AstExpr) -> Option(FusionCandidate))(
   match(
     g_fusion_callee_of_call.get(ast_expr_id(call).to_string()),
-    .Some(fid) => match(
-      g_fusion_verdict_of_fn.get(fid.clone()),
-      .Some(v) => Option(FusionCandidate).Some(FusionCandidate(func_id : fid, verdict : v)),
-      .None => Option(FusionCandidate).None
-    ),
+    .Some(fid) => match(g_fusion_candidate_of_fn.get(fid), .Some(c) => c, .None => Option(FusionCandidate).None),
     .None => Option(FusionCandidate).None
   )
 );
