@@ -306,15 +306,16 @@ io_uring 是 Linux 的现代异步 I/O 接口（内核 5.1 引入；本运行时
 
 macOS 使用 `kqueue` 进行异步 I/O——一种单线程、拉取式的事件通知机制。
 
-对于**文件 I/O**，macOS 对常规文件使用同步 `pread`/`pwrite`（得益于统一缓冲区缓存，在 macOS 上速度很快）。对于 pipe、socket 和 TTY，使用 `EVFILT_READ`/`EVFILT_WRITE` 就绪通知的非阻塞 I/O。
+对于**文件 I/O**，macOS 对常规文件使用同步 `pread`/`pwrite`（得益于统一缓冲区缓存，在 macOS 上速度很快）。`pread` 返回 `ESPIPE`（pipe、socket、FIFO）或 `ENXIO`（TTY）时，操作改用带 `EVFILT_READ`/`EVFILT_WRITE` 就绪通知的非阻塞 I/O；以 `O_APPEND` 打开的描述符写在文件末尾（macOS 的 `pwrite` 会遵循给定的偏移）。
 
-对于 **socket I/O**，所有 socket 都设置为 `O_NONBLOCK`：
+对于 **socket I/O**，运行时创建的每个 socket 都设置为 `O_NONBLOCK`：
 
-- 每次 `accept`/`recv`/`recvfrom` 首先尝试非阻塞调用；如果返回 `EAGAIN`/`EWOULDBLOCK`，则注册带有 `EV_ONESHOT` 的 `EVFILT_READ` kevent
-- `connect`/`send`/`sendto` 使用带有 `EV_ONESHOT` 的 `EVFILT_WRITE`；连接完成后检查 `SO_ERROR`
+- 每次 `accept`/`recv`/`recvfrom`/`send`/`sendto` 首先尝试非阻塞调用（`MSG_DONTWAIT`），除非同一描述符上仍有更早的同方向操作在挂起；返回 `EAGAIN`/`EWOULDBLOCK` 时挂起在该描述符的注册上
+- 每个描述符每个方向一个 `EV_DISPATCH` knote，每次挂起时重新启用（`EV_ADD|EV_ENABLE`，随事件循环的下一次 `kevent()` 一并提交）；挂起的操作按方向排成 FIFO，通过按 fd 索引的槽位表以 `(ident, filter)` 查找；`connect` 完成后检查 `SO_ERROR`
+- 中止任务会取消其挂起的操作（`-ECANCELED`）；关闭描述符或对其执行 `dup2` 会让其上挂起的操作以 `-EBADF` 失败
 - 所有完成事件通过 `kevent()` 在事件循环线程上收集——无需跨线程同步
 
-**定时器**：`EVFILT_TIMER` 配合 `EV_ONESHOT` 和 `NOTE_USECONDS` 提供一次性定时器触发。
+**定时器**：每线程定时器堆；事件循环阻塞的 `kevent()` 以最早的截止时间为界，因此设置与取消一次 sleep 都不需要系统调用。
 
 ### Windows：IOCP
 
@@ -385,7 +386,7 @@ case STATE_AWAIT_READ:
 | --------------- | ----------- |
 | io_uring 提交   | ~50–100 ns  |
 | io_uring 完成   | ~100–200 ns |
-| kqueue kevent() | ~200–500 ns |
+| kqueue kevent() | 有就绪事件时约 200 ns；零超时且什么也没找到时约 12 µs（macOS 26），运行时以约 0.2 µs 的 `select()` 探测避免这种调用 |
 | IOCP 完成       | ~100–300 ns |
 
 ---
