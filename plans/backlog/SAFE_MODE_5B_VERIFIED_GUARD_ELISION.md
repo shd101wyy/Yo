@@ -514,6 +514,31 @@ unchanged; the microbenchmark numbers recorded in the PR.
 
 **Phase 2: elision-only obligations** (`div-no-overflow`, `no-overflow`,
 `neg-no-overflow`) and the correctness / elision-only split in reports.
+*Status 2026-09-29: implemented on `verify/5b-phase2`, stacked on Phase 1.
+Measured, with the pinned Z3, over the pre-#989 base:*
+- *The 25% rule fired. With the elision-only obligations on, the
+  straight-line battery goes from 13 to 21 queries (+62%) and the 42 valid
+  fixtures from 100 to 227 (+127%). `std/spec` and `std/collections` issue
+  0 queries either way: all their functions are `assumed` or outside the
+  subset. So they are generated only when a run asks: `yo compile`
+  whenever it records guard sites, and `yo verify` under a new
+  `--elision` flag, which the oracle uses. They are not generated under
+  `--explain` or strict mode, as this section first proposed: the oracle
+  needs them in a machine-readable report, and strict mode must not
+  change what it proves. Without the flag the report is byte-identical to
+  Phase 1's over `tests/spec` and `std/collections`.*
+- *Oracle: 57/57. It now parses helper calls with balanced parentheses,
+  so nested guards (`(a * b) + c`) are each found, and a signed division
+  needs both proofs. The fixtures elide: signed `/` 1, nested `*`+`+` 2,
+  negation 1. An unbounded `u8` `+` keeps its guard (its elision-only
+  refutation leaves the compile and the outcome alone).*
+- *Two older bugs surfaced. The literal folder aborted `yo verify` on a
+  zero subtrahend or negand; fixed here
+  (`issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md`).
+  A 64-bit `usize` `+ - *` has no overflow guard at all; filed, not fixed
+  (`issues/usize-arithmetic-is-unguarded-on-64-bit-targets.md`). Elision
+  now fires only in the branches that emit a guard, so an unguarded
+  operation is never counted.*
 
 Gate: the C-diff oracle extended to the arithmetic helpers; `yo verify` exit
 status unchanged over `./tests/spec` and `std/collections/*.yo`, so no
