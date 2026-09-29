@@ -17,7 +17,7 @@ Half of the `spawn` profile is glibc `malloc`/`free`, on its slow path (`_int_ma
 
 ## Cause
 
-Phase 2 made `JoinHandle(T)` a `ref(struct(__future : *(T)))` so that it owns a reference to the future. That fixed the statement-level spawn leak (`issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md`). But the handle is now a second heap object per spawn, a 16-byte box around the future pointer, with its own RC header and its own `Dispose`.
+Phase 2 made `JoinHandle(T)` a `ref(struct(__future : *(T)))` so that it owns a reference to the future. That fixed the statement-level spawn leak (`issues/statement-level-io-spawn-leaks-the-state-machine.md`). But the handle is now a second heap object per spawn, a 16-byte box around the future pointer, with its own RC header and its own `Dispose`.
 
 ## Fix direction
 

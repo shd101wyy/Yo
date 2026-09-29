@@ -83,6 +83,22 @@ headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
 link step proves the import libraries you added to `src/main.yo` really export
 every symbol you call.
 
+## A codegen fix does not license the source form until the seed has it
+
+`yo build` compiles the compiler with the SEED (`SEED_VERSION` in
+`.github/workflows/test.yml`), so `std/` and `src/` are compiled by the seed's
+codegen, not the tree's. When you fix a miscompile, keep every workaround
+spelling in `std/`/`src/` until `SEED_VERSION` carries the fix. Tests do not
+catch a premature rewrite: test binaries are compiled by the tree's codegen,
+and CI's macOS/Windows suites run cross-emitted C from the same codegen.
+#989 folded `read_dir`'s awaiting `cond` arm back into the value form the same
+PR had fixed. Every locally built compiler then saw every directory entry as a
+file, and `yo test ./tests` ran 173 of 292 files with rc 0
+(`issues/fixed/seed-built-compiler-read-dir-reports-every-entry-as-the-zero-file-type.md`).
+The gate that shows this class is a seed-built stage 1 scoring the cli-cases
+(`scripts/bootstrap/gates_fast.sh`). A suite run also shows it if you compare
+its file count against `find tests -name '*.test.yo'`.
+
 ## Async/await threading model
 
 Each OS thread has its own **single-threaded event loop**. Within a single thread, async I/O submissions and completions are processed cooperatively — no concurrent access from multiple threads within one event loop. Worker threads from the parallelism runtime (`src/codegen/parallelism/`) share a thread pool; multiple workers may sit on the same OS thread and share that thread's event loop.
