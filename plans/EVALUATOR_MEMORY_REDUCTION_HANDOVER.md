@@ -21,8 +21,11 @@ sections, and several of its claims did not survive review (see §1.1).
     (`valgrind --tool=callgrind`, about 50× slower; `check src/types/intern.yo`
     takes 5 s natively).
   - A correctness fix (a leak) whose instruction count is flat is not a trade.
-- **Admin-merge once local gates pass** (user directive), and never while a
-  release is being cut. The local battery:
+- **Merge only on a green CI battery; never `--admin`** (user decision
+  2026-09-29, superseding the earlier "admin-merge once local gates pass";
+  AGENTS.md "Git: worktrees, branches, merges" has the policy and the
+  stacking recipe). Never merge while a release is being cut. The local
+  battery below is still required before opening a PR:
   - `yo check ./src --std-path ./std` (score by rc);
   - `S1=<stage1> P=<tag> bash scripts/bootstrap/gates_fast.sh`;
   - `S1=<stage1> P=<tag> bash scripts/bootstrap/fixpoint_only.sh` (must print
