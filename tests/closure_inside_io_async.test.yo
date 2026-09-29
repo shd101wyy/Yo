@@ -7,6 +7,7 @@
 //! captured (`{ .n = n }`, an undeclared identifier).
 { assert } :: import("std/assert");
 { String } :: import("std/string");
+{ Channel } :: import("std/sync/channel");
 
 leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
 // Sync future (no await): the closure captures the enclosing fn's parameter.
@@ -53,13 +54,35 @@ sm_captures_string :: (fn(io : Io, name : String) -> Impl(Future(usize)))(
 // the enclosing closure captured.
 apply :: (fn(x : i32, cb : Impl(Fn(v : i32) -> i32)) -> i32)(cb(x));
 nested_in_closure :: (fn(n : i32) -> i32)(
-  apply(
-    n,
-    x => {
-      (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
-      f(x)
-    }
-  )
+  apply(n, x => {
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
+    f(x)
+  })
+);
+
+// An `Impl(Fn)` PARAMETER of the enclosing generic fn, captured by a closure
+// built inside a sync io.async block
+// (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md):
+// the block reads `cb` only through the inner closure, so it never captured it
+// and the inner capture struct was built from a bare `cb`.
+run_it :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
+relay :: (
+  fn(
+    generic(T : Type),
+    cb : Impl(Fn() -> T, Send),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> Impl(Future(T, Io))
+)(
+  io.async((io : Io) => {
+    chan := Channel(T).new(usize(1));
+    sink := chan;
+    run_it(() => {
+      sink.send(cb());
+      ()
+    });
+    match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
+  })
 );
 
 test("a closure local in a sync io.async body captures the fn parameter", {
@@ -86,4 +109,8 @@ test("a closure local in an awaiting io.async body captures a String", {
 
 test("a closure built inside a closure captures the outer capture", {
   assert(nested_in_closure(i32(5)) == i32(10), "5 + 5");
+});
+
+test("an Impl(Fn) parameter captured by a closure inside an io.async block", {
+  assert(io.await(relay(() => i32(42), io), io) == i32(42), "the relayed value");
 });
