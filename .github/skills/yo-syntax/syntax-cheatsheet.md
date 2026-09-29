@@ -303,6 +303,12 @@ text := match(value,
   `(0..10)`, guards `(.Some(v) && (v > i32(1)))` and whole-value bindings
   `(whole := .Some(v))` are all patterns — every infix pattern in its own
   parentheses. See "Pattern forms" below.
+- Tuple and struct scrutinees pattern directly: `match(t, (0, y) => …, _ => …)`
+  on a tuple (exact arity) and `match(p, Point(x : 0, y) => …, {x, y} => …)`
+  on a struct (partial; a bare field name binds that field). A `Box(T)`
+  payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches
+  through `tail : Box(Self)`; a BINDING at a Box position binds the box
+  (deref with `b.*`).
 
 Three destructuring shapes for arms (mix freely across arms):
 
