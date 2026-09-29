@@ -1,0 +1,272 @@
+//! The future protocol: waiters, abort, structured cancellation
+//! (plans/ASYNC_STATE_MACHINE_GENERATION.md, phase 2). Each test is one
+//! issue's repro; a hang is caught by the runner's deadline.
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
+pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Error, Exception, IoExn } :: import("std/error");
+{ ToString } :: import("std/fmt");
+{ String } :: import("std/string");
+{ yield, timeout } :: import("std/async");
+{ sleep } :: import("std/sys/timer");
+{ Duration } :: import("std/time/duration");
+{ Channel } :: import("std/async/channel");
+{ Mutex } :: import("std/async/mutex");
+{ __yo_async_socket_start, __yo_async_yield_start } :: import("std/sys/externs");
+{ close } :: import("std/libc/unistd");
+
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+
+// issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md
+test("two tasks awaiting one pending future both resume", {
+  shared := io.async((io : Io) => {
+    io.await(sleep(u64(5)), io);
+    i32(7)
+  });
+  a := io.async((io : Io) => io.await(shared, io));
+  b := io.async((io : Io) => io.await(shared, io));
+  ha := io.spawn(a, io);
+  hb := io.spawn(b, io);
+  ra := ha.await(io);
+  rb := hb.await(io);
+  assert(match(ra, .Some(v) => (v == i32(7)), .None => false), "the first waiter resumed");
+  assert(match(rb, .Some(v) => (v == i32(7)), .None => false), "the second waiter resumed");
+});
+
+// issues/fixed/aborting-a-task-never-wakes-its-awaiter.md
+test("aborting a task wakes the task awaiting it", {
+  f := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    i32(7)
+  });
+  hf := io.spawn(f, io);
+  a := io.async((io : Io) => io.await(f, io));
+  ha := io.spawn(a, io);
+  io.await(yield(io), io);
+  hf.abort();
+  ra := ha.await(io);
+  assert(ra.is_none(), "the awaiter observed the abort and was aborted in turn");
+  rf := hf.await(io);
+  assert(rf.is_none(), "the aborted task reads .None");
+});
+
+// issues/fixed/abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md
+test("a cancelled receiver does not consume the next message", {
+  ch := Channel(i32).new(usize(4));
+  f := io.async((io : Io) => {
+    v := io.await(ch.recv(io), io);
+    match(v, .Some(x) => x, .None => i32(-1))
+  });
+  h := io.spawn(f, io);
+  r := timeout(h, Duration.from_millis(i64(5)), io);
+  assert(r.is_err(), "the first receiver timed out");
+  g := io.async((io : Io) => {
+    v := io.await(ch.recv(io), io);
+    match(v, .Some(x) => x, .None => i32(-1))
+  });
+  hg := io.spawn(g, io);
+  io.await(sleep(u64(2)), io);
+  _s := io.await(ch.send(i32(42), io), io);
+  r2 := timeout(hg, Duration.from_millis(i64(200)), io);
+  assert(match(r2, .Ok(v) => (v == i32(42)), .Err(_) => false), "the live receiver got the message");
+});
+
+test("a cancelled locker neither takes the mutex nor swallows its wake", {
+  m := Mutex(i32).new(i32(0));
+  io.await(m.lock(io), io);
+  // b blocks in lock and is cancelled while parked there.
+  b := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(1)
+  });
+  hb := io.spawn(b, io);
+  rb := timeout(hb, Duration.from_millis(i64(5)), io);
+  assert(rb.is_err(), "b timed out while parked on the lock");
+  // c queues behind b's (now dead) waiter.
+  c := io.async((io : Io) => {
+    io.await(m.lock(io), io);
+    m.unlock();
+    i32(2)
+  });
+  hc := io.spawn(c, io);
+  io.await(yield(io), io);
+  m.unlock();
+  rc := timeout(hc, Duration.from_millis(i64(200)), io);
+  assert(match(rc, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
+  assert(!m.is_locked(), "nobody holds the mutex");
+});
+
+test("cancelling a task blocked on a channel releases it", {
+  before := g_disposed;
+  ch := Channel(i32).new(usize(1));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    f := io.async((io : Io) => {
+      t := Thing(n : i);
+      v := io.await(ch.recv(io), io);
+      t.n + match(v, .Some(x) => x, .None => i32(0))
+    });
+    h := io.spawn(f, io);
+    r := timeout(h, Duration.from_millis(i64(2)), io);
+    assert(r.is_err(), "the receiver timed out");
+    i = (i + i32(1));
+  });
+  io.await(yield(io), io);
+  assert(g_disposed == (before + i32(3)), "every cancelled task was disposed with its locals");
+});
+
+// issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md
+Boom :: struct(msg : String);
+impl(Boom, ToString(to_string : (self -> self.msg)));
+impl(Boom, Error());
+_may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    io.await(yield(e.io), e.io);
+    cond(
+      fail => e.exn.throw(dyn(Boom(msg : `framing broke`))),
+      true => `ok body`
+    )
+  })
+);
+// The handler is installed inside the async body: its unwind resolves THIS
+// future with the value.
+_guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoExn)))(
+  io.async((e : IoExn) => {
+    local_exn := Exception(
+      throw : (
+        err -> {
+          unwind(Result(String, String).Err(err.to_string()));
+        }
+      )
+    );
+    raw := e.io.await(_may_fail(fail, e.io), IoExn(io : e.io, exn : local_exn));
+    Result(String, String).Ok(raw)
+  })
+);
+_show :: (fn(r : Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
+// Returns what the three awaits produced: a frame that "caught" the unwind by
+// returning early (the old lowering) cannot fake this result.
+_three_guarded :: (fn(io : Io) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(`the outer handler ran`);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  a := _show(io.await(_guarded(false, io), e));
+  b := _show(io.await(_guarded(true, io), e));
+  c := _show(io.await(_guarded(false, io), e));
+  `${a} | ${b} | ${c}`
+});
+test("an unwind from a handler installed in an io.async body resolves that future", {
+  assert(_three_guarded(io) == `ok body | ERR framing broke | ok body`, "the handler's value resolved the guarded future");
+});
+// A synchronous frame that only passes the outer handler along is not the
+// one that installed the unwinding handler, and must not read its value.
+_run_fail :: (fn(io : Io, exn : Exception) -> String)({
+  e := IoExn(io : io, exn : exn);
+  _show(io.await(_guarded(true, io), e))
+});
+test("a helper awaiting the guarded future reads the resolved value", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  assert(_run_fail(io, exn) == `ERR framing broke`, "the helper got the future's value");
+});
+// The handler is installed in the synchronous caller: the unwind aborts the
+// tasks between and exits the caller's frame.
+_outer_catch :: (fn(io : Io) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(`caught ${err.to_string()}`);
+      }
+    )
+  );
+  r := io.await(_may_fail(true, io), IoExn(io : io, exn : exn));
+  `not reached ${r}`
+});
+test("an unwind to a synchronous installer passes through the tasks", {
+  assert(_outer_catch(io) == `caught framing broke`, "the caller's handler value");
+});
+
+// "a statement-level spawn detaches the task, which frees itself" needs the
+// OWNING JoinHandle, which waits for the seed: it lives in
+// issues/repros/statement-level-spawn-detaches-the-task.yo until the flip
+// (issues/join-handle-ownership-waits-for-the-seed.md).
+// issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md
+test("a JoinHandle of a raw I/O future reads its result and can abort it", {
+  // A socket's result is its (non-zero) fd, which a handle reading the
+  // state-machine layout used to miss.
+  h := io.spawn(unsafe(__yo_async_socket_start(i32(2), i32(1), i32(0))), io);
+  fd := match(h.await(io), .Some(v) => v, .None => i32(-99));
+  assert(fd > i32(2), "the handle read the operation's fd");
+  _c := unsafe(close(int(fd)));
+  h2 := io.spawn(unsafe(__yo_async_yield_start()), io);
+  h2.abort();
+  assert(h2.await(io).is_none(), "the aborted raw future reads .None");
+});
+
+// issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md
+// A value enum with an RC payload, bound in a branch that ends before the task
+// escapes, is dropped at the branch's end; the escape's dispose sweep must not
+// drop it again. It did (#989 widened the sweep to value enums; the scope-end
+// drop did not clear the field), so each Thing was released twice.
+_SmWrap :: enum(A(t : Thing), B(t : Thing));
+_sm_make :: (fn(n : i32, io : Io) -> Impl(Future(_SmWrap, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    _SmWrap.A(t : Thing(n : n))
+  })
+);
+_sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (i : i32) = i32(0);
+    (sum : i32) = i32(0);
+    while(runtime(i < i32(3)), {
+      (opt : Option(_SmWrap)) = Option(_SmWrap).None;
+      cond(
+        opt.is_none() => {
+          fresh := e.io.await(_sm_make(i, e.io), e);
+          opt = Option(_SmWrap).Some(fresh);
+        },
+        true => ()
+      );
+      w := opt.unwrap();
+      e.io.await(yield(e.io), e.io);
+      sum = (sum + match(w, .A(t) => t.n, .B(t) => t.n));
+      cond(
+        (i == i32(1)) => {
+          e.exn.throw(dyn(`stop`));
+        },
+        true => ()
+      );
+      i = (i + i32(1));
+    });
+    sum
+  })
+);
+test("an escape after a closed branch drops each value-enum local once", {
+  stop_exn := Exception(throw : (err -> unwind(())));
+  before := g_disposed;
+  h := io.spawn(_sm_escape_after_branch(io), IoExn(io : io, exn : stop_exn));
+  assert(h.await(io).is_none(), "the task escaped");
+  assert(g_disposed == (before + i32(2)), `both Things were released exactly once, disposed ${g_disposed - before}`);
+});

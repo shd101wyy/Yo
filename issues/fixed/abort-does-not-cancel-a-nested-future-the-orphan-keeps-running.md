@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an aborted task's orphaned future stays registered — steals the next channel message or holds the mutex forever (deadlock), ~900 B leaked per timeout
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 
@@ -38,3 +38,15 @@ SM future gets a real `cancel_pending_fn`, which marks itself aborted,
 cancels its own pending child, runs its per-state drops, and wakes its
 waiters. std's `Channel`/`Mutex` waiters must deregister on cancel.
 Regression tests: all three repros.
+
+## Fix (2026-09-29, async state-machine plan phase 2)
+
+Structured cancellation: every async block emits
+`cancel_pending_fn(fut, prev_state)`, which switches on the state the task was
+suspended in. It cancels the I/O operation there, or aborts the awaited child
+(recursively). A park's hook is `__yo_park_cancel`, so a cancelled park reads
+`is_woken() == false`, and `Mutex.unlock` and `Channel`'s wakers pass the wake
+on to the next live waiter. Tests: `tests/async/sm_protocol.test.yo` "a
+cancelled receiver does not consume the next message", "a cancelled locker
+neither takes the mutex nor swallows its wake", and "cancelling a task blocked
+on a channel releases it".

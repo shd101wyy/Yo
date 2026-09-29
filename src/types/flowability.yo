@@ -144,6 +144,21 @@ raise_flow_violation :: (fn(err : YoError, ctx : EvalContext, exn : Exception) -
   });
   exn.throw(dyn(err));
 });
+/// Re-raise `err`, the rejection a definition-time trial swallowed, from that
+/// trial's caller: clear the flag the trial left, then raise it again through
+/// `raise_flow_violation`, which flags it anew.
+///
+/// Re-flagging is what carries the error through an ENCLOSING trial. A
+/// definition can sit inside another definition's trial (an exception handler
+/// inside an `io.async` closure body): the re-raise then lands in that outer
+/// trial's swallow, and only the flag reaches the outer caller's own re-raise.
+/// Clearing without re-flagging lost it there, so an `unwind` type mismatch in
+/// a handler inside an `io.async` body passed `yo check`
+/// (issues/fixed/unwind-type-mismatch-in-an-io-async-body-handler-is-swallowed.md).
+reraise_flow_violation :: (fn(err : YoError, ctx : EvalContext, exn : Exception) -> unit)({
+  clear_flow_violation();
+  raise_flow_violation(err, ctx, exn);
+});
 /// Options refining the base R1–R4 rule.
 FlowOptions :: ref(
   struct(
@@ -1031,6 +1046,7 @@ export(
   flow_violation_pending,
   flow_violation_error,
   raise_flow_violation,
+  reraise_flow_violation,
   alias_group_root,
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,

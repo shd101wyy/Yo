@@ -123,6 +123,7 @@ pragma(Pragma.AllowUnsafe);
   flow_violation_pending,
   flow_violation_error,
   raise_flow_violation,
+  reraise_flow_violation,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 /// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
@@ -1632,13 +1633,14 @@ Result type: ${type_to_string(decl_result_ty)}`
       );
     });
     // Channel 1: re-raise a flow violation the trial swallow ate (a
-    // deliberate binding-site rejection inside the body). Same pattern as
-    // the def-time caller in calls/function_type.yo:601.
+    // deliberate binding-site rejection inside the body), flagged again so
+    // a trial enclosing THIS definition (an `io.async` closure body around a
+    // handler) re-raises it in turn. Same pattern as the def-time caller in
+    // calls/function_type.yo.
     match(
       flow_violation_error(),
       .Some(anon_viol_err) => {
-        clear_flow_violation();
-        exn.throw(dyn(anon_viol_err));
+        reraise_flow_violation(anon_viol_err, ctx, exn);
       },
       .None => ()
     );

@@ -97,7 +97,7 @@
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
-{ is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
@@ -394,30 +394,55 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
   });
-  // OWNERSHIP. The JoinHandle used to be a pure borrowed view, which made it
-  // dangle whenever the future's owning binding died before the await — and a
-  // LOOP BODY is such a scope, so `handles.push(io.spawn(io.async(...), io))`
-  // inside a `while` hung forever at 100% CPU. Measured refcount history of
-  // the hanging case: 1 on creation, 2 after the cold-start incr below, back
-  // to 1 at the loop body's scope-end drop, then 0 when the task COMPLETES and
-  // the runtime releases the running reference — freeing the state machine
-  // while every handle already collected still pointed at it, so the await
-  // polled freed memory forever.
-  //
-  // So a surviving handle takes its own reference, released by
-  // `JoinHandle.await` (see generate_join_handle_await). Only when the spawn's
-  // result is actually BOUND: an unbound statement-level `io.spawn(...)` has no
-  // handle to keep alive (that is exactly what an absent `variable_name`
-  // means here — see the spawn_suffix comment above), and incrementing for a
-  // discarded compound literal would leak the task, which is today's correct
-  // fire-and-forget behaviour.
-  // See issues/fixed/io-spawn-in-loop-or-recursion-hangs.md.
-  if(name_suffix.len() > usize(0), {
-    em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
+  // The lowering follows the prelude's JoinHandle: an OWNING `ref` struct,
+  // or the VALUE struct the seed can compile. The value form is what std uses
+  // until SEED_VERSION carries this codegen: the v0.2.45 seed hard-codes the
+  // value lowering and compiles the compiler's own `io.spawn` sites
+  // (issues/join-handle-ownership-waits-for-the-seed.md).
+  jh_owning := match(expr_ei, .Some(ei) => is_reference_struct_type(ei.ty), .None => false);
+  if(!jh_owning, {
+    // A surviving (bound) handle takes a reference, released by
+    // `JoinHandle.await`; an unbound statement-level spawn takes none
+    // (issues/fixed/io-spawn-in-loop-or-recursion-hangs.md).
+    if(name_suffix.len() > usize(0), {
+      em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
+    });
+    return(
+      match(
+        join_handle_type_name,
+        .Some(jh) => `(${jh}){ .__future = (void*)${spawn_var.clone()} }`,
+        .None => `(void*)${spawn_var.clone()}`
+      )
+    );
   });
+  // OWNERSHIP. The handle owns one reference to the future (JoinHandle is a
+  // `ref` struct in the prelude): it keeps the task and its result alive for
+  // as long as some copy of the handle exists, and its Dispose releases it —
+  // a dropped, never-awaited handle detaches the task. A borrowed view
+  // dangled whenever the future's owning binding died before the await (a
+  // loop body is such a scope: issues/fixed/io-spawn-in-loop-or-recursion-hangs.md),
+  // and keying the reference on a BOUND handle leaked every statement-level
+  // spawn, since the evaluator names every value
+  // (issues/statement-level-io-spawn-leaks-the-state-machine.md).
+  em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
   match(
     join_handle_type_name,
-    .Some(jh) => `(${jh}){ .__future = (void*)${spawn_var.clone()} }`,
+    .Some(jh) => {
+      // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
+      jh_base := jh.trim_end_matches("*").trim();
+      handle_code := `__yo_new_${jh_base}((void*)${spawn_var.clone()})`;
+      // Materialize the handle into the spawn's own temp, as a call does:
+      // the scope-end drop the evaluator schedules for that temp is what
+      // releases a DISCARDED handle (a statement-level spawn). Returned as an
+      // expression it had no C name, so the drop was skipped and every
+      // fire-and-forget spawn leaked its handle and the state machine
+      // (issues/statement-level-io-spawn-leaks-the-state-machine.md).
+      if(name_suffix.len() > usize(0), {
+        em.emit_string_line(`${indent.clone()}${jh} ${name_suffix.clone()} = ${handle_code};`);
+        _store_temp_var_to_state_machine_if_needed(name_suffix.clone(), indent.clone(), context);
+        name_suffix.clone()
+      }, handle_code)
+    },
     .None => `(void*)${spawn_var.clone()}`
   )
 });

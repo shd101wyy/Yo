@@ -12012,8 +12012,15 @@ impl(
 );
 export(FutureState);
 /// JoinHandle — a handle to a spawned async task.
-/// Wraps a raw pointer to the spawned future's state machine.
 /// Generic over `T`, the return type of the spawned task.
+///
+/// A bound handle holds a reference to the task's future, taken at
+/// `io.spawn` and released by `await`, so a handle is awaited AT MOST ONCE.
+/// This is the value form the seed compiler can lower. The OWNING form — a
+/// `ref` struct whose Dispose releases the future, so a dropped handle
+/// detaches its task and a statement-level spawn does not leak — is in the
+/// compiler's codegen and becomes std's once SEED_VERSION carries it
+/// (issues/join-handle-ownership-waits-for-the-seed.md).
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
@@ -12071,10 +12078,9 @@ impl(
   await : __yo_join_handle_await
 );
 /// JoinHandle introspection + cancellation. The raw helpers read/write the
-/// common spawned-future header (`{__yo_ref_header_t; int state; void
-/// (*cancel_pending_fn)(void*);}`) emitted
-/// by the async runtime; state mapping follows `io.state`: any positive step
-/// index reads as Running.
+/// prefix every future shares (`__yo_future_header_t`: header, state, abort
+/// hook, waiter slot) emitted by the async runtime; state mapping follows
+/// `io.state`: any positive step index reads as Running.
 extern(
   "Yo",
   __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),

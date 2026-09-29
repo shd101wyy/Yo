@@ -259,25 +259,27 @@ impl(
   }),
   /// Wake the longest-waiting receiver, if any. Called wherever a value
   /// becomes available.
-  _wake_one_receiver : (fn(self : Self) -> unit)(
-    cond(
-      (self._recv_waiters.len() > usize(0)) => {
-        w := self._recv_waiters.remove(usize(0));
-        w.wake();
-      },
-      true => ()
-    )
-  ),
+  _wake_one_receiver : (fn(self : Self) -> unit)({
+    // Skip waiters whose task was cancelled: their park refuses the wake, and
+    // the next waiter must get it instead (a lost wake here is a hang).
+    (woken : bool) = false;
+    while(runtime(!woken && (self._recv_waiters.len() > usize(0))), {
+      w := self._recv_waiters.remove(usize(0));
+      w.wake();
+      woken = w.is_woken();
+    });
+  }),
   /// Wake the longest-waiting sender, if any. Called wherever a slot frees up.
-  _wake_one_sender : (fn(self : Self) -> unit)(
-    cond(
-      (self._send_waiters.len() > usize(0)) => {
-        w := self._send_waiters.remove(usize(0));
-        w.wake();
-      },
-      true => ()
-    )
-  ),
+  _wake_one_sender : (fn(self : Self) -> unit)({
+    // Skip waiters whose task was cancelled: their park refuses the wake, and
+    // the next waiter must get it instead (a lost wake here is a hang).
+    (woken : bool) = false;
+    while(runtime(!woken && (self._send_waiters.len() > usize(0))), {
+      w := self._send_waiters.remove(usize(0));
+      w.wake();
+      woken = w.is_woken();
+    });
+  }),
   /// Wake every suspended sender and drop the queue.
   _wake_all_senders : (fn(self : Self) -> unit)({
     while(runtime(self._send_waiters.len() > usize(0)), {

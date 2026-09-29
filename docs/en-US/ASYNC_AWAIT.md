@@ -354,6 +354,26 @@ export(main);
 
 The Future retains its result after completion. For reference-counted result types, each `io.await` call dups the result so the caller gets its own reference. The Future's dispose function drops the original when the state machine is freed.
 
+Several tasks may also await **one pending Future at the same time**. Every
+awaiter is registered on the Future and all of them resume, in registration
+order, when it completes:
+
+```rust
+{ sleep } :: import("std/sys/timer");
+
+shared := io.async((io : Io) => {
+  io.await(sleep(u64(5)), io);
+  i32(7)
+});
+a := io.async((io : Io) => io.await(shared, io));
+b := io.async((io : Io) => io.await(shared, io));
+ha := io.spawn(a, io);
+hb := io.spawn(b, io);
+// Both read .Some(7).
+ra := ha.await(io);
+rb := hb.await(io);
+```
+
 ### Aborted Futures
 
 When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
@@ -391,6 +411,45 @@ main :: (fn(io : Io) -> unit)({
 });
 export(main);
 ```
+
+### Cancelling a task
+
+`handle.abort()` cancels a spawned task. The task is marked aborted (-2), and
+the cancellation is **structured**: whatever the task is suspended on is
+cancelled with it.
+
+- A pending I/O operation or timer is cancelled at the OS level.
+- A child Future the task was awaiting is aborted in turn, recursively.
+- A task parked on a `Mutex` or `Channel` leaves its queue. The next `unlock`
+  or `send` skips the dead waiter and hands the lock or the message to a live
+  one. Nothing is lost.
+- Every task awaiting the aborted one is woken. An `io.await` that was
+  **waiting** when the abort happened aborts its own task too, so a
+  `JoinHandle.await` further up reads `.None`. (Starting an `io.await` on a
+  Future that is **already** aborted is still a panic.)
+
+The aborted task's locals are dropped when its last reference goes away.
+
+```rust
+{ sleep } :: import("std/sys/timer");
+
+f := io.async((io : Io) => {
+  io.await(sleep(u64(50)), io);
+  i32(7)
+});
+hf := io.spawn(f, io);
+a := io.async((io : Io) => io.await(f, io));
+ha := io.spawn(a, io);
+io.await(yield(io), io);
+hf.abort();
+// The awaiter was aborted with it.
+assert(ha.await(io).is_none(), "the awaiter reads .None");
+// So is the task itself.
+assert(hf.await(io).is_none(), "the aborted task reads .None");
+```
+
+`timeout(handle, d, io)` from `std/async` is built on `abort`. When it times
+out, the task and everything it is blocked on are cancelled.
 
 **Future State Machine States:**
 
@@ -693,12 +752,12 @@ main :: (fn(io : Io) -> unit)({
   });
   // task is cold (refcount=1), hasn't started yet
   io.spawn(task, io);
-  // spawn starts task, returns JoinHandle(T) (non-owning view)
-  // __yo_incr_rc (refcount=2)
-  // One reference for user code (task), one for running task (event loop)
+  // spawn starts the task: +1 for the running task (the event loop), and
+  // +1 for the JoinHandle it returns (dropped at once here: a statement-level
+  // spawn detaches)
   io.await(task, io);
   // Waits for completion, extracts result
-  // Task completes, event loop drops reference (refcount=1)
+  // Task completes, event loop drops its reference (refcount=1)
   // task goes out of scope (refcount=0, freed)
 });
 export(main);
@@ -714,6 +773,14 @@ export(main);
 4. **Task Completion**: State machine calls `__yo_decr_rc()` (refcount = 0, freed)
 
 **Key Insight**: Tasks stay alive until completion even if user code drops them early!
+
+**`JoinHandle(T)` owns a reference.** `io.spawn` returns a `ref` struct that
+holds one reference to the task's Future. The task and its result live as
+long as some copy of the handle does, and dropping the last copy releases that
+reference. Awaiting a handle does not consume it: awaiting it twice reads the
+same result. A handle that is dropped without being awaited **detaches** the
+task. The task keeps running, and it frees itself when it finishes, so a
+fire-and-forget `io.spawn(task, io);` statement leaks nothing.
 
 **Implementation Details:**
 
@@ -825,7 +892,21 @@ State machines are small (~32-500 bytes):
 
 ### Throughput
 
-- State machine poll: ~10-50ns per poll
+Measured on a loaded 32-thread x86_64 box (`--optimize 2`, median ns per
+operation over 100k; treat as ±2×):
+
+| Operation | ns |
+|---|---|
+| `io.await` of an already-completed future | ~4 |
+| cold child future that completes synchronously | ~25 |
+| the same while other I/O is parked in the kernel | ~24 |
+| a chain of 4 nested awaits | ~150 |
+| `io.spawn` + `JoinHandle.await` of a no-await task | ~210 |
+
+A child that completes synchronously continues inline (within a budget of
+1024 per resume), and a finishing task hands its waiter the rest of the same
+scheduler step, so neither costs a trip through the run queue or the kernel.
+
 - No context switching (same thread)
 - No synchronization overhead
 - Cache-friendly (small state machines)
@@ -1068,6 +1149,10 @@ them:
 - **Waking is idempotent.** A second `wake()`, or a wake of a park whose task
   has already finished, does nothing. A waiter list can therefore signal
   everyone without tracking who already ran.
+- **A cancelled waiter says so.** `w.is_woken()` is `false` right after
+  `w.wake()` when the parked task was cancelled and will never run. A waiter
+  list uses that to pass the wake on to the next waiter, which is how `Mutex`
+  and `Channel` stay correct under `abort` and `timeout`.
 - **A park that nothing can wake is reported, not hung.** The runtime counts
   live waker tokens; when nothing is runnable, no I/O is outstanding, and a
   token is still alive, the loop says so and stops instead of spinning.

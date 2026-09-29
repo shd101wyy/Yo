@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 204 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 189 open bug
 docs in `issues/` root and the 13 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -29,15 +29,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 11 | 1 |
-| Async / effects | 28 | 13 |
+| Async / effects | 25 | 10 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 22 | 4 |
 | Std library | 50 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 15 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 45 | 27 |
-| **Total** | **204** | **63** |
+| Other | 33 | 15 |
+| **Total** | **189** | **48** |
 
 ## Counts by severity
 
@@ -45,8 +45,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 57 |
-| S2 | 98 |
+| S1 | 46 |
+| S2 | 94 |
 | S3 | 49 |
 
 ## Design questions (issues/questions/)
@@ -167,7 +167,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (28)
+### Async / effects (25)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -177,12 +177,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`async-abort-dispose-double-drops-moved-enum-payload.md`](./async-abort-dispose-double-drops-moved-enum-payload.md) | S1 | — | yes |
 | [`async-await-nested-if-lost-continuation.md`](./async-await-nested-if-lost-continuation.md) | S1 | — | — |
 | [`async-capture-mode-argument-rendering-cluster.md`](./async-capture-mode-argument-rendering-cluster.md) | S2 | — | — |
-| [`async-cond-value-with-await-arm-inside-while-yields-zero.md`](./async-cond-value-with-await-arm-inside-while-yields-zero.md) | S1 | — | yes |
 | [`async-cond-value-with-throwing-arm-after-await-undeclared-temp.md`](./async-cond-value-with-throwing-arm-after-await-undeclared-temp.md) | S2 | — | yes |
 | [`async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`](./async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md) | S2 | — | — |
 | [`async-nested-cond-await-duplicate-while-labels.md`](./async-nested-cond-await-duplicate-while-labels.md) | S2 | — | yes |
 | [`async-postwhile-multiple-await-ifs.md`](./async-postwhile-multiple-await-ifs.md) | S2 | OPEN — std uses ONE post-cond awaiting `if` | yes |
-| [`async-second-cond-arm-await-of-a-field-future-frees-it.md`](./async-second-cond-arm-await-of-a-field-future-frees-it.md) | S1 | — | yes |
 | [`async-sm-fn-typed-local-across-suspension.md`](./async-sm-fn-typed-local-across-suspension.md) | S2 | — | — |
 | [`async-tail-match-return-hangs-state-machine.md`](./async-tail-match-return-hangs-state-machine.md) | S1 | OPEN — std avoids the shape (the | — |
 | [`closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`](./closure-argument-inside-an-io-async-body-loses-the-future-result-type.md) | S2 | — | yes |
@@ -194,7 +192,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`](./io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md) | S1 | — | yes |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | S1 | OPEN — analysis-verified hazard, not | — |
 | [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | S1 | — | — |
-| [`unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`](./unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md) | S1 | — | yes |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
@@ -350,46 +347,34 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (45)
+### Other (33)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md`](./a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md) | S2 | — | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
-| [`a-non-send-closure-reading-a-global-marks-it-thread-reached.md`](./a-non-send-closure-reading-a-global-marks-it-thread-reached.md) | S2 | — | yes |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
-| [`abort-dispose-never-drops-string-option-and-value-struct-locals.md`](./abort-dispose-never-drops-string-option-and-value-struct-locals.md) | S1 | — | yes |
-| [`abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md`](./abort-does-not-cancel-a-nested-future-the-orphan-keeps-running.md) | S1 | — | yes |
-| [`aborting-a-task-never-wakes-its-awaiter.md`](./aborting-a-task-never-wakes-its-awaiter.md) | S1 | — | yes |
 | [`an-arm-with-two-sequential-awaits-runs-enclosing-code-in-the-wrong-state.md`](./an-arm-with-two-sequential-awaits-runs-enclosing-code-in-the-wrong-state.md) | S1 | — | yes |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | S1 | — | yes |
-| [`await-inside-an-expression-in-a-later-cond-arm-is-dropped.md`](./await-inside-an-expression-in-a-later-cond-arm-is-dropped.md) | S1 | — | yes |
+| [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`await-placement-rules-only-enforced-in-codegen.md`](./await-placement-rules-only-enforced-in-codegen.md) | S2 | — | yes |
-| [`awaiting-an-already-started-future-from-a-state-machine-leaks-it.md`](./awaiting-an-already-started-future-from-a-state-machine-leaks-it.md) | S1 | — | yes |
 | [`break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md`](./break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md) | S1 | — | yes |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md`](./hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md) | S1 | — | yes |
 | [`if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`](./if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md) | S2 | — | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
-| [`named-future-awaited-in-a-while-emits-missing-await-future-field.md`](./named-future-awaited-in-a-while-emits-missing-await-future-field.md) | S2 | — | yes |
-| [`nested-io-async-string-capture-is-not-retained.md`](./nested-io-async-string-capture-is-not-retained.md) | S1 | — | yes |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md`](./primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md) | S1 | — | yes |
 | [`reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md`](./reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md) | S1 | — | yes |
 | [`reassigning-a-heap-local-from-an-await-leaks-the-old-value.md`](./reassigning-a-heap-local-from-an-await-leaks-the-old-value.md) | S1 | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
-| [`sanitize-address-is-silently-dropped-for-a-bare-output-name.md`](./sanitize-address-is-silently-dropped-for-a-bare-output-name.md) | S2 | — | — |
-| [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
-| [`tail-primitive-match-with-three-arms-redefines-continuation-fn.md`](./tail-primitive-match-with-three-arms-redefines-continuation-fn.md) | S2 | — | yes |
-| [`thread-local-async-registries-leak-at-thread-exit.md`](./thread-local-async-registries-leak-at-thread-exit.md) | S3 | — | yes |
 | [`three-deep-nested-while-never-resumes-the-middle-loop.md`](./three-deep-nested-while-never-resumes-the-middle-loop.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |
-| [`two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md`](./two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md) | S1 | — | yes |
 | [`unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md`](./unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md) | S3 | OPEN | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | S2 | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |

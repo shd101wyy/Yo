@@ -26,7 +26,7 @@ rule, four cli-case fixtures were converted, and
 
 **Still open, and NOT fixed by this:** an unwound `main` (effect escape) exits
 0. `__yo_main_module_init()`'s `if (__yo_effect_escaped) return 0;` is
-unchanged, and `issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
+unchanged, and `issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
 is the same complaint from the effects side. Rejecting a non-`unit` signature
 does not give an unwound program a non-zero status.
 
@@ -135,7 +135,7 @@ the value, and discarding it silently. Whichever is chosen, `docs/en-US` and
 Note the interaction with effects: `__yo_main_module_init()` already has an
 `if (__yo_effect_escaped) return 0;` early exit, so an unwound main is a third
 case that needs a defined status — plausibly non-zero, which today it is not
-(`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
+(`issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
 is the same complaint from the effects side and should be fixed with this).
 
 ## Regression test
