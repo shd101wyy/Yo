@@ -427,7 +427,9 @@ ExprInfo :: ref(
 /// shallow copy, point THIS ExprInfo at it, and hand it out. Other sharers
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
+(g_adopt_env_calls : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
+  g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(info.env);
   info.env = fresh;
   fresh
@@ -2047,7 +2049,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()}`);
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);
