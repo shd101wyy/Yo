@@ -4,9 +4,23 @@
 [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) paused (§8
 there). That campaign cut what `check` retains to 970 MB. This one covers what
 `compile` holds on top of it: the evaluator state kept alive for codegen, and
-codegen's own working set. Phase 0's instruments are in (§0.1–§0.3); landed
-levers: lazy `HashMap` (§0.4) and copy-on-write frame lists (§0.5),
-`compile` 3,284 → 2,992 MB on mimalloc.
+codegen's own working set.
+
+Status as of 2026-09-30:
+- **Phase 0's instruments are in** (§0.1–§0.3, §0.6): `--profile` phase
+  memory and `profile: mark` lines.
+- **Landed levers** (on `mem/codegen-plan`): lazy `HashMap` (§0.4),
+  copy-on-write frame lists (§0.5), and emit's C sections with in-place
+  truncation (§0.6). Together `compile` goes 3,284 → ~2,982 MB on mimalloc
+  (−9 %) and `check` 971 → 932 MB, with fewer instructions and
+  byte-identical C.
+- **Measured and rejected:** env interning (§0.7) and per-function env
+  release (§0.8).
+- **Next:**
+  - re-measure the `fetch_package` state-machine spike (~114 MB) once #1002
+    and #1016 land;
+  - then design env-free codegen (§0.8), the one lever left at the scale of
+    the 2.0 GB target.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
