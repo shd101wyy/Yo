@@ -1,0 +1,68 @@
+// An async task that escapes (unwinds) leaks references to values it bound:
+// after the block that spawned and awaited it ends, each Thing should be held
+// only by `keep` (rc 1), and the thrown `dyn` error should be freed.
+//   yo compile issues/repros/an-escaped-task-leaks-references-to-values-it-bound.yo --optimize 2 -o a.out
+//   ./a.out                  # measured: disposed=0 rc0=3 rc1=3 (expected rc0=1 rc1=1)
+//   leaks --atExit -- ./a.out  # both Things (32 B, allocated in main) and the error value leak
+// issues/an-escaped-task-leaks-references-to-values-it-bound.md
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ IoExn, Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+Wrap :: enum(A(t : Thing), B(t : Thing));
+make :: (fn(t : Thing, io : Io) -> Impl(Future(Wrap, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    Wrap.A(t : t)
+  })
+);
+work :: (fn(keep : ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (i : usize) = usize(0);
+    (sum : i32) = i32(0);
+    while(runtime(i < usize(2)), {
+      (opt : Option(Wrap)) = Option(Wrap).None;
+      cond(
+        opt.is_none() => {
+          fresh := e.io.await(make(keep(i), e.io), e);
+          opt = Option(Wrap).Some(fresh);
+        },
+        true => ()
+      );
+      w := opt.unwrap();
+      e.io.await(yield(e.io), e.io);
+      sum = (sum + match(w, .A(t) => t.n, .B(t) => t.n));
+      cond(
+        (i == usize(1)) => {
+          e.exn.throw(dyn(`stop`));
+        },
+        true => ()
+      );
+      i = (i + usize(1));
+    });
+    sum
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (err -> unwind(())));
+  keep := ArrayList(Thing).new();
+  keep.push(Thing(n : i32(0)));
+  keep.push(Thing(n : i32(1)));
+  {
+    h := io.spawn(work(keep, io), IoExn(io : io, exn : exn));
+    _r := h.await(io);
+  };
+  println(`disposed=${g_disposed} rc0=${rc(keep(usize(0)))} rc1=${rc(keep(usize(1)))}`);
+});
+export(main);
