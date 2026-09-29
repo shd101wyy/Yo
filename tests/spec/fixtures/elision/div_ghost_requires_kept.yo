@@ -1,0 +1,17 @@
+// expect-elided: 0
+// 5b twin: the only premise is a requires that calls a ghost_fn, which has
+// no runtime entry check. A caller outside the subset could break it, so the
+// proof must not remove the guard (§5.1 rule 3).
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+nonzero :: ghost_fn((fn(x : u32) -> bool)(x != u32(0)));
+
+udiv :: (fn(a : u32, b : u32, requires(nonzero(b))) -> u32)(
+  a / b
+);
+
+main :: (fn() -> unit)({
+  println(udiv(u32(10), u32(2)));
+});
+export(main);

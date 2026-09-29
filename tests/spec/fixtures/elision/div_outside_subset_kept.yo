@@ -1,0 +1,17 @@
+// expect-elided: 0
+// 5b twin: the entry-checked requires proves the divisor non-zero, but the
+// later `println` (a callee without contracts) puts the function outside the
+// subset. Elision is all-or-nothing per function (§5.1 rule 2): the guard stays.
+pragma(Pragma.VerifyOrAssert);
+{ println } :: import("std/fmt");
+
+udiv_logged :: (fn(a : u32, b : u32, requires(b != u32(0))) -> u32)({
+  q := (a / b);
+  println(q);
+  q
+});
+
+main :: (fn() -> unit)({
+  println(udiv_logged(u32(10), u32(2)));
+});
+export(main);

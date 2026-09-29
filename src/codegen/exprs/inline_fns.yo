@@ -7,6 +7,7 @@
 //! a statement (or nothing) and return "". Fresh temp names via random_id.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 {
   AstExpr,
   ast_expr_token,
@@ -136,6 +137,11 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
   });
   if(is_u8_type(ty) || (is_u16_type(ty) || (is_u32_type(ty) || (is_u64_type(ty) || is_usize_type(ty)))), {
+    // 5b: a proved non-zero divisor needs no guard. A signed `/` also needs
+    // its `MIN / -1` proof (Phase 2), so only the unsigned guard elides here.
+    if(guard_site_is_proved(expr, "divisor-nonzero"), {
+      return(_binop(args, op));
+    });
     return(`(__yo_div_guard_u((unsigned long long)(${b})${loc}), ((${a}) ${op} (${b})))`);
   });
   // Non-integer (float) — IEEE total, no guard.
@@ -251,6 +257,10 @@ _shift_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
     if(_parse_decimal(b) < _parse_decimal(bits.clone()), {
       return(_binop(args, op));
     });
+  });
+  // 5b: the verifier proved the count below the width.
+  if(guard_site_is_proved(expr, "shift-in-width"), {
+    return(_binop(args, op));
   });
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(tok.module_path.clone());
