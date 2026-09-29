@@ -76,9 +76,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: develop
-          # RELEASE_PAT (fine-grained, this repo, Contents: read/write) carries
-          # the repository-admin ruleset bypass, so the version-bump commit
-          # below pushes straight to the protected develop. Falls back to the
+          # RELEASE_PAT (fine-grained, this repo, Contents: read/write) fetches
+          # and, without RELEASE_DEPLOY_KEY, pushes. Once the ruleset's only
+          # bypass actor is the release deploy key (AGENTS.md: no admin bypass),
+          # the version-bump push goes through `push_develop` and that key. Falls back to the
           # Actions token (whose push a protected develop rejects) only when
           # the secret is unset.
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
@@ -270,6 +271,7 @@ jobs:
       - name: Commit version bump
         id: bump_commit
         env:
+          RELEASE_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -303,7 +305,24 @@ jobs:
             # version-bump PR, no second dispatch. If it fails, the PAT is
             # missing/expired: fail LOUDLY rather than releasing a tree whose
             # version never landed on develop.
-            git push || { echo "::error::Direct push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
+            # Push to develop. With RELEASE_DEPLOY_KEY set: over SSH with that
+            # write deploy key, the ruleset's bypass actor for release pushes
+            # (AGENTS.md: the admin role has no bypass, so no agent can
+            # `--admin` merge). The key is used for this push only, never for
+            # the checkout, whose submodules live in other repositories. Unset:
+            # the checkout's RELEASE_PAT credentials, as before.
+            push_develop() {
+              if [ -n "${RELEASE_DEPLOY_KEY:-}" ]; then
+                key="$RUNNER_TEMP/release_deploy_key"
+                printf '%s\n' "$RELEASE_DEPLOY_KEY" > "$key"
+                chmod 600 "$key"
+                GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+                  git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:refs/heads/develop
+              else
+                git push
+              fi
+            }
+            push_develop || { echo "::error::Direct push to develop failed — RELEASE_DEPLOY_KEY (a write deploy key in the ruleset's bypass list) or RELEASE_PAT (fine-grained, Contents: read/write, with a bypassing role) must be set and valid."; exit 1; }
             echo "Version bump pushed directly to develop."
           fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
@@ -1432,6 +1451,8 @@ jobs:
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Bump SEED_VERSION to this release on develop
+        env:
+          RELEASE_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
         run: |
           set -euo pipefail
           new="v${{ needs.release.outputs.version }}"
@@ -1452,7 +1473,24 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml .github/workflows/ubsan.yml
           git commit -m "ci: bump SEED_VERSION to ${new} (release-pipeline auto-bump)"
-          git push || { echo "::error::Seed-bump push to develop failed — RELEASE_PAT must be fine-grained with Contents AND Workflows read/write (this push modifies .github/workflows/*, refused as GH013 without the workflow permission), and unexpired."; exit 1; }
+          # Push to develop. With RELEASE_DEPLOY_KEY set: over SSH with that
+          # write deploy key, the ruleset's bypass actor for release pushes
+          # (AGENTS.md: the admin role has no bypass, so no agent can
+          # `--admin` merge). The key is used for this push only, never for
+          # the checkout, whose submodules live in other repositories. Unset:
+          # the checkout's RELEASE_PAT credentials, as before.
+          push_develop() {
+            if [ -n "${RELEASE_DEPLOY_KEY:-}" ]; then
+              key="$RUNNER_TEMP/release_deploy_key"
+              printf '%s\n' "$RELEASE_DEPLOY_KEY" > "$key"
+              chmod 600 "$key"
+              GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+                git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:refs/heads/develop
+            else
+              git push
+            fi
+          }
+          push_develop || { echo "::error::Seed-bump push to develop failed — RELEASE_DEPLOY_KEY (a write deploy key in the ruleset's bypass list), or RELEASE_PAT (fine-grained, Contents AND Workflows read/write: this push modifies .github/workflows/*, GH013 otherwise), must be set and valid."; exit 1; }
           echo "SEED_VERSION ${old} -> ${new} pushed to develop."
 
   # The site deploy waits for publish-release ON PURPOSE.
