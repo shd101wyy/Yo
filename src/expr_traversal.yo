@@ -676,6 +676,11 @@ async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
   if(!top_level, {
     return(Option(String).Some(String.from("the await is not a top-level statement of the block")));
   });
+  // F2 v1: a `return` / `unwind` in the block would leave the CALLER once
+  // the block runs in its frame (§3.1 rule 6's exit label is a follow-up).
+  if(expr_tree_contains_return(block), {
+    return(Option(String).Some(String.from("the block returns or unwinds early")));
+  });
   if((param_name.len() > usize(0)) && _fusion_closure_mentions(block, param_name.clone(), false), {
     return(Option(String).Some(String.from("the block captures its effect bundle in a closure")));
   });
