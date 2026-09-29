@@ -125,6 +125,31 @@ The caller awaits the raw future in its own slot. Nothing is allocated for
 the wrapper, there is no `set_effect`, and a parked read wakes the caller
 directly.
 
+## 2.1 Revision after reading phase 5 (2026-09-29)
+
+Phase 5 (#1002) landed without the §4 IR of the state-machine plan. Its own
+refinement says so: "the IR of §4 is needed only for phase 6's liveness".
+Each suspension is emitted inline by `emit_inline_await`
+(`src/codegen/async/state_machine.yo`) while the body is generated once.
+Three facts from its code shape the lowering:
+
+- **Labels are per state, not per node.** A resume label is
+  `__yo_resume_<k>` from the lowering's state counter, and there is one
+  unioned `__yo_await_slot`. So emitting a wrapper's body at two call sites
+  gets distinct labels already. What refuses it is `low.emitted`, keyed by the
+  await node's id: fusion keys it by (node id, fused site).
+- **Every variable is a slot from the caller's analysis.** A fused wrapper's
+  parameters, prologue locals and block locals must join the caller's slot
+  list, named per fused site.
+- **`ExprInfo`'s `Option(EvalValue)` reads are destructive moves in codegen**
+  (`io_async_await_analysis` documents it). A codegen-side detector that
+  looked up the callee's function value would consume the value the call's
+  own generation reads afterwards. So **fusability is decided in the
+  evaluator**, where the callee's function value and body are in hand. It is
+  recorded on the await's `ExprInfo` as plain data (the callee's `func_id`,
+  and the verdict or the rule that rejected it). F1 prints that record, and
+  F2 reads it. §3.1's rules are unchanged; only where they run moves.
+
 ## 3. Design
 
 ### 3.1 When a wrapper is fusable
@@ -219,15 +244,19 @@ column to `scripts/bench-vs-libuv.sh`. Record the before numbers here.
 
 ### F1: the fusability analysis (no emission change)
 
-Implement §3.1 over the phase 4 IR and `YO_DEBUG_FUSION`. Exit: the list
+Implement §3.1 in the evaluator at each `io.await` of a call inside an
+`io.async` body. Record the verdict on the await's `ExprInfo` (§2.1), and
+print it from codegen under `YO_DEBUG_FUSION`. Exit: the list
 of fused sites in `std/` and in the compiler, with every rejected
 candidate's reason, recorded in this doc. The census predicts ~70 std
 definitions.
 
 ### F2: the lowering
 
-Fuse at the IR level (§2) and let phase 5's emitter emit the result, with
-no emitter special case. Exit:
+In `emit_inline_await`, a fused site emits the wrapper's prologue and block in
+the caller's resume function. Its locals and parameters are slots of the
+caller named per site, `e` is bound to the await's bundle, and the inner await
+is emitted by the same function, keyed by (node id, site) (§2.1). Exit:
 
 - the §5 correctness corpus passes with fusion on and off;
 - the §1.1 benchmark: std within 2% of raw on the 8-connection row, and the
