@@ -105,6 +105,12 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   context.consume_assignment_saves_by_bytes = false;
   lhs_code := _call_generate_expr(lhs, indent.clone(), context);
   em := context.base.emitter;
+  // In a state machine the save is written AFTER the RHS, right before the
+  // store: the RHS may suspend, and an abort there disposes every non-null
+  // slot — a save written first held the pointer the LHS still owns, and
+  // both were released (the `fetch` UnsupportedScheme escape). A RHS that
+  // moves the old value out zeroes its slot, so the late save reads NULL.
+  (sm_save_line : Option(String)) = Option(String).None;
   // Save the old value into the result temp (for a deferred drop of it).
   match(
     ei.variable_name,
@@ -199,7 +205,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
               save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
             }
           );
-          em.emit_string_line(save_sm);
+          sm_save_line = Option(String).Some(save_sm);
         })
       );
     },
@@ -230,6 +236,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
+    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
       line := indent.clone();
@@ -260,6 +267,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
+    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
     if(!is_unit_type(lhs_type), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
