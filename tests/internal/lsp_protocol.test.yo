@@ -41,6 +41,7 @@ json :: import("std/encoding/json");
 { handle_references, handle_document_highlight } :: import("../../src/lsp/references.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
 { handle_document_symbols, handle_workspace_symbols, WorkspaceDoc } :: import("../../src/lsp/symbols.yo");
+{ handle_semantic_tokens } :: import("../../src/lsp/folding.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
 { is_any_temp_variable_name, generate_new_temp_variable_name } :: import("../../src/utils.yo");
 
@@ -326,6 +327,7 @@ test("hover shows contracts + verification status for a contracted function", {
 // ---------------------------------------------------------------------------
 _TYPED_DECL :: "Point :: struct(x : i32, y : i32);\n(p : Point) = Point(x : 1, y : 2);\nanswer :: (fn() -> i32)({ return(((p.x) + (p.y))); });\n";
 _MISSING_TOSTRING :: "{ println } :: import(\"std/fmt\");\nP2 :: struct(x : i32);\nmain :: (fn() -> unit)({\n  p := P2(x : i32(1));\n  println(p);\n  ()\n});\nexport(main);\n";
+_SEM_DOC :: "{ String } :: import(\"std/string\");\ns := String.from(\"hi\");\nn := i32(41);\n// a note\n";
 
 test("rename_rejection: only legal binding names pass", {
   // Legal identifiers (including single-underscore-private ones).
@@ -667,5 +669,77 @@ test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry",
       );
     },
     .None => assert(false, "primary diagnostic missing")
+  );
+});
+
+test("semanticTokens: keywords, literals and comments from the lexer; identifiers from the analysis", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      // 5-tuples: [deltaLine, deltaStartChar, length, type, modifiers].
+      // _TYPED_DECL line 0: `Point :: struct(x : i32, y : i32);`
+      // Point -> type (1), :: skipped, struct -> keyword (0), x/y -> property
+      // (4, struct-field labels), i32 -> type (1).
+      toks := json.stringify(handle_semantic_tokens(String.from(_TYPED_DECL), doc_path.clone(), oc.exprs, oc.info_table));
+      assert(toks.contains("[0,0,5,1,0"), "Point is a 5-rune type token");
+      assert(toks.contains(",0,9,6,0,0"), "struct is a keyword token");
+      assert(toks.contains(",0,7,1,4,0"), "the struct-field label x is a property token");
+      assert(toks.contains(",0,4,3,1,0"), "i32 is a 3-rune type token");
+      // line 2: `answer :: (fn() -> i32)({ return(((p.x) + (p.y))); });`
+      // answer -> function (2), fn -> keyword, p -> variable (3).
+      assert(toks.contains(",1,0,6,2,0"), "answer is a 6-rune function token");
+      assert(toks.contains(",0,11,2,0,0"), "fn is a keyword token");
+      assert(toks.contains(",1,1,1,3,0"), "p is a 1-rune variable token");
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("semanticTokens: string literals and numbers classify from the token", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_sem.yo`;
+  text := String.from(_SEM_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the semantic-token document analyzes ok");
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      assert(toks.contains(",1,0,1,3,0"), "the binding name s is a variable token");
+      assert(toks.contains(",0,5,6,1,0"), "String is a type token");
+      assert(toks.contains(",0,7,4,4,0"), "the .from member is a property token");
+      assert(toks.contains(",0,7,12,5,0"), "the import path is a 12-rune string token");
+      assert(toks.contains(",0,5,4,5,0"), "\"hi\" is a 4-rune string token");
+      assert(toks.contains(",0,4,2,6,0"), "41 is a 2-rune number token");
+      assert(toks.contains(",1,0,9,7,0"), "// a note is a 9-rune comment token");
+    },
+    .None => assert(false, "semantic-token document: no outcome")
   );
 });
