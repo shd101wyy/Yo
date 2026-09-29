@@ -55,7 +55,10 @@ after the shared table was released, so these are not peak attributions:
 
 `--profile` now prints `profile: memory <phase> rss=…MB table=…` (step 1).
 Stage-2 of this branch (`dda139de0`), compiling the develop `b6b828772` tree
-(`compile src/main.yo --skip-c-compiler --emit-c --profile`):
+(`compile src/main.yo --skip-c-compiler --emit-c --profile`). **glibc
+malloc, not mimalloc**: it was built in a worktree without `vendor/mimalloc`,
+where `--allocator mimalloc` falls back silently
+(`issues/questions/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`):
 
 | end of phase | RSS | shared-table entries |
 | --- | --- | --- |
@@ -154,7 +157,9 @@ sharing semantics are unchanged. Tests: `tests/collections/hash_map.test.yo`
 "HashMap.new allocates nothing until the first insert" (fails on the eager
 map) and a Dispose-counter guard for growth from capacity 0.
 
-Stage-2 A/B, same tree, same input (develop `b6b828772`), mimalloc:
+Stage-2 A/B, same tree, same input (develop `b6b828772`). **Both binaries are
+glibc malloc** (built without `vendor/mimalloc`, see §0.1), so the A/B is
+like-for-like but not the mimalloc verdict:
 
 | | base | lazy |
 | --- | --- | --- |
