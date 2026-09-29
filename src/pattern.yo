@@ -748,6 +748,22 @@ _const_key :: (fn(p : Pattern) -> String)(
 _head_is_wild :: (fn(p : Pattern) -> bool)(
   match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false)
 );
+/// True when some row's head is a tuple or struct pattern: the column's one
+/// constructor is present. With none, the column is all wildcards and the
+/// default matrix decides it; expanding it anyway walks the scrutinee's whole
+/// field tree (a match on a value carrying the compiler's context structs took
+/// 20x longer to check).
+_column_has_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern))) -> bool)({
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    head := match(rows.get(ri), .Some(row) => row.get(usize(0)), .None => Option(Pattern).None);
+    if(match(head, .Some(h) => match(h, .Tuple(_, _) => true, .Struct(_, _, _, _) => true, _ => false), .None => false), {
+      return(true);
+    });
+    ri = (ri + usize(1));
+  });
+  false
+});
 /// Specialize the matrix by variant constructor `name` of arity `arity`.
 _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
@@ -1665,9 +1681,10 @@ _useful :: (
           }
         );
       });
-      // A tuple/struct column has ONE constructor, so the signature is always
-      // complete: q is useful iff it is useful for that constructor.
-      if(is_tuple_type(ty0), {
+      // A tuple/struct column has ONE constructor: when a row names it, the
+      // signature is complete and q is useful iff it is useful for that
+      // constructor. When no row does, the default matrix below decides.
+      if(is_tuple_type(ty0) && _column_has_aggregate(rows), {
         ftys := _tuple_elem_tys(ty0);
         spec := _specialize_aggregate(rows, ftys.len());
         match(
@@ -1680,7 +1697,7 @@ _useful :: (
           }
         );
       });
-      if(is_struct_type(ty0), {
+      if(is_struct_type(ty0) && _column_has_aggregate(rows), {
         ftys := _struct_field_tys(ty0);
         spec := _specialize_aggregate(rows, ftys.len());
         match(
