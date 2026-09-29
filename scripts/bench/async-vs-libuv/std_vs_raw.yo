@@ -1,0 +1,162 @@
+//! std_vs_raw — what std's single-await I/O wrappers cost over the raw
+//! runtime ops they wrap (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F0).
+//!
+//! MODE selects one measurement, printed as `<mode>_ns <ns per unit>`:
+//!   pp_raw / pp_std   8-connection TCP ping-pong, ns per round trip, awaiting
+//!                     IO_tcp.recv/send directly vs TcpStream.read/write;
+//!   wr_raw / wr_std   one-byte sends that all complete inline, ns per op.
+//! scripts/bench-std-vs-raw.sh runs them interleaved and prints std/raw.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ Exception, IoExn } :: import("std/error");
+{ Instant } :: import("std/time/instant");
+{ env } :: import("std/env");
+IO_tcp :: import("std/sys/tcp");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+
+// The raw ops pass exactly the flags std's stream writes pass on this tree,
+// so the two modes make the same syscalls and differ only in the wrapper.
+STD_SEND_FLAGS :: i32(0);
+ROUNDS :: i64(40000);
+K :: usize(8);
+WRITES :: i64(100000);
+
+_raw_side :: (fn(fd : i32, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
+  io.async(e => {
+    buf := (*u8)(malloc(usize(64)).unwrap());
+    if(first, {
+      e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+    });
+    (i : i64) = i64(0);
+    while(runtime(i < ROUNDS), {
+      n := e.io.await(IO_tcp.recv(fd, buf, usize(64), i32(0)), e.io);
+      if(n <= i32(0), {
+        return(i);
+      });
+      if(((i + i64(1)) < ROUNDS) || !first, {
+        e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+      });
+      i = (i + i64(1));
+    });
+    i
+  })
+);
+_std_side :: (fn(s : TcpStream, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
+  io.async(e => {
+    buf := (*u8)(malloc(usize(64)).unwrap());
+    if(first, {
+      e.io.await(s.write(buf, usize(1), e.io), e);
+    });
+    (i : i64) = i64(0);
+    while(runtime(i < ROUNDS), {
+      n := e.io.await(s.read(buf, usize(64), e.io), e);
+      if(n == usize(0), {
+        return(i);
+      });
+      if(((i + i64(1)) < ROUNDS) || !first, {
+        e.io.await(s.write(buf, usize(1), e.io), e);
+      });
+      i = (i + i64(1));
+    });
+    i
+  })
+);
+
+// Raw: the runtime op awaited directly inside io.async (what std's wrapper does internally).
+_write_raw :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i64, IoExn)))(
+  io.async(e => {
+    (i : i64) = i64(0);
+    (sum : i64) = i64(0);
+    while(runtime(i < WRITES), {
+      r := e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+      sum = (sum + i64(r));
+      i = (i + i64(1));
+    });
+    sum
+  })
+);
+// Std: TcpStream.write, the io.async wrapper around the same op.
+_write_std :: (fn(s : TcpStream, buf : *u8, io : Io) -> Impl(Future(i64, IoExn)))(
+  io.async(e => {
+    (i : i64) = i64(0);
+    (sum : i64) = i64(0);
+    while(runtime(i < WRITES), {
+      r := e.io.await(s.write(buf, usize(1), e.io), e);
+      sum = (sum + i64(r));
+      i = (i + i64(1));
+    });
+    sum
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`error: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  mode := match(env.get(String.from("MODE")), .Some(m) => m, .None => String.from("pp_raw"));
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), e);
+  addr := listener.local_addr();
+  clients := ArrayList(TcpStream).new();
+  servers := ArrayList(TcpStream).new();
+  (k : usize) = usize(0);
+  while(runtime(k < K), {
+    acc := io.spawn(listener.accept(io), e);
+    c := io.await(TcpStream.connect(addr, io), e);
+    io.await(c.set_nodelay(true, io), e);
+    s := acc.await(io).unwrap();
+    io.await(s.set_nodelay(true, io), e);
+    clients.push(c);
+    servers.push(s);
+    k = (k + usize(1));
+  });
+  cond(
+    ((mode == "wr_raw") || (mode == "wr_std")) => {
+      buf := (*u8)(malloc(usize(64)).unwrap());
+      c := clients.get(usize(0)).unwrap();
+      t0 := Instant.now();
+      cond(
+        (mode == "wr_std") => io.await(_write_std(c, buf, io), e),
+        true => io.await(_write_raw(c.fd(), buf, io), e)
+      );
+      println(`${mode}_ns ${t0.elapsed().as_nanos() / WRITES}`);
+    },
+    true => {
+      t0 := Instant.now();
+      hs := ArrayList(JoinHandle(i64)).new();
+      k = usize(0);
+      while(runtime(k < K), {
+        c := clients.get(k).unwrap();
+        s := servers.get(k).unwrap();
+        cond(
+          (mode == "pp_std") => {
+            hs.push(io.spawn(_std_side(c, true, io), e));
+            hs.push(io.spawn(_std_side(s, false, io), e));
+          },
+          true => {
+            hs.push(io.spawn(_raw_side(c.fd(), true, io), e));
+            hs.push(io.spawn(_raw_side(s.fd(), false, io), e));
+          }
+        );
+        k = (k + usize(1));
+      });
+      (j : usize) = usize(0);
+      while(runtime(j < hs.len()), {
+        hs.get(j).unwrap().await(io);
+        j = (j + usize(1));
+      });
+      println(`${mode}_ns ${t0.elapsed().as_nanos() / (ROUNDS * i64(8))}`);
+    }
+  );
+});
+export(main);
