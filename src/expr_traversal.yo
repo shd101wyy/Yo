@@ -593,25 +593,64 @@ _fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)(
     _ => false
   )
 );
-/// Does `e` contain an arrow function literal (`=>`, `->`) whose body names `name`?
+/// Does `e` contain a function or closure literal whose body names `name`?
+/// A `cond`/`match` arm's `=>` is not a closure: its parts are walked at the
+/// current depth, as `expr_contains_await` does.
 _fusion_closure_mentions :: (fn(e : AstExpr, name : String, inside_closure : bool) -> bool)(
   match(
     e,
     .Atom(_, tok) => (inside_closure && (tok.value == name)),
     .FnCall(_, f, args, _, _) => {
-      nested := (inside_closure || (ast_expr_is_atom_of(f, "=>") || ast_expr_is_atom_of(f, "->")));
+      is_cond_or_match := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
+      nested := (inside_closure || (!is_cond_or_match && is_function_boundary_arrow(e)));
       if(recur(f, name, nested), {
         return(true);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
-        if(match(args.get(i), .Some(a) => recur(a, name, nested), .None => false), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        // An arm `pattern => body`: walk its parts, not the arrow itself.
+        found := if(
+          is_cond_or_match && ast_expr_is_fn_call_of(arg, "=>", .None),
+          match(
+            arg,
+            .FnCall(_, _, arm_parts, _, _) => {
+              (j : usize) = usize(0);
+              (hit : bool) = false;
+              while((j < arm_parts.len()) && !hit, {
+                hit = match(arm_parts.get(j), .Some(ap) => recur(ap, name, nested), .None => false);
+                j = (j + usize(1));
+              });
+              hit
+            },
+            _ => false
+          ),
+          recur(arg, name, nested)
+        );
+        if(found, {
           return(true);
         });
         i = (i + usize(1));
       });
       false
     }
+  )
+);
+/// The name a closure's single parameter binds: `e` for `e => ...` and for
+/// `(e : T) => ...`; empty for any other shape.
+_fusion_param_name :: (fn(pa : AstExpr) -> String)(
+  cond(
+    ast_expr_is_atom(pa) => ast_expr_token(pa).value.clone(),
+    ast_expr_is_fn_call_of(pa, ":", .None) => match(
+      pa,
+      .FnCall(_, _, pargs, _, _) => match(
+        pargs.get(usize(0)),
+        .Some(pn) => if(ast_expr_is_atom(pn), ast_expr_token(pn).value.clone(), String.from("")),
+        .None => String.from("")
+      ),
+      _ => String.from("")
+    ),
+    true => String.from("")
   )
 );
 /// Why a function body is or is not a fusable single-await `io.async`
@@ -641,9 +680,9 @@ async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
     .FnCall(_, f, cargs, _, _) => if(ast_expr_is_atom_of(f, "=>") && (cargs.len() == usize(2)), {
       match(
         cargs.get(usize(0)),
-        .Some(pa) => if(ast_expr_is_atom(pa), {
-          param_name = ast_expr_token(pa).value.clone();
-        }),
+        .Some(pa) => {
+          param_name = _fusion_param_name(pa);
+        },
         .None => ()
       );
       match(cargs.get(usize(1)), .Some(b) => b, .None => return(Option(String).Some(String.from("the io.async closure has no body"))))
@@ -681,7 +720,10 @@ async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
   if(expr_tree_contains_return(block), {
     return(Option(String).Some(String.from("the block returns or unwinds early")));
   });
-  if((param_name.len() > usize(0)) && _fusion_closure_mentions(block, param_name.clone(), false), {
+  if(param_name.len() == usize(0), {
+    return(Option(String).Some(String.from("the io.async closure's parameter is not a plain name")));
+  });
+  if(_fusion_closure_mentions(block, param_name.clone(), false), {
     return(Option(String).Some(String.from("the block captures its effect bundle in a closure")));
   });
   Option(String).Some(String.from(""))

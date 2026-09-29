@@ -32,6 +32,33 @@ early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
     r
   })
 );
+// Rejected: a closure in the block captures the bundle.
+captures_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, n), e);
+    (f : Impl(Fn(v : i32) -> i32)) = (
+      v => {
+        _io := e;
+        v
+      }
+    );
+    f(r)
+  })
+);
+// Fusable: an untyped bundle parameter, mentioned only in a `cond` arm
+// (an arm is not a closure).
+arm_mentions_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async(e => {
+    r := e.await(leaf(e, n), e);
+    cond(
+      (r > i32(100)) => {
+        _io := e;
+        i32(0)
+      },
+      true => r
+    )
+  })
+);
 // No io.async at all: a delegation.
 delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(one_await(io, n));
 driver :: (fn(io : Io) -> Impl(Future(i32)))(
@@ -41,9 +68,11 @@ driver :: (fn(io : Io) -> Impl(Future(i32)))(
     c := e.await(await_operand(e, i32(3)), e);
     d := e.await(delegate(e, i32(4)), e);
     h := e.await(early_return(e, i32(6)), e);
+    k := e.await(captures_bundle(e, i32(7)), e);
+    m := e.await(arm_mentions_bundle(e, i32(8)), e);
     f := leaf(e, i32(5));
     g := e.await(f, e);
-    ((((((a + b) + c) + d) + g) + h) + h)
+    ((((((((a + b) + c) + d) + g) + h) + k) + m) + h)
   })
 );
 main :: (fn(io : Io) -> unit)({
