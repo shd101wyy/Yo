@@ -1,9 +1,10 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: BACKLOG — design audited 2026-09-29 (two passes), no
-> implementation started.** Verdict: **feasible**. An explicit allocator in
-> Yo selects *where* a block lives; reference counting keeps *whether and
-> when* it dies. Every allocation falls back to the global allocator when no
+> **Status: ACTIVE — implementation started 2026-09-29 (P0 in progress, as
+> stacked PRs on #1015).** Design audited 2026-09-29 (two passes). Verdict:
+> **feasible**. An explicit allocator in Yo selects *where* a block lives;
+> reference counting keeps *whether and when* it dies. Every allocation
+> falls back to the global allocator when no
 > explicit allocator is named, so `ref(struct(...))`, `ref(enum(...))`,
 > `Box`, `Dyn`, `Arc`, `String`, closures and all of std behave exactly as
 > today unless a program asks otherwise. This document answers the open
@@ -12,7 +13,7 @@
 > freezing needs a second implementor — an arena or a counting allocator").
 > It is the per-object layer **on top of** — not a replacement for — the
 > compile-time global allocator choice of
-> [`FIXED_REGION_ALLOCATOR.md`](../reference/FIXED_REGION_ALLOCATOR.md) §0
+> [`FIXED_REGION_ALLOCATOR.md`](reference/FIXED_REGION_ALLOCATOR.md) §0
 > (which scoped itself to "Yo keeps one global allocator" and recorded the
 > Zig-style parameter as out of that plan's scope).
 >

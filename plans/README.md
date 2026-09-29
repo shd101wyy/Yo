@@ -25,6 +25,7 @@ doc.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
+- [`EXPLICIT_ALLOCATORS.md`](EXPLICIT_ALLOCATORS.md) — Zig-style explicit allocators beside reference counting: placement by allocator, lifetime by RC, frees routed by an owner prefix; phased P0–P5.
 
 ## Reference (`reference/`)
 
@@ -49,10 +50,6 @@ verifier's design, V1–V7 landed),
 (indexed types and existentials: what Yo has, what the verifier still needs),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
-The allocator-parameter question `std/allocator.yo`'s stability note leaves open is
-designed in [`EXPLICIT_ALLOCATORS`](backlog/EXPLICIT_ALLOCATORS.md) — Zig-style explicit
-allocators layered on reference counting, global-allocator fallback, frees routed by
-an owning-allocator tag in the block.
 Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (verifier-driven removal of proved runtime guards; strict mode builds on it).
 
