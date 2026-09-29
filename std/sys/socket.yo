@@ -281,6 +281,18 @@ NI_NAMEREQD :: cond(
 /// `getnameinfo` flag: look the service up as UDP rather than TCP — the two
 /// name spaces differ for a handful of ports. `16` on all three platforms.
 NI_DGRAM :: i32(16);
+// ============================================================================
+// send() flags (MSG_*)
+// ============================================================================
+/// `send` flag: a send to a peer that has closed fails with `EPIPE` instead of
+/// raising `SIGPIPE`, whose default action KILLS the process. `std/net`'s
+/// stream writes pass it. `0x80000` on macOS (POSIX.1-2008, in the macOS 14
+/// SDK), `0x4000` on Linux, `0` on Windows, which has no `SIGPIPE`.
+MSG_NOSIGNAL :: cond(
+  (platform == Platform.Macos) => i32(0x80000),
+  (platform == Platform.Windows) => i32(0),
+  true => i32(0x4000)
+);
 export(
   AF_UNSPEC,
   AF_UNIX,
@@ -325,5 +337,6 @@ export(
   NI_NUMERICSERV,
   NI_NOFQDN,
   NI_NAMEREQD,
-  NI_DGRAM
+  NI_DGRAM,
+  MSG_NOSIGNAL
 );
