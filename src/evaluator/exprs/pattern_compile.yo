@@ -204,15 +204,12 @@ _constant_in_scope :: (fn(name : String, env : Environment) -> bool)({
   });
   match(
     v.value.get(v.value.len() - usize(1)),
-    .Some(val) => match(
-      val,
-      .IntLit(_) => true,
-      .FloatLit(_) => true,
-      .BoolVal(_) => true,
-      .StrLit(_) => true,
-      .EnumVal(_, _) => true,
-      _ => false
-    ),
+    .Some(.IntLit(_)) => true,
+    .Some(.FloatLit(_)) => true,
+    .Some(.BoolVal(_)) => true,
+    .Some(.StrLit(_)) => true,
+    .Some(.EnumVal(_, _)) => true,
+    .Some(_) => false,
     .None => false
   )
 });
@@ -1019,11 +1016,8 @@ _compile_tuple :: (
   });
   (elem_vals : Option(ArrayList(EvalValue))) = match(
     value_opt,
-    .Some(v) => match(
-      v,
-      .TupleVal(fs) => Option(ArrayList(EvalValue)).Some(fs),
-      _ => Option(ArrayList(EvalValue)).None
-    ),
+    .Some(.TupleVal(fs)) => Option(ArrayList(EvalValue)).Some(fs),
+    .Some(_) => Option(ArrayList(EvalValue)).None,
     .None => Option(ArrayList(EvalValue)).None
   );
   subs := ArrayList(Pattern).new();
@@ -1064,11 +1058,8 @@ _compile_struct :: (
   arity := field_tys.len();
   (field_vals : Option(ArrayList(EvalValue))) = match(
     value_opt,
-    .Some(v) => match(
-      v,
-      .StructVal(_, _, fvs) => Option(ArrayList(EvalValue)).Some(fvs),
-      _ => Option(ArrayList(EvalValue)).None
-    ),
+    .Some(.StructVal(_, _, fvs)) => Option(ArrayList(EvalValue)).Some(fvs),
+    .Some(_) => Option(ArrayList(EvalValue)).None,
     .None => Option(ArrayList(EvalValue)).None
   );
   field_idx := ArrayList(usize).new();
@@ -1288,11 +1279,8 @@ compile_pattern :: (
     );
     inner_val := match(
       value_opt,
-      .Some(v) => match(
-        v,
-        .StructVal(_, _, fvs) => fvs.get(usize(0)),
-        _ => Option(EvalValue).None
-      ),
+      .Some(.StructVal(_, _, fvs)) => fvs.get(usize(0)),
+      .Some(_) => Option(EvalValue).None,
       .None => Option(EvalValue).None
     );
     sub := recur(e, inner, inner_val, pc, env, ctx, exn);

@@ -865,13 +865,10 @@ _build_extract_variant :: (
 )(
   match(
     _build_arg_value(args, idx, ctx),
-    .Some(v) => match(
-      v,
-      .EnumVal(variant, _) => Option(String).Some(
-        if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
-      ),
-      _ => Option(String).None
+    .Some(.EnumVal(variant, _)) => Option(String).Some(
+      if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
     ),
+    .Some(_) => Option(String).None,
     .None => Option(String).None
   )
 );

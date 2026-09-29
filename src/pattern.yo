@@ -757,21 +757,18 @@ _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, 
       rows.get(i),
       .Some(row) => match(
         row.get(usize(0)),
-        .Some(head) => match(
-          head,
-          .Variant(vn, _, fidx, subs, _, _, _) => {
-            if(vn == name, {
-              out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
-            });
-          },
-          .Wildcard => {
-            out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
-          },
-          .Bind(_, _, _) => {
-            out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
-          },
-          _ => ()
-        ),
+        .Some(.Variant(vn, _, fidx, subs, _, _, _)) => {
+          if(vn == name, {
+            out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
+          });
+        },
+        .Some(.Wildcard) => {
+          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+        },
+        .Some(.Bind(_, _, _)) => {
+          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+        },
+        .Some(_) => (),
         .None => ()
       ),
       .None => ()
@@ -1017,15 +1014,12 @@ _missing_variants :: (fn(rows : ArrayList(ArrayList(Pattern)), enum_ty : TypeVal
           rows.get(ri),
           .Some(row) => match(
             row.get(usize(0)),
-            .Some(head) => match(
-              head,
-              .Variant(hn, _, _, _, _, _, _) => {
-                if(hn == vname, {
-                  present = true;
-                });
-              },
-              _ => ()
-            ),
+            .Some(.Variant(hn, _, _, _, _, _, _)) => {
+              if(hn == vname, {
+                present = true;
+              });
+            },
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()

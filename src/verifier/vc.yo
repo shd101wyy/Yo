@@ -1442,11 +1442,8 @@ _term_sort_of :: (fn(t : VcTerm) -> VcSort)(
 _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
   quoted := match(
     info.value,
-    .Some(v) => match(
-      v,
-      .StrLit(r) => r.clone(),
-      _ => String.new()
-    ),
+    .Some(.StrLit(r)) => r.clone(),
+    .Some(_) => String.new(),
     .None => String.new()
   );
   // StrLit.raw carries the surrounding quotes (exprs/import.yo) — strip
@@ -2669,11 +2666,8 @@ _quant_term :: (
       expr_info_table_get(ctx.table, ast_expr_id(ty_arg)),
       .Some(bi2) => match(
         bi2.value,
-        .Some(vb) => match(
-          vb,
-          .TypeVal(tv) => _type_sort(tv),
-          _ => _type_sort(bi2.ty)
-        ),
+        .Some(.TypeVal(tv)) => _type_sort(tv),
+        .Some(_) => _type_sort(bi2.ty),
         .None => _type_sort(bi2.ty)
       ),
       .None => Option(VcSort).None
@@ -3583,11 +3577,8 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .Some(v) => v,
         .None => match(
           pre_opt,
-          .Some(pv) => match(
-            pv,
-            .Some(pv2) => pv2,
-            .None => VcTerm.BoolLit(true)
-          ),
+          .Some(.Some(pv2)) => pv2,
+          .Some(.None) => VcTerm.BoolLit(true),
           .None => VcTerm.BoolLit(true)
         )
       ),
@@ -3616,11 +3607,8 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
           .Some(v) => v,
           .None => match(
             pre_opt,
-            .Some(pv) => match(
-              pv,
-              .Some(pv2) => pv2,
-              .None => phi_cell.*
-            ),
+            .Some(.Some(pv2)) => pv2,
+            .Some(.None) => phi_cell.*,
             .None => phi_cell.*
           )
         ),
@@ -3907,11 +3895,8 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
                   );
                   alen := match(
                     ctx.array_sorts.get(aname.clone()),
-                    .Some(asrt) => match(
-                      asrt,
-                      .ArrS(_, l2) => l2,
-                      _ => usize(0)
-                    ),
+                    .Some(.ArrS(_, l2)) => l2,
+                    .Some(_) => usize(0),
                     .None => usize(0)
                   );
                   _emit(
@@ -4170,11 +4155,8 @@ _callee_call_term :: (
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci) => match(
       ci.value,
-      .Some(v) => match(
-        v,
-        .FuncVal(fvd, _) => Option(String).Some(fvd.*.func_id.clone()),
-        _ => Option(String).None
-      ),
+      .Some(.FuncVal(fvd, _)) => Option(String).Some(fvd.*.func_id.clone()),
+      .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -4285,11 +4267,8 @@ _callee_call_term :: (
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci2) => match(
       ci2.value,
-      .Some(v2) => match(
-        v2,
-        .FuncVal(fvd2, _) => fvd2.*.params,
-        _ => ArrayList(String).new()
-      ),
+      .Some(.FuncVal(fvd2, _)) => fvd2.*.params,
+      .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()

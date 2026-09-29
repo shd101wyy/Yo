@@ -59,13 +59,10 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   );
   match(
     rc_final,
-    .Some(io_rcv) => match(
-      io_rcv,
-      .ExternOpaqueT(_, _) => {
-        return(true);
-      },
-      _ => ()
-    ),
+    .Some(.ExternOpaqueT(_, _)) => {
+      return(true);
+    },
+    .Some(_) => (),
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
@@ -3362,11 +3359,8 @@ _aw_destructure_pattern :: (
             )
           ) => match(
             raw.get(usize(0)),
-            .Some(ca) => match(
-              ca,
-              .FnCall(_, _, ia, _, _) => ia,
-              .Atom(_, _) => ArrayList(AstExpr).new()
-            ),
+            .Some(.FnCall(_, _, ia, _, _)) => ia,
+            .Some(.Atom(_, _)) => ArrayList(AstExpr).new(),
             .None => ArrayList(AstExpr).new()
           ),
           true => raw.clone()

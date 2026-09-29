@@ -249,13 +249,10 @@ evaluate_anonymous_struct_value :: (
         );
         match(
           field_values.get(si),
-          .Some(fvo) => match(
-            fvo,
-            .Some(v) => {
-              sv_vals.push(v);
-            },
-            .None => ()
-          ),
+          .Some(.Some(v)) => {
+            sv_vals.push(v);
+          },
+          .Some(.None) => (),
           .None => ()
         );
         si = (si + usize(1));

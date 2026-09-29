@@ -513,11 +513,8 @@ z3_check_sat_of :: (fn(forms : ArrayList(Z3Sexpr)) -> Option(String))({
 _head_atom_text :: (fn(items : ArrayList(Z3Sexpr)) -> Option(String))(
   match(
     items.get(usize(0)),
-    .Some(head) => match(
-      head,
-      .Atom(t) => Option(String).Some(t.clone()),
-      _ => Option(String).None
-    ),
+    .Some(.Atom(t)) => Option(String).Some(t.clone()),
+    .Some(_) => Option(String).None,
     .None => Option(String).None
   )
 );
@@ -643,11 +640,8 @@ z3_value_pairs_of :: (fn(forms : ArrayList(Z3Sexpr)) -> ArrayList(String))({
                       .List(kv2) => {
                         n := match(
                           kv2.get(usize(0)),
-                          .Some(name_form) => match(
-                            name_form,
-                            .Atom(t) => t.clone(),
-                            _ => String.from("?")
-                          ),
+                          .Some(.Atom(t)) => t.clone(),
+                          .Some(_) => String.from("?"),
                           .None => String.from("?")
                         );
                         v := match(

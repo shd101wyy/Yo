@@ -92,13 +92,10 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
   while((i < somes.len()) && !(found), {
     match(
       somes.get(i),
-      .Some(st) => match(
-        st,
-        .SomeT({ resolution : has_rc }) => if(has_rc.is_none(), {
-          found = true;
-        }),
-        _ => ()
-      ),
+      .Some(.SomeT({ resolution : has_rc })) => if(has_rc.is_none(), {
+        found = true;
+      }),
+      .Some(_) => (),
       .None => ()
     );
     i = (i + usize(1));

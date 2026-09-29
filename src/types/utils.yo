@@ -717,13 +717,10 @@ buffer_element_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
             while((fi < vf.len()) && result.is_none(), {
               match(
                 vf.get(fi),
-                .Some(ft) => match(
-                  ft,
-                  .Pointer(pointee) => {
-                    result = Option(TypeValue).Some(pointee);
-                  },
-                  _ => ()
-                ),
+                .Some(.Pointer(pointee)) => {
+                  result = Option(TypeValue).Some(pointee);
+                },
+                .Some(_) => (),
                 .None => ()
               );
               fi = (fi + usize(1));
@@ -1030,16 +1027,13 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
         while(cst_i < cst_rtt.len(), {
           match(
             cst_rtt.get(cst_i),
-            .Some(cst_t) => match(
-              cst_t,
-              .FnTraitT(_, _, _, _, _, _, _, _) => {
-                cst_has_fn_or_fut = true;
-              },
-              .FutureTraitT(_, _, _, _, _) => {
-                cst_has_fn_or_fut = true;
-              },
-              _ => ()
-            ),
+            .Some(.FnTraitT(_, _, _, _, _, _, _, _)) => {
+              cst_has_fn_or_fut = true;
+            },
+            .Some(.FutureTraitT(_, _, _, _, _)) => {
+              cst_has_fn_or_fut = true;
+            },
+            .Some(_) => (),
             .None => ()
           );
           cst_i = (cst_i + usize(1));

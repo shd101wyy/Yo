@@ -955,12 +955,8 @@ evaluate_assignment :: (
                       if(is_same_val, {
                         new_ref_opt := match(
                           av.value.get(usize(0)),
-                          .Some(av_inner) => match(
-                            av_inner,
-                            .StructVal(tn, fnames, fvals) =>
-                              Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
-                            _ => av.value.get(usize(0))
-                          ),
+                          .Some(.StructVal(tn, fnames, fvals)) => Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
+                          .Some(_) => av.value.get(usize(0)),
                           .None => av.value.get(usize(0))
                         );
                         update_existing_variable(env, av, make_variable_with_value(av, new_ref_opt));
@@ -1337,13 +1333,10 @@ Bound type: ${type_to_string(mcb_v.ty)}`
     (dgc_proven : bool) = false;
     match(
       rhs_info.value,
-      .Some(dgc_v) => match(
-        dgc_v,
-        .FuncVal(dgc_fvd, _) => {
-          dgc_proven = all_paths_unwind(dgc_fvd.*.body);
-        },
-        _ => ()
-      ),
+      .Some(.FuncVal(dgc_fvd, _)) => {
+        dgc_proven = all_paths_unwind(dgc_fvd.*.body);
+      },
+      .Some(_) => (),
       .None => ()
     );
     if(!dgc_proven, {

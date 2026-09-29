@@ -255,11 +255,8 @@ evaluate_iso_type_call :: (
   eval_val_opt := arg_info.value;
   child_type := match(
     eval_val_opt,
-    .Some(ev) => match(
-      ev,
-      .TypeVal(ty_box) => ty_box,
-      _ => TypeValue.Unit
-    ),
+    .Some(.TypeVal(ty_box)) => ty_box,
+    .Some(_) => TypeValue.Unit,
     .None => TypeValue.Unit
   );
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's

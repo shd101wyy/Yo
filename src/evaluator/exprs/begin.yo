@@ -1579,11 +1579,8 @@ _enclosing_fn_result_type :: (fn(ctx : EvalContext) -> Option(TypeValue))(
       fb_ctx.kind,
       .FunctionBody => match(
         fb_ctx.func_type,
-        .Some(ft) => match(
-          ft,
-          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
-          _ => Option(TypeValue).None
-        ),
+        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
       _ => Option(TypeValue).None
@@ -1797,11 +1794,8 @@ evaluate_begin_expression :: (
               fb_ctx.kind,
               .FunctionBody => match(
                 fb_ctx.func_type,
-                .Some(ft) => match(
-                  ft,
-                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
-                  _ => Option(TypeValue).None
-                ),
+                .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+                .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
               _ => Option(TypeValue).None
@@ -1899,11 +1893,8 @@ evaluate_begin_expression :: (
               ir_fb.kind,
               .FunctionBody => match(
                 ir_fb.func_type,
-                .Some(ir_ft) => match(
-                  ir_ft,
-                  .Func({ result : ir_ret }) => is_some_type(ir_ret),
-                  _ => false
-                ),
+                .Some(.Func({ result : ir_ret })) => is_some_type(ir_ret),
+                .Some(_) => false,
                 .None => false
               ),
               _ => false

@@ -2315,13 +2315,10 @@ _function_params_to_doc_params :: (
         (default_str : Option(String)) = Option(String).None;
         match(
           defaults.get(i),
-          .Some(od) => match(
-            od,
-            .Some(v) => {
-              default_str = Option(String).Some(value_to_string(v));
-            },
-            .None => ()
-          ),
+          .Some(.Some(v)) => {
+            default_str = Option(String).Some(value_to_string(v));
+          },
+          .Some(.None) => (),
           .None => ()
         );
         (doc : Option(String)) = Option(String).None;

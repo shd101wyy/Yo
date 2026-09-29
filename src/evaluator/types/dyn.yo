@@ -189,11 +189,8 @@ evaluate_dyn_type :: (
     // Validate it is a TypeVal carrying a TraitT.
     inner_ty := match(
       trait_info.value,
-      .Some(v) => match(
-        v,
-        .TypeVal(it) => it,
-        _ => t_i32()
-      ),
+      .Some(.TypeVal(it)) => it,
+      .Some(_) => t_i32(),
       .None => t_i32()
     );
     if(!is_type_value(trait_info.value), {

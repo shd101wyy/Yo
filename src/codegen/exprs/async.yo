@@ -728,13 +728,10 @@ emit_async_block_struct_definition :: (
               ap.future_type,
               .Some(ft) => match(
                 extract_future_trait_from_type(ft),
-                .Some(ftt) => match(
-                  ftt,
-                  .FutureTraitT({ output : o }) => {
-                    await_result_type = o.clone();
-                  },
-                  _ => ()
-                ),
+                .Some(.FutureTraitT({ output : o })) => {
+                  await_result_type = o.clone();
+                },
+                .Some(_) => (),
                 .None => ()
               ),
               .None => ()

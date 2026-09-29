@@ -1135,11 +1135,8 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       // value's type is concrete (not a SomeT itself).
       declared_ret_unresolved := match(
         context.current_function_type,
-        .Some(cft_dr) => match(
-          cft_dr,
-          .Func({ result : dr_r }) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
-          _ => false
-        ),
+        .Some(.Func({ result : dr_r })) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
+        .Some(_) => false,
         .None => false
       );
       if(declared_ret_unresolved && !is_some_type(ei.ty), {
