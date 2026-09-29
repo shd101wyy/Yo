@@ -1,0 +1,14 @@
+// expect-elided: 0
+// 5b twin: a signed `/` also needs its `MIN / -1` proof, which Phase 2 adds.
+// Until then the proved non-zero divisor alone must NOT drop the guard.
+pragma(Pragma.VerifyOrAssert);
+{ println } :: import("std/fmt");
+
+sdiv :: (fn(a : i32, b : i32, requires(b != i32(0))) -> i32)(
+  a / b
+);
+
+main :: (fn() -> unit)({
+  println(sdiv(i32(10), i32(2)));
+});
+export(main);

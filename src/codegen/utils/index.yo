@@ -38,6 +38,7 @@
 { type_key } :: import("../../types/type_key.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
+{ guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 { TargetInfo } :: import("../../target.yo");
 // Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
 // main.yo builds the C-compiler command AFTER compile_module returns only the
@@ -2028,6 +2029,10 @@ _idx_c_string_literal :: (fn(s : String) -> String)({
 /// The guarded index sub-expression for a runtime-length receiver (`str`:
 /// the caller spells the length as `(<recv>).len`).
 _checked_index_expr :: (fn(index_code : String, length_code : String, expr : AstExpr) -> String)({
+  // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+  if(guard_site_is_proved(expr, "index-in-bounds"), {
+    return(index_code);
+  });
   tok := ast_expr_token(expr);
   if(_is_decimal_literal(index_code.clone()) && _is_decimal_literal(length_code.clone()), {
     if(_parse_decimal(index_code.clone()) < _parse_decimal(length_code.clone()), {
