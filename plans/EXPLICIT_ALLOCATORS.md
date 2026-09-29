@@ -919,7 +919,9 @@ against the original list, and why:
    `arena (abandoned): …` — ahead of the heap line. The list stays off without the flag, so a leaked
    arena stays unreachable and LSan keeps reporting its region. The `deinit`
    trap message carries the same numbers:
-   `Arena.deinit: N block(s) still live (T of C bytes in use)`.
+   `Arena.deinit: N block(s) still live (T of C bytes in use)`. Gated by the
+   CLI case `test-debug-heap-lists-live-and-abandoned-arenas`: a module-level
+   arena and an abandoned one are listed, a deinit one is not.
 2. **Parallelism.** `Allocator` is `Send` (two words, no RC); the `Arena`
    handle is a `ref` and is NOT, pinned by a negative test in
    `tests/arena.test.yo`. `Mutex(Arena)` is not the sanctioned pattern after
