@@ -47,6 +47,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
     - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Explicit Allocators](#explicit-allocators)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
@@ -1017,6 +1018,21 @@ s3 := s2; // RC = 3
 The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
 
 See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+
+#### Explicit Allocators
+
+RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, and containers take one directly with `new_in`:
+
+```rust
+{ Arena } :: import("std/arena");
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(4096));
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
+p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
+```
+
+No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas).
 
 ## Pointers
 

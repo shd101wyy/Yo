@@ -1,7 +1,9 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: ACTIVE — implementation started 2026-09-29 (stacked PRs on
-> #1015; P0 and P1 implemented).** Design audited 2026-09-29 (two passes). Verdict:
+> **Status: ACTIVE — P0–P5 implemented as stacked PRs on #1015
+> (2026-09-29/30); P3c (default mutable-container constructors follow the
+> scope) is written and parked until `SEED_VERSION` carries the scope hooks.
+> Landed decisions: [`reference/EXPLICIT_ALLOCATORS.md`](reference/EXPLICIT_ALLOCATORS.md).** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation
 > falls back to the global allocator when no
@@ -448,9 +450,11 @@ plain := ArrayList(i32).new();
   unchanged — OOM inside an explicit allocator is `.None` → `try_push`
   returns `AllocError.OutOfMemory`; the infallible `push` still panics via
   the path it uses today.
-- **Stability ruling (D4):** no public-surface change, no layout change,
-  one private bit inside an existing word. Record the verdict in this doc
-  when P1 opens.
+- **Stability ruling (D4), recorded at P1:** no layout change, one private
+  bit inside an existing word, `_in` constructors additive. One public read
+  changed shape: HashMap's tombstone count carries the owner bit, so the
+  field became private `_tombstones` behind a masked `tombstones()` method
+  (every in-tree reader updated; no shim, per the single-user policy).
 
 ### 3.4 Layer 2 — RC objects from an explicit allocator (P2 + P3, codegen)
 
@@ -942,6 +946,15 @@ against the original list, and why:
 
 ### P5 — docs and stability freeze
 
+**Status: implemented** (branch `explicit-allocators-p5`): the two docs
+sections in both languages (MEMORY_SAFETY §"Explicit Allocators and
+Arenas", DESIGN §"Explicit Allocators"); `std/allocator.yo` and
+`std/arena.yo` marked stable (the criterion — containers take allocators,
+the RC layer landed — is met); `plans/reference/EXPLICIT_ALLOCATORS.md`.
+The docs describe mutable containers as taking their allocator through
+`_in`; P3c updates them when it un-parks. Release-notes curation happens
+with the release that carries the stack.
+
 1. `docs/en-US/MEMORY_SAFETY.md` + `DESIGN.md` and `zh-CN` twins (allocator
    = placement, RC = lifetime, the deinit rule, `abandon`, the scope-follows-
    the-task rule, what `scoped` captures); `std/allocator.yo` stability note
@@ -971,7 +984,7 @@ against the original list, and why:
 | D1 | tag mechanism | `ref_count` high bit on all three headers + 16 B prefix on tagged blocks only. A `gc_flags` bit was considered: zero hot-path cost on GC builds, but the lightweight header has no flags byte, so it would be two mechanisms. "Always-prefix every block" rejected — it taxes every object in every program, including the compiler's own multi-GB self-build |
 | D2 | language surface for RC construction | **decided in P3**: the std function `with_allocator(alloc, f)` with a closure, unwind-safe through an RAII guard (§3.5); the lazy-expression builtin and its constructor peephole were dropped. Type authors write `T.new_in(a, ...)` over it, the containers' convention |
 | D3 | thread-safety of explicit allocators | spinlock always (mirror of `FIXED_REGION_ALLOCATOR.md` §2.3) |
-| D4 | std stability: containers | no field, no layout change, one private bit in the capacity word; `_in` constructors additive; `new_in` allocates eagerly — record the ruling in the stability policy |
+| D4 | std stability: containers | no field, no layout change, one private bit in the capacity word; `_in` constructors additive; `new_in` allocates eagerly — **recorded in §3.3**; the one public change is HashMap `tombstones` field → method |
 | D5 | atomic RC from explicit allocators | **supported** from P3 (the path is `fetch_sub`, masked in one line); the first draft's rejection is withdrawn |
 | D6 | `Allocator` name collision with `std/build.yo` | keep both names; rename the runtime type to `Mem.Allocator` only if review finds real confusion |
 | D7 | allocator-aware `Dispose` | not introduced — dispose stays allocator-blind; the buffer routes through its prefix, the object through its prefix |

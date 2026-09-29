@@ -47,6 +47,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [引用语义类型与内存管理](#引用语义类型与内存管理)
     - [引用语义类型](#引用语义类型)
     - [编译期引用计数优化](#编译期引用计数优化)
+    - [显式分配器](#显式分配器)
 - [指针](#指针)
   - [指针操作](#指针操作)
   - [指针算术与比较](#指针算术与比较)
@@ -996,6 +997,21 @@ s3 := s2; // RC = 3
 编译器执行[所有权分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)以消除不必要的引用计数操作。
 
 详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+
+#### 显式分配器
+
+引用计数决定对象何时释放，显式分配器决定它放在哪里。`with_allocator(a, f)`（`std/allocator`）把 `f` 运行期间创建的每个引用语义对象放在分配器 `a` 中，容器则通过 `new_in` 直接接收分配器：
+
+```rust
+{ Arena } :: import("std/arena");
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(4096));
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
+p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
+```
+
+不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)。
 
 ## 指针
 
