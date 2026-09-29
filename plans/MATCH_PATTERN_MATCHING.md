@@ -11,7 +11,7 @@ single-constructor column splits like a one-variant enum; witnesses render
 `(w, w)` / `S(label : w, …)`. The Box work also surfaced and fixed a general
 codegen bug: `recur(...)` self-calls had no `__yo_effect_escaped` check, so a
 throw crossing a recursion boundary was swallowed and the caller continued
-with the callee's `{0}` (`issues/at-pattern-subpattern-error-crashes-check.md`,
+with the callee's `{0}` (`issues/fixed/at-pattern-subpattern-error-crashes-check.md`,
 fixed in `src/codegen/exprs/recur.yo`).
 
 **P1–P3 record:** on top of P0 (#672): the `Pattern` IR (`src/pattern.yo`) with its usefulness

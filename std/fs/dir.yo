@@ -448,19 +448,35 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     (i : usize) = usize(0);
     while(runtime(i < raw.len()), {
       r := raw(i);
+      (ft : FileType) = cond(
+        (r.dt == DT_REG) => FileType.File,
+        (r.dt == DT_DIR) => FileType.Directory,
+        (r.dt == DT_LNK) => FileType.Symlink,
+        true => FileType.Other
+      );
       // `DT_UNKNOWN` is not exotic: XFS, many network and overlay
       // filesystems, and any filesystem that does not carry the type inline
       // answer it for EVERY entry. Calling that `.Other` made the walker
       // silently skip whole subtrees and `remove_dir_all` call `remove_file`
       // on directories, so stat the entry — what every correct readdir
       // consumer does. Only this arm pays a syscall; a filesystem that
-      // reports a type keeps the fast path.
-      ft := cond(
-        (r.dt == DT_REG) => FileType.File,
-        (r.dt == DT_DIR) => FileType.Directory,
-        (r.dt == DT_LNK) => FileType.Symlink,
-        (r.dt == DT_UNKNOWN) => e.io.await(_file_type_or_other(path.join(Path.new(r.name.clone())), e.io), e.io),
-        true => FileType.Other
+      // reports a type keeps the fast path above.
+      //
+      // The stat is a STATEMENT-form `cond` assigning `ft`, not an arm of the
+      // value-form `cond` above. A value-position `cond` with an awaiting arm
+      // inside a `while` inside `io.async` yields the ZERO value for EVERY arm
+      // under a compiler without the fix
+      // (issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md),
+      // and `yo build` compiles the compiler with the SEED: folding the stat
+      // back into the value form made every seed-built compiler see every
+      // entry as the zero FileType and skip every subdirectory
+      // (issues/fixed/seed-built-compiler-read-dir-reports-every-entry-as-the-zero-file-type.md).
+      // Keep this form until SEED_VERSION carries the fix.
+      cond(
+        (r.dt == DT_UNKNOWN) => {
+          ft = e.io.await(_file_type_or_other(path.join(Path.new(r.name.clone())), e.io), e.io);
+        },
+        true => ()
       );
       entries.push(
         DirEntry(
