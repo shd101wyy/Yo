@@ -1,7 +1,10 @@
 # Async state-machine generation: the 2026-09-28 audit and the improvement plan
 
-**Status:** ACTIVE (since 2026-09-29). The audit is complete (#985), and
-phases 0 and 1 are in progress. The per-phase progress log is §9. Written
+**Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
+Phases 0–3 are merged (#989, #991), and phase 5 (the single-pass lowering)
+is landing; phases 6 and 7 are next. The owning `JoinHandle` of phase 2
+waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
+The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
 
 **Scope.** How the compiler turns an `io.async` body into a C state machine,
@@ -110,7 +113,7 @@ in codegen.
    Every rewrite is also top-level-only: `hoist_non_splittable_awaits`
    inspects only the last top-level expression of a segment, which is why
    `if(await …)` inside a match arm is rejected
-   (`issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`).
+   (`issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`).
 2. **Two independent numberings of the same thing.** The struct emitter
    numbers the extra `while_loop_N_active` and `cond_branch_N` fields by
    walking await points. The body emitter allocates them from
@@ -844,3 +847,33 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
       merges branch awaits into one point;
     - a sync bug: a begin-block `while` step dropped its declarations
       (`issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md`).
+- 2026-09-29: phase 5 flipped on `async-sm-p5-flip`. The single-pass
+  lowering is the only lowering, and the segment/continuation machinery is
+  deleted (about 7.9k lines: the `*_continuation` emitters,
+  `suspension_codegen.yo`, `CondBranch`/`WhileLoopInfo`/`AsyncCondBranchInfo`
+  and their context fields, the placement predicates). E0904 now covers only
+  the `inout` rule.
+  - Found and fixed after the flip:
+    - a materializer that compares a temp name with the raw code redeclared
+      a self-named atom whose rendering is its slot (`T known = sm->var_known;`,
+      the stage-2 `_compiler_identity`): `is_self_named_atom`, now tested at
+      every such site;
+    - a pattern binding of a scrutinee known at compile time is bound
+      compile-time-only, and the analysis skipped it, so it had no slot;
+      now a compile-time-only variable is skipped only when its read folds.
+  - Closed with the issue reproducers as tests (`tests/async_await.test.yo`
+    and `tests/async/channel.test.yo`): every §8 failing row, plus
+    `async-nested-cond-await-duplicate-while-labels`,
+    `async-postwhile-multiple-await-ifs`,
+    `async-cond-value-with-throwing-arm-after-await-undeclared-temp`,
+    `if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch`,
+    `io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await` and
+    `await-placement-rules-only-enforced-in-codegen`.
+  - **Seed-gated.** `src/` and `std/` are compiled by the seed, so they keep
+    the old safe spellings (await bound before a scrutinee or compound
+    condition, statement-form `cond` after an await, no await in a macro)
+    until `SEED_VERSION` carries this lowering. For the same reason
+    `std/async/stream.yo`'s `for_await` waits for that bump. The
+    cheatsheets say so. Lesson (from #996): build stage 1 with
+    `yo build --std-path ./std`, as CI does, or the seed never compiles the
+    tree's std and a seed-incompatible std change passes every local gate.

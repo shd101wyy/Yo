@@ -2,7 +2,7 @@
 
 **Severity:** S2 — C references a never-declared temp — clang error on a check-clean program
 
-**Status: OPEN.** Found 2026-09-05 writing `std/fs/dir.yo`'s `file_type`
+**Status: FIXED (2026-09-29).** Found 2026-09-05 writing `std/fs/dir.yo`'s `file_type`
 (issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md). Hard
 clang error, so it cannot ship silently — but `yo check` is green and the
 message names only compiler-generated identifiers.
@@ -96,3 +96,13 @@ bare local, fails the same way: `use of undeclared identifier
 So the defect is the value-cond lowering in the post-await segment, for any
 arm whose value is a plain operand, and the title's narrowing to a throwing
 arm is wrong.
+
+## Fix (2026-09-29, async state-machine plan phase 5)
+
+The segment lowering this shape broke is deleted. An `io.async` body is now
+emitted once, by the ordinary expression generators, into its resume
+function: each await suspends where it is written and resumes at its own
+label, and every local, pattern binding and await result lives in the task
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). `src/` and `std/` keep the statement-form workaround until `SEED_VERSION` carries the fix (the syntax cheatsheet says so).
+
+Regression tests (each fails on the v0.2.45 seed): `tests/async_await.test.yo` "a value cond whose arm reads a local, after an await".

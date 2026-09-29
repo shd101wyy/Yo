@@ -100,59 +100,48 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
 
-## Shared cond/match await points — consult the dispatch predicate
+## The single-pass async lowering (`io.async` state machines)
 
-A `cond`/`match` whose branches await shares ONE await point (one suspension
-state — only one branch runs). Branches can await futures of DIFFERENT C
-types, mix named and anonymous futures, or mix io/state-machine kinds, so any
-emission touching that point's future (slot declaration, branch stores,
-readiness/registration, result extraction, branch continuation) MUST route
-through `cond_await_point_needs_dispatch` (`src/codegen/async/state_code_gen.yo`):
+An `io.async` body is emitted ONCE, by the ordinary expression generators,
+into its resume function (`generate_async_block_resume_function_inline`,
+`src/codegen/async/state_machine.yo`; plan: `plans/ASYNC_STATE_MACHINE_GENERATION.md`
+phase 5). There are no segments, continuation functions, or per-construct
+async emitters: `await` is legal in any expression position and suspends in
+source order.
 
-- **uniform-anonymous** (all awaiting branches anonymous, same future C name):
-  the classic single-slot emission, unchanged.
-- **dispatch** (any named-future branch, or any type mismatch): the slot is a
-  type-erased `void*`; registration and extraction are emitted inside
-  `switch (sm->cond_branch_N)`, each case accessing the future through ITS
-  branch's exact type (`cond_branch_future_access`).
-
-Mixing the two modes at different sites emits ill-typed C. Full defect history
-(eight shapes, two silently wrong at runtime in released compilers):
-`issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md`.
-
-Related CI trap: `-Wincompatible-pointer-types` is a **default error in clang
-22+ that `-w` does not downgrade**, and the two Windows runners carry different
-clang majors (`windows-latest` pre-installs LLVM 20 so `choco install llvm`
-no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
-may be a clang VERSION difference, not an architecture one — check the
-versions in the job logs first.
-
-## `sm->await_future_N` OWNS its reference — a borrowed future must be dup'd
-
-The state machine `__yo_decr_rc`s that slot in three places: when the await's
-result is extracted, when the awaited future aborts, and in the state machine's
-dispose function. So whatever is stored there must be a reference the slot owns:
-
-- a future the awaited expression **produces** (an `io.async(…)` block, a
-  `__yo_async_*_start()` extern, a call returning `Impl(Future)`) hands over the
-  reference it just created, and its temp's deferred drop is aliased onto the
-  slot rather than emitted separately (`state_machine.yo`, Phase 1b);
-- a **named** future is never stored in the slot at all — the await reads the
-  variable's own field, because storing it would hand the slot a reference it
-  does not own;
-- a future read out of a **place** (a field, or a chain of them) is BORROWED:
-  the owner still drops it, so the slot must `__yo_incr_rc` its own.
-
-All seven store sites go through `emit_await_future_store`
-(`src/codegen/async/state_code_gen.yo`) for exactly that reason — do not write
-a bare `sm->await_future_N = …` at a new one. The missing dup was a
-use-after-free in `Park.wait`, which awaits `self._future`
-(`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`);
-it does not reproduce by running the program locally (this box's
-`--sanitize address` is inert — the runner prints "AddressSanitizer is not
-functional with this compiler setup … Skipping sanitizer"), while ALL SIX CI
-`test (…)` legs die on it. An RC change around awaits is not clean until those
-legs have run; until then, read the counts in the emitted C.
+- **Shape.** An aborted-entry guard, `goto __yo_dispatch;`, `__yo_state_0:`,
+  the body, its completion, then `__yo_dispatch: switch (sm->state)` listing
+  exactly the labels the body produced. `generate_await` in state-machine
+  context calls `emit_inline_await`, which emits the suspension (state store,
+  ready check, cold start, waiter registration, `return`) and the
+  `__yo_resume_K:` label it continues at. An await reached outside the resume
+  function is a `codegen_fatal_expr`, and an await emitted TWICE is a
+  `codegen_fatal`: an emitter must generate an expression that contains an
+  await exactly once.
+- **Rule 1: nothing that lives across an await is a C local.** A jump out of
+  the function and back to a label leaves every C local garbage. Every
+  captured non-unit local lives in `sm->var_<id>` (`compute_cross_boundary_variables`),
+  including a compile-time-only variable whose read codegen does not fold (a
+  pattern binding of a scrutinee known at compile time is bound
+  compile-time-only). A pattern binding is declared in its arm, stored into
+  its slot by `_bind_pattern_name`, found by declaration site
+  (`_inline_binding_sm_field`: sibling arms share names), and read back
+  through `shadow_slots`.
+- **Await results** live in `sm->__yo_await_result_<k>`, one per await
+  EXPRESSION: `f(await a, await b)` suspends a second time before the first
+  result is read.
+- **One `__yo_await_slot`** (a task has at most one pending await) owns an
+  anonymous future. `emit_future_store_into_slot` dups a future read out of a
+  place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
+  and the future's temp goes into `moved_into_slot`, which suppresses its
+  scope-end drop. A named future is awaited in place and stays with its owner.
+- **Do not redeclare a self-named atom.** The materializers (a `return`'s
+  deferred dup, an arm value, a dup-or-code) declare `T <variable_name> =
+  <rendered code>;` when the two differ. For an atom named after itself the
+  rendering is its slot (`sm->var_…`), and the declaration redefines the
+  binding in its own C scope. Test `is_self_named_atom` first
+  (`src/codegen/utils/index.yo`); every site that compares a temp name to the
+  raw code needs it.
 
 ## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
 

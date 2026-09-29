@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `check` and the LSP report clean what codegen rejects with E0904 — the await-placement rule surfaces only in a ~3-minute compile
 
-**Status: OPEN.** Found 2026-09-28 by the async state-machine audit
+**Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
 
@@ -73,3 +73,13 @@ by the evaluator (`validate_await_placement`, evaluator/async/await_placement.yo
 No such function or file exists in any branch (`git log -S validate_await_placement`
 finds only that comment). The fix for this issue should create the check
 and make the comment true.
+
+## Fix (2026-09-29, async state-machine plan phase 5)
+
+The segment lowering this shape broke is deleted. An `io.async` body is now
+emitted once, by the ordinary expression generators, into its resume
+function: each await suspends where it is written and resumes at its own
+label, and every local, pattern binding and await result lives in the task
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The placement rules themselves are gone: E0904 now covers only the `inout` rule, and the CLI cases that used to golden the placement errors (`async-await-in-an-operand`, `async-await-in-an-expression-in-an-arm`, `async-await-in-a-while-body-expression`, `async-awaiting-match-constant-pattern`, `await-in-later-cond-branch`, `await-nested-in-if-condition`) now build and run their programs.
+
+Regression tests (each fails on the v0.2.45 seed): `tests/async_await.test.yo` "an await nested inside an if condition"; `tests/async_await.test.yo` "a begin-block value with awaits".

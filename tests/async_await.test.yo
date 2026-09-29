@@ -5975,3 +5975,520 @@ test("an early return of an awaited-across local completes with the value", {
   late := io.await(_sm_ret_list(false, io), io);
   assert(late.len() == usize(2), "the tail return still works");
 });
+// ===========================================================================
+// Reproducers of the issues the single-pass lowering fixed
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5). The shape cases' expected
+// values are the same body run synchronously.
+// ===========================================================================
+// ---------------------------------------------------------------------------
+// a three-deep awaiting while resumes the middle loop
+// issues/fixed/three-deep-nested-while-never-resumes-the-middle-loop.md (reproducer: issues/repros/async-shape-b2-three-deep-while-middle-loop-skipped.yo)
+// ---------------------------------------------------------------------------
+_v_b2 :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b2 :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      i = (i + i32(1));
+      (j : i32) = i32(0);
+      while(j < n, {
+        j = (j + i32(1));
+        (k : i32) = i32(0);
+        while(k < n, {
+          k = (k + i32(1));
+          t := e.await(_v_b2(i32(1), e), e);
+          acc = (acc + t);
+        });
+      });
+    });
+    acc
+  })
+);
+test("a three-deep awaiting while resumes the middle loop", {
+  assert(io.await(_run_b2(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b2(i32(1), io), io) == i32(1), "n=1");
+  assert(io.await(_run_b2(i32(3), io), io) == i32(27), "n=3");
+});
+// ---------------------------------------------------------------------------
+// code after a nested arm with two awaits runs after both
+// issues/fixed/an-arm-with-two-sequential-awaits-runs-enclosing-code-in-the-wrong-state.md (reproducer: issues/repros/async-shape-b3a-nested-if-arm-two-awaits-outer-remaining-runs-early.yo)
+// ---------------------------------------------------------------------------
+_v_b3a :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b3a :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b3a :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (x : i32) = i32(0);
+    if(n > i32(0), {
+      if(n > i32(1), {
+        b := e.await(_v_b3a(n + i32(1), e), e);
+        x = e.await(_v_b3a(b + i32(1), e), e);
+      });
+      x = (x + i32(100));
+    });
+    x
+  })
+);
+test("code after a nested arm with two awaits runs after both", {
+  assert(io.await(_run_b3a(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b3a(i32(1), io), io) == i32(100), "n=1");
+  assert(io.await(_run_b3a(i32(3), io), io) == i32(105), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a loop body's code after an arm with two awaits runs once
+// issues/fixed/an-arm-with-two-sequential-awaits-runs-enclosing-code-in-the-wrong-state.md (reproducer: issues/repros/async-shape-b3b-loop-if-arm-two-awaits-body-remaining-runs-twice.yo)
+// ---------------------------------------------------------------------------
+_v_b3b :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b3b :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b3b :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      if(i >= i32(0), {
+        a := e.await(_v_b3b(i, e), e);
+        b := e.await(_v_b3b(a * i32(10), e), e);
+        acc = (acc + b);
+      });
+      acc = (acc + i32(1));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("a loop body's code after an arm with two awaits runs once", {
+  assert(io.await(_run_b3b(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b3b(i32(1), io), io) == i32(1), "n=1");
+  assert(io.await(_run_b3b(i32(3), io), io) == i32(33), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a break after an await in an if arm leaves the loop
+// issues/fixed/break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md (reproducer: issues/repros/async-shape-b4a-break-after-await-in-arm-ignored.yo)
+// ---------------------------------------------------------------------------
+_v_b4a :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b4a :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b4a :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      i = (i + i32(1));
+      if(i > n, {
+        t := e.await(_v_b4a(i, e), e);
+        acc = (acc + (t * i32(100)));
+        break;
+      });
+      acc = (acc + i);
+    });
+    acc
+  })
+);
+test("a break after an await in an if arm leaves the loop", {
+  assert(io.await(_run_b4a(i32(0), io), io) == i32(100), "n=0");
+  assert(io.await(_run_b4a(i32(1), io), io) == i32(201), "n=1");
+  assert(io.await(_run_b4a(i32(3), io), io) == i32(406), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a continue after an await in an if arm continues the loop
+// issues/fixed/break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md (reproducer: issues/repros/async-shape-b4b-continue-after-await-in-arm-c-error.yo)
+// ---------------------------------------------------------------------------
+_v_b4b :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b4b :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b4b :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < (n * i32(2)), {
+      i = (i + i32(1));
+      if((i % i32(2)) == i32(0), {
+        t := e.await(_v_b4b(i, e), e);
+        acc = (acc + t);
+        continue;
+      });
+      acc = (acc + i32(1000));
+    });
+    acc
+  })
+);
+test("a continue after an await in an if arm continues the loop", {
+  assert(io.await(_run_b4b(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b4b(i32(1), io), io) == i32(1002), "n=1");
+  assert(io.await(_run_b4b(i32(3), io), io) == i32(3012), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a break after an await in a match arm leaves the loop
+// issues/fixed/break-or-continue-after-an-await-in-an-arm-emits-raw-c-keywords.md (reproducer: issues/repros/async-shape-b4c-break-after-await-in-match-arm-ignored.yo)
+// ---------------------------------------------------------------------------
+E_b4c :: enum(Go, Stop(v : i32));
+
+_v_b4c :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b4c :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_vs_b4c :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
+_run_b4c :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      i = (i + i32(1));
+      ev := cond((i > n) => E_b4c.Stop(i), true => E_b4c.Go);
+      match(
+        ev,
+        .Stop(v) => {
+          t := e.await(_v_b4c(v, e), e);
+          acc = (acc + (t * i32(100)));
+          break;
+        },
+        .Go => ()
+      );
+      acc = (acc + i);
+    });
+    acc
+  })
+);
+test("a break after an await in a match arm leaves the loop", {
+  assert(io.await(_run_b4c(i32(0), io), io) == i32(100), "n=0");
+  assert(io.await(_run_b4c(i32(1), io), io) == i32(201), "n=1");
+  assert(io.await(_run_b4c(i32(3), io), io) == i32(406), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a bound match with an awaited scrutinee and an awaiting arm
+// issues/fixed/hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md (reproducer: issues/repros/async-shape-b5a-bound-match-await-scrutinee-and-await-arm-garbage.yo)
+// ---------------------------------------------------------------------------
+_v_b5a :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b5a :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b5a :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    r := match(e.await(_v_b5a(n, e), e), i32(3) => i32(30), i32(1) => e.await(_v_b5a(i32(10), e), e), _ => i32(0));
+    r + n
+  })
+);
+test("a bound match with an awaited scrutinee and an awaiting arm", {
+  assert(io.await(_run_b5a(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b5a(i32(1), io), io) == i32(11), "n=1");
+  assert(io.await(_run_b5a(i32(3), io), io) == i32(33), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a statement match with an awaited scrutinee and an awaiting arm
+// issues/fixed/hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md (reproducer: issues/repros/async-shape-b5b-stmt-match-await-scrutinee-and-await-arm-c-error.yo)
+// ---------------------------------------------------------------------------
+_v_b5b :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b5b :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b5b :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (x : i32) = i32(0);
+    match(
+      e.await(_v_b5b(n, e), e),
+      i32(3) => {
+        x = e.await(_v_b5b(i32(30), e), e);
+      },
+      i32(1) => {
+        x = i32(10);
+      },
+      _ => ()
+    );
+    x + n
+  })
+);
+test("a statement match with an awaited scrutinee and an awaiting arm", {
+  assert(io.await(_run_b5b(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b5b(i32(1), io), io) == i32(11), "n=1");
+  assert(io.await(_run_b5b(i32(3), io), io) == i32(33), "n=3");
+});
+// ---------------------------------------------------------------------------
+// an if with an awaited condition and an awaiting branch
+// issues/fixed/hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md (reproducer: issues/repros/async-shape-b5c-if-await-condition-and-await-arm-c-error.yo)
+// ---------------------------------------------------------------------------
+_v_b5c :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b5c :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b5c :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (x : i32) = i32(0);
+    if(e.await(_vb_b5c(n > i32(1), e), e), {
+      x = e.await(_v_b5c(n, e), e);
+    }, {
+      x = i32(6);
+    });
+    x + i32(100)
+  })
+);
+test("an if with an awaited condition and an awaiting branch", {
+  assert(io.await(_run_b5c(i32(0), io), io) == i32(106), "n=0");
+  assert(io.await(_run_b5c(i32(1), io), io) == i32(106), "n=1");
+  assert(io.await(_run_b5c(i32(3), io), io) == i32(103), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a while with an awaited condition and an awaiting body
+// issues/fixed/hoisted-condition-await-plus-an-arm-or-body-await-is-lowered-as-plain-code.md (reproducer: issues/repros/async-shape-b5d-while-await-condition-and-await-body-c-error.yo)
+// ---------------------------------------------------------------------------
+_v_b5d :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b5d :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b5d :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(e.await(_vb_b5d(i < n, e), e), {
+      t := e.await(_v_b5d(i, e), e);
+      acc = (acc + t);
+      i = (i + i32(1));
+    });
+    acc + (i * i32(100))
+  })
+);
+test("a while with an awaited condition and an awaiting body", {
+  assert(io.await(_run_b5d(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b5d(i32(1), io), io) == i32(100), "n=1");
+  assert(io.await(_run_b5d(i32(3), io), io) == i32(303), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a while with an awaiting step and a bound await in the body
+// issues/fixed/while-with-await-in-both-step-and-body-is-miscompiled.md (reproducer: issues/repros/async-shape-b6a-while-await-step-and-await-body-c-error.yo)
+// ---------------------------------------------------------------------------
+_v_b6a :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b6a :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b6a :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, i = e.await(_v_b6a(i + i32(1), e), e), {
+      t1 := e.await(_v_b6a(i, e), e);
+      acc = ((acc * i32(10)) + t1);
+    });
+    acc + (i * i32(1000))
+  })
+);
+test("a while with an awaiting step and a bound await in the body", {
+  assert(io.await(_run_b6a(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b6a(i32(1), io), io) == i32(1000), "n=1");
+  assert(io.await(_run_b6a(i32(3), io), io) == i32(3012), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a while with an awaiting step and a bare await in the body
+// issues/fixed/while-with-await-in-both-step-and-body-is-miscompiled.md (reproducer: issues/repros/async-shape-b6b-while-await-step-and-bare-await-body-segv.yo)
+// ---------------------------------------------------------------------------
+_v_b6b :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b6b :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_b6b :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, i = e.await(_v_b6b(i + i32(1), e), e), {
+      e.await(_v_b6b(i, e), e);
+      acc = (acc + i32(1));
+    });
+    acc + (i * i32(1000))
+  })
+);
+test("a while with an awaiting step and a bare await in the body", {
+  assert(io.await(_run_b6b(i32(0), io), io) == i32(0), "n=0");
+  assert(io.await(_run_b6b(i32(1), io), io) == i32(1001), "n=1");
+  assert(io.await(_run_b6b(i32(3), io), io) == i32(3003), "n=3");
+});
+// ---------------------------------------------------------------------------
+// code after an awaiting while in a primitive match arm runs once
+// issues/fixed/primitive-match-arm-while-await-post-loop-code-runs-every-iteration.md (reproducer: issues/repros/async-shape-b7-prim-match-arm-post-while-code-every-iteration.yo)
+// ---------------------------------------------------------------------------
+_v_b7 :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_b7 :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_vs_b7 :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
+_run_b7 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    match(
+      n,
+      i32(0) => {
+        acc = i32(-1);
+      },
+      _ => {
+        (i : i32) = i32(0);
+        while(i < n, {
+          t := e.await(_v_b7(i, e), e);
+          acc = (acc + t);
+          i = (i + i32(1));
+        });
+        acc = (acc + i32(100));
+      }
+    );
+    acc
+  })
+);
+test("code after an awaiting while in a primitive match arm runs once", {
+  assert(io.await(_run_b7(i32(0), io), io) == i32(-1), "n=0");
+  assert(io.await(_run_b7(i32(1), io), io) == i32(100), "n=1");
+  assert(io.await(_run_b7(i32(3), io), io) == i32(103), "n=3");
+});
+// ---------------------------------------------------------------------------
+// a begin-block value with awaits
+// issues/fixed/await-placement-rules-only-enforced-in-codegen.md (reproducer: issues/repros/async-shape-d1-begin-block-value-with-awaits-misleading-e0904.yo)
+// ---------------------------------------------------------------------------
+_v_d1 :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vb_d1 :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_run_d1 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    r := {
+      a := e.await(_v_d1(n, e), e);
+      b := e.await(_v_d1(i32(2), e), e);
+      a * b
+    };
+    r + i32(1)
+  })
+);
+test("a begin-block value with awaits", {
+  assert(io.await(_run_d1(i32(0), io), io) == i32(1), "n=0");
+  assert(io.await(_run_d1(i32(1), io), io) == i32(3), "n=1");
+  assert(io.await(_run_d1(i32(3), io), io) == i32(7), "n=3");
+});
+// ---------------------------------------------------------------------------
+// two awaits in the body of a nested while
+// issues/fixed/async-nested-cond-await-duplicate-while-labels.md (reproducer: issues/repros/async-nested-while-two-awaits-duplicate-labels.yo)
+// ---------------------------------------------------------------------------
+_f_dl :: (fn(v : i32, io : Io) -> Impl(Future(i32, IoExn)))(io.async(e => (v * i32(10))));
+_walk_dl :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (total : i32) = i32(0);
+    (outer : i32) = i32(0);
+    while(runtime(outer < i32(2)), {
+      (j : i32) = i32(0);
+      while(runtime(j < i32(3)), {
+        a := e.io.await(_f_dl(j, e.io), e);
+        b := e.io.await(_f_dl(a, e.io), e);
+        total = (total + b);
+        j = (j + i32(1));
+      });
+      outer = (outer + i32(1));
+    });
+    total
+  })
+);
+test("two awaits in the body of a nested while", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  r := io.await(_walk_dl(io), IoExn(io : io, exn : exn));
+  assert(r == i32(600), "every iteration of both loops runs once");
+});
+// ---------------------------------------------------------------------------
+// two awaiting ifs after a cond in a while body
+// issues/fixed/async-postwhile-multiple-await-ifs.md (reproducer: issues/repros/async-postwhile-two-await-ifs.yo)
+// ---------------------------------------------------------------------------
+_a_pw :: (fn(v : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    v + i32(1)
+  })
+);
+_step_pw :: (fn(i : i32) -> i32)(i % i32(3));
+_pump_pw :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (settled : bool) = false;
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(runtime(!settled), {
+      rc := _step_pw(i);
+      (act : int) = int(0);
+      cond(
+        (rc == i32(0)) => {
+          act = int(1);
+        },
+        (rc == i32(1)) => {
+          act = int(2);
+        },
+        true => ()
+      );
+      if(act == int(1), {
+        x := e.io.await(_a_pw(i32(10), e.io), e);
+        y := e.io.await(_a_pw(i32(20), e.io), e);
+        total = (total + x + y);
+      });
+      if(act == int(2), {
+        z := e.io.await(_a_pw(i32(100), e.io), e);
+        total = (total + z);
+      });
+      i = (i + i32(1));
+      if(i >= i32(6), {
+        settled = true;
+      });
+    });
+    total
+  })
+);
+test("two awaiting ifs after a cond in a while body", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  r := io.await(_pump_pw(io), IoExn(io : io, exn : exn));
+  assert(r == i32(266), "each awaiting if runs only on its own iterations");
+});
+// ---------------------------------------------------------------------------
+// a value cond whose arm reads a local, after an await
+// issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md (reproducer: issues/repros/async-value-cond-bare-local-arm-after-await.yo)
+// ---------------------------------------------------------------------------
+_t1_vc :: (fn(k : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    r := (k + i32(1));
+    q := cond((k == i32(5)) => (r + i32(100)), true => r);
+    q
+  })
+);
+test("a value cond whose arm reads a local, after an await", {
+  assert(io.await(_t1_vc(i32(5), io), io) == i32(106), "the computed arm");
+  assert(io.await(_t1_vc(i32(6), io), io) == i32(7), "the bare-local arm");
+});
+// ---------------------------------------------------------------------------
+// an await nested inside an if condition
+// issues/fixed/await-placement-rules-only-enforced-in-codegen.md (reproducer: issues/repros/await-placement-rules-only-enforced-in-codegen.yo)
+// ---------------------------------------------------------------------------
+_b_pl :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => true));
+_run_pl :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    if(!e.await(_b_pl(e), e), {
+      return(i32(1));
+    });
+    i32(2)
+  })
+);
+test("an await nested inside an if condition", {
+  assert(io.await(_run_pl(io), io) == i32(2), "the negated condition is false");
+});
+// ---------------------------------------------------------------------------
+// an if whose condition awaits, inside a match arm
+// issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md (reproducer: issues/repros/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.yo)
+// ---------------------------------------------------------------------------
+_f_im :: (fn(d : i32, io : Io) -> Impl(Future(bool, Io)))(io.async(io => (d > i32(1))));
+_t_im :: (fn(opt : Option(i32), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    (hits : i32) = i32(0);
+    match(
+      opt,
+      .Some(d) => {
+        if(e.io.await(_f_im(d, e.io), e.io), {
+          hits = (hits + i32(10));
+        });
+      },
+      .None => ()
+    );
+    hits
+  })
+);
+test("an if whose condition awaits, inside a match arm", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  b := IoExn(io : io, exn : exn);
+  assert(io.await(_t_im(.Some(i32(5)), io), b) == i32(10), "the condition holds");
+  assert(io.await(_t_im(.Some(i32(0)), io), b) == i32(0), "the condition fails");
+  assert(io.await(_t_im(.None, io), b) == i32(0), "the other arm");
+});

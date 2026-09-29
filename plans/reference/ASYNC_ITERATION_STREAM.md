@@ -18,7 +18,7 @@
 >   only through a MACRO EXPANSION is not counted as a suspension point, so the
 >   enclosing `io.async` body is emitted as a plain closure with a BLOCKING
 >   await — correct from `main`, a deadlock inside a task. See
->   `issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
+>   `issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
 >   and `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`.
 >   `for_each` + `take` and the hand-written `while` loop cover the ground
 >   meanwhile.

@@ -1980,11 +1980,14 @@ them — the state-machine emitter lives in codegen):
   await emitted nothing —
   issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md.
 
-Each shape now has a test in `tests/async_await.test.yo`. One older report of
-this family (issues/async-await-nested-if-lost-continuation.md, a nested
-awaiting `if` after a PLAIN helper that awaits internally, 2026-08-22) was
-never minimized; its reconstructed shape passes, so if you meet it again,
-distill it and file the reproducer rather than hoisting around it.
+Each shape now has a test in `tests/async_await.test.yo`. The emitter they
+lived in is gone: phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` lowers
+an `io.async` body in one pass through the ordinary expression generators, so
+an await may sit in any arm, condition or operand. One older report of this
+family (issues/async-await-nested-if-lost-continuation.md, a nested awaiting
+`if` after a PLAIN helper that awaits internally, 2026-08-22) was never
+minimized; its reconstructed shape passes, so if you meet it again, distill it
+and file the reproducer rather than hoisting around it.
 
 ## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
 
@@ -2092,14 +2095,15 @@ Worse, `yo fmt` will then "format" the accidental Yo fragment — inserting the
 spaces you see inside those backticks — so the file no longer matches what you
 typed. Inside any emitted-C template, write `struct stat`, not the quoted form.
 
-## Async value-position `cond` after an await: use the statement form
+## Async value-position `cond` after an await: seed-gated in `src/` and `std/`
 
-Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER an
-await, where one arm's value is a plain variable read, fails in clang with
-`use of undeclared identifier '_file____User_temp_N'` — `yo check` cannot see
-it, and no `throw` is needed to trigger it
-(issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
-The safe rewrite: predeclare, then assign from STATEMENT-form `cond`s:
+Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER
+an await, where one arm's value is a plain variable read, failed in clang with
+`use of undeclared identifier '_file____User_temp_N'`
+(issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+The single-pass lowering fixes it, but the seed still has the bug, so in
+`src/` and `std/` keep the statement form until `SEED_VERSION` carries the
+fix: predeclare, then assign from statement-form `cond`s:
 
 ```rust
 (q : i32) = r;                              // predeclared, mutable
@@ -2111,6 +2115,6 @@ cond(
 );
 ```
 
-A value-position `cond`/`match` with an AWAITING arm inside a `while` works
-since 2026-09-29 (it used to yield the zero value for every arm,
-issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).
+The same gating applies to `std/fs/dir.yo`'s `read_dir`, which keeps the
+statement form for the seed's cond-in-while bug
+(issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).
