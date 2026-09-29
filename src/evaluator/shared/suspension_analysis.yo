@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_unknown_val } :: import("../../value.yo");
 {
   SuspensionPoint,
   SuspensionCapturedVariable,
@@ -201,6 +202,7 @@ _capture_env_variable :: (
     var_name : String,
     env : Environment,
     ty_override : Option(TypeValue),
+    read_is_folded : bool,
     captured_variables : HashMap(String, SuspensionCapturedVariable),
     captured_variable_ids_in_order : ArrayList(String),
     name_frame_to_original_id : HashMap(String, String),
@@ -239,7 +241,14 @@ _capture_env_variable :: (
       },
       .Some(v) => v
     );
-    if(!variable.is_compile_time_only && !captured_variables.contains_key(variable.id.to_string()), {
+    // A compile-time-only variable needs no storage only when its read folds
+    // to its value; otherwise codegen names it in C like any local. A pattern
+    // binding of a scrutinee known at compile time is such a variable (the
+    // evaluator binds it compile-time-only, codegen still declares it and a
+    // read whose value the arm widened stays a name), and without a slot its
+    // C local is garbage after an await in the arm.
+    needs_storage := (!variable.is_compile_time_only || !read_is_folded);
+    if(needs_storage && !captured_variables.contains_key(variable.id.to_string()), {
       // The SSA-remapping key includes the DECLARATION SITE, not just
       // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
       // which re-stamps the same declaration with a fresh id and so must share
@@ -353,7 +362,8 @@ walk_expr_ :: (
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            read_folded := match(info.value, .Some(rv) => !is_unknown_val(rv), .None => false);
+            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), read_folded, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -378,7 +388,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );

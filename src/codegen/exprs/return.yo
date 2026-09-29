@@ -744,7 +744,11 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               );
             });
           });
-          if(!is_inout_arg_atom && !(arg_temp_var == raw_arg_code), {
+          // A self-named atom's value is its own rendering, which can be its
+          // state-machine slot: declaring `T name = sm->var_…` would redefine
+          // the binding (see handle_func_call_deferred_dup).
+          arg_self := is_self_named_atom(arg, avn.clone());
+          if(!is_inout_arg_atom && !arg_self && !(arg_temp_var == raw_arg_code), {
             dline := indent.clone();
             dline.push_string(get_type_string(aei2.ty, context.base));
             dline.push_str(" ");
@@ -756,7 +760,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             em2.emit_string_line(dline);
             context.base.declared_c_var_names.insert(arg_temp_var.clone());
           });
-          arg_code = if(is_inout_arg_atom, raw_arg_code, arg_temp_var);
+          arg_code = if(is_inout_arg_atom || arg_self, raw_arg_code, arg_temp_var);
         },
         .None => {
           arg_code = _call_generate_expr(arg, indent.clone(), context);

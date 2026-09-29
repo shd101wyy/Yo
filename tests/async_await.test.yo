@@ -3544,6 +3544,37 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
   assert(io.await(run(Pick.Neither, io), io) == i32(0), "the awaitless arm runs nothing");
 });
 // ---------------------------------------------------------------------------
+// An early `return(<pattern binding>)` in an async body that awaits later.
+//
+// Under the single-pass lowering the binding lives in its state-machine slot,
+// so the return's deferred-dup materialization rendered the atom as
+// `sm->var_known` and declared `T known = sm->var_known;` in the arm, which
+// already declares `known`: a C redefinition. It was `_compiler_identity` in
+// src/build_runner.yo that hit it, in stage 2.
+// ---------------------------------------------------------------------------
+(g_cached_identity : Option(String)) = Option(String).None;
+_cached_identity :: (fn(rio : Io) -> Impl(Future(String, Io)))(
+  rio.async((aio : Io) => {
+    match(
+      g_cached_identity,
+      .Some(known) => {
+        return(known);
+      },
+      .None => ()
+    );
+    aio.await(yield(aio), aio);
+    id := String.from("fresh");
+    g_cached_identity = Option(String).Some(id.clone());
+    id
+  })
+);
+test("Test an early return of a match binding before a later await", {
+  first := io.await(_cached_identity(io), io);
+  second := io.await(_cached_identity(io), io);
+  assert(first == String.from("fresh"), "the first call computes the value");
+  assert(second == String.from("fresh"), "the second call returns the cached binding");
+});
+// ---------------------------------------------------------------------------
 // An await whose RESULT IS BOUND, in more than one arm of the same match.
 //
 // Several arms collapse onto ONE await point — only one arm can run, so one
