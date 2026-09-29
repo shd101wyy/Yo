@@ -9366,7 +9366,10 @@ main :: (fn(io : Io) -> unit)({
     run_check(argv, io, exn);
   }, if(subcmd == "verify", {
     set_owner_logs_enabled(false);
-    set_codegen_tables_enabled(false);
+    // The verifier's match walk reads the compiled Pattern IR
+    // (`lookup_match_arms`) — the one codegen-side table verify needs, so
+    // the tables stay ON here (unlike check/lsp/doc). Nothing invalidates
+    // in a one-shot run, so no owner log is required.
     run_verify_cmd(argv, io, exn);
   }, if(subcmd == "init", {
     run_init(argv, io, exn);

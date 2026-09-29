@@ -68,14 +68,22 @@ help dispatch in `src/main.yo` (the 22-arm cond the plan names first) is a
 `match` on the subcommand string; the rest of the 401 string chains and the
 two-level matches remain (incremental, each wave gated by the cli-cases).
 
-P6 (verifier subset) is DEFERRED by decision (2026-09-29): the plan always
-marked it optional, and a verified function that adopts a new pattern form
-already fails LOUDLY (`_fail_subset` in `src/verifier/vc.yo`) — nothing
-verifies falsely. Doing it properly means porting the verifier's AST-based
-match walk (`_arm_under_pattern` predates the Pattern IR) onto
-`lookup_match_arms` and adding SMT encodings for literals, ranges,
-or-alternatives and guards — its own campaign, best taken with the next
-verifier milestone rather than bolted on here. The async
+P6 (verifier subset) LANDED 2026-09-29: the verifier's match walk is
+rewritten over the compiled Pattern IR (`lookup_match_arms` — `verify` now
+keeps the codegen tables on for exactly this table). Every arm contributes
+`ite(pattern-test ∧ guard, body[binds], tail)`: constructor tests on
+projections for variants (nested levels declare their datatypes too),
+literal/range tests reuse the evaluator's SYNTHESIZED test ASTs through the
+ordinary term walk (`subject == lit`, the two range inequalities — strings
+fail the walk by construction, no str theory), binding-free or-patterns are
+disjunctions, guards are conjuncts with the pattern's bindings in scope.
+Still outside the subset, each failing LOUDLY: string scrutinees (at the
+parameter level), tuple/struct/Box patterns, or-patterns that bind, and a
+GUARDED FINAL arm (the ite tree's bottom would be unsound). Tests:
+`tests/spec/verify_match_patterns.test.yo` — literal, nested, or, guard,
+range and Option-of-Option proofs (7/7 ok, pinned Z3); the existing
+straight_line/refine_types/pragma_verify proofs are unchanged (20/20), and
+directory-mode verify behaves exactly as the seed on the negative fixtures. The async
 general lowering LANDED 2026-09-29: `_generate_match_with_await_impl`
 dispatches a non-classic match through `_aw_generate_general_match` — an
 ordered test chain over the compiled arms (`_aw_emit_general_pattern`, the
