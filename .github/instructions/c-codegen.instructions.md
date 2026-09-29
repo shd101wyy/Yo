@@ -163,7 +163,38 @@ source order.
   `resume`, `set_effect`, `cancel_pending`), not three pointers per instance.
   A raw I/O future's `vt` is NULL; every read site tests `X->vt && X->vt->op`.
 - **A closure parameter lives in its `__yo_param_<i>` slot** only; its own
-  local (matched by declaration site) is dropped from the field set.
+  local (matched by declaration site) is dropped from the field set. The
+  struct definition and the resume function must read ONE cross-boundary
+  result (`_block_cross_boundary`): a second `compute_cross_boundary_variables`
+  call that skips a filter declares a field nothing uses (the `Io` bundle,
+  32 B, was stored twice this way).
+- **A read the live-range walk cannot resolve is a use of every local with
+  that name** (`_LiveWalk.names`). Some atoms carry no environment (a
+  `return(x)` argument is one); skipping them silently made a local a C local
+  across the await that reads it.
+- **Slot sharing** (`compute_overlapping_slots`): locals of the same C type
+  whose ranges do not overlap share `sm->slot_<k>`, heap-owning ones
+  included. That is sound because a slot is non-zero exactly while it owns
+  its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
+  (`generate_drop`), every consuming read zeroes it (`_sm_consuming_read`),
+  and the dispose drops a shared RC slot once. Pattern bindings (they borrow
+  the scrutinee) and both sides of `is_owning_the_same_rc_value_as` never
+  share. Two RC locals of ONE scope always overlap (both live to its end);
+  sibling scopes are what share.
+- **A consuming read of a slot takes the value and zeroes the slot**
+  (`_sm_consuming_read`): the evaluator's `consumed_at_token` is that atom.
+  A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
+  set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
+  drop's operand as the consuming read, and the drop is emitted again on
+  every exit path.
+- **In an SM, a C local renders by its source token** (`_generate_sm_atom`
+  step 5 uses `_var_read_code`), for the reason in the next section.
+- **Nested blocks are ordinary C blocks.** A `goto` into one is legal; do not
+  splice a block into its parent (the segment lowering did, and a block's
+  locals then lived until the task ended).
+- **`YO_DEBUG_ASYNC_LAYOUT=1`** prints, per `io.async` block, each closure
+  parameter's declaration sites and each captured local's id, site and
+  whether it got a field.
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),

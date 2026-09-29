@@ -1,8 +1,9 @@
 # Async state-machine generation: the 2026-09-28 audit and the improvement plan
 
 **Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
-Phases 0–3 are merged (#989, #991), and phase 5 (the single-pass lowering)
-is landing; phases 6 and 7 are next. The owning `JoinHandle` of phase 2
+Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
+the rest of phase 1 (#1008) and phase 6 (layout from liveness) are open as
+stacked PRs; phase 4 is subsumed by them, and phase 7 is in progress. The owning `JoinHandle` of phase 2
 waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
 The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
@@ -678,6 +679,71 @@ liveness, not for phase 5.
 4. Statement temps are dropped at their last use when that precedes a
    suspension, so they do not pin heap memory across the await.
 
+**Status: implemented on `async-sm-p6` (2026-09-29), with two items
+declined for the reasons below.** Measured sizes (x86_64, the §3.4 layout
+probe): a one-await machine is 88 B, down from 152 B at the audit and
+after phase 5. Sixteen sequential awaits whose results are all read at the
+end take 152 B, down from 272 B at the audit and 408 B after phase 5 (one
+result field per await). 60 B of the 152 are the fifteen results still to
+be added.
+
+1. **Liveness decides storage.** A local gets a field only when it is live
+   across a suspension. The live ranges come from a linear walk over the
+   macro-expanded AST in source order (`_lv_walk`, `state_machine.yo`):
+   - a read counts at the end of its statement;
+   - a local defined before a loop and read in it is live through the loop;
+   - a local with a scope-end drop, or whose address is taken, lives to the
+     end of its scope;
+   - a read the walk cannot resolve counts for every local of that name.
+
+   Every other local is a C local of the resume function. An await result
+   is a C local unless a later await in the same statement can suspend
+   before the statement consumes it. Locals of one C type whose ranges do
+   not overlap share a slot, RC ones included; the soundness argument is
+   item 2's. Two RC locals of one scope always overlap, so the sharing is
+   between sibling scopes.
+
+   **Not done: sharing across C types** (a union of members). The dispose
+   would have to know which member currently owns the slot, which is the
+   per-state table item 2 declines, and the gain is small: a type change
+   between sibling scopes is what it would save.
+2. **Declined: the per-state live-set table. The zero invariant is used
+   instead.** A slot is non-zero exactly while it owns its value:
+   - the constructor zeroes the machine;
+   - every scope-end drop of a slot zeroes it;
+   - every consuming read takes the value and zeroes the slot
+     (`_sm_consuming_read`).
+
+   So the abort dispose, which drops every non-zero slot, drops exactly the
+   live set. A table could not replace the zeroing: a local moved on one
+   path and kept on another has no static state. The table would be a
+   second mechanism on top of it.
+3. **The header.**
+   - The per-type function pointers are one static vtable
+     (`__yo_future_vtable_t`), 16 B less per machine.
+   - `result` follows the 40-byte prefix directly.
+   - **Rejected: `Io` zero-sized in fields.** A program can construct an
+     `Io` with its own handlers (it is an ordinary effect bundle), so
+     dropping the 32 B needs a language rule that only the runtime makes
+     one. That is not a codegen change.
+
+   The 72 B / 96 B targets assumed that rule; without the `Io` the two
+   machines above would be 56 B and 120 B.
+4. **Declined: dropping statement temps at their last use.** A borrowed
+   view (a `str` slice, an iterator) can outlive the last read of the temp
+   it points into. Yo has no borrow tracking to prove otherwise, and the
+   sync lowering keeps temps to scope end for the same reason. A temp whose
+   scope has no later await is a C local now anyway.
+
+Also in this phase:
+- a closure parameter's local no longer duplicates its `__yo_param_<i>`
+  slot. The struct emitter ran a second cross-boundary analysis that
+  skipped the filter, so the 32 B `Io` was stored twice;
+- nested blocks are no longer spliced into their parent (a leftover of the
+  segment lowering): a block's locals are released at its end, not at the
+  task's (`issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md`);
+- `YO_DEBUG_ASYNC_LAYOUT=1` prints each block's field decisions.
+
 ### Phase 7: allocation per await
 
 After phase 3, malloc/free is about half of a cold await. Options,
@@ -902,3 +968,20 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
     `codegen_fatal`.
   - §3.3's "fixed but not closed" issues are closed with a pinning test, or
     retired where their subject is gone.
+- 2026-09-29: phase 6 on `async-sm-p6` (stacked on `async-sm-p1rest`); see
+  the phase's status block for what landed and what was declined.
+  - Found by probing it, and fixed in the phase 5 PR because phase 5 caused
+    it: a local moved out before an await stayed in its slot, and aborting
+    the task released it again
+    (`issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md`).
+  - Found while testing slot sharing: nested blocks were still spliced into
+    their parent, so their locals lived until the task ended
+    (`issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md`).
+  - Regressions of the branch itself, each caught by an existing test:
+    - a drop's operand was hoisted as a move;
+    - a capture of a C local read the `io.async` call's own temp;
+    - a C local in an arm-value position rendered its spurious temp
+      `variable_name`;
+    - a `return(x)` read the walk could not resolve left `x` a C local
+      across the await before it.
+- 2026-09-29: phase 4 is recorded as subsumed by phases 5 and 6.
