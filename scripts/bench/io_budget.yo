@@ -7,7 +7,8 @@ extern(
   "Yo",
   __yo_io_stats_kernel_enters : (fn() -> u64),
   __yo_io_stats_zero_timeout_enters : (fn() -> u64),
-  __yo_io_stats_io_syscalls : (fn() -> u64)
+  __yo_io_stats_io_syscalls : (fn() -> u64),
+  __yo_io_stats_recv_would_block : (fn() -> u64)
 );
 { println } :: import("std/fmt");
 { String } :: import("std/string");
@@ -24,6 +25,31 @@ tcp :: import("std/sys/tcp");
 
 N_ECHO :: usize(200);
 N_TIMERS :: usize(50);
+N_TASK_ECHO :: usize(500);
+
+/// One side of a two-task socketpair echo (the shape of io_bench's
+/// `uecho_1`): the server receives then echoes, the client sends then waits.
+_echo_side :: (fn(fd : i32, server : bool, rounds : usize, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    ebuf := (*u8)(malloc(usize(64)).unwrap());
+    (k : usize) = usize(0);
+    (bad : i32) = i32(0);
+    while(k < rounds, k = (k + usize(1)), {
+      if(server, {
+        if(io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io) != i32(32), {
+          bad = (bad + i32(1));
+        });
+        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+      }, {
+        io.await(__yo_async_send_start(fd, ebuf, usize(32), i32(0)), io);
+        if(io.await(__yo_async_recv_start(fd, ebuf, usize(64), i32(0)), io) != i32(32), {
+          bad = (bad + i32(1));
+        });
+      });
+    });
+    bad
+  })
+);
 
 /// Every syscall the runtime made on the operations' behalf: the kernel
 /// entries (io_uring_enter / epoll_wait) plus the rest (inline and retried
@@ -143,6 +169,36 @@ main :: (fn(io : Io) -> unit)({
   });
   io.await(tcp.close(parked_a), io);
   io.await(tcp.close(parked_b), io);
+
+  // --- Budget E: a two-task echo (each side parks its recv and the peer
+  // task answers it) pays about NO inline recv that would block. The
+  // recv-parks hint parks each socket's next recv directly once one has
+  // blocked, and keeps it while deliveries need a later harvest. It used to be
+  // cleared on every hop, one EAGAIN recv a hop: 2 per round
+  // (issues/fixed/linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md).
+  sv3 := (*i32)(MaybeUninit(Array(i32, usize(2))).new().as_ptr());
+  if(socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv3) != i32(0), {
+    panic(String.from("socketpair 3 failed"));
+  });
+  echo_a := (sv3.add(usize(0))).*;
+  echo_b := (sv3.add(usize(1))).*;
+  before_wb := __yo_io_stats_recv_would_block();
+  hs := io.spawn(_echo_side(echo_b, true, N_TASK_ECHO, io), io);
+  hc := io.spawn(_echo_side(echo_a, false, N_TASK_ECHO, io), io);
+  if(match(hc.await(io), .Some(b) => (b != i32(0)), .None => true), {
+    panic(String.from("budget E echo client failed"));
+  });
+  if(match(hs.await(io), .Some(b) => (b != i32(0)), .None => true), {
+    panic(String.from("budget E echo server failed"));
+  });
+  e_wb := (__yo_io_stats_recv_would_block() - before_wb);
+  budget_e := ((u64(N_TASK_ECHO) / u64(10)) + u64(8));
+  println(`budget E (two-task echo, ${N_TASK_ECHO} rounds): recv_would_block=${e_wb} <= ${budget_e}`);
+  if(e_wb > budget_e, {
+    panic(String.from("BUDGET E VIOLATED"));
+  });
+  io.await(tcp.close(echo_a), io);
+  io.await(tcp.close(echo_b), io);
 
   println("ALL BUDGETS OK");
 });
