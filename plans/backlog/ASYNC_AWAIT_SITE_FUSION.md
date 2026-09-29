@@ -157,6 +157,43 @@ Three facts from its code shape the lowering:
   kept anyway, because the value is in hand there and codegen then needs no
   lookup at all.
 
+## 2.2 F2 mechanics, read off phase 5's code (reasoned, not yet measured)
+
+Each point below comes from reading the code. None is checked by a build
+yet; F2's first commit checks each one.
+
+- **Slots come from the caller's analysis walk.** `analyze_await_points`
+  (`src/evaluator/async/await_analysis.yo`) captures every variable it
+  meets by the `Variable` id in the atom's `ExprInfo` env, and the atom
+  emitter reads `sm->var_<id>` for any id in `state_machine_variables`. If
+  the walk descends, at a fused await, into the wrapper's prologue and
+  block, the wrapper's parameters, prologue locals, block locals and the
+  inner await become the caller's slots and suspension point with no new
+  naming. Two fused sites of one wrapper in one caller share those slots.
+  That is sound because the sites run one after the other in one task: each
+  completes before the next starts, and rule 5 excludes recursion. To
+  check: the block's atoms for a prologue local (`fd`) resolve to the
+  prologue's `Variable` id, not a closure-capture copy.
+- **The outer await keeps its result field.** The fused site's value is the
+  block's tail. It is stored in the outer await's result field (the one
+  phase 5 already uses so that `f(await a, await b)` survives the second
+  suspension), and the outer await stays in the analysis for that reason.
+  Only its suspension is not emitted.
+- **Parameters are bound, not called.** At the site, each wrapper parameter
+  slot is set to its argument's code (receiver first, as the call's own
+  emission orders them), and the block's bundle parameter `e` is set to the
+  await's effects argument. Both borrow: the caller still owns the
+  arguments, so these slots join the not-disposed set on abort, like
+  `state_machine_binding_ids`.
+- **Drops.** The wrapper body's and the block's `deferred_drop_expressions`
+  are emitted at the site's end, in the order the wrapper's own state
+  machine emits them.
+- **`low.emitted` is keyed by (await node id, fused site).** The key stays
+  a single node id for unfused awaits.
+- **v1 rejects a `return` in the block** (it would complete the caller).
+  §3.1 rule 6's exit label is a follow-up once the census shows a wrapper
+  that needs it.
+
 ## 3. Design
 
 ### 3.1 When a wrapper is fusable
