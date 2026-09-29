@@ -7,6 +7,9 @@ and it is built on that plan's phase 4 IR and phase 5 single-pass emitter.
 It does not start before phase 5 lands: implementing it on today's
 segment/continuation emitter would be thrown away.
 
+**Owner:** the macOS async-runtime session implements it, by the user's
+decision of 2026-09-29, starting when phase 5 (#1002) merges.
+
 **Goal.** Make a std I/O call cost what the raw runtime operation under it
 costs. `TcpStream.read`, `File.write`, `Child.write_stdin` and the rest are
 `io.async` wrappers around one raw future plus an error check. Each call
