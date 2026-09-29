@@ -12,6 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { sleep } :: import("std/sys/timer");
 { Instant } :: import("std/time/instant");
+{ EEXIST } :: import("std/libc/errno");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -6519,4 +6520,29 @@ test("fn-typed locals across suspensions", {
   assert(io.await(_run_fl(i32(3), io), io) == i32(6), "a fn local read after an await");
   g_op_fl = Option(_Op_fl).Some(_double_fl);
   assert(io.await(_run_fl(i32(3), io), io) == i32(12), "a fn payload binding read after an await");
+});
+// ---------------------------------------------------------------------------
+// An imported constant read after an await in a match arm.
+//
+// A pattern binding of a scrutinee known at compile time is bound
+// compile-time-only, and the analysis gives it a slot at its declaration atom.
+// A first cut captured EVERY compile-time-only variable whose read does not
+// fold, which also caught an extern constant (`EEXIST`, read by its own C
+// name): the task read an uninitialized `sm->var_EEXIST`, and `create_dir_all`
+// threw on every parent directory that already existed.
+// ---------------------------------------------------------------------------
+_errno_after_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    match(
+      Option(i32).Some(i32(1)),
+      .Some(k) => {
+        e.await(yield(e), e);
+        (i32(EEXIST) + k)
+      },
+      .None => i32(0)
+    )
+  })
+);
+test("an imported constant read after an await in a match arm", {
+  assert(io.await(_errno_after_await(io), io) == (i32(EEXIST) + i32(1)), "the constant keeps its value");
 });

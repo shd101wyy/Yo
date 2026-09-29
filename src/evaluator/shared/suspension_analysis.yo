@@ -40,8 +40,8 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ type_requires_comptime_modifier } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
-{ is_unknown_val } :: import("../../value.yo");
 {
   SuspensionPoint,
   SuspensionCapturedVariable,
@@ -202,7 +202,7 @@ _capture_env_variable :: (
     var_name : String,
     env : Environment,
     ty_override : Option(TypeValue),
-    read_is_folded : bool,
+    pattern_binding : bool,
     captured_variables : HashMap(String, SuspensionCapturedVariable),
     captured_variable_ids_in_order : ArrayList(String),
     name_frame_to_original_id : HashMap(String, String),
@@ -241,13 +241,13 @@ _capture_env_variable :: (
       },
       .Some(v) => v
     );
-    // A compile-time-only variable needs no storage only when its read folds
-    // to its value; otherwise codegen names it in C like any local. A pattern
-    // binding of a scrutinee known at compile time is such a variable (the
-    // evaluator binds it compile-time-only, codegen still declares it and a
-    // read whose value the arm widened stays a name), and without a slot its
-    // C local is garbage after an await in the arm.
-    needs_storage := (!variable.is_compile_time_only || !read_is_folded);
+    // A compile-time-only variable has no runtime storage, with one
+    // exception: a pattern binding of a scrutinee known at compile time is
+    // bound compile-time-only by the evaluator, but codegen still declares it
+    // in its arm and reads it by name. Without a slot that C local is garbage
+    // after an await in the arm. `pattern_binding` is set only at the
+    // binding's own declaration atom (`_capture_pattern_bindings`).
+    needs_storage := (!variable.is_compile_time_only || (pattern_binding && !type_requires_comptime_modifier(variable.ty)));
     if(needs_storage && !captured_variables.contains_key(variable.id.to_string()), {
       // The SSA-remapping key includes the DECLARATION SITE, not just
       // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
@@ -325,6 +325,57 @@ _capture_env_variable :: (
     });
   });
 });
+/// Capture the names a `match` arm's PATTERN binds: every identifier atom in
+/// the pattern whose variable was declared at that very atom. A pattern of a
+/// scrutinee known at compile time binds compile-time-only, and only here is
+/// such a binding captured (a constant pattern resolves to a variable declared
+/// elsewhere, so the declaration-site test skips it).
+_capture_pattern_bindings :: (
+  fn(
+    pat : AstExpr,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
+    captured_variables : HashMap(String, SuspensionCapturedVariable),
+    captured_variable_ids_in_order : ArrayList(String),
+    name_frame_to_original_id : HashMap(String, String),
+    variable_id_remapping : HashMap(String, String)
+  ) -> unit
+)(
+  match(
+    pat.clone(),
+    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+      match(
+        get_info(pat),
+        .Some(info) => {
+          vars := get_variables_from_env(info.env, tok.value.clone());
+          at_decl := cond(
+            (vars.len() == usize(0)) => false,
+            true => match(
+              vars.get(vars.len() - usize(1)),
+              .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),
+              .None => false
+            )
+          );
+          if(at_decl, {
+            _capture_env_variable(tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+          });
+        },
+        .None => ()
+      );
+    }),
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  )
+);
 // ---------------------------------------------------------------------------
 // walk_expr_ (internal)
 // ---------------------------------------------------------------------------
@@ -362,8 +413,7 @@ walk_expr_ :: (
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            read_folded := match(info.value, .Some(rv) => !is_unknown_val(rv), .None => false);
-            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), read_folded, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -388,7 +438,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );
@@ -527,6 +577,17 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
+            if(ast_expr_is_fn_call_of(expr_cloned.clone(), "match", Option(usize).None) && ast_expr_is_fn_call_of(arg2.clone(), "=>", Option(usize).Some(usize(2))), {
+              match(
+                arg2.clone(),
+                .FnCall(_, _, arm_args, _, _) => match(
+                  arm_args.get(usize(0)),
+                  .Some(arm_pat) => _capture_pattern_bindings(arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                  .None => ()
+                ),
+                .Atom(_, _) => ()
+              );
+            });
             recur(arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             // Copy per-branch SuspensionPoint handles (same RC objects as in points)
             branch_pts := ArrayList(SuspensionPoint).new();

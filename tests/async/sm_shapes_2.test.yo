@@ -12,18 +12,24 @@ pragma(Pragma.SkipWasm32Wasi);
 _sv :: (fn(x : i32) -> i32)(x);
 _svb :: (fn(x : bool) -> bool)(x);
 _svs :: (fn(x : i32) -> String)(x.to_string());
-_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x
-}));
-_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x
-}));
-_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x.to_string()
-}));
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x.to_string()
+  })
+);
 _vsync :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
 _vbs :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
 _vss :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
@@ -518,27 +524,37 @@ test("shape p05_return_after_await_in_arm_in_loop_then_more", {
 });
 
 // cases11/p06_tail_cond_arm_block_await.yo
-_r_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32) -> i32)(cond(
-  (n == i32(1)) => {
-    t := _sv(i32(10));
-    t + i32(1)
-  },
-  true => (n + i32(50))
-));
-_y_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => cond(
-  (n == i32(1)) => {
-    t := e.await(_v(i32(10), e), e);
-    t + i32(1)
-  },
-  true => (n + i32(50))
-)));
-_s_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => cond(
-  (n == i32(1)) => {
-    t := e.await(_vsync(i32(10), e), e);
-    t + i32(1)
-  },
-  true => (n + i32(50))
-)));
+_r_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32) -> i32)(
+  cond(
+    (n == i32(1)) => {
+      t := _sv(i32(10));
+      t + i32(1)
+    },
+    true => (n + i32(50))
+  )
+);
+_y_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async(
+    (e : Io) => cond(
+      (n == i32(1)) => {
+        t := e.await(_v(i32(10), e), e);
+        t + i32(1)
+      },
+      true => (n + i32(50))
+    )
+  )
+);
+_s_cases11_p06_tail_cond_arm_block_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async(
+    (e : Io) => cond(
+      (n == i32(1)) => {
+        t := e.await(_vsync(i32(10), e), e);
+        t + i32(1)
+      },
+      true => (n + i32(50))
+    )
+  )
+);
 test("shape p06_tail_cond_arm_block_await", {
   assert(io.await(_y_cases11_p06_tail_cond_arm_block_await(i32(0), io), io) == _r_cases11_p06_tail_cond_arm_block_await(i32(0)), "yielding inner future, n=0");
   assert(io.await(_s_cases11_p06_tail_cond_arm_block_await(i32(0), io), io) == _r_cases11_p06_tail_cond_arm_block_await(i32(0)), "synchronous inner future, n=0");

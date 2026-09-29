@@ -12,18 +12,24 @@ pragma(Pragma.SkipWasm32Wasi);
 _sv :: (fn(x : i32) -> i32)(x);
 _svb :: (fn(x : bool) -> bool)(x);
 _svs :: (fn(x : i32) -> String)(x.to_string());
-_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x
-}));
-_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x
-}));
-_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  x.to_string()
-}));
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x.to_string()
+  })
+);
 _vsync :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
 _vbs :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
 _vss :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
