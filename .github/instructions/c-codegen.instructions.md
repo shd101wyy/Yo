@@ -135,17 +135,35 @@ source order.
   `codegen_fatal`: an emitter must generate an expression that contains an
   await exactly once.
 - **Rule 1: nothing that lives across an await is a C local.** A jump out of
-  the function and back to a label leaves every C local garbage. Every
-  captured non-unit local lives in `sm->var_<id>` (`compute_cross_boundary_variables`),
-  including a compile-time-only variable whose read codegen does not fold (a
-  pattern binding of a scrutinee known at compile time is bound
-  compile-time-only). A pattern binding is declared in its arm, stored into
+  the function and back to a label leaves every C local garbage. A captured
+  non-unit local that is live across a suspension lives in `sm->var_<id>`
+  (`compute_cross_boundary_variables`, a linear live-range walk: a read counts
+  at the end of its statement, a local defined before a loop and used in it
+  is live through the loop, a local with a scope-end drop or whose address is
+  taken lives to the end of its scope). Every other local is an ordinary C
+  local — the resume function jumps past its declaration, which C allows, and
+  nothing reads it after the jump — so the escape path must release it:
+  `emit_effect_unwind_check` emits the pending drops in a state machine as
+  in a plain function (a field's drop zeroes the slot, so the abort dispose
+  does not release it twice). A node from another module (a macro
+  expansion) makes the positions incomparable, and then every local gets a
+  field. Pattern bindings are locals too, including one bound
+  compile-time-only because its scrutinee is known at compile time (captured
+  at its declaration atom, `_capture_pattern_bindings`; an extern constant
+  keeps its own C name). A pattern binding is declared in its arm, stored into
   its slot by `_bind_pattern_name`, found by declaration site
   (`_inline_binding_sm_field`: sibling arms share names), and read back
   through `shadow_slots`.
-- **Await results** live in `sm->__yo_await_result_<k>`, one per await
-  EXPRESSION: `f(await a, await b)` suspends a second time before the first
-  result is read.
+- **Await results** live in `sm->__yo_await_result_<k>` only when a later
+  await in the same statement can suspend before the result is consumed
+  (`f(await a, await b)`); any other result is a C local
+  (`g_local_await_results`, consulted by the struct emitter and by
+  `emit_inline_await`).
+- **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
+  `resume`, `set_effect`, `cancel_pending`), not three pointers per instance.
+  A raw I/O future's `vt` is NULL; every read site tests `X->vt && X->vt->op`.
+- **A closure parameter lives in its `__yo_param_<i>` slot** only; its own
+  local (matched by declaration site) is dropped from the field set.
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),

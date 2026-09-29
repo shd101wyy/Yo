@@ -1437,7 +1437,7 @@ _build_async_capture_struct_literal :: (
                   // own name while its block is open; the name lookup
                   // through the call's env could land on an unrelated temp.
                   local_c := sanitize_for_c_identifier(label.clone(), false);
-                  cname := if(scope_stack_contains(context.base.declared_scopes, local_c.clone()), local_c, {
+                  cname := if(scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone()), local_c, {
                     cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
                     get_variable_name_for_codegen(label.clone(), cap_env)
                   });
@@ -1752,14 +1752,24 @@ _closure_param_decl_site :: (fn(io_async_call : AstExpr, name : String) -> Strin
   params := match(closure, .FnCall(_, _, ca, _, _) => match(ca.get(usize(0)), .Some(p) => p, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
   _first_atom_site(params, name)
 });
+/// The declaration sites of parameter `name` in a closure's parameter list:
+/// the name atom, and for a typed parameter (`name : T`) the `:` node too,
+/// which is the token the parameter's variable carries. `|`-separated, "" when
+/// not found.
 _first_atom_site :: (fn(e : AstExpr, name : String) -> String)(
   match(
-    e,
+    e.clone(),
     .Atom(_, tok) => cond(
       (tok.value == name) => `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`,
       true => String.from("")
     ),
     .FnCall(_, _, args, _, _) => {
+      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(a0).value == name)), .None => false));
+      if(typed_here, {
+        ctok := ast_expr_token(e.clone());
+        a0tok := match(args.get(usize(0)), .Some(a0) => ast_expr_token(a0), .None => ctok.clone());
+        return(`${a0tok.module_path}:${a0tok.row.to_string()}:${a0tok.column.to_string()}|${ctok.module_path}:${ctok.row.to_string()}:${ctok.column.to_string()}`);
+      });
       (i : usize) = usize(0);
       (found : String) = String.from("");
       while((i < args.len()) && (found.len() == usize(0)), {
@@ -2161,7 +2171,17 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
         match(
           slots.get(psi),
           .Some(sl) => if(sl.decl_site.len() > usize(0), {
-            param_sites.insert(sl.decl_site.clone());
+            parts := sl.decl_site.split("|");
+            (ppi : usize) = usize(0);
+            while(ppi < parts.len(), ppi = (ppi + usize(1)), {
+              match(
+                parts.get(ppi),
+                .Some(site) => {
+                  param_sites.insert(site);
+                },
+                .None => ()
+              );
+            });
           }),
           .None => ()
         );
