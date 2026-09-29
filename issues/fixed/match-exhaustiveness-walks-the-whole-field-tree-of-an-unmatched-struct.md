@@ -19,9 +19,19 @@ test runner's compile deadline. Before #989 each shard took about 50 minutes.
 A `sample` of the slow `check` had every sample inside one `match_missing_witness` call, with `_useful`
 (`src/pattern.yo`) about 208 frames deep. `build.yo` has not changed since #788.
 
-Reproducer (the cli-case fixture): a two-variant enum whose payload is a struct DAG,
-`S(i) :: struct(a : S(i-1), b : S(i-1))`, matched with `.A(s) => …, .B => …`. Before the fix,
-check time grows with the tree's 2^depth leaves: 1.7 s at depth 16, 4.7 s at 18, more than 60 s at 26.
+Reproducer: a two-variant enum whose payload is a wide struct, `S(i)` with `w` fields of type
+`S(i-1)`, matched with `.A(s) => …, .B => …`. `check` time grows with the payload's `w^depth` leaves:
+
+| Payload | no `match` (both binaries) | with the match, before the fix | after the fix |
+| --- | --- | --- | --- |
+| w = 40, depth 3 | 0.8 s | 2.0 s | 0.8 s |
+| w = 60, depth 3 | 0.9 s | 6.0 s | 0.9 s |
+| w = 30, depth 4 | 1.2 s | 16.9 s | 1.2 s |
+| w = 40, depth 4 (the cli-case) | — | stack overflow after 16 s (rc 138) | 2.2 s |
+
+After the fix the timings match the pre-#993 binary. (A deep binary DAG, `S(i) :: struct(a : S(i-1),
+b : S(i-1))`, was the first reproducer, but defining such a type is slow by itself, match or no
+match: `issues/defining-a-deep-struct-dag-is-exponential.md`.)
 
 ## Root cause
 
@@ -45,6 +55,6 @@ witness is `_`.
 ## Test
 
 `tests/cli-cases/match-exhaustiveness-does-not-walk-an-unmatched-struct-field-tree`: `check` on the
-depth-26 fixture must finish within the case's 60 s `timeout`. Before the fix it timed out (rc 124);
-with the fix it passes in about a second. `tests/match_structs.test.yo` and
+width-40, depth-4 fixture must pass within the case's 30 s `timeout`. The unfixed compiler overflows
+its stack (rc 138); the fixed one passes in about 2 s. `tests/match_structs.test.yo` and
 `tests/match_tuples.test.yo` still pass, including their exhaustiveness diagnostics.
