@@ -944,7 +944,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
       ordered_blocks.get(ei),
       .Some(b) => {
         cbr := _block_cross_boundary(b, context);
-        osr := compute_overlapping_slots(cbr.cross_boundary_ids, cbr.variable_segments, b.analysis.captured_variables, cbr.await_future_temp_var_aliases, context);
+        osr := compute_overlapping_slots(cbr.cross_boundary_ids, cbr.variable_segments, b.analysis.captured_variables, cbr.await_future_temp_var_aliases, cbr.pattern_binding_ids, context);
         emit_async_block_struct_definition(
           AsyncBlockStructInfo(
             async_block_id : b.async_block_id.clone(),
@@ -1116,7 +1116,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : Func
 /// at refcount 0 — does NOT free memory. `local_var_drops` is
 /// retained for signature fidelity (unused).
 generate_async_block_state_dispose_function :: (
-  fn(async_block_id : String, struct_name : String, dispose_function_name : String, result_type : TypeValue, capture_type : Option(TypeValue), analysis : AwaitAnalysisResult, local_var_drops : ArrayList(String), cross_boundary_ids : HashSet(String), await_future_temp_var_aliases : HashMap(String, String), context : FunctionGenerationContext) -> unit
+  fn(async_block_id : String, struct_name : String, dispose_function_name : String, result_type : TypeValue, capture_type : Option(TypeValue), analysis : AwaitAnalysisResult, local_var_drops : ArrayList(String), cross_boundary_ids : HashSet(String), await_future_temp_var_aliases : HashMap(String, String), overlapping_slot_aliases : HashMap(String, String), overlapping_slots : ArrayList(OverlappingSlot), context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   em.emit_string_line(`// Dispose function for async block ${async_block_id.clone()} state machine`);
@@ -1195,7 +1195,9 @@ generate_async_block_state_dispose_function :: (
         // A pattern binding's slot borrows the scrutinee's payload: the
         // scrutinee's own drop releases it.
         is_binding := match(context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
-        if((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding), {
+        // A member of a shared slot is dropped through the slot, below.
+        is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
+        if(((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding)) && !(is_shared), {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
@@ -1210,6 +1212,24 @@ generate_async_block_state_dispose_function :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  // A shared RC slot is dropped once: it is non-zero only while it owns its
+  // current member's value (every drop and move of it zeroes it).
+  (osi : usize) = usize(0);
+  while(osi < overlapping_slots.len(), osi = (osi + usize(1)), {
+    match(
+      overlapping_slots.get(osi),
+      .Some(os) => if(type_contains_rc_type(os.ty), {
+        match(
+          _rc_field_drop_line(`sm->${os.field_name.clone()}`, os.ty, String.from("    "), context),
+          .Some(line) => {
+            local_drop_lines.push(line);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
   });
   if(local_drop_lines.len() > usize(0), {
     em.emit_line("  // Drop local variables on escape (state == -2)");
@@ -2232,7 +2252,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   cbr := _block_cross_boundary(block, context);
   cross_boundary_ids := cbr.cross_boundary_ids;
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
-  osr := compute_overlapping_slots(cross_boundary_ids, cbr.variable_segments, block.analysis.captured_variables, await_future_temp_var_aliases, context);
+  osr := compute_overlapping_slots(cross_boundary_ids, cbr.variable_segments, block.analysis.captured_variables, await_future_temp_var_aliases, cbr.pattern_binding_ids, context);
   overlapping_slot_aliases := osr.slot_aliases;
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
@@ -2374,7 +2394,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.state_machine_field_aliases = saved_field_aliases;
   em.emit_string_line(String.from(""));
   // Dispose function.
-  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
+  generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, overlapping_slot_aliases, osr.slots, context);
   context.state_machine_binding_ids = saved_binding_ids;
   context.sm_unwind_catch = saved_sm_unwind_catch;
   em.emit_string_line(String.from(""));
@@ -2408,7 +2428,7 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
           blocks.get(ni),
           .Some(nb) => {
             ncbr := _block_cross_boundary(nb, context);
-            nosr := compute_overlapping_slots(ncbr.cross_boundary_ids, ncbr.variable_segments, nb.analysis.captured_variables, ncbr.await_future_temp_var_aliases, context);
+            nosr := compute_overlapping_slots(ncbr.cross_boundary_ids, ncbr.variable_segments, nb.analysis.captured_variables, ncbr.await_future_temp_var_aliases, ncbr.pattern_binding_ids, context);
             emit_async_block_struct_definition(
               AsyncBlockStructInfo(
                 async_block_id : nb.async_block_id.clone(),

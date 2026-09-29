@@ -26,6 +26,7 @@
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
@@ -41,7 +42,10 @@ CrossBoundaryResult :: ref(
     /// Maps temp variable IDs to their `await_future_N` field name (dedup).
     await_future_temp_var_aliases : HashMap(String, String),
     /// Maps each captured variable id to the segment indices where it is referenced.
-    variable_segments : HashMap(String, HashSet(usize))
+    variable_segments : HashMap(String, HashSet(usize)),
+    /// The ids of match-arm pattern bindings. A binding's slot borrows its
+    /// scrutinee's payload, so it never shares an owning slot.
+    pattern_binding_ids : HashSet(String)
   )
 );
 /// A body local's live range for the single-pass lowering, in source-position
@@ -73,7 +77,9 @@ _LiveWalk :: ref(
     /// statement it is in.
     await_sites : ArrayList(String),
     await_pos : ArrayList(u64),
-    await_stmt_end : ArrayList(u64)
+    await_stmt_end : ArrayList(u64),
+    /// The ids of the pattern bindings the walk declared.
+    bindings : HashSet(String)
   )
 );
 /// A token's source position as one ordered key (row major).
@@ -187,6 +193,7 @@ _lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, conte
         _lv_resolve(pat, tok.value.clone(), w, context),
         .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
           _lv_declare(_lv_id(v, w), _lv_pos(tok, w), scope_end, w);
+          w.bindings.insert(_lv_id(v, w));
         }),
         .None => ()
       );
@@ -216,7 +223,16 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
     e.clone(),
     .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
       _pos := _lv_pos(tok, w);
-      match(_lv_resolve(e, tok.value.clone(), w, context), .Some(v) => _lv_use(_lv_id(v, w), stmt_end, w), .None => ());
+      match(
+        _lv_resolve(e, tok.value.clone(), w, context),
+        .Some(v) => {
+          if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
+            eprintln(`[lv] use ${tok.value} id=${_lv_id(v, w)} at=${stmt_end.to_string()} known=${w.vars.contains_key(_lv_id(v, w)).to_string()}`);
+          });
+          _lv_use(_lv_id(v, w), stmt_end, w)
+        },
+        .None => ()
+      );
     }),
     .FnCall(_, func_box, args, _, _) => {
       if(is_io_await_call(e.clone()), {
@@ -235,7 +251,12 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
           name := ast_expr_token(name_atom).value;
           match(
             _lv_resolve(e.clone(), name, w, context),
-            .Some(v) => _lv_declare(_lv_id(v, w), _lv_span_end(rhs, w), block_end, w),
+            .Some(v) => {
+              if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
+                eprintln(`[lv] decl ${name} id=${_lv_id(v, w)} def_end=${_lv_span_end(rhs.clone(), w).to_string()} scope_end=${block_end.to_string()}`);
+              });
+              _lv_declare(_lv_id(v, w), _lv_span_end(rhs, w), block_end, w)
+            },
             .None => ()
           );
         },
@@ -334,7 +355,8 @@ compute_cross_boundary_variables :: (
     span_ends : HashMap(usize, u64).new(),
     await_sites : ArrayList(String).new(),
     await_pos : ArrayList(u64).new(),
-    await_stmt_end : ArrayList(u64).new()
+    await_stmt_end : ArrayList(u64).new(),
+    bindings : HashSet(String).new()
   );
   body_end := _lv_span_end(body_expr.clone(), w);
   _lv_walk(body_expr.clone(), body_end, body_end, w, context);
@@ -466,7 +488,8 @@ compute_cross_boundary_variables :: (
   CrossBoundaryResult(
     cross_boundary_ids : all_ids,
     await_future_temp_var_aliases : HashMap(String, String).new(),
-    variable_segments : segments
+    variable_segments : segments,
+    pattern_binding_ids : w.bindings
   )
 });
 _SlotRange :: ref(struct(min : usize, max : usize));
@@ -478,6 +501,9 @@ OverlappingSlot :: ref(
     field_name : String,
     /// The C type string for this slot.
     c_type : String,
+    /// The members' type (they share one C type): the dispose drops an RC
+    /// slot once, through it.
+    ty : TypeValue,
     /// Variable names sharing this slot (for comments).
     variable_names : ArrayList(String)
   )
@@ -522,6 +548,7 @@ compute_overlapping_slots :: (
     variable_segments : HashMap(String, HashSet(usize)),
     captured_variables : ArrayList(CapturedVariable),
     await_future_temp_var_aliases : HashMap(String, String),
+    pattern_binding_ids : HashSet(String),
     context : FunctionGenerationContext
   ) -> OverlappingStorageResult
 )({
@@ -529,7 +556,28 @@ compute_overlapping_slots :: (
     slot_aliases : HashMap(String, String).new(),
     slots : ArrayList(OverlappingSlot).new()
   );
-  // Eligible = cross-boundary local vars of non-RC value type, not future-aliased.
+  // Eligible = cross-boundary locals, not future-aliased. An RC local shares
+  // too: every drop and every move of a slot zeroes it, so a slot is non-zero
+  // exactly while it owns its current member's value, and the dispose drops
+  // it once. Two kinds of RC local stay out, because their slot is not the
+  // one owner of its value: a pattern binding (it borrows the scrutinee's
+  // payload), and a local whose value another local also owns (either side
+  // of `is_owning_the_same_rc_value_as`).
+  rc_owners := HashSet(String).new();
+  (o0 : usize) = usize(0);
+  while(o0 < captured_variables.len(), o0 = (o0 + usize(1)), {
+    match(
+      captured_variables.get(o0),
+      .Some(ov) => match(
+        ov.is_owning_the_same_rc_value_as,
+        .Some(ob) => {
+          rc_owners.insert(ob.*.base.id.to_string());
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   eligible := ArrayList(CapturedVariable).new();
   (e0 : usize) = usize(0);
   while(e0 < captured_variables.len(), {
@@ -537,7 +585,9 @@ compute_overlapping_slots :: (
       captured_variables.get(e0),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(type_contains_rc_type(v.base.ty)), {
+        vid0 := v.base.id.to_string();
+        rc_shareable := (!(pattern_binding_ids.contains(vid0.clone())) && (v.is_owning_the_same_rc_value_as.is_none() && !(rc_owners.contains(vid0.clone()))));
+        if(((is_local && cross_boundary_ids.contains(vid0.clone())) && !(await_future_temp_var_aliases.contains_key(vid0.clone()))) && (!(type_contains_rc_type(v.base.ty)) || rc_shareable), {
           eligible.push(v);
         });
       },
@@ -706,12 +756,16 @@ compute_overlapping_slots :: (
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
           var_names := ArrayList(String).new();
+          (slot_ty : TypeValue) = TypeValue.Unit;
           (vni : usize) = usize(0);
           while(vni < group_var_ids.len(), {
             gid := match(group_var_ids.get(vni), .Some(x) => x, .None => String.new());
             nm := match(
               _find_captured_by_id(eligible, gid.clone()),
-              .Some(fv) => fv.base.name.clone(),
+              .Some(fv) => {
+                slot_ty = fv.base.ty;
+                fv.base.name.clone()
+              },
               .None => gid.clone()
             );
             var_names.push(nm);
@@ -719,7 +773,7 @@ compute_overlapping_slots :: (
             vni = (vni + usize(1));
           });
           slots.push(
-            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), variable_names : var_names)
+            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), ty : slot_ty, variable_names : var_names)
           );
           next_slot_index = (next_slot_index + usize(1));
         });
