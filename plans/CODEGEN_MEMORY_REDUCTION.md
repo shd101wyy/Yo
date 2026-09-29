@@ -4,7 +4,9 @@
 [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) paused (§8
 there). That campaign cut what `check` retains to 970 MB. This one covers what
 `compile` holds on top of it: the evaluator state kept alive for codegen, and
-codegen's own working set. Nothing is implemented yet. Phase 0 comes first.
+codegen's own working set. Phase 0's instruments are in (§0.1–§0.3); landed
+levers: lazy `HashMap` (§0.4) and copy-on-write frame lists (§0.5),
+`compile` 3,284 → 2,992 MB on mimalloc.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -168,6 +170,58 @@ like-for-like but not the mimalloc verdict:
 | end of evaluation (`--profile`) | 2,969 MB | 2,890 MB |
 | instructions, `check src/types/intern.yo` | 201,392,029,506 | 201,215,315,433 (−0.09 %) |
 | emitted C | | byte-identical |
+
+### 0.5 Landed lever: copy-on-write frame lists (2026-09-30)
+
+`snapshot_env` copied the live env's frame list into every recorded
+`ExprInfo.env` (461,751 ring misses plus 1,683,870 `expr_info_adopt_env`
+copies in `compile`), and 67 adoption sites copied a recorded list back into
+the live env (`env.frames = copy_frames(info.env.frames)`). Now every
+environment SHARES the list:
+- `snapshot_env` shares `env.frames`;
+- the adoption sites assign `info.env.frames` directly;
+- the six in-place `push`/`pop` sites (`push_frame`, `pop_frame`,
+  `push_env_frame`, `pop_env_frame`, the `comptime_expect_error` frame
+  re-push) first call `env_frames_for_write`, which copies while
+  `rc(env.frames) > 1`;
+- `copy_frames` (now only the copy step of that guard) allocates one spare
+  slot, so the push that forced the copy fits without a doubling.
+
+No other code mutates a frame list in place (every other `frames` write
+assigns a fresh list), and `Frame` objects were already shared, so a recorded
+scope keeps exactly its frame set. Test: `tests/internal/env.test.yo`
+"snapshot_env shares the frame list until the source pushes or pops", which
+fails on the copying code.
+
+Stage-2 A/B on develop `26e71f6c6` + this branch, **mimalloc, every binary
+checked with `nm … | grep ' mi_malloc$'`**, same input tree:
+
+| binary | `check src/main.yo` | `compile … --skip-c-compiler` | end of evaluation | instructions (`check src/types/intern.yo`) |
+| --- | --- | --- | --- | --- |
+| base (lazy `HashMap`, no CoW) | 971.0 / 971.0 MB | 3,200 MB | 2,648 MB | 86,960,432,373 |
+| step 1: `snapshot_env` shares + guards | 929.7 / 929.8 | 3,001 | 2,462 | 86,681,523,225 |
+| steps 1+2: adoption sites share too | 935.0 / 934.6 | 2,994 | 2,451 | 86,545,639,351 |
+| step 1 + spare slot | 931.9 / 931.9 | 3,006 | 2,463 | 86,631,136,609 |
+| **steps 1+2 + spare slot (landed)** | **933.1 / 931.7** | **2,992 (−208, −6.5 %)** | **2,449 (−199)** | **86,448,620,151 (−0.59 %)** |
+
+The emitted C is byte-identical for every row. The landed variant is best on
+`compile` (this plan's target) and on instructions; `check` is 2 MB above
+step 1 alone and 39 MB below the base.
+
+Where the saving comes from: fewer live lists. A ring miss always follows a
+push or a pop, so the COUNT of copies barely changes. What changes is that a
+snapshot taken between two mutations no longer carries its own copy, and an
+adopted list is not duplicated.
+
+The lazy `HashMap` (§0.4), re-measured on mimalloc against a base without it:
+`compile` 3,284 → 3,200 MB (−84), `check` 971.5 → 971.0 (−0.5; mimalloc's
+small bins absorbed most of the glibc win), instructions −0.32 %.
+
+**Earlier rows are not comparable with these.** Before this A/B the branch
+carried #993's pattern walk (fixed by #996), and its binaries were glibc
+(§0.1). The pre-rebase CoW step-1 A/B, glibc against glibc on that tree,
+read `compile` 3,469 → 3,237 MB and `check` 1,080 → 1,009 MB. The rows
+above replace it.
 
 ## 1. Rules carried over from the evaluator campaign
 
