@@ -1,13 +1,13 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: BACKLOG — design audit completed 2026-09-29, no implementation
-> started.** Verdict: **feasible**. An explicit allocator in Yo selects *where*
-> a block lives; reference counting keeps *whether and when* it dies. Every
-> allocation falls back to the global allocator when no explicit allocator is
-> in scope, so `ref(struct(...))`, `ref(enum(...))`, `Box`, `Dyn`, `Arc`,
-> `String`, closures and all of std behave exactly as today unless a program
-> names an allocator. This document answers the open question recorded in
-> `std/allocator.yo`'s own stability note (2026-09: "a decision on whether
+> **Status: BACKLOG — design audited 2026-09-29 (two passes), no
+> implementation started.** Verdict: **feasible**. An explicit allocator in
+> Yo selects *where* a block lives; reference counting keeps *whether and
+> when* it dies. Every allocation falls back to the global allocator when no
+> explicit allocator is named, so `ref(struct(...))`, `ref(enum(...))`,
+> `Box`, `Dyn`, `Arc`, `String`, closures and all of std behave exactly as
+> today unless a program asks otherwise. This document answers the open
+> question in `std/allocator.yo`'s stability note ("a decision on whether
 > containers take an allocator parameter the way Zig's and Rust's do …
 > freezing needs a second implementor — an arena or a counting allocator").
 > It is the per-object layer **on top of** — not a replacement for — the
@@ -15,6 +15,11 @@
 > [`FIXED_REGION_ALLOCATOR.md`](../reference/FIXED_REGION_ALLOCATOR.md) §0
 > (which scoped itself to "Yo keeps one global allocator" and recorded the
 > Zig-style parameter as out of that plan's scope).
+>
+> The second audit pass corrected seven load-bearing claims of the first
+> draft (inventory counts, the tag write site, the reader list, the atomic
+> path, the container layout cost, unwind safety, async scoping). They are
+> listed in §8 so a reader of the PR history can see what moved and why.
 
 ## 0. Verdict
 
@@ -22,91 +27,120 @@
 
 | concern | owner | mechanism |
 | --- | --- | --- |
-| which pool a block comes from | explicit `Allocator` (opt-in) | allocation-site parameter/scope |
+| which pool a block comes from | explicit `Allocator` (opt-in) | allocation-site parameter (containers) or dynamic scope (RC objects) |
 | when it is released | reference counting (always) | compiler-inserted dup/drop, refcount-0 dispose, cycle GC |
-| released **back to the right pool** | automatic | the block records its owner; every free site routes on it |
+| released **back to the right pool** | automatic | the block records its owner in a 16-byte prefix; every free site routes on it |
 
-That third row is the whole trick, and it is why this is *more* compatible
-with RC than it first looks: in Zig, the programmer must pair every `free`
-with the allocator the block came from — the single largest allocator bug
+That third row is the whole trick. In Zig the programmer must pair every
+`free` with the allocator the block came from, and the largest allocator bug
 class (wrong-allocator free, use-after-arena-deinit) exists because the
-pairing is manual. In Yo, frees are compiler-inserted at deterministic points
-(`__yo_decr_rc`, the cycle collectors, thread-exit cleanup — §1.2), all of
-which already hold the block's header. If the block records its owning
-allocator, routing frees back is mechanical, and the Zig bug class is
+pairing is manual. In Yo, frees are compiler-inserted at a small, closed set
+of points (§1.3) that already hold the block's header. If the block records
+its owner, routing frees back is mechanical, and the Zig bug class is
 impossible by construction rather than by discipline.
 
 **Rule 1 (fallback).** Absent an explicit allocator, every allocation uses
-the global allocator. Absence is never an error, never a behavior change,
-and (P1) not even an emitted-C change.
+the global allocator. Absence is never an error and never a behavior change.
+
+**Rule 2 (inverted default).** The runtime's own allocations — async I/O
+futures, continuations, waker tokens, parallelism task records, GC state —
+are *never* placeable. Only the six user-visible constructor emission sites
+(§1.2) consult the scope. This is the opposite polarity from the first
+draft, and it is what makes the design safe by omission: a runtime site
+nobody touched cannot be mis-routed, because it never looked.
 
 **What does NOT carry over from Zig.** Zig's allocator parameter is also a
 *lifetime* statement: `arena.deinit()` frees everything instantly and nobody
 tracks liveness. Under RC, a block lives exactly as long as its refcount (and
 the cycle collector) says — an arena cannot bulk-free what RC still counts.
-Yo therefore gets the *placement* benefits of explicit allocators (memory
-locality, a second TLSF region, scoped scratch space, per-subsystem OOM
-budgets, test/counting allocators) and pays for them with one rule: **arena
-`deinit` verifies emptiness** — live blocks at deinit are a tier-3 trap
-(defined behavior, `file:line:col`, identical at every `-O`), and a
-process-lifetime arena that never deinits uses the explicit `abandon()`
-escape hatch instead. Bulk-free-without-check is the one Zig capability
-declined, deliberately: it cannot be made sound under dynamic refcounts
-without a proof RC does not have.
+Yo therefore gets the *placement* benefits (locality, a second TLSF region,
+scoped scratch space, per-subsystem budgets, test/counting allocators) and
+pays for them with one rule: **arena `deinit` verifies emptiness** — live
+blocks at deinit are a tier-3 trap (`plans/SAFE_MODE.md`: defined behavior,
+`file:line:col`, identical at every `-O`), and a process-lifetime arena
+uses the explicit `abandon()` escape hatch instead. Bulk-free-without-check
+is the one Zig capability declined, deliberately: it cannot be made sound
+under dynamic refcounts without a proof RC does not have.
 
 ## 1. What exists today (measured 2026-09-29)
 
 ### 1.1 One allocator, chosen at compile time
 
-Every allocation in a compiled program — RC objects, container buffers,
-runtime internals — flows through one function family, selected at compile
-time by `--allocator mimalloc|system|fixed`
+Every allocation in a compiled program flows through one function family,
+selected at compile time by `--allocator mimalloc|system|fixed`
 (`src/codegen/c/collection.yo:173-236`; the fixed arm's TLSF lives in
-`src/codegen/c/allocator_fixed.yo`). Above it, one helper is the sole entry
-point for RC blocks:
+`src/codegen/c/allocator_fixed.yo`). `__yo_malloc`, `__yo_realloc`,
+`__yo_free`, `__yo_aligned_alloc`, `__yo_aligned_free` are **`#define`s**
+over `mi_*` / libc / `_aligned_*` — there is no function to hook, which is
+why routing needs a new inline helper rather than a redefinition. Above
+them, one helper is the entry point for RC blocks:
 
-- `__yo_rc_alloc(size)` — `src/codegen/c/collection.yo:500-512`: `__yo_malloc`
-  + `__yo_alloc_fail` (OOM abort). Note the `__asm__ volatile("" : "+r"(p))`
-  barrier keeping clang from fusing malloc+memset into a calloc that bypasses
-  tcache (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.4) — any variant of
-  this helper must preserve it.
-- std reaches the same family via `GlobalAllocator` (`std/allocator.yo:47-162`),
-  whose stability note already names this plan's question as the open one.
+- `__yo_rc_alloc(size)` — `src/codegen/c/collection.yo:500-512`:
+  `__yo_malloc` + `__yo_alloc_fail` (OOM abort) + the
+  `__asm__ volatile("" : "+r"(p))` barrier that keeps clang from fusing
+  malloc+memset into a tcache-bypassing calloc
+  (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.4). Any variant must keep
+  the barrier.
+- std reaches the same family through `GlobalAllocator`
+  (`std/allocator.yo`, an `impl({...})` of the `__yo_*` externs).
 
-### 1.2 The complete RC allocation inventory
+### 1.2 `__yo_rc_alloc` has 133 callers; six construct user-visible objects
 
-Every construct whose runtime construction allocates an RC-managed block,
-with its emission site (all verified 2026-09-29):
+| class | sites | freed by |
+| --- | ---: | --- |
+| **User-visible RC constructors** — `ref(struct(...))` ctor (also `atomic(ref(struct))`, `Box`/`Arc` = one-field ref structs, `JoinHandle`) `src/codegen/functions/constructors.yo:182`; `ref(enum(...))` variant ctors `constructors.yo:670`; `Dyn(Trait)` boxes `src/codegen/functions/dyn.yo:142`; `Iso(T)` create `src/codegen/types/generation.yo:1667`; async-block / `io.async` state machines `src/codegen/exprs/async.yo:1428`, `:3067` | **6** | `__yo_decr_rc*` → `dispose_fn` → free (§1.3) |
+| Async runtime internals — continuations, I/O futures, waker tokens, yield nodes (`src/codegen/async/runtime_core.yo:299,722,742,991,998`; `runtime_io_common.yo` ×21, `runtime_io_linux.yo` ×23, `runtime_io_macos.yo` ×26, `runtime_io_windows.yo` ×43, `runtime_io_wasm.yo` ×3) | ~121 | plain `__yo_free`, or decr on a runtime-owned header |
+| Parallelism runtime — thread-entry args, worker table, task records (`src/codegen/parallelism/runtime.yo:190,364,525`) and the spawn closure-capture copy (`src/codegen/exprs/parallelism.yo:330`) | 4 | plain `__yo_free` |
+| GC per-thread state (`src/codegen/functions/gc_runtime.yo:762`) | 1 | plain `__yo_free` at thread exit |
 
-| # | construct | allocation site |
-| --- | --- | --- |
-| 1 | `ref(struct(...))` ctor — also covers `atomic(ref(struct))`, `Box(T)`/`Arc(T)` (one-field ref structs, `std/prelude.yo:9395-9403`), `JoinHandle` | `src/codegen/functions/constructors.yo:182` |
-| 2 | `ref(enum(...))` variant ctors (incl. atomic) | `src/codegen/functions/constructors.yo:670` |
-| 3 | `Dyn(Trait)` boxes (`__yo_dyn_box_*`; `Dyn` is a compiler builtin type, not a prelude struct) | `src/codegen/functions/dyn.yo:142` |
-| 4 | `Iso(T)` create | `src/codegen/types/generation.yo:1667` |
-| 5 | async-block state machines | `src/codegen/exprs/async.yo:1428`, `:3067` |
-| 6 | parallelism spawn closure-capture copy (non-RC block, freed with plain `__yo_free`) | `src/codegen/exprs/parallelism.yo:330` |
-| 7 | GC per-thread state | `src/codegen/functions/gc_runtime.yo:762` |
-| 8 | container buffers (ArrayList et al.) | std, via `GlobalAllocator` (§1.4) |
+The first draft counted "eight constructs" and proposed that `__yo_rc_alloc`
+itself consult the scope with the internal sites opting out. With ~126
+internal sites — freed with an *untagged* `__yo_free` — one missed opt-out
+inside a user scope would hand an arena block to `mi_free`. Rule 2 inverts
+this: `__yo_rc_alloc` keeps today's body verbatim and a **new**
+`__yo_rc_alloc_scoped` is called from the six constructor sites only.
+
+**Constructors initialize the header AFTER allocation.** Every one of the
+six sites writes `obj->header.ref_count = 1` (and, under cycle GC,
+`gc_flags = 0`, `gc_mark`, list pointers) after the `__yo_rc_alloc` call
+(`constructors.yo:187`, `:671`, `dyn.yo:143`, `generation.yo:1668`,
+`async.yo:1433`, `:3069`); the two async sites `memset` the whole block
+first. A tag written inside the allocation helper would be overwritten, so
+the tag is written **by the constructor emission**, after its header init
+(§3.4).
 
 Template strings, `String`, `StringBuilder`, `Regex`, `std/hash` allocate no
-other way: they bottom out in #1 (String is a newtype over
-`Option(ArrayList(u8))`, `std/string/string.yo:86-88`) or #8. Capturing
-closures do **not** allocate (stack capture struct,
-`src/codegen/exprs/closures.yo:160-268`); a closure becomes heap state only
-when boxed (`box`/`arc` → #1, or `Dyn(Fn)` → #3).
+other way: they bottom out in the ref-struct ctor (String is a newtype over
+`Option(ArrayList(u8))`, `std/string/string.yo:86-88`) or in container
+buffers (§1.6). Capturing closures do **not** allocate (stack capture
+struct, `src/codegen/exprs/closures.yo:160-268`); a closure becomes heap
+state only when boxed (`box`/`arc` → ref-struct ctor, or `Dyn(Fn)` → dyn
+box).
 
-The free side is even more concentrated. When refcount hits zero the runtime
-calls `dispose_fn` (or `__yo_dispose_dispatch`) and then `__yo_free(ptr)` at
-exactly: `src/codegen/functions/gc_runtime.yo:400`, `:441` (atomic),
-`:556`, `:609` (tracked tail), `:650`, plus the cycle collectors at
-`:1036-1042` (incremental Bacon-Rajan) and `:1106-1117` (full trial
-deletion), and thread-exit cleanup at `:1172`/`:1189`. The collectors free
-through the **same** dispose → free sequence as normal drops, so routing the
-free sites routes the collectors too. **No header records an owner today**
-(§1.3) — there is exactly one allocator per process, so none was needed.
+### 1.3 Eight RC free sites, all in `gc_runtime.yo`
 
-### 1.3 The RC headers
+When a refcount hits zero the runtime calls `dispose_fn` (or
+`__yo_dispose_dispatch`) and then `__yo_free(ptr)` at exactly:
+
+| site | function |
+| --- | --- |
+| `gc_runtime.yo:400` | `__yo_decr_rc`, lightweight header |
+| `:441` | `__yo_decr_rc_atomic`, lightweight header |
+| `:556` | `__yo_decr_rc`, full/small header fast path (untracked) |
+| `:609` | `__yo_decr_rc_tracked` (out-of-line tail) |
+| `:650` | `__yo_decr_rc_atomic`, full/small header |
+| `:1041` | `__yo_gc_collect_incremental` (Bacon-Rajan white set) |
+| `:1117` | `__yo_gc_collect` (full trial deletion) |
+| `:1172` | `__yo_cleanup_thread_gc` pass 2 (thread exit) |
+
+The other three `__yo_free` calls in the file are not RC objects: `:269` and
+`:302` free unwind-value copies in the task-abort registry, `:1189` frees the
+per-thread GC state. The collectors and the thread-exit sweep free through
+the **same** dispose → free sequence as a normal drop, so routing these eight
+sites routes everything. **No header records an owner today** — there is
+one allocator per process, so none was needed.
+
+### 1.4 The RC headers, and every reader of the count
 
 Three layouts, selected per type by `compute_needs_cycle_gc`
 (`src/codegen/codegen_c.yo:192-215`), emitted in
@@ -115,32 +149,84 @@ Three layouts, selected per type by `compute_needs_cycle_gc`
 | layout | size | fields | used by |
 | --- | ---: | --- | --- |
 | full | 56 B | packed word (`ref_count : u32`, `gc_flags : u8`, `gc_mark : u8`, `borrow_count : u16`), `dispose_fn`, `traverse_fn`, gc/roots list links (`:980-1001`) | cycle-GC-capable ref types |
-| small | 16 B | packed word + `dispose_fn` (`:1014-1021`) | cycle-incapable ref types |
+| small | 16 B | packed word + `dispose_fn` (`:1014-1021`); a strict prefix of full | cycle-incapable ref types |
 | lightweight | 8 B | `ref_count : u32`, `type_id : u16`, `borrow_count : u16` (`:1043-1047`) | no-cycle-GC builds |
 
-The packed word is size-tuned on purpose (real perf work lives in its
-comments). None of the three has a spare byte for an allocator pointer —
-this is why §3.3 puts the routing tag in the refcount's high bit, not in a
-new field.
+`gc_flags` uses two bits (`__YO_GC_TRACKED 0x01`, `__YO_GC_BUFFERED 0x02`,
+`generation.yo:588-589`); the lightweight header has no flags byte at all.
+That asymmetry is why the tag goes in the **high bit of `ref_count`** on all
+three layouts (§3.4) rather than in `gc_flags`: one mechanism, one mask.
 
-### 1.4 std containers hold no allocator state
+`ref_count` is 32 bits and never approaches 2^31 live references. The
+**complete** list of places that *test* the count (all must mask):
+
+| reader | file | test |
+| --- | --- | --- |
+| `__yo_decr_rc` (lightweight; full/small fast path) | `gc_runtime.yo:396`, `:551` | `ref_count == 1` |
+| `__yo_decr_rc_tracked` | `:598` | `ref_count == 1` |
+| `__yo_decr_rc_atomic` (both layouts) | `:437`, `:644` | `old_count == 1` on the `atomic_fetch_sub` result |
+| `__yo_gc_mark_gray_visitor` | `:937` | `ref_count > 0` before trial decrement |
+| `__yo_gc_scan` | `:974` | `ref_count > 0` (live vs garbage) |
+| `__yo_gc_trial_delete_visitor` | `:1065` | `ref_count > 0` |
+| `__yo_gc_collect` classification | `:1098` | `ref_count == 0` |
+| `__yo_iso_uq_visit` (Iso uniqueness walk) | `constructors.yo:783` | `ref_count != 1` |
+| `rc()` builtin lowering (`generate_rc_call`) | `src/codegen/exprs/rc_fns.yo:401-430` | returned to user code; the `rc(self) == 1` copy-on-write checks in `std/imm/*` (9 sites) read it |
+| `GC_DEBUG` traces | throughout | cosmetic |
+
+The first draft listed only the decr tests, `rc()` and the Iso walk. The
+four collector readers are the important omission: with an unmasked
+`ref_count > 0`, a tagged object could never be classified garbage and
+**cycles inside an arena would never be collected**. Writers
+(`ref_count++`, `ref_count--`, `atomic_fetch_add/sub`) preserve a high bit
+arithmetically as long as the count never crosses zero, which the death
+tests guarantee.
+
+**The atomic path is `atomic_fetch_sub`, not a CAS loop** (`:437`, `:644`).
+Supporting the tag there is masking the returned old count — one line per
+site. The first draft's "atomic RC types opt out" rested on a CAS-loop
+premise the code does not have, and (§3.5) the scoped form could not have
+produced its promised compile error anyway, because whether an
+`atomic(ref(...))` ctor runs inside a scope is a runtime fact.
+
+### 1.5 The async continuation trampoline and flag-propagated `unwind`
+
+- A suspended task is a `__yo_continuation_t { resume_fn, state_machine,
+  next }` (`src/codegen/async/runtime_core.yo:27-31`), created at one site
+  (`__yo_async_enqueue_continuation`, `:292`) and run at one site
+  (`__yo_async_run_task`, `:355-359`: `cont->resume_fn(cont->state_machine)`
+  followed by the `__yo_handoff_fn` hop loop). Any "scope follows the task"
+  rule (§3.5) is therefore two edits, not a runtime rewrite.
+- `unwind` is **not** `longjmp`: it sets the thread-local
+  `__yo_unwind_target` (`gc_runtime.yo:230`, `src/codegen/exprs/return.yo:1375`)
+  and every frame on the way out returns early after checking it. Consequence
+  for this plan: a scope wrapper written in plain Yo as
+  `prev := set(a); r := f(); set(prev); r` skips its restore when `f`
+  unwinds through it — the early return leaves `set(prev)` unexecuted and the
+  thread's current allocator dangling on a dead arena. The scope must be
+  lowered by codegen so the restore is emitted *before* the unwind check
+  (§3.5).
+
+### 1.6 std containers hold no allocator state — and cannot afford a word
 
 `ArrayList(T) :: ref(struct(_ptr, _length, _capacity))`
-(`std/collections/array_list.yo:36-44`) — every call is a *static*
-`GlobalAllocator.*` call: growth malloc/realloc (`:231-238`, `:764-771`),
-shrink (`:353`, `:367-370`), and the buffer free inside the `Dispose` impl
-(`:885-896`, free at `:891`). Same shape in `hash_map.yo` (6 sites),
-`deque.yo` (2), `std/imm/{vec,map,string}` (~10); `HashSet`, `BTreeMap`,
-`LinkedList`, `StringBuilder`, `imm/{list,set,sorted_*}` allocate only
-through these. No std API takes an allocator parameter; no `Arena`, bump or
-pool allocator type exists anywhere in the tree (verified by grep). The
-`Dispose` chain that frees buffers at refcount zero:
-`Dispose :: trait(...)` (`std/prelude.yo:253-266`) → codegen-synthesized
-`___dispose` calling the user `dispose` first
-(`src/codegen/functions/collection.yo:1511-1585`) → stamped into the header
-at construction (`constructors.yo:204-221`).
+(`std/collections/array_list.yo:36-44`) reaches the allocator through
+destructured `GlobalAllocator` names — `malloc`/`realloc` on growth
+(`:231-238`, `:764-771`), shrink (`:353`, `:367-370`), `free` inside the
+`Dispose` impl (`:885-896`). Same shape in `hash_map.yo` (7 sites, two
+buffers), `deque.yo` (3), `std/imm/{vec,map,string}` (~10); `HashSet`,
+`BTreeMap`, `LinkedList`, `StringBuilder`, `imm/{list,set,sorted_*}`
+allocate only through these. No std API takes an allocator parameter; no
+`Arena`, bump or pool allocator type exists anywhere in the tree.
 
-### 1.5 Docs promise nothing
+**The layout is size-tuned and the number is on record.** The packed RC
+header's own comment (`generation.yo:981-984`): "ArrayList 88 -> 80 crosses
+the 96 -> 80 malloc class (~0.4 GB at self-compile scale)". Adding an
+`_alloc : Allocator` field (the first draft: ctx + four fn pointers, 40 B)
+or even an 8-byte pointer moves `ArrayList` — and therefore every `String`
+in the compiler — back across that class boundary. §3.3 stores the
+allocator in the *buffer's* prefix and keeps one bit in the container.
+
+### 1.7 Docs promise nothing
 
 `docs/en-US/MEMORY_SAFETY.md` and `docs/zh-CN/MEMORY_SAFETY.md` describe RC +
 gated unsafe and mention "writing a custom allocator" only as an
@@ -150,86 +236,127 @@ the feature is docs-additive, not docs-breaking.
 
 ## 2. Why this composes with RC (the compatibility argument)
 
-1. **Frees are never manual, so pairing is never manual.** All nine free
-   sites (§1.2) already hold the header pointer; adding "read owner, route"
-   is local. The programmer states an allocator at *allocation* only.
-2. **The RC machinery is allocator-agnostic.** Dup/drop insertion, borrow-by-
-   default parameters, the dup/drop pair optimizer
+1. **Frees are never manual, so pairing is never manual.** All eight free
+   sites (§1.3) already hold the header pointer; adding "read tag, route" is
+   local. The programmer states an allocator at *allocation* only.
+2. **The RC machinery is allocator-agnostic.** Dup/drop insertion,
+   borrow-by-default parameters, the dup/drop pair optimizer
    (`_optimize_dup_drop_pairs`, `src/evaluator/exprs/begin.yo`), the cycle
    collectors, `Dispose` synthesis, atomic RC, `Iso` uniqueness — none of it
-   looks below `__yo_malloc`. An explicit allocator only replaces the two
-   calls at the bottom of `__yo_rc_alloc` and the routed `__yo_free`.
-3. **The fallback keeps the default path byte-stable** (P1: literally; P2:
-   one bit-test on the free path, re-baselined once and gated).
+   looks below `__yo_rc_alloc`. An explicit allocator changes the six
+   constructor sites and the eight free sites.
+3. **The fallback keeps the default path stable**: containers keep their
+   layout (§3.3), the runtime's ~126 internal allocations are untouched
+   (Rule 2), and the default free path gains one masked compare.
 4. **The hazard unique to explicit allocators gets a defined-behavior
    answer.** "Allocator dies while blocks are live" is a *trap* (arena
-   `deinit` emptiness check), not UB — consistent with the safe-mode tier-3
-   trap family. Everything else (raw pointers, block bytes) stays behind
-   the existing safe/unsafe boundary: *using* an `Allocator` is safe
-   (already the position of `plans/reference/MEMORY_SAFETY.md` §Allocators);
-   *implementing* one needs `pragma(Pragma.AllowUnsafe)`.
+   `deinit` emptiness check), not UB. Everything else (raw pointers, block
+   bytes) stays behind the existing safe/unsafe boundary: *using* an
+   `Allocator` through `_in` constructors and scopes is safe (the position of
+   `plans/reference/MEMORY_SAFETY.md` §Allocators); *implementing* one, or
+   calling its raw `alloc`/`free`, needs `pragma(Pragma.AllowUnsafe)`.
 
 ## 3. Design
 
-Two layers, each independently shippable:
+Two layers, each independently shippable, sharing one **owner prefix**:
 
-- **Layer 1 (std-only, zero compiler change):** containers take an
-  `Allocator` parameter for their **buffers** (§3.2).
+- **Layer 1 (std-only):** containers take an `Allocator` for their
+  **buffers** (§3.3).
 - **Layer 2 (codegen):** RC **objects** can be allocated from an explicit
-  allocator with automatic free routing (§3.3–3.4).
+  allocator with automatic free routing (§3.4–3.5).
 
 ### 3.1 The `Allocator` value type (P0)
 
-Zig's `std.mem.Allocator` shape: a context pointer plus function pointers.
+Zig's `std.mem.Allocator` shape — a context pointer plus a pointer to an
+immortal vtable — chosen over "ctx + inline fn pointers" because the *same
+two words* are what the block prefix (§3.2) stores, and a prefix must never
+point at a stack copy of a value type.
 
 ```rust
 // std/allocator.yo — added beside the existing externs
+AllocatorVTable :: struct(
+  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+);
 Allocator :: struct(
   ctx : ?*void,
-  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
-  realloc : (fn(ctx : ?*void, ptr : ?*void, size : usize) -> ?*void),
-  free : (fn(ctx : ?*void, ptr : ?*void) -> unit),
-  aligned_alloc : (fn(ctx : ?*void, alignment : usize, size : usize) -> ?*void)
+  vtable : *(AllocatorVTable)
 );
+impl(Allocator, Send());   // the audited base (§3.8)
 
-// The global allocator becomes an INSTANCE (name kept; today's static-call
-// sites keep compiling through it):
-GlobalAllocator :: ... // unchanged static surface, plus:
-global :: Allocator(  // ctx .None; fns forward to __yo_malloc et al.
-  ctx : Option(*void).None,
-  alloc : ((ctx, size) -> __yo_malloc(size)),
-  ...
-);
+// Public methods (the ONLY way user code touches an allocator):
+//   Allocator.alloc(self, size) -> ?*void        writes the prefix (§3.2)
+//   Allocator.realloc(self, ptr, new_size) -> ?*void
+//   Allocator.free(self, ptr)                    the raw, non-routed release
+//   Allocator.free_routed(ptr)                   static: reads the prefix
+// and `global :: Allocator` whose vtable forwards to __yo_malloc et al.
 ```
 
-Decisions baked in: `realloc` is **required** (every container grows; a
-defaulting `malloc+memcpy+free` fallback invites silent O(n) growth) — this
-answers the "shape a custom allocator would need" question in the module's
-stability note. `aligned_alloc` is required because the two-family rule
-(`std/allocator.yo:64-79`) makes alignment a property of the *pair*, and an
-allocator that cannot honor alignment cannot back container buffers
-portably. `Allocator` is a **value type** (copied, not RC'd): passing one is
-eight words, and an allocator must not itself need an allocator. Per the D4
-function-value rule, `Allocator` is `Send` exactly when its `ctx` witness
-is; the global instance (`.None` ctx) is `Send`.
+Decisions baked in:
+
+- **`realloc` is required** (every container grows; a defaulting
+  `malloc+memcpy+free` fallback invites silent O(n) growth). This answers the
+  stability note's "is `realloc` required or defaulted?".
+- **No `aligned_alloc` in the vtable** (the first draft required it). The
+  two-family rule (`std/allocator.yo:64-79`) makes alignment a property of
+  the *pair*, and a vtable with one `free` cannot honor an aligned family on
+  Windows. Nothing in std needs it: every container buffer and every RC
+  block is allocated with the plain family today, so the contract is "blocks
+  are `max_align_t`-aligned", exactly as now. Over-aligned buffers stay out
+  of scope (D10).
+- **No size at `free`.** A general-purpose allocator (TLSF, malloc) knows
+  its sizes; an arena does not need one; a counting allocator keeps its own.
+  Requiring the size would force every routed free site (§1.3) to know
+  `sizeof` the object, which the generic decr does not.
+- `Allocator` is a **value type** (two words, copied, not RC'd): an
+  allocator must not itself need an allocator. `ctx` is opaque; the vtable
+  pointer is immortal (D9).
+- `global` is a module-level `::` value: a struct of two words evaluated at
+  compile time, which is fine — only *calling* through it is runtime-only
+  (§3.7).
 
 **Name collision, noted:** `std/build.yo:53` already has
 `Allocator :: enum(Mimalloc, System, Fixed)` — the link-time *choice* of
 global allocator. Both are legal (separate modules), and build files don't
 import `std/allocator.yo`; the doc-level distinction is "build allocator =
-which global one, runtime `Allocator` = a value you pass". If review finds
-the collision confusing, the runtime type renames (`Mem.Allocator`) — open
-decision D6.
+which global one, runtime `Allocator` = a value you pass". Rename escape
+hatch: D6.
 
 P0 also ships the **second implementor** the stability note asks for:
 
-- `std/arena.yo` — `Arena`, a bump allocator over one block from
-  `GlobalAllocator.aligned_alloc` (one family, used consistently), with a
-  live-block counter and an `atomic_flag` spinlock (§3.6).
-- a counting/capturing allocator in `tests/` (asserts alloc/free balance and
-  byte totals) — the test-side implementor that freezes the trait surface.
+- `std/arena.yo` — `Arena`, a bump allocator over one region from
+  `GlobalAllocator.aligned_alloc` (released with `aligned_free`, one family
+  used consistently), with a live-block counter, a spinlock (§3.8), and
+  `deinit`/`abandon` (§3.6).
+- a counting allocator in `tests/` (asserts alloc/free balance and byte
+  totals) — the test-side implementor that freezes the vtable surface.
 
-### 3.2 Layer 1 — containers take an allocator (P1, std-only)
+### 3.2 The owner prefix (shared by both layers)
+
+Every block handed out through `Allocator.alloc` carries, **immediately
+before the returned pointer**, a 16-byte prefix:
+
+```c
+typedef struct { void* ctx; const void* vtable; } __yo_alloc_prefix_t;  // 16 B keeps max_align_t
+```
+
+- `Allocator.alloc(self, size)` = `vtable.alloc(ctx, size + 16)`, write
+  `{ctx, vtable}`, return `raw + 16`. `Allocator.realloc` re-writes the
+  prefix on the new block. Implementors never see the prefix: they hand out
+  raw blocks, and the generic wrapper in `std/allocator.yo` owns the layout.
+- `Allocator.free_routed(ptr)` (static) = `pre = ptr - 16;
+  pre->vtable->free(pre->ctx, pre)`. Codegen's `__yo_rc_free` (§3.4) does the
+  same in C.
+- The layout is a **std ↔ codegen ABI**, like `__yo_ref_header_t`: emitted
+  once in the C header as `__yo_alloc_prefix_t`, mirrored in std as a private
+  struct, and pinned by a test that asserts `sizeof` = 16 and the field
+  offsets (P0 for std, P3 for the codegen twin).
+- The global allocator **never** writes prefixes. A block from `global`
+  is a plain `__yo_malloc` block, which is why nothing on the default path
+  changes and why every holder needs exactly one bit to say "prefixed".
+
+### 3.3 Layer 1 — containers take an allocator (P1, std-only)
 
 ```rust
 arena := Arena.new(usize(4) * usize(1024) * usize(1024));
@@ -241,112 +368,152 @@ map := HashMap(str, i32).with_capacity_in(arena.allocator(), usize(16));
 plain := ArrayList(i32).new();
 ```
 
-- Each container gains a private `_alloc : Allocator` field and `_in`
-  constructor variants (`new_in`, `with_capacity_in`; no overloading, so
-  distinct names — the D2 naming discipline gets a new row, "allocator-
-  parameterized constructor suffix `_in`"). The **dispose** impl frees the
-  buffer through `self._alloc.free(...)` instead of `GlobalAllocator.free`
-  — the one semantic change, and it is invisible when `_alloc == global`
-  (same function pointer).
+- **No new field.** The holder's bit lives in the **high bit of the capacity
+  word** (`_capacity` for `ArrayList`/`Deque`, the bucket-capacity word for
+  `HashMap`, `_cap` for the `imm` nodes): set ⇒ "this buffer came from an
+  explicit allocator; its owner is in the prefix". Element access never
+  reads capacity. The readers that do — the grow check in `push`/
+  `ensure_total_capacity`, `capacity()`, shrink, dispose — mask with a
+  private `_CAP_MASK`; growth and dispose route on the bit:
+  `Allocator.realloc`/`free_routed` when set, today's `realloc`/`free` when
+  clear. One AND on the push fast path; `sizeof` of every container
+  unchanged.
+- Each container gains `_in` constructor variants (`new_in`,
+  `with_capacity_in`; no overloading, so distinct names — the D2 naming
+  discipline gets a new row, "allocator-parameterized constructor suffix
+  `_in`"). The `_in` constructor allocates the first buffer through the
+  allocator and sets the bit; a container that has never allocated (`.None`
+  buffer) stores the allocator nowhere — so `new_in` **must** allocate its
+  first buffer eagerly (capacity 4 today) to remember the owner. Document
+  this as the one observable difference from `new()`.
 - The RC *object* (the ArrayList itself) still comes from the global
-  allocator in P1 — Layer 2 is what makes the object placeable. This split
-  is deliberate: buffers are the volume (millions of bytes), the object is
-  one block; shipping buffer placement first delivers the arena use case
-  with zero compiler risk.
+  allocator in P1 — Layer 2 makes the object placeable. Buffers are the
+  volume; the object is one block.
 - ZST anchors, `try_*` fallible variants and `AllocError` flow through
   unchanged — OOM inside an explicit allocator is `.None` → `try_push`
   returns `AllocError.OutOfMemory`; the infallible `push` still panics via
-  the same path it uses today.
+  the path it uses today.
+- **Stability ruling (D4):** no public-surface change, no layout change,
+  one private bit inside an existing word. Record the verdict in this doc
+  when P1 opens.
 
-**std-stability ruling needed (open decision D4):** adding a private field
-to a stable `ref(struct)` is invisible through the public surface (E0405
-makes `_` fields unreachable outside siblings), but it *is* a layout change.
-Recommendation: private fields are not contract; only exported surface is.
-Record the verdict in this doc when P1 opens.
+### 3.4 Layer 2 — RC objects from an explicit allocator (P2 + P3, codegen)
 
-### 3.3 Layer 2 — RC objects from an explicit allocator (P2, codegen)
+**The tag: the high bit of `ref_count`, on all three headers.**
 
-**Tag: the refcount high bit.** None of the three headers has a spare byte
-(§1.3), but `ref_count : u32` counting live objects never approaches 2^31.
-Steal its top bit as the **T-bit** ("tagged block"):
-
-- Writers of ref_count (`__yo_incr_rc`, plain `++`-style updates) preserve
-  the bit naturally — adding 1 to a word with the top bit set keeps it set.
-- Readers that *test* the count must mask: the `ref_count == 1` death test
-  in every decr variant, the `rc()` builtin lowering
-  (`src/codegen/exprs/rc_fns.yo:401-427`, the `rc(self) == 1` COW checks in
-  `std/imm/*`), and `__yo_iso_unique`. This is the full list of count
-  readers; each is a one-line mask.
-- Free routing: `__yo_free(ptr)` at the nine sites (§1.2) becomes
-  `__yo_rc_free(ptr)`: if the T-bit is clear → today's `__yo_free`
-  (unchanged fast path, one predictable branch); if set → the block carries
-  a **16-byte prefix immediately before the header** (`{owner : *Allocator,
-  magic : u32, reserved : u32}`; 16 bytes so the returned pointer keeps
-  `max_align_t` alignment) → `owner->free(owner->ctx, prefix_block)`.
-  16 B per *tagged* block only; the default path pays nothing.
-- The prefix is written by the **explicit allocator's** `alloc` (it
-  over-allocates by 16, stores itself, returns the shifted pointer) — the
-  global allocator never writes prefixes, which is why untagged emission is
-  unchanged.
-
-**Atomic RC types opt out in P2.** `__yo_decr_rc_atomic`'s CAS loops would
-have to carry the T-bit through every compare-exchange; instead, an explicit
-allocator applied to an `atomic(ref(...))` type is a clear compile error
-("atomic RC types stay on the global allocator for now"). `Arc`, `String`
-and the imm nodes are overwhelmingly global-allocated anyway; revisit as a
-follow-up if a measured need appears (open decision D5).
-
-**Allocation plumbing — a scoped form, not new signatures.** Every RC
-construction already funnels through `__yo_rc_alloc`; rather than threading
-an allocator parameter through eight constructor signatures and their call
-sites (§1.2), the scope carries it:
-
-- New runtime TLS: `__yo_current_allocator` (`?*Allocator`), set/cleared by
-  wrappers in `std/allocator.yo` (pragma'd module, per the D6 rule — never a
-  bare alias).
-- `__yo_rc_alloc` consults it: null → today's behavior; set →
-  `alloc->alloc(ctx, size + 16)` + prefix write + T-bit set on
-  `ref_count = 1 | T`. The `__asm__` tcache barrier (§1.1) is preserved in
-  both arms.
-- **Internal runtime allocations pin the global allocator.** The async
-  runtimes, the parallelism runtime and the GC thread state use
-  `__yo_rc_alloc` for *their own* blocks and free them with plain
-  `__yo_free` (§1.2 #5-#7, plus the raw-C runtime text). If a future ran
-  inside a user scope, those blocks would be arena-allocated but
-  untagged-freed — so those sites switch to a `__yo_rc_alloc_global`
-  variant (today's body) that ignores the TLS. User-visible futures/state
-  machines (also #5) *do* follow the scope: a future that outlives its
-  arena trips the deinit trap — loud, defined (§3.5).
-- Non-RC `__yo_rc_alloc` users (`src/codegen/parallelism/runtime.yo:190`,
-  `:364`, `:525` — allocated and freed with plain `__yo_free`) move to
-  `__yo_rc_alloc_global` for the same reason.
-
-**User surface:** `arena.scoped(f)` — make me current during `f`:
-
-```rust
-graph := arena.scoped((() => build_graph()));   // every RC allocation
-                                                // *dynamically inside* f
-                                                // comes from the arena:
-                                                // ref ctors, box, dyn, futures
+```c
+#define __YO_RC_TAG    0x80000000u   // block has an owner prefix
+#define __YO_RC_COUNT  0x7fffffffu
 ```
 
-Semantics, stated loudly because it differs from Zig (where hidden
-allocations do not exist): the scope captures **all** RC allocations
-dynamically inside it — including temporaries, `dyn` wrappers and deferred
-dups the compiler creates — not just the ones spelled in the source. That is
-correct by routing (every such block frees back to the arena), usually
-*desired* (the whole subsystem's garbage lands in the arena), and it is the
-documented contract. Containers stay explicit-parameter (§3.2) so a
-container's buffer is *provably* from one allocator for the container's
-lifetime, independent of where a constructor happens to run.
+- Writers (`++`, `--`, `atomic_fetch_add/sub`) preserve the bit
+  arithmetically. Every reader in §1.4 masks: `(h->ref_count &
+  __YO_RC_COUNT) == 1` in the five decr tests, `> 0` / `== 0` in the four
+  collector sites, `!= 1` in the Iso walk, `& __YO_RC_COUNT` in
+  `generate_rc_call` (both the plain and the `atomic_load_explicit` arms).
+  The grep `ref_count` over `src/codegen/` is the audit; §1.4 is its
+  expected result.
+- **`__yo_rc_free(ptr)`** replaces `__yo_free(ptr)` at the eight sites:
+  tag clear → `__yo_free` (today's macro; one predictable branch); tag set →
+  `pre = (__yo_alloc_prefix_t*)ptr - 1; pre->vtable->free(pre->ctx, pre)`.
+  It reads only the header word the death test just loaded, no TLS.
+- **Atomic types are supported** (D5): `__yo_decr_rc_atomic` masks the
+  `atomic_fetch_sub` result. `Arc`, `Iso`, `AtomicBool` and friends place
+  like everything else.
+
+**The tag write belongs to the six constructor sites** (§1.2). Each emits:
+
+```c
+__yo_alloc_scope_t __scope = __yo_scope_current();          // {ctx, vtable} or {0, 0}
+T* obj = (T*)__yo_rc_alloc_scoped(__scope, sizeof(T));      // global body when vtable == 0
+/* header init exactly as today, then: */
+obj->header.ref_count = 1u | __yo_rc_tag_of(__scope);       // 0 or __YO_RC_TAG
+```
+
+`__yo_rc_alloc_scoped` with an empty scope is `__yo_rc_alloc`'s body
+(barrier included); with a scope it is `vtable->alloc(ctx, size + 16)` +
+`__yo_alloc_fail` on NULL + prefix write + `raw + 16` + the same barrier.
+`__yo_rc_alloc` itself is untouched, and the ~126 runtime-internal callers
+never change (Rule 2).
+
+**`__yo_scope_current()` and the cost of asking.** The scope is a
+thread-local `__yo_alloc_scope_t __yo_current_allocator`. On Darwin every
+`_Thread_local` read is a `_tlv_get_addr` call (the decr fast path was
+restructured to avoid exactly that, `gc_runtime.yo:540-548`), so the read is
+guarded by a plain process-global `__yo_scopes_ever_entered` flag set by the
+first scope entry: a program that never enters a scope pays one non-TLS
+load per user-visible allocation, and the self-compile canary (P2/P3 gates)
+measures it.
 
 **Infallibility is preserved:** the RC path stays allocate-or-abort
-(`__yo_alloc_fail` with the owning allocator's stats in the message). A
+(`__yo_alloc_fail` with the owning allocator named in the message). A
 program that must survive OOM keeps using the existing fallible surface
 (`try_*`, direct `Allocator` calls returning `?*void`) — unchanged from
 D9 (`plans/archive/STD_API_STABILIZATION.md`).
 
-### 3.4 Arena semantics under RC (P3)
+### 3.5 The scoped form: a codegen builtin, and the scope follows the task
+
+**User surface:** `arena.scoped(f)` — make me current during `f`:
+
+```rust
+graph := arena.scoped((() => build_graph()));   // every user-visible RC
+                                                // allocation dynamically
+                                                // inside f comes from the
+                                                // arena: ref ctors, box,
+                                                // dyn, Iso, futures
+```
+
+`Arena.scoped` is a one-line std method over a **new builtin**
+`with_allocator(alloc : Allocator, f : Impl(Fn() -> T)) -> T` (name: D2),
+lowered in `src/codegen/exprs/` — not written in Yo — for one reason (§1.5):
+the restore of the previous scope must be emitted **before** the
+unwind-propagation check that follows the call to `f`, so an `unwind` out
+of `f` still leaves the thread on the previous allocator. The evaluator
+side: type-check `f`, result type `T`; under CTFE the builtin evaluates
+`f()` with no placement (§3.7). The lowering:
+
+```c
+__yo_alloc_scope_t __prev = __yo_current_allocator;
+__yo_current_allocator = <alloc>; __yo_scopes_ever_entered = 1;
+<r> = <call f>;
+__yo_current_allocator = __prev;        // BEFORE the __yo_unwind_target check
+```
+
+**The scope is a property of the task, not of the C stack.** An `io.async`
+body created inside a scope suspends at its first `await`; `scoped` returns
+and restores; the continuation runs later from the event loop. Without a
+rule, everything the body allocates after its first suspension would
+silently land in the global allocator — not unsound (routing is per block)
+but a broken contract. The rule: `__yo_continuation_t` gains an
+`__yo_alloc_scope_t scope` field; `__yo_async_enqueue_continuation`
+captures `__yo_current_allocator` into it, and `__yo_async_run_task`
+saves/sets/restores the thread-local around `resume_fn` (and around each
+`__yo_handoff_fn` hop, which runs the handed-off task's code). Two edits at
+the two sites of §1.5. A task spawned inside a scope therefore *stays* in
+the scope for its whole life, including work after the scope's creator has
+returned; an arena whose tasks are still alive at `deinit` trips the trap —
+loud, defined (§3.6).
+
+**Parallelism does not inherit.** A `spawn` body runs on a worker whose
+thread-local scope is empty → global. Passing an allocator *into* a task is
+explicit — pass the `Allocator` value (it is `Send`, §3.8) and call
+`with_allocator` inside. The spawn closure-capture copy
+(`exprs/parallelism.yo:330`) is runtime-internal and stays global (Rule 2).
+
+Semantics, stated loudly because it differs from Zig (where hidden
+allocations do not exist): the scope captures **all user-visible** RC
+allocations dynamically inside it — temporaries, `dyn` wrappers, boxed
+closures, state machines, deferred dups the compiler creates — not just the
+ones spelled in the source. That is correct by routing (every such block
+frees back to its owner), usually *desired* (the whole subsystem's garbage
+lands in the arena), and it is the documented contract. Containers stay
+explicit-parameter (§3.3) so a container's buffer is *provably* from one
+allocator for the container's lifetime, independent of where a constructor
+happens to run; a container *object* created inside a scope is placed by
+the scope like any ref struct, and its buffer by its own allocator — the
+two are independent and both route correctly.
+
+### 3.6 Arena semantics under RC (P0, P4)
 
 ```rust
 arena := Arena.new(bytes);
@@ -358,147 +525,268 @@ arena := Arena.new(bytes);
 arena.deinit();                            // traps if any block is still live
 ```
 
-- `deinit()` — the emptiness trap. Live blocks → tier-3 trap
+- `Arena` is itself a `ref(struct)`: its **`Dispose` impl is the deinit
+  check**, so an arena handle that dies with live blocks traps even when
+  nobody called `deinit()` explicitly, and an arena stays alive as long as
+  anything holds it. `deinit()` is the explicit early release (idempotent,
+  marks the arena dead so a later `alloc` traps too).
+- **The emptiness trap.** Live blocks → tier-3 trap
   `arena deinit: 3 blocks still live (arena.yo:…)`, then abort. Under
-  `--debug-heap` the message lists per-allocator live counts. This is what
-  makes "allocator outlives its blocks" a *checked* invariant instead of
-  the use-after-free it is in Zig.
+  `--debug-heap` the message lists per-allocator live counts (P4). This is
+  what makes "allocator outlives its blocks" a *checked* invariant instead
+  of the use-after-free it is in Zig.
 - `abandon()` — the escape hatch for process-lifetime arenas (startup
-  tables, interners): release tracking, never free; the underlying block
-  rejoins the global leak-oracle accounting at exit. The mirror of Zig's
-  "arena that lives forever" idiom, but explicit.
-- Individual drops before deinit: a *bump* arena's `free` is a no-op unless
-  the block is the last one (delayed reclamation — fine under RC, since the
-  arena is short-lived by design); a *general-purpose* explicit allocator
-  (e.g. a second TLSF region, or a pool) frees for real. Both route by the
-  same prefix.
+  tables, interners): release tracking, never free; the region stays live
+  and shows up in the `--debug-heap` leak oracle at exit as intended. The
+  mirror of Zig's "arena that lives forever" idiom, but explicit.
+- Individual drops before deinit: a *bump* arena's `free` decrements the
+  live counter and reclaims only a block that is the current top;
+  `realloc` grows the top block in place and otherwise allocates fresh
+  (the old bytes stay until deinit — fine, arenas are short-lived by
+  design). A *general-purpose* explicit allocator (a second TLSF region, a
+  pool) frees for real. Both route by the same prefix.
 - **Cycles**: arena-allocated objects participate in cycle GC exactly as
-  today; the collectors' free sites are routed (§1.2), so a collected cycle
-  in an arena frees correctly, and anything the collector cannot prove dead
-  is caught by the deinit trap. No new cycle rules.
-- An `Arena`'s own allocation always comes from the global allocator
-  (simplest nesting story; nested arenas compose only through explicit
-  backing, which can be a later addition).
+  today; the collectors' free sites are routed and their readers masked
+  (§1.4), so a collected cycle in an arena frees correctly, and anything the
+  collector cannot prove dead is caught by the deinit trap. No new cycle
+  rules.
+- An `Arena` handle created inside another arena's scope is placed by that
+  scope like any ref struct (and routes back to it); its *region* always
+  comes from `GlobalAllocator.aligned_alloc`, which is an extern call, never
+  a scoped constructor. Nested backing (an arena carving from another
+  allocator) is D8, out of scope.
 
-### 3.5 Safe mode and CTFE
+### 3.7 Safe mode and CTFE
 
-- Using `Allocator`/`Arena`/`.scoped` is safe; implementing an `Allocator`
-  requires `pragma(Pragma.AllowUnsafe)` (raw memory) — the existing rule,
-  unchanged (`plans/reference/MEMORY_SAFETY.md` §Allocators). The new trap
-  kinds join tier 3. No raw pointer reaches user code: an `Allocator` value
-  is a struct of fn pointers + `?*void` ctx — the ctx is opaque, and
-  constructing a bogus one requires writing an implementor, which requires
-  the pragma.
-- **CTFE**: allocator-typed values in comptime evaluation are a compile
-  error ("explicit allocators are runtime-only"). The evaluator's object
-  model has no block placement, and pretending it does would let comptime
-  code observe an allocator that does not exist.
+- Using `Allocator`/`Arena`/`.scoped`/`_in` constructors is safe;
+  implementing a vtable, or calling `Allocator.alloc`/`free` directly (they
+  return and take `?*void`), requires `pragma(Pragma.AllowUnsafe)` — the
+  existing rule, unchanged (`plans/reference/MEMORY_SAFETY.md` §Allocators).
+  The new trap kinds join tier 3.
+- **CTFE**: an `Allocator` *value* is an ordinary comptime struct (that is
+  how `global` is defined); *calling* through one is an extern call, which
+  is already a compile-time error. `with_allocator(a, f)` at comptime
+  evaluates `f()`: the evaluator's object model has no block placement and
+  there is nothing to route. The first draft's "allocator-typed values are a
+  comptime error" would have rejected `global` itself.
 
-### 3.6 Threading
+### 3.8 Threading
 
 - Routing is **process-global**: the owner lives in the block's prefix, so a
   block freed on any thread reaches the right allocator. Necessary anyway:
   an `Iso` graph can cross to a worker and die there.
-- std's explicit allocators are **thread-safe by default** (C11
-  `atomic_flag` spinlock) — same decision and same reasoning as the fixed
-  allocator's §2.3 ("always guard; revisit only with a number"): correctness
-  must not depend on which thread's drop fires last.
-- The TLS scope is per-thread by construction: a `spawn` body on a worker
-  does not inherit the spawning thread's scope (workers have empty TLS →
-  global). Passing an allocator *into* a task is explicit — pass the
-  `Allocator` value; D1/D4 audit it like any other captured value.
+- std's explicit allocators are **thread-safe by default** — the same
+  decision and the same reasoning as the fixed allocator's §2.3 ("always
+  guard; revisit only with a number"): correctness must not depend on which
+  thread's drop fires last. `Arena` guards its counter and bump pointer with
+  `std/sync/atomic`'s `AtomicBool` as a spinlock (an RC object from the
+  global allocator, created in `Arena.new`, never scoped).
+- `impl(Allocator, Send())` in the pragma'd module is the audited base, the
+  D1 precedent (`std/log.yo`, `std/sync/mutex.yo:47`). D9 says a bare `fn`
+  field is *not* `Send` on its own, so without the impl no allocator could
+  cross into a spawn body. The promise the impl makes: every std vtable
+  function reaches no thread-affine global, and every std implementor's
+  `ctx` is guarded. A user implementor is under `AllowUnsafe` and inherits
+  the obligation — the same standing as any other pragma'd code.
+- The thread-local scope is per-thread by construction (§3.5).
 
-### 3.7 Chunked emission and per-TU duplication
+### 3.9 Chunked emission and per-TU duplication
 
 `__yo_decr_rc` is emitted `static inline` per translation unit
-(`gc_runtime.yo:528-535`, `:383-387`); the routing helper (`__yo_rc_free`)
-and the tag checks must be header-inline too, so `--emit-chunks` builds
-stay consistent. The `--emit-c` single-file output stays self-contained.
+(`gc_runtime.yo:528-535`, `:383-387`); `__yo_rc_free`, the two `#define`s
+and `__yo_scope_current` must sit in the same header-routable range so
+`--emit-chunks` builds stay consistent. `__yo_current_allocator` and
+`__yo_scopes_ever_entered` are declared `extern` in the header and defined
+once in chunk 0, the `__yo_unwind_target` pattern (`gc_runtime.yo:230-233`).
+The `--emit-c` single-file output stays self-contained.
 
 ## 4. Phases
 
-Each phase is one PR (or a short stack), gated by its acceptance test.
+Each phase is one PR (or a short stack), gated by its acceptance tests. The
+order isolates the one re-baseline (P2) from every semantic change: P2 is
+byte-different but behavior-identical, so its diff is pure mechanism.
 Nothing below starts until the release freeze lifts (match adoption waves
 #997/#1000 are parked ahead of it in the same queue).
 
-### P0 — `Allocator` value type + second implementor (std-only)
+### P0 — `Allocator`, the prefix, `Arena`, the counting allocator (std-only)
 
-1. `Allocator` struct in `std/allocator.yo`; `global` instance;
-   `std/arena.yo` (`Arena` with live-block counting, spinlock, `deinit`
-   trap, `abandon`, `allocator()`, `scoped` stub that is global-only until
-   P2); counting allocator under `tests/`.
-2. Gates: `tests/allocator.test.yo` extended (arena alloc/free balance,
-   counting allocator asserts); `yo test ./std`; ASan on the arena test;
-   fixpoint untouched (no compiler change, no emitted-C change).
+Files: `std/allocator.yo`, new `std/arena.yo`, `tests/allocator.test.yo`,
+new `tests/arena.test.yo`, `std/README.md` (module table).
+
+1. `AllocatorVTable`, `Allocator`, `impl(Allocator, Send())`, the private
+   prefix struct and the methods `alloc`/`realloc`/`free`/`free_routed`;
+   `global` (vtable over `__yo_malloc`/`__yo_realloc`/`__yo_free`). D9
+   resolved here: how std obtains an immortal `*(AllocatorVTable)` (address
+   of a module-level value, or one heap block per implementor allocated on
+   first use and never freed).
+2. `std/arena.yo`: `Arena.new(bytes)`, `allocator()`, `deinit()`,
+   `abandon()`, `live_blocks()`, `Dispose` = deinit check, `AtomicBool`
+   spinlock, bump `alloc`/`realloc`/`free` as in §3.6; `scoped` **stub** that
+   calls `f()` directly until P3 (documented as such).
+3. The counting allocator in `tests/arena.test.yo` (wraps `global`, asserts
+   alloc/free balance and byte totals).
+4. Gates:
+   - `tests/allocator.test.yo`: prefix `sizeof` = 16 and offsets; `global`
+     round-trip; `free_routed` on a `global`-prefixed block reaches
+     `__yo_free`.
+   - `tests/arena.test.yo`: alloc/free balance, live counter, deinit trap
+     fires (subprocess, expected `rc != 0` + message), `abandon` path,
+     realloc of the top block in place, counting-allocator asserts, cross-
+     thread free of an arena block (a `spawn` that drops it).
+   - `yo test ./std --bail`; ASan (`--sanitize address --allocator system`)
+     on both test files; `yo fmt --check`; fixpoint untouched (no compiler
+     change, no emitted-C change for programs that do not import the new
+     modules).
 
 ### P1 — containers take allocators (std-only)
 
-1. `_alloc` field + `new_in`/`with_capacity_in` on `ArrayList`, `HashMap`,
-   `HashSet` (via map), `Deque`, `StringBuilder` (via list), `std/imm/{vec,
-   map,string}`; dispose frees through `self._alloc`.
-2. Gates: `yo test ./std` + `yo test ./tests` (fast suite); emitted C for a
-   program using only default constructors is **byte-identical** (corpus
-   diff); leak oracle (`--allocator fixed --debug-heap`) clean on the new
-   tests; the std-stability ruling (D4) recorded here.
+Files: `std/collections/{array_list,hash_map,hash_set,deque}.yo`,
+`std/string/builder.yo`, `std/imm/{vec,map,string}.yo`, their `*.test.yo`
+siblings.
 
-### P2 — RC object routing (codegen)
+1. Capacity-bit + `_CAP_MASK` per container (§3.3); every capacity reader
+   masked; growth/shrink/dispose route on the bit. `HashMap` tags its
+   bucket-capacity word once and routes both buffers (ctrl + data) through
+   the same allocator. `HashSet` and `StringBuilder` inherit through the
+   container they wrap.
+2. `new_in` / `with_capacity_in` on each; eager first buffer in `new_in`.
+3. Gates:
+   - `yo test ./std --bail`; `yo test ./tests --exclude tests/internal
+     --exclude tests/cli-cases --bail`.
+   - **Layout gate**: the emitted C `typedef struct` of every touched
+     container is unchanged (diff the `--emit-c` output of a fixture that
+     instantiates each container against develop).
+   - New cases in each container's test file: `_in` construction, growth
+     across several capacity doublings inside an arena (buffer stays
+     prefixed), `try_push` OOM against a tiny arena returns
+     `AllocError.OutOfMemory`, dispose routes (arena live count returns to
+     0), `capacity()` never reports the bit.
+   - Leak oracle (`--allocator fixed --debug-heap`) clean on the new cases;
+     ASan on the container test files.
+   - The self-compile A/B (`yo build` time + RSS, three runs each) within
+     noise of develop — the push-path AND is the only default-path cost.
+   - D4 recorded in this doc.
 
-1. T-bit + prefix; `__yo_rc_free` routing at the nine free sites; count
-   readers masked (`rc()`, iso-unique, decr tests); `__yo_current_allocator`
-   TLS + TLS consult in `__yo_rc_alloc`; `__yo_rc_alloc_global` split for
-   internal runtime/GC/parallelism sites (asm barrier preserved in both);
-   `atomic(ref(...))` + explicit allocator → clear error; `Arena.scoped`
-   goes live.
-2. Gates: `yo check ./src`; `yo compile src/main.yo --skip-c-compiler`;
-   fixpoint re-baseline (deliberate, one PR — the decr path changes in every
-   program) + determinism green; new `tests/explicit_allocators.test.yo`
-   (scoped ref/enum/Box/Dyn construction, cross-thread Iso drop into an
-   arena, cycle collected inside an arena, deinit trap fires, `abandon`
-   path); `tests/rc.test.yo`, `tests/dyn.test.yo` unchanged-green; ASan on
-   the arena tests; self-compile RSS/time within noise of develop (the
-   canary: the compiler's own 11-20 GB build, measured before/after).
+### P2 — the tag bit and routed frees (codegen, behavior-identical)
 
-### P3 — semantics hardening
+Files: `src/codegen/types/generation.yo` (the two `#define`s beside the
+header typedefs, `__yo_alloc_prefix_t`), `src/codegen/functions/gc_runtime.yo`,
+`src/codegen/functions/constructors.yo:783`, `src/codegen/exprs/rc_fns.yo`.
 
-1. Deinit trap message with per-allocator stats under `--debug-heap`;
-   Send/parallelism audit (D1-D9) of allocator values crossing into spawn
-   bodies; decide future-in-arena support (default: allowed, deinit trap is
-   the backstop); `yo context`/skills/cheatsheet entries.
-2. Gates: hollow sweep (`scripts/bootstrap/hollow_sweep69.sh`) ratchet;
-   parallelism suite; the LSan/fixed-allocator leak oracles.
+1. `__YO_RC_TAG`/`__YO_RC_COUNT`; `__yo_alloc_prefix_t` (with a
+   `_Static_assert(sizeof == 16)`); `__yo_rc_free` in the header-routable
+   range; the eight free sites switched; the twelve readers of §1.4 masked
+   (`GC_DEBUG` included, so traces stay truthful).
+2. **Nothing can produce a tagged block yet** — this PR is pure mechanism,
+   which is what makes its fixpoint re-baseline reviewable: every hunk in
+   the emitted-C diff is a mask or the helper.
+3. Gates:
+   - `yo check ./src`; `yo compile src/main.yo --skip-c-compiler`;
+     `yo build`.
+   - Fixpoint re-baseline (`scripts/bootstrap/fixpoint_only.sh`) +
+     determinism green; hollow sweep ratchet unchanged.
+   - `tests/rc.test.yo`, `tests/dyn.test.yo`, `tests/iso*.test.yo`, the
+     cycle-GC tests, `yo test ./std` all unchanged-green; the imm
+     copy-on-write tests specifically (they read `rc()`).
+   - `--emit-chunks auto` self-build green (the helper is per-TU).
+   - Self-compile A/B within noise (one masked compare on the decr path;
+     `__yo_decr_rc` is 54% of a self-compile, so this is the phase whose
+     number matters most).
 
-### P4 — docs and stability freeze
+### P3 — the scoped form (codegen + std)
+
+Files: `src/expr.yo` (builtin constant), `src/evaluator/builtins/` (type
+check + CTFE), `src/codegen/exprs/` (the lowering), `src/codegen/c/collection.yo`
+(`__yo_rc_alloc_scoped`, `__yo_scope_current`, the TLS + flag),
+`src/codegen/functions/constructors.yo:182,670`, `src/codegen/functions/dyn.yo:142`,
+`src/codegen/types/generation.yo:1667`, `src/codegen/exprs/async.yo:1428,3067`,
+`src/codegen/async/runtime_core.yo:292,355`, `std/arena.yo` (`scoped` goes
+live), new `tests/explicit_allocators.test.yo`.
+
+1. `with_allocator` builtin: evaluator (types, CTFE = `f()`), codegen
+   lowering with the unwind-safe restore (§3.5).
+2. `__yo_alloc_scope_t`, `__yo_current_allocator` (TLS),
+   `__yo_scopes_ever_entered`, `__yo_scope_current()`,
+   `__yo_rc_alloc_scoped()` (both arms keep the asm barrier; the std prefix
+   layout is the C one — pinned by the P2 static assert and a test that
+   frees a codegen-tagged block through `Allocator.free_routed`).
+3. The six constructor sites: scope read, scoped alloc, tag OR-ed into the
+   `ref_count = 1` write after the existing header init.
+4. Continuation capture + restore at the two async sites; the handoff loop.
+5. `tests/explicit_allocators.test.yo`:
+   - scoped construction of a ref struct, a ref enum, `box`, `arc`, a
+     `Dyn(Trait)`, an `Iso`, an `io.async` state machine — each verified by
+     the arena's live count and by `rc()` reading 1 (tag masked);
+   - a cycle built inside a scope, collected by `gc.collect()`, arena empty
+     afterwards;
+   - an `Iso` moved into a `spawn` body and dropped there routes back;
+   - a task spawned inside a scope allocates after its first `await` and
+     the arena still owns the block; the deinit trap fires if the task is
+     still alive;
+   - **unwind out of a scoped closure**: the next allocation is global
+     (subprocess oracle: arena live count 0, `--debug-heap` global counter
+     grew);
+   - nested scopes restore correctly; a scope entered on a worker thread
+     does not leak into the pool's next task;
+   - deinit trap and `abandon` under the scoped form;
+   - `atomic(ref(...))` types inside a scope (the D5 reversal).
+6. Gates: everything in P2's list re-run (a second fixpoint re-baseline —
+   the constructor emission changes); ASan on the new test file;
+   `tests/algebraic_effects.test.yo` and `tests/async*.test.yo`
+   unchanged-green; self-compile A/B (the guarded TLS read is the cost).
+
+### P4 — hardening and tooling
+
+1. `--debug-heap`: per-allocator live-block/byte counts in the exit report
+   and in the deinit trap message; `Arena` registers itself with the
+   reporter on `new` and unregisters on `deinit`/`abandon`.
+2. Parallelism audit (D1–D9 of `PARALLELISM_RULES.md`) of `Allocator`
+   values crossing into spawn bodies and channels; `Mutex(Arena)` as the
+   sanctioned shared-arena pattern, with a test.
+3. `yo context` entries, `.github/skills/` cheatsheet rows, the yo-design
+   instructions row, `yo explain` text for the new trap kinds.
+4. Gates: hollow sweep (`scripts/bootstrap/hollow_sweep69.sh`) ratchet;
+   parallelism suite; the LSan/fixed-allocator leak oracles on
+   `tests/explicit_allocators.test.yo` and `tests/arena.test.yo`.
+
+### P5 — docs and stability freeze
 
 1. `docs/en-US/MEMORY_SAFETY.md` + `DESIGN.md` and `zh-CN` twins (allocator
-   = placement, RC = lifetime, the deinit rule, `abandon`); yo-design
-   instructions row; `std/allocator.yo` stability note resolved (second
-   implementor shipped, trait frozen per its own criterion).
+   = placement, RC = lifetime, the deinit rule, `abandon`, the scope-follows-
+   the-task rule, what `scoped` captures); `std/allocator.yo` stability note
+   resolved (second implementor shipped, vtable frozen per its own
+   criterion); `plans/reference/` entry for the landed decisions.
 2. Gates: docs build both languages; release-notes curation.
 
 ## 5. Risks
 
 | risk | shape | mitigation |
 | --- | --- | --- |
-| Blast radius of the T-bit | P2 touches the decr path of **every** compiled program | default fast path is one masked compare + one branch; self-compile A/B (time + RSS); fixpoint re-baseline is a single reviewable PR; canary tests in `tests/rc.test.yo` |
-| Scoped form surprises | hidden allocations (dyn wrappers, temporaries, futures) land in the arena | documented as the contract (§3.3); routing makes it *correct*, docs make it *expected* |
-| Header/word invariants | the packed word is perf-tuned; masks must not leak into hot incr paths | incr/decr writers preserve the bit arithmetically (no mask on write); count *readers* audited by grep (`ref_count` in `src/codegen/`) |
-| std stability | private field addition to stable ref structs | D4 ruling recorded before P1; `_in` constructors are additive |
-| fixpoint / goldens | any emitted-C change re-baselines | P1 is byte-identical by construction; P2 is the only re-baseline, gated |
+| Blast radius of the tag bit | P2 touches the decr path of **every** compiled program | default path is one masked compare + one branch; P2 carries no semantic change, so its re-baseline diff is mechanism only; self-compile A/B on P2 alone |
+| A missed count reader | an unmasked `> 0`/`== 1` on a tagged block: a leak (never dies) or a never-collected cycle | §1.4 is the grep-derived list; the P3 tests exercise every reader class (decr, atomic decr, collector, Iso walk, `rc()`) on tagged blocks |
+| Runtime-internal block mis-routed | an internal `__yo_rc_alloc` block landing in an arena and freed with `mi_free` | Rule 2: `__yo_rc_alloc` never consults the scope; only six named sites call `__yo_rc_alloc_scoped` |
+| Scope leaks past an `unwind` | thread stays on a dead arena | the builtin's restore is emitted before the unwind check; a dedicated test |
+| Async body escapes its scope | allocations after the first `await` go global, silently | the continuation carries the scope (§3.5); a dedicated test |
+| Container layout regression | +8 B on `ArrayList` re-crosses the 96 → 80 class (~0.4 GB at self-compile scale) | capacity high bit + prefix: `sizeof` unchanged, gated by the P1 layout diff |
+| Header/word invariants | the packed word is perf-tuned | writers untouched; readers masked; A/B on P2 |
+| Darwin TLS cost | `_tlv_get_addr` per user-visible allocation | `__yo_scopes_ever_entered` guard; A/B on P3 |
+| std stability | `_in` constructors, one private bit | additive; D4 recorded before P1 |
 | `build.Allocator` name collision | two `Allocator`s in the tree | different modules, qualified use; rename escape hatch (D6) |
-| Self-build perf regression | TLS read per RC allocation | one null-check of a TLS word per alloc vs a malloc — noise; measured on the self-compile canary |
 
 ## 6. Open decisions
 
 | # | decision | recommendation |
 | --- | --- | --- |
-| D1 | tag mechanism | refcount T-bit + 16 B prefix on tagged blocks (zero default-path cost); alternative "always-prefix for every block" rejected — it taxes every object in every program, including the compiler's own multi-GB self-build |
-| D2 | language surface for RC construction | scoped `arena.scoped(f)` over TLS (zero constructor-signature churn, covers `Dyn`/futures); per-call sugar (`box_in(alloc, v)`) only if use demands it |
+| D1 | tag mechanism | `ref_count` high bit on all three headers + 16 B prefix on tagged blocks only. A `gc_flags` bit was considered: zero hot-path cost on GC builds, but the lightweight header has no flags byte, so it would be two mechanisms. "Always-prefix every block" rejected — it taxes every object in every program, including the compiler's own multi-GB self-build |
+| D2 | language surface for RC construction | a `with_allocator(alloc, f)` builtin wrapped by `arena.scoped(f)`; builtin (not std) because of unwind safety (§3.5). Per-call sugar (`box_in(alloc, v)`) only if use demands it |
 | D3 | thread-safety of explicit allocators | spinlock always (mirror of `FIXED_REGION_ALLOCATOR.md` §2.3) |
-| D4 | std stability: private fields | private fields are not contract; adding `_alloc` is additive in practice — record the ruling in the stability policy |
-| D5 | atomic RC from explicit allocators | rejected for P2 (clear error); revisit with a measured need |
+| D4 | std stability: containers | no field, no layout change, one private bit in the capacity word; `_in` constructors additive; `new_in` allocates eagerly — record the ruling in the stability policy |
+| D5 | atomic RC from explicit allocators | **supported** from P3 (the path is `fetch_sub`, masked in one line); the first draft's rejection is withdrawn |
 | D6 | `Allocator` name collision with `std/build.yo` | keep both names; rename the runtime type to `Mem.Allocator` only if review finds real confusion |
-| D7 | allocator-aware `Dispose` | not introduced — dispose stays allocator-blind; the buffer free routes through the stored `_alloc`, the object free routes through the prefix |
+| D7 | allocator-aware `Dispose` | not introduced — dispose stays allocator-blind; the buffer routes through its prefix, the object through its prefix |
 | D8 | nested arenas (arena backed by arena) | out of scope; explicit backing-allocator parameter on `Arena.new` as a later addition |
+| D9 | how std obtains an immortal `*(AllocatorVTable)` | address of a module-level `::` value if the address-of path (`src/codegen/exprs/ptr_fns.yo`) supports globals; otherwise one heap block per implementor, allocated on first use and never freed (still immortal, still two words in the prefix). Decide in P0 |
+| D10 | over-aligned buffers (`alignof(T) > max_align_t`) | out of scope, as today (containers use the plain family); if added, it is an `aligned_alloc`/`aligned_free` **pair** on the vtable, never a single `free` |
 
 ## 7. References
 
@@ -507,15 +795,38 @@ Nothing below starts until the release freeze lifts (match adoption waves
 - `plans/reference/FIXED_REGION_ALLOCATOR.md` — the global allocator layer
   this builds on (TLSF, OOM policy, the leak oracle, `--debug-heap`).
 - `plans/reference/MEMORY_SAFETY.md` — the safe/unsafe boundary the
-  Allocator trait sits on (§Allocators).
+  Allocator trait sits on (§Allocators); `plans/SAFE_MODE.md` — the trap
+  tiers.
+- `plans/reference/PARALLELISM_RULES.md` — D1/D4/D9: why `Allocator` needs
+  an explicit `Send` impl and what it promises.
 - `plans/reference/RC_OWNERSHIP_IMPLEMENTATION.md`,
   `plans/reference/REF_REFERENCE_SEMANTICS.md`,
   `plans/reference/ARC_TYPE.md` — the RC model that stays untouched.
 - `src/codegen/c/collection.yo:500-512` (`__yo_rc_alloc`),
-  `src/codegen/functions/gc_runtime.yo` (the nine free sites),
-  `src/codegen/types/generation.yo:980-1047` (the three headers) — the
-  codegen anchors of §3.3.
+  `src/codegen/functions/gc_runtime.yo` (the eight free sites, the readers),
+  `src/codegen/types/generation.yo:980-1047` (the three headers),
+  `src/codegen/async/runtime_core.yo:27-31,292,355` (the continuation) —
+  the codegen anchors of §3.4–3.5.
 - `plans/archive/STD_API_STABILIZATION.md` — D9 (`push`/`try_push`): the
   fallible surface explicit allocators must preserve.
 - Zig `std.mem.Allocator` / `std.heap.ArenaAllocator` — the ergonomics being
   borrowed, and (via the deinit trap) the bug class being declined.
+
+## 8. Corrections from the second audit (2026-09-29)
+
+Kept so the PR history explains itself; each row names the section that now
+carries the corrected design.
+
+| first draft said | measured | consequence |
+| --- | --- | --- |
+| eight RC-allocating constructs; `__yo_rc_alloc` consults the scope, internal sites opt out | 133 callers, 6 user-visible; ~126 runtime-internal blocks freed untagged | Rule 2: inverted default, `__yo_rc_alloc` untouched (§1.2, §3.4) |
+| the tag is set inside `__yo_rc_alloc` (`ref_count = 1 \| T`) | every ctor writes `ref_count = 1` *after* the call; async SMs `memset` | the tag is OR-ed in at the six ctor sites (§3.4) |
+| nine free sites, incl. `gc_runtime.yo:1189` | eight RC free sites; `:1189` frees GC state, `:269`/`:302` unwind values | §1.3 |
+| count readers = decr tests, `rc()`, Iso walk ("the full list") | plus four collector readers (`> 0`/`== 0`) | unmasked, arena cycles are never collected (§1.4) |
+| atomic decr is a CAS loop; atomic types rejected with a compile error | `atomic_fetch_sub`; the scoped form cannot know statically | atomic supported, D5 reversed (§1.4, §3.4) |
+| `_alloc : Allocator` field per container; P1 emitted C byte-identical | 40 B (or 8 B) re-crosses the measured 96 → 80 class; C cannot be byte-identical | capacity high bit + buffer prefix, layout-diff gate (§1.6, §3.3) |
+| `arena.scoped(f)` is a std wrapper over a TLS setter | `unwind` is flag-propagated: a Yo wrapper skips its restore | `with_allocator` builtin lowered by codegen (§1.5, §3.5) |
+| (unstated) | a task suspended inside a scope resumes outside it | the continuation carries the scope (§3.5) |
+| `aligned_alloc` required on the trait | one `free` cannot honor the two-family rule on Windows | dropped; D10 |
+| allocator values are a CTFE error | `global :: Allocator(...)` is itself a comptime value | only calls are runtime-only (§3.7) |
+| `Allocator` is `Send` iff `ctx` is | D9: a bare `fn` field is never `Send` | explicit `impl(Allocator, Send())` (§3.8) |
