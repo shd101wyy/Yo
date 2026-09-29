@@ -244,7 +244,7 @@ timeout :: (
 )({
   // The deadline is a spawned TASK, not a bare io-timer future: a raw
   // `IoFuture` local would be auto-dropped at scope end while the backend
-  // still holds the armed timer (issues/pending-io-future-local-drop-uaf.md);
+  // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
   // inside a task the await machinery owns it correctly on every path.
   ms := Box(u64)(u64(limit.as_millis()));
   deadline_fut := io.async((io : Io) => {
