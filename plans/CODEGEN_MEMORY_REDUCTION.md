@@ -331,6 +331,35 @@ useful, though: a scope-level identity would let `expr_info_adopt_env` or the
 snapshot ring share at creation time, while evaluation is still allocating
 envs. That is not attempted here.
 
+### 0.8 Releasing an emitted function's envs: measured and rejected (2026-09-30)
+
+§3 lever 0b as first written: after each `generate_function`, walk the body
+(following macro expansions, stopping at nested function literals and
+`io.async` bodies) and point every node's `ExprInfo.env` at one released env.
+- **It frees almost nothing:** end of emit 2,801 → 2,795 MB, the mark after
+  function bodies 2,797 → 2,786. A body's frames and variables stay
+  reachable from the recorded envs of everything not yet emitted: module-level
+  entries, never-emitted trial evaluations, and the functions still to come.
+  The same scopes are shared across all of them.
+- **It is not byte-identical:** a later function's borrow check (an extra
+  `__yo_borrow_assert_unborrowed(diagnostics)`) reads an earlier body's
+  envs.
+
+Reverted. What the two experiments (§0.7, §0.8) establish is that the 746 MB
+of §0.6 is freed only by dropping every recorded env, and codegen reads them
+until the end. The lever that remains is structural: resolve at the end of
+evaluation what codegen asks of an env, then drop all recorded envs before
+codegen. Codegen asks, per `ExprInfo`, for:
+- `get_variables_from_env(env, name)` / `get_variable_name_for_codegen` for
+  a name;
+- the module path;
+- two module-level/comptime-only predicates in `exprs/assignment.yo`.
+
+Today those queries are answered lazily, against arbitrary names and scopes.
+The design must first make the set of names finite per `ExprInfo`: the
+node's own identifier, its deferred dup/drop targets, and its `variable_name`.
+It is the next piece of work on this plan, as its own design section.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
@@ -384,6 +413,7 @@ Phase 0 measures it.
      `Environment` objects over 337 K distinct frame lists. Canonical envs are
      frozen, and `YO_DEBUG_FROZEN=1` proves nothing mutates one.
    - (a′) **Rejected (§0.7)**: −21 MB for 12 s.
+   - (b′) **Rejected (§0.8)**: −6 MB, and not byte-identical.
    - (b) Release a function's recorded envs once its C is written. Codegen
      emits one function at a time, and a body's envs are dead after its
      emission unless a later step reads them (deferred async blocks, dyn
