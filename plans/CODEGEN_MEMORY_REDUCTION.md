@@ -73,6 +73,30 @@ Stage-2 of this branch (`dda139de0`), compiling the develop `b6b828772` tree
 - Codegen adds 65 K table entries. The 2.87 M entries at the end of
   evaluation are the population lever 1 works on.
 
+### 0.2 Lever 1's upper bound, measured (Phase 0 step 3, 2026-09-29)
+
+Three runs of the same stage-2 (`dda139de0` + the probe) on the same tree:
+
+| run | what | RSS end of collect / emit | max RSS |
+| --- | --- | --- | --- |
+| A | `YO_CODEGEN_READS=1`: log every key codegen reads | — | 3,561 MB |
+| B | `YO_CODEGEN_KEEP=<A's keys>`: drop every entry A never read, before collect | 3,269 / 3,386 MB | 3,829 MB |
+| C | plain | 3,157 / 3,320 MB | 3,525 MB |
+
+- Codegen looked up 3,088,597 distinct keys, more than the table's
+  2,937,610 entries, because the lookups include misses.
+- B dropped **977,569 entries (33 %)**, leaving 1,960,041, and its C is
+  **byte-identical** to A's and C's, so the drop is safe.
+- It barely saves anything. B's collect-end RSS carries about 110 MB of
+  probe overhead (3 M key strings and a set). Net of that, B grew 117 MB
+  during emit against C's 163 MB: about 46 MB saved, at most.
+
+The unread entries' `ExprInfo`s are mostly still reachable from something
+else: the env snapshots they share, and specialization caches. So lever 1 as
+stated (drop unread entries) is small. The 1.7 GB is held by what the
+entries point at, which is step 2's (the phase-time census) question to
+answer before any lever is ranked.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
