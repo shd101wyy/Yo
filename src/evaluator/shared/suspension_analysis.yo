@@ -40,6 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ t_ptr } :: import("../../types/creators.yo");
 { type_requires_comptime_modifier } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -301,11 +302,15 @@ _capture_env_variable :: (
             },
             // Case 3: normal capture
             .None => {
-              cap_ty := match(
+              value_ty := match(
                 ty_override,
                 .Some(t) => t,
                 .None => variable.ty.clone()
               );
+              // A by-ref binding (`inout(y) := x`) holds a pointer to its
+              // place: that is what its slot stores, and a raw pointer is
+              // never dropped.
+              cap_ty := if(variable.is_ref, t_ptr(value_ty), value_ty);
               sc := SuspensionCapturedVariable(
                 id : variable.id.to_string(),
                 name : var_name.clone(),
