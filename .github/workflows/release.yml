@@ -13,6 +13,14 @@ on:
           - minor
           - none
 
+# One release at a time: a second dispatch computes the same version and dies
+# at `git push` (or worse, half-publishes). A running release is never
+# cancelled (AGENTS.md); GitHub keeps one PENDING run per group, so a third
+# dispatch replaces a queued second one, which has not started anything.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   # The previous-release seed used by the seed-driven steps below (the musl
   # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION —
@@ -52,13 +60,13 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # ~3 min measured (2026-09-27); the site build inside it once OOM'd, and
+    # a hung job would otherwise hold the release for the 360-min default.
+    timeout-minutes: 60
+    # The version bump is a direct push through RELEASE_PAT (no PR fallback
+    # any more), so the token needs only contents.
     permissions:
       contents: write
-      # For the version-bump fallback's `gh pr create` (v0.2.0's silently
-      # failed under `|| true` — the branch was pushed but no PR appeared).
-      # NOTE: the repo setting "Allow GitHub Actions to create and approve
-      # pull requests" (Settings → Actions → General) must also be ON.
-      pull-requests: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.bump_commit.outputs.sha }}
@@ -78,8 +86,8 @@ jobs:
           submodules: recursive
 
       - name: Require a green test run for this commit
-        # This workflow publishes to npm and the VS Code Marketplace — both
-        # irreversible. It used to go checkout -> build -> publish with no test
+        # This workflow publishes to the VS Code Marketplace and cuts a public
+        # release (npm publishing stopped at v0.2.0) — both irreversible. It used to go checkout -> build -> publish with no test
         # dependency at all, so a red develop was publishable. Gate on the
         # Test workflow having CONCLUDED SUCCESSFULLY for the exact SHA being
         # released, rather than re-running the ~55 min suite inline.
@@ -107,7 +115,7 @@ jobs:
           fi
           echo "Releasing $(git rev-parse HEAD) (gate SHA: $SHA)"
           CONCLUSION=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed" \
+            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed&event=push&branch=develop" \
             --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
           echo "Test workflow conclusion for $SHA: $CONCLUSION"
           if [[ "$CONCLUSION" != "success" ]]; then
@@ -439,8 +447,8 @@ jobs:
   # <name>/.github/skills, <name>/pack, <name>/LICENSE.md (init templates are
   # generated inline by the binary — nothing else to ship).
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
-  # std/. The Linux bundle is glibc-dynamic for now — the
-  # static-musl user-facing story is Phase 3 (distribution), not the seed.
+  # std/. The Linux bundles are static musl only (2026-08-20; see the
+  # musl-bundle job).
   # The portable-C artifacts: ONE .c.gz per platform (per-target split), with
   # the merged assembly kept as a publish gate only.
   # plans/reference/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
@@ -458,13 +466,13 @@ jobs:
   # clang-compile the C and
   # smoke-test the bundle natively, which is the same end-to-end proof the
   # native legs have. Native Yo->C coverage on macOS is not lost: test.yml's
-  # `test` job runs the compiler natively on macOS on every PR.
+  # `test-native` job runs the compiler natively on macOS on every PR.
   seed-cross-emit:
     name: Cross-emit C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    # Mirrors seed-bundles / seed-bundles-cross. Every leg here is REQUIRED
+    # Mirrors seed-bundles-cross (the glibc seed-bundles matrix is gone). Every leg here is REQUIRED
     # (experimental: false), windows-arm64 included since v0.2.13 — the
     # job needing the flag at all was a latent release-killer.
     continue-on-error: ${{ matrix.experimental }}
@@ -709,7 +717,7 @@ jobs:
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # The exact flag set the compiler itself passes to clang for a native
-      # macOS mimalloc build (src/codegen/index.ts / yo-self main.yo): no
+      # macOS mimalloc build (src/main.yo's C-compiler command): no
       # -luring (Linux-only; the macOS C uses the kqueue backend), no
       # explicit -lpthread/-lm (libSystem provides both). `-w` matches the
       # musl job's convention for third-party-sized C.
@@ -1308,6 +1316,7 @@ jobs:
           # contents; the files are already named <target>.c by the emit step.
           find arms-raw -name '*.c' -exec cp {} arms/ \;
           ls -la arms/
+          set -o pipefail   # the step's status is otherwise tee's
           bash scripts/make-portable-c.sh yo.c arms | tee assemble.log
 
           # An arm that silently failed to upload would ship as an #error arm,
@@ -1355,6 +1364,7 @@ jobs:
     # release whose install.sh advertises a bundle that never arrives.
     needs: [release, seed-bundles-cross, portable-c, musl-bundle]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -1413,6 +1423,7 @@ jobs:
     # the actual gate.
     needs: [release, publish-release]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout develop
         uses: actions/checkout@v4
@@ -1467,6 +1478,11 @@ jobs:
     name: Deploy the documentation website
     needs: publish-release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Shared with deploy-site.yml: two Pages deploys must not race.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

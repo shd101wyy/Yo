@@ -30,8 +30,8 @@ on:
   #
   # This line has to stay for that to hold: EVERY workflow providing a
   # REQUIRED status check must trigger on `merge_group`, or the queue waits
-  # forever on checks that never run, and all 14 required contexts come from
-  # this file. Until then the ruleset keeps `strict` (branches must be up to
+  # forever on checks that never run, and all 20 required contexts (ruleset
+  # 13548862, counted 2026-09-29) come from this file. Until then the ruleset keeps `strict` (branches must be up to
   # date), which is the right trade: two individually-green PRs can be broken
   # together — #147 was green alone and broke every macOS/Windows seed leg
   # once combined with develop.
@@ -178,8 +178,9 @@ jobs:
   # The classification is CONSERVATIVE: any failure to compute the diff (no
   # usable base after a force-push, compare API error, or a diff so large the
   # file list may be truncated) counts as a code change and runs everything.
-  # docs-site and vscode-extension stay unconditional — docs are exactly the
-  # site job's input, and both are cheap.
+  # docs-site and vscode-extension gate on `full`, not `code`, so they run on
+  # docs-only changes too: docs are exactly the site job's input, and both
+  # are cheap.
   changes:
     name: Classify the diff (docs-only fast path)
     runs-on: ubuntu-latest
@@ -200,14 +201,14 @@ jobs:
       test_os: ${{ steps.scope.outputs.test_os }}
     steps:
       # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
-      # the pin is hand-duplicated in THREE workflows, and divergence silently
+      # the pin is hand-duplicated in FOUR workflows, and divergence silently
       # splits the trust chain (PRs validated against one seed, release
       # artifacts built from another — it HAS happened: fixpoint-arm64 sat on
       # v0.2.4 while the others moved to v0.2.9). This job is the earliest
       # always-running gate, so the guard lives here as a STEP — deliberately
       # not a new job, because the branch-protection required-checks list is
       # maintained by hand and a new job would need a manual edit there.
-      - name: Decide the battery scope (stacked PRs run a reduced one)
+      - name: Decide the battery scope (always FULL; REDUCED is a guard)
         id: scope
         run: |
           # Anything that is not a pull request — a push to develop, a merge
@@ -382,8 +383,14 @@ jobs:
   # release.yml, gated on the release actually publishing.
   docs-site:
     name: Documentation website (build only, no deploy)
-    needs: changes
-    if: needs.changes.outputs.full == 'true'
+    # The site is rendered by `yo doc`, so it must be the TREE's `yo doc`: a
+    # PR that changes src/doc/ is otherwise never exercised here, and the site
+    # shows the previous release's generator. Stage 1 (the tree's sources,
+    # built by the seed) is that binary. A docs-only change skips `stage1`,
+    # and then the seed is the right generator anyway: nothing under src/
+    # differs from develop.
+    needs: [changes, stage1]
+    if: ${{ !cancelled() && needs.changes.outputs.full == 'true' && (needs.stage1.result == 'success' || needs.stage1.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -410,6 +417,12 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Download stage 1 (the tree's compiler)
+        if: needs.stage1.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
@@ -419,6 +432,14 @@ jobs:
         env:
           YO_STD: ${{ github.workspace }}/std
         run: |
+          if [ -f yo-stage1 ]; then
+            chmod +x yo-stage1
+            YO_BIN="$PWD/yo-stage1"
+            echo "site generator: the tree's stage 1"
+          else
+            YO_BIN=yo
+            echo "site generator: the seed (stage1 skipped: no change under src/)"
+          fi
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
           # markdown_yo and build_site.yo speak the TREE std, so both
@@ -427,8 +448,8 @@ jobs:
           # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
-          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
-          /tmp/build-site --output yo-out/site --version "v$VERSION" --yo yo
+          "$YO_BIN" compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
+          /tmp/build-site --output yo-out/site --version "v$VERSION" --yo "$YO_BIN"
 
       # A site build that emits nothing exits 0 exactly as happily as one that
       # works, so assert substance rather than exit status — the same lesson
@@ -548,6 +569,9 @@ jobs:
 
       - name: yo verify harness report (JSON)
         run: |
+          # pipefail: without it the step's status is tee's, and a failing
+          # verify goes green (the default `bash -e` has no pipefail).
+          set -o pipefail
           yo verify ./std/spec --format json | tee verify-report.json
 
       # Task 5 slice 2 (FORMAL_VERIFICATION.md): the dogfooded
@@ -556,6 +580,9 @@ jobs:
       # here is a passing one and the step is the plan's exit criterion.
       - name: yo verify std/collections (dogfooded annotations)
         run: |
+          # pipefail: without it the step's status is tee's, and a failing
+          # verify goes green (the default `bash -e` has no pipefail).
+          set -o pipefail
           yo verify ./std/collections --format json | tee verify-collections.json
 
       # The straight-line positive battery end-to-end. Under a V2-era seed
@@ -564,31 +591,22 @@ jobs:
       # step becomes a real gate by itself.
       - name: yo verify end-to-end (straight-line battery)
         run: |
+          # pipefail: without it the step's status is tee's, and a failing
+          # verify goes green (the default `bash -e` has no pipefail).
+          set -o pipefail
           yo verify ./tests/spec/verify_straight_line.test.yo --format json | tee verify-battery.json
 
       # B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--strict`
       # makes `assumed`, `outside-subset` and `unproven` hard failures, so a
       # run cannot go green because every contract was `assumed()` away.
       #
-      # THE CLI STEP IS SEED-GATED AND DELIBERATELY ABSENT. Every step in this
-      # job runs the SEED compiler (there is no `yo build` here), and a seed
-      # that predates B0 rejects the flag outright — `unknown option
-      # '--strict'`, rc 1 — so the step would fail for a reason that has
-      # nothing to do with the tree under test. What DOES gate the behavior
-      # meanwhile is `tests/internal/verifier.test.yo`, run by the step above:
-      # the seed COMPILES the PR's own `src/verifier/driver.yo`, so the four
-      # strict/deny unit tests exercise this PR's pass-fail rule, not the
-      # seed's. Only the option plumbing is unproven in CI until the seed
-      # carries it. Add this step when SEED_VERSION reaches a release with
-      # `--strict` (plans/backlog/SEED_VERSION_AUTOMATION.md):
-      #
-      #   - name: yo verify --strict (the laws gate)
-      #     run: yo verify ./tests/spec/verify_straight_line.test.yo --strict
-      #
-      # Verified locally on a tree-built binary: 7 ok, 0 vacuous, rc 0 — the
-      # battery proves everything it declares, which is what makes it a valid
+      # Seed-gated until the seed carried `--strict`: v0.2.40 and later do, and
+      # the seed (SEED_VERSION) runs this step. The battery proves everything it
+      # declares (7 ok, 0 assumed under v0.2.45), which is what makes it a valid
       # strict gate. The std/collections step above stays non-strict on
       # purpose: dogfooding uses `assumed()`.
+      - name: yo verify --strict (the laws gate)
+        run: yo verify ./tests/spec/verify_straight_line.test.yo --strict
 
       - name: Upload the verify report
         if: always()
@@ -720,8 +738,8 @@ jobs:
       # suite in the `test-native` job below, under a tree-built compiler
       # delivered by cross-emit (suite-candidate -> suite-cross-emit).
       matrix:
-        # Both legs on a develop-targeted PR; the ASan leg alone on a stacked
-        # one (see the `changes` job's `full` output).
+        # Both legs (the ASan leg alone only on the changes job's unreachable
+        # REDUCED guard branch; see its `full` output).
         os: ${{ fromJSON(needs.changes.outputs.test_os) }}
 
     steps:
@@ -1555,7 +1573,10 @@ jobs:
       - name: Yo vs libuv (informational)
         continue-on-error: true
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q libuv1-dev
+          # APT_OPTS and the Google-source removal, like every apt call here: a
+          # dpkg-lock hang would otherwise run out this REQUIRED job's timeout.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update -q && sudo apt-get $APT_OPTS install -y -q libuv1-dev
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" REPS=5 bash scripts/bench-vs-libuv.sh
 
   epoll-corpus:
@@ -1975,7 +1996,7 @@ jobs:
         run: bash scripts/bootstrap/compile_memory_ratchet.sh /tmp/stage2/yo-stage2-bin
   # The self-hosted binary's OWN `test` subcommand. When this job was written CI
   # ran `./tests` through the TypeScript compiler (deleted with the TS src/ in Group E;
-  # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint
+  # the `test` job now runs the corpus under stage-2), and the bootstrap-fixpoint
   # jobs run `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
   # surface when the self-hosted compiler builds AND RUNS a test binary were not
   # gated. That is exactly the class `check` cannot see (`check` never evaluates
@@ -2135,7 +2156,7 @@ jobs:
   # status check in ruleset 13548862 and is matched by string.
   # The self-hosted runner is sequential regardless of
   # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
-  # src/main.yo) and takes ~22 min after a ~5 min stage-1 build.
+  # src/main.yo) and takes ~22 min; the stage-1 comes from the shared `stage1` job.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
     needs: [changes, stage1]
@@ -2146,8 +2167,8 @@ jobs:
     # the four heavy macro/reflection files go one per shard, the rest stripe
     # round-robin over the sorted glob. The unsharded job hit 88m50s of a
     # 90 min budget UNinstrumented (run 31708389473), then went ASan-
-    # instrumented (P2.5 step 4) on a 180 min budget; each shard now pays the
-    # ~5 min stage-1 build and runs its quarter of the tier. RENAMING NOTE:
+    # instrumented (P2.5 step 4) on a 180 min budget; each shard now downloads
+    # the shared stage-1 (the `stage1` job) and runs its quarter of the tier. RENAMING NOTE:
     # the ruleset's required check changed from the single name to the four
     # shard names in the same change — the swap must land in the ruleset
     # BEFORE this merges (see the issue's ordering trap).
@@ -2404,7 +2425,7 @@ jobs:
             ./yo-musl check std/assert.yo 2>run.err || { echo "check FAILED"; cat run.err; exit 1; }
             cat run.err
           '
-          echo "static + io_uring confirmed."
+          echo "static binary confirmed (io_uring or the epoll fallback, whichever the container allows)."
 
       # The one gate the musl-only migration waited on, now wired in per PR.
       # scripts/bootstrap/probe-stack-sizing.sh proves BOTH directions (a 1 MB

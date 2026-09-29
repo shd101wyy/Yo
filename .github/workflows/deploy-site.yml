@@ -40,6 +40,11 @@ jobs:
   build-and-deploy:
     name: Build the site at the tag and deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Shared with release.yml's deploy-site job: two Pages deploys must not race.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
@@ -65,9 +70,9 @@ jobs:
       # CONDITIONAL, and it is the only install-deps call site that is.
       # This workflow checks out an ARBITRARY PUBLISHED TAG (that is its whole
       # purpose — the salvage lever for a release whose in-run deploy-site was
-      # skipped), and NO PUBLISHED TAG HAS A `yo.toml`: the manifest arrives
-      # with this commit, so that is every tag that exists, v0.2.32 included
-      # (checked with `git cat-file -e <tag>:yo.toml`). There `yo install
+      # skipped), and tags before v0.2.33 have no `yo.toml` (v0.2.33 is the
+      # first that does; checked with `git cat-file -e <tag>:yo.toml`,
+      # 2026-09-29). There `yo install
       # --locked` exits 1 with
       # "no yo.toml found … Run 'yo init'", which would break redeploying any
       # older release — while `submodules: recursive` above already
