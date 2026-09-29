@@ -934,11 +934,20 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 | --- | --- |
 | `for_each(f, io)` | 驱动流直到结束，对每一项调用 `f` |
 | `collect(io)` | 驱动流直到结束，把所有项收集进 `ArrayList` |
+| `for_await(s, io, x => body)` | 循环形式（一个宏）：每一项运行一次 `body`，其中可以使用 `break`、`continue` 和 `return` |
 
 ```rust
 // 最多取五个“内容变更”事件的名字。
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
+
+// 或者写成可以提前结束的循环：这里遇到第一个空名字就停。
+for_await(names, io, n => {
+  if(n.len() == usize(0), {
+    break;
+  });
+  println(n);
+});
 ```
 
 ### 如何实现一个流
@@ -986,9 +995,8 @@ impl(
    task := io.async((io : Io) => io.await(chain.collect(io), io));   // 在里面 await
    ```
 
-2. **没有 `for_await`。** 用宏写的异步循环，其 `io.await` 会被编译成**阻塞**形式
-   （宏展开体不会被扫描挂起点），在 spawn 出去的任务里会死锁。请用 `for_each`，
-   或者用到处都能工作的手写循环：
+2. **`for_await` 就是这个手写循环。** 它展开成下面的代码，其中的 await 和其他
+   await 一样会挂起所在的任务，所以在 spawn 出去的任务里和在 `main` 里都能用：
 
    ```rust
    (done : bool) = false;

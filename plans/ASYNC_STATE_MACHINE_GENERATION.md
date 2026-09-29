@@ -142,7 +142,7 @@ in codegen.
    blocking await inside a task: a silent deadlock
    (`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`).
    This is what blocks `for_await`
-   (`plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+   (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 5. **Store sites that must remember a rule.** The borrowed-future `incr_rc`
    (the `Park.wait` fix) and the named-future "no slot" rule are enforced by
    convention at each store site. Two sites got one of them wrong:
@@ -1039,3 +1039,13 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
 - 2026-09-29: phase 7 on `async-sm-p7` (stacked on phase 6): per-type
   pools of released state machines, 41–44% fewer instructions per cold
   await. Embedding is declined, and the unboxed handle is seed-gated.
+- 2026-09-29: E0904 retired on `async-sm-p7`, as phase 5 step 3 planned.
+  Its last rule rejected `inout` bindings (and so the borrowed `for`) in a
+  body that awaits, because the segment lowering kept a per-state C copy of
+  each local. Now:
+  - the reference and its pin are captured, with the reference typed as the
+    pointer its slot holds;
+  - the place's root keeps its slot to its scope's end;
+  - reads and writes through a slot dereference it.
+
+  The five CLI cases that pinned the rejection became running tests.

@@ -957,11 +957,20 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 | --- | --- |
 | `for_each(f, io)` | drive the stream to its end, calling `f` on each item |
 | `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
+| `for_await(s, io, x => body)` | the loop form (a macro): `body` runs per item, and `break`, `continue` and `return` work in it |
 
 ```rust
 // Every third event's name, at most five of them.
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
+
+// Or as a loop, which can stop early: here at the first empty name.
+for_await(names, io, n => {
+  if(n.len() == usize(0), {
+    break;
+  });
+  println(n);
+});
 ```
 
 ### Implementing one
@@ -1013,10 +1022,9 @@ consumer needs no `Exception` handler.
    task := io.async((io : Io) => io.await(chain.collect(io), io));   // awaited in there
    ```
 
-2. **There is no `for_await`.** An async loop written as a MACRO compiles its
-   `io.await` to the BLOCKING form (a macro's expansion is not scanned for
-   suspension points), which deadlocks inside a spawned task. Use `for_each`,
-   or the hand-written loop, which works everywhere:
+2. **`for_await` is the hand-written loop.** Its expansion is this, and its
+   await suspends the enclosing task like any other, so it works inside a
+   spawned task as well as from `main`:
 
    ```rust
    (done : bool) = false;
