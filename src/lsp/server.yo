@@ -38,9 +38,9 @@ json :: import("std/encoding/json");
 } :: import("./protocol.yo");
 { analyze_document, LspDiag, AnalyzeOutcome } :: import("./diagnostics.yo");
 { handle_hover } :: import("./hover.yo");
-{ handle_definition } :: import("./definition.yo");
+{ handle_definition, handle_type_definition } :: import("./definition.yo");
 { handle_document_symbols } :: import("./symbols.yo");
-{ handle_references } :: import("./references.yo");
+{ handle_references, handle_document_highlight } :: import("./references.yo");
 { handle_folding_ranges } :: import("./folding.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("./rename.yo");
 { handle_signature_help } :: import("./signature_help.yo");
@@ -259,7 +259,7 @@ _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
   utf32 := _client_offers_utf32(params);
   set_utf16_positions(!utf32);
   encoding := cond(utf32 => String.from("utf-32"), true => String.from("utf-16"));
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -445,6 +445,44 @@ _handle_message :: (
         .None => ()
       );
       _respond(id_opt, def_result);
+    },
+    (method == String.from("textDocument/typeDefinition")) => {
+      (td_result : JsonValue) = JsonValue.Null;
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            match(
+              handle_type_definition(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              .Some(loc) => {
+                td_result = loc;
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, td_result);
+    },
+    (method == String.from("textDocument/documentHighlight")) => {
+      (dh_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            dh_result = handle_document_highlight(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, dh_result);
     },
     (method == String.from("textDocument/documentSymbol")) => {
       (sym_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());

@@ -37,7 +37,8 @@ json :: import("std/encoding/json");
 } :: import("../../src/lsp/protocol.yo");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { handle_hover } :: import("../../src/lsp/hover.yo");
-{ handle_references } :: import("../../src/lsp/references.yo");
+{ handle_type_definition } :: import("../../src/lsp/definition.yo");
+{ handle_references, handle_document_highlight } :: import("../../src/lsp/references.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
 { handle_document_symbols } :: import("../../src/lsp/symbols.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
@@ -466,6 +467,126 @@ test("prepareRename answers on bindings, not on members or labels", {
         handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(20)).is_none(),
         "prepareRename answers nothing on a struct-literal label (Point(x : …))"
       );
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 2026-09-29 audit §3 (plans/LSP_AUDIT_2026-09-29.md): documentHighlight,
+// typeDefinition, and the identifier end-column token match.
+// ---------------------------------------------------------------------------
+test("documentHighlight: Write on the declaration, Text on uses, nothing on members", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      hl := json.stringify(
+        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1))
+      );
+      assert(hl.contains(",\"kind\":3}"), `the declaration occurrence highlights as Write (kind 3), got: ${hl}`);
+      assert(
+        hl.contains("{\"line\":2,\"character\":35") && hl.contains("{\"line\":2,\"character\":43"),
+        "both uses highlight"
+      );
+      member := json.stringify(
+        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(37))
+      );
+      assert_eq(member, String.from("[]"), "a member name (p.x) highlights nothing");
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("typeDefinition: a value jumps to its type's binding; labels and fn-typed names answer nothing", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      on_value := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1));
+      assert(on_value.is_some(), "typeDefinition answers on a struct-typed value");
+      match(
+        on_value,
+        .Some(loc) => {
+          assert(json.stringify(loc).contains("{\"line\":0,\"character\":0}"), "typeDefinition on `p` lands on the Point binding at 0:0");
+        },
+        .None => ()
+      );
+      on_type := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(5));
+      assert(on_type.is_some(), "typeDefinition answers on a type name");
+      match(
+        on_type,
+        .Some(loc2) => {
+          assert(json.stringify(loc2).contains("{\"line\":0,\"character\":0}"), "typeDefinition on a type name lands on its binding");
+        },
+        .None => ()
+      );
+      assert(
+        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(20)).is_none(),
+        "typeDefinition answers nothing on a struct-literal label"
+      );
+      assert(
+        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(0)).is_none(),
+        "typeDefinition answers nothing on a fn-typed name"
+      );
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("a cursor at an identifier's end column still names it", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      hv := handle_hover(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(0), usize(5));
+      assert(hv.is_some(), "hover answers at an identifier's end column");
     },
     .None => assert(false, "typed-decl document: no outcome")
   );
