@@ -290,6 +290,47 @@ different ~114 MiB transient about 7 s before the end of emit, present in
 every variant. `--profile` now prints `profile: mark` lines (rss and VmHWM)
 between the emit steps to find it.
 
+### 0.7 The emit spike found; env interning rejected (2026-09-30)
+
+**The ~114 MiB transient is one async state machine.** The `profile: mark`
+lines, plus a scratch mark that records only when VmHWM grows by ≥ 50 MB,
+put it inside `generate_deferred_async_blocks`, at block 84 of 143:
+`fetch_package` (`src/fetch.yo`), an `io.async` body with about a dozen
+top-level awaits.
+- Peak 2,869 → 2,991 MB across that one block; RSS is back to 2,877 MB by
+  the end of the loop.
+- The code buffer grows only 117 → 122 MB over all 143 blocks, and no emitter
+  buffer is copied or doubled there (the marks print the three buffer
+  lengths).
+
+So it is that block's lowering working set, super-linear in its
+segment/continuation handling. #1002 (async state machines phase 5: a
+single-pass lowering that deletes the segment/continuation emitters) and
+#1016 rewrite exactly this path, so it is left to them. Re-measure once both
+land.
+
+**Env interning (§3 lever 0a): measured and rejected.** One pass before
+collect pointed every entry at a canonical frozen env per identity: frame
+objects by `index_key`, module path, declaration frame level, input string.
+- The self-build's 2,890,218 entries hold **264,188 distinct envs**, 91 %
+  duplicates.
+- `YO_DEBUG_FROZEN=1`: 0 panics. The C was byte-identical.
+
+| | base | interned |
+| --- | --- | --- |
+| end of collect | 2,634 MB | 2,614 MB |
+| end of emit | 2,803 MB | 2,783 MB |
+| max RSS | 2,987 MB | 2,966 MB (−21, −0.7 %) |
+| the pass | | **12.1 s** |
+
+The ~1.3 M freed `Environment` objects (~120 MB reachable) return little
+RSS: they are freed after evaluation grew the heap, as 96 B slots scattered
+over mimalloc pages that only same-size allocations reuse. 12 s for 0.7 % is
+a speed-for-memory trade, so it was reverted. The duplicate count stays
+useful, though: a scope-level identity would let `expr_info_adopt_env` or the
+snapshot ring share at creation time, while evaluation is still allocating
+envs. That is not attempted here.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
@@ -342,9 +383,17 @@ Phase 0 measures it.
    - (a) Hash-cons content-equal envs once evaluation is done: 1.58 M
      `Environment` objects over 337 K distinct frame lists. Canonical envs are
      frozen, and `YO_DEBUG_FROZEN=1` proves nothing mutates one.
-   - (b) Give codegen what it reads from an env (the innermost `Variable` per
-     name, the module path) without the env, then drop recorded envs before
-     codegen. Gate: byte-identical C, with the frozen guard on for (a).
+   - (a′) **Rejected (§0.7)**: −21 MB for 12 s.
+   - (b) Release a function's recorded envs once its C is written. Codegen
+     emits one function at a time, and a body's envs are dead after its
+     emission unless a later step reads them (deferred async blocks, dyn
+     wrappers). So, after each emitted function, point its body's
+     `ExprInfo.env`s at one poison env, keeping those a deferred step still
+     needs. Frames and variables are then freed while emit runs, and their
+     slots are reused by emit's own allocations. Gates:
+     - byte-identical C;
+     - a poison env that panics under a debug knob when read, run on the
+       self-compile and on `gates_fast`'s corpus.
 
 1. **Drop what codegen never reads, as soon as it is known to be unread.**
    After collect, the set of emitted functions is known. Entries that belong
