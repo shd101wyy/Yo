@@ -278,7 +278,14 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
   });
   // 5) Local C variable in the resume function: comptime-only constants
   //    inline their value; otherwise the codegen name (an `is_ref` variable
-  //    reads as `(*name)` — see `_var_read_code`).
+  //    reads as `(*name)` — see `_var_read_code`). The name is the one
+  //    `expr` itself binds, so this holds only when `expr` IS the atom: a
+  //    capture read on behalf of an `io.async(...)` call would get the call's
+  //    own temp.
+  is_the_atom := match(expr, .Atom(_, atok) => (atok.value == var_name), _ => false);
+  if(!is_the_atom, {
+    return(Option(String).None);
+  });
   match(
     ei_opt,
     .Some(ei5) => match(

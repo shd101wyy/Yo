@@ -93,6 +93,7 @@
   EvidenceParameter
 } :: import("../functions/context.yo");
 {
+  CrossBoundaryResult,
   OverlappingSlot,
   find_bundle_field_name,
   compute_cross_boundary_variables,
@@ -942,7 +943,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       ordered_blocks.get(ei),
       .Some(b) => {
-        cbr := compute_cross_boundary_variables(b.body_expr, b.analysis, context);
+        cbr := _block_cross_boundary(b, context);
         osr := compute_overlapping_slots(cbr.cross_boundary_ids, cbr.variable_segments, b.analysis.captured_variables, cbr.await_future_temp_var_aliases, context);
         emit_async_block_struct_definition(
           AsyncBlockStructInfo(
@@ -2155,17 +2156,13 @@ _sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenera
     .None => Option(SmUnwindCatch).None
   )
 );
-_emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  saved_sm_vars := context.state_machine_variables;
-  saved_evidence_params := context.current_evidence_params;
-  saved_field_aliases := context.state_machine_field_aliases;
-  // Cross-boundary analysis (segment-locals become C locals).
+/// The block's cross-boundary analysis. A closure parameter lives in its
+/// `__yo_param_<i>` slot, which is what its reads render, so its own local
+/// gets no field: that would be a second, never-used copy (the bundle
+/// stored twice, plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4). The struct
+/// definition and the resume function both read this one result.
+_block_cross_boundary :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> CrossBoundaryResult)({
   cbr := compute_cross_boundary_variables(block.body_expr, block.analysis, context);
-  cross_boundary_ids := cbr.cross_boundary_ids;
-  // A closure parameter lives in its `__yo_param_<i>` slot, which is what its
-  // reads render; its own local would be a second, never-used copy (the
-  // bundle stored twice, plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4).
   param_sites := HashSet(String).new();
   match(
     block.closure_param_slots,
@@ -2194,6 +2191,20 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     },
     .None => ()
   );
+  if(param_sites.len() > usize(0), {
+    (pci : usize) = usize(0);
+    pcvs := block.analysis.captured_variables;
+    while(pci < pcvs.len(), {
+      match(
+        pcvs.get(pci),
+        .Some(pv) => if(match(pv.kind, .Local => true, .Outer => false) && param_sites.contains(pv.base.decl_site.clone()), {
+          _removed := cbr.cross_boundary_ids.remove(pv.base.id.to_string());
+        }),
+        .None => ()
+      );
+      pci = (pci + usize(1));
+    });
+  });
   if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
     match(
       block.closure_param_slots,
@@ -2207,23 +2218,19 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     );
     (dci : usize) = usize(0);
     while(dci < block.analysis.captured_variables.len(), dci = (dci + usize(1)), {
-      match(block.analysis.captured_variables.get(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
+      match(block.analysis.captured_variables.get(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
     });
   });
-  if(param_sites.len() > usize(0), {
-    (pci : usize) = usize(0);
-    pcvs := block.analysis.captured_variables;
-    while(pci < pcvs.len(), {
-      match(
-        pcvs.get(pci),
-        .Some(pv) => if(match(pv.kind, .Local => true, .Outer => false) && param_sites.contains(pv.base.decl_site.clone()), {
-          _removed := cross_boundary_ids.remove(pv.base.id.to_string());
-        }),
-        .None => ()
-      );
-      pci = (pci + usize(1));
-    });
-  });
+  cbr
+});
+_emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  saved_sm_vars := context.state_machine_variables;
+  saved_evidence_params := context.current_evidence_params;
+  saved_field_aliases := context.state_machine_field_aliases;
+  // Cross-boundary analysis (segment-locals become C locals).
+  cbr := _block_cross_boundary(block, context);
+  cross_boundary_ids := cbr.cross_boundary_ids;
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
   osr := compute_overlapping_slots(cross_boundary_ids, cbr.variable_segments, block.analysis.captured_variables, await_future_temp_var_aliases, context);
   overlapping_slot_aliases := osr.slot_aliases;
@@ -2400,7 +2407,7 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
         match(
           blocks.get(ni),
           .Some(nb) => {
-            ncbr := compute_cross_boundary_variables(nb.body_expr, nb.analysis, context);
+            ncbr := _block_cross_boundary(nb, context);
             nosr := compute_overlapping_slots(ncbr.cross_boundary_ids, ncbr.variable_segments, nb.analysis.captured_variables, ncbr.await_future_temp_var_aliases, context);
             emit_async_block_struct_definition(
               AsyncBlockStructInfo(
