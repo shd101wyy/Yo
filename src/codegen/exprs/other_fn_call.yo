@@ -655,17 +655,13 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
 _future_field_upcast :: (fn(field_ty : Option(TypeValue), code : String, context : FunctionGenerationContext) -> String)(
   match(
     field_ty,
-    .Some(ft) => match(
-      ft,
-      .FutureTraitT({ output : _fo }) => {
-        fct := get_type_string(ft, context.base);
-        cond(
-          (fct.ends_with("*") && (code.len() > usize(0))) => `((${fct})(${code}))`,
-          true => code
-        )
-      },
-      _ => code
-    ),
+    .Some(ft) => if(type_implements_future(ft), {
+      fct := get_type_string(ft, context.base);
+      cond(
+        (fct.ends_with("*") && (code.len() > usize(0))) => `((${fct})(${code}))`,
+        true => code
+      )
+    }, code),
     .None => code
   )
 );
