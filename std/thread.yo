@@ -387,11 +387,7 @@ spawn_blocking :: (
 )({
   // EAGER: the worker starts here, in the function body, and the returned
   // future only waits for it. That is Rust's semantics — `spawn_blocking`
-  // begins the work immediately rather than on first poll — and it keeps the
-  // callback out of the async block, which matters for a second reason:
-  // an `Impl(Fn)` PARAMETER captured by an `io.async` block is missing from
-  // that block's capture struct and emits a bare identifier into the state
-  // machine (issues/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
+  // begins the work immediately rather than on first poll.
   p := Park.new();
   w := p.waker();
   chan := Channel(T).new(usize(1));
