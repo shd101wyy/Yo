@@ -1,6 +1,6 @@
 # `textDocument/rename` accepts any `newName` and rewrites the buffer into something unlexable
 
-**Severity:** S2 — a rename through the editor (F2) with a reasonable typo ("1 bad name", "x y", the keyword `fn`, a reserved builtin like `clone`) produces a WorkspaceEdit that lands in the buffer; found 2026-09-29 by the `plans/LSP_AUDIT_2026-09-29.md` probes.
+**Status:** FIXED 2026-09-29 (audit §2 PR, plans/LSP_AUDIT_2026-09-29.md): `rename_rejection` (src/lsp/rename.yo) validates `newName` before any edit is built — the parser is the authority on identifier SHAPE (``${name} :: i32;`` must parse as that binding), the keyword half is the curated list completion.yo serves (the language technically parses a keyword-named binding, so the parser alone cannot reject it), and `is_reserved_builtin_binding_name` catches the plain-named builtins; the dispatch answers RequestFailed (-32803) with the reason. `textDocument/prepareRename` is served alongside (`renameProvider.prepareProvider`). Was: **Severity:** S2 — a rename through the editor (F2) with a reasonable typo ("1 bad name", "x y", the keyword `fn`, a reserved builtin like `clone`) produces a WorkspaceEdit that lands in the buffer; found 2026-09-29 by the `plans/LSP_AUDIT_2026-09-29.md` probes.
 
 ## Reproduction
 

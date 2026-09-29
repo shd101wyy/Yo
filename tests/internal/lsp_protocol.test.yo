@@ -15,11 +15,15 @@
 //!     (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md);
 //!   - hover renders a contracted function's requires/ensures/return label
 //!     and the file's verification mode, and marks ghost_fn predicates
-//!     spec-only (FORMAL_VERIFICATION.md V7 task 1).
+//!     spec-only (FORMAL_VERIFICATION.md V7 task 1);
+//!   - the 2026-09-29 audit §2 fixes (plans/LSP_AUDIT_2026-09-29.md): rename
+//!     `newName` validation, `context.includeDeclaration`, documentSymbol's
+//!     typed top-level declarations, and prepareRename's renameability gate.
 { rune, String } :: import("std/string");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { assert, assert_eq } :: import("std/assert");
+json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
@@ -33,6 +37,9 @@
 } :: import("../../src/lsp/protocol.yo");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { handle_hover } :: import("../../src/lsp/hover.yo");
+{ handle_references } :: import("../../src/lsp/references.yo");
+{ handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
+{ handle_document_symbols } :: import("../../src/lsp/symbols.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
 { is_any_temp_variable_name, generate_new_temp_variable_name } :: import("../../src/utils.yo");
 
@@ -308,5 +315,158 @@ test("hover shows contracts + verification status for a contracted function", {
       );
     },
     .None => assert(false, "contracted document: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-29 audit §2 (plans/LSP_AUDIT_2026-09-29.md): rename validation +
+// prepareRename, references includeDeclaration, documentSymbol typed
+// declarations.
+// ---------------------------------------------------------------------------
+_TYPED_DECL :: "Point :: struct(x : i32, y : i32);\n(p : Point) = Point(x : 1, y : 2);\nanswer :: (fn() -> i32)({ return(((p.x) + (p.y))); });\n";
+
+test("rename_rejection: only legal binding names pass", {
+  // Legal identifiers (including single-underscore-private ones).
+  assert(rename_rejection(String.from("p2")).is_none(), "plain identifier");
+  assert(rename_rejection(String.from("Point")).is_none(), "capitalized identifier");
+  assert(rename_rejection(String.from("_x")).is_none(), "underscore-private identifier");
+  assert(rename_rejection(String.from("x_y_2")).is_none(), "digits after the first char");
+  // Not identifiers at all — the parser is the authority.
+  assert(rename_rejection(String.from("")).is_some(), "empty name");
+  assert(rename_rejection(String.from("1 bad name")).is_some(), "spaces and a leading digit");
+  assert(rename_rejection(String.from("123")).is_some(), "a number literal");
+  assert(rename_rejection(String.from("a-b")).is_some(), "an operator character");
+  assert(rename_rejection(String.from("true")).is_some(), "a bool literal");
+  // Structural keywords never parse as binding names.
+  assert(rename_rejection(String.from("fn")).is_some(), "the fn keyword");
+  assert(rename_rejection(String.from("while")).is_some(), "the while keyword");
+  assert(rename_rejection(String.from("return")).is_some(), "the return keyword");
+  assert(rename_rejection(String.from("match")).is_some(), "the match keyword");
+  // Plain-named builtin dispatch names parse as identifiers but are reserved
+  // for bindings (src/token.yo).
+  assert(rename_rejection(String.from("clone")).is_some(), "reserved builtin binding name");
+  assert(rename_rejection(String.from("typeof")).is_some(), "reserved builtin binding name");
+  assert(rename_rejection(String.from("___drop")).is_some(), "reserved unspellable name");
+});
+
+test("references honor context.includeDeclaration", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the typed-decl document analyzes ok");
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      with_decl := json.stringify(
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1), true)
+      );
+      without_decl := json.stringify(
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1), false)
+      );
+      // The declaration (1:1) and both uses (2:35, 2:43) when included.
+      assert(with_decl.contains("\"start\":{\"line\":1,\"character\":1}"), "includeDeclaration=true has the declaration");
+      assert(with_decl.contains("\"start\":{\"line\":2,\"character\":35}"), "includeDeclaration=true has the first use");
+      assert(with_decl.contains("\"start\":{\"line\":2,\"character\":43}"), "includeDeclaration=true has the second use");
+      // Uses only when excluded (issues/fixed/lsp-references-ignore-include-declaration.md).
+      assert(!without_decl.contains("\"start\":{\"line\":1,\"character\":1}"), "includeDeclaration=false drops the declaration");
+      assert(without_decl.contains("\"start\":{\"line\":2,\"character\":35}"), "includeDeclaration=false keeps the first use");
+      assert(without_decl.contains("\"start\":{\"line\":2,\"character\":43}"), "includeDeclaration=false keeps the second use");
+      // Absent flag defaults to including it.
+      defaulted := json.stringify(
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1))
+      );
+      assert(defaulted.contains("\"start\":{\"line\":1,\"character\":1}"), "absent context defaults to includeDeclaration=true");
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("documentSymbol lists typed top-level declarations", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      syms := json.stringify(handle_document_symbols(oc.exprs, lines));
+      assert(syms.contains("\"name\":\"Point\",\"kind\":23"), "the struct binding keeps its Struct kind");
+      assert(syms.contains("\"name\":\"answer\",\"kind\":12"), "the fn binding keeps its Function kind");
+      assert(
+        syms.contains("\"name\":\"p\",\"kind\":13"),
+        "the typed declaration (p : Point) = … is a Variable symbol (issues/fixed/lsp-document-symbol-misses-typed-declarations.md)"
+      );
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("prepareRename answers on bindings, not on members or labels", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      on_decl := handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1));
+      assert(on_decl.is_some(), "prepareRename answers on the declaration");
+      match(
+        on_decl,
+        .Some(pr) => {
+          assert(
+            json.stringify(pr).contains("\"placeholder\":\"p\""),
+            "prepareRename carries the current name as placeholder"
+          );
+        },
+        .None => ()
+      );
+      assert(
+        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(37)).is_none(),
+        "prepareRename answers nothing on a member name (p.x)"
+      );
+      assert(
+        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(20)).is_none(),
+        "prepareRename answers nothing on a struct-literal label (Point(x : …))"
+      );
+    },
+    .None => assert(false, "typed-decl document: no outcome")
   );
 });

@@ -95,10 +95,12 @@ _is_ident_name :: (fn(name : String) -> bool)({
   true
 });
 
-/// The language keyword list offered alongside identifier completion.
-/// Hand-curated from `expr.yo`'s BK_* constants (word-shaped entries only —
-/// operators are not completion material).
-_keywords :: (fn() -> ArrayList(String))({
+/// The language keyword list offered alongside identifier completion, and
+/// the rename gate's keyword half (rename refuses to CREATE one, though the
+/// parser technically accepts a keyword-named binding). Hand-curated from
+/// `expr.yo`'s BK_* constants (word-shaped entries only — operators are not
+/// completion material).
+keyword_names :: (fn() -> ArrayList(String))({
   ks := ArrayList(String).new();
   ks.push(String.from("comptime"));
   ks.push(String.from("given"));
@@ -1322,7 +1324,7 @@ handle_completion :: (
       fi = (fi + usize(1));
     });
   });
-  kws := _keywords();
+  kws := keyword_names();
   (ki : usize) = usize(0);
   while(ki < kws.len(), {
     kw := kws(ki);
@@ -1334,4 +1336,4 @@ handle_completion :: (
   });
   JsonValue.Array(items : items)
 });
-export(handle_completion, _receiver_at);
+export(handle_completion, keyword_names, _receiver_at);

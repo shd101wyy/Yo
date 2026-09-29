@@ -1,6 +1,6 @@
 # `yo lsp` JSON-RPC lifecycle deviations: pre-initialize and post-shutdown requests served, unknown `$/` requests never answered
 
-**Severity:** S3 — three protocol-conformance deviations, none data-corrupting, but the third leaves a REQUEST permanently unanswered (a client may wait on it, and probing clients use `$` requests to feature-detect).
+**Status:** FIXED 2026-09-29 (audit §2 PR, plans/LSP_AUDIT_2026-09-29.md): `_handle_message` runs a three-state lifecycle (uninitialized / running / shut down): pre-initialize requests get ServerNotInitialized (-32002), requests after shutdown and a second initialize get InvalidRequest (-32600), and unknown `$/` REQUESTS get MethodNotFound (-32601) while `$/` notifications stay ignored. Was: **Severity:** S3 — three protocol-conformance deviations, none data-corrupting, but the third leaves a REQUEST permanently unanswered (a client may wait on it, and probing clients use `$` requests to feature-detect).
 
 ## Reproductions
 
