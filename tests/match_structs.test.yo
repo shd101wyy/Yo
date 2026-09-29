@@ -1,0 +1,110 @@
+//! Struct scrutinees and struct sub-patterns (plans/MATCH_PATTERN_MATCHING.md
+//! P4): named `S(label : p, name)` and anonymous `{label : p, name}` forms,
+//! partial destructuring, any sub-pattern per field, on runtime and
+//! compile-time scrutinees.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+Point :: struct(x : i32, y : i32);
+Person :: struct(name : String, age : i32);
+test("a named struct pattern discriminates by field", {
+  f :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      Point(x : 0, y) => y,
+      Point(x, y : 0) => (x * i32(10)),
+      Point(x, y) => ((x * i32(100)) + y)
+    )
+  );
+  assert(f(Point(0, 7)) == i32(7));
+  assert(f(Point(3, 0)) == i32(30));
+  assert(f(Point(3, 7)) == i32(307));
+});
+test("an anonymous struct pattern binds same-named fields", {
+  g :: (fn(p : Point) -> i32)(
+    match(p, { x : 0, y } => y, { x, y } => (x + y))
+  );
+  assert(g(Point(0, 7)) == i32(7));
+  assert(g(Point(3, 7)) == i32(10));
+});
+test("a struct pattern is partial: unlisted fields match anything", {
+  h :: (fn(p : Person) -> i32)(
+    match(
+      p,
+      Person(age : 0) => i32(-1),
+      Person(name : "alice") => i32(1),
+      Person(name, age) => age
+    )
+  );
+  assert(h(Person(String.from("bob"), 0)) == i32(-1));
+  assert(h(Person(String.from("alice"), 42)) == i32(1));
+  assert(h(Person(String.from("bob"), 42)) == i32(42));
+});
+test("a field may carry any sub-pattern", {
+  Cell :: enum(Full(v : i32), Empty);
+  Holder :: struct(tag : Cell, note : i32);
+  k :: (fn(hh : Holder) -> i32)(
+    match(
+      hh,
+      Holder(tag : .Full(7), note) => (note + i32(100)),
+      Holder(tag : .Full(v), note) => (v + note),
+      Holder(tag : .Empty, note) => (note * i32(-1))
+    )
+  );
+  assert(k(Holder(Cell.Full(7), 1)) == i32(101));
+  assert(k(Holder(Cell.Full(9), 1)) == i32(10));
+  assert(k(Holder(Cell.Empty, 5)) == i32(-5));
+});
+test("a guard sees the struct pattern's bindings", {
+  m :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      (Point(x, y) && ((x + y) > i32(10))) => i32(1),
+      _ => i32(0)
+    )
+  );
+  assert(m(Point(5, 6)) == i32(1));
+  assert(m(Point(5, 5)) == i32(0));
+});
+test("compile-time scrutinee: the struct arm is selected at compile time", {
+  K :: Point(3, 9);
+  r :: match(
+    K,
+    Point(x : 3, y) => y,
+    _ => i32(0)
+  );
+  assert(r == i32(9));
+});
+test("an enum payload holding a struct takes a struct sub-pattern", {
+  Wrap :: enum(W(p : Point), Nothing);
+  w :: (fn(e : Wrap) -> i32)(
+    match(
+      e,
+      .W(Point(x : 0, y)) => y,
+      .W(Point(x, y)) => (x - y),
+      .Nothing => i32(0)
+    )
+  );
+  assert(w(Wrap.W(Point(0, 9))) == i32(9));
+  assert(w(Wrap.W(Point(9, 3))) == i32(6));
+  assert(w(Wrap.Nothing) == i32(0));
+});
+test("a whole-value binding of a struct pattern", {
+  n :: (fn(p : Point) -> i32)(
+    match(
+      p,
+      ((whole := Point(x : 0, y)) && (y > i32(5))) => (whole.x + whole.y),
+      Point(x, _) => x
+    )
+  );
+  assert(n(Point(0, 9)) == i32(9));
+  assert(n(Point(0, 3)) == i32(0));
+  assert(n(Point(4, 1)) == i32(4));
+});
+test("a reference-semantics struct pattern reads through the pointer", {
+  SharedPoint :: ref(struct(x : i32, y : i32));
+  s :: (fn(p : SharedPoint) -> i32)(
+    match(p, { x : 0, y } => y, { x, y } => (x + y))
+  );
+  assert(s(SharedPoint(0, 7)) == i32(7));
+  assert(s(SharedPoint(3, 7)) == i32(10));
+});
