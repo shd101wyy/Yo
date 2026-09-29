@@ -24,6 +24,9 @@
 //! Thread-safe: every operation takes the arena's spinlock, so blocks may be
 //! freed on any thread.
 //!
+//! Under `--debug-heap` the exit report lists every arena still live (never
+//! deinit) or abandoned at exit, with its live blocks and bytes in use.
+//!
 //! ## Stability
 //!
 //! unstable — the second `Allocator` implementor
@@ -31,6 +34,8 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, Allocator, AllocatorVTable, with_allocator } :: import("./allocator");
 { panic } :: import("./assert");
+{ eprintln } :: import("./fmt");
+{ atexit } :: import("./libc/stdlib");
 { memcpy } :: import("./libc/string");
 {
   atomic_bool,
@@ -45,7 +50,8 @@ extern(
   "Yo",
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
   __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
-  __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit)
+  __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_debug_heap_on : (fn() -> bool)
 );
 // Every block starts on a 16-byte boundary of the region.
 _ALIGN :: usize(16);
@@ -74,6 +80,11 @@ _pool := Option(*void).None;
 // Abandoned states (and, through them, their regions): kept reachable on
 // purpose, since an abandoned arena lives as long as the process.
 _abandoned := Option(*void).None;
+// Under `--debug-heap` only: arenas neither deinit nor abandoned, for the exit
+// report. Off otherwise, so a leaked arena stays unreachable and LSan still
+// reports its region.
+_live := Option(*void).None;
+_reporter_installed := false;
 _round_up :: (fn(n : usize) -> usize)((((n + _ALIGN) - usize(1)) / _ALIGN) * _ALIGN);
 _st :: (fn(ctx : ?*void) -> *_ArenaState)((*_ArenaState)(ctx.unwrap()));
 _lock :: (fn(st : *_ArenaState) -> unit)({
@@ -206,6 +217,66 @@ _give_state :: (fn(st : *_ArenaState) -> unit)({
   _pool = .Some((*void)(st));
   unsafe(__yo_mutex_unlock(&_pool_mutex));
 });
+// `st` leaves the `--debug-heap` live list. Caller holds `_pool_mutex`.
+_unlink_live :: (fn(st : *_ArenaState) -> unit)({
+  target := Option(*void).Some((*void)(st));
+  (prev : Option(*_ArenaState)) = .None;
+  (cur : Option(*void)) = _live;
+  while(runtime(cur.is_some() && (cur != target)), {
+    // SAFETY: states on the live list are never released.
+    p := (*_ArenaState)(cur.unwrap());
+    prev = .Some(p);
+    cur = unsafe(p.*.next);
+  });
+  cond(
+    cur.is_none() => (),
+    true => {
+      after := unsafe(st.*.next);
+      match(
+        prev,
+        .Some(p) => {
+          unsafe(p.*.next = after);
+        },
+        .None => {
+          _live = after;
+        }
+      );
+    }
+  );
+});
+_report_list :: (fn(head : Option(*void), what : str) -> unit)({
+  (cur : Option(*void)) = head;
+  while(runtime(cur.is_some()), {
+    st := (*_ArenaState)(cur.unwrap());
+    _lock(st);
+    // SAFETY: states on the lists are never released.
+    s := unsafe(st.*);
+    _unlock(st);
+    eprintln(`arena (${what}): live at exit: ${s.live} block(s), ${s.top} of ${s.capacity} bytes in use`);
+    cur = s.next;
+  });
+});
+// The `--debug-heap` exit reporter, installed by the first `Arena.new`.
+_report_arenas :: (fn() -> unit)({
+  unsafe(__yo_mutex_lock(&_pool_mutex));
+  _report_list(_live, "never deinit");
+  _report_list(_abandoned, "abandoned");
+  unsafe(__yo_mutex_unlock(&_pool_mutex));
+});
+_track :: (fn(st : *_ArenaState) -> unit)({
+  unsafe(__yo_mutex_lock(&_pool_mutex));
+  unsafe(st.*.next = _live);
+  _live = .Some((*void)(st));
+  install := !_reporter_installed;
+  _reporter_installed = true;
+  unsafe(__yo_mutex_unlock(&_pool_mutex));
+  cond(
+    install => {
+      unsafe(atexit(_report_arenas));
+    },
+    true => ()
+  );
+});
 /// A bump arena over one region. See the module notes.
 Arena :: ref(struct(_state : *_ArenaState));
 impl(
@@ -231,6 +302,10 @@ impl(
     unsafe(st.*.dead = false);
     unsafe(st.*.abandoned = false);
     unsafe(st.*.next = .None);
+    cond(
+      unsafe(__yo_debug_heap_on()) => _track(st),
+      true => ()
+    );
     Self(_state : st)
   }),
   /// This arena as an `Allocator` value. Every block it hands out is released
@@ -277,13 +352,21 @@ impl(
       (s.dead || s.abandoned) => _unlock(st),
       (s.live > usize(0)) => {
         _unlock(st);
-        panic(`Arena.deinit: ${s.live} block(s) still live`);
+        panic(`Arena.deinit: ${s.live} block(s) still live (${s.top} of ${s.capacity} bytes in use)`);
       },
       true => {
         unsafe(st.*.dead = true);
         unsafe(st.*.region = .None);
         _unlock(st);
         GlobalAllocator.aligned_free(.Some((*void)(s.region.unwrap())));
+        cond(
+          unsafe(__yo_debug_heap_on()) => {
+            unsafe(__yo_mutex_lock(&_pool_mutex));
+            _unlink_live(st);
+            unsafe(__yo_mutex_unlock(&_pool_mutex));
+          },
+          true => ()
+        );
         _give_state(st);
       }
     );
@@ -301,6 +384,10 @@ impl(
         unsafe(st.*.abandoned = true);
         _unlock(st);
         unsafe(__yo_mutex_lock(&_pool_mutex));
+        cond(
+          unsafe(__yo_debug_heap_on()) => _unlink_live(st),
+          true => ()
+        );
         unsafe(st.*.next = _abandoned);
         _abandoned = .Some((*void)(st));
         unsafe(__yo_mutex_unlock(&_pool_mutex));

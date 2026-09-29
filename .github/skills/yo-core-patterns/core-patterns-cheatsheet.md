@@ -154,6 +154,26 @@ counts.insert(`yo`, i32(1));
 | `Deque(T)`       | Push/pop on both ends                    |
 | `String`         | Owned UTF-8 text                         |
 
+## Explicit allocators
+
+```rust
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
+arena := Arena.new(usize(1) << usize(20));
+list := ArrayList(i32).new_in(arena.allocator());    // the buffer lives in the arena
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // RC objects created inside
+q := with_allocator(arena.allocator(), () => build()); // same, any Allocator
+arena.deinit();   // PANICS while a block is still live; abandon() never frees
+```
+
+- RC still decides WHEN a block dies; the allocator decides WHERE. Releases
+  route back automatically — never free an explicit allocator's block by hand.
+- `Allocator` is `Send`; an `Arena` handle is not. Pass `arena.allocator()`
+  into a spawn body and call `with_allocator` there — a thread does not
+  inherit the scope.
+- Calling `Allocator.alloc`/`free` directly returns raw pointers, so it needs
+  `pragma(Pragma.AllowUnsafe)`; `_in` constructors and scopes do not.
+
 ## Traits and associated types
 
 ```rust

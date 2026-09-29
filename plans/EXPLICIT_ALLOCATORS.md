@@ -619,8 +619,9 @@ arena.deinit();                            // traps if any block is still live
   block is never freed: dead states are pooled for reuse, so a stale
   `Allocator` copy reaches a flagged state rather than freed memory (P0).
 - **The emptiness trap.** Live blocks → tier-3 trap
-  `arena deinit: 3 blocks still live (arena.yo:…)`, then abort. Under
-  `--debug-heap` the message lists per-allocator live counts (P4). This is
+  `Arena.deinit: 3 block(s) still live (96 of 1024 bytes in use)`, then
+  abort. Under `--debug-heap` every arena still live or abandoned at exit is
+  listed in the exit report (P4). This is
   what makes "allocator outlives its blocks" a *checked* invariant instead
   of the use-after-free it is in Zig.
 - `abandon()` — the escape hatch for process-lifetime arenas (startup
@@ -904,17 +905,38 @@ then: a P3 stage-1 runs the container tests against the P3b std.
 
 ### P4 — hardening and tooling
 
-1. `--debug-heap`: per-allocator live-block/byte counts in the exit report
-   and in the deinit trap message; `Arena` registers itself with the
-   reporter on `new` and unregisters on `deinit`/`abandon`.
-2. Parallelism audit (D1–D9 of `PARALLELISM_RULES.md`) of `Allocator`
-   values crossing into spawn bodies and channels; `Mutex(Arena)` as the
-   sanctioned shared-arena pattern, with a test.
-3. `yo context` entries, `.github/skills/` cheatsheet rows, the yo-design
-   instructions row, `yo explain` text for the new trap kinds.
-4. Gates: hollow sweep (`scripts/bootstrap/hollow_sweep69.sh`) ratchet;
-   parallelism suite; the LSan/fixed-allocator leak oracles on
-   `tests/explicit_allocators.test.yo` and `tests/arena.test.yo`.
+**Status: implemented** (branch `explicit-allocators-p4`). What changed
+against the original list, and why:
+
+1. **`--debug-heap`.** The flag belongs to the fixed-region allocator
+   (`plans/reference/FIXED_REGION_ALLOCATOR.md`), so there is no
+   "per-allocator" report for the other two to join. What landed: codegen
+   emits `__yo_debug_heap_on()` (`src/codegen/types/generation.yo`); under it
+   every `Arena` sits on a live list from `new` until `deinit`/`abandon`, and
+   the first `Arena.new` installs an exit reporter that prints one line per
+   arena that was never deinit, then one per abandoned arena —
+   `arena (never deinit): live at exit: N block(s), T of C bytes in use`,
+   `arena (abandoned): …` — ahead of the heap line. The list stays off without the flag, so a leaked
+   arena stays unreachable and LSan keeps reporting its region. The `deinit`
+   trap message carries the same numbers:
+   `Arena.deinit: N block(s) still live (T of C bytes in use)`.
+2. **Parallelism.** `Allocator` is `Send` (two words, no RC); the `Arena`
+   handle is a `ref` and is NOT, pinned by a negative test in
+   `tests/arena.test.yo`. `Mutex(Arena)` is not the sanctioned pattern after
+   all: every arena operation already takes the arena's own spinlock, so the
+   shared form is the `Allocator` value (`arena.allocator()` passed into the
+   spawn body, `with_allocator` there — a thread does not inherit the scope).
+   Tests: two threads churning one arena; an `Iso` built in a scope released
+   on another thread; a spawned thread starting on the global allocator.
+3. **Agent tooling.** `pack/context.md` (ownership section), the
+   core-patterns cheatsheet, and a yo-design instructions section. `yo context
+   std/arena` / `std/allocator` come from the module doc comments with no
+   extra entry. `yo explain` does not apply: its registry holds compile-time
+   diagnostics, and the arena traps are runtime panics whose message names
+   the arena state.
+4. Gates: `tests/arena.test.yo` and `tests/explicit_allocators.test.yo`
+   under the default LSan run and under `--allocator fixed --debug-heap`; the
+   parallelism suite; the hollow sweep on the stack's top.
 
 ### P5 — docs and stability freeze
 
