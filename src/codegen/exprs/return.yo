@@ -1349,6 +1349,12 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   );
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
   if(is_async, {
+    // The body's C locals (phase 6: a local not live across any suspension
+    // has no state-machine field) are released here, as in a plain function;
+    // the abort dispose releases only fields. A field's drop zeroes its slot,
+    // so the dispose does not release it twice.
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None, escaped_result.clone());
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).None, escaped_result.clone());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
     });
