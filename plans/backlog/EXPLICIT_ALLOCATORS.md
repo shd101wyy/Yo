@@ -62,6 +62,60 @@ uses the explicit `abandon()` escape hatch instead. Bulk-free-without-check
 is the one Zig capability declined, deliberately: it cannot be made sound
 under dynamic refcounts without a proof RC does not have.
 
+### 0.1 What to expect on performance (and what not to)
+
+An arena under RC changes **where** bytes come from, not **how much RC
+work runs**. Every dup/drop the compiler inserts still executes, every
+`dispose_fn` still runs, every free still walks to the block — it just
+ends in a counter decrement instead of `mi_free`. The only measured
+self-compile profile on record (`plans/archive/PERCEUS_REUSE.md` §0,
+release v0.2.38, 40 s `sample`, 29,987 busy samples):
+
+| share | what | reachable by an arena? |
+| ---: | --- | --- |
+| 15.2 % | malloc/free family | partially: the alloc side becomes a bump; the free side keeps dispose + routing |
+| 20.5 % | `__yo_decr_rc` | no |
+| 24.4 % | `_tlv_get_addr` (TLS reads under the tracked decr tail) | no — and §3.4 adds one guarded TLS read per user-visible allocation |
+| 2.1 % | memset | no (constructors still zero the block) |
+
+So the ceiling for a program that puts *everything* in arenas is a single-
+digit percentage of wall, and the realistic case is smaller: mimalloc's
+fast path is already a thread-local free-list pop, a bump arena never
+reuses a freed block until `deinit` (churn-heavy code grows without bound),
+and each tagged block carries a 16-byte prefix. The compiler itself is the
+worst customer: its AST, types and `ExprInfo` live for the whole run and
+cross every subsystem, which is exactly the working set an arena cannot
+release early.
+
+What the design *does* buy, and why it is still worth having:
+
+- **Bounded, short-lived subsystems** (parse one file, build a graph, answer
+  one LSP request, run one test): contiguous placement, frees that are a
+  decrement, one region returned at `deinit`. Locality on graph walks is
+  the measurable part.
+- **Budgets and embedded targets**: a second region with its own OOM
+  boundary (`FIXED_REGION_ALLOCATOR.md` §6), per-subsystem accounting under
+  `--debug-heap`.
+- **Test and counting allocators**: the second implementor the stability
+  note needs, and leak/allocation-count assertions per test.
+
+The Zig-level win — skip every individual free and drop the region — is
+the one thing RC cannot give without a proof that no reference crosses the
+arena boundary in either direction. That proof is escape analysis or a
+verifier obligation, out of scope here (the position of
+`plans/backlog/DEPENDENT_TYPES_POSITION.md`: runtime properties go through
+the verifier). If self-compile speed is the goal, the levers on record are
+the two rows above that an arena cannot reach.
+
+**Go/no-go gate (P0, before any codegen work).** P0 is std-only and ships
+the bump arena, so measure before P2/P3 the way `PERCEUS_REUSE.md` §0 did:
+the `scratch/bench` churn programs with their container buffers in an
+arena (Layer 1), plus one graph-shaped benchmark, against develop. Proceed
+to Layer 2 only if the buffers-only number shows the locality/alloc win is
+real (≥ 5 % of wall on a churn program, the Perceus threshold); otherwise
+Layer 2 stays a placement/budget feature and its phases are justified by
+§0's other rows, not by speed.
+
 ## 1. What exists today (measured 2026-09-29)
 
 ### 1.1 One allocator, chosen at compile time
