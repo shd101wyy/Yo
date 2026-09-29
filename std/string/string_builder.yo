@@ -34,6 +34,7 @@
 //! direction, not because it was designed here.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
+{ Allocator } :: import("../allocator.yo");
 { snprintf } :: import("../libc/stdio.yo");
 { rune } :: import("./rune.yo");
 { String } :: import("./string.yo");
@@ -91,6 +92,16 @@ impl(
   /// Create a `StringBuilder` pre-allocated for `capacity` bytes.
   with_capacity : (fn(capacity : usize) -> Self)(
     Self(_buf : ArrayList(u8).with_capacity(capacity))
+  ),
+  /// An empty builder whose buffer lives in `alloc` (see `ArrayList.new_in`).
+  /// A `String` detached by `to_string` keeps that buffer, and the builder's
+  /// next buffer comes from `alloc` too.
+  new_in : (fn(alloc : Allocator) -> Self)(
+    Self(_buf : ArrayList(u8).new_in(alloc))
+  ),
+  /// `with_capacity` with the buffer in `alloc`.
+  with_capacity_in : (fn(alloc : Allocator, capacity : usize) -> Self)(
+    Self(_buf : ArrayList(u8).with_capacity_in(alloc, capacity))
   ),
   /// Returns the current number of bytes in the buffer.
   /// Bytes the builder can hold before it must grow — Rust's
@@ -174,7 +185,11 @@ impl(
     // mutate a `String` already handed to a caller
     // (issues/fixed/writer-to-string-shares-its-buffer.md).
     bytes := self._buf;
-    self._buf = ArrayList(u8).new();
+    self._buf = match(
+      bytes.allocator(),
+      .Some(a) => ArrayList(u8).new_in(a),
+      .None => ArrayList(u8).new()
+    );
     String.from_bytes(bytes)
   }),
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
