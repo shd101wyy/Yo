@@ -1,33 +1,12 @@
-// Each S(i) holds two S(i-1): a field tree with 2^26 leaves. No arm looks
-// inside `s`, so exhaustiveness must not walk that tree.
+// S(i) has 40 fields of type S(i-1): the payload's field tree has 40^4
+// (2.56 million) leaves. No arm looks inside `s`, so exhaustiveness must
+// not walk that tree.
 S0 :: struct(x : i32);
-S1 :: struct(a : S0, b : S0);
-S2 :: struct(a : S1, b : S1);
-S3 :: struct(a : S2, b : S2);
-S4 :: struct(a : S3, b : S3);
-S5 :: struct(a : S4, b : S4);
-S6 :: struct(a : S5, b : S5);
-S7 :: struct(a : S6, b : S6);
-S8 :: struct(a : S7, b : S7);
-S9 :: struct(a : S8, b : S8);
-S10 :: struct(a : S9, b : S9);
-S11 :: struct(a : S10, b : S10);
-S12 :: struct(a : S11, b : S11);
-S13 :: struct(a : S12, b : S12);
-S14 :: struct(a : S13, b : S13);
-S15 :: struct(a : S14, b : S14);
-S16 :: struct(a : S15, b : S15);
-S17 :: struct(a : S16, b : S16);
-S18 :: struct(a : S17, b : S17);
-S19 :: struct(a : S18, b : S18);
-S20 :: struct(a : S19, b : S19);
-S21 :: struct(a : S20, b : S20);
-S22 :: struct(a : S21, b : S21);
-S23 :: struct(a : S22, b : S22);
-S24 :: struct(a : S23, b : S23);
-S25 :: struct(a : S24, b : S24);
-S26 :: struct(a : S25, b : S25);
-E :: enum(A(s : S26), B);
+S1 :: struct(f0 : S0, f1 : S0, f2 : S0, f3 : S0, f4 : S0, f5 : S0, f6 : S0, f7 : S0, f8 : S0, f9 : S0, f10 : S0, f11 : S0, f12 : S0, f13 : S0, f14 : S0, f15 : S0, f16 : S0, f17 : S0, f18 : S0, f19 : S0, f20 : S0, f21 : S0, f22 : S0, f23 : S0, f24 : S0, f25 : S0, f26 : S0, f27 : S0, f28 : S0, f29 : S0, f30 : S0, f31 : S0, f32 : S0, f33 : S0, f34 : S0, f35 : S0, f36 : S0, f37 : S0, f38 : S0, f39 : S0);
+S2 :: struct(f0 : S1, f1 : S1, f2 : S1, f3 : S1, f4 : S1, f5 : S1, f6 : S1, f7 : S1, f8 : S1, f9 : S1, f10 : S1, f11 : S1, f12 : S1, f13 : S1, f14 : S1, f15 : S1, f16 : S1, f17 : S1, f18 : S1, f19 : S1, f20 : S1, f21 : S1, f22 : S1, f23 : S1, f24 : S1, f25 : S1, f26 : S1, f27 : S1, f28 : S1, f29 : S1, f30 : S1, f31 : S1, f32 : S1, f33 : S1, f34 : S1, f35 : S1, f36 : S1, f37 : S1, f38 : S1, f39 : S1);
+S3 :: struct(f0 : S2, f1 : S2, f2 : S2, f3 : S2, f4 : S2, f5 : S2, f6 : S2, f7 : S2, f8 : S2, f9 : S2, f10 : S2, f11 : S2, f12 : S2, f13 : S2, f14 : S2, f15 : S2, f16 : S2, f17 : S2, f18 : S2, f19 : S2, f20 : S2, f21 : S2, f22 : S2, f23 : S2, f24 : S2, f25 : S2, f26 : S2, f27 : S2, f28 : S2, f29 : S2, f30 : S2, f31 : S2, f32 : S2, f33 : S2, f34 : S2, f35 : S2, f36 : S2, f37 : S2, f38 : S2, f39 : S2);
+S4 :: struct(f0 : S3, f1 : S3, f2 : S3, f3 : S3, f4 : S3, f5 : S3, f6 : S3, f7 : S3, f8 : S3, f9 : S3, f10 : S3, f11 : S3, f12 : S3, f13 : S3, f14 : S3, f15 : S3, f16 : S3, f17 : S3, f18 : S3, f19 : S3, f20 : S3, f21 : S3, f22 : S3, f23 : S3, f24 : S3, f25 : S3, f26 : S3, f27 : S3, f28 : S3, f29 : S3, f30 : S3, f31 : S3, f32 : S3, f33 : S3, f34 : S3, f35 : S3, f36 : S3, f37 : S3, f38 : S3, f39 : S3);
+E :: enum(A(s : S4), B);
 count :: (fn(o : E) -> i32)(
   match(o, .A(s) => i32(1), .B => i32(0))
 );

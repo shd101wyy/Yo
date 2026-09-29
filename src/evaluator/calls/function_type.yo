@@ -62,6 +62,7 @@ pragma(Pragma.AllowUnsafe);
 {
   wrap_function_body_with_contracts,
   requires_is_runtime_checkable,
+  requires_enforced_flags,
   VerifyTask,
   register_verify_task,
   record_verify_task_def_eval_failure,
@@ -1372,7 +1373,8 @@ Result type: ${type_to_string(result_box)}`
                 table : ctx.expr_info_table,
                 mode : vmode,
                 func_val : func_val,
-                body_assumed : true
+                body_assumed : true,
+                requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
               )
             );
             ()
@@ -1508,7 +1510,8 @@ Result type: ${type_to_string(result_box)}`
                 return_label : get_func_return_label(fn_val_id.clone()),
                 table : ctx.expr_info_table,
                 mode : vmode,
-                func_val : func_val
+                func_val : func_val,
+                requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
               )
             );
             ()
