@@ -192,7 +192,8 @@ is_matchable_primitive_type :: (fn(ty : TypeValue) -> bool)(
     (is_comptime_float_type(ty) || is_comptime_string_type(ty))
 );
 /// True for a value that is a concrete compile-time literal (the scrutinee
-/// kinds the arm selection can decide on).
+/// kinds the arm selection can decide on). A tuple/struct of literals is one
+/// (an opaque payload — a `Box` — makes the whole value undecidable).
 _is_literal_val :: (fn(v : EvalValue) -> bool)(
   match(
     v,
@@ -200,9 +201,26 @@ _is_literal_val :: (fn(v : EvalValue) -> bool)(
     .FloatLit(_) => true,
     .BoolVal(_) => true,
     .StrLit(_) => true,
+    .TupleVal(fields) => _all_literal_vals(fields),
+    .StructVal(_, _, field_values) => _all_literal_vals(field_values),
     _ => false
   )
 );
+_all_literal_vals :: (fn(vals : ArrayList(EvalValue)) -> bool)({
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < vals.len()) && ok, {
+    match(
+      vals.get(i),
+      .Some(v) => {
+        ok = _is_literal_val(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
 /// Compute the GADT-refined expected type for a match branch. If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
