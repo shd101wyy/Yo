@@ -1130,9 +1130,11 @@ static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
 #endif
   return p;
 }
-// std/allocator.yo's hooks for with_allocator (extern "Yo").
-static inline void* __yo_scope_ctx(void) { return __yo_current_allocator.ctx; }
-static inline void* __yo_scope_vtable(void) { return (void*)__yo_current_allocator.vtable; }
+// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
+// the scope through them, and the default container constructors ask
+// __yo_scope_vtable whether one is current (NULL: the global allocator).
+static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
+static inline void* __yo_scope_vtable(void) { return (void*)__yo_scope_current().vtable; }
 static inline void __yo_scope_set(void* ctx, void* vtable) {
   if (vtable) atomic_store_explicit(&__yo_scopes_ever_entered, 1, memory_order_relaxed);
   __yo_current_allocator.ctx = ctx;
