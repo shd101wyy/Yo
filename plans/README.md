@@ -49,6 +49,10 @@ verifier's design, V1–V7 landed),
 (indexed types and existentials: what Yo has, what the verifier still needs),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
+The allocator-parameter question `std/allocator.yo`'s stability note leaves open is
+designed in [`EXPLICIT_ALLOCATORS`](backlog/EXPLICIT_ALLOCATORS.md) — Zig-style explicit
+allocators layered on reference counting, global-allocator fallback, frees routed by
+an owning-allocator tag in the block.
 Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (verifier-driven removal of proved runtime guards; strict mode builds on it).
 
