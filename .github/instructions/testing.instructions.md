@@ -119,6 +119,7 @@ in-file tests ship with their module and cost a no-op.
 - `--json` — one JSON object per line: a `test` event per test (`file`, `name`, `status`, `duration_ms`; `message` + `output` on failure) then a `summary` event, no human lines. Read this instead of scraping `✓`/`✗`.
 - `yo test --help` lists every flag; `yo test` takes ONE positional path (a second path is silently ignored)
 - Tests automatically use AddressSanitizer for leak detection.
+- **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash_map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
 
 ## Writing a test that observes a LEAK (macOS: ASan does not arm)
 
