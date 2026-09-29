@@ -189,20 +189,26 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
   fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
-  // 5b Phase 2: the verifier proved the exact result fits the type, so the
-  // plain operation, narrowed back to it, is the same value.
-  if(guard_site_is_proved(expr, "no-overflow"), {
-    return(`((${ct})((${a}) ${op} (${b})))`);
-  });
+  // 5b Phase 2: where a guard is emitted, a proof that the exact result fits
+  // the type licenses the plain operation, narrowed back to it (same value).
+  // Asked inside each guarded branch only, so an unguarded operation is never
+  // counted as elided.
+  plain := `((${ct})((${a}) ${op} (${b})))`;
   if(is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty)) || (is_isize_type(ty) && wasm), {
     bounds := cond(
       is_i16_type(ty) => String.from("(-32768), 32767"),
       (is_i32_type(ty) || is_isize_type(ty)) => String.from("(-2147483647 - 1), 2147483647"),
       true => String.from("(-128), 127")
     );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`((${ct})__yo_${fnbase}_chk_s((long long)(${a}), (long long)(${b}), ${bounds}${loc}))`);
   });
   if(is_i64_type(ty) || is_isize_type(ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`(__yo_${fnbase}_chk_s64((${a}), (${b})${loc}))`);
   });
   if(is_u8_type(ty) || (is_u16_type(ty) || is_u32_type(ty)) || (is_usize_type(ty) && wasm), {
@@ -211,9 +217,15 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
       (is_u32_type(ty) || is_usize_type(ty)) => String.from("4294967295ULL"),
       true => String.from("255")
     );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`((${ct})__yo_${fnbase}_chk_u((unsigned long long)(${a}), (unsigned long long)(${b}), ${hi}${loc}))`);
   });
   if(is_u64_type(ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`(__yo_${fnbase}_chk_u64((${a}), (${b})${loc}))`);
   });
   // Non-integer (float): plain op.

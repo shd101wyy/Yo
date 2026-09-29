@@ -740,11 +740,12 @@ _fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit((av + bv) & m, aw)),
-    // a - b ≡ a + (~b + 1) — a literal subtraction would trip the
-    // compile-time arithmetic folder's underflow check (see _fold_mask).
-    .BvSub => Option(VcTerm).Some(VcTerm.BvLit((av + (~bv + u64(1))) & m, aw)),
-    .BvMul => Option(VcTerm).Some(VcTerm.BvLit((av * bv) & m, aw)),
+    // Wrapping u64 arithmetic, then the width mask: the bit-vectors wrap,
+    // and checked `+ - *` would abort the run on a 64-bit carry or a zero
+    // subtrahend (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
+    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_add(bv) & m, aw)),
+    .BvSub => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_sub(bv) & m, aw)),
+    .BvMul => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_mul(bv) & m, aw)),
     .BvAndOp => Option(VcTerm).Some(VcTerm.BvLit(av & bv, aw)),
     .BvOrOp => Option(VcTerm).Some(VcTerm.BvLit(av | bv, aw)),
     .BvXorOp => Option(VcTerm).Some(VcTerm.BvLit(av ^ bv, aw)),
@@ -761,7 +762,7 @@ _fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit((~av + u64(1)) & m, aw)),
+    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit(u64(0).wrapping_sub(av) & m, aw)),
     .BvNotOp => Option(VcTerm).Some(VcTerm.BvLit(~av & m, aw)),
     _ => Option(VcTerm).None
   )
