@@ -310,6 +310,20 @@ impl(
   mark_declared_in_scope : (fn(inout(self) : Self, name : String) -> unit)(
     match(self.scope_ref, .Some(st) => st.push(name), .None => ())
   ),
+  /// The full C source as its parts in order — headers, "\n", declarations,
+  /// "\n", code: the bytes of `print()`, sharing the three buffers instead of
+  /// concatenating them. The compiler's own C is ~125 MB, and the
+  /// concatenated copy (grown by doubling) was the peak of `compile`
+  /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+  sections : (fn(inout(self) : Self) -> ArrayList(String))({
+    parts := ArrayList(String).with_capacity(usize(5));
+    parts.push(self.headers);
+    parts.push(String.from("\n"));
+    parts.push(self.declarations);
+    parts.push(String.from("\n"));
+    parts.push(self.code);
+    parts
+  }),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(inout(self) : Self) -> String)({
     result := String.new();

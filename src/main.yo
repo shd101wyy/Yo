@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { Regex } :: import("std/regex");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
-{ read, write_string, exists } :: import("std/fs/file");
+{ File, read, write_string, exists } :: import("std/fs/file");
 { sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
@@ -4259,7 +4259,7 @@ run_compile :: (
     // threaded through to the code generator.
     is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module);
+    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module);
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -4272,7 +4272,12 @@ run_compile :: (
     // --emit-c prints the generated C to stdout —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
-      println(c_src);
+      (pi0 : usize) = usize(0);
+      while(pi0 < c_parts.len(), {
+        match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
+        pi0 = (pi0 + usize(1));
+      });
+      println("");
     });
     // Strip a target-format extension so `app.html` gets `app.c`, not
     // `app.html.c`.
@@ -4340,13 +4345,27 @@ run_compile :: (
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
       },
       true => {
-        io.await(write_string(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+        // One file, the parts written in order: no concatenated copy of the
+        // whole C text (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+        c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
+        (pw : usize) = usize(0);
+        while(pw < c_parts.len(), {
+          match(
+            c_parts.get(pw),
+            .Some(part) => {
+              _pw_n := io.await(c_file.write_string(part, io), IoExn(io : io, exn : exn));
+            },
+            .None => ()
+          );
+          pw = (pw + usize(1));
+        });
+        io.await(c_file.close(io), IoExn(io : io, exn : exn));
       }
     );
     profile_record_phase(String.from("write C"), prof_write_t0.elapsed().as_nanos());
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
-  // eval context and the 140 MB C string. The module-manager GLOBALS still
+  // eval context and the ~125 MB of C text. The module-manager GLOBALS still
   // pin the rest of the universe, though, and no scope can reach them: the
   // module cache (every evaluated module's values, for the whole import
   // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
