@@ -459,6 +459,9 @@ VcObligation :: ref(
     /// The runtime guard this obligation discharges; `.None` for contract,
     /// loop and assert obligations.
     (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    /// Proved here, may this obligation remove its guard? False when an
+    /// unenforced assumption (`VcCtx.unenforced`) was on the path.
+    (elidable : bool) ?= false,
     /// Literal-construction CTFE folding: the goal constant-folded to a
     /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
     (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
@@ -496,6 +499,13 @@ VcCtx :: ref(
     vars : HashMap(String, VcTerm),
     /// Path assumptions (requires, branch conditions), conjoined.
     path : ArrayList(VcTerm),
+    /// The subset of `path` terms no runtime check enforces: an own requires
+    /// with no entry assert, a `refine` premise, a callee's `ensures`. An
+    /// obligation proved while one of these is on the path is still proved
+    /// for `yo verify`, but must not elide a guard, because a caller the
+    /// verifier never walks can break the assumption
+    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
+    unenforced : ArrayList(VcTerm),
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -564,6 +574,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     func_id : func_id,
     vars : HashMap(String, VcTerm).new(),
     path : ArrayList(VcTerm).new(),
+    unenforced : ArrayList(VcTerm).new(),
     obligations : ArrayList(VcObligation).new(),
     subset_error : Option(VcSubsetError).None,
     fresh : usize(0),
@@ -1133,7 +1144,34 @@ _emit :: (
     ),
     _ => Option(VcPreVerdict).None
   );
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site));
+  // Elidable: a guard obligation with no unenforced assumption on the path.
+  (elidable : bool) = site.is_some();
+  if(elidable && (ctx.unenforced.len() > usize(0)), {
+    on_path := HashMap(String, bool).new();
+    (pk : usize) = usize(0);
+    while(pk < ctx.path.len(), {
+      match(
+        ctx.path.get(pk),
+        .Some(pt) => {
+          _ := on_path.insert(encode_term(pt), true);
+        },
+        .None => ()
+      );
+      pk = (pk + usize(1));
+    });
+    (uk : usize) = usize(0);
+    while(uk < ctx.unenforced.len(), {
+      match(
+        ctx.unenforced.get(uk),
+        .Some(ut) => if(on_path.get(encode_term(ut)).is_some(), {
+          elidable = false;
+        }),
+        .None => ()
+      );
+      uk = (uk + usize(1));
+    });
+  });
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
@@ -4448,7 +4486,10 @@ _callee_call_term :: (
         match(
           et,
           .Some(ett) => {
+            // Conservatively unenforced: an `assumed()` callee's ensures has
+            // no assert and no proof (plan §5.1 rule 3 table).
             ctx.path.push(ett);
+            ctx.unenforced.push(ett);
           },
           .None => {
             _fail_subset(ctx, String.from("callee ensures outside the subset (dropped assumption)"), ens);
@@ -4555,7 +4596,10 @@ VerifyFnInput :: ref(
     /// Phase V4 `decreases(M)` termination measure (recursion).
     (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
     return_label : Option(String),
-    table : ExprInfoTable
+    table : ExprInfoTable,
+    /// Per `requires_exprs` entry: enforced by a runtime entry assert
+    /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
+    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
@@ -4602,7 +4646,9 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
                           match(
                             _refine_pred_chain_term(ctx, input.body, pv, pred_fid.clone()),
                             .Some(rt) => {
+                              // A refinement erases at runtime: never enforced.
                               ctx.path.push(rt);
+                              ctx.unenforced.push(rt);
                             },
                             .None => ()
                           );
@@ -4666,6 +4712,7 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   // Callee-side: ASSUME the requires.
   (ri : usize) = usize(0);
   while(ri < input.requires_exprs.len(), {
+    req_enforced := match(input.requires_enforced.get(ri), .Some(b) => b, .None => false);
     match(
       input.requires_exprs.get(ri),
       .Some(r) => {
@@ -4674,6 +4721,9 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
           rt,
           .Some(rtt) => {
             ctx.path.push(rtt);
+            if(!req_enforced, {
+              ctx.unenforced.push(rtt);
+            });
           },
           .None => ()
         );

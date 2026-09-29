@@ -378,6 +378,28 @@ refuted  fn@src/math.yo:8 [verify]
     fn@src/math.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
 ```
 
+### Guards a proof removes
+
+Safe mode puts a runtime guard on every fixed-array subscript, integer
+division and shift. When `yo compile` builds a `verify` or `verify+` entry
+file, a guard whose obligation is proved is emitted as the bare operation
+instead, and the compile reports `verify: N guard(s) elided (proved safe)`.
+A guard is removed only when all of these hold:
+
+- the function's outcome is `ok` (every obligation proved);
+- no assumption on the proof's path goes unchecked at run time: a
+  `requires` without an entry check (one that calls a `ghost_fn`, or any
+  `requires` inside a `ghost_fn`), a `refine` parameter, or a callee's
+  `ensures`;
+- the target is 64-bit.
+
+Today that covers subscripts, unsigned `/` and `%`, and shifts, in the
+entry file only; a signed `/` keeps its guard until the `MIN / -1` case is
+proved too. Without a solver nothing is proved, so nothing is removed.
+`--no-guard-elision` keeps every guard, and
+`scripts/check-guard-elision.py` checks that each removed guard has a proof
+naming its site (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+
 ## The verifiable subset (current state)
 
 Verification is defined over a subset of Yo that grows per phase; a
