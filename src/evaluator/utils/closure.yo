@@ -308,13 +308,10 @@ _captures_offense :: (
         .Some(info) => if(!_declared_bound_requires(info.ty, marker), {
           match(
             function_value_marker(info.ty, info.value, marker, env, ctx),
-            .Some(fvm) => match(
-              fvm,
-              .Some(o) => {
-                return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
-              },
-              .None => ()
-            ),
+            .Some(.Some(o)) => {
+              return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
+            },
+            .Some(.None) => (),
             .None => match(
               _capture_judgement_type(info.ty, info.value),
               .Some(judged) => if(!type_implements_trait_bool(judged, marker, env), {
@@ -399,13 +396,10 @@ _function_value_offense :: (
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
     g_closure_capture_offense.get(`${fid}|${mname}`),
-    .Some(cv) => match(
-      cv,
-      .Some(co) => {
-        return(Option(String).Some(`${co} — ${cap_hint}`));
-      },
-      .None => ()
-    ),
+    .Some(.Some(co)) => {
+      return(Option(String).Some(`${co} — ${cap_hint}`));
+    },
+    .Some(.None) => (),
     .None => match(
       get_closure_capture_info(fid.clone()),
       .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
@@ -681,18 +675,15 @@ validate_capture_trait_requirements :: (
                       // D1) — not by its type (`function_value_marker`).
                       match(
                         function_value_marker(info.ty, info.value, trait_type, env, ctx),
-                        .Some(fvm) => match(
-                          fvm,
-                          .Some(fvm_o) => {
-                            _raise_capture_trait_violation(
-                              ctx,
-                              exn,
-                              info.token,
-                              `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
-                            );
-                          },
-                          .None => ()
-                        ),
+                        .Some(.Some(fvm_o)) => {
+                          _raise_capture_trait_violation(
+                            ctx,
+                            exn,
+                            info.token,
+                            `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
+                          );
+                        },
+                        .Some(.None) => (),
                         .None => match(
                           _capture_judgement_type(info.ty, info.value),
                           .None => (),

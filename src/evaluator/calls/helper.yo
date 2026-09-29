@@ -1523,13 +1523,10 @@ _self_marker_id :: (fn(env : Environment, label : String) -> String)({
         v.value.get(usize(0)),
         .Some(vv) => match(
           vv,
-          .TypeVal(vt) => match(
-            vt,
-            .SomeT({ id : mid }) => {
-              return(mid);
-            },
-            _ => ()
-          ),
+          .TypeVal(.SomeT({ id : mid })) => {
+            return(mid);
+          },
+          _ => (),
           _ => ()
         ),
         .None => ()

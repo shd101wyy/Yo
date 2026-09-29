@@ -2968,13 +2968,10 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
               while(cj < c_somes.len(), {
                 match(
                   c_somes.get(cj),
-                  .Some(cst) => match(
-                    cst,
-                    .SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _) => {
-                      keep.push(`${c_nm}@${c_lvl.to_string()}`);
-                    },
-                    _ => ()
-                  ),
+                  .Some(.SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _)) => {
+                    keep.push(`${c_nm}@${c_lvl.to_string()}`);
+                  },
+                  .Some(_) => (),
                   .None => ()
                 );
                 cj = (cj + usize(1));
@@ -4142,13 +4139,10 @@ evaluate_module_value :: (
         match(
           ri2.value,
           .None => (),
-          .Some(rv) => match(
-            rv,
-            .TypeVal(tv2) => {
-              receiver_type_pattern = tv2;
-            },
-            _ => ()
-          )
+          .Some(.TypeVal(tv2)) => {
+            receiver_type_pattern = tv2;
+          },
+          .Some(_) => ()
         );
       }
     );
@@ -4549,13 +4543,10 @@ evaluate_module_value :: (
       match(
         ri.value,
         .None => (),
-        .Some(rv) => match(
-          rv,
-          .TypeVal(tv) => {
-            receiver_ty = tv;
-          },
-          _ => ()
-        )
+        .Some(.TypeVal(tv)) => {
+          receiver_ty = tv;
+        },
+        .Some(_) => ()
       );
     },
     .None => ()
