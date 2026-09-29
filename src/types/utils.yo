@@ -1957,17 +1957,18 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 /// per path through its 2^depth leaf tree
 /// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md).
 (g_repr_memo : HashMap(String, ArrayList(_ReprMemoEntry))) = HashMap(String, ArrayList(_ReprMemoEntry)).new();
-/// The named aggregates on the current path: a type reached again is a cycle
-/// (a recursive type), answered `false` there.
-(g_repr_path : ArrayList(String)) = ArrayList(String).new();
+/// The aggregate type objects on the current path: the same object reached
+/// again is a cycle, answered `false` there. By identity, not by id: two
+/// different types can share an id (an empty id, or a substituted copy).
+(g_repr_path : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 /// Set when the walk was cut, by a cycle or by the depth backstop: a `false`
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (g_repr_cut : bool) = false;
-_repr_path_contains :: (fn(key : String) -> bool)({
+_repr_path_contains :: (fn(ty : TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {
-    if(match(g_repr_path.get(i), .Some(k) => (k == key), .None => false), {
+    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -2002,8 +2003,8 @@ _repr_memo_reset :: (fn() -> unit)({
 });
 /// Internal: does `ty`'s representation transitively contain a raw pointer
 /// (`Ptr`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
-/// buffer alive across a value return). A named aggregate already on the
-/// current path is a cycle and answers `false`; `depth` is only a stack
+/// buffer alive across a value return). An aggregate type object already on
+/// the current path is a cycle and answers `false`; `depth` is only a stack
 /// backstop.
 /// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
 ///
@@ -2027,13 +2028,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(key.clone()), {
+            if(_repr_path_contains(ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(key.clone());
+            g_repr_path.push(ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -2082,13 +2083,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(key.clone()), {
+            if(_repr_path_contains(ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(key.clone());
+            g_repr_path.push(ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -2121,7 +2122,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
 /// are safe leaves (Rc-managed). Public entry.
 type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)({
   _repr_memo_reset();
-  _type_repr_contains_raw_ptr(ty, usize(4096))
+  _type_repr_contains_raw_ptr(ty, usize(1024))
 });
 /// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
 /// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
@@ -2143,13 +2144,13 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(key.clone()), {
+            if(_repr_path_contains(ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(key.clone());
+            g_repr_path.push(ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -2198,13 +2199,13 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(key.clone()), {
+            if(_repr_path_contains(ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(key.clone());
+            g_repr_path.push(ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -2238,7 +2239,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
 /// Public entry.
 type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _repr_memo_reset();
-  _type_provides_slice_source(ty, usize(4096))
+  _type_provides_slice_source(ty, usize(1024))
 });
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
