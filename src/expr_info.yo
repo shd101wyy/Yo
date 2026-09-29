@@ -1763,13 +1763,9 @@ adopt_receiver_struct_instance :: (
       if(is_some_type(rta), {
         match(
           rta,
-          .SomeT({ resolution : ai_cell }) => match(
-            ai_cell,
-            .Some(ai_conc) => {
-              rta = ai_conc;
-            },
-            .None => ()
-          ),
+          .SomeT({ resolution : .Some(ai_conc) }) => {
+            rta = ai_conc;
+          },
           _ => ()
         );
       });
