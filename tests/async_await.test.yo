@@ -6547,3 +6547,20 @@ _errno_after_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("an imported constant read after an await in a match arm", {
   assert(io.await(_errno_after_await(io), io) == (i32(EEXIST) + i32(1)), "the constant keeps its value");
 });
+// issues/fixed/a-destructuring-after-an-await-binds-c-locals-its-reads-never-see.md
+_DsPair :: struct(a : usize, b : i32);
+_ds_pair :: (fn(io : Io) -> Impl(Future(_DsPair, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    _DsPair(a : usize(5), b : i32(7))
+  })
+);
+test("a destructuring of an await result inside a task binds its slots", {
+  task := io.async((io : Io) => {
+    got := io.await(_ds_pair(io), io);
+    { a, b } := got;
+    io.await(yield(io), io);
+    (i32(a) + b)
+  });
+  assert(io.await(task, io) == i32(12), "both destructured names read their values after an await");
+});
