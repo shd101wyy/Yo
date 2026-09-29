@@ -39,7 +39,7 @@ import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
-{ type_value_tag, resolve_enum_shell, resolve_struct_shell, lookup_enum_type_arguments } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_integer_type,
@@ -1113,7 +1113,7 @@ _collect_some_types_into :: (
         i = (i + usize(1));
       });
     },
-    .Struct({ id : st_id, field_types : ftys, type_arguments : stas }) => {
+    .Struct({ id : st_id, field_types : ftys }) => {
       // Cycle guard — recursive struct types (e.g. a branch node whose
       // children point back at the same struct) form a CYCLIC TypeValue
       // graph; an unguarded field walk recurses forever (pure-SIGSEGV,
@@ -1130,17 +1130,6 @@ _collect_some_types_into :: (
         match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
-      // The instantiation's type arguments too: a PHANTOM parameter
-      // (`Br(K)` = `ref(struct(n : u8))`) appears in no field, and without
-      // this `Br(K)` counted as concrete, so a comptime-param function's
-      // `b : Br(K)` kept its definition-time type in every specialization and
-      // a generic impl's method on it was never found
-      // (issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md).
-      (tai : usize) = usize(0);
-      while(tai < stas.len(), {
-        match(stas.get(tai), .Some(ta) => recur(ta, acc, visited_ids), .None => ());
-        tai = (tai + usize(1));
-      });
     },
     .EnumT(en_id, _, _, vfs, _, _, _, _, _) => {
       // Cycle guard — see the Struct arm above.
@@ -1149,14 +1138,6 @@ _collect_some_types_into :: (
       });
       if(en_id.len() > usize(0), {
         visited_ids.push(en_id);
-      });
-      // The enum's recorded type arguments, for a phantom parameter (see the
-      // Struct arm).
-      en_tas := lookup_enum_type_arguments(en_id);
-      (eti : usize) = usize(0);
-      while(eti < en_tas.len(), {
-        match(en_tas.get(eti), .Some(ta) => recur(ta, acc, visited_ids), .None => ());
-        eti = (eti + usize(1));
       });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {

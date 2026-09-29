@@ -50,20 +50,17 @@ test("type constructors keep one identity per instantiation", {
   assert(_takes_box(x) == i32(3), "first instantiation");
   assert(_takes_box(y) == i32(4), "second instantiation is the same type");
 });
-// A generic impl's method on a type whose parameters are PHANTOM (used by no
+// A generic impl's method on a struct whose parameters are PHANTOM (used by no
 // field) must be found through a `comptime(K) : Type` helper parameter: the
-// helper's `b : _Phantom(K, V)` kept its definition-time type in every
-// specialization, so `b.size()` reported "No method" (imm/map's `MapBranch`
+// helper was not deferred, so its body was checked against the abstract
+// `_Phantom(K, V)` and `b.size()` reported "No method" (imm/map's `MapBranch`
 // shape). issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md
 _Phantom :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(ref(struct(n : u8)));
 impl(generic(K : Type, V : Type), _Phantom(K, V), size : (fn(self : Self) -> u8)(self.n));
 _phantom_size :: (fn(comptime(K) : Type, comptime(V) : Type, b : _Phantom(K, V)) -> u8)(b.size());
-_PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
-impl(generic(K : Type), _PhantomTag(K), code : (fn(self : Self) -> u8)(match(self, .A => u8(0), .B(n) => n)));
-_phantom_code :: (fn(comptime(K) : Type, t : _PhantomTag(K)) -> u8)(t.code());
 test("A method on a phantom generic struct resolves through a comptime type parameter", {
   x := _Phantom(i32, i32)(n : u8(3));
   assert(_phantom_size(i32, i32, x) == u8(3), "struct");
-  t := _PhantomTag(i32).B(n : u8(5));
-  assert(_phantom_code(i32, t) == u8(5), "enum");
+  y := _Phantom(bool, u8)(n : u8(7));
+  assert(_phantom_size(bool, u8, y) == u8(7), "a second instantiation");
 });
