@@ -1058,7 +1058,9 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
 // must sit at the same offsets in all of them — \`result\` and everything
 // kind-specific come after it. \`vt\` points at the future TYPE's operations
 // (one static table per type, not three pointers per instance): \`resume\`
-// starts or continues it, \`set_effect\` injects an effect bundle, and
+// starts or continues it, \`set_effect\` injects one effect handler by its
+// field name, \`bundle_offset\`/\`bundle_size\` say where a whole effect
+// bundle goes (__yo_future_set_bundle; size 0: nowhere), and
 // \`cancel_pending\` is the abort hook, called with the pre-abort state once
 // the future is marked -2 to cancel what the task is suspended on and wake
 // its waiters. A NULL \`vt\` (a raw I/O future) or a NULL operation means
@@ -1069,6 +1071,8 @@ typedef struct __yo_future_vtable_t {
   void (*resume)(void*);
   void (*set_effect)(void*, const char*, void*);
   void (*cancel_pending)(void*, int);
+  size_t bundle_offset;
+  size_t bundle_size;
 } __yo_future_vtable_t;
 #define __YO_FUTURE_PREFIX \\
   __yo_ref_header_t header; \\
@@ -1079,6 +1083,14 @@ typedef struct __yo_future_vtable_t {
 typedef struct __yo_future_header_t {
   __YO_FUTURE_PREFIX
 } __yo_future_header_t;
+// Inject an effect bundle (\`io.await(f, bundle)\`, \`io.spawn(f, bundle)\`):
+// copy it into the slot the future's type reads it from, with no lookup by
+// name (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 3 item 5). A future
+// with no bundle slot, or no table (a raw I/O future), takes none.
+static inline void __yo_future_set_bundle(void* fut, const void* value) {
+  const __yo_future_vtable_t* vt = ((__yo_future_header_t*)fut)->vt;
+  if (vt && vt->bundle_size) memcpy((char*)fut + vt->bundle_offset, value, vt->bundle_size);
+}
 
 // Generic I/O Future type for extern "Yo" functions returning Impl Future(T).
 // The same prefix as __yo_future_header_t, spelled out because the loop's

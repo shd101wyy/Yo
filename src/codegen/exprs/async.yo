@@ -353,7 +353,7 @@ get_injectable_future_effect_field_mappings :: (
   mappings
 });
 /// The synthetic closure-param slot for a SYNC future: io.await/io.spawn passes
-/// the effect bundle via `set_effect("__bundle", &value)`, copied into this
+/// the effect bundle via `__yo_future_set_bundle(fut, &value)`, copied into this
 /// dedicated `__yo_param_<i>` field.
 SyncParamSlot :: ref(struct(field_name : String, c_type : String));
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
@@ -398,8 +398,11 @@ _capitalize_last_segment :: (fn(label : String) -> String)({
   head
 });
 /// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies
-/// each injected effect handler / bundle into the SM struct (the sync-param slot,
-/// the whole-bundle copy, then each label→access-path mapping with name aliases).
+/// each injected effect handler into the SM struct (each label→access-path
+/// mapping with name aliases). A whole bundle goes through the type's vtable
+/// instead (`__yo_future_set_bundle`): the returned text is the vtable's
+/// `bundle_offset, bundle_size` pair — the sync-param slot, else the bundle
+/// field, else `0, 0` (the type takes no bundle).
 generate_future_effect_setter :: (
   fn(
     struct_name : String,
@@ -408,51 +411,30 @@ generate_future_effect_setter :: (
     capture_type : Option(TypeValue),
     context : FunctionGenerationContext,
     sync_param_slot : Option(SyncParamSlot)
-  ) -> unit
+  ) -> String
 )({
   em := context.base.emitter;
   mappings := get_injectable_future_effect_field_mappings(future_trait_type, capture_type, context.state_machine_variables, context.state_machine_field_aliases);
   bundle_field := find_bundle_field_name(future_trait_type, context.state_machine_variables, context.state_machine_field_aliases);
   has_effect := match(future_trait_type, .FutureTraitT({ effect_labels : el }) => (el.len() > usize(0)), _ => false);
-  em.emit_declaration_string_line(`void ${set_effect_function_name}(void* ptr, const char* field, void* value) {`);
-  em.emit_declaration_string_line(`  ${struct_name}* sm = (${struct_name}*)ptr;`);
   has_sync_param := sync_param_slot.is_some();
   has_bundle_case := ((!(has_sync_param) && bundle_field.is_some()) && has_effect);
-  has_any := ((has_sync_param || has_bundle_case) || (mappings.len() > usize(0)));
-  if(!(has_any), {
+  // Where a whole bundle is copied: the same choice the `__bundle` case of
+  // the setter made before the vtable carried it.
+  bundle_slot := match(
+    sync_param_slot,
+    .Some(slot) => Option(String).Some(slot.field_name.clone()),
+    .None => if(has_bundle_case && _first_struct_effect_type(future_trait_type).is_some(), bundle_field, Option(String).None)
+  );
+  vt_bundle := match(bundle_slot, .Some(f) => `offsetof(${struct_name}, ${f}), sizeof(((${struct_name}*)0)->${f})`, .None => String.from("0, 0"));
+  em.emit_declaration_string_line(`void ${set_effect_function_name}(void* ptr, const char* field, void* value) {`);
+  em.emit_declaration_string_line(`  ${struct_name}* sm = (${struct_name}*)ptr;`);
+  if(mappings.len() == usize(0), {
     em.emit_declaration_string_line(`  (void)sm;`);
     em.emit_declaration_string_line(`  (void)field;`);
     em.emit_declaration_string_line(`  (void)value;`);
   }, {
     (first_case : bool) = true;
-    match(
-      sync_param_slot,
-      .Some(slot) => {
-        em.emit_declaration_string_line(`  if (strcmp(field, "__bundle") == 0) {`);
-        em.emit_declaration_string_line(`    sm->${slot.field_name} = *((${slot.c_type}*)value);`);
-        em.emit_declaration_string_line(`  }`);
-        first_case = false;
-      },
-      .None => ()
-    );
-    if(has_bundle_case, {
-      match(
-        bundle_field,
-        .Some(bf) => match(
-          _first_struct_effect_type(future_trait_type),
-          .Some(et) => {
-            bundle_c_name := get_type_string(et, context.base);
-            keyword := if(first_case, String.from("if"), String.from("else if"));
-            em.emit_declaration_string_line(`  ${keyword} (strcmp(field, "__bundle") == 0) {`);
-            em.emit_declaration_string_line(`    sm->${bf} = *((${bundle_c_name}*)value);`);
-            em.emit_declaration_string_line(`  }`);
-            first_case = false;
-          },
-          .None => ()
-        ),
-        .None => ()
-      );
-    });
     (mi : usize) = usize(0);
     while(mi < mappings.len(), {
       match(
@@ -484,6 +466,7 @@ generate_future_effect_setter :: (
     });
   });
   em.emit_declaration_string_line(`}`);
+  vt_bundle
 });
 /// The full description of one async-block state machine, passed to the struct /
 /// dispose / constructor emitters. `Set<string>` → `HashSet(String)`,
@@ -596,7 +579,7 @@ emit_async_block_struct_definition :: (
     .None => ()
   );
   // Closure parameter slots — bundle value supplied at io.await/io.spawn time via
-  // set_effect("__bundle", &value). See [[yo-anon-closure-param-name-extraction]].
+  // __yo_future_set_bundle (the vtable's bundle_offset/size). See [[yo-anon-closure-param-name-extraction]].
   match(
     info.closure_param_slots,
     .Some(slots) => if(slots.len() > usize(0), {
@@ -1262,14 +1245,14 @@ _sm_alloc_call :: (fn(struct_name : String, dispose_function_name : String, cont
 /// set_effect fn pointers. Returns a cold (unstarted, RC=1) future.
 /// `async_block_id` and `future_type` are retained for signature fidelity (unused).
 generate_async_block_constructor :: (
-  fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, cancel_pending_function_name : Option(String), future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
+  fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, cancel_pending_function_name : Option(String), vt_bundle : String, future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   // Constructor signature (returns a pointer for a stable Future/SM address).
   // The per-TYPE operations live in one static vtable the prefix points at
   // (`__yo_future_vtable_t`), not in every instance.
   vt_cancel := match(cancel_pending_function_name.clone(), .Some(cpfn) => cpfn, .None => String.from("NULL"));
-  em.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel} };`);
+  em.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel}, ${vt_bundle} };`);
   match(
     capture_type,
     .Some(cap_ty) => {
@@ -2312,7 +2295,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
     .None => Option(SyncParamSlot).None
   );
-  generate_future_effect_setter(block.struct_name.clone(), block.set_effect_function_name.clone(), block.future_trait_type, block.capture_type, context, sync_param_slot);
+  vt_bundle := generate_future_effect_setter(block.struct_name.clone(), block.set_effect_function_name.clone(), block.future_trait_type, block.capture_type, context, sync_param_slot);
   // Restore context.
   context.state_machine_variables = saved_sm_vars;
   context.current_evidence_params = saved_evidence_params;
@@ -2326,7 +2309,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function_inline(block.async_block_id.clone(), block.struct_name.clone(), context);
   // Constructor.
-  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), cancel_pending_function_name, block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
+  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), cancel_pending_function_name, vt_bundle, block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
   em.emit_string_line(String.from(""));
 });
 /// Generate all deferred async-block implementations (resume / set_effect / dispose
@@ -2809,7 +2792,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   sync_saved_smfa := context.state_machine_field_aliases;
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
   context.state_machine_field_aliases = Option(HashMap(String, String)).None;
-  generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
+  sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;
   em.emit_declaration_line("");
@@ -3071,7 +3054,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
   // Per-type operations (no await slot, so no abort hook).
   sync_vt := `${result_var.clone()}_vt`;
-  em.emit_string_line(`${indent.clone()}static const __yo_future_vtable_t ${sync_vt.clone()} = { ${resume_function_name.clone()}, ${sync_set_effect_function_name.clone()}, NULL };`);
+  em.emit_string_line(`${indent.clone()}static const __yo_future_vtable_t ${sync_vt.clone()} = { ${resume_function_name.clone()}, ${sync_set_effect_function_name.clone()}, NULL, ${sync_vt_bundle} };`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->vt = &${sync_vt};`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_sm = NULL;`);

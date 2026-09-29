@@ -1010,7 +1010,7 @@ _build_combined_sm_variables :: (
   combined
 });
 /// The SM struct field holding the outer effect-bundle to forward into an inner
-/// future via `set_effect("__bundle", ...)` — the captured local (`var_<id>`, or
+/// future via `__yo_future_set_bundle` — the captured local (`var_<id>`, or
 /// its field alias) whose type matches the future's struct effect. Lives here
 /// (not in exprs/async.yo) to break the
 /// async.yo<->state_machine.yo cycle — it is a future-trait/SM-var helper.
@@ -1299,12 +1299,12 @@ emit_effect_injection_for_sm :: (
                       bundle_type := get_type_string(bundle_cast_ty, context.base);
                       tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
                       em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-                      em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
+                      em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&${tmp_name});`);
                     },
                     .None => match(
                       find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
                       .Some(obf) => {
-                        em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                        em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&sm->${obf});`);
                       },
                       .None => {
                         emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);

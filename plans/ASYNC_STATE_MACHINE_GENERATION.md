@@ -4,8 +4,9 @@
 Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
 the rest of phase 1 (#1008), phase 6 (layout from liveness) and phase 7 (the
 state-machine pools) are open as stacked PRs, and phase 4 is subsumed by
-them. What remains waits for a seed that carries phase 5: `for_await`, the
-seed-safe spellings in `src/`/`std/`, and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
+them. What remains waits for a seed that carries phase 5: the seed-safe
+spellings in `src/`/`std/` (which also keep `for_await` and `inout` in async
+bodies out of them), and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
 waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
 The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
@@ -1049,3 +1050,9 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   - reads and writes through a slot dereference it.
 
   The five CLI cases that pinned the rejection became running tests.
+- 2026-09-29: `for_await` is back in `std/async/stream.yo`, the last item of
+  phase 5's exit. The seed never lowers it, since `src/` does not use it.
+  The in-task test checks that `main` runs between items. Restoring it found
+  `issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md`
+  (the seed has it too): a local sharing a captured value's RC was sent to
+  the owner's slot, which a capture does not have (`sm_storage_id`).
