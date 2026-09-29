@@ -507,19 +507,42 @@ D9 (`plans/archive/STD_API_STABILIZATION.md`).
 
 ### 3.5 The scoped form: a codegen builtin, and the scope follows the task
 
-**User surface:** `arena.scoped(f)` — make me current during `f`:
+**User surface: one builtin, `with_allocator(alloc, expr)`** — "evaluate
+`expr` with `alloc` as the current allocator". No new keyword: Yo spells
+its builtins as function-shaped names (`rc`, `box`, `unsafe`, `comptime`,
+`thread_local`, `cond`), and this is one more, with a lazy second argument
+like `cond`'s arms.
 
 ```rust
-graph := arena.scoped((() => build_graph()));   // every user-visible RC
-                                                // allocation dynamically
-                                                // inside f comes from the
-                                                // arena: ref ctors, box,
-                                                // dyn, Iso, futures
+Point :: ref(struct(x : i32, y : i32));
+
+p := with_allocator(arena.allocator(), Point(x : i32(3), y : i32(4)));
+     // (a) the argument IS a ref-type constructor call: codegen passes the
+     //     allocator straight to the constructor — no scope, no TLS read
+
+graph := with_allocator(arena.allocator(), build_graph(input));
+     // (b) anything else: the allocator is current for the dynamic extent
+     //     of the expression — every user-visible RC allocation inside it
+     //     (ref ctors, box/arc, dyn, Iso, futures, std-internal objects
+     //     such as the ArrayList behind a String) comes from the arena
+
+// The `_in` convention for a type's own constructor function is the user's
+// one-liner, the same shape std's containers use:
+Point.new_in :: (fn(a : Allocator, x : i32, y : i32) -> Point)(with_allocator(a, Point(x : x, y : y)));
 ```
 
-`Arena.scoped` is a one-line std method over a **new builtin**
-`with_allocator(alloc : Allocator, f : Impl(Fn() -> T)) -> T` (name: D2),
-lowered in `src/codegen/exprs/` — not written in Yo — for one reason (§1.5):
+One semantics, two lowerings. Case (a) is a peephole: when the expression is
+syntactically a constructor call of a ref type, the constructor's `_in`
+entry (`T__ctor_in(scope, args)`, the real body from P3 on; the plain
+`T__ctor(args)` becomes a wrapper that reads `__yo_scope_current()`) is
+called directly. It is what a user reaches for first ("this object, there")
+and it costs nothing. Case (b) is what makes "this whole subsystem, there"
+expressible at all: a per-call form cannot reach the constructors std runs
+on your behalf. `arena.scoped(f)` from the first draft is not needed as a
+separate API; if it stays, it is `with_allocator(self.allocator(), f())`.
+
+The builtin is lowered in `src/codegen/exprs/` — not written in Yo — for one
+reason (§1.5):
 the restore of the previous scope must be emitted **before** the
 unwind-propagation check that follows the call to `f`, so an `unwind` out
 of `f` still leaves the thread on the previous allocator. The evaluator
@@ -534,7 +557,7 @@ __yo_current_allocator = __prev;        // BEFORE the __yo_unwind_target check
 ```
 
 **The scope is a property of the task, not of the C stack.** An `io.async`
-body created inside a scope suspends at its first `await`; `scoped` returns
+body created inside a scope suspends at its first `await`; `with_allocator` returns
 and restores; the continuation runs later from the event loop. Without a
 rule, everything the body allocates after its first suspension would
 silently land in the global allocator — not unsound (routing is per block)
@@ -573,7 +596,7 @@ two are independent and both route correctly.
 arena := Arena.new(bytes);
 {
   list := ArrayList(i32).new_in(arena.allocator());
-  result := arena.scoped((() => parse_into_graph(input)));
+  result := with_allocator(arena.allocator(), parse_into_graph(input));
   use(result);
 }                                          // last refs drop; blocks route back
 arena.deinit();                            // traps if any block is still live
@@ -612,7 +635,7 @@ arena.deinit();                            // traps if any block is still live
 
 ### 3.7 Safe mode and CTFE
 
-- Using `Allocator`/`Arena`/`.scoped`/`_in` constructors is safe;
+- Using `Allocator`/`Arena`/`with_allocator`/`_in` constructors is safe;
   implementing a vtable, or calling `Allocator.alloc`/`free` directly (they
   return and take `?*void`), requires `pragma(Pragma.AllowUnsafe)` — the
   existing rule, unchanged (`plans/reference/MEMORY_SAFETY.md` §Allocators).
@@ -675,8 +698,8 @@ new `tests/arena.test.yo`, `std/README.md` (module table).
    first use and never freed).
 2. `std/arena.yo`: `Arena.new(bytes)`, `allocator()`, `deinit()`,
    `abandon()`, `live_blocks()`, `Dispose` = deinit check, `AtomicBool`
-   spinlock, bump `alloc`/`realloc`/`free` as in §3.6; `scoped` **stub** that
-   calls `f()` directly until P3 (documented as such).
+   spinlock, bump `alloc`/`realloc`/`free` as in §3.6. No placement of RC
+   objects yet: `with_allocator` arrives in P3.
 3. The counting allocator in `tests/arena.test.yo` (wraps `global`, asserts
    alloc/free balance and byte totals).
 4. Gates:
@@ -757,8 +780,9 @@ check + CTFE), `src/codegen/exprs/` (the lowering), `src/codegen/c/collection.yo
 `src/codegen/async/runtime_core.yo:292,355`, `std/arena.yo` (`scoped` goes
 live), new `tests/explicit_allocators.test.yo`.
 
-1. `with_allocator` builtin: evaluator (types, CTFE = `f()`), codegen
-   lowering with the unwind-safe restore (§3.5).
+1. `with_allocator` builtin: evaluator (lazy second argument, result type,
+   CTFE = evaluate the expression), codegen lowering with the unwind-safe
+   restore, and the constructor-call peephole (§3.5).
 2. `__yo_alloc_scope_t`, `__yo_current_allocator` (TLS),
    `__yo_scopes_ever_entered`, `__yo_scope_current()`,
    `__yo_rc_alloc_scoped()` (both arms keep the asm barrier; the std prefix
@@ -832,7 +856,7 @@ live), new `tests/explicit_allocators.test.yo`.
 | # | decision | recommendation |
 | --- | --- | --- |
 | D1 | tag mechanism | `ref_count` high bit on all three headers + 16 B prefix on tagged blocks only. A `gc_flags` bit was considered: zero hot-path cost on GC builds, but the lightweight header has no flags byte, so it would be two mechanisms. "Always-prefix every block" rejected — it taxes every object in every program, including the compiler's own multi-GB self-build |
-| D2 | language surface for RC construction | a `with_allocator(alloc, f)` builtin wrapped by `arena.scoped(f)`; builtin (not std) because of unwind safety (§3.5). Per-call sugar (`box_in(alloc, v)`) only if use demands it |
+| D2 | language surface for RC construction | one builtin `with_allocator(alloc, expr)` with a lazy expression: a direct constructor call is placed statically (no TLS), anything else scopes its dynamic extent (§3.5). A builtin, not a keyword (Yo has none for builtins) and not std (unwind safety). Type authors write `T.new_in(a, ...)` over it, the containers' convention |
 | D3 | thread-safety of explicit allocators | spinlock always (mirror of `FIXED_REGION_ALLOCATOR.md` §2.3) |
 | D4 | std stability: containers | no field, no layout change, one private bit in the capacity word; `_in` constructors additive; `new_in` allocates eagerly — record the ruling in the stability policy |
 | D5 | atomic RC from explicit allocators | **supported** from P3 (the path is `fetch_sub`, masked in one line); the first draft's rejection is withdrawn |
