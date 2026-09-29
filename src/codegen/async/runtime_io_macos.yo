@@ -1188,6 +1188,8 @@ static void __yo_io_loop_start(void) {
 
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
+  // This thread now has backend state to release when it exits.
+  __yo_async_arm_thread_exit();
 
   __yo_io_kq = kqueue();
   if (__yo_io_kq < 0) {
@@ -1289,6 +1291,24 @@ static void __yo_io_cleanup(void) {
     close(__yo_io_kq);
     __yo_io_kq = -1;
   }
+  // The per-thread tables go too. This is also the thread-exit path
+  // (__yo_async_arm_thread_exit), where anything left here is unreachable, and
+  // a later __yo_io_init on this thread starts them again from empty.
+  __yo_free(__yo_kq_slots);
+  __yo_kq_slots = NULL;
+  __yo_kq_slot_cap = 0;
+  while (__yo_io_pending_free_list) {
+    __yo_io_pending_op_t* p = __yo_io_pending_free_list;
+    __yo_io_pending_free_list = *(__yo_io_pending_op_t**)p;
+    __yo_free(p);
+  }
+  while (__yo_io_registration_free_list) {
+    __yo_io_registration_t* r = __yo_io_registration_free_list;
+    __yo_io_registration_free_list = r->next_free;
+    __yo_free(r);
+  }
+  // No backend, no descriptors to purge: __yo_io_init installs it again.
+  __yo_kq_close_hook = NULL;
   __yo_io_initialized = false;
   ASYNC_DEBUG("[Io] kqueue cleaned up\\n");
 }
