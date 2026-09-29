@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { yield } :: import("std/async");
 { sleep } :: import("std/sys/timer");
+{ ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { __yo_async_yield_start } :: import("std/sys/externs");
 { IoFuture } :: import("std/sys/future");
@@ -293,4 +294,28 @@ test("a heap local reassigned in an arm after a loop await releases the old valu
   r := io.await(_reassign_in_arm_after_loop_await(i32(3), io), io);
   assert(r == i32(1), "the arm's reassignment is the task's result");
   assert(g_disposed == i32(2), "the replaced value and the final one are both disposed");
+});
+
+// issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md
+(g_kept_things : ArrayList(Thing)) = ArrayList(Thing).new();
+_keep_thing :: (fn(own(t) : Thing) -> unit)({
+  g_kept_things.push(t);
+});
+_move_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(7));
+    _keep_thing(t);
+    e.await(sleep(u64(50)), e);
+    i32(1)
+  })
+);
+test("an aborted task does not release a local it moved before its await", {
+  g_disposed = i32(0);
+  h := io.spawn(_move_then_sleep(io), io);
+  io.await(yield(io), io);
+  h.abort();
+  _r := h.await(io);
+  assert(g_disposed == i32(0), "the moved value belongs to its new owner");
+  g_kept_things.clear();
+  assert(g_disposed == i32(1), "the new owner releases it exactly once");
 });

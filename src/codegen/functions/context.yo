@@ -79,7 +79,15 @@ InlineSmLowering :: ref(
     /// C names of the temps whose future an await moved into
     /// `__yo_await_slot`: the slot releases the future, so the temp's own
     /// scope-end drop is not emitted.
-    moved_into_slot : HashSet(String)
+    moved_into_slot : HashSet(String),
+    /// A read that MOVES a state-machine field out (the evaluator's
+    /// `consumed_at_token` is that read), by atom id: the C temp the value
+    /// was taken into when its slot was zeroed.
+    moved_reads : HashMap(usize, String),
+    /// Set while a drop or RC builtin renders its operand: a drop releases
+    /// the slot's value where it stands and is emitted again on every exit
+    /// path, so its operand is not a move out of the slot.
+    rc_operand : bool
   )
 );
 /// An effect-evidence parameter threaded into a function for explicit-effects

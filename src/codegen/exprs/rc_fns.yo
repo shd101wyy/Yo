@@ -30,13 +30,30 @@ _ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
   match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 );
 /// `<wrapper>(<self>)` for a single-arg RC builtin. `err` when the arg is missing.
+/// Render a drop or RC builtin's operand. In a state machine the operand is
+/// read in place (`InlineSmLowering.rc_operand`): the evaluator records a
+/// drop's operand as the variable's consuming read, but the drop releases the
+/// slot itself rather than moving the value out of it.
+_rc_operand :: (fn(arg : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.sm_inline_lowering,
+    .Some(low) => {
+      saved := low.rc_operand;
+      low.rc_operand = true;
+      code := _call_generate_expr(arg, indent, context);
+      low.rc_operand = saved;
+      code
+    },
+    .None => _call_generate_expr(arg, indent, context)
+  )
+);
 _one_arg_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, wrapper : str, err : str) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
       out := String.from(wrapper);
       out.push_str("(");
-      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_string(_rc_operand(self_arg, indent, context));
       out.push_str(")");
       out
     },
@@ -69,7 +86,7 @@ generate_yo_dyn_drop :: (fn(expr : AstExpr, indent : String, context : FunctionG
     _arg(expr, usize(0)),
     .Some(self_arg) => {
       out := String.from("__yo_decr_rc((void*)(");
-      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_string(_rc_operand(self_arg, indent, context));
       out.push_str(").data)");
       out
     },
@@ -82,7 +99,7 @@ generate_yo_dyn_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     _arg(expr, usize(0)),
     .Some(self_arg) => {
       out := String.from("__yo_incr_rc((void*)(");
-      out.push_string(_call_generate_expr(self_arg, indent, context));
+      out.push_string(_rc_operand(self_arg, indent, context));
       out.push_str(").data)");
       out
     },
@@ -94,7 +111,7 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
   match(
     _arg(expr, usize(0)),
     .Some(value_arg) => {
-      value_code := _call_generate_expr(value_arg, indent.clone(), context);
+      value_code := _rc_operand(value_arg, indent.clone(), context);
       // Single-pass async lowering: an await moved this temp's future into
       // the task's slot, which releases it.
       if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {

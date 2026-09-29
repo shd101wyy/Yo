@@ -14,7 +14,7 @@
 //!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
 //!     carries no TypeValue) is omitted.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_token } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
@@ -24,8 +24,10 @@
   get_deferred_drop_target_atom_name,
   scope_stack_contains,
   get_type_string,
-  sanitize_for_c_identifier
+  sanitize_for_c_identifier,
+  fresh_local_name
 } :: import("../utils/index.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
@@ -576,7 +578,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
   if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
     match(
       _generate_sm_atom(expr, tv.clone(), context),
-      .Some(sm_out) => return(sm_out),
+      .Some(sm_out) => return(_sm_consuming_read(expr, tv.clone(), sm_out, context)),
       .None => ()
     );
   });
@@ -682,5 +684,35 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     },
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
   )
+});
+/// A read of a state-machine field that MOVES its value out (the evaluator
+/// records the move as the variable's `consumed_at_token`): take the value
+/// into a C temp and zero the slot, so the abort dispose never releases a
+/// value the slot no longer owns. Without it, a local moved into an `own`
+/// parameter before an await was released again when the task was aborted —
+/// a use-after-free once the new owner freed it. Any other read renders the
+/// slot itself.
+_sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, context : FunctionGenerationContext) -> String)({
+  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code));
+  if(low.rc_operand || !sm_code.starts_with("sm->"), {
+    return(sm_code);
+  });
+  eid := ast_expr_id(expr);
+  match(low.moved_reads.get(eid), .Some(t) => return(t), .None => ());
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
+  vs := get_variables_from_env(ei.env, name);
+  v := cond((vs.len() == usize(0)) => return(sm_code), true => match(vs.get(vs.len() - usize(1)), .Some(x) => x, .None => return(sm_code)));
+  tok := ast_expr_token(expr);
+  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && ((ct.*.row == tok.row) && (ct.*.column == tok.column))), .None => false);
+  if(!is_move || !type_contains_rc_type(ei.ty), {
+    return(sm_code);
+  });
+  tmp := fresh_local_name(String.from("__yo_moved"), context.base.current_function_name.clone());
+  em := context.base.emitter;
+  em.emit_string_line(`${get_type_string(ei.ty, context.base)} ${tmp} = ${sm_code};`);
+  em.emit_string_line(`memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved out: the slot no longer owns it`);
+  context.base.declared_c_var_names.insert(tmp.clone());
+  low.moved_reads.insert(eid, tmp.clone());
+  tmp
 });
 export(generate_atom, _generate_sm_atom);
