@@ -28,40 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_get,
-  expr_info_table_set,
-  record_method_callee_type,
-  record_method_callee_value,
-  record_io_builtin_struct_field,
-  lookup_io_builtin_struct_field,
-  record_io_builtin_call,
-  register_some_resolved_concrete,
-  lookup_some_resolved_concrete,
-  record_macro_expansion,
-  record_fid_rtcall,
-  active_where_trait_ids,
-  record_fid_spec,
-  lookup_struct_ctor_fid,
-  struct_effective_ctor_fid,
-  struct_fully_concrete_instance,
-  adopt_receiver_struct_instance,
-  mark_node_preevaluated,
-  unmark_node_preevaluated,
-  expr_info_adopt_env,
-  expr_info_capture_type,
-  expr_info_comptime_ref,
-  expr_info_index_method_type,
-  expr_info_index_method_value,
-  expr_info_set_comptime_ref,
-  expr_info_set_deferred_dup_expressions,
-  expr_info_set_index_method_type,
-  expr_info_set_index_method_value,
-  expr_info_set_index_trait_ptr_type,
-  expr_info_set_macro_expansion
-} :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -115,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -1609,6 +1576,40 @@ _try_rewrite_range_index_to_slice_copy :: (
 /// `None`. Used to bridge the async closure's concrete result to the matching
 /// `io.await` site without touching the future type — see
 /// issues/fixed/yo-self-async-await-struct-result-eval.md.
+/// `wrapper` (an io.async result, `Impl(Future(T, E))`) with its future
+/// OUTPUT `T` carrying `concrete` as its resolution. The output is fresh per
+/// call (`_freshen_io_builtin_callee`), so the resolution travels with this
+/// call's future type to its `io.await` and to codegen, and no global entry
+/// keyed by the output id is needed (Phase 3 step 7 part 2).
+_with_future_output_resolution :: (fn(wrapper : TypeValue, concrete : TypeValue) -> TypeValue)(
+  match(
+    wrapper,
+    .SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt, fw_rtl, fw_ntt, fw_ntl, fw_ier, fw_kft, fw_rc) => {
+      new_rtt := ArrayList(TypeValue).new();
+      (i : usize) = usize(0);
+      while(i < fw_rtt.len(), {
+        match(
+          fw_rtt.get(i),
+          .Some(rt) => new_rtt.push(
+            match(
+              rt,
+              .FutureTraitT(fb, fo, fel, fet, fes) => match(
+                fo,
+                .SomeT({ id : _ }) => TypeValue.FutureTraitT(fb, t_with_resolution(fo, concrete), fel, fet, fes),
+                _ => rt
+              ),
+              _ => rt
+            )
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      TypeValue.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_ier, fw_kft, fw_rc)
+    },
+    _ => wrapper
+  )
+);
 _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
   match(
     t,
@@ -1640,9 +1641,10 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
   )
 );
 /// Freshen an io.async call's result type PER CALL SITE: rebuild the wrapper
-/// `Impl(Future(T, E))` SomeT AND the FutureTraitT OUTPUT `T` SomeT with
-/// fresh ids and no resolution, so per-call resolutions
-/// stay per-call-isolated. Previously the output id was
+/// `Impl(Future(T, E))` SomeT with a fresh id and no resolution, so per-call
+/// resolutions stay per-call-isolated. The OUTPUT `T` inside it is already
+/// fresh per call: `_freshen_io_builtin_callee` substitutes new binders
+/// through the whole callee before the call. Previously the output id was
 /// preserved across calls and awaits resolved through the GLOBAL registry keyed on it —
 /// the first call's resolution then poisoned every sibling io.async call
 /// (def-eval re-runs saw a wrong CONCRETE expected result — "expected unit,
@@ -1671,14 +1673,6 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
   )
 );
 
-/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + no
-/// resolution and substitute it CONSISTENTLY through the callee's param
-/// AND return types. This closes the per-call lineage end-to-end: the action
-/// param's `T` the closure registers IS the future output's `T` the await
-/// reads, and a sibling call — e.g. command.yo's declared
-/// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
-/// shared declaration ids (the `Output*`-prototype class,
-/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
 /// Whether a call's result, resolved through the call's env
 /// (`_resolve_some_types_deep`), replaces the result the call computed. A
 /// concrete resolution always does. A wrapper (`Impl(Future(Option(U), Io))`)
@@ -1694,6 +1688,14 @@ _adopt_deep_resolution :: (fn(original : TypeValue, resolved : TypeValue) -> boo
     true => (collect_wrapper_trait_somes(resolved).len() < collect_wrapper_trait_somes(original).len())
   )
 );
+/// Per-call whole-callee freshening for io.async: rebuild each FORALL SomeT (`T`, `E`) with a fresh id + no
+/// resolution and substitute it CONSISTENTLY through the callee's param
+/// AND return types. This closes the per-call lineage end-to-end: the action
+/// param's `T` the closure registers IS the future output's `T` the await
+/// reads, and a sibling call — e.g. command.yo's declared
+/// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
+/// shared declaration ids (the `Output*`-prototype class,
+/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
 _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
   match(
     ft,
@@ -3695,21 +3697,11 @@ _evaluate_funcval_runtime_call :: (
         .Some(rc_binfo) => {
           (rc_conc : TypeValue) = rc_binfo.ty;
           match(
-            rc_conc,
-            .SomeT({ id : rc_bid, resolution : rc_bcell }) => match(
-              rc_bcell,
-              .Some(rc_inner) => {
-                rc_conc = rc_inner;
-              },
-              .None => match(
-                lookup_some_resolved_concrete(rc_bid),
-                .Some(rc_g) => {
-                  rc_conc = rc_g;
-                },
-                .None => ()
-              )
-            ),
-            _ => ()
+            some_resolution(rc_conc),
+            .Some(rc_inner) => {
+              rc_conc = rc_inner;
+            },
+            .None => ()
           );
           resolved_ret = t_with_resolution(resolved_ret, rc_conc);
         },
@@ -4156,21 +4148,11 @@ _evaluate_funcval_runtime_call :: (
           .Some(rb_binfo) => {
             (rb_conc : TypeValue) = rb_binfo.ty;
             match(
-              rb_conc,
-              .SomeT({ id : rb_bid, resolution : rb_bcell }) => match(
-                rb_bcell,
-                .Some(rb_inner) => {
-                  rb_conc = rb_inner;
-                },
-                .None => match(
-                  lookup_some_resolved_concrete(rb_bid),
-                  .Some(rb_g) => {
-                    rb_conc = rb_g;
-                  },
-                  .None => ()
-                )
-              ),
-              _ => ()
+              some_resolution(rb_conc),
+              .Some(rb_inner) => {
+                rb_conc = rb_inner;
+              },
+              .None => ()
             );
             if(!(is_unit_type(rb_conc)), {
               resolved_ret = t_with_resolution(resolved_ret, rb_conc);
@@ -4420,6 +4402,95 @@ _evaluate_function_call_trapped :: (
   trap := Exception(throw : ((e) -> unwind(Option(AnyError).Some(e))));
   out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
   Option(AnyError).None
+});
+/// A struct whose field is typed by an unresolved `Impl(Fn(...))` SomeT (a
+/// generic constructor instantiated with the annotation:
+/// `GenericCb(Impl(Fn(x : i32) -> i32))(cb : x => ...)`) has no C layout for
+/// that field until a closure is given: the constructed value's type is the
+/// struct instantiated over the closure identity each such field received,
+/// in its field types and type arguments. Each construction names its own
+/// closure, so two constructions with different closures are two
+/// instantiations. It replaces an id-keyed registry write under the field's
+/// SomeT, which the last construction won
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3 step 7).
+_instantiate_struct_over_closure_args :: (
+  fn(st : TypeValue, fields : ArrayList(TypeField), arg_types : ArrayList(Option(TypeValue))) -> TypeValue
+)(
+  match(
+    st,
+    .Struct(ic_id, ic_nm, ic_labels, ic_fts, ic_ref, ic_at, ic_nt, ic_cfid, ic_tas, ic_sns) => {
+      rep_ids := ArrayList(String).new();
+      rep_tys := ArrayList(TypeValue).new();
+      (fi : usize) = usize(0);
+      while(fi < fields.len(), {
+        match(
+          arg_types.get(fi),
+          .Some(ic_arg_opt) => match(
+            ic_arg_opt,
+            .Some(ic_arg) => if(is_bound_closure_identity(ic_arg), {
+              ic_lbl := match(fields.get(fi), .Some(f) => f.label.clone(), .None => String.new());
+              (lj : usize) = usize(0);
+              while(lj < ic_labels.len(), {
+                if(match(ic_labels.get(lj), .Some(l) => (l == ic_lbl), .None => false), {
+                  match(
+                    ic_fts.get(lj),
+                    .Some(ic_decl) => match(
+                      ic_decl,
+                      .SomeT({ id : ic_sid, resolution : ic_res }) => if((ic_res.is_none() && (ic_sid.len() > usize(0))) && extract_fn_trait_from_type(ic_decl).is_some(), {
+                        rep_ids.push(ic_sid.clone());
+                        rep_tys.push(ic_arg.clone());
+                      }),
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                });
+                lj = (lj + usize(1));
+              });
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+      if(rep_ids.len() == usize(0), {
+        return(st);
+      });
+      .Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(ic_fts, rep_ids, rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(ic_tas, rep_ids, rep_tys), ic_sns)
+    },
+    _ => st
+  )
+);
+/// `tys` with each SomeT whose id is `ids[k]` replaced by `with[k]`.
+_replace_some_ids :: (fn(tys : ArrayList(TypeValue), ids : ArrayList(String), with : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < tys.len(), {
+    match(
+      tys.get(i),
+      .Some(t) => {
+        (r : TypeValue) = t;
+        match(
+          t,
+          .SomeT({ id : t_id }) => {
+            (k : usize) = usize(0);
+            while(k < ids.len(), {
+              if(match(ids.get(k), .Some(x) => (x == t_id), .None => false), {
+                r = match(with.get(k), .Some(w) => w, .None => t);
+              });
+              k = (k + usize(1));
+            });
+          },
+          _ => ()
+        );
+        out.push(r);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
 });
 /// Evaluate a call. A call written in user code reports an error raised
 /// inside the standard library at itself (`_reported_at_user_call`):
@@ -5539,7 +5610,7 @@ Fix: wrap the call:
             if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct-out] ty=${type_to_string(func_type)}`);
             });
-            out_s := new_expr_info(call_result_s.caller_env, func_type);
+            out_s := new_expr_info(call_result_s.caller_env, _instantiate_struct_over_closure_args(func_type, fields, call_result_s.arg_types));
             out_s.value = struct_val;
             out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_s);
@@ -8027,14 +8098,13 @@ Fix: wrap the call:
         // `T` at synthesis regresses ALL async — the pipeline keeps the future
         // output as an unresolved SomeType through eval; see
         // issues/fixed/yo-self-async-await-struct-result-eval.md). Instead: at io.async,
-        // record the closure's CONCRETE result (read from the func_id side-table,
-        // the same eval→codegen bridge the async emitter uses) under the
-        // future-output SomeType id (the result is `Impl(Future(T,E))`, a SomeT
-        // whose required-trait FutureTraitT carries the output — unwrapped by
-        // `_future_output_some_id`); at io.await, refine ONLY this call's OWN
-        // result type (the bound variable's type) via that record, so downstream
-        // `p.field` / `result.unwrap()` get ExprInfo.
-        // `lookup_some_resolved_concrete` has no other evaluator reader.
+        // the future OUTPUT (the result is `Impl(Future(T,E))`, a SomeT whose
+        // required-trait FutureTraitT carries the output) takes the closure's
+        // CONCRETE result (read from the func_id side-table) as its resolution
+        // (`_with_future_output_resolution`); at io.await, refine ONLY this
+        // call's OWN result type through that resolution, so downstream
+        // `p.field` / `result.unwrap()` get ExprInfo. The resolution travels on
+        // the value: no global entry keyed by the output id.
         if(is_io_async_call(expr), {
           // Freshen the io.async RESULT type per call site — wrapper SomeT id,
           // OUTPUT SomeT id, both built with no resolution (see
@@ -8048,7 +8118,7 @@ Fix: wrap the call:
           ret_type_rt = _freshen_io_async_result(ret_type_rt);
           match(
             _future_output_some_id(ret_type_rt),
-            .Some(oid) => match(
+            .Some(_) => match(
               args.get(usize(0)),
               .Some(carg) => match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(carg)),
@@ -8059,7 +8129,7 @@ Fix: wrap the call:
                     .FuncVal(__fvd2, _) => match(
                       get_func_type(__fvd2.*.func_id),
                       .Func({ result : rr }) => if(!(is_some_type(rr)), {
-                        register_some_resolved_concrete(oid.clone(), rr.clone());
+                        ret_type_rt = _with_future_output_resolution(ret_type_rt, rr.clone());
                       }),
                       _ => ()
                     ),
@@ -8076,15 +8146,11 @@ Fix: wrap the call:
         });
         if(is_io_await_call(expr), {
           match(
-            ret_type_rt,
-            .SomeT({ id : tid }) => match(
-              lookup_some_resolved_concrete(tid),
-              .Some(concrete) => {
-                ret_type_rt = concrete;
-              },
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(ret_type_rt),
+            .Some(concrete) => {
+              ret_type_rt = concrete;
+            },
+            .None => ()
           );
         });
         // C54 body half (the `_`-fallback arm's runtime-call tail — where an
@@ -8308,15 +8374,7 @@ Fix: wrap the call:
                   .Pointer(rm_ptr_inner) => rm_ptr_inner,
                   _ => rm_recv_ty0
                 );
-                rm_res := match(
-                  rm_recv_ty,
-                  .SomeT({ id : rm_sid, resolution : rm_cell }) => match(
-                    rm_cell,
-                    .Some(rm_rt) => Option(TypeValue).Some(rm_rt),
-                    .None => lookup_some_resolved_concrete(rm_sid)
-                  ),
-                  _ => Option(TypeValue).None
-                );
+                rm_res := some_resolution(rm_recv_ty);
                 match(
                   rm_res,
                   .Some(rm_conc) => {
@@ -8513,21 +8571,11 @@ Fix: wrap the call:
                   .Some(m_binfo) => {
                     (m_conc : TypeValue) = m_binfo.ty;
                     match(
-                      m_conc,
-                      .SomeT({ id : m_bid, resolution : m_bcell }) => match(
-                        m_bcell,
-                        .Some(m_inner) => {
-                          m_conc = m_inner;
-                        },
-                        .None => match(
-                          lookup_some_resolved_concrete(m_bid),
-                          .Some(m_g) => {
-                            m_conc = m_g;
-                          },
-                          .None => ()
-                        )
-                      ),
-                      _ => ()
+                      some_resolution(m_conc),
+                      .Some(m_inner) => {
+                        m_conc = m_inner;
+                      },
+                      .None => ()
                     );
                     if(!(is_unit_type(m_conc)), {
                       m_out_ty = t_with_resolution(m_out_ty, m_conc);
@@ -8732,13 +8780,13 @@ Fix: wrap the call:
           // on the call SHAPE, which is
           // value-independent, so the refinement must run here too.
           if(is_io_async_call(expr), {
-            // Same per-call freshening + registration order as the FuncVal-
-            // callee branch above (fresh output id FIRST, then register
-            // the closure's concrete result under the fresh id).
+            // Same per-call freshening as the FuncVal-callee branch above
+            // (fresh wrapper FIRST, then the output takes the closure's
+            // concrete result as its resolution).
             ret_type_none = _freshen_io_async_result(ret_type_none);
             match(
               _future_output_some_id(ret_type_none),
-              .Some(oid_n) => match(
+              .Some(_) => match(
                 args.get(usize(0)),
                 .Some(carg_n) => match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(carg_n)),
@@ -8749,7 +8797,7 @@ Fix: wrap the call:
                       .FuncVal(__fvdn, _) => match(
                         get_func_type(__fvdn.*.func_id),
                         .Func({ result : rr_n }) => if(!(is_some_type(rr_n)), {
-                          register_some_resolved_concrete(oid_n.clone(), rr_n.clone());
+                          ret_type_none = _with_future_output_resolution(ret_type_none, rr_n.clone());
                         }),
                         _ => ()
                       ),
@@ -8766,15 +8814,11 @@ Fix: wrap the call:
           });
           if(is_io_await_call(expr), {
             match(
-              ret_type_none,
-              .SomeT({ id : tid_n }) => match(
-                lookup_some_resolved_concrete(tid_n),
-                .Some(concrete_n) => {
-                  ret_type_none = concrete_n;
-                },
-                .None => ()
-              ),
-              _ => ()
+              some_resolution(ret_type_none),
+              .Some(concrete_n) => {
+                ret_type_none = concrete_n;
+              },
+              .None => ()
             );
           });
           if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
