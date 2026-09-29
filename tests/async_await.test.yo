@@ -6656,3 +6656,102 @@ test("an Impl(Future) struct field is stored, reassigned and awaited", {
   h.fut = _if_mk_awaiting(i32(1), io);
   assert(io.await(h.fut, io) == i32(2), "a state machine through the field");
 });
+// ---------------------------------------------------------------------------
+// `inout` bindings in an io.async body that awaits. E0904 rejected them: the
+// segment lowering kept a per-state C copy of each local. The single-pass
+// lowering keeps each local in one task slot, and the place's root keeps its
+// slot to the end of its scope (plans/ASYNC_STATE_MACHINE_GENERATION.md).
+// These were the CLI cases async-inout-binding-is-checked,
+// async-inout-in-a-cond-arm-is-checked and async-for-inout-is-checked.
+// ---------------------------------------------------------------------------
+_inout_inner :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(io.async((e : Io) => (n + i32(1))));
+_inout_whole :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    x := i32(1);
+    inout(y) := x;
+    z := e.await(_inout_inner(e, y), e);
+    y = z;
+    x
+  })
+);
+test("an inout binding of a whole local, written through after an await", {
+  assert(io.await(_inout_whole(io), io) == i32(2), "the write through y reaches x");
+});
+_InoutPair :: struct(a : i32, b : i32);
+_inout_field :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    p := _InoutPair(a : i32(1), b : i32(2));
+    inout(r) := p.a;
+    e.await(yield(e), e);
+    r = (r + i32(10));
+    e.await(yield(e), e);
+    p.a + p.b
+  })
+);
+test("an inout binding of a value-struct field across awaits", {
+  assert(io.await(_inout_field(io), io) == i32(13), "the field is written through the binding");
+});
+_InoutObj :: ref(struct(v : i32));
+_inout_pinned :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    o := _InoutObj(v : i32(1));
+    inout(r) := o.v;
+    // The binding pins the first object: reassigning the handle cannot free it.
+    o = _InoutObj(v : i32(100));
+    e.await(yield(e), e);
+    r = (r + i32(1));
+    r + o.v
+  })
+);
+test("an inout binding through an object pins it across an await", {
+  assert(io.await(_inout_pinned(io), io) == i32(102), "r is the pinned object's field, o the new one");
+});
+_inout_loop :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (total : i32) = i32(0);
+    inout(t) := total;
+    (i : i32) = i32(0);
+    while(i < i32(4), {
+      e.await(yield(e), e);
+      t = (t + i);
+      i = (i + i32(1));
+    });
+    total
+  })
+);
+test("an inout binding written in a loop that awaits", {
+  assert(io.await(_inout_loop(io), io) == i32(6), "0 + 1 + 2 + 3");
+});
+_inout_arm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    e.await(yield(e), e);
+    n := i32(1);
+    if(xs.len() > usize(0), {
+      inout(x) := n;
+      e.await(yield(e), e);
+      x = (x + i32(1));
+    });
+    n + xs(usize(0))
+  })
+);
+test("an inout binding in an arm, written after an await in the arm", {
+  assert(io.await(_inout_arm(io), io) == i32(3), "n becomes 2");
+});
+_inout_for :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    xs.push(i32(2));
+    e.await(yield(e), e);
+    for(xs, inout(x) => {
+      e.await(yield(e), e);
+      x = (x + i32(10));
+    });
+    xs(usize(0)) + xs(usize(1))
+  })
+);
+test("a for loop's inout element, written after an await in the body", {
+  assert(io.await(_inout_for(io), io) == i32(23), "both elements are written in place");
+});

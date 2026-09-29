@@ -380,3 +380,33 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
   assert(seen == i32(1), "the first block's value is gone, the second is held");
   assert(g_disposed == i32(2), "the abort disposes the second value once");
 });
+// An `inout` binding through an object pins it (a hidden owning local); in a
+// state machine the pin lives in a task slot, released once at the end of its
+// scope or by the abort dispose.
+_pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    o := Thing(n : i32(1));
+    inout(r) := o.n;
+    o = Thing(n : i32(5));
+    e.await(sleep(nap), e);
+    r = (r + i32(1));
+    r + o.n
+  })
+);
+test("a pinned object is released once when the task completes", {
+  g_disposed = i32(0);
+  r := io.await(_pin_across_await(u64(0), io), io);
+  assert(r == i32(7), "the binding writes the pinned object, o is the new one");
+  assert(g_disposed == i32(2), "the pinned object and the new one are each disposed once");
+});
+_abort_pinned :: (fn(io : Io) -> unit)({
+  h := io.spawn(_pin_across_await(u64(50), io), io);
+  io.await(sleep(u64(10)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("a pinned object is released once when the task is aborted", {
+  g_disposed = i32(0);
+  _abort_pinned(io);
+  assert(g_disposed == i32(2), "the abort disposes the pin and the handle's object once each");
+});

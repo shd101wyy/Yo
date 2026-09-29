@@ -51,7 +51,6 @@ json :: import("std/encoding/json");
   E_ARGUMENT_LABEL_MISMATCH,
   E_AMBIGUOUS_METHOD,
   E_NEVER_FULLY_EVALUATED,
-  E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
   E_WRITE_THROUGH_BORROW,
@@ -452,21 +451,6 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
       "Only the first arm assigns `v`, so after the `cond` it is initialized on one path only.",
       "只有第一个分支给 `v` 赋值，因此 `cond` 之后它只在一条路径上被初始化。"
-    )
-  );
-  out.push(
-    _mk_explain(
-      E_AWAIT_PLACEMENT,
-      "inout binding in an io.async body that awaits",
-      "会 await 的 io.async 函数体中的 inout 绑定",
-      "An `io.async` body that awaits is lowered to a state machine, and an `inout(name) := ...` binding cannot be placed in one.",
-      "会 await 的 `io.async` 函数体会被降级为状态机，`inout(name) := ...` 绑定不能放进状态机。",
-      "An `inout(name) := ...` binding cannot live in a body that awaits; read the value into a local instead. (An `io.await` itself may appear anywhere inside `io.async`.)",
-      "会 await 的函数体中不能有 `inout(name) := ...` 绑定；请改为把值读入局部变量。（`io.await` 本身可以出现在 `io.async` 内部的任何位置。）",
-      "inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));\nouter :: (fn(io : Io) -> Impl(Future(i32)))(\n  io.async((e : Io) => {\n    x := i32(1);\n    inout(y) := x;\n    z := e.await(inner(e, y), e);\n    y = z;\n    x\n  })\n);\nmain :: (fn(io : Io) -> unit)({\n  _v := io.await(outer(io), io);\n});\nexport(main);\n",
-      "inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));\nouter :: (fn(io : Io) -> Impl(Future(i32)))(\n  io.async((e : Io) => {\n    x := i32(1);\n    z := e.await(inner(e, x), e);\n    (x + z)\n  })\n);\nmain :: (fn(io : Io) -> unit)({\n  _v := io.await(outer(io), io);\n});\nexport(main);\n",
-      "`yo check` reports it: the rule is decided from the body's await analysis.",
-      "`yo check` 会报告它：该规则根据函数体的 await 分析判定。"
     )
   );
   out.push(

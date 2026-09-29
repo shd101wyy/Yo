@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -19,9 +19,9 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
-{ codegen_fatal_expr, codegen_user_error_expr } :: import("../constants.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
@@ -148,8 +148,8 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
 /// `inout(name) := place;` → `T* name = &(place);` (+ the owner pin).
 /// Evaluator twin: `_evaluate_inout_local_binding`
 /// (evaluator/exprs/initialization_assignment.yo) — it has already rejected
-/// every shape this cannot lower (rvalues, index/deref places, async bodies,
-/// module level, `::`), so the place code here is always a C lvalue chain.
+/// every shape this cannot lower (rvalues, index/deref places, module level,
+/// `::`), so the place code here is always a C lvalue chain.
 ///
 /// - The place is generated as an rvalue expression and then ADDRESSED: a
 ///   `(*x)` (the place is itself an `inout`) folds to `x` — the pointer is
@@ -165,7 +165,28 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
 ///   `Obj* pin = <dup(obj)>;` BEFORE the binding. The pin is an ordinary
 ///   owning local of the frame, so the scope-end drop the evaluator already
 ///   scheduled for it releases the `+1` on every exit path.
-_generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+/// The task slot of local `v` when it has one (`sm->var_<id>`, or the slot it
+/// shares), else `.None`: it is a C local.
+_sm_local_slot :: (fn(v : Variable, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    context.state_machine_variables,
+    .Some(smv) => {
+      id := v.id.to_string();
+      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id);
+      match(
+        smv.get(canon),
+        .Some(cv) => match(
+          cv.kind,
+          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`),
+          .Outer => Option(String).None
+        ),
+        .None => Option(String).None
+      )
+    },
+    .None => Option(String).None
+  )
+);
+_generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, bind_env : Option(Environment), indent : String, context : FunctionGenerationContext) -> Option(String))({
   em := context.base.emitter;
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
@@ -176,19 +197,11 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
   );
   var_name := ast_expr_token(name_expr).value;
   place_type := resolve_some_type_to_concrete(name_ei.ty);
-  // §9 H5: a state machine addresses a local both as `sm->var_x` and as a
-  // per-state C copy, so a reference binding could read a stale copy after a
-  // write through it. The evaluator cannot see the state machine (an
-  // `io.async` closure body is evaluated as an ordinary closure; the machine
-  // is a codegen decision, like the await-position rules in
-  // async/state_code_gen.yo), so the rejection lives here.
-  if(context.in_async_state_machine.is_some(), {
-    return(
-      Option(String).Some(
-        codegen_user_error_expr(ast_expr_token(name_expr), `'inout(${var_name}) := ...' is not supported inside an 'io.async' body that awaits yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
-      )
-    );
-  });
+  // In an `io.async` state machine the reference and its pin live in their
+  // task slots when they are live across a suspension (`_sm_local_slot`);
+  // the place's root keeps its slot to the end of its scope, so the address
+  // stays valid across every resume (plans/ASYNC_STATE_MACHINE_GENERATION.md
+  // phase 6).
   // The pin, if any.
   match(
     context.base.get_expr_info(lhs),
@@ -199,7 +212,7 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(pin_expr, indent.clone(), context);
           pin_decl := indent.clone();
-          pin_decl.push_string(get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base));
+          pin_decl.push_string(match(_sm_local_slot(pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base)));
           pin_decl.push_str(" = ");
           pin_decl.push_string(generate_dup_code_for_value(pin_code, pin_var.ty, context));
           pin_decl.push_str(";");
@@ -225,7 +238,18 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
     addr.push_str("))");
   });
   line := indent.clone();
-  line.push_string(get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base));
+  ref_slot := match(
+    bind_env,
+    .Some(benv) => {
+      vs := get_variables_from_env(benv, var_name.clone());
+      cond(
+        (vs.len() == usize(0)) => Option(String).None,
+        true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(rv, context), .None => Option(String).None)
+      )
+    },
+    .None => Option(String).None
+  );
+  line.push_string(match(ref_slot, .Some(slot) => slot, .None => get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base)));
   line.push_str(" = ");
   line.push_string(addr);
   line.push_str(";");
@@ -278,7 +302,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     return(Option(String).Some(String.from("")));
   });
   if(ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), {
-    return(_generate_inout_local_binding(lhs, rhs, indent.clone(), context));
+    return(_generate_inout_local_binding(lhs, rhs, Option(Environment).Some(ei.env), indent.clone(), context));
   });
   // Destructuring binds.
   match(

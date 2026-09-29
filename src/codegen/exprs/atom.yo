@@ -591,7 +591,13 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
   if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
     match(
       _generate_sm_atom(expr, tv.clone(), context),
-      .Some(sm_out) => return(_sm_consuming_read(expr, tv.clone(), sm_out, context)),
+      .Some(sm_out) => {
+        code := _sm_consuming_read(expr, tv.clone(), sm_out, context);
+        // A by-ref binding (`inout(y) := x`) in a slot holds the pointer; a
+        // read or a write through it dereferences it, as `_var_read_code`
+        // does for a C local.
+        return(if(code.starts_with("sm->") && _is_ref_binding(expr, tv.clone(), context), `(*${code})`, code));
+      },
       .None => ()
     );
   });
@@ -698,6 +704,21 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
   )
 });
+/// Whether `name` read at `expr` is a by-ref binding (`inout(name) := x`,
+/// or an `inout(name) : T` parameter): its C value is a pointer.
+_is_ref_binding :: (fn(expr : AstExpr, name : String, context : FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => {
+      vs := get_variables_from_env(ei.env, name);
+      cond(
+        (vs.len() == usize(0)) => false,
+        true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
+      )
+    },
+    .None => false
+  )
+);
 /// A read of a state-machine field that MOVES its value out (the evaluator
 /// records the move as the variable's `consumed_at_token`): take the value
 /// into a C temp and zero the slot, so the abort dispose never releases a
