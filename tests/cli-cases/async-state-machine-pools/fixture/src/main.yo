@@ -1,0 +1,76 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ sleep } :: import("std/sys/timer");
+{ String } :: import("std/string");
+{ Thread } :: import("std/thread");
+
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+
+// One machine type, created and released 1000 times: from the second task
+// on, each takes the memory the previous one gave back.
+_child :: (fn(s : String, i : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i);
+    e.await(yield(e), e);
+    t.n + i32(s.len())
+  })
+);
+// No await: a sync future.
+_leaf :: (fn(i : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => (i + i32(1))));
+// Suspended in its sleep when it is aborted.
+_sleeper :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(1));
+    e.await(sleep(u64(20)), e);
+    t.n
+  })
+);
+_spawn_and_abort :: (fn(io : Io) -> unit)({
+  h := io.spawn(_sleeper(io), io);
+  io.await(yield(io), io);
+  h.abort();
+  _r := h.await(io);
+});
+main :: (fn(io : Io) -> unit)({
+  (sum : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < i32(1000), {
+    sum = (sum + io.await(_child(String.from("ab"), i32(1), io), io));
+    i = (i + i32(1));
+  });
+  println(`result: children ${sum} disposed ${g_disposed}`);
+  (leaves : i32) = i32(0);
+  (j : i32) = i32(0);
+  while(j < i32(1000), {
+    leaves = (leaves + io.await(_leaf(j, io), io));
+    j = (j + i32(1));
+  });
+  println(`result: leaves ${leaves}`);
+  g_disposed = i32(0);
+  (k : i32) = i32(0);
+  while(k < i32(50), {
+    _spawn_and_abort(io);
+    k = (k + i32(1));
+  });
+  println(`result: aborted ${g_disposed}`);
+  t := Thread(i32).spawn((tio : Io) => {
+    (n : i32) = i32(0);
+    (m : i32) = i32(0);
+    while(m < i32(200), {
+      n = (n + tio.await(_leaf(m, tio), tio));
+      m = (m + i32(1));
+    });
+    n
+  });
+  println(`result: thread ${t.join()}`);
+});
+export(main);
