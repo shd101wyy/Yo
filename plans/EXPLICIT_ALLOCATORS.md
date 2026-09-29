@@ -599,7 +599,7 @@ ones spelled in the source. That is correct by routing (every such block
 frees back to its owner), usually *desired* (the whole subsystem's garbage
 lands in the arena), and it is the documented contract. Container
 **buffers** follow their constructor: `new_in(a)` puts one in `a`, and from
-P3b the default constructors consult the scope too (see P3b). Either way the
+P3c the default constructors consult the scope too (see P3c). Either way the
 owner is recorded in the buffer's prefix at creation, so a container's buffer
 stays with one allocator for its whole life, wherever it later grows.
 
@@ -839,7 +839,15 @@ header typedefs, `__yo_alloc_prefix_t`), `src/codegen/functions/gc_runtime.yo`,
 
 ### P3 — the scoped form (codegen + std)
 
-**Status: implemented 2026-09-29** (branch `explicit-allocators-p3`).
+**Status: implemented 2026-09-29/30** (branch `explicit-allocators-p3`,
+#1032). Found and fixed on the way, each with a regression test in
+`tests/async_generic_future_return.test.yo`:
+`issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md`
+(E0613 for `arena.scoped(() => io.async(...))`, three evaluator sites),
+`issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md`,
+`issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`.
+Filed open: `issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`
+(the scope guard no longer stores `T`, so `with_allocator` does not depend on it).
 
 Files: `src/codegen/types/generation.yo` (the scope runtime beside
 `__yo_rc_free`; the Iso create site), `src/codegen/functions/constructors.yo`
@@ -879,33 +887,53 @@ future's resume), `src/codegen/async/state_machine.yo`
    `tests/rc.test.yo`, `tests/dyn.test.yo`, `tests/iso.test.yo`,
    `tests/cycle_collector.test.yo` green; self-compile A/B.
 
-### P3b — default containers follow the scope (std; waits for the seed)
+### P3b — the `imm` family follows the scope (std)
 
-`ArrayList.new()` / `with_capacity`, `HashMap.new()` / `with_capacity`,
-`Deque.new()`, `StringBuilder.new()`, `String`'s buffer and the `imm`
-family's node buffers consult the current scope: under `with_allocator(a, …)`
-they behave as `new_in(a)`; outside any scope, exactly as today. This is what
-makes "the whole subsystem, there" cover buffers too, and it is how the
-`imm` family gets explicit placement at all (P1 step 4).
+**Status: implemented 2026-09-30** (branch `explicit-allocators-p3b`, #1033).
+
+The `imm` family's node buffers take the current scope's allocator: an `imm`
+vector built inside `arena.scoped(...)` keeps every derived version's buffers in
+the arena, and each release routes back there. The compiler does not import
+`std/imm`, so this is not seed-gated.
+
+1. `current_allocator() -> Option(Allocator)` in `std/allocator.yo`.
+2. `std/imm/vec.yo`, `string.yo`, `map.yo`: the owner bit lives in a word each
+   node already has (vec and string `_capw`'s top bit, a map branch's
+   `_children_lw` bit 0x80, a collision node's `_pairs_lw` top bit); every read
+   of such a word is masked (`_capn()`, `_clen()`, `_plen()`).
+3. Found on the way: a generic impl's method on a PHANTOM generic struct was
+   not found through a `comptime(K) : Type` helper (imm/map's `MapBranch(K, V)`
+   shape). Fixed where deferral is decided
+   (`issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md`);
+   the enum twin is open
+   (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+4. Gates: the `imm` suites (map 25, set 21, threading 30, string 45, list 17,
+   sorted map 21, sorted set 20, iterators 13; vec 50 plus its 4 develop
+   leaks), `tests/explicit_allocators.test.yo`'s `imm` cases.
+
+### P3c — default mutable containers follow the scope (std; PARKED on the seed)
+
+**Status: written and tested, parked** (branch `explicit-allocators-p3c`,
+#1034) until `SEED_VERSION` carries P3.
+
+`ArrayList.new()` / `with_capacity`, `HashMap.new()` / `with_capacity` (and
+through them `HashSet`, `StringBuilder`, `String`), and `Deque.new()` consult
+the current scope: under `with_allocator(a, …)` they behave as `new_in(a)`;
+outside any scope, exactly as today.
 
 **Seed gate.** These containers are compiled into the compiler by the seed,
-so their new calls to `__yo_scope_current` would reference a runtime hook the
+so their calls into the scope hooks would reference runtime functions the
 seed's emitted runtime does not define, and the stage-1 build would not link.
-P3b therefore lands only once `SEED_VERSION` carries P3
+P3c therefore lands only once `SEED_VERSION` carries P3
 (`plans/backlog/SEED_VERSION_AUTOMATION.md`, the two-step rule in
-`.github/instructions/c-codegen.instructions.md`). It is testable before
-then: a P3 stage-1 runs the container tests against the P3b std.
+`.github/instructions/c-codegen.instructions.md`). It is testable before then:
+a P3 (or later) stage-1 runs the tests against the P3c std — measured with
+the top-of-stack stage-1: `tests/explicit_allocators.test.yo` 14/14 (its four
+P3c cases included), ArrayList 126, HashMap 86, Deque 41.
 
-1. One private `_scope_allocator() -> Option(Allocator)` in
-   `std/allocator.yo` (reads `__yo_scope_ctx`/`__yo_scope_vtable`); each
-   default constructor that allocates calls the `_in` path when it is
-   `.Some`. `ArrayList.new()` itself stays allocation-free outside a scope.
-2. The `imm` nodes: the buffer allocations take the scope allocator, tagging
-   the node's capacity word as P1 does.
-3. Gates: the P1 container tests plus scope cases (a list created in a
-   scope grows in the arena after the scope ends; an `imm` vector's derived
-   versions live in the arena), the P1 layout gate, a self-compile A/B once
-   the seed allows the build.
+When it lands, the docs' "mutable containers take their allocator through
+`_in`" sentences (MEMORY_SAFETY, DESIGN, the cheatsheet) change with it, and a
+self-compile A/B measures the scope check on the compiler's own containers.
 
 ### P4 — hardening and tooling
 

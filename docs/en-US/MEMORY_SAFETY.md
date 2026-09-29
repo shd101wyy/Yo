@@ -136,6 +136,7 @@ An explicit allocator decides **where** a block lives. Reference counting still 
 ```rust
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
+{ ArrayList } :: import("std/collections/array_list");
 
 Point :: ref(struct(x : i32, y : i32));
 
