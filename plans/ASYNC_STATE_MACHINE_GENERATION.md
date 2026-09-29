@@ -877,3 +877,18 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
     cheatsheets say so. Lesson (from #996): build stage 1 with
     `yo build --std-path ./std`, as CI does, or the seed never compiles the
     tree's std and a seed-incompatible std change passes every local gate.
+- 2026-09-29: the rest of phase 1, on `async-sm-p1rest` (stacked on phase 5):
+  - item 5: the capture tracker takes the innermost binding, so an
+    `io.async` parameter shadowing an outer name does not capture it;
+  - item 7: `Impl(Future(T, E))` struct fields are supported (option 2 of
+    the design question): the value is upcast to the future interface at the
+    constructor, in a value-struct literal and at an assignment;
+  - item 9:
+    - non-ASCII effect-setter paths are sanitized;
+    - the no-await block's `Impl(Fn)` capture reads `closure_context`;
+    - the unit local has no slot (the single-pass lowering).
+  - Also: a hollow `io.async` body reports the error its trial swallowed
+    instead of E0905, and the async emitters' `/* Error: … */` markers are
+    `codegen_fatal`.
+  - §3.3's "fixed but not closed" issues are closed with a pinning test, or
+    retired where their subject is gone.
