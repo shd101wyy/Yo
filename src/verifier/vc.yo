@@ -2910,19 +2910,23 @@ _call_term :: (
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
-    if(ctx.elision_obligations && (head == "-") && (a.is_some() && _int_is_signed(info.ty)), {
+    if(ctx.elision_obligations && ((head == "-") && _int_is_signed(info.ty)), {
       match(
-        _int_width(info.ty),
-        .Some(nw) => {
-          _emit(
-            ctx,
-            String.from("neg-no-overflow"),
-            ArrayList(VcTerm).new(),
-            _app1(VcOp.NotOp, _app2(VcOp.EqOp, a.clone().unwrap(), _int_min_lit(nw))),
-            _guard_site(e, String.from("neg-no-overflow")),
-            true
-          );
-        },
+        a,
+        .Some(neg_t) => match(
+          _int_width(info.ty),
+          .Some(nw) => {
+            _emit(
+              ctx,
+              String.from("neg-no-overflow"),
+              ArrayList(VcTerm).new(),
+              _app1(VcOp.NotOp, _app2(VcOp.EqOp, neg_t, _int_min_lit(nw))),
+              _guard_site(e, String.from("neg-no-overflow")),
+              true
+            );
+          },
+          .None => ()
+        ),
         .None => ()
       );
     });
