@@ -27,6 +27,65 @@ test("HashMap.with_capacity with small capacity uses default", {
   // Should use DEFAULT_CAPACITY (16)
   assert(map.capacity >= usize(4));
 });
+// ===== Lazy allocation (plans/CODEGEN_MEMORY_REDUCTION.md) =====
+// `new()` allocates no bucket arrays until the first insert: the compiler made
+// one empty map per scope frame, ~270 B each. Every operation on an unallocated
+// map must behave exactly like an empty allocated one.
+test("HashMap.new allocates nothing until the first insert", {
+  map := HashMap(i32, i32).new();
+  assert(map.capacity == usize(0), "new() allocates no buckets");
+  assert(map.get(i32(1)).is_none(), "get on an unallocated map");
+  assert(!map.contains_key(i32(1)), "contains_key on an unallocated map");
+  assert(map.remove(i32(1)).is_none(), "remove on an unallocated map");
+  map.clear();
+  map.retain((_k, _v) -> true);
+  (seen : usize) = usize(0);
+  it := map.iter();
+  while(it.next().is_some(), {
+    seen = (seen + usize(1));
+  });
+  assert(seen == usize(0), "iterating an unallocated map yields nothing");
+  copy := map.clone();
+  assert((copy.len() == usize(0)) && (copy.capacity == usize(0)), "a clone of an unallocated map is unallocated");
+  assert(map.capacity == usize(0), "none of the above allocated");
+  map.insert(i32(7), i32(70));
+  assert(map.capacity == usize(16), "the first insert grows to DEFAULT_CAPACITY");
+  assert(map.get(i32(7)) == Option(i32).Some(i32(70)));
+  entry_map := HashMap(i32, i32).new();
+  assert(entry_map.get_or_insert(i32(3), i32(30)) == i32(30), "entry API on an unallocated map inserts");
+  assert(entry_map.len() == usize(1));
+  keyed := HashMap(i32, i32).with_keys(u64(1), u64(2));
+  assert(keyed.capacity == usize(0), "with_keys is lazy too");
+  keyed.insert(i32(1), i32(2));
+  assert(keyed.get(i32(1)) == Option(i32).Some(i32(2)));
+});
+// Growing from capacity 0 goes through `_resize`'s unallocated branch; the
+// rehash-drop loop in there once leaked one reference per RC entry
+// (issues/fixed/cond-unit-arm-statement-is-dropped.md). Every value inserted
+// across several growths is released exactly once.
+(g_hm_lazy_disposed : i32) = i32(0);
+HmLazyTracked :: ref(struct(tag : i32));
+impl(
+  HmLazyTracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_hm_lazy_disposed = (g_hm_lazy_disposed + i32(1));
+    })
+  )
+);
+test("growing an unallocated map releases every RC value exactly once", {
+  {
+    map := HashMap(i32, HmLazyTracked).new();
+    (i : i32) = i32(0);
+    while(i < i32(40), {
+      map.insert(i, HmLazyTracked(tag : i));
+      i = (i + i32(1));
+    });
+    assert(map.len() == usize(40));
+    assert(g_hm_lazy_disposed == i32(0), "nothing released while the map is live");
+  };
+  assert(g_hm_lazy_disposed == i32(40), "each of the 40 values is released exactly once");
+});
 // ===== Set Tests =====
 test("HashMap.set inserts new key-value pair", {
   map := HashMap(i32, i32).new();
