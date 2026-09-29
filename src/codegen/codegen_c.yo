@@ -245,7 +245,9 @@ emit_dispose_dispatch :: (fn(context : CodeGenContext) -> unit)({
     em.emit_string_line(
       `// Type-tag dispatch for dispose — replaces function pointers
 // WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
-static void __yo_dispose_dispatch(void* ptr) {
+// Returns 1 when it kept the object's memory (a pooled state machine,
+// __yo_sm_give), and the caller must not free it.
+static int __yo_dispose_dispatch(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   switch (header->type_id) {`
     );
@@ -261,7 +263,15 @@ static void __yo_dispose_dispatch(void* ptr) {
             line.push_string(id.to_string());
             line.push_str(": ");
             line.push_string(name.clone());
-            line.push_str("(ptr); return;");
+            match(
+              context.sm_pool_ids.get(name.clone()),
+              .Some(pid) => {
+                line.push_str("(ptr); return __yo_sm_give(");
+                line.push_string(pid.to_string());
+                line.push_str(", ptr);");
+              },
+              .None => line.push_str("(ptr); return 0;")
+            );
             em.emit_string_line(line);
           },
           .None => ()
@@ -271,13 +281,72 @@ static void __yo_dispose_dispatch(void* ptr) {
       i = (i + usize(1));
     });
     em.emit_string_line(
-      `    default: return;
+      `    default: return 0;
   }
 }`
     );
   }, {
-    em.emit_string_line(String.from("static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }"));
+    em.emit_string_line(String.from("static int __yo_dispose_dispatch(void* ptr) { (void)ptr; return 0; }"));
   });
+});
+/// The per-type state-machine pools the async runtime declares
+/// (`__yo_sm_take`, `__yo_sm_give`, `__yo_sm_pools_drain`, runtime_core.yo),
+/// defined once every pooled type has its index. Pooled types are the ones
+/// whose constructor asked for an index: under lightweight RC only, since the
+/// cycle collector frees through its own path.
+emit_sm_pools :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  n := context.sm_pool_ids.len();
+  if(n == usize(0), {
+    em.emit_string_line(
+      `static void* __yo_sm_take(size_t pool, size_t size) { (void)pool; return __yo_rc_alloc(size); }
+static int __yo_sm_give(size_t pool, void* p) { (void)pool; (void)p; return 0; }
+static void __yo_sm_pools_drain(void) { }`
+    );
+    return();
+  });
+  em.emit_string_line(
+    `static _Thread_local __yo_sm_pool_t __yo_sm_pools[${n.to_string()}];
+static void* __yo_sm_take(size_t pool, size_t size) {
+#if __YO_SM_POOLS
+  __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
+  void* p = sp->head;
+  if (p) {
+    sp->head = *(void**)p;
+    sp->count--;
+    return p;
+  }
+#else
+  (void)pool;
+#endif
+  return __yo_rc_alloc(size);
+}
+static int __yo_sm_give(size_t pool, void* p) {
+#if __YO_SM_POOLS
+  __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
+  if (sp->count < __YO_SM_POOL_CAP) {
+    *(void**)p = sp->head;
+    sp->head = p;
+    sp->count++;
+    __yo_async_thread_exit_hook = __yo_async_free_cont_pool;
+    return 1;
+  }
+#else
+  (void)pool; (void)p;
+#endif
+  return 0;
+}
+static void __yo_sm_pools_drain(void) {
+  for (size_t i = 0; i < ${n.to_string()}; i++) {
+    while (__yo_sm_pools[i].head) {
+      void* p = __yo_sm_pools[i].head;
+      __yo_sm_pools[i].head = *(void**)p;
+      __yo_free(p);
+    }
+    __yo_sm_pools[i].count = 0;
+  }
+}`
+  );
 });
 /// Compile a module value to a C11 source string.
 ///
@@ -481,6 +550,9 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
+  if(ctx.uses_async, {
+    emit_sm_pools(base);
+  });
   raise_codegen_error(exn);
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;

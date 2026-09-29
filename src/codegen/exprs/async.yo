@@ -1247,6 +1247,15 @@ generate_async_block_state_dispose_function :: (
   }, em.emit_line("  (void)sm_ptr;"));
   em.emit_line("}");
 });
+/// The allocation of a future of type `struct_name`: from its type's pool
+/// under lightweight RC (phase 7; the dispose dispatch gives released ones
+/// back), else a fresh RC block. The caller zeroes it either way.
+_sm_alloc_call :: (fn(struct_name : String, dispose_function_name : String, context : FunctionGenerationContext) -> String)(
+  if(context.base.needs_cycle_gc, `__yo_rc_alloc(sizeof(${struct_name}))`, {
+    pid := context.base.sm_pool_id_for(dispose_function_name);
+    `__yo_sm_take(${pid.to_string()}, sizeof(${struct_name}))`
+  })
+);
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
 /// state machine, sets up the RC header (cycle-GC fields or type-id dispatch),
 /// installs the capture struct, zeroes the result, and stores the resume +
@@ -1271,7 +1280,7 @@ generate_async_block_constructor :: (
   );
   // Allocate + zero-init the state machine.
   em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)__yo_rc_alloc(sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   em.emit_line("");
   // Reference-counting header.
@@ -2927,7 +2936,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // Allocation + initialization (body code).
   result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
-  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)__yo_rc_alloc(sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1;`);
   if(context.base.needs_cycle_gc, {

@@ -278,6 +278,11 @@ CodeGenContext :: ref(
     /// dispatch switch (deferred) reads the same map.
     dispose_type_ids : HashMap(String, usize),
     next_dispose_type_id : usize,
+    /// State-machine types whose released memory goes back to a per-type pool
+    /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
+    /// name → pool index (0-based). The dispose dispatch hands those types'
+    /// memory to `__yo_sm_give` instead of freeing it.
+    sm_pool_ids : HashMap(String, usize),
     /// Cycle-GC `void*` dispose thunks already emitted, by thunk C name
     /// (`dispose_fn_thunk`, functions/constructors.yo).
     dispose_thunks : HashSet(String),
@@ -385,6 +390,7 @@ impl(
       exported_function_labels : HashMap(String, String).new(),
       dispose_type_ids : HashMap(String, usize).new(),
       next_dispose_type_id : usize(1),
+      sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
@@ -430,6 +436,19 @@ impl(
         id := self.next_dispose_type_id;
         self.next_dispose_type_id = (id + usize(1));
         self.dispose_type_ids.insert(dispose_c_name.clone(), id);
+        id
+      }
+    )
+  ),
+  /// Allocate (or reuse) the pool index of a state-machine type, keyed by its
+  /// dispose function's C name.
+  sm_pool_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+    match(
+      self.sm_pool_ids.get(dispose_c_name.clone()),
+      .Some(id) => id,
+      .None => {
+        id := self.sm_pool_ids.len();
+        self.sm_pool_ids.insert(dispose_c_name.clone(), id);
         id
       }
     )
