@@ -160,8 +160,14 @@ source order.
   (`g_local_await_results`, consulted by the struct emitter and by
   `emit_inline_await`).
 - **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
-  `resume`, `set_effect`, `cancel_pending`), not three pointers per instance.
-  A raw I/O future's `vt` is NULL; every read site tests `X->vt && X->vt->op`.
+  `resume`, `set_effect`, `cancel_pending`, `bundle_offset`, `bundle_size`),
+  not three pointers per instance. A raw I/O future's `vt` is NULL; every
+  read site tests `X->vt && X->vt->op`. A whole effect bundle
+  (`io.await(f, bundle)`, `io.spawn`) is injected with
+  `__yo_future_set_bundle(f, &bundle)`, a `memcpy` to the vtable's bundle
+  slot. The per-type `set_effect` handles only per-field injections by name.
+  `generate_future_effect_setter` returns the vtable's bundle pair, so the
+  setter and the table cannot disagree.
 - **A closure parameter lives in its `__yo_param_<i>` slot** only; its own
   local (matched by declaration site) is dropped from the field set. The
   struct definition and the resume function must read ONE cross-boundary

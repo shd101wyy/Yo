@@ -538,6 +538,17 @@ These are independent of the rewrite, and phase 5 keeps them.
 5. `set_effect` as a direct typed store when the awaited future's concrete
    type is known, and one shared setter body per layout (§3.4.7).
 
+   **Item 5 landed later, on `async-sm-p7` (2026-09-29), in a more general
+   form than written.**
+   - The vtable carries `bundle_offset`/`bundle_size`, where the type's
+     bundle goes, and one shared inline helper, `__yo_future_set_bundle`,
+     copies it. That covers typed and type-erased futures alike, with no
+     `strcmp` and no indirect call.
+   - The per-type setter keeps only the per-field effect injections.
+   - The §3.4 programs are unchanged by it (176/193/362/869 instructions):
+     their bundle matched the setter's first `strcmp`, so what goes is the
+     indirect call and the `__bundle` case of every setter.
+
 Exit: the §3.4 table re-measured and recorded here. Targets: cold sync
 child ≤ 25 ns, depth 4 ≤ 120 ns, the same with parked I/O ≤ 150 ns.
 
@@ -1056,3 +1067,5 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   `issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md`
   (the seed has it too): a local sharing a captured value's RC was sent to
   the owner's slot, which a capture does not have (`sm_storage_id`).
+- 2026-09-29: phase 3 item 5, left undone by #991, lands on `async-sm-p7`:
+  a whole effect bundle is copied through the vtable's bundle slot.
