@@ -267,9 +267,14 @@ codegen_fatal_expr :: (fn(message : String) -> String)({
 codegen_user_error :: (fn(tok : Token, message : String) -> unit)({
   _record_codegen_error(dyn(format_error_message(tok, message)));
 });
+/// Record a user error that is already formatted (an evaluator diagnostic
+/// codegen reports on the evaluator's behalf, with its own code and span).
+codegen_report_error :: (fn(err : AnyError) -> unit)({
+  _record_codegen_error(err);
+});
 /// `codegen_user_error` in EXPRESSION position.
 codegen_user_error_expr :: (fn(tok : Token, message : String) -> String)({
   codegen_user_error(tok, message);
   String.from("")
 });
-export(is_builtin_yo_inline_function, is_primitive_type_tag, clear_codegen_error, raise_codegen_error, codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_user_error_expr);
+export(is_builtin_yo_inline_function, is_primitive_type_tag, clear_codegen_error, raise_codegen_error, codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_user_error_expr, codegen_report_error);

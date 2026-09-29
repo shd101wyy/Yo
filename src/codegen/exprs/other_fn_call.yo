@@ -646,6 +646,29 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
   });
   out
 });
+/// A value stored into an `Impl(Future(T, E))` field: the field is the
+/// type-erased future interface, and the value is a concrete future (a state
+/// machine, a sync future) that starts with the same prefix, so the pointer is
+/// upcast. Any other field's code is returned unchanged
+/// (issues/questions/impl-future-struct-field-emits-incompatible-pointer.md,
+/// option 2).
+_future_field_upcast :: (fn(field_ty : Option(TypeValue), code : String, context : FunctionGenerationContext) -> String)(
+  match(
+    field_ty,
+    .Some(ft) => match(
+      ft,
+      .FutureTraitT({ output : _fo }) => {
+        fct := get_type_string(ft, context.base);
+        cond(
+          (fct.ends_with("*") && (code.len() > usize(0))) => `((${fct})(${code}))`,
+          true => code
+        )
+      },
+      _ => code
+    ),
+    .None => code
+  )
+);
 /// Build an object/struct constructor's runtime-field VALUE exprs by matching
 /// the struct's runtime fields (in declaration order) to the FnCall's labeled
 /// args `label : value`. Used as a fallback when `runtime_arg_exprs_in_order` is
@@ -1752,7 +1775,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             match(
               ctor_args.get(ci),
               .Some(ca) => {
-                cc := emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context);
+                cc := _future_field_upcast(
+                  match(ctor_fields.get(ci), .Some(f) => Option(TypeValue).Some(f.ty), .None => Option(TypeValue).None),
+                  emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context),
+                  context
+                );
                 cond(
                   field_is_unit => if(cc.len() > usize(0), {
                     stmt := indent.clone();
@@ -1919,7 +1946,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                   match(
                     vs_args.get(rfi),
                     .Some(a) => {
-                      vs_fv := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
+                      vs_fv := _future_field_upcast(
+                        match(rt_fields.get(rfi), .Some(f) => Option(TypeValue).Some(f.ty), .None => Option(TypeValue).None),
+                        emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
+                        context
+                      );
                       cl_out.push_string(vs_fv);
                     },
                     .None => ()

@@ -6547,3 +6547,22 @@ _errno_after_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("an imported constant read after an await in a match arm", {
   assert(io.await(_errno_after_await(io), io) == (i32(EEXIST) + i32(1)), "the constant keeps its value");
 });
+// ---------------------------------------------------------------------------
+// A `unit` local read across awaits: storage is erased, so the task has no
+// slot for it (a `void` field and an empty store `sm->var_w = ;` before
+// the single-pass lowering; issues/unit-zst-residual-gaps.md, the async row).
+// ---------------------------------------------------------------------------
+_unit_id :: (fn(x : unit) -> unit)(x);
+_unit_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    (u : unit) = ();
+    io.await(yield(io), io);
+    w := _unit_id(u);
+    io.await(yield(io), io);
+    _v := _unit_id(w);
+    i32(5)
+  })
+);
+test("a unit local read across awaits", {
+  assert(io.await(_unit_across_awaits(io), io) == i32(5), "the body runs to its value");
+});

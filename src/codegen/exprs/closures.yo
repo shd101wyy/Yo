@@ -217,10 +217,19 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
           // exist in the resume fn ("use of undeclared identifier 'i'",
           // async closure-in-while arms). Fall back to the scope name
           // outside SMs.
+          //
+          // Inside an enclosing CLOSURE body (a no-await `io.async` block is
+          // one), a captured variable is read through `closure_context`, the
+          // way `generate_atom` reads it: a bare name was undeclared there
+          // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
           .None => match(
             _resolve_sm_atom(expr, label.clone(), context),
             .Some(sm_name) => sm_name,
-            .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+            .None => match(
+              _enclosing_closure_capture_read(label.clone(), ei.env, context),
+              .Some(cap_read) => cap_read,
+              .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+            )
           )
         )
       );
@@ -301,6 +310,31 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     out.push_str("){}");
     out
   })
+});
+/// `name` read through the enclosing closure's `closure_context`, when the
+/// closure being generated captures it (the test `generate_atom`'s
+/// `_is_captured_here` makes), else `.None`.
+_enclosing_closure_capture_read :: (fn(name : String, env : Environment, context : FunctionGenerationContext) -> Option(String))({
+  captured := match(
+    context.current_closure_captures,
+    .Some(caps) => match(
+      context.current_closure_capture_frame_level,
+      .Some(level) => (caps.contains(name.clone()) && check_variable_is_closure_captured(name.clone(), env, level)),
+      .None => false
+    ),
+    .None => false
+  );
+  if(!captured, {
+    return(Option(String).None);
+  });
+  field := get_variable_name_for_codegen(name, Option(Environment).Some(env));
+  Option(String).Some(
+    match(
+      context.current_closure_capture_type_c_name,
+      .Some(cap_ty) => `((${cap_ty}*)closure_context)->${field}`,
+      .None => `closure_context->${field}`
+    )
+  )
 });
 /// Pre-pass: register every collected closure's impl fn into impl_closure_call_map
 /// (keyed by its concrete capture-struct id) BEFORE any function body is generated.

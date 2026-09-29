@@ -270,7 +270,11 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       });
       line.push_string(lhs_code.clone());
       line.push_str(" = ");
-      line.push_string(rhs_code);
+      // An `Impl(Future(T, E))` place is the type-erased future interface:
+      // a concrete future stored into it is upcast, as at a constructor
+      // (`_future_field_upcast`, other_fn_call.yo).
+      is_future_iface := match(lhs_type, .FutureTraitT({ output : _fo }) => c_type_string.ends_with("*"), _ => false);
+      line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");
       em.emit_string_line(line);
     });
