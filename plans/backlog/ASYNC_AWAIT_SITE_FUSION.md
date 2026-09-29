@@ -295,6 +295,54 @@ of fused sites in `std/` and in the compiler, with every rejected
 candidate's reason, recorded in this doc. The census predicts ~70 std
 definitions.
 
+**Done (2026-09-30), on #1002's branch.** Code:
+
+- `async_wrapper_fusion_verdict` and its registry in `src/expr_traversal.yo`.
+- Recording at both call arms of `src/evaluator/calls/function.yo`: the
+  `FuncVal` arm, and the method arm through the method-callee side table.
+  The method arm is where `s.read(...)` / `s.write(...)` resolve.
+- The report is `_report_await_fusion` in `src/codegen/async/state_machine.yo`.
+- `tests/cli-cases/async-await-fusion-verdicts` pins one callee per rule.
+
+Measured census with a compiler built from the branch
+(`YO_DEBUG_FUSION=1 yo compile src/main.yo --skip-c-compiler`): 345 awaits
+in the compiler plus the std it reaches.
+
+| Verdict | Await sites |
+| --- | ---: |
+| fusable | 93 |
+| rejected: 2 or more awaiting statements in the block | 128 |
+| rejected: the await is not a top-level statement | 47 |
+| rejected: the block returns or unwinds early | 19 |
+| rejected: the block does not await | 4 |
+| no `io.async` wrapper callee (a delegation, a raw op, a `Dyn` call) | 54 |
+
+The 93 fusable sites have 29 distinct callees:
+
+- std: `fs/dir` 5, `fs/file` 4, `net/tcp` 3, and one each in `process/command`,
+  `io/stdio`, `io/index`, `io/bufio` and `async/index` (`yield`).
+- The compiler: 10, in `fetch`, `build_runner`, `version_cache`, `pkg_config`
+  and `install_command`.
+
+The most-called is `std/fs/file.yo`'s `_exists` (37 sites). 92 callees are
+rejected. `std_vs_raw.yo` has 4 fusable sites: its `TcpStream.read` /
+`write` awaits.
+
+Two corrections came out of the census:
+
+- A `cond`/`match` arm's `=>` is not a closure. Before this, the 13 compiler
+  sites rejected for "captures its effect bundle in a closure" were all
+  arms, such as `remove_dir`'s `(result < 0) => e.exn.throw(...)`.
+- A typed bundle parameter `(e : IoExn) =>` must be read for its name. An
+  unread name skipped rule 4, and an unknown parameter shape now rejects.
+
+Capturing an `IoExn` bundle in a real closure is already a compile error
+(control-bound capture), so rule 4 fires only for plain `Io` bundles.
+
+"Not a top-level statement" is mostly `close`: its await sits in a `cond`
+arm (`self._is_closed => (), true => { await }`). That is §3.1 rule 3, and
+the natural follow-up for F2 v2.
+
 ### F2: the lowering
 
 In `emit_inline_await`, a fused site emits the wrapper's prologue and block in
