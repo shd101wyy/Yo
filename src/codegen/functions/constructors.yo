@@ -788,8 +788,8 @@ static void __yo_iso_uq_visit(void* child, void* child_traverse) {
     size_t cap = __yo_iso_uq_cap ? __yo_iso_uq_cap * 2 : 64;
     __yo_iso_uq_item_t* grown = (__yo_iso_uq_item_t*)realloc(__yo_iso_uq_items, cap * sizeof(__yo_iso_uq_item_t));
     if (!grown) {
-      fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
-      abort();
+      fflush(stdout); fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
+      __yo_abort();
     }
     __yo_iso_uq_items = grown;
     __yo_iso_uq_cap = cap;

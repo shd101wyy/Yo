@@ -673,7 +673,7 @@ Raw pointer operations may dereference invalid memory.`
             .Some(ov_deref) => {
               match(
                 ov_deref,
-                .PtrVal(target_cell, ptr_tgt_idx) => {
+                .PtrVal(target_cell, ptr_tgt_idx, _) => {
                   // Compile-time pointer: dereference to the pointed-to value.
                   // Index the target when it is an aggregate —
                   // `dereferencedValue = target.elements[objectValue.targetIndex]`
@@ -1766,7 +1766,7 @@ Raw pointer operations may dereference invalid memory.`
                       // "optional faithfulness completion" noted in
                       // issues/fixed/yo-self-comptime-pointer-place.md — index
                       // first.
-                      .PtrVal(tgt_cell_l, tgt_idx_l) => {
+                      .PtrVal(tgt_cell_l, tgt_idx_l, _) => {
                         resolved_lbl = match(
                           tgt_cell_l.get(usize(0)),
                           .Some(t0l) => match(
