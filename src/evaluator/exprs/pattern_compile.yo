@@ -1262,7 +1262,11 @@ compile_pattern :: (
     });
     nm := _atom_name(name_expr);
     pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
-    sub := recur(sub_expr, position_ty, value_opt, pc, env, ctx, exn);
+    // The self-calls that can throw are by NAME, not `recur`: seeds up to
+    // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
+    // continued past a throw here with a NULL sub-pattern
+    // (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
+    sub := compile_pattern(sub_expr, position_ty, value_opt, pc, env, ctx, exn);
     return(Pattern.At(name : nm, token : ast_expr_token(name_expr), atom : name_expr, sub : sub));
   });
   // A bare identifier that does NOT name a constant in scope is a BINDING of
@@ -1295,7 +1299,7 @@ compile_pattern :: (
       ),
       .None => Option(EvalValue).None
     );
-    sub := recur(e, inner, inner_val, pc, env, ctx, exn);
+    sub := compile_pattern(e, inner, inner_val, pc, env, ctx, exn);
     return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : sub));
   });
   // `(a, b)` — a tuple pattern (the parser's BK_TUPLE call).
@@ -1371,7 +1375,7 @@ compile_pattern :: (
     while(ai < alts_ast.len(), {
       alt_ast := match(alts_ast.get(ai), .Some(a) => a, .None => make_err_expr());
       pc.binds = ArrayList(BindInfo).new();
-      alt := recur(alt_ast, position_ty, value_opt, pc, env, ctx, exn);
+      alt := compile_pattern(alt_ast, position_ty, value_opt, pc, env, ctx, exn);
       alt_binds := pc.binds;
       alt_names := _bind_names_sorted(alt_binds);
       match(
