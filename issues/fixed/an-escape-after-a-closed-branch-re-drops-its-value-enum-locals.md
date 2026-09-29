@@ -71,5 +71,11 @@ emitter's code length before and after).
 ## Test
 
 `tests/async/sm_protocol.test.yo`, "an escape after a closed branch drops each value-enum local
-once": both `Thing`s must be disposed exactly once. Before the fix the count is wrong and Guard
-Malloc crashes; the http test above is the production shape.
+once": both `Thing`s must be disposed exactly once, when the block owning the task's future ends.
+The extra release lands on freed memory, so under macOS's default allocator the count still reads 2.
+The red-before is an allocator check: Guard Malloc crashes 4/4 on the #989 binary and 0/4 with the
+fix, and CI's ASan leg sees the use-after-free. The http test above is the production shape, and it
+crashed without any tool.
+
+The same reproducer also shows a separate, older leak on the escape path:
+`issues/an-escaped-task-leaks-references-to-values-it-bound.md`.

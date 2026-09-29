@@ -19,7 +19,7 @@
 { Token } :: import("./token.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
-{ is_bool_type, is_enum_type, is_pointer_type, is_some_type } :: import("./types/guards.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type } :: import("./types/guards.yo");
 { resolve_enum_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
@@ -38,8 +38,10 @@ Pattern :: ref(
   enum(
     /// `_` — matches anything, binds nothing.
     Wildcard,
-    /// `name` — matches anything, binds the value at this position.
-    Bind(name : String, token : Token),
+    /// `name` — matches anything, binds the value at this position. `atom`
+    /// is the binding's source identifier (the async emitter resolves the
+    /// binding's state-machine field through its ExprInfo).
+    Bind(name : String, token : Token, atom : AstExpr),
     /// A compile-time constant compared with `==` (literal, `::` constant,
     /// typed literal call, string literal, …).
     Const(value : EvalValue, ty : TypeValue, src : AstExpr, subject : String, test : AstExpr),
@@ -62,7 +64,19 @@ Pattern :: ref(
     /// `(p | q)` — every alternative binds the same names.
     Or(alts : ArrayList(Self)),
     /// `(name := p)` — bind the whole value AND match `p` against it.
-    At(name : String, token : Token, sub : Self)
+    At(name : String, token : Token, atom : AstExpr, sub : Self),
+    /// A structural sub-pattern applied at a `Box(T)` position: the box is
+    /// looked through, `sub` matches `T`, and the access path dereferences
+    /// the box (`path-><first field>`). `Bind`/`Wildcard`/`At` never sit
+    /// under one (they bind/ignore the box itself); every other form does.
+    ThroughBox(box_ty : TypeValue, inner_ty : TypeValue, sub : Self),
+    /// `(p, q)` — a tuple pattern, exact arity, one sub-pattern per element.
+    Tuple(subs : ArrayList(Self), elem_tys : ArrayList(TypeValue)),
+    /// `S(x : p, y)` / `{x : p, y}` — a struct pattern. Like `Variant`,
+    /// `subs` is PARTIAL: `field_idx` names the field each sub-pattern is
+    /// for; fields not listed match anything. `arity` is the struct's field
+    /// count.
+    Struct(struct_ty : TypeValue, field_idx : ArrayList(usize), subs : ArrayList(Self), arity : usize)
   )
 );
 /// One `pattern => body` arm after compilation.
@@ -181,16 +195,82 @@ gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
 // Type helpers
 // ---------------------------------------------------------------------------
 /// The type a pattern at a position is compiled against: one pointer level
-/// looked through, a leaked recursive-enum self-shell resolved.
+/// and one `Box(T)` wrapper looked through, a leaked recursive-enum
+/// self-shell resolved. A Box position is presented as its inner type to the
+/// constructor reasoning (the box wrapper is transparent for coverage).
 norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
   inner := match(t, .Pointer(p) => p, _ => t);
-  resolve_enum_shell(inner)
+  inner2 := match(
+    is_box_type(inner),
+    true => match(box_inner_type(inner), .Some(bi) => bi, .None => inner),
+    false => inner
+  );
+  resolve_enum_shell(inner2)
 });
+/// True when the struct's single field is labeled `*` (the Box shape).
+_box_shaped :: (fn(fls : ArrayList(String), fts : ArrayList(TypeValue)) -> bool)(
+  (fls.len() == usize(1)) && (fts.len() == usize(1)) && match(
+    fls.get(usize(0)),
+    .Some(l) => (l == "*"),
+    .None => false
+  )
+);
+/// `Box(T)` → `T` (the field the `*` label names); anything else → `.None`.
+/// NOTE: a case whose pattern carries a curly `{…}` destructuring cannot
+/// take a brace-block body (E0007) — the body stays an expression.
+box_inner_type :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .Struct({ field_labels : fls, field_types : fts }) => cond(
+      _box_shaped(fls, fts) => match(
+        fts.get(usize(0)),
+        .Some(ft) => Option(TypeValue).Some(ft),
+        .None => Option(TypeValue).None
+      ),
+      true => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  )
+);
 /// The field types of variant `idx` of enum `enum_ty` (empty when absent).
 variant_field_types :: (fn(enum_ty : TypeValue, idx : usize) -> ArrayList(TypeValue))(
   match(
     enum_ty,
     .EnumT({ variant_fields : vfs }) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
+    _ => ArrayList(TypeValue).new()
+  )
+);
+/// A struct type's field types (empty for a non-struct). Expression-bodied:
+/// a case whose pattern carries a curly `{…}` destructuring cannot take a
+/// brace-block body (E0007).
+_struct_field_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+  match(
+    t,
+    .Struct({ field_types : fts }) => fts,
+    _ => ArrayList(TypeValue).new()
+  )
+);
+/// A struct type's field labels (empty for a non-struct).
+_struct_field_labels :: (fn(t : TypeValue) -> ArrayList(String))(
+  match(
+    t,
+    .Struct({ field_labels : fls }) => fls,
+    _ => ArrayList(String).new()
+  )
+);
+/// A struct type's declared name (empty for a non-struct).
+_struct_type_name :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ name : n }) => n.clone(),
+    _ => String.from("{…}")
+  )
+);
+/// A tuple type's element types (empty for a non-tuple).
+_tuple_elem_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+  match(
+    t,
+    .Tuple({ field_types : fts }) => fts,
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -207,7 +287,7 @@ _push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
   match(
     p,
     .Wildcard => (),
-    .Bind(name, _) => {
+    .Bind(name, _, _) => {
       out.push(name.clone());
     },
     .Const(_, _, _, _, _) => (),
@@ -236,9 +316,38 @@ _push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
         .None => ()
       );
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       out.push(name.clone());
       recur(sub, out);
+    },
+    .ThroughBox(_, _, sub) => {
+      recur(sub, out);
+    },
+    .Tuple(subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Struct(_, _, subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
     }
   );
 });
@@ -253,7 +362,7 @@ pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
   match(
     p,
     .Wildcard => true,
-    .Bind(_, _) => true,
+    .Bind(_, _, _) => true,
     .Const(_, _, _, _, _) => false,
     .Range(_, _, _, _, _, _, _) => false,
     .Variant(_, _, _, _, _, _, _) => false,
@@ -272,15 +381,35 @@ pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
       });
       any_irref
     },
-    .At(_, _, sub) => recur(sub)
+    .At(_, _, _, sub) => recur(sub),
+    .ThroughBox(_, _, sub) => recur(sub),
+    .Tuple(subs, _) => _all_subs_irrefutable(subs),
+    .Struct(_, _, subs, _) => _all_subs_irrefutable(subs)
   )
 );
+/// Every sub-pattern of `subs` is irrefutable (a single-constructor
+/// aggregate matches every value of its type iff each field pattern does).
+_all_subs_irrefutable :: (fn(subs : ArrayList(Pattern)) -> bool)({
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < subs.len()) && ok, {
+    match(
+      subs.get(i),
+      .Some(s) => {
+        ok = pattern_is_irrefutable(s);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
 /// Render a pattern in Yo syntax (for diagnostics).
 pattern_to_string :: (fn(p : Pattern) -> String)(
   match(
     p,
     .Wildcard => String.from("_"),
-    .Bind(name, _) => name.clone(),
+    .Bind(name, _, _) => name.clone(),
     .Const(_, _, src, _, _) => ast_expr_to_string(src),
     .Range(src, _, _, _, _, _, _) => ast_expr_to_string(src),
     .Variant(name, _, field_idx, subs, enum_ty, _, arity) => {
@@ -335,11 +464,66 @@ pattern_to_string :: (fn(p : Pattern) -> String)(
       out.push_str(")");
       out
     },
-    .At(name, _, sub) => {
+    .At(name, _, _, sub) => {
       out := String.from("(");
       out.push_string(name.clone());
       out.push_str(" := ");
       out.push_string(recur(sub));
+      out.push_str(")");
+      out
+    },
+    .ThroughBox(_, _, sub) => recur(sub),
+    .Tuple(subs, _) => {
+      out := String.from("(");
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        if(i > usize(0), {
+          out.push_str(", ");
+        });
+        match(
+          subs.get(i),
+          .Some(s) => {
+            out.push_string(recur(s));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      out.push_str(")");
+      out
+    },
+    .Struct(struct_ty, field_idx, subs, arity) => {
+      out := _struct_type_name(struct_ty);
+      out.push_str("(");
+      (fi : usize) = usize(0);
+      while(fi < arity, {
+        if(fi > usize(0), {
+          out.push_str(", ");
+        });
+        lbl := match(
+          _struct_field_labels(struct_ty).get(fi),
+          .Some(l) => l.clone(),
+          .None => String.from("_")
+        );
+        out.push_string(lbl);
+        out.push_str(" : ");
+        (sub_str : String) = String.from("_");
+        (si : usize) = usize(0);
+        while(si < field_idx.len(), {
+          if(match(field_idx.get(si), .Some(k) => (k == fi), .None => false), {
+            match(
+              subs.get(si),
+              .Some(s) => {
+                sub_str = recur(s);
+              },
+              .None => ()
+            );
+          });
+          si = (si + usize(1));
+        });
+        out.push_string(sub_str);
+        fi = (fi + usize(1));
+      });
       out.push_str(")");
       out
     }
@@ -470,8 +654,8 @@ _tail_types :: (fn(v : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   });
   out
 });
-/// Strip `At` and expand `Or` at the HEAD of every row, so each row's head is
-/// a wildcard, binding, constant, range or variant.
+/// Strip `At`/`ThroughBox` and expand `Or` at the HEAD of every row, so each
+/// row's head is a wildcard, binding, constant, range or variant.
 _expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
@@ -483,7 +667,7 @@ _expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Arra
           row.get(usize(0)),
           .Some(head) => match(
             head,
-            .At(_, _, sub) => {
+            (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
               nr := ArrayList(Pattern).new();
               nr.push(sub);
               rest := _tail_patterns(row);
@@ -562,7 +746,7 @@ _const_key :: (fn(p : Pattern) -> String)(
   )
 );
 _head_is_wild :: (fn(p : Pattern) -> bool)(
-  match(p, .Wildcard => true, .Bind(_, _) => true, _ => false)
+  match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false)
 );
 /// Specialize the matrix by variant constructor `name` of arity `arity`.
 _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
@@ -583,8 +767,44 @@ _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, 
           .Wildcard => {
             out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
           },
-          .Bind(_, _) => {
+          .Bind(_, _, _) => {
             out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Specialize the matrix by the SINGLE constructor of a tuple/struct column
+/// of arity `n`: a Tuple/Struct head contributes its sub-patterns (a partial
+/// struct's, padded with wildcards), a wildcard/binding head contributes
+/// `n` wildcards, any other head drops the row.
+_specialize_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern)), n : usize) -> ArrayList(ArrayList(Pattern)))({
+  out := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < rows.len(), {
+    match(
+      rows.get(i),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => match(
+          head,
+          .Tuple(subs, _) => {
+            out.push(_concat_patterns(subs, _tail_patterns(row)));
+          },
+          .Struct(_, fidx, subs, arity) => {
+            out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
+          },
+          .Wildcard => {
+            out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
+          },
+          .Bind(_, _, _) => {
+            out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
           },
           _ => ()
         ),
@@ -689,6 +909,82 @@ _render_variant_witness :: (fn(name : String, arity : usize, w : ArrayList(Strin
   });
   rest := ArrayList(String).new();
   (k : usize) = arity;
+  while(k < w.len(), {
+    match(
+      w.get(k),
+      .Some(s) => {
+        rest.push(s);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  _cons_str(head, rest)
+});
+/// Render a tuple witness from the first `n` entries of `w`, returning the
+/// full vector (`(a, b)` prepended to the remaining columns).
+_render_tuple_witness :: (fn(w : ArrayList(String), n : usize) -> ArrayList(String))({
+  head := String.from("(");
+  (j : usize) = usize(0);
+  while(j < n, {
+    if(j > usize(0), {
+      head.push_str(", ");
+    });
+    match(
+      w.get(j),
+      .Some(s) => {
+        head.push_string(s.clone());
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  head.push_str(")");
+  rest := ArrayList(String).new();
+  (k : usize) = n;
+  while(k < w.len(), {
+    match(
+      w.get(k),
+      .Some(s) => {
+        rest.push(s);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  _cons_str(head, rest)
+});
+/// Render a struct witness `S(label : w, …)` from the first `n` entries of
+/// `w` (every field rendered, `_` included — like the variant renderer).
+_render_struct_witness :: (fn(struct_ty : TypeValue, w : ArrayList(String), n : usize) -> ArrayList(String))({
+  head := _struct_type_name(struct_ty);
+  head.push_str("(");
+  flabels := _struct_field_labels(struct_ty);
+  (j : usize) = usize(0);
+  while(j < n, {
+    if(j > usize(0), {
+      head.push_str(", ");
+    });
+    match(
+      flabels.get(j),
+      .Some(l) => {
+        head.push_string(l.clone());
+      },
+      .None => ()
+    );
+    head.push_str(" : ");
+    match(
+      w.get(j),
+      .Some(s) => {
+        head.push_string(s.clone());
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  head.push_str(")");
+  rest := ArrayList(String).new();
+  (k : usize) = n;
   while(k < w.len(), {
     match(
       w.get(k),
@@ -1145,7 +1441,16 @@ _useful :: (
   tys_rest := _tail_types(tys);
   ty0 := norm_position_type(match(tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit));
   // An integer column: intervals decide it exactly.
-  if(match(head0, .At(_, _, _) => false, .Or(_) => false, .Variant(_, _, _, _, _, _, _) => false, _ => true), {
+  if(match(
+    head0,
+    .At(_, _, _, _) => false,
+    .ThroughBox(_, _, _) => false,
+    .Or(_) => false,
+    .Variant(_, _, _, _, _, _, _) => false,
+    .Tuple(_, _) => false,
+    .Struct(_, _, _, _) => false,
+    _ => true
+  ), {
     match(
       _int_domain(ty0),
       .Some(d) => {
@@ -1158,7 +1463,7 @@ _useful :: (
   });
   match(
     head0,
-    .At(_, _, sub) => {
+    (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
       nq := ArrayList(Pattern).new();
       nq.push(sub);
       return(recur(rows, _concat_patterns(nq, q_rest), tys, gadt_exact));
@@ -1196,6 +1501,37 @@ _useful :: (
         recur(spec, _concat_patterns(_variant_full_subs(fidx, subs, arity), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, w)));
+        },
+        .None => {
+          return(Option(ArrayList(String)).None);
+        }
+      );
+    },
+    .Tuple(subs, elem_tys) => {
+      // A tuple is ONE constructor of arity `subs.len()`: specialize by it.
+      spec := _specialize_aggregate(rows, subs.len());
+      match(
+        recur(spec, _concat_patterns(subs, q_rest), _concat_types(elem_tys, tys_rest), gadt_exact),
+        .Some(w) => {
+          return(Option(ArrayList(String)).Some(_render_tuple_witness(w, subs.len())));
+        },
+        .None => {
+          return(Option(ArrayList(String)).None);
+        }
+      );
+    },
+    .Struct(struct_ty, fidx, subs, arity) => {
+      ftys := _struct_field_tys(struct_ty);
+      spec := _specialize_aggregate(rows, arity);
+      match(
+        recur(
+          spec,
+          _concat_patterns(_variant_full_subs(fidx, subs, arity), q_rest),
+          _concat_types(ftys, tys_rest),
+          gadt_exact
+        ),
+        .Some(w) => {
+          return(Option(ArrayList(String)).Some(_render_struct_witness(struct_ty, w, arity)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1329,6 +1665,34 @@ _useful :: (
           }
         );
       });
+      // A tuple/struct column has ONE constructor, so the signature is always
+      // complete: q is useful iff it is useful for that constructor.
+      if(is_tuple_type(ty0), {
+        ftys := _tuple_elem_tys(ty0);
+        spec := _specialize_aggregate(rows, ftys.len());
+        match(
+          recur(spec, _concat_patterns(_wildcards(ftys.len()), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+          .Some(w) => {
+            return(Option(ArrayList(String)).Some(_render_tuple_witness(w, ftys.len())));
+          },
+          .None => {
+            return(Option(ArrayList(String)).None);
+          }
+        );
+      });
+      if(is_struct_type(ty0), {
+        ftys := _struct_field_tys(ty0);
+        spec := _specialize_aggregate(rows, ftys.len());
+        match(
+          recur(spec, _concat_patterns(_wildcards(ftys.len()), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+          .Some(w) => {
+            return(Option(ArrayList(String)).Some(_render_struct_witness(ty0, w, ftys.len())));
+          },
+          .None => {
+            return(Option(ArrayList(String)).None);
+          }
+        );
+      });
       // Infinite domain (`comptime_int`, floats, strings, …): only wildcard
       // rows cover it.
       match(
@@ -1414,7 +1778,7 @@ _top_alternatives :: (fn(p : Pattern, out : ArrayList(Pattern)) -> unit)(
         i = (i + usize(1));
       });
     },
-    .At(_, _, sub) => recur(sub, out),
+    .At(_, _, _, sub) => recur(sub, out),
     _ => ()
   )
 );
@@ -1463,7 +1827,7 @@ _part_reach :: (fn(part : Pattern, whole : bool, rows : ArrayList(ArrayList(Patt
 arm_reachability :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue, gadt_exact : bool) -> ArmReach)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(ArmReach.Reachable));
   if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
-    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
+    if(match(arm.pattern, .Wildcard => true, .Bind(_, _, _) => true, _ => false), {
       return(ArmReach.Reachable);
     });
   });
@@ -1496,7 +1860,7 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
   match(
     p,
     .Wildcard => (),
-    .Bind(_, _) => (),
+    .Bind(_, _, _) => (),
     .Const(_, _, _, _, test) => {
       out.push(test);
     },
@@ -1529,8 +1893,37 @@ pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
         i = (i + usize(1));
       });
     },
-    .At(_, _, sub) => {
+    .At(_, _, _, sub) => {
       recur(sub, out);
+    },
+    .ThroughBox(_, _, sub) => {
+      recur(sub, out);
+    },
+    .Tuple(subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Struct(_, _, subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
     }
   );
 });
@@ -1538,3 +1931,4 @@ export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, m
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
+export(box_inner_type, _struct_field_tys, _struct_field_labels, _tuple_elem_tys);
