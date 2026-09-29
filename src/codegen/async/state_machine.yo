@@ -26,7 +26,6 @@
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
-{ eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
@@ -79,7 +78,10 @@ _LiveWalk :: ref(
     await_pos : ArrayList(u64),
     await_stmt_end : ArrayList(u64),
     /// The ids of the pattern bindings the walk declared.
-    bindings : HashSet(String)
+    bindings : HashSet(String),
+    /// The ids declared under each source name: a read the walk cannot
+    /// resolve (its node carries no environment) counts as a use of each.
+    names : HashMap(String, ArrayList(String))
   )
 );
 /// A token's source position as one ordered key (row major).
@@ -139,10 +141,13 @@ _lv_id :: (fn(v : Variable, w : _LiveWalk) -> String)({
   id := v.id.to_string();
   match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
 });
-/// Declare a local at `def_end` (its scope ends at `scope_end`).
-_lv_declare :: (fn(id : String, def_end : u64, scope_end : u64, w : _LiveWalk) -> unit)({
+/// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
+_lv_declare :: (fn(id : String, name : String, def_end : u64, scope_end : u64, w : _LiveWalk) -> unit)({
   if(!(w.vars.contains_key(id.clone())), {
-    w.vars.insert(id, _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
+    w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
+    ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
+    ids.push(id);
+    w.names.insert(name, ids);
   });
 });
 /// Record a use of `id` at `at`: a local defined before an enclosing loop is
@@ -192,7 +197,7 @@ _lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, conte
       match(
         _lv_resolve(pat, tok.value.clone(), w, context),
         .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
-          _lv_declare(_lv_id(v, w), _lv_pos(tok, w), scope_end, w);
+          _lv_declare(_lv_id(v, w), tok.value.clone(), _lv_pos(tok, w), scope_end, w);
           w.bindings.insert(_lv_id(v, w));
         }),
         .None => ()
@@ -225,13 +230,19 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
       _pos := _lv_pos(tok, w);
       match(
         _lv_resolve(e, tok.value.clone(), w, context),
-        .Some(v) => {
-          if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
-            eprintln(`[lv] use ${tok.value} id=${_lv_id(v, w)} at=${stmt_end.to_string()} known=${w.vars.contains_key(_lv_id(v, w)).to_string()}`);
-          });
-          _lv_use(_lv_id(v, w), stmt_end, w)
-        },
-        .None => ()
+        .Some(v) => _lv_use(_lv_id(v, w), stmt_end, w),
+        // No environment to resolve it in: every local of this name is taken
+        // as read here, which can only lengthen a range.
+        .None => match(
+          w.names.get(tok.value.clone()),
+          .Some(ids) => {
+            (ni : usize) = usize(0);
+            while(ni < ids.len(), ni = (ni + usize(1)), {
+              match(ids.get(ni), .Some(nid) => _lv_use(nid, stmt_end, w), .None => ());
+            });
+          },
+          .None => ()
+        )
       );
     }),
     .FnCall(_, func_box, args, _, _) => {
@@ -251,12 +262,7 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
           name := ast_expr_token(name_atom).value;
           match(
             _lv_resolve(e.clone(), name, w, context),
-            .Some(v) => {
-              if(debug_knob(`YO_DEBUG_ASYNC_LAYOUT`).is_some(), {
-                eprintln(`[lv] decl ${name} id=${_lv_id(v, w)} def_end=${_lv_span_end(rhs.clone(), w).to_string()} scope_end=${block_end.to_string()}`);
-              });
-              _lv_declare(_lv_id(v, w), _lv_span_end(rhs, w), block_end, w)
-            },
+            .Some(v) => _lv_declare(_lv_id(v, w), name.clone(), _lv_span_end(rhs, w), block_end, w),
             .None => ()
           );
         },
@@ -356,7 +362,8 @@ compute_cross_boundary_variables :: (
     await_sites : ArrayList(String).new(),
     await_pos : ArrayList(u64).new(),
     await_stmt_end : ArrayList(u64).new(),
-    bindings : HashSet(String).new()
+    bindings : HashSet(String).new(),
+    names : HashMap(String, ArrayList(String)).new()
   );
   body_end := _lv_span_end(body_expr.clone(), w);
   _lv_walk(body_expr.clone(), body_end, body_end, w, context);

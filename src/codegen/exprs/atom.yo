@@ -306,7 +306,13 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         if(is_ct_const, {
           return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5), .Some(crt) => crt, .None => ei5.ty), context.base)));
         });
-        return(Option(String).Some(get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(ei5.env))));
+        // By the SOURCE TOKEN, as the general path below reads a plain
+        // identifier: a bare reference used as a cond/match arm value can
+        // carry a spurious temp `variable_name`
+        // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md),
+        // and since phase 6 such a local can be a C local of the resume
+        // function rather than a field.
+        return(Option(String).Some(_var_read_code(var_name.clone(), Option(Environment).Some(ei5.env))));
       },
       .None => ()
     ),
