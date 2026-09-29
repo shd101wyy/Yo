@@ -337,6 +337,16 @@ with_allocator :: (fn(generic(T : Type), alloc : Allocator, f : Impl(Fn() -> T))
   __yo_scope_set(alloc.ctx, .Some((*void)(alloc.vtable)));
   f()
 });
+/// The allocator `with_allocator` made current on this thread, or `.None` when
+/// no scope is active (the global allocator). Container constructors that
+/// follow the scope read it.
+current_allocator :: (fn() -> Option(Allocator))(
+  match(
+    __yo_scope_vtable(),
+    .Some(vt) => .Some(Allocator(ctx : __yo_scope_ctx(), vtable : (*AllocatorVTable)(vt))),
+    .None => .None
+  )
+);
 export(
   size_would_overflow,
   Layout,
@@ -346,5 +356,6 @@ export(
   AllocatorVTable,
   Allocator,
   ALLOC_PREFIX_SIZE,
-  with_allocator
+  with_allocator,
+  current_allocator
 );
