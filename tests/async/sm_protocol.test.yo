@@ -266,7 +266,13 @@ _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 test("an escape after a closed branch drops each value-enum local once", {
   stop_exn := Exception(throw : (err -> unwind(())));
   before := g_disposed;
-  h := io.spawn(_sm_escape_after_branch(io), IoExn(io : io, exn : stop_exn));
-  assert(h.await(io).is_none(), "the task escaped");
+  (escaped : bool) = false;
+  // The block owns the future's initial reference (the call's temp), so the
+  // escaped task is freed, and its locals dropped, when the block ends.
+  {
+    h := io.spawn(_sm_escape_after_branch(io), IoExn(io : io, exn : stop_exn));
+    escaped = h.await(io).is_none();
+  };
+  assert(escaped, "the task escaped");
   assert(g_disposed == (before + i32(2)), `both Things were released exactly once, disposed ${g_disposed - before}`);
 });
