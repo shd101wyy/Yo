@@ -536,7 +536,7 @@ Measured, with the pinned Z3, over the pre-#989 base:*
   zero subtrahend or negand; fixed here
   (`issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md`).
   A 64-bit `usize` `+ - *` has no overflow guard at all; filed, not fixed
-  (`issues/usize-arithmetic-is-unguarded-on-64-bit-targets.md`). Elision
+  (`issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md`). Elision
   now fires only in the branches that emit a guard, so an unguarded
   operation is never counted.*
 
