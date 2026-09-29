@@ -853,9 +853,15 @@ future's resume), `src/codegen/async/state_machine.yo`
 2. The six constructor sites: scope read, scoped alloc, tag OR-ed into the
    `ref_count = 1` write.
 3. The resume wrapper on both state-machine kinds.
-4. `with_allocator(alloc, f)` + `_ScopeGuard(T)` (generic only so it is
-   emitted where it is used: the seed-built compiler never instantiates it,
-   so it never references hooks the seed runtime lacks) and `Arena.scoped`.
+4. `with_allocator(alloc, f)` + `_ScopeGuard`, a plain `ref` struct, and
+   `Arena.scoped`. An unused struct and its `Dispose` are not emitted, so the
+   seed-built compiler never references hooks the seed runtime lacks
+   (measured: a seed build of a program importing `std/collections` emits
+   neither). A first version made the guard generic in `T` and stored a
+   `?*T`, which ran into two pre-existing future-in-aggregate codegen bugs once
+   `T` could be an `io.async` future. One is fixed,
+   `issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`.
+   One is open, `issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.
 5. `tests/explicit_allocators.test.yo`: a ref struct (and `rc()` masking);
    objects outside the scope stay global; ref enum, `box`, `arc`,
    `AtomicBool` (an atomic ref struct — the D5 reversal), `dyn`; an `Iso`

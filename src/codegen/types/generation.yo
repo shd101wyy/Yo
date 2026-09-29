@@ -445,6 +445,13 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
             pfields.get(pfi),
             .Some(ft) => if(!is_unit_type(ft), {
               union_has_members = true;
+              // Resolve the payload's type string BEFORE the union opens: the
+              // resolution may fire an on-demand declaration into the same
+              // buffer, and inside the open union it is a nested `typedef`
+              // ("type name does not allow storage class to be specified").
+              // The enum twin of `_prewarm_runtime_field_types`
+              // (issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md).
+              get_type_string(ft, context);
             }),
             .None => ()
           );

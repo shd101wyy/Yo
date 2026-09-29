@@ -146,3 +146,41 @@ test("a generic T bound by a closure that returns an io.async future", {
   (annotated : Impl(Future(i32, Io))) = _call_it(() => io.async((io : Io) => i32(9)));
   assert(io.await(annotated, io) == i32(9), "an annotated binding");
 });
+// A generic caller that FORWARDS the closure (`arena.scoped(f)` calling
+// `with_allocator(a, f)`): inside the caller's specialization the inner call's
+// `T` is bound to the caller's `T`, which is bound to the future.
+_forward_it :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)(_call_it(f));
+test("a generic T bound through a caller that forwards the closure", {
+  task := _forward_it(() => io.async((io : Io) => i32(10)));
+  assert(io.await(task, io) == i32(10), "the forwarded future's value");
+  n := _forward_it(() => i32(11));
+  assert(n == i32(11), "a value through the same caller");
+});
+// A droppable local makes the body materialize its tail into `__yo_scope_ret`
+// before the drops. At the future specialization that temporary took the
+// OTHER specialization's return type (`_ScopeLocal*` instead of the state
+// machine), a C type error.
+// issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md
+_ScopeLocal :: ref(struct(n : i32));
+_call_with_local :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)({
+  _held := _ScopeLocal(n : i32(1));
+  f()
+});
+test("a tail temporary keeps each specialization's own return type", {
+  p := _call_with_local(() => _ScopeLocal(n : i32(3)));
+  task := _call_with_local(() => io.async((io : Io) => i32(8)));
+  assert((p.n + io.await(task, io)) == i32(11), "both specializations");
+});
+// A future stored as an enum payload (`Option(T)` at `T` = a future) emitted
+// the Future interface's on-demand forward declaration INSIDE the variant
+// union: "type name does not allow storage class to be specified".
+// issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md
+_FutureSlot :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_call_with_slot :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)({
+  _slot := _FutureSlot(T)(r : .None);
+  f()
+});
+test("a future type as an enum payload declares the payload type first", {
+  task := _call_with_slot(() => io.async((io : Io) => i32(12)));
+  assert(io.await(task, io) == i32(12), "the future's value");
+});

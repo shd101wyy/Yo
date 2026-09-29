@@ -305,13 +305,10 @@ impl(
 // holds one for the length of its body: `Dispose` runs on every exit, a
 // normal return and an `unwind` alike, which is what keeps an unwinding body
 // from leaving the thread on a dead allocator (the `Mutex.with_lock` guard
-// pattern). Generic only so it is emitted where `with_allocator` is used.
-_ScopeGuard :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(struct(_ctx : ?*void, _vtable : ?*void, _result : ?*T))
-);
+// pattern).
+_ScopeGuard :: ref(struct(_ctx : ?*void, _vtable : ?*void));
 impl(
-  generic(T : Type),
-  _ScopeGuard(T),
+  _ScopeGuard,
   Dispose(
     dispose : (fn(self : Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
   )
@@ -336,7 +333,7 @@ impl(
 /// p := with_allocator(arena.allocator(), () => Point(x : i32(3), y : i32(4)));
 /// ```
 with_allocator :: (fn(generic(T : Type), alloc : Allocator, f : Impl(Fn() -> T)) -> T)({
-  _guard := _ScopeGuard(T)(_ctx : __yo_scope_ctx(), _vtable : __yo_scope_vtable(), _result : .None);
+  _guard := _ScopeGuard(_ctx : __yo_scope_ctx(), _vtable : __yo_scope_vtable());
   __yo_scope_set(alloc.ctx, .Some((*void)(alloc.vtable)));
   f()
 });

@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   unmark_dot_callee
 } :: import("../context.yo");
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -2891,7 +2891,14 @@ _funcval_bind_foralls :: (
             se_var.value.get(usize(0)),
             .Some(se_val) => match(
               se_val,
-              .TypeVal(se_tb) => {
+              .TypeVal(se_tb_raw) => {
+                // A CALLER's type variable the synthesis bound this binder to
+                // (`T_inner := T_outer` when a generic caller forwards its
+                // `f : Impl(Fn() -> T_outer)`) is read through the caller's env:
+                // inside the caller's specialization it has a value there. In a
+                // definition-time trial it is unbound, resolves to itself, and
+                // is rejected below as before.
+                se_tb := get_value_of_some_type_from_env(env, se_tb_raw);
                 // Concrete the way codegen means it: a type variable carrying
                 // an `io.async` body's `Future` or a closure's `Fn` lowers to its
                 // state machine / capture struct, so it IS the binding. The
