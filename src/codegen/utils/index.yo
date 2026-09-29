@@ -2056,7 +2056,16 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValu
   });
   _checked_index_expr(index_code, len_code, expr)
 });
+/// An atom whose recorded `variable_name` is the variable itself, not a minted
+/// temp. Its value is its own rendering (a C local, a `(*ref)` deref, or a
+/// state-machine slot `sm->var_…` under the single-pass async lowering), so
+/// materializing it as `T name = <rendering>;` would redefine the variable in
+/// its own scope.
+is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
+  ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
+);
 export(
+  is_self_named_atom,
   _checked_index_expr,
   _idx_c_string_literal,
   _fixed_array_len_literal,

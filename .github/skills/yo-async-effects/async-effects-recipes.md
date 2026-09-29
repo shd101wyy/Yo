@@ -193,71 +193,22 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
-- **`io.await` must not appear in a `match` SCRUTINEE inside `io.async` — bind
-  it first.** The state-machine emitter splits the body at the await, and the
-  scrutinee slot is left empty, so codegen writes `switch (.tag)` and
-  `.data.Some.value` with nothing in front of them. Nothing rejects it: `check`
-  passes, `--emit-c` writes the file, and the C COMPILER is what fails, with
-  `error: expected expression` at a line number in a multi-million-line
-  generated file. Cost measured 2026-09-19: one full compiler build.
+- **`io.await` may appear anywhere in an `io.async` body**: a `match`
+  scrutinee, nested inside a condition (`if(!io.await(…), …)`), a later `cond`
+  branch, an operand (`add(io.await(a, io), io.await(b, io))`), a `while`
+  condition or step, a macro expansion. The body is lowered in one pass, and
+  each await suspends exactly where it is written, in source order; laziness
+  is kept (an await in a later branch or on the right of `&&` runs only when
+  reached). This replaced the segment lowering, whose unsupported shapes were
+  rejected with E0904 or silently miscompiled
+  (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
 
-  ```rust
-  match(io.await(read_file(p, io), io), .Some(b) => …, .None => …);   // ✗ invalid C
-  bytes := io.await(read_file(p, io), io);                            // ✓
-  match(bytes, .Some(b) => …, .None => …);
-  ```
-
-  The same shape is safe outside `io.async`. Related, already filed:
-  `issues/fixed/async-await-in-nested-match-arms.md`,
-  `issues/fixed/async-tail-match-return-hangs-state-machine.md`.
-- **`io.await` in a branch condition must BE the condition, not nested in it.**
-  Supported directly inside `io.async`:
-
-  ```rust
-  if(io.await(exists(p, io), io), { ... });                 // ✓
-  cond(io.await(ready(io), io) => ..., true => ...);        // ✓ (first branch)
-  match(io.await(num(io), io), 42 => ..., _ => ...);        // ✓ scrutinee
-  while(io.await(more(io), io), { ... });                   // ✓ condition
-  while(c, { ... io.await(f, io) ... }, { ... });           // ✓ step (arg 2)
-  ```
-
-  Codegen hoists these across the state boundary. They are real suspensions —
-  a task spawned first still interleaves — not blocking waits.
-
-  Three cases are rejected, each with a diagnostic naming the fix:
-
-  ```rust
-  // ✗ nested inside a larger expression — bind it first
-  if(!io.await(exists(p, io), io), { ... });
-  found := io.await(exists(p, io), io);
-  if(!found, { ... });                                      // ✓
-
-  // ✗ a LATER cond branch: `cond` is lazy, so hoisting would await even when
-  //   an earlier branch matches. Bind it first (evaluates unconditionally).
-  cond(c1 => ..., io.await(f, io) => ..., true => ...);
-  ```
-
-  This whole area only applies **inside `io.async`**. At the top level of a
-  plain `fn`, `io.await` drives the loop synchronously and may appear anywhere.
-
-  Historically the unsupported shapes were a **silent** miscompile: `rc=0` and
-  a segfaulting binary with the branch body dropped. See
-  `issues/fixed/yo-self-init-segfaults-on-first-run.md` and
-  `issues/fixed/await-in-branch-positions-matrix.md`.
-- **An `io.await` reached only through a MACRO EXPANSION is compiled as a
-  BLOCKING await** (measured 2026-09-11). Codegen looks for awaits in the
-  body's own AST, and a macro call keeps the macro head there — the expansion
-  lives in `ExprInfo.macro_expansion`. So a body whose only awaits come from a
-  macro is emitted as a plain closure (no state machine) with
-  `// Synchronous await (io.await outside state machine)` in the C. Inside a
-  spawned task that is a DEADLOCK: `io.spawn` never returns from the cold
-  start, so the caller never reaches whatever would satisfy the await. It only
-  shows up when the awaited future depends on the caller — a timer completes
-  on its own and the program merely serialises, so an awaiting macro can pass
-  a whole test suite and then hang. This is why `std/async/stream.yo` ships NO
-  `for_await` macro
-  (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
-  `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+  **Seed-gated in `src/` and `std/`.** Those are compiled by the seed, so
+  keep the old safe spellings there until `SEED_VERSION` carries the
+  single-pass lowering. Bind an await to a local before a scrutinee, a
+  compound condition or a later branch uses it; keep an await out of macro
+  expansions (which is why `std/async/stream.yo` ships no `for_await` yet).
+  Tests and user programs are compiled by the tree and may use any shape.
 - **`join_all` / `race` / `any` / `timeout` are TOP-LEVEL combinators — never
   call one from inside an `io.async` body.** They wait by looping
   `__yo_async_poll_step()`, and an `io.async` body always runs as a RESUMED

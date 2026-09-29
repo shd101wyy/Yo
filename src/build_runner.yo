@@ -133,7 +133,7 @@ InProcessCompileFn :: (fn(argv : ArrayList(String), io : Io, exn : Exception) ->
 /// Option: an async fn (`run_build`) reading a global fn-typed Option
 /// minted a temp the state machine carried across a suspension point, and
 /// fn-typed SM fields do not emit ("use of undeclared identifier",
-/// issues/async-sm-fn-typed-local-across-suspension.md). A ref-struct field
+/// issues/fixed/async-sm-fn-typed-local-across-suspension.md). A ref-struct field
 /// is a supported SM capture (the pointer is), so reads go through the slot
 /// object.
 InProcessCompileSlot :: ref(
@@ -172,7 +172,7 @@ ExecutionContext :: ref(
     /// through slot.f in-process against the warm evaluator universe. The
     /// SLOT REF (a pointer) is stored, never the fn value itself: an
     /// fn-typed value materializing in an async state machine is the
-    /// issues/async-sm-fn-typed-local-across-suspension.md bug.
+    /// issues/fixed/async-sm-fn-typed-local-across-suspension.md bug.
     in_process_compile_slot : InProcessCompileSlot,
     /// §7 step 2: true on `build --watch` rounds (`BuildOptions.
     /// watch_in_process`, set by `_build_round_watch`). A failed step must
@@ -2157,7 +2157,7 @@ compile_artifact :: (
       // evaluator universe. The argv is the child's exact command line, so
       // both paths run the same flags. The fn value is read and called
       // within this SM segment (no await between) — see
-      // issues/async-sm-fn-typed-local-across-suspension.md.
+      // issues/fixed/async-sm-fn-typed-local-across-suspension.md.
       argv := cmd.get_args();
       argv.insert(usize(0), String.from("compile"));
       argv.insert(usize(0), String.from("yo"));

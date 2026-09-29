@@ -270,3 +270,27 @@ test("an aborted task drops a pattern binding's scrutinee once", {
   io.await(yield(io), io);
   assert(g_disposed == (before + i32(1)), "the Thing is disposed exactly once");
 });
+
+// issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md
+_reassign_in_arm_after_loop_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : Thing) = Thing(n : i32(0));
+    while(i < i32(10), {
+      e.await(_leaf(i, e), e);
+      if(i == n, {
+        last = Thing(n : i32(1));
+        i = i32(100);
+      }, {
+        i = (i + i32(1));
+      });
+    });
+    last.n
+  })
+);
+test("a heap local reassigned in an arm after a loop await releases the old value", {
+  g_disposed = i32(0);
+  r := io.await(_reassign_in_arm_after_loop_await(i32(3), io), io);
+  assert(r == i32(1), "the arm's reassignment is the task's result");
+  assert(g_disposed == i32(2), "the replaced value and the final one are both disposed");
+});

@@ -30,7 +30,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
@@ -1085,7 +1085,11 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
           match(
             ei.variable_name,
             .Some(src_vn) => {
-              src_c_name := get_variable_name_for_codegen(src_vn, Option(Environment).Some(ei.env));
+              // A self-named atom (its `variable_name` is the variable itself)
+              // is no temp: its value is its own rendering, which can be a
+              // state-machine slot under the single-pass async lowering.
+              src_self := is_self_named_atom(expr, src_vn.clone());
+              src_c_name := get_variable_name_for_codegen(src_vn.clone(), Option(Environment).Some(ei.env));
               src_deref_read := `(*${src_c_name})`;
               // A by-`ref` binding (`inout(name) : T`) READS as `(*name)` while
               // its recorded `variable_name` is the bare `name`. The
@@ -1095,6 +1099,9 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
               // is already reachable through the deref, so use that read
               // directly and declare nothing.
               cond(
+                src_self => {
+                  fallback_code_2 = fallback_code.clone();
+                },
                 (src_c_name == fallback_code.trim()) => {
                   fallback_code_2 = src_c_name;
                 },
@@ -1237,7 +1244,10 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
     bei.variable_name,
     .Some(bvn) => {
       btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
-      if(!(btv == raw_code), {
+      // Self-named atom: its value is its own rendering (see
+      // handle_atom_deferred_dup in return.yo).
+      b_self := is_self_named_atom(body_expr, bvn.clone());
+      if(!b_self && !(btv == raw_code), {
         bem := context.base.emitter;
         bline := indent.clone();
         bline.push_string(get_type_string(bei.ty, context.base));
@@ -1249,7 +1259,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
         bem.emit_string_line(bline);
         context.base.declared_c_var_names.insert(btv.clone());
       });
-      final_code = btv;
+      final_code = if(b_self, raw_code.clone(), btv);
     },
     .None => ()
   );

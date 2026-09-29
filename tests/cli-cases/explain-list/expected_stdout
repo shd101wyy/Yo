@@ -22,7 +22,7 @@ E0606  value is not callable
 E0901  use of moved value
 E0902  cannot reassign
 E0903  variable may be uninitialized
-E0904  not supported in an io.async body that awaits
+E0904  inout binding in an io.async body that awaits
 E0905  body was never fully evaluated
 E0906  forward reference
 E0907  value moved on some paths only
@@ -63,11 +63,11 @@ Example — write this instead:
 Run 'yo explain --list' for all codes.
 rc=0
 $ yo explain E0904
-E0904 — not supported in an io.async body that awaits
+E0904 — inout binding in an io.async body that awaits
 
-An `io.async` body that awaits is lowered to a state machine, and a few constructs cannot be placed in one yet.
+An `io.async` body that awaits is lowered to a state machine, and an `inout(name) := ...` binding cannot be placed in one.
 
-An `io.await` must stand as a statement, as the value of `x := ...`, `x = ...` or `return(...)`, as a `cond`/`match` arm value, as the FIRST `cond` condition, or inside a `while` body; hoist any other await into a local first (`r := io.await(f, io);`). An `if` whose body awaits must be written as the `cond` it expands to. A `match` whose arms await takes only plain variant patterns: bind the payload and match again inside the arm. An `inout(name) := ...` binding cannot live in such a body, because the state machine keeps a per-state copy of each local; read the value into a local instead.
+An `inout(name) := ...` binding cannot live in a body that awaits; read the value into a local instead. (An `io.await` itself may appear anywhere inside `io.async`.)
 
 Example — this fails:
   inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
@@ -99,6 +99,6 @@ Example — write this instead:
   });
   export(main);
   
-  The await-position rules are enforced where the state machine is built, so `yo compile` reports them; the `inout` binding is reported by `yo check` too.
+  `yo check` reports it: the rule is decided from the body's await analysis.
 Run 'yo explain --list' for all codes.
 rc=0

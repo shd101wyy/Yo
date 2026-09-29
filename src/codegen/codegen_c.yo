@@ -32,7 +32,8 @@
 { register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
 { _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
-{ register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
+{ register_inline_await_emitter } :: import("./async/_fsm.yo");
+{ emit_inline_await } :: import("./async/state_machine.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
 { registered_func_type_count } :: import("../function_value.yo");
 /// True if any field of the struct contains a SomeType (generic).
@@ -309,7 +310,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // atom.yo imports closures.yo).
   set_sm_atom_resolver(_generate_sm_atom);
   // Register the FSM await/cond/match/while emitter indirections.
-  register_fsm_emitters_impl();
+  register_inline_await_emitter(emit_inline_await);
   // Inject the resolved-concrete lookup into the low-level type guards so
   // is_function_type_hard_generic can exclude SomeType params that resolved to a
   // concrete type.

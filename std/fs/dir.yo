@@ -347,7 +347,7 @@ file_type :: (fn(path : Path, io : Io) -> Impl(Future(FileType, IoExn)))(
     // before the free and the throw after it. Both `cond`s are statements
     // and the body's tail is the bare `ft`: a value-position `cond` whose
     // other arm throws emitted a read of an undeclared C temp here
-    // (issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+    // (issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
     (ft : FileType) = FileType.Other;
     cond(
       (result >= i32(0)) => {
@@ -403,7 +403,7 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     // Resolving `DT_UNKNOWN` needs a stat, and an await down here (inside the
     // scan of one getdents buffer, a while nested in a while nested in a cond
     // arm) is the async state-machine shape
-    // issues/async-nested-cond-await-duplicate-while-labels.md warns about.
+    // issues/fixed/async-nested-cond-await-duplicate-while-labels.md warns about.
     // The mapping — and the stat — happen in pass 2, one loop up.
     raw := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
     buf_size := u32(4096);

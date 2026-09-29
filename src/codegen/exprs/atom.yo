@@ -36,40 +36,23 @@
 { emit_async_future_completion } :: import("./async_completion.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { panic, assert } :: import("std/assert");
-/// Emit the state-machine while-body drops (only those resolving to `sm->`
-/// fields — plain locals live in the resume frame and are dropped by the
-/// regular scope machinery).
-_emit_sm_while_body_drops :: (fn(context : FunctionGenerationContext, indent : String) -> unit)(
+/// A shadowed name (a match-arm binding): its state-machine slot under the
+/// single-pass async lowering (`shadow_slots`), else its C local.
+_shadowed_name_code :: (fn(var_name : String, context : FunctionGenerationContext) -> String)({
+  cname := sanitize_for_c_identifier(var_name, false);
   match(
-    context.sm_while_body_drops,
-    .Some(drops) => {
-      em := context.base.emitter;
-      (i : usize) = usize(0);
-      n := drops.len();
-      while(i < n, {
-        match(
-          drops.get(i),
-          .Some(drop_expr) => {
-            drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
-            if((drop_code.len() > usize(0)) && drop_code.contains("sm->"), {
-              em.emit_string_line(`${indent.clone()}${drop_code.clone()};`);
-            });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    },
-    .None => ()
+    match(context.shadow_slots, .Some(m) => m.get(cname.clone()), .None => Option(String).None),
+    .Some(field) => `sm->${field}`,
+    .None => cname
   )
-);
+});
 /// Async/effect state-machine variable resolution — the `sm->var_<id>` /
 /// `sm->__capture.<name>` mapping. Returns `.None` when the atom is not an
 /// SM-resolvable variable (the caller falls through to the regular path).
 _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
   // Locally-shadowed (match-arm destructure) → the local C variable.
   if(match(context.local_shadowed_variables, .Some(s) => s.contains(var_name.clone()), .None => false), {
-    return(Option(String).Some(sanitize_for_c_identifier(var_name.clone(), false)));
+    return(Option(String).Some(_shadowed_name_code(var_name.clone(), context)));
   });
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
   ei_opt := context.base.get_expr_info(expr);
@@ -479,31 +462,6 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       },
       .None => ()
     );
-    // State-machine while-loop body: `continue` must goto the loop label
-    // (plain `continue` doesn't work inside a switch / goto-based loop).
-    match(
-      context.sm_while_continue_info,
-      .Some(sci) => {
-        if(sci.emit_drops_before_goto, {
-          _emit_sm_while_body_drops(context, indent.clone());
-        });
-        match(
-          sci.step_expr,
-          .Some(se) => {
-            step_code := _call_generate_expr(se, indent.clone(), context);
-            if(step_code.len() > usize(0), {
-              em_sc := context.base.emitter;
-              em_sc.emit_string_line(`${indent.clone()}${step_code.clone()};`);
-            });
-          },
-          .None => ()
-        );
-        out_sc := String.from("goto ");
-        out_sc.push_string(sci.label.clone());
-        return(out_sc);
-      },
-      .None => ()
-    );
     return(String.from("continue"));
   });
   if(tv == "break", {
@@ -517,29 +475,6 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
           return(out);
         });
         return(String.from("break"));
-      },
-      .None => ()
-    );
-    // State-machine while-loop body: `break` emits body drops + goto the
-    // after-loop label (plain `break` only exits a C switch, not the
-    // goto-based SM loop).
-    match(
-      context.sm_while_break_info,
-      .Some(sbi) => {
-        _emit_sm_while_body_drops(context, indent.clone());
-        match(
-          sbi.active_index,
-          .Some(ai) => {
-            // Reset the active flag as a side effect; return a plain goto so
-            // cond.yo's startsWith("goto") control-flow detection still works.
-            em_sb := context.base.emitter;
-            em_sb.emit_string_line(`${indent.clone()}sm->while_loop_${ai}_active = false;`);
-          },
-          .None => ()
-        );
-        out_sb := String.from("goto ");
-        out_sb.push_string(sbi.label.clone());
-        return(out_sb);
       },
       .None => ()
     );
@@ -656,7 +591,13 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
       if(match(context.local_shadowed_variables, .Some(s) => s.contains(tv.clone()), .None => false), {
-        return(get_variable_name_for_codegen(tv.clone(), Option(Environment).None));
+        return(
+          match(
+            match(context.shadow_slots, .Some(m) => m.get(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
+            .Some(field) => `sm->${field}`,
+            .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
+          )
+        );
       });
       // variableName path: comptime-only constant inline, else the name.
       match(

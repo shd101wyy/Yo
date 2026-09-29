@@ -47,7 +47,7 @@ the task blocks in `accept` during the spawn, so the caller never reaches the
 `connect` that would satisfy it.
 
 Full write-up plus a 20-line reproducer that needs no network:
-`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+`issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
 `issues/repros/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.yo`.
 
 The failure is worse than a hard error, which is why the macro was removed
@@ -104,7 +104,7 @@ macro can deadlock silently.
 
 - `plans/reference/ASYNC_ITERATION_STREAM.md` — the stream design; its
   "Order of work" item 4 is what this doc parks.
-- `issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
+- `issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
   — the defect.
 - `plans/archive/STD_API_STABILIZATION.md` §4 (Concurrency) — where the async surface's
   open items are tracked.

@@ -553,38 +553,28 @@ task := io.async((io : Io) => {
 
 ### Where `await` may appear inside `io.async`
 
-Each `await` is a state transition, so it has to sit somewhere the body can be
-_split_. Branch bodies split naturally. Conditions and `match` scrutinees are
-evaluated before any branch is chosen, so they are **hoisted** across the state
-boundary instead; a `while` condition, which re-runs every iteration, makes the
-whole loop cycle through one state.
+Anywhere an expression may. The body is lowered in one pass: each `await`
+becomes a suspension point exactly where it is written, and the task resumes
+there. Every local, pattern binding and intermediate value lives in the task
+itself, so nothing is lost across the suspension.
 
 ```rust
-// ✓ supported
 cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
-if(io.await(exists(p, io), io), { ... });
-cond(io.await(ready(io), io) => ..., true => ...);
-match(io.await(num(io), io), 42 => ..., _ => ...);
+if(!(io.await(exists(p, io), io)), { ... });              // inside a condition
+cond(c1 => ..., io.await(f, io) => ..., true => ...);      // a later cond branch
+match(io.await(num(io), io), 42 => ..., _ => ...);          // a scrutinee
+x := add(io.await(a, io), io.await(b, io));                 // two in one expression
 while(io.await(more(io), io), { ... });
-while(c, { ... io.await(f, io) ... }, { ... });   // step, arg 2 of the 3-arg form
-
-// ✗ rejected: the await is NESTED inside a larger condition
-if(!(io.await(exists(p, io), io)), { ... });
-// ✓ bind it first
-found := io.await(exists(p, io), io);
-if(!(found), { ... });
-
-// ✗ rejected: a LATER cond branch. `cond` is lazy, so hoisting it would await
-//   even when an earlier branch matches — a change of meaning, not of timing.
-cond(c1 => ..., io.await(f, io) => ..., true => ...);
+while(c, { t := io.await(f, io); i = t; }, { ... });        // the step of a 3-arg while
 ```
+
+Evaluation order is the source order. In `add(g(), io.await(f, io))`, `g()`
+runs before the task suspends. Laziness is kept: an `await` in a later `cond`
+branch, or on the right of `&&`, runs only when that branch or operand is
+evaluated.
 
 These are real suspensions: a task spawned before an awaited condition runs
 while the awaiting task is suspended.
-
-The restriction applies **only inside `io.async`**. In a plain `fn` body,
-`io.await` drives the event loop synchronously and may appear anywhere an
-expression may.
 
 ## Event Loop
 
