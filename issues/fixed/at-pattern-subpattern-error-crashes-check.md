@@ -1,5 +1,10 @@
 # A `:=` whole-value pattern whose sub-pattern fails evaluation SIGFAULTS `yo check`
 
+**Status: FIXED** by #993 (2026-09-29): `generate_recur` now wraps every
+self-call in the escape protocol; the regression cli-cases
+`match-at-subpattern-error-reports-cleanly` and
+`match-or-alternative-error-reports-cleanly` pin the clean E0609.
+
 **Opened:** 2026-09-28
 **Reproduced on:** seed `yo 0.2.45` (installed 2026-09-28), tree `12a69ed8b`
 (develop, #985).
