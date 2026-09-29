@@ -1,0 +1,15 @@
+// expect-elided: 0
+// 5b Phase 2 twin: nothing bounds `a + b`, so its no-overflow obligation is
+// refuted. That is elision-only: the compile still succeeds, the function is
+// still `ok`, and the overflow guard stays as the defined behavior.
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+add :: (fn(a : u8, b : u8) -> u8)(
+  a + b
+);
+
+main :: (fn() -> unit)({
+  println(add(u8(3), u8(4)));
+});
+export(main);

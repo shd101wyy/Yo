@@ -7,7 +7,7 @@
 //! a statement (or nothing) and return "". Fresh temp names via random_id.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
+{ guard_site_is_proved, guard_site_pair_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 {
   AstExpr,
   ast_expr_token,
@@ -134,11 +134,15 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     true => String.new()
   );
   if(signed_wide.len() > usize(0), {
+    // 5b: the signed guard covers two traps, so it elides only when both
+    // `divisor-nonzero` and `div-no-overflow` (`MIN / -1`) are proved.
+    if(guard_site_pair_is_proved(expr, "divisor-nonzero", "div-no-overflow"), {
+      return(_binop(args, op));
+    });
     return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
   });
   if(is_u8_type(ty) || (is_u16_type(ty) || (is_u32_type(ty) || (is_u64_type(ty) || is_usize_type(ty)))), {
-    // 5b: a proved non-zero divisor needs no guard. A signed `/` also needs
-    // its `MIN / -1` proof (Phase 2), so only the unsigned guard elides here.
+    // 5b: a proved non-zero divisor needs no guard.
     if(guard_site_is_proved(expr, "divisor-nonzero"), {
       return(_binop(args, op));
     });
@@ -185,6 +189,11 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
   fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
+  // 5b Phase 2: the verifier proved the exact result fits the type, so the
+  // plain operation, narrowed back to it, is the same value.
+  if(guard_site_is_proved(expr, "no-overflow"), {
+    return(`((${ct})((${a}) ${op} (${b})))`);
+  });
   if(is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty)) || (is_isize_type(ty) && wasm), {
     bounds := cond(
       is_i16_type(ty) => String.from("(-32768), 32767"),
@@ -223,6 +232,10 @@ _neg_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
+  // 5b Phase 2: the verifier proved the operand is not the type's MIN.
+  if(guard_site_is_proved(expr, "neg-no-overflow"), {
+    return(_unop_narrowed(args, "-", expr, context));
+  });
   if(is_i8_type(ty), {
     return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-128)${loc}))`);
   });

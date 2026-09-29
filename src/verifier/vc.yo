@@ -462,6 +462,11 @@ VcObligation :: ref(
     /// Proved here, may this obligation remove its guard? False when an
     /// unenforced assumption (`VcCtx.unenforced`) was on the path.
     (elidable : bool) ?= false,
+    /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
+    /// an ELISION-ONLY obligation decides its guard and nothing else. Not
+    /// proved, the guard stays and is itself the defined behavior, so it never
+    /// fails the function or counts toward its outcome.
+    (elision_only : bool) ?= false,
     /// Literal-construction CTFE folding: the goal constant-folded to a
     /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
     (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
@@ -506,6 +511,8 @@ VcCtx :: ref(
     /// verifier never walks can break the assumption
     /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
     unenforced : ArrayList(VcTerm),
+    /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
+    (elision_obligations : bool) ?= false,
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -917,7 +924,8 @@ _emit :: (
     label : String,
     extra_assumptions : ArrayList(VcTerm),
     goal : VcTerm,
-    (site : Option(GuardSite)) ?= Option(GuardSite).None
+    (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    (elision_only : bool) ?= false
   ) -> unit
 )({
   // Unique within the function: a guard obligation carries its 1-based
@@ -1171,7 +1179,7 @@ _emit :: (
       uk = (uk + usize(1));
     });
   });
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable));
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable, elision_only : elision_only));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
@@ -2893,11 +2901,31 @@ _call_term :: (
         _guard_site(e, String.from("shift-in-width"))
       );
     });
+    if(ctx.elision_obligations, {
+      _emit_binop_elision_obligation(ctx, e, op, at, bt, info.ty);
+    });
     return(Option(VcTerm).Some(_app2(op, at, bt)));
   });
   // --- unary --------------------------------------------------------------
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
+    if(ctx.elision_obligations && (head == "-") && (a.is_some() && _int_is_signed(info.ty)), {
+      match(
+        _int_width(info.ty),
+        .Some(nw) => {
+          _emit(
+            ctx,
+            String.from("neg-no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app1(VcOp.NotOp, _app2(VcOp.EqOp, a.clone().unwrap(), _int_min_lit(nw))),
+            _guard_site(e, String.from("neg-no-overflow")),
+            true
+          );
+        },
+        .None => ()
+      );
+    });
     return(
       match(
         a,
@@ -4532,6 +4560,57 @@ _callee_call_term :: (
 // ============================================================================
 // Small term helpers
 // ============================================================================
+/// The signed minimum of width `w` (`#b10…0`) as a bit-vector literal.
+_int_min_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : (u64(1) << u64(w - usize(1))), width : w)
+);
+/// All ones of width `w` (signed `-1`).
+_all_ones_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : if(w >= usize(64), u64.MAX, (u64(1) << u64(w)) - u64(1)), width : w)
+);
+/// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6): the
+/// elision-only obligation of one integer binary operation, decided at its
+/// runtime guard. Signed `/` `%`: `div-no-overflow`, not `MIN / -1`. `+ - *`
+/// (signed and unsigned): `no-overflow`, the exact result fits, checked by
+/// widening (one bit for `+ -`, to twice the width for `*`) and comparing
+/// with the widened wrapped result. Any other operation adds nothing.
+_emit_binop_elision_obligation :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, op : VcOp, at : VcTerm, bt : VcTerm, ty : TypeValue) -> unit
+)(
+  match(
+    _int_width(ty),
+    .Some(w) => {
+      signed := _int_is_signed(ty);
+      cond(
+        ((op == VcOp.BvSdiv) || (op == VcOp.BvSrem)) => {
+          _emit(
+            ctx,
+            String.from("div-no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app1(VcOp.NotOp, _app2(VcOp.AndOp, _app2(VcOp.EqOp, at, _int_min_lit(w)), _app2(VcOp.EqOp, bt, _all_ones_lit(w)))),
+            _guard_site(e, String.from("div-no-overflow")),
+            true
+          );
+        },
+        ((op == VcOp.BvAdd) || ((op == VcOp.BvSub) || (op == VcOp.BvMul))) => {
+          ww := if(op == VcOp.BvMul, w * usize(2), w + usize(1));
+          exact := _app2(op, _widen_or_trunc(at, w, ww, signed), _widen_or_trunc(bt, w, ww, signed));
+          wrapped := _widen_or_trunc(_app2(op, at, bt), w, ww, signed);
+          _emit(
+            ctx,
+            String.from("no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app2(VcOp.EqOp, exact, wrapped),
+            _guard_site(e, String.from("no-overflow")),
+            true
+          );
+        },
+        true => ()
+      );
+    },
+    .None => ()
+  )
+);
 _nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
   match(
     t,
@@ -4599,13 +4678,17 @@ VerifyFnInput :: ref(
     table : ExprInfoTable,
     /// Per `requires_exprs` entry: enforced by a runtime entry assert
     /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
-    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
+    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new(),
+    /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+    /// when it records guard sites, `yo verify --elision`).
+    (elision_obligations : bool) ?= false
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
+  ctx.elision_obligations = input.elision_obligations;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
   param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.

@@ -852,6 +852,9 @@ _run_contract_verification :: (
     return(true);
   });
   cfg := default_verify_run_config();
+  // 5b Phase 2: the elision-only obligations are generated only where a
+  // proof can remove a guard.
+  cfg.elision_obligations = record_guard_sites;
   // Only a `verify`-mode task depends on its proofs for soundness.
   (needs_proofs : bool) = false;
   (ti : usize) = usize(0);
@@ -1436,6 +1439,7 @@ run_verify_cmd :: (
   (rlimit_opt : Option(usize)) = Option(usize).None;
   (format_json : bool) = false;
   (no_cache : bool) = false;
+  (elision : bool) = false;
   (explain_fn : Option(String)) = Option(String).None;
   // B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the outcomes
   // that FAIL the run on top of the default rule. Empty = today's behavior.
@@ -1500,6 +1504,12 @@ run_verify_cmd :: (
         no_cache = true;
         ai = (ai + usize(1));
       },
+      // 5b Phase 2: also prove the elision-only obligations `yo compile`
+      // uses to remove guards (the C-diff oracle's view of them).
+      (a_name == "--elision") => {
+        elision = true;
+        ai = (ai + usize(1));
+      },
       // `--strict` is the laws gate: a run must not pass because every
       // contract was `assumed()` away, or because a body quietly fell out of
       // the verifiable subset. It is exactly `--deny assumed,outside-subset,unproven`.
@@ -1541,7 +1551,7 @@ run_verify_cmd :: (
       a.starts_with(String.from("-")) => {
         exn.throw(
           dyn(
-            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--strict] [--deny <outcomes>]`
+            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--elision] [--strict] [--deny <outcomes>]`
           )
         );
       },
@@ -1582,6 +1592,7 @@ run_verify_cmd :: (
   cfg := default_verify_run_config();
   cfg.solver_path = solver_path;
   cfg.no_cache = no_cache;
+  cfg.elision_obligations = elision;
   match(
     rlimit_opt,
     .Some(n) => {
@@ -1962,6 +1973,12 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
             .None => JsonValue.Null
           )
         );
+        // 5b Phase 2: present only on an elision-only obligation, so a run
+        // without `--elision` prints the same report as before.
+        if(obl.elision_only, {
+          ks.push(String.from("elision_only"));
+          vs.push(JsonValue.Bool(true));
+        });
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
       },
       .None => ()
@@ -2021,6 +2038,18 @@ _verify_self_test_json :: (fn(results : ArrayList(VerifyResult)) -> ArrayList(Js
   });
   entries
 });
+/// How many of a report's obligations proved.
+_verify_proved_count :: (fn(rp : VerifyFnReport) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    if(match(rp.obligations(i).verdict, .Proved(_) => true, _ => false), {
+      n = (n + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  n
+});
 /// Text rendering of one function report. `detailed` (from `--explain`)
 /// prints every obligation; the default prints per-function lines plus the
 /// failing obligations' counter-examples.
@@ -2054,8 +2083,12 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
     // is inspectable too — the detail loop used to be reachable only
     // from non-ok outcomes, the exact case that never needed it.
     ((rp.outcome == "ok") && (!detailed)) => {
+      // 5b Phase 2: an elision-only obligation that did not prove keeps its
+      // guard; it is not a failure, so it is counted, not listed.
+      n_kept := (rp.obligations.len() - _verify_proved_count(rp));
+      kept_note := if(n_kept > usize(0), `; ${n_kept.to_string()} guard(s) kept (elision-only, not proved)`, String.new());
       println(
-        `  ok       ${rp.fn_id} [${rp.mode}] — ${rp.obligations.len().to_string()} obligation(s) proved`
+        `  ok       ${rp.fn_id} [${rp.mode}] — ${_verify_proved_count(rp).to_string()} obligation(s) proved${kept_note}`
       );
       ()
     },
@@ -2071,7 +2104,7 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               .Proved(_) => false,
               _ => true
             );
-            if(bad || detailed, {
+            if((bad && !(obl.elision_only)) || detailed, {
               detail := match(
                 obl.verdict,
                 .Proved(_) => String.from("PROVED"),
@@ -2089,7 +2122,8 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               );
               cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
               folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
-              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}`);
+              kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
+              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);
               // The VC itself, as the solver saw it (`--explain`'s "VC
               // set": what the obligation asks, not just its name).
               if(detailed && (obl.goal.len() > usize(0)), {
@@ -8450,6 +8484,8 @@ Options:
   --explain <fn>            Print the full obligation detail for functions
                             whose id matches <fn> (substring)
   --no-cache                Skip the verification cache
+  --elision                 Also prove the overflow obligations that let
+                            yo compile remove a guard (they never fail a run)
   --strict                  Fail on assumed, outside-subset and unproven too
                             (= --deny assumed,outside-subset,unproven). Without
                             it a run passes even when every contract was
@@ -8483,6 +8519,8 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   --format <text|json>     输出格式（默认 text）
   --explain <函数名>       打印 id 匹配（子串）的函数的完整义务明细
   --no-cache               跳过验证缓存
+  --elision                同时证明让 yo compile 移除守卫的溢出义务
+                           （它们从不导致运行失败）
   --strict                 assumed、outside-subset 与 unproven 也算失败
                            （等价于 --deny assumed,outside-subset,unproven）。
                            不加此选项时，即使所有契约都被 assumed() 掉，
