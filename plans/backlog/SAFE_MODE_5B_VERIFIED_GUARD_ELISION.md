@@ -404,8 +404,9 @@ which is the same argument for index reads.
   into its raw operation, and `(file, r, c, class)` must appear as a
   `proved` obligation `site` in `yo verify --format json` for the same file.
   A hunk with no matching proof fails the test, and so does a hunk that
-  changes anything else. Home: `scripts/check-guard-elision.sh`, run by the
-  FV CI job, which already has the pinned Z3.
+  changes anything else. Home: `scripts/check-guard-elision.py`, run by the
+  `guard-elision` CI job (stage 1 plus the pinned Z3; the FV job runs the
+  seed, which has no `--no-guard-elision`).
 - **Twin fixtures** (cli-cases) check that elision fires and that it stops
   where it should:
 
@@ -489,7 +490,19 @@ wasm32 probe emits 32-bit `usize` goals; a regression test that a
 cli-cases.
 
 **Phase 1: the channel. Index, unsigned div/rem and shift elision in the
-entry file.**
+entry file.** *Status 2026-09-29: implemented on `verify/5b-phase1`.
+Measured with the pinned Z3: the oracle passes over the 10 elision
+fixtures and the 42 valid ones. The elision fixtures elide 1, 1, 1 and 2
+guards (unsigned `/`, index read, shift, and a loop's index read + write),
+and 0 in every twin that must keep its guard: signed `/`, a ghost-fn
+`requires`, a `refine` premise, a callee's `ensures`, a generic body, an
+outside-subset function. The valid fixtures elide nothing, because most
+have no `main`, so codegen never emits their bodies; they check soundness,
+not firing. Rule 2's `unproven` case has no fixture: `verify+` still makes a
+refutation a compile error, so only a solver timeout reaches it, and the
+`outcome == "ok"` check in `record_elidable_guard_sites` is its gate.
+Deviation from the table below: every callee `ensures` counts as unenforced,
+even one proved in this compile (conservative; lifting it is Phase 3's).*
 
 - Assumption provenance, the filter, `g_proved_guard_sites`,
   `guard_site_is_proved` in the five emitters, `--no-guard-elision`, and the

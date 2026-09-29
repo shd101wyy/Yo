@@ -1,0 +1,23 @@
+// expect-elided: 2
+// 5b twin: the loop invariant bounds `i`, so both the read `s(i + 1)` and the
+// write `s(i) = ...` are proved in bounds. The write's site is its LHS index
+// node, which is where the store guard is emitted (plan §6).
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+shift_left :: (fn(xs : Array(i32, usize(4))) -> Array(i32, usize(4)))({
+  s := xs;
+  (i : usize) = usize(0);
+  while(i < usize(3), {
+    invariant(i <= usize(3));
+    s(i) = s(i + usize(1));
+    i = (i + usize(1));
+  });
+  s
+});
+
+main :: (fn() -> unit)({
+  s := shift_left(Array(i32, usize(4))(i32(1), i32(2), i32(3), i32(4)));
+  println(s(usize(0)));
+});
+export(main);

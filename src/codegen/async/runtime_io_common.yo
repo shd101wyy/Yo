@@ -688,89 +688,31 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
       emitter.emit_string_line(
         `
 // ============================================================================
-// Timer Operations (macOS - kqueue EVFILT_TIMER)
+// Timer Operations (macOS - the runtime's timer heap)
 // ============================================================================
 
-// Monotonically increasing timer ID for unique kqueue ident values (per-thread)
-static _Thread_local uintptr_t __yo_timer_next_id = 1;
-
-// Timer context stored as kevent udata
-typedef struct __yo_timer_ctx_t {
-  __yo_io_future_t* future;
-} __yo_timer_ctx_t;
-
-// Extended future for a timer: keeps the kqueue ident and the udata context,
-// which is what a cancel needs to name the registration. Before this the
-// ident was a local discarded as soon as EV_SET was issued, so an aborted
-// sleep could only be released by letting it fire
-// (issues/fixed/timeout-deadline-timer-future-leak.md).
-typedef struct {
-  __yo_io_future_t base;
-  uintptr_t timer_id;
-  __yo_timer_ctx_t* ctx;
-} __yo_timer_future_t;
-
-// Deregister the one-shot timer. EV_DELETE destroys the knote, so no event is
-// delivered for it afterwards and this path owns the context and the pending
-// count — exactly what __yo_io_process_event would otherwise have done. A
-// timer that already fired is gone from the kqueue (EV_ONESHOT deletes on
-// delivery), so kevent reports ENOENT: refuse, and let the delivered event
-// take its normal course.
-static bool __yo_timer_future_cancel(__yo_io_future_t* future) {
-  __yo_timer_future_t* tf = (__yo_timer_future_t*)future;
-  struct kevent ev;
-  EV_SET(&ev, tf->timer_id, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
-  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
-    ASYNC_DEBUG("[TIMER] Cancel found no registration: errno=%d\\n", errno);
-    return false;
-  }
-  if (tf->ctx) {
-    __yo_free(tf->ctx);
-    tf->ctx = NULL;
-  }
-  __yo_pending_io_count--;
-  ASYNC_DEBUG("[TIMER] Cancelled timer (pending=%zu)\\n", __yo_pending_io_count);
-  return true;
-}
-
-// macOS timer using kqueue EVFILT_TIMER
+// Async sleep. A sleep is a node in the thread's timer heap
+// (runtime_io_macos.yo, __yo_timer_arm), whose earliest deadline bounds the
+// loop's blocking kevent(): arming and cancelling it cost no syscall. It was
+// an EVFILT_TIMER knote — one kevent() to add it and one more to EV_DELETE it
+// when a std/async timeout's deadline lost the race. Completes with 8, the
+// timer contract. The future owns no resource.
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
-  
-  __yo_timer_future_t* timer_future = (__yo_timer_future_t*)__yo_rc_alloc(sizeof(__yo_timer_future_t));
-  memset(timer_future, 0, sizeof(__yo_timer_future_t));
-  __yo_io_future_t* future = &timer_future->base;
-  
+
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
-  __yo_timer_ctx_t* ctx = (__yo_timer_ctx_t*)__yo_rc_alloc(sizeof(__yo_timer_ctx_t));
-  ctx->future = future;
-  
-  uintptr_t timer_id = __yo_timer_next_id++;
-  timer_future->timer_id = timer_id;
-  timer_future->ctx = ctx;
-  
-  struct kevent ev;
-  EV_SET(&ev, timer_id, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_USECONDS, (intptr_t)(milliseconds * 1000), (void*)ctx);
-  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
-    future->result = -errno;
-    atomic_store(&future->state, -1);
-    timer_future->ctx = NULL;
-    __yo_free(ctx);
-    ASYNC_DEBUG("[TIMER] Failed to register timer: errno=%d\\n", errno);
-    return future;
-  }
-  
-  future->cancel_fn = __yo_timer_future_cancel;
-  __yo_pending_io_count++;
-  
+
+  __yo_timer_arm(future, milliseconds);
+
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
               (unsigned long long)milliseconds, __yo_pending_io_count);
-  
+
   return future;
 }
 `
@@ -1293,7 +1235,11 @@ typedef struct __yo_fs_event_entry_s {
   int64_t mtime_sec;
   int64_t mtime_nsec;
   int64_t size;
-  __yo_fs_event_entry_t* entries;`,
+  __yo_fs_event_entry_t* entries;
+  // Vnode flags the watch set reported since the last service, and when the
+  // handle next needs servicing without one (UINT64_MAX: only on an event).
+  uint32_t vnode_flags;
+  uint64_t next_scan_ns;`,
       true => String.from("")
     );
     emitter.emit_string_line(
@@ -1491,6 +1437,91 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
 
   return 0;
 }
+
+// A directory's vnode reports entries created, removed and renamed (NOTE_WRITE
+// on the directory) but not a write INTO an existing entry, which only the
+// snapshot diff sees. So a directory watch rescans on every vnode event and,
+// between events, at most once per rescan interval: 50 ms, stretched to 20x
+// the last scan's cost so that a huge directory costs at most ~5% of a core.
+// A path that does not exist (a deleted file or directory being waited for) is
+// looked for at the same interval. It used to rescan on EVERY loop pass — an
+// opendir, a readdir and a stat per entry each time the loop turned — and
+// every wait was capped at 100 ms to keep those passes coming.
+#define __YO_FS_RESCAN_NS (50ull * 1000000ull)
+
+static const unsigned int __yo_fs_vnode_fflags =
+    NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND;
+
+// (Re)open the handle's descriptor on its path and add it to the watch set.
+static int __yo_fs_event_arm(__yo_fs_event_t* handle) {
+  handle->fd = open(handle->path, O_EVTONLY | O_CLOEXEC);
+  if (handle->fd < 0) return -errno;
+  int32_t rc = __yo_io_watch_vnode(handle->fd, __yo_fs_vnode_fflags);
+  if (rc < 0) {
+    close(handle->fd);
+    handle->fd = -1;
+    return rc;
+  }
+  return 0;
+}
+
+static void __yo_fs_event_schedule(__yo_fs_event_t* handle, uint64_t now, uint64_t cost) {
+  if (handle->is_dir || handle->fd < 0) {
+    uint64_t span = cost * 20;
+    if (span < __YO_FS_RESCAN_NS) span = __YO_FS_RESCAN_NS;
+    handle->next_scan_ns = now + span;
+  } else {
+    handle->next_scan_ns = UINT64_MAX;
+  }
+}
+
+// Service one fs-event handle: the vnode flags the watch set reported (0 for
+// a scheduled rescan) plus the snapshot diff. Directory: the diff reports each
+// changed entry by name; the vnode's flags then only add a nameless event when
+// the diff saw nothing (e.g. an attribute change on the directory itself).
+// File: the diff returns the mask and the event is reported under the file's
+// own name. Returns the number of callbacks made.
+static int __yo_fs_event_service(__yo_fs_event_t* fse, uint32_t fflags) {
+  int count = 0;
+  int __yo_event = 0;
+  int named = 0;
+  uint64_t t0 = __yo_mono_ns();
+  if (fse->is_dir) {
+    named = __yo_fs_event_detect_snapshot_changes(fse);
+    count += named;
+  } else {
+    __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+  }
+  if (fflags & (NOTE_DELETE | NOTE_RENAME)) {
+    __yo_event |= 1;
+  }
+  if (fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
+    __yo_event |= 2;
+  }
+  if (__yo_event != 0 && named == 0 && fse->callback && fse->active) {
+    const char* own = "";
+    if (!fse->is_dir && fse->path) {
+      const char* slash = strrchr(fse->path, '/');
+      own = slash ? slash + 1 : fse->path;
+    }
+    fse->callback((uint8_t*)own, __yo_event, fse->user_data);
+    count++;
+  }
+  if (!fse->active) return count;  // the callback stopped the watch
+  // The watched vnode was deleted or renamed away: its descriptor no longer
+  // names the path. Watch whatever the path names now, or look for it at the
+  // rescan interval until it comes back.
+  if ((fflags & (NOTE_DELETE | NOTE_RENAME)) && fse->fd >= 0) {
+    close(fse->fd);
+    fse->fd = -1;
+  }
+  if (fse->fd < 0 && fse->exists) {
+    (void)__yo_fs_event_arm(fse);
+  }
+  uint64_t now = __yo_mono_ns();
+  __yo_fs_event_schedule(fse, now, now - t0);
+  return count;
+}
 `
       );
     });
@@ -1498,7 +1529,8 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     macos_handle_init := cond(
       is_macos =>
         `  handle->path = NULL;
-  handle->entries = NULL;`,
+  handle->entries = NULL;
+  handle->next_scan_ns = UINT64_MAX;`,
       true => String.from("")
     );
     emitter.emit_string_line(
@@ -1580,65 +1612,29 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     }
   }
 
-  handle->fd = open(path, O_EVTONLY | O_CLOEXEC);
-  if (handle->fd < 0) {
-    int err = errno;
+  int32_t rc = __yo_fs_event_arm(handle);
+  if (rc < 0) {
     if (handle->entries) {
       __yo_fs_event_free_entries(handle->entries);
       handle->entries = NULL;
     }
-    if (handle->path) {
-      __yo_free(handle->path);
-      handle->path = NULL;
-    }
-    return -err;
-  }
-
-  handle->watch_fd = kqueue();
-  if (handle->watch_fd < 0) {
-    int err = errno;
-    close(handle->fd);
-    handle->fd = -1;
-    if (handle->entries) {
-      __yo_fs_event_free_entries(handle->entries);
-      handle->entries = NULL;
-    }
-    if (handle->path) {
-      __yo_free(handle->path);
-      handle->path = NULL;
-    }
-    return -err;
-  }
-
-  struct kevent ev;
-  unsigned int fflags = NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND;
-  EV_SET(&ev, handle->fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, fflags, 0, NULL);
-  if (kevent(handle->watch_fd, &ev, 1, NULL, 0, NULL) < 0) {
-    int err = errno;
-    close(handle->watch_fd);
-    close(handle->fd);
-    handle->fd = -1;
-    handle->watch_fd = -1;
-    if (handle->entries) {
-      __yo_fs_event_free_entries(handle->entries);
-      handle->entries = NULL;
-    }
-    if (handle->path) {
-      __yo_free(handle->path);
-      handle->path = NULL;
-    }
-    return -err;
+    __yo_free(handle->path);
+    handle->path = NULL;
+    return rc;
   }
 
   handle->callback = (void (*)(uint8_t*, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
+  handle->vnode_flags = 0;
+  __yo_fs_event_schedule(handle, __yo_mono_ns(), 0);
 
   handle->next = __yo_active_fs_events;
   __yo_active_fs_events = handle;
   __yo_active_watch_count++;
   return 0;
 }
+
 `
         );
       }, {
@@ -1701,10 +1697,7 @@ static int32_t __yo_fs_event_stop(void* h) {
   handle->active = 0;
   __yo_active_watch_count--;
 
-  if (handle->watch_fd >= 0) {
-    close(handle->watch_fd);
-    handle->watch_fd = -1;
-  }
+  // Closing the descriptor removes its vnode knote from the watch set.
   if (handle->fd >= 0) {
     close(handle->fd);
     handle->fd = -1;
@@ -1729,6 +1722,7 @@ static int32_t __yo_fs_event_stop(void* h) {
   handle->next = NULL;
   return 0;
 }
+
 `
         );
       });
@@ -1761,9 +1755,81 @@ static bool __yo_watch_needs_polling(void) {
   }
   return false;
 }`,
+      is_macos =>
+        `
+// The watch-set interest for fd: the union of every started poll handle on it
+// (two handles may watch one fd). Called after a handle starts or stops.
+static void __yo_poll_sync_watch(int fd) {
+  int want_read = 0, want_write = 0, want_pri = 0, any = 0;
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (!ph->active || ph->fd != fd) continue;
+    any = 1;
+    if (ph->events & 1) want_read = 1;
+    if (ph->events & 2) want_write = 1;
+    if (ph->events & 8) want_pri = 1;
+  }
+  int unpollable = 0;
+  if (any) {
+    struct stat st;
+    if (fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))) unpollable = 1;
+  }
+  if (!unpollable) {
+    if (__yo_io_watch_set(fd, EVFILT_READ, want_read && !unpollable) < 0) unpollable = 1;
+    if (__yo_io_watch_set(fd, EVFILT_WRITE, want_write && !unpollable) < 0) unpollable = 1;
+  }
+  if (!unpollable && want_pri) {
+    // POLLPRI is kqueue's EVFILT_EXCEPT/NOTE_OOB, which only sockets accept.
+    struct kevent ev;
+    EV_SET(&ev, fd, EVFILT_EXCEPT, EV_ADD, NOTE_OOB, 0, NULL);
+    if (__yo_watch_kq_open() < 0 || kevent(__yo_watch_kq, &ev, 1, NULL, 0, NULL) < 0) unpollable = 1;
+  } else if (__yo_watch_kq >= 0) {
+    struct kevent ev;
+    EV_SET(&ev, fd, EVFILT_EXCEPT, EV_DELETE, 0, 0, NULL);
+    (void)kevent(__yo_watch_kq, &ev, 1, NULL, 0, NULL);
+  }
+  if (unpollable) {
+    // Whatever was added before the refusal must not keep reporting.
+    (void)__yo_io_watch_set(fd, EVFILT_READ, false);
+    (void)__yo_io_watch_set(fd, EVFILT_WRITE, false);
+  }
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (ph->fd == fd) ph->unpollable = unpollable;
+  }
+}
+
+// When the loop's wait must end without an event (see the backend's
+// __yo_io_wait): the earliest directory rescan or missing-path check, and
+// "10 ms from now" while a poll handle watches a descriptor kqueue cannot.
+static uint64_t __yo_watch_next_due_ns(void) {
+  uint64_t due = UINT64_MAX;
+  for (__yo_fs_event_t* fse = __yo_active_fs_events; fse; fse = fse->next) {
+    if (fse->active && fse->next_scan_ns < due) due = fse->next_scan_ns;
+  }
+  for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+    if (ph->active && ph->unpollable) {
+      uint64_t soon = __yo_mono_ns() + 10ull * 1000000ull;
+      if (soon < due) due = soon;
+      break;
+    }
+  }
+  return due;
+}`,
       true => String.from("")
     );
-    poll_watch_sync := cond(is_linux => String.from("  __yo_poll_sync_watch(handle->fd);"), true => String.from(""));
+    poll_watch_sync := cond(
+      (is_linux || is_macos) => String.from("  __yo_poll_sync_watch(handle->fd);"),
+      true => String.from("")
+    );
+    // macOS: the watch set marks a handle ready, and only ready (or
+    // unpollable) handles are polled by the tick.
+    poll_ready_field := cond(
+      is_macos => String.from("  // The watch set reported the fd since the last tick.\n  int ready;"),
+      true => String.from("")
+    );
+    poll_start_ready := cond(
+      is_macos => String.from("  // Serviced by the first tick, as when every tick polled every handle.\n  handle->ready = 1;"),
+      true => String.from("")
+    );
     emitter.emit_string_line(
       `
 static void __yo_fs_event_close(void* h) {
@@ -1784,8 +1850,11 @@ typedef struct __yo_poll_s {
   void* user_data;
   int active;
   // The backend's watch set refused this fd (Linux: epoll's EPERM for a
-  // regular file); the loop keeps polling for it.
+  // regular file; macOS: a regular file, which poll reports always ready but
+  // kqueue only before EOF, or a directory or device kqueue refuses); the loop
+  // keeps polling for it.
   int unpollable;
+${poll_ready_field}
   struct __yo_poll_s* next;
 } __yo_poll_t;
 
@@ -1807,6 +1876,7 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
   handle->callback = (void (*)(int32_t, int32_t, uint8_t*))callback;
   handle->user_data = user_data;
   handle->active = 1;
+${poll_start_ready}
 
   handle->next = __yo_active_polls;
   __yo_active_polls = handle;
@@ -1881,53 +1951,60 @@ static void __yo_poll_close(void* h) {
     );
     macos_tick := cond(
       is_macos =>
-        `  {
+        `  // Nothing is watched: nothing to collect, service or poll.
+  if (__yo_active_watch_count == 0) return 0;
+  // --- Collect what the watch set reported ---
+  if (__yo_watch_ready && __yo_watch_kq >= 0) {
+    __yo_watch_ready = false;
+    struct kevent evs[64];
+    struct timespec zero = {0, 0};
+    int n;
+    do {
+      n = kevent(__yo_watch_kq, NULL, 0, evs, 64, &zero);
+      for (int i = 0; i < n; i++) {
+        int fd = (int)evs[i].ident;
+        if (evs[i].filter == EVFILT_VNODE) {
+          for (__yo_fs_event_t* fse = __yo_active_fs_events; fse; fse = fse->next) {
+            if (fse->active && fse->fd == fd) fse->vnode_flags |= (uint32_t)evs[i].fflags;
+          }
+        } else {
+          for (__yo_poll_t* ph = __yo_active_polls; ph; ph = ph->next) {
+            if (ph->active && ph->fd == fd) ph->ready = 1;
+          }
+        }
+      }
+    } while (n == 64);
+  }
+
+  // --- Service FS event handles: reported, or due ---
+  {
+    uint64_t now = UINT64_MAX;
     __yo_fs_event_t* fse = __yo_active_fs_events;
     while (fse) {
       __yo_fs_event_t* next = fse->next;
-      if (fse->active && fse->watch_fd >= 0) {
-        // Directory: the snapshot diff already reported each changed entry by
-        // name; the vnode's own kqueue flags then only add a nameless event
-        // when the diff saw nothing (e.g. an attribute change on the directory
-        // itself). File: the diff returns the mask and the event is reported
-        // under the file's own name.
-        int __yo_event = 0;
-        int named = 0;
-        if (fse->is_dir) {
-          named = __yo_fs_event_detect_snapshot_changes(fse);
-          count += named;
-        } else {
-          __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+      if (fse->active) {
+        uint32_t fflags = fse->vnode_flags;
+        bool due = false;
+        if (fflags == 0 && fse->next_scan_ns != UINT64_MAX) {
+          if (now == UINT64_MAX) now = __yo_mono_ns();
+          due = now >= fse->next_scan_ns;
         }
-
-        struct kevent ev;
-        struct timespec ts = {0, 0};
-        int n = kevent(fse->watch_fd, NULL, 0, &ev, 1, &ts);
-        if (n > 0) {
-          if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
-            __yo_event |= 1;
-          }
-          if (ev.fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
-            __yo_event |= 2;
-          }
-        }
-
-        if (__yo_event != 0 && named == 0) {
-          if (fse->callback && fse->active) {
-            const char* own = "";
-            if (!fse->is_dir && fse->path) {
-              const char* slash = strrchr(fse->path, '/');
-              own = slash ? slash + 1 : fse->path;
-            }
-            fse->callback((uint8_t*)own, __yo_event, fse->user_data);
-            count++;
-          }
+        if (fflags != 0 || due) {
+          fse->vnode_flags = 0;
+          count += __yo_fs_event_service(fse, fflags);
         }
       }
       fse = next;
     }
   }`,
       true => String.from("")
+    );
+    // macOS polls only the handles the watch set reported (or cannot watch);
+    // poll(2) still gives the callback its exact meaning (POLLHUP, POLLPRI, a
+    // report that is no longer ready).
+    poll_tick_select := cond(
+      is_macos => String.from("      if (ph->active && (ph->ready || ph->unpollable)) {\n        ph->ready = 0;"),
+      true => String.from("      if (ph->active) {")
     );
     emitter.emit_string_line(
       `
@@ -1947,7 +2024,7 @@ ${macos_tick}
     __yo_poll_t* ph = __yo_active_polls;
     while (ph) {
       __yo_poll_t* next = ph->next;
-      if (ph->active) {
+${poll_tick_select}
         struct pollfd pfd;
         pfd.fd = ph->fd;
         pfd.events = 0;

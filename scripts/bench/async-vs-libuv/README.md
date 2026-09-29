@@ -51,6 +51,29 @@ Std-level pair, 5 rounds: `timers` 459 K vs 427 K fires/s (1.07); `multi`
 13.7 K vs 13.8 K rt/s and `pingpong` ~2.2 K rt/s on both — loopback-bound,
 parity within noise.
 
+**macOS** (2026-09-28, macOS 26.6, Apple M4, libuv 1.52.1 from Homebrew, 9
+interleaved rounds, medians; ratio > 1 means Yo is faster). Record and
+analysis: `plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md`. Runtime-level pair,
+ops/s:
+
+| workload | Yo | libuv | Yo/uv |
+| --- | ---: | ---: | ---: |
+| socketpair echo | 2,621,146 | 3,045,415 | 0.86 |
+| TCP echo, 1 conn | 331,591 | 300,212 | 1.10 |
+| TCP echo, 64 conns | 1,043,424 | 1,094,447 | 0.95 |
+| zero-delay timers | 4,294,610 | 77,809 | 55.2 |
+| 16 KiB file cycle | 38,608 | 28,256 | 1.37 |
+
+Std-level pair: `timers` 382 K vs 379 K fires/s (1.01), `multi` 273 K vs
+318 K rt/s (0.86), `pingpong` 64 K vs 71 K rt/s (0.90). The std rows are
+behind because of std/net's per-operation `io.async` wrappers, not the
+backend (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
+Every socket row now makes the same syscalls per round trip as libuv. libuv
+has no pkg-config file on Homebrew, so build the twins with
+`-I$(brew --prefix libuv)/include -L$(brew --prefix libuv)/lib -luv`. libuv's
+zero-delay timer costs ~12 µs a tick on macOS 26, the price of an empty
+zero-timeout `kevent()`.
+
 **Windows** (2026-09-28, Windows 11, x86_64, libuv 1.51.0, from #981):
 ping-pong at parity (26.7 vs 26.4 µs per round trip), 8 connections ~5%
 faster (35.9 vs 33.8 K rt/s). Those runs predate the fixes below. The
