@@ -1008,6 +1008,107 @@ expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize))
   table.data.retain((k, _v) => keep.contains(k));
   (before - table.data.len())
 });
+/// Hash-cons the recorded envs once evaluation is done
+/// (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 0a). Two envs holding the same
+/// `Frame` OBJECTS (`index_key` is per object; `id` survives `clone_env`) in
+/// the same order, with the same module path, declaration frame level and
+/// input string, are indistinguishable to every reader. Each entry is pointed
+/// at the first such env, which is frozen: after this nothing may mutate a
+/// recorded env in place (`YO_DEBUG_FROZEN=1` enforces it). The table's
+/// 1.58 M envs share 337 K frame lists (§0.6). Returns the number of
+/// canonical envs.
+(g_interned_env_count : usize) = usize(0);
+(g_interned_env_entries : usize) = usize(0);
+expr_info_table_intern_envs :: (fn(table : ExprInfoTable) -> usize)({
+  buckets := HashMap(u64, ArrayList(Environment)).new();
+  canon := ArrayList(Environment).new();
+  table.data.retain((_k, info) => {
+    e := info.env;
+    h := _env_identity_hash(e);
+    match(
+      buckets.get(h),
+      .Some(bucket) => {
+        (found : bool) = false;
+        (bi : usize) = usize(0);
+        while((!found) && (bi < bucket.len()), {
+          match(
+            bucket.get(bi),
+            .Some(c) => if(_env_same_identity(c, e), {
+              info.env = c;
+              found = true;
+            }),
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        if(!found, {
+          e.frozen = true;
+          bucket.push(e);
+          canon.push(e);
+        });
+      },
+      .None => {
+        e.frozen = true;
+        fresh := ArrayList(Environment).new();
+        fresh.push(e);
+        buckets.insert(h, fresh);
+        canon.push(e);
+      }
+    );
+    true
+  });
+  g_interned_env_count = canon.len();
+  g_interned_env_entries = table.data.len();
+  canon.len()
+});
+_env_identity_hash :: (fn(e : Environment) -> u64)({
+  (h : u64) = u64(14695981039346656037);
+  (i : usize) = usize(0);
+  n := e.frames.len();
+  while(i < n, {
+    match(
+      e.frames.get(i),
+      .Some(f) => {
+        h = (h ^ u64(f.index_key)).wrapping_mul(u64(1099511628211));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  h = (h ^ u64(n)).wrapping_mul(u64(1099511628211));
+  (h ^ u64(e.module_path.len())).wrapping_mul(u64(1099511628211))
+});
+_env_same_identity :: (fn(a : Environment, b : Environment) -> bool)({
+  n := a.frames.len();
+  if(b.frames.len() != n, {
+    return(false);
+  });
+  if(!(a.module_path == b.module_path), {
+    return(false);
+  });
+  fl_same := match(
+    a.function_declaration_frame_level,
+    .Some(x) => match(b.function_declaration_frame_level, .Some(y) => (x == y), .None => false),
+    .None => b.function_declaration_frame_level.is_none()
+  );
+  if(!fl_same, {
+    return(false);
+  });
+  if(!(a.input_string == b.input_string), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  (same : bool) = true;
+  while(same && (i < n), {
+    same = match(
+      a.frames.get(i),
+      .Some(fa) => match(b.frames.get(i), .Some(fb) => (fa.index_key == fb.index_key), .None => false),
+      .None => false
+    );
+    i = (i + usize(1));
+  });
+  same
+});
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //
@@ -1923,7 +2024,7 @@ export(
 export(expr_info_await_analysis, expr_info_set_await_analysis);
 export(expr_info_effect_analysis, expr_info_set_effect_analysis);
 export(expr_info_closure_function_value, expr_info_set_closure_function_value);
-export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
+export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys, expr_info_table_intern_envs);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
@@ -2049,7 +2150,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()}`);
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()} interned_envs=${g_interned_env_count.to_string()} of ${g_interned_env_entries.to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);
