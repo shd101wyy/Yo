@@ -26,7 +26,7 @@
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { get_variables_from_env } :: import("../env.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, j_range_in, uri_to_fs_path } :: import("./protocol.yo");
+{ jb, jstr, jnum, j_range_in, uri_to_fs_path } :: import("./protocol.yo");
 {
   AtomRoles,
   classify_atom_roles,
@@ -247,4 +247,61 @@ handle_references :: (
   });
   JsonValue.Array(items : out)
 });
-export(handle_references, collect_symbol_occurrences, collect_symbol_occurrences_with_decl);
+/// `textDocument/documentHighlight` (plans/LSP_AUDIT_2026-09-29.md §3):
+/// the same binding-identity occurrences `handle_references` computes, as
+/// DocumentHighlight items — the declaration occurrence is a Write (3),
+/// every other occurrence a Text (1). Members and labels highlight
+/// nothing (an empty array), matching references/rename.
+handle_document_highlight :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    lines : ArrayList(String),
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> JsonValue
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(JsonValue.Array(items : ArrayList(JsonValue).new()));
+    }
+  );
+  if(target.kind != TokenKind.Identifier, {
+    return(JsonValue.Array(items : ArrayList(JsonValue).new()));
+  });
+  decl := ArrayList(Token).new();
+  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, target, decl);
+  out := ArrayList(JsonValue).new();
+  (oi : usize) = usize(0);
+  while(oi < occurrences.len(), {
+    match(
+      occurrences.get(oi),
+      .Some(tk) => {
+        is_decl := match(
+          decl.get(usize(0)),
+          .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
+          .None => false
+        );
+        // DocumentHighlightKind: 1 Text, 3 Write.
+        kind := cond(is_decl => usize(3), true => usize(1));
+        out.push(
+          jb().put("range", j_range_in(lines, usize(tk.row), usize(tk.column), usize(tk.row), usize(tk.column) + tk.value.chars().count())).put("kind", jnum(kind)).obj()
+        );
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  JsonValue.Array(items : out)
+});
+export(handle_references, handle_document_highlight, collect_symbol_occurrences, collect_symbol_occurrences_with_decl);
