@@ -3339,6 +3339,22 @@ test("Comptime SomeType constraint validation", {
     )
   );
 });
+// A comptime float converted to an integer type truncates toward zero, as the
+// runtime C cast does; it used to keep the float's text as the integer's value
+// (`IntLit("100.5")`), so every comparison with it was `<unknown>` and the
+// `f32_to_i32` assertion above passed vacuously.
+_ct_f := f64(100.75);
+test("comptime float to integer conversion truncates toward zero", {
+  comptime_assert(i32(f32(100.5)) == i32(100), "f32 -> i32");
+  comptime_assert(i64(f64(-7.9)) == i64(-7), "negative truncates toward zero");
+  comptime_assert(u8(f64(255.99)) == u8(255), "the top of u8");
+  comptime_assert(u64(f64(1.0e19)) == u64(10000000000000000000), "beyond i64, inside u64");
+  comptime_assert(i32(f64(-0.5)) == i32(0), "-0.5 truncates to 0");
+  comptime_expect_error(u8(f64(256.0)), "does not fit");
+  comptime_expect_error(u32(f64(-1.0)), "does not fit");
+  comptime_expect_error(i64(f64(1.0e300)), "outside the range");
+  assert(i32(_ct_f) == i32(100), "a runtime value converts with the C cast");
+});
 test("comptime_assert validates argument type even in function body", {
   // `==` between Type values is NOT defined (no Eq impl for Type).
   // Use Type.eq / Type.is_compatible_with instead. This must be rejected
