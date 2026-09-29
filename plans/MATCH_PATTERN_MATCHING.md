@@ -62,8 +62,20 @@ Three deviations from the design below, each measured on the tree:
    emitter's goto chain is not dispatch-aware; §4.9's shared helpers are the
    follow-up.
 
-Still open: P5's adoption sweep in `src/`/`std/` (now UNBLOCKED —
-`SEED_VERSION` v0.2.45 carries every P1–P3 form), P6 (verifier). The async
+Still open: P5's adoption sweep in `src/`/`std/` — now UNBLOCKED
+(`SEED_VERSION` v0.2.45 carries every P1–P3 form) and BEGUN: the subcommand
+help dispatch in `src/main.yo` (the 22-arm cond the plan names first) is a
+`match` on the subcommand string; the rest of the 401 string chains and the
+two-level matches remain (incremental, each wave gated by the cli-cases).
+
+P6 (verifier subset) is DEFERRED by decision (2026-09-29): the plan always
+marked it optional, and a verified function that adopts a new pattern form
+already fails LOUDLY (`_fail_subset` in `src/verifier/vc.yo`) — nothing
+verifies falsely. Doing it properly means porting the verifier's AST-based
+match walk (`_arm_under_pattern` predates the Pattern IR) onto
+`lookup_match_arms` and adding SMT encodings for literals, ranges,
+or-alternatives and guards — its own campaign, best taken with the next
+verifier milestone rather than bolted on here. The async
 general lowering LANDED 2026-09-29: `_generate_match_with_await_impl`
 dispatches a non-classic match through `_aw_generate_general_match` — an
 ordered test chain over the compiled arms (`_aw_emit_general_pattern`, the
