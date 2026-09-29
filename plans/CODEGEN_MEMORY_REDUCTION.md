@@ -223,6 +223,73 @@ carried #993's pattern walk (fixed by #996), and its binaries were glibc
 read `compile` 3,469 → 3,237 MB and `check` 1,080 → 1,009 MB. The rows
 above replace it.
 
+### 0.6 After §0.5: the census re-ranked, the env ceiling, emit's copies (2026-09-30)
+
+**Census at the end of evaluation** (`HOLDER_AT_PHASE`, stage-2 C of the
+§0.5 tree, glibc, 1,945 MB reached from globals):
+
+| type | MB | objects | vs §0.3 |
+| --- | --- | --- | --- |
+| `ExprInfo` | 381 | 2.48 M | the tree grew (#993–#996) |
+| strings (`ArrayList(u8)`) | 220 | 2.03 M | 70 MB of it redundant copies (`HOLDER_DUPSTR`; the top groups are 1–2-byte literals such as `"1"` and `"Some"`) |
+| `AstExpr` | 203 | 3.32 M | |
+| `ArrayList(Variable)` | 183 | 277 K | frames' variable lists, reached through recorded envs (`HOLDER_DEEP_PATH`) |
+| `ArrayList(Self)` | 150 | 2.14 M | |
+| `Environment` | 148 | 1.58 M | |
+| `Variable` | 123 | 888 K | |
+| `Token` | 115 | 1.89 M | |
+| `ArrayList(Frame)` | 44 | 337 K | **206 MB before §0.5** |
+| `HashMap(String, WhereClauseConstraints)` | 15 | 250 K | **70 MB before §0.4** |
+
+**The recorded envs' ceiling, measured.** `YO_DEBUG_DROP_ENVS=1`, a
+measurement-only knob on a scratch branch (not in the tree), points every
+`ExprInfo.env` in the shared table at one empty env just before "contract
+verification". The census's exact glibc chunk walk (every live allocation,
+reached or not) then reads:
+
+| | live chunks | live heap |
+| --- | --- | --- |
+| envs kept | 28.4 M | 2,891 MB |
+| envs dropped | 22.7 M | 2,145 MB (**−746 MB, −26 %**) |
+
+That is what only the recorded envs keep alive: the `Environment` objects,
+their frame lists, the `Frame`s and variable lists no live scope holds, and
+the `Variable`s with their values. It is by far the largest lever left.
+(The reached-from-globals totals, 1,959 vs 1,681 MB, undercount the kept
+case: its walk left 7.4 M objects unreached against 3.8 M, so only the
+chunk walk is comparable.)
+
+Codegen reads recorded envs in about 30 places, for two things:
+- the innermost `Variable` of a name, via `get_variables_from_env` and
+  `get_variable_name_for_codegen`, for identifiers, deferred dups/drops and
+  arm values;
+- the env's `module_path`, via `is_temp_variable_name`.
+
+It never mutates one: the only env codegen writes is a fresh `clone_env` in
+`functions/collection.yo`. See §3 lever 0.
+
+**Emit's whole-buffer copies.**
+- `Emitter.print()` concatenated headers, declarations and code (~125 MB) into
+  a fresh doubling `String` at the end of emission.
+- `_emit_capture_drop_lines` rebuilt the code buffer with
+  `substring(0, before)` once per spawned closure.
+- The FTT-stub path copied the code prefix byte by byte, and
+  `_insert_attr_before_first_decl` cloned all three buffers to search them.
+
+Now:
+- `compile_module` returns `Emitter.sections()`, and `main.yo` writes (and,
+  under `--emit-c`, prints) the parts in order;
+- `String.truncate` truncates in place, as `clear` already did, and the
+  code-buffer sites use it;
+- the search shares the buffers.
+
+Measured without `--emit-c` (a 0.5 s RSS trace, mimalloc stage-2s, the same
+tree): max RSS 2,921 → 2,912 MiB, C byte-identical. The concatenation had set
+the peak (2,921 = end-of-emit 2,797 plus the copy). The peak now is a
+different ~114 MiB transient about 7 s before the end of emit, present in
+every variant. `--profile` now prints `profile: mark` lines (rss and VmHWM)
+between the emit steps to find it.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
@@ -270,6 +337,14 @@ Acceptance: a table in §0 of this document attributing the 1.7 GB and the
 
 Listed by the order the evidence suggests; none is committed to before
 Phase 0 measures it.
+
+0. **Recorded envs (§0.6: a 746 MB ceiling).**
+   - (a) Hash-cons content-equal envs once evaluation is done: 1.58 M
+     `Environment` objects over 337 K distinct frame lists. Canonical envs are
+     frozen, and `YO_DEBUG_FROZEN=1` proves nothing mutates one.
+   - (b) Give codegen what it reads from an env (the innermost `Variable` per
+     name, the module path) without the env, then drop recorded envs before
+     codegen. Gate: byte-identical C, with the frozen guard on for (a).
 
 1. **Drop what codegen never reads, as soon as it is known to be unread.**
    After collect, the set of emitted functions is known. Entries that belong

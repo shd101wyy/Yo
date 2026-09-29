@@ -600,10 +600,31 @@ profile_enabled :: (fn() -> bool)(g_prof_enabled);
 (g_prof_phase_table_entries : ArrayList(usize)) = ArrayList(usize).new();
 (g_prof_rss_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
 (g_prof_table_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
-profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn() -> usize)) -> unit)({
+(g_prof_peak_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn() -> usize), peak_rss_mb : (fn() -> usize)) -> unit)({
   g_prof_rss_probe = Option((fn() -> usize)).Some(rss_mb);
   g_prof_table_probe = Option((fn() -> usize)).Some(table_entries);
+  g_prof_peak_probe = Option((fn() -> usize)).Some(peak_rss_mb);
 });
+/// Memory marks INSIDE a phase (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0
+/// step 4): the resident set and the process's peak so far at a named point,
+/// so a transient between two marks shows as a peak jump without a phase
+/// boundary. `--profile` prints them as `profile: mark` lines.
+(g_prof_mark_labels : ArrayList(String)) = ArrayList(String).new();
+(g_prof_mark_rss_mb : ArrayList(usize)) = ArrayList(usize).new();
+(g_prof_mark_peak_mb : ArrayList(usize)) = ArrayList(usize).new();
+profile_memory_mark :: (fn(label : str) -> unit)({
+  if(!g_prof_enabled, {
+    return(());
+  });
+  g_prof_mark_labels.push(String.from(label));
+  g_prof_mark_rss_mb.push(_prof_sample(g_prof_rss_probe));
+  g_prof_mark_peak_mb.push(_prof_sample(g_prof_peak_probe));
+});
+profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.len());
+profile_mark_line_at :: (fn(i : usize) -> String)(
+  `profile: mark ${match(g_prof_mark_labels.get(i), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB`
+);
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
 );
@@ -1190,6 +1211,9 @@ export(
   profile_phase_rss_mb_at,
   profile_phase_table_entries_at,
   profile_set_memory_probes,
+  profile_memory_mark,
+  profile_mark_count,
+  profile_mark_line_at,
   profile_record_module,
   profile_module_count,
   profile_module_path_at,

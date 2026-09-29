@@ -50,6 +50,8 @@ pragma(Pragma.AllowUnsafe);
   profile_phase_rss_mb_at,
   profile_phase_table_entries_at,
   profile_set_memory_probes,
+  profile_mark_count,
+  profile_mark_line_at,
   profile_module_count,
   profile_module_path_at,
   profile_module_parse_ns_at,
@@ -2813,6 +2815,11 @@ _print_compile_profile :: (
     );
     pmi = (pmi + usize(1));
   });
+  (pki : usize) = usize(0);
+  while(pki < profile_mark_count(), {
+    eprintln(profile_mark_line_at(pki));
+    pki = (pki + usize(1));
+  });
   n := profile_module_count();
   k := cond((n < usize(20)) => n, true => usize(20));
   eprintln(
@@ -4108,7 +4115,7 @@ run_compile :: (
   profile_reset();
   if(profile, {
     profile_set_enabled(true);
-    profile_set_memory_probes(_current_rss_mb, _shared_table_entries);
+    profile_set_memory_probes(_current_rss_mb, _shared_table_entries, _peak_rss_mb);
   });
   {
     // EMISSION names (temps, labels) are per-artifact: reset on EVERY
@@ -5067,6 +5074,32 @@ _current_rss_mb :: (fn() -> usize)(
     true => _current_rss_mb_linux()
   )
 );
+/// The process's peak resident set so far (`--profile` marks). Linux reads
+/// `VmHWM` from `/proc/self/status`; elsewhere 0 (the marks' rss still reads).
+_peak_rss_mb :: (fn() -> usize)(
+  cond(
+    (platform == Platform.Linux) => _peak_rss_mb_linux(),
+    true => usize(0)
+  )
+);
+_peak_rss_mb_linux :: (fn() -> usize)({
+  swallow := Exception(throw : ((_err) -> unwind(usize(0))));
+  status := String.from_bytes(read_file_sync(String.from("/proc/self/status"), swallow));
+  lines := status.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => if(line.starts_with(String.from("VmHWM:")), {
+        kb := line.substring(usize(6), line.len()).trim().trim_end_matches(String.from("kB")).trim();
+        return(match(kb.parse_u64(), .Some(k) => usize(k / u64(1024)), .None => usize(0)));
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  usize(0)
+});
 /// Linux: field 2 of `/proc/self/statm` is the resident page count.
 _current_rss_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : ((_err) -> unwind(usize(0))));

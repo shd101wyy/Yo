@@ -4,7 +4,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { Instant } :: import("std/time/instant");
 { ast_expr_token } :: import("../expr.yo");
-{ profile_record_phase, profile_record_function_census, debug_knob } :: import("../utils.yo");
+{ profile_record_phase, profile_record_function_census, profile_memory_mark, debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { raise_codegen_error, clear_codegen_error } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
@@ -448,6 +448,7 @@ typedef enum {
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: type declarations");
   // Upcast target impls first (they re-key with the rest), then re-key dyn
   // impls to C names (now available), then emit dyn box types.
   register_dyn_upcast_targets(base);
@@ -486,6 +487,7 @@ static Slice_uint8_t_u42_ __yo_args;
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: function declarations");
   // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
   // specialized callee whose body calls a closure (e.g. Thread.spawn →
   // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
@@ -493,20 +495,24 @@ static Slice_uint8_t_u42_ __yo_args;
   // Fourth pass: function bodies (the dispatcher was registered above).
   generate_all_functions(ctx);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: function bodies");
   // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
   // vtables, and RC dup/drop).
   generate_dyn_box_functions(ctx);
   generate_dyn_wrapper_functions(ctx);
   generate_dyn_vtables(ctx);
   generate_dyn_dup_drop(ctx);
+  profile_memory_mark("emit: dyn scaffolding");
   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
   // after all regular + dyn functions to avoid nesting.
   generate_deferred_async_blocks(ctx);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: deferred async blocks");
   // Module-level mutable variable declarations (file-scope statics). Emitted for
   // both executable and library builds so the C symbols exist. Returns the
   // (c_var_name, rhs) list for initialization.
   module_vars := emit_module_level_variable_declarations(ctx);
+  profile_memory_mark("emit: module variables");
   // Thread-local accessors carry their initializers and are needed by library
   // builds too, so they are emitted here rather than inside the (executable-
   // only) main wrapper.
@@ -515,9 +521,11 @@ static Slice_uint8_t_u42_ __yo_args;
   if(!is_library, {
     generate_main_wrapper(ctx, module_vars);
   });
+  profile_memory_mark("emit: thread-locals + main wrapper");
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: dispose dispatch");
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;
   // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
