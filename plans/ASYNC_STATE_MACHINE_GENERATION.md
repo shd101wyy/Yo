@@ -2,9 +2,9 @@
 
 **Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
 Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
-the rest of phase 1 (#1008), phase 6 (layout from liveness) and phase 7 (the
-state-machine pools) are open as stacked PRs, and phase 4 is subsumed by
-them. What remains waits for a seed that carries phase 5: the seed-safe
+the rest of phase 1 (#1008), phase 6 (layout from liveness, #1016) and
+phase 7 (the state-machine pools, `for_await`, E0904 retired, #1018) are open
+as stacked PRs, and phase 4 is subsumed by them. What remains waits for a seed that carries phase 5: the seed-safe
 spellings in `src/`/`std/` (which also keep `for_await` and `inout` in async
 bodies out of them), and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
 waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
