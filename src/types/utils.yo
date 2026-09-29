@@ -36,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
@@ -1946,6 +1947,44 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 // ---------------------------------------------------------------------------
 // Raw-pointer / slice-source representation predicates (for flow analysis)
 // ---------------------------------------------------------------------------
+/// One memoized named aggregate of a representation predicate walk: the type
+/// object walked and the predicate's answer for it.
+_ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
+/// The memo of the current top-level predicate call, bucketed by
+/// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the SAME
+/// type object (a same-id copy rebuilt by substitution can differ). Without
+/// it a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is walked once
+/// per path through its 2^depth leaf tree
+/// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md).
+(g_repr_memo : HashMap(String, ArrayList(_ReprMemoEntry))) = HashMap(String, ArrayList(_ReprMemoEntry)).new();
+/// Set when the depth cap cut the walk: an answer computed under a cut
+/// depends on the remaining budget, so it is not memoized.
+(g_repr_depth_cut : bool) = false;
+_repr_memo_lookup :: (fn(key : String, ty : TypeValue) -> Option(bool))({
+  bucket := match(g_repr_memo.get(key), .Some(b) => b, .None => return(Option(bool).None));
+  (i : usize) = usize(0);
+  while(i < bucket.len(), {
+    match(
+      bucket.get(i),
+      .Some(e) => if(__yo_ptr_eq(e.ty, ty), {
+        return(Option(bool).Some(e.answer));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(bool).None
+});
+_repr_memo_store :: (fn(key : String, ty : TypeValue, answer : bool) -> unit)({
+  bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
+  _ := g_repr_memo.insert(key, bucket);
+});
+/// Start a top-level predicate call: an empty memo, no cut.
+_repr_memo_reset :: (fn() -> unit)({
+  g_repr_memo.clear();
+  g_repr_depth_cut = false;
+});
 /// Internal: does `ty`'s representation transitively contain a raw pointer
 /// (`Ptr`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
 /// buffer alive across a value return). `depth` caps recursion in place of an
@@ -1954,7 +1993,10 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 ///
 _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
-    (depth == usize(0)) => false,
+    (depth == usize(0)) => {
+      g_repr_depth_cut = true;
+      false
+    },
     is_reference_struct_type(ty) => false,
     is_dyn_type(ty) => false,
     true => match(
@@ -1963,17 +2005,30 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       // str is the builtin view of STATIC string bytes (immortal backing) —
       // it carries a pointer, but never a dangling one.
       .Str => false,
-      .Struct({ field_types : fts }) => {
-        (i : usize) = usize(0);
-        (found : bool) = false;
-        while((i < fts.len()) && !found, {
-          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
-            found = true;
-          });
-          i = (i + usize(1));
-        });
-        found
+      .Struct({ id : sid, field_types : fts }) => {
+        key := `raw:struct:${sid}`;
+        match(
+          _repr_memo_lookup(key.clone(), ty),
+          .Some(memo) => memo,
+          .None => {
+            outer_cut := g_repr_depth_cut;
+            g_repr_depth_cut = false;
+            (i : usize) = usize(0);
+            (found : bool) = false;
+            while((i < fts.len()) && !found, {
+              ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              if(recur(ft, depth - usize(1)), {
+                found = true;
+              });
+              i = (i + usize(1));
+            });
+            if(!g_repr_depth_cut, {
+              _repr_memo_store(key, ty, found);
+            });
+            g_repr_depth_cut = (g_repr_depth_cut || outer_cut);
+            found
+          }
+        )
       },
       .Tuple({ field_types : fts }) => {
         (i : usize) = usize(0);
@@ -1999,22 +2054,35 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         });
         found
       },
-      .EnumT({ variant_fields : vfs }) => {
-        (vi : usize) = usize(0);
-        (found : bool) = false;
-        while((vi < vfs.len()) && !found, {
-          vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-          (fi : usize) = usize(0);
-          while((fi < vf.len()) && !found, {
-            ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-            if(recur(ft, depth - usize(1)), {
-              found = true;
+      .EnumT({ id : eid, variant_fields : vfs }) => {
+        key := `raw:enum:${eid}`;
+        match(
+          _repr_memo_lookup(key.clone(), ty),
+          .Some(memo) => memo,
+          .None => {
+            outer_cut := g_repr_depth_cut;
+            g_repr_depth_cut = false;
+            (vi : usize) = usize(0);
+            (found : bool) = false;
+            while((vi < vfs.len()) && !found, {
+              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              (fi : usize) = usize(0);
+              while((fi < vf.len()) && !found, {
+                ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                if(recur(ft, depth - usize(1)), {
+                  found = true;
+                });
+                fi = (fi + usize(1));
+              });
+              vi = (vi + usize(1));
             });
-            fi = (fi + usize(1));
-          });
-          vi = (vi + usize(1));
-        });
-        found
+            if(!g_repr_depth_cut, {
+              _repr_memo_store(key, ty, found);
+            });
+            g_repr_depth_cut = (g_repr_depth_cut || outer_cut);
+            found
+          }
+        )
       },
       .Array({ element : el }) => recur(el, depth - usize(1)),
       _ => false
@@ -2023,31 +2091,48 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
 );
 /// Does `ty`'s representation transitively contain a raw pointer? `object`/`Dyn`
 /// are safe leaves (Rc-managed). Public entry; caps recursion depth at 40.
-type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)(
+type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)({
+  _repr_memo_reset();
   _type_repr_contains_raw_ptr(ty, usize(40))
-);
+});
 /// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
 /// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
 /// check.
 _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
-    (depth == usize(0)) => false,
+    (depth == usize(0)) => {
+      g_repr_depth_cut = true;
+      false
+    },
     is_reference_struct_type(ty) => true,
     is_dyn_type(ty) => true,
     true => match(
       ty,
       .Pointer(_) => true,
-      .Struct({ field_types : fts }) => {
-        (i : usize) = usize(0);
-        (found : bool) = false;
-        while((i < fts.len()) && !found, {
-          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
-            found = true;
-          });
-          i = (i + usize(1));
-        });
-        found
+      .Struct({ id : sid, field_types : fts }) => {
+        key := `slice:struct:${sid}`;
+        match(
+          _repr_memo_lookup(key.clone(), ty),
+          .Some(memo) => memo,
+          .None => {
+            outer_cut := g_repr_depth_cut;
+            g_repr_depth_cut = false;
+            (i : usize) = usize(0);
+            (found : bool) = false;
+            while((i < fts.len()) && !found, {
+              ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              if(recur(ft, depth - usize(1)), {
+                found = true;
+              });
+              i = (i + usize(1));
+            });
+            if(!g_repr_depth_cut, {
+              _repr_memo_store(key, ty, found);
+            });
+            g_repr_depth_cut = (g_repr_depth_cut || outer_cut);
+            found
+          }
+        )
       },
       .Tuple({ field_types : fts }) => {
         (i : usize) = usize(0);
@@ -2073,22 +2158,35 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         });
         found
       },
-      .EnumT({ variant_fields : vfs }) => {
-        (vi : usize) = usize(0);
-        (found : bool) = false;
-        while((vi < vfs.len()) && !found, {
-          vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-          (fi : usize) = usize(0);
-          while((fi < vf.len()) && !found, {
-            ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-            if(recur(ft, depth - usize(1)), {
-              found = true;
+      .EnumT({ id : eid, variant_fields : vfs }) => {
+        key := `slice:enum:${eid}`;
+        match(
+          _repr_memo_lookup(key.clone(), ty),
+          .Some(memo) => memo,
+          .None => {
+            outer_cut := g_repr_depth_cut;
+            g_repr_depth_cut = false;
+            (vi : usize) = usize(0);
+            (found : bool) = false;
+            while((vi < vfs.len()) && !found, {
+              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              (fi : usize) = usize(0);
+              while((fi < vf.len()) && !found, {
+                ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                if(recur(ft, depth - usize(1)), {
+                  found = true;
+                });
+                fi = (fi + usize(1));
+              });
+              vi = (vi + usize(1));
             });
-            fi = (fi + usize(1));
-          });
-          vi = (vi + usize(1));
-        });
-        found
+            if(!g_repr_depth_cut, {
+              _repr_memo_store(key, ty, found);
+            });
+            g_repr_depth_cut = (g_repr_depth_cut || outer_cut);
+            found
+          }
+        )
       },
       .Array({ element : el }) => recur(el, depth - usize(1)),
       _ => false
@@ -2098,9 +2196,10 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
 /// May `ty` provide the source storage for a returned slice's pointer? Like
 /// `type_representation_contains_raw_ptr`, but `object`/`Dyn` ALSO count.
 /// Public entry; caps recursion depth at 40.
-type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)(
+type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
+  _repr_memo_reset();
   _type_provides_slice_source(ty, usize(40))
-);
+});
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
