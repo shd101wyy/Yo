@@ -75,9 +75,9 @@ _symbol_kind_of :: (fn(value_expr : AstExpr) -> usize)({
 /// (`(g_shutdown_requested : bool) = false;`). Reported as a Variable
 /// (kind 13): the binding is a mutable slot regardless of the value's shape
 /// (issues/fixed/lsp-document-symbol-misses-typed-declarations.md).
-_typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(JsonValue))({
+_typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(SymbolEntry))({
   if(!ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
-    return(Option(JsonValue).None);
+    return(Option(SymbolEntry).None);
   });
   match(
     e,
@@ -85,7 +85,7 @@ _typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(Json
       args.get(usize(0)),
       .Some(lhs) => {
         if(!ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
-          return(Option(JsonValue).None);
+          return(Option(SymbolEntry).None);
         });
         match(
           lhs,
@@ -93,7 +93,7 @@ _typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(Json
             pair.get(usize(0)),
             .Some(name_expr) => {
               if(!ast_expr_is_atom(name_expr), {
-                return(Option(JsonValue).None);
+                return(Option(SymbolEntry).None);
               });
               name_tok := ast_expr_token(name_expr);
               rng := j_range_in(
@@ -103,34 +103,40 @@ _typed_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(Json
                 usize(name_tok.row),
                 usize(name_tok.column) + name_tok.value.chars().count()
               );
-              Option(JsonValue).Some(
-                jb().put("name", jstr(name_tok.value.clone())).put("kind", jnum(usize(13))).put("range", rng).put("selectionRange", rng).obj()
+              Option(SymbolEntry).Some(
+                SymbolEntry(name : name_tok.value.clone(), kind : usize(13), range : rng)
               )
             },
-            .None => Option(JsonValue).None
+            .None => Option(SymbolEntry).None
           ),
-          .Atom(_, _) => Option(JsonValue).None
+          .Atom(_, _) => Option(SymbolEntry).None
         )
       },
-      .None => Option(JsonValue).None
+      .None => Option(SymbolEntry).None
     ),
-    .Atom(_, _) => Option(JsonValue).None
+    .Atom(_, _) => Option(SymbolEntry).None
   )
 });
 
-/// Collect DocumentSymbols from the top-level statements. Ranges are
-/// converted to the wire encoding against `lines`.
-handle_document_symbols :: (
-  fn(exprs : ArrayList(AstExpr), lines : ArrayList(String)) -> JsonValue
+/// One collected top-level symbol — the shared shape of documentSymbol and
+/// workspace/symbol. `range` is already wire-encoded against `lines`.
+SymbolEntry :: struct(
+  name : String,
+  kind : usize,
+  range : JsonValue
+);
+/// Collect the top-level symbols of one document (see the module header):
+/// `name :: value` bindings and typed `(name : T) = value` declarations.
+collect_document_symbols :: (
+  fn(exprs : ArrayList(AstExpr), lines : ArrayList(String), out : ArrayList(SymbolEntry)) -> unit
 )({
-  items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     e := match(
       exprs.get(i),
       .Some(x) => x,
       .None => {
-        return(JsonValue.Array(items : items));
+        return(());
       }
     );
     if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
@@ -149,27 +155,90 @@ handle_document_symbols :: (
               // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
               usize(name_tok.column) + name_tok.value.chars().count()
             );
-            items.push(
-              jb().put("name", jstr(name_tok.value.clone())).put("kind", jnum(_symbol_kind_of(value_expr))).put("range", rng).put("selectionRange", rng).obj()
+            out.push(
+              SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(value_expr), range : rng)
             );
           });
         },
         .Atom(_, _) => ()
       );
     }, {
-      // Not a `::` binding: a top-level typed declaration `(name : T) = …`
-      // is still a symbol
-      // (issues/fixed/lsp-document-symbol-misses-typed-declarations.md).
       match(
         _typed_decl_symbol(e, lines),
         .Some(sym) => {
-          items.push(sym);
+          out.push(sym);
         },
         .None => ()
       );
     });
     i = (i + usize(1));
   });
+});
+/// Collect DocumentSymbols from the top-level statements. Ranges are
+/// converted to the wire encoding against `lines`.
+handle_document_symbols :: (
+  fn(exprs : ArrayList(AstExpr), lines : ArrayList(String)) -> JsonValue
+)({
+  entries := ArrayList(SymbolEntry).new();
+  collect_document_symbols(exprs, lines, entries);
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(en) => {
+        items.push(
+          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("range", en.range).put("selectionRange", en.range).obj()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
   JsonValue.Array(items : items)
 });
-export(handle_document_symbols);
+/// One open document for `textDocument/workspaceSymbol` — the server's
+/// dispatch fills this list from its open-documents table, which keeps the
+/// handler here testable without a running server.
+WorkspaceDoc :: struct(
+  uri : String,
+  exprs : ArrayList(AstExpr),
+  lines : ArrayList(String)
+);
+/// `textDocument/workspaceSymbol` (plans/LSP_AUDIT_2026-09-29.md §3): the
+/// top-level symbols of every OPEN document whose name matches `query`
+/// (case-insensitive substring; an empty query lists everything), as
+/// SymbolInformation items pointing into their document.
+handle_workspace_symbols :: (fn(query : String, docs : ArrayList(WorkspaceDoc)) -> JsonValue)({
+  out := ArrayList(JsonValue).new();
+  q := query.to_lowercase();
+  (di : usize) = usize(0);
+  while(di < docs.len(), {
+    match(
+      docs.get(di),
+      .Some(doc) => {
+        entries := ArrayList(SymbolEntry).new();
+        collect_document_symbols(doc.exprs, doc.lines, entries);
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), {
+          match(
+            entries.get(ei),
+            .Some(en) => {
+              if((q.len() == usize(0)) || en.name.to_lowercase().contains(q.clone()), {
+                out.push(
+                  jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("location", jb().put("uri", jstr(doc.uri.clone())).put("range", en.range).obj()).obj()
+                );
+              });
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  JsonValue.Array(items : out)
+});
+export(handle_document_symbols, handle_workspace_symbols, SymbolEntry, WorkspaceDoc);

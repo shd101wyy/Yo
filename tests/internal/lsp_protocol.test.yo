@@ -40,7 +40,7 @@ json :: import("std/encoding/json");
 { handle_type_definition } :: import("../../src/lsp/definition.yo");
 { handle_references, handle_document_highlight } :: import("../../src/lsp/references.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
-{ handle_document_symbols } :: import("../../src/lsp/symbols.yo");
+{ handle_document_symbols, handle_workspace_symbols, WorkspaceDoc } :: import("../../src/lsp/symbols.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
 { is_any_temp_variable_name, generate_new_temp_variable_name } :: import("../../src/utils.yo");
 
@@ -325,6 +325,7 @@ test("hover shows contracts + verification status for a contracted function", {
 // declarations.
 // ---------------------------------------------------------------------------
 _TYPED_DECL :: "Point :: struct(x : i32, y : i32);\n(p : Point) = Point(x : 1, y : 2);\nanswer :: (fn() -> i32)({ return(((p.x) + (p.y))); });\n";
+_MISSING_TOSTRING :: "{ println } :: import(\"std/fmt\");\nP2 :: struct(x : i32);\nmain :: (fn() -> unit)({\n  p := P2(x : i32(1));\n  println(p);\n  ()\n});\nexport(main);\n";
 
 test("rename_rejection: only legal binding names pass", {
   // Legal identifiers (including single-underscore-private ones).
@@ -589,5 +590,82 @@ test("a cursor at an identifier's end column still names it", {
       assert(hv.is_some(), "hover answers at an identifier's end column");
     },
     .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-29 audit §3 (plans/LSP_AUDIT_2026-09-29.md): workspace/symbol and
+// diagnostics relatedInformation.
+// ---------------------------------------------------------------------------
+test("workspace/symbol lists the open documents' matching top-level symbols", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      ws := ArrayList(WorkspaceDoc).new();
+      ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs, lines : lines));
+      all := json.stringify(handle_workspace_symbols(String.new(), ws));
+      assert(all.contains("\"Point\"") && all.contains("\"answer\"") && all.contains("\"p\""), "an empty query lists every symbol");
+      assert(all.contains("file:///virtual/ws-a.yo"), "each item points into its document");
+      poin := json.stringify(handle_workspace_symbols(String.from("poin"), ws));
+      assert(poin.contains("\"Point\""), "a case-insensitive substring query finds Point");
+      assert(!poin.contains("\"answer\""), "non-matching symbols are left out");
+      none := json.stringify(handle_workspace_symbols(String.from("zzzzz"), ws));
+      assert_eq(none, String.from("[]"), "no match answers an empty array");
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_missing_tostring.yo`;
+  text := String.from(_MISSING_TOSTRING);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  out_state := ArrayList(AnalyzeOutcome).new();
+  diags := analyze_document(doc_path.clone(), text.clone(), std_path.clone(), io, out_state);
+  assert_eq(diags.len(), usize(1), "only the primary surfaces; its note is attached, not standalone");
+  match(
+    diags.get(usize(0)),
+    .Some(d) => {
+      assert(d.code == Option(String).Some(String.from("E0602")), `the primary is the missing-trait error, got ${d.code.to_string()}`);
+      assert_eq(d.related.len(), usize(1), "the std-anchored note is attached as related");
+      match(
+        d.related.get(usize(0)),
+        .Some(r) => {
+          assert(r.message.contains(String.from("raised here")), `the note's message, got ${r.message}`);
+          assert(r.path.contains(String.from("index.yo")), `the note is anchored at std's where clause, got ${r.path}`);
+        },
+        .None => assert(false, "related entry missing")
+      );
+    },
+    .None => assert(false, "primary diagnostic missing")
   );
 });

@@ -57,9 +57,48 @@ LspDiag :: struct(
   /// `Repair` `yo fix` applies) — served as a quickfix by
   /// `textDocument/codeAction`. Only the typed channel carries it; the
   /// rendered-text fallbacks have none.
-  (repair : Option(Repair)) ?= Option(Repair).None
+  (repair : Option(Repair)) ?= Option(Repair).None,
+  /// The note/help diagnostics that belong to this primary, as
+  /// `relatedInformation` (plans/LSP_AUDIT_2026-09-29.md §3): a note's OWN
+  /// span, which may sit in ANOTHER file (`note: raised here, inside the
+  /// standard library` anchored at std's `where` clause). Empty for
+  /// standalone entries.
+  related : ArrayList(RelatedInfo)
 );
-derive(LspDiag, Clone);
+/// One note/help entry attached to a primary LspDiag. `path` is the
+/// module-path spelling the span carries (`file://…` or plain).
+RelatedInfo :: struct(
+  path : String,
+  row : usize,
+  col : usize,
+  end_col : usize,
+  message : String
+);
+derive(RelatedInfo, Clone);
+// Manual Clone: a derive over the `related : ArrayList(RelatedInfo)` field
+// generates a hollow clone fn — the derive rule's definition-time trial
+// swallows the error and the program aborts when clone() runs (the
+// Array-field variant of this is
+// issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md;
+// the ArrayList-field variant is
+// issues/derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md).
+impl(
+  LspDiag,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(
+      LspDiag(
+        row : self.row,
+        col : self.col,
+        end_col : self.end_col,
+        severity : self.severity,
+        code : self.code.clone(),
+        message : self.message.clone(),
+        repair : self.repair.clone(),
+        related : self.related.clone()
+      )
+    )
+  )
+);
 /// LSP severity number for a renderer/registry `Severity`.
 lsp_severity_of :: (fn(sev : Severity) -> usize)(
   match(
@@ -70,7 +109,7 @@ lsp_severity_of :: (fn(sev : Severity) -> usize)(
     .Help => usize(4)
   )
 );
-export(LspDiag);
+export(LspDiag, RelatedInfo);
 
 /// Parse-error stash: effect handlers cannot capture outer runtime
 /// variables, so the analyzer's local exception handler records the thrown
@@ -336,7 +375,8 @@ parse_error_text :: (
                           end_col : end_col,
                           severity : header.severity,
                           code : header.code,
-                          message : message
+                          message : message,
+                          related : ArrayList(RelatedInfo).new()
                         )
                       );
                     },
@@ -348,7 +388,8 @@ parse_error_text :: (
                           end_col : usize(1),
                           severity : header.severity,
                           code : header.code,
-                          message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`
+                          message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`,
+                          related : ArrayList(RelatedInfo).new()
                         )
                       );
                     }
@@ -382,7 +423,8 @@ parse_error_text :: (
         end_col : usize(1),
         severity : usize(1),
         code : Option(String).None,
-        message : err_text.trim()
+        message : err_text.trim(),
+        related : ArrayList(RelatedInfo).new()
       )
     );
   });
@@ -493,40 +535,88 @@ _typed_to_lsp :: (
   fn(diags : ArrayList(Diagnostic), doc_abs : String) -> ArrayList(LspDiag)
 )({
   out := ArrayList(LspDiag).new();
+  // The index of the last pushed Error/Warning entry — note/help entries
+  // that follow it attach as its `related` (the renderer's nesting), with
+  // their own spans. Only the typed channel has the structure; the
+  // rendered-text fallback stays flat.
+  (last_primary : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   while(i < diags.len(), {
     match(
       diags.get(i),
       .Some(d) => {
         same_file := ((d.span.path == doc_abs) || d.span.path.ends_with(doc_abs.clone()));
-        if(same_file, {
-          out.push(
-            LspDiag(
-              row : d.span.row,
-              col : d.span.col,
-              end_col : (d.span.col + d.span.len),
-              severity : lsp_severity_of(d.severity),
-              code : d.code,
-              message : d.message,
-              repair : match(
-                d.repair,
-                // A repair in ANOTHER file is not this document's quickfix.
-                .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r), Option(Repair).None),
-                .None => Option(Repair).None
-              )
-            )
+        is_note := match(
+          d.severity,
+          .Note => true,
+          .Help => true,
+          _ => false
+        );
+        is_primary := match(
+          d.severity,
+          .Error => true,
+          .Warning => true,
+          _ => false
+        );
+        attach := match(
+          last_primary,
+          .Some(pi) => (is_note && (pi < out.len())),
+          .None => false
+        );
+        if(attach, {
+          match(
+            out.get(match(last_primary, .Some(pi) => pi, .None => usize(0))),
+            .Some(primary) => {
+              primary.related.push(
+                RelatedInfo(
+                  path : d.span.path.clone(),
+                  row : d.span.row,
+                  col : d.span.col,
+                  end_col : (d.span.col + d.span.len),
+                  message : d.message.clone()
+                )
+              );
+            },
+            .None => ()
           );
         }, {
-          out.push(
-            LspDiag(
-              row : usize(0),
-              col : usize(0),
-              end_col : usize(1),
-              severity : lsp_severity_of(d.severity),
-              code : d.code,
-              message : `${d.message} (in ${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))})`
-            )
-          );
+          if(same_file, {
+            out.push(
+              LspDiag(
+                row : d.span.row,
+                col : d.span.col,
+                end_col : (d.span.col + d.span.len),
+                severity : lsp_severity_of(d.severity),
+                code : d.code,
+                message : d.message,
+                repair : match(
+                  d.repair,
+                  // A repair in ANOTHER file is not this document's quickfix.
+                  .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r), Option(Repair).None),
+                  .None => Option(Repair).None
+                ),
+                related : ArrayList(RelatedInfo).new()
+              )
+            );
+            if(is_primary, {
+              last_primary = Option(usize).Some(out.len() - usize(1));
+            });
+          }, {
+            out.push(
+              LspDiag(
+                row : usize(0),
+                col : usize(0),
+                end_col : usize(1),
+                severity : lsp_severity_of(d.severity),
+                code : d.code,
+                message : `${d.message} (in ${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))})`,
+                related : ArrayList(RelatedInfo).new()
+              )
+            );
+            if(is_primary, {
+              last_primary = Option(usize).Some(out.len() - usize(1));
+            });
+          });
         });
       },
       .None => ()
