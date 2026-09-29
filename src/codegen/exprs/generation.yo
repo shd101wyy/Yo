@@ -93,7 +93,8 @@
   BF_LAW,
   BF_YO_ARRAY_INDEX,
   ast_expr_id,
-  ast_expr_is_atom
+  ast_expr_is_atom,
+  spec_key
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
@@ -375,7 +376,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // `__spawn_future`. `variable_name` is absent for unbound spawns, so
   // fall back to the deterministic ast expr id
   // (issues/yo-self-async-emission-cluster.md item 1).
-  spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${ast_expr_id(expr).to_string()}`);
+  spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${spec_key(ast_expr_id(expr)).to_string()}`);
   spawn_var := `__spawn_future_${spawn_suffix.clone()}`;
   spawn_state_var := `__spawn_state_${spawn_suffix.clone()}`;
   em.emit_string_line(`${indent.clone()}// io.spawn — start cold Future, return JoinHandle`);
@@ -459,7 +460,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
         already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))), .None => false);
         if(!already_var, {
           callee_type := get_type_string(cei.ty, context.base);
-          temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
+          temp_name := `__yo_idx_tmp_${spec_key(ast_expr_id(callee)).to_string()}`;
           em := context.base.emitter;
           em.emit_string_line(`${indent.clone()}${callee_type} ${temp_name.clone()} = ${callee_code.clone()};`);
           callee_code = temp_name;

@@ -36,6 +36,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
+{ spec_key } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
@@ -4469,37 +4470,37 @@ evaluate_function_type :: (
   // type-expression id. `try_to_implement_function_by_function_type`
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
-  register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  register_func_param_defaults(spec_key(ast_expr_id(expr)).to_string(), param_defaults);
   // Per-param comptime flags (same two-step re-keying as the defaults) so the
   // call site can lower comptime-only args passed to RUNTIME params.
-  register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
+  register_func_param_comptime(spec_key(ast_expr_id(expr)).to_string(), param_comptime_flags);
   // Per-param `= <value>` assigned values (same two-step re-keying) so the
   // call site can reject a mismatching argument.
-  register_func_param_assigned_values(ast_expr_id(expr).to_string(), param_assigned_values);
+  register_func_param_assigned_values(spec_key(ast_expr_id(expr)).to_string(), param_assigned_values);
   // Keep the declared return-type EXPR for specialization-time re-evaluation
   // (see the side-table comment above).
-  register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
+  register_func_return_type_expr(spec_key(ast_expr_id(expr)).to_string(), return_type_expr.clone());
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
-  register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
+  register_func_param_default_exprs(spec_key(ast_expr_id(expr)).to_string(), param_default_exprs);
   // Per-parameter declared TYPE expressions for
   // specialization-time re-evaluation — see the side-table comment above.
-  register_func_param_type_exprs(ast_expr_id(expr).to_string(), param_type_exprs);
+  register_func_param_type_exprs(spec_key(ast_expr_id(expr)).to_string(), param_type_exprs);
   // Register the where-clause constraints (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
-  register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
+  register_func_where_constraints(spec_key(ast_expr_id(expr)).to_string(), where_constraint_entries);
   // Register the where-clause EXPRESSIONS too
   // for the call-site re-application — see the exprs side-table comment above.
-  register_func_where_clause_exprs(ast_expr_id(expr).to_string(), params_result.where_clause_exprs);
+  register_func_where_clause_exprs(spec_key(ast_expr_id(expr)).to_string(), params_result.where_clause_exprs);
   // Register the Phase-0 contract predicates (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // body-wrapping lowering can splice them into the function body.
-  register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
-  register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
-  register_func_decreases_expr(ast_expr_id(expr).to_string(), params_result.decreases_expr);
+  register_func_requires_exprs(spec_key(ast_expr_id(expr)).to_string(), params_result.requires_exprs);
+  register_func_ensures_exprs(spec_key(ast_expr_id(expr)).to_string(), params_result.ensures_exprs);
+  register_func_decreases_expr(spec_key(ast_expr_id(expr)).to_string(), params_result.decreases_expr);
   // V6 task 5: the `assumed()` marker rides the same re-keying lifecycle.
-  register_func_assumed_body(ast_expr_id(expr).to_string(), params_result.assumed_body);
+  register_func_assumed_body(spec_key(ast_expr_id(expr)).to_string(), params_result.assumed_body);
   // V6 task 3: pick up per-parameter `refine(T, p)` predicates from the
   // declared TYPE EXPR nodes (the annotation registry is keyed by node id
   // — evaluate_refine writes it), and ride the same two-step keying so
@@ -4527,7 +4528,7 @@ evaluate_function_type :: (
     refined_preds.push(pred_here);
     rp2_i = (rp2_i + usize(1));
   });
-  register_func_refined_params(ast_expr_id(expr).to_string(), refined_preds);
+  register_func_refined_params(spec_key(ast_expr_id(expr)).to_string(), refined_preds);
   // Phase V1: `-> (name : unit)` parses, but the label names nothing — reject
   // `ensures(...)` predicates that reference it (decision D3,
   // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
@@ -4565,11 +4566,11 @@ evaluate_function_type :: (
   // Phase V1: register the labeled-return name (same two-step re-keying as
   // the predicate tables above) so the body-wrapping lowering binds it for
   // `ensures(...)` predicates instead of the Phase-0 magic `result`.
-  register_func_return_label(ast_expr_id(expr).to_string(), return_label);
+  register_func_return_label(spec_key(ast_expr_id(expr)).to_string(), return_label);
   // Register the variadic parameter's name/type (see the side table above).
   if(params_result.has_variadic, {
     register_func_variadic_param(
-      ast_expr_id(expr).to_string(),
+      spec_key(ast_expr_id(expr)).to_string(),
       params_result.variadic_param.label.clone(),
       params_result.variadic_param.ty
     );
@@ -4595,9 +4596,9 @@ evaluate_function_type :: (
   // `try_to_implement_function_by_function_type` (same two-step as the
   // defaults table). `TypeValue.Func` does not carry these flags, so they
   // live in the macro registry above.
-  register_macro_quoted_params(ast_expr_id(expr).to_string(), quoted_param_indices);
+  register_macro_quoted_params(spec_key(ast_expr_id(expr)).to_string(), quoted_param_indices);
   if(is_return_unquote, {
-    register_macro_return_is_unquote(ast_expr_id(expr).to_string());
+    register_macro_return_is_unquote(spec_key(ast_expr_id(expr)).to_string());
   });
   (ipi : usize) = usize(0);
   while(ipi < params_result.implicit_params.len(), {
@@ -4697,7 +4698,7 @@ evaluate_function_type :: (
         // ever sees the TYPE — an anonymous function checked against it —
         // re-key those tables onto its own FuncVal id, the way the `::` path
         // does explicitly.
-        origin_id : Option(String).Some(ast_expr_id(expr).to_string())
+        origin_id : Option(String).Some(spec_key(ast_expr_id(expr)).to_string())
       )
     ),
     vts_mint

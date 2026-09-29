@@ -32,7 +32,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
-  wrap_body_in_begin
+  wrap_body_in_begin,
+  spec_key
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -6268,7 +6269,7 @@ try_to_call_function_with_arguments :: (
               // never share a lineage.
               forall_val = create_type_value(
                 TypeValue.SomeT(
-                  `${flabel}_wcforall_${ast_expr_id(expr).to_string()}`,
+                  `${flabel}_wcforall_${spec_key(ast_expr_id(expr)).to_string()}`,
                   flabel.clone(),
                   usize(0),
                   t_type(),

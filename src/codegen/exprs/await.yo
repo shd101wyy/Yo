@@ -15,7 +15,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, spec_key } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -463,7 +463,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => ast_expr_id(expr).to_string());
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => spec_key(ast_expr_id(expr)).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
@@ -576,7 +576,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
   if(!is_result_unit, {
-    result_var := match(expr_ei.variable_name, .Some(n) => n, .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
+    result_var := match(expr_ei.variable_name, .Some(n) => n, .None => `__sync_await_result_${spec_key(ast_expr_id(expr)).to_string()}`);
     result_type_str := get_type_string(result_type, context.base);
     var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
     if(has_algebraic_effects, {

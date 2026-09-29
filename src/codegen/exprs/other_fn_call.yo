@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, spec_key } :: import("../../expr.yo");
 { lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_index_trait_ptr_type } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -2565,7 +2565,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
       return(Option(String).Some(String.from("")));
     });
-    fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${ast_expr_id(expr).to_string()}`);
+    fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${spec_key(ast_expr_id(expr)).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!(already), {
       match(
