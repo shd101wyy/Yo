@@ -19,7 +19,7 @@
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
-{ TokenKind } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -44,10 +44,324 @@ CrossBoundaryResult :: ref(
     variable_segments : HashMap(String, HashSet(usize))
   )
 );
+/// A body local's live range for the single-pass lowering, in source-position
+/// keys (`_lv_pos`): it holds a value from `def_end` (the end of its
+/// initializer, or its pattern binding) to `last` (its last use, counted at
+/// the end of the statement that uses it), extended to `scope_end` when it
+/// must survive to a scope-end drop or has its address taken.
+_LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end : bool));
+/// State of the live-range walk over one `io.async` body.
+_LiveWalk :: ref(
+  struct(
+    module_path : String,
+    /// A node from another module was seen (a macro expansion): positions are
+    /// not comparable, so every local is treated as live across the awaits.
+    foreign : bool,
+    vars : HashMap(String, _LiveVar),
+    remap : HashMap(String, String),
+    loop_starts : ArrayList(u64),
+    loop_ends : ArrayList(u64),
+    span_ends : HashMap(usize, u64)
+  )
+);
+/// A token's source position as one ordered key (row major).
+_lv_pos :: (fn(tok : Token, w : _LiveWalk) -> u64)({
+  if(!(tok.module_path == w.module_path), {
+    w.foreign = true;
+  });
+  ((u64(tok.row) * u64(1048576)) + u64(tok.column))
+});
+/// The last source position inside `e` (memoized by node id).
+_lv_span_end :: (fn(e : AstExpr, w : _LiveWalk) -> u64)({
+  eid := ast_expr_id(e);
+  match(w.span_ends.get(eid), .Some(v) => return(v), .None => ());
+  (m : u64) = _lv_pos(ast_expr_token(e), w);
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      fe := recur(func_box, w);
+      if(fe > m, {
+        m = fe;
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            ae := recur(a, w);
+            if(ae > m, {
+              m = ae;
+            });
+          },
+          .None => ()
+        );
+      });
+    }
+  );
+  w.span_ends.insert(eid, m);
+  m
+});
+/// The id (after SSA remapping) of the variable `name` resolves to in `e`'s
+/// environment, and that variable's declaration position.
+_lv_resolve :: (fn(e : AstExpr, name : String, w : _LiveWalk, context : FunctionGenerationContext) -> Option(Variable))(
+  match(
+    context.base.get_expr_info(e),
+    .Some(info) => {
+      vs := get_variables_from_env(info.env, name);
+      cond(
+        (vs.len() == usize(0)) => Option(Variable).None,
+        true => vs.get(vs.len() - usize(1))
+      )
+    },
+    .None => Option(Variable).None
+  )
+);
+_lv_id :: (fn(v : Variable, w : _LiveWalk) -> String)({
+  id := v.id.to_string();
+  match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
+});
+/// Declare a local at `def_end` (its scope ends at `scope_end`).
+_lv_declare :: (fn(id : String, def_end : u64, scope_end : u64, w : _LiveWalk) -> unit)({
+  if(!(w.vars.contains_key(id.clone())), {
+    w.vars.insert(id, _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
+  });
+});
+/// Record a use of `id` at `at`: a local defined before an enclosing loop is
+/// live through the whole loop (the loop comes back to it).
+_lv_use :: (fn(id : String, at : u64, w : _LiveWalk) -> unit)(
+  match(
+    w.vars.get(id),
+    .Some(lv) => {
+      if(at > lv.last, {
+        lv.last = at;
+      });
+      (li : usize) = usize(0);
+      while(li < w.loop_starts.len(), li = (li + usize(1)), {
+        ls := match(w.loop_starts.get(li), .Some(x) => x, .None => u64(0));
+        le := match(w.loop_ends.get(li), .Some(x) => x, .None => u64(0));
+        if((lv.def_end < ls) && (le > lv.last), {
+          lv.last = le;
+        });
+      });
+    },
+    .None => ()
+  )
+);
+_lv_mark_scope :: (fn(e : AstExpr, w : _LiveWalk, context : FunctionGenerationContext) -> unit)(
+  match(
+    e.clone(),
+    .Atom(_, tok) => match(
+      _lv_resolve(e, tok.value.clone(), w, context),
+      .Some(v) => match(
+        w.vars.get(_lv_id(v, w)),
+        .Some(lv) => {
+          lv.to_scope_end = true;
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .FnCall(_, _, _, _, _) => ()
+  )
+);
+/// Declare the names a match arm's pattern binds (identifier atoms whose
+/// variable is declared at that very atom).
+_lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, context : FunctionGenerationContext) -> unit)(
+  match(
+    pat.clone(),
+    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+      match(
+        _lv_resolve(pat, tok.value.clone(), w, context),
+        .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
+          _lv_declare(_lv_id(v, w), _lv_pos(tok, w), scope_end, w);
+        }),
+        .None => ()
+      );
+    }),
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, scope_end, w, context);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(a, scope_end, w, context), .None => ());
+      });
+    }
+  )
+);
+/// Walk `e`: `stmt_end` is where the statement being walked ends (a read is
+/// emitted no earlier than the awaits before it in the same statement), and
+/// `block_end` where the innermost block ends (its locals' scope).
+_lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+  match(
+    lookup_macro_expansion(ast_expr_id(e)),
+    .Some(expanded) => {
+      recur(expanded, stmt_end, block_end, w, context);
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    e.clone(),
+    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+      _pos := _lv_pos(tok, w);
+      match(_lv_resolve(e, tok.value.clone(), w, context), .Some(v) => _lv_use(_lv_id(v, w), stmt_end, w), .None => ());
+    }),
+    .FnCall(_, func_box, args, _, _) => {
+      cond(
+        // `x := v` / `(x : T) = v`: the initializer first, then the binding.
+        (ast_expr_is_fn_call_of(e.clone(), ":=", Option(usize).Some(usize(2))) || (ast_expr_is_fn_call_of(e.clone(), "=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(l) => ast_expr_is_fn_call_of(l, ":", Option(usize).None), .None => false))) => {
+          rhs := match(args.get(usize(1)), .Some(r) => r, .None => return(()));
+          recur(rhs.clone(), stmt_end, block_end, w, context);
+          lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
+          name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
+          name := ast_expr_token(name_atom).value;
+          match(
+            _lv_resolve(e.clone(), name, w, context),
+            .Some(v) => _lv_declare(_lv_id(v, w), _lv_span_end(rhs, w), block_end, w),
+            .None => ()
+          );
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_WHILE, Option(usize).None) => {
+          w.loop_starts.push(_lv_pos(ast_expr_token(e.clone()), w));
+          w.loop_ends.push(_lv_span_end(e.clone(), w));
+          loop_end := _lv_span_end(e.clone(), w);
+          recur(func_box, loop_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            // The condition and the step run again every iteration.
+            match(args.get(i), .Some(a) => recur(a, loop_end, block_end, w, context), .None => ());
+          });
+          _ls := w.loop_starts.pop();
+          _le := w.loop_ends.pop();
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_BEGIN, Option(usize).None) => {
+          blk_end := _lv_span_end(e.clone(), w);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(args.get(i), .Some(a) => recur(a.clone(), _lv_span_end(a, w), blk_end, w, context), .None => ());
+          });
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_MATCH, Option(usize).None) => {
+          recur(func_box, stmt_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(
+              args.get(i),
+              .Some(a) => if(ast_expr_is_fn_call_of(a.clone(), "=>", Option(usize).Some(usize(2))), {
+                arm_end := _lv_span_end(a.clone(), w);
+                match(
+                  a.clone(),
+                  .FnCall(_, _, arm_args, _, _) => {
+                    match(arm_args.get(usize(0)), .Some(pat) => _lv_pattern_bindings(pat, arm_end, w, context), .None => ());
+                    match(arm_args.get(usize(1)), .Some(body) => recur(body, stmt_end, arm_end, w, context), .None => ());
+                  },
+                  .Atom(_, _) => ()
+                );
+              }, {
+                recur(a, stmt_end, block_end, w, context);
+              }),
+              .None => ()
+            );
+          });
+        },
+        // `&x` / `inout(y) := x`: a pointer to the local can outlive any use
+        // of its name, so it lives to the end of its scope.
+        ast_expr_is_fn_call_of(e.clone(), "&", Option(usize).Some(usize(1))) => {
+          match(
+            args.get(usize(0)),
+            .Some(a) => {
+              _lv_mark_scope(a.clone(), w, context);
+              recur(a, stmt_end, block_end, w, context);
+            },
+            .None => ()
+          );
+        },
+        true => {
+          recur(func_box, stmt_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(args.get(i), .Some(a) => recur(a, stmt_end, block_end, w, context), .None => ());
+          });
+        }
+      );
+    }
+  );
+});
+/// The locals of an `io.async` body that need a state-machine field: those
+/// live across some suspension. Anything else stays a C local — the resume
+/// function jumps past its declaration, which C allows, and nothing reads it
+/// after the jump (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 6, layout
+/// from liveness). A future temp consumed into the await slot never crosses
+/// its own await. Unit locals have no storage at all.
+///
+/// The ranges are linear, in source order, which the single-pass lowering
+/// emits in: sound because a read counts at the end of its statement (a later
+/// await in the same statement is hoisted before it), a local used inside a
+/// loop it was defined before is live through the loop, and a local that is
+/// dropped at scope end, or whose address is taken, lives to the end of its
+/// scope. A node from another module (a macro expansion) makes positions
+/// incomparable, and then every local crosses, as before.
 compute_cross_boundary_variables :: (
   fn(body_expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> CrossBoundaryResult
 )({
   captured_variables := analysis.captured_variables;
+  body_tok := ast_expr_token(body_expr.clone());
+  w := _LiveWalk(
+    module_path : body_tok.module_path.clone(),
+    foreign : false,
+    vars : HashMap(String, _LiveVar).new(),
+    remap : analysis.variable_id_remapping,
+    loop_starts : ArrayList(u64).new(),
+    loop_ends : ArrayList(u64).new(),
+    span_ends : HashMap(usize, u64).new()
+  );
+  body_end := _lv_span_end(body_expr.clone(), w);
+  _lv_walk(body_expr.clone(), body_end, body_end, w, context);
+  // Suspension positions, and the future temps each await consumes.
+  sus := ArrayList(u64).new();
+  consumed_temps := HashSet(String).new();
+  note_await := (fn(ae : AstExpr, sus : ArrayList(u64), consumed : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+    sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
+    match(
+      ae,
+      .FnCall(_, _, aargs, _, _) => match(
+        aargs.get(usize(0)),
+        .Some(fut) => if(!(ast_expr_is_atom(fut)), {
+          match(
+            context.base.get_expr_info(fut),
+            .Some(fi) => match(
+              fi.variable_name,
+              .Some(vn) => {
+                consumed.insert(vn);
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        }),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    );
+  });
+  (pi : usize) = usize(0);
+  while(pi < analysis.await_points.len(), pi = (pi + usize(1)), {
+    match(
+      analysis.await_points.get(pi),
+      .Some(ap) => match(
+        ap.base.cond_branch_suspension_exprs,
+        .Some(bes) => {
+          (bj : usize) = usize(0);
+          while(bj < bes.len(), bj = (bj + usize(1)), {
+            match(bes.get(bj), .Some(be) => note_await(be, sus, consumed_temps, w, context), .None => ());
+          });
+          note_await(ap.base.expr, sus, consumed_temps, w, context);
+        },
+        .None => note_await(ap.base.expr, sus, consumed_temps, w, context)
+      ),
+      .None => ()
+    );
+  });
   all_ids := HashSet(String).new();
   (ai : usize) = usize(0);
   while(ai < captured_variables.len(), ai = (ai + usize(1)), {
@@ -56,7 +370,32 @@ compute_cross_boundary_variables :: (
       .Some(cv) => match(
         cv.kind,
         .Local => if(!(is_unit_type(cv.base.ty)), {
-          all_ids.insert(cv.base.id.to_string());
+          id := cv.base.id.to_string();
+          crosses := cond(
+            w.foreign => true,
+            consumed_temps.contains(cv.base.name.clone()) => false,
+            true => match(
+              w.vars.get(id.clone()),
+              // Not declared in this body as the walk sees it (a minted temp,
+              // a binding it cannot place): keep its field.
+              .None => true,
+              .Some(lv) => {
+                end := if((lv.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv.scope_end > lv.last), lv.scope_end, lv.last);
+                (hit : bool) = false;
+                (si : usize) = usize(0);
+                while((si < sus.len()) && !(hit), si = (si + usize(1)), {
+                  sp := match(sus.get(si), .Some(x) => x, .None => u64(0));
+                  if((sp > lv.def_end) && (sp <= end), {
+                    hit = true;
+                  });
+                });
+                hit
+              }
+            )
+          );
+          if(crosses, {
+            all_ids.insert(id);
+          });
         }),
         .Outer => ()
       ),
@@ -382,7 +721,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
   extract_future_trait_from_type(future_type).is_some()
 });
 /// Emit the effect-injection line for one captured effect member of a Future:
-/// the generic vtable `__yo_set_effect_fn` call for generic-interface Futures, or
+/// the generic `vt->set_effect` call for generic-interface Futures, or
 /// a direct `__capture.<label>` store for concrete Futures.
 emit_future_effect_injection_line :: (
   fn(
@@ -397,7 +736,7 @@ emit_future_effect_injection_line :: (
   em := context.base.emitter;
   if(uses_generic_future_interface(future_type, context), {
     lbl := _c_string_literal(field_label.clone());
-    em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, ${lbl}, (void*)${member_code});`);
+    em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, ${lbl}, (void*)${member_code});`);
     return();
   });
   em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
@@ -796,12 +1135,12 @@ emit_effect_injection_for_sm :: (
                       bundle_type := get_type_string(bundle_cast_ty, context.base);
                       tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
                       em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
+                      em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
                     },
                     .None => match(
                       find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
                       .Some(obf) => {
-                        em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                        em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
                       },
                       .None => {
                         emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
@@ -868,7 +1207,7 @@ _emit_await_suspension_core :: (
     inner.push_str("  ");
     emit_effect_injection_for_sm(effect_expr, acc.clone(), inner, context);
     em.emit_string_line(`${ind}  // Cold future — start it via stored resume function pointer`);
-    em.emit_string_line(`${ind}  ${acc}->__yo_resume_fn((void*)${acc});`);
+    em.emit_string_line(`${ind}  ${acc}->vt->resume((void*)${acc});`);
     em.emit_string_line(``);
     em.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
     em.emit_string_line(`${ind}  future_state = ${acc}->state;`);

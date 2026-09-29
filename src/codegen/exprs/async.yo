@@ -574,12 +574,12 @@ emit_async_block_struct_definition :: (
   em.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(info.result_type, context.base)})`);
   em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
   // The prefix every future shares (types/generation.yo): header, state
-  // (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted), the abort
-  // hook, and the waiter slot. JoinHandle and the runtime read only this.
+  // (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted), the type's
+  // operations (`vt`), and the waiter slot. JoinHandle and the runtime read
+  // only this.
   em.emit_declaration_line("  __YO_FUTURE_PREFIX");
-  // Always include a result field so the erased interface's __yo_resume_fn
-  // and __yo_set_effect_fn keep their offsets. For unit, a uint8_t dummy
-  // (cannot use void).
+  // Always include a result field, at the offset the erased interface reads
+  // it from. For unit, a uint8_t dummy (cannot use void).
   if(is_unit_type(info.result_type), {
     em.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
   }, {
@@ -587,8 +587,6 @@ emit_async_block_struct_definition :: (
   });
   em.emit_declaration_line("");
   // Resume function pointer for lazy start at await.
-  em.emit_declaration_line("  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/spawn)");
-  em.emit_declaration_line("  void (*__yo_set_effect_fn)(void*, const char*, void*);");
   em.emit_declaration_line("");
   // Capture struct field.
   match(
@@ -1243,6 +1241,10 @@ generate_async_block_constructor :: (
 )({
   em := context.base.emitter;
   // Constructor signature (returns a pointer for a stable Future/SM address).
+  // The per-TYPE operations live in one static vtable the prefix points at
+  // (`__yo_future_vtable_t`), not in every instance.
+  vt_cancel := match(cancel_pending_function_name.clone(), .Some(cpfn) => cpfn, .None => String.from("NULL"));
+  em.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel} };`);
   match(
     capture_type,
     .Some(cap_ty) => {
@@ -1277,11 +1279,7 @@ generate_async_block_constructor :: (
   });
   em.emit_line("");
   em.emit_line("  sm->state = 0;");
-  match(
-    cancel_pending_function_name,
-    .Some(cpfn) => em.emit_string_line(`  sm->cancel_pending_fn = ${cpfn};  // JoinHandle.abort cancels the pending I/O`),
-    .None => em.emit_line("  sm->cancel_pending_fn = NULL;  // no cancellable await slot")
-  );
+  em.emit_string_line(`  sm->vt = &${struct_name.clone()}_vt;  // resume, set_effect, abort hook (per type)`);
   em.emit_line("  sm->continuation_fn = NULL;");
   em.emit_line("  sm->continuation_sm = NULL;");
   em.emit_line("");
@@ -1302,10 +1300,6 @@ generate_async_block_constructor :: (
   }, {
     em.emit_string_line(`  memset(&sm->result, 0, sizeof(${result_type_c_name.clone()}));`);
   });
-  em.emit_line("");
-  // Resume + set_effect fn pointers (lazy start at await/spawn).
-  em.emit_string_line(`  sm->__yo_resume_fn = ${resume_function_name.clone()};`);
-  em.emit_string_line(`  sm->__yo_set_effect_fn = ${set_effect_function_name.clone()};`);
   em.emit_line("");
   em.emit_line("  return sm;");
   em.emit_line("}");
@@ -1743,6 +1737,37 @@ _report_hollow_async_body :: (fn(body_expr : AstExpr, via_fsm : bool) -> unit)({
     .None => codegen_user_error(tok, _hollow_async_body_message(body_expr, via_fsm))
   );
 });
+/// The declaration site (`module:row:col`) of parameter `name` in the closure
+/// literal an `io.async(...)` call passes, or "" when it is not found.
+_closure_param_decl_site :: (fn(io_async_call : AstExpr, name : String) -> String)({
+  closure := match(io_async_call, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(c) => c, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
+  params := match(closure, .FnCall(_, _, ca, _, _) => match(ca.get(usize(0)), .Some(p) => p, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
+  _first_atom_site(params, name)
+});
+_first_atom_site :: (fn(e : AstExpr, name : String) -> String)(
+  match(
+    e,
+    .Atom(_, tok) => cond(
+      (tok.value == name) => `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`,
+      true => String.from("")
+    ),
+    .FnCall(_, _, args, _, _) => {
+      (i : usize) = usize(0);
+      (found : String) = String.from("");
+      while((i < args.len()) && (found.len() == usize(0)), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            found = recur(a, name.clone());
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
 generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("async block missing ExprInfo"))));
   // The io.async closure body is extracted ONCE by the dispatcher (via
@@ -2006,7 +2031,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
             );
             ctype := get_type_string(pt_slot, context.base);
             pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
-            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt_slot));
+            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname.clone(), param_type : pt_slot, decl_site : _closure_param_decl_site(expr, pname)));
             i = (i + usize(1));
           });
         },
@@ -2116,6 +2141,41 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := compute_cross_boundary_variables(block.body_expr, block.analysis, context);
   cross_boundary_ids := cbr.cross_boundary_ids;
+  // A closure parameter lives in its `__yo_param_<i>` slot, which is what its
+  // reads render; its own local would be a second, never-used copy (the
+  // bundle stored twice, plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4).
+  param_sites := HashSet(String).new();
+  match(
+    block.closure_param_slots,
+    .Some(slots) => {
+      (psi : usize) = usize(0);
+      while(psi < slots.len(), {
+        match(
+          slots.get(psi),
+          .Some(sl) => if(sl.decl_site.len() > usize(0), {
+            param_sites.insert(sl.decl_site.clone());
+          }),
+          .None => ()
+        );
+        psi = (psi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  if(param_sites.len() > usize(0), {
+    (pci : usize) = usize(0);
+    pcvs := block.analysis.captured_variables;
+    while(pci < pcvs.len(), {
+      match(
+        pcvs.get(pci),
+        .Some(pv) => if(match(pv.kind, .Local => true, .Outer => false) && param_sites.contains(pv.base.decl_site.clone()), {
+          _removed := cross_boundary_ids.remove(pv.base.id.to_string());
+        }),
+        .None => ()
+      );
+      pci = (pci + usize(1));
+    });
+  });
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
   osr := compute_overlapping_slots(cross_boundary_ids, cbr.variable_segments, block.analysis.captured_variables, await_future_temp_var_aliases, context);
   overlapping_slot_aliases := osr.slot_aliases;
@@ -2697,8 +2757,6 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   }, {
     em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
   });
-  em.emit_declaration_line("  void (*__yo_resume_fn)(void*);");
-  em.emit_declaration_line("  void (*__yo_set_effect_fn)(void*, const char*, void*);");
   em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
@@ -3011,9 +3069,10 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->cancel_pending_fn = NULL;  // no await slot to cancel`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_resume_fn = ${resume_function_name.clone()};`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_set_effect_fn = ${sync_set_effect_function_name.clone()};`);
+  // Per-type operations (no await slot, so no abort hook).
+  sync_vt := `${result_var.clone()}_vt`;
+  em.emit_string_line(`${indent.clone()}static const __yo_future_vtable_t ${sync_vt.clone()} = { ${resume_function_name.clone()}, ${sync_set_effect_function_name.clone()}, NULL };`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->vt = &${sync_vt};`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_sm = NULL;`);
   result_var

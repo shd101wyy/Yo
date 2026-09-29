@@ -389,9 +389,9 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
   is_io_future := match(context.base.get_expr_info(future_arg), .Some(ei) => is_io_future_type(ei.ty), .None => false);
   if(!is_io_future, {
-    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
+    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->vt && ${spawn_var.clone()}->vt->resume) {`);
     em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
-    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
   });
   // The lowering follows the prelude's JoinHandle: an OWNING `ref` struct,

@@ -1229,8 +1229,8 @@ static void __yo_future_abort(void* fut) {
     return;
   }
   f->state = -2;
-  if (f->cancel_pending_fn) {
-    f->cancel_pending_fn(fut, prev);
+  if (f->vt && f->vt->cancel_pending) {
+    f->vt->cancel_pending(fut, prev);
   } else {
     __yo_future_wake_waiters(fut);
   }

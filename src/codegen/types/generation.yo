@@ -1056,16 +1056,24 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
 // sync future, an I/O future, the erased \`Impl(Future)\` interface. The
 // runtime (JoinHandle, abort, waiter registration) reads only this, so it
 // must sit at the same offsets in all of them — \`result\` and everything
-// kind-specific come after it. \`cancel_pending_fn\` is the abort hook: called
-// with the pre-abort state once the future is marked -2, it cancels what the
-// task is suspended on and wakes the future's waiters; NULL means abort only
-// wakes the waiters (__yo_future_abort).
-// plans/ASYNC_STATE_MACHINE_GENERATION.md phase 2;
+// kind-specific come after it. \`vt\` points at the future TYPE's operations
+// (one static table per type, not three pointers per instance): \`resume\`
+// starts or continues it, \`set_effect\` injects an effect bundle, and
+// \`cancel_pending\` is the abort hook, called with the pre-abort state once
+// the future is marked -2 to cancel what the task is suspended on and wake
+// its waiters. A NULL \`vt\` (a raw I/O future) or a NULL operation means
+// there is none (__yo_future_abort only wakes the waiters).
+// plans/ASYNC_STATE_MACHINE_GENERATION.md phases 2 and 6;
 // issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md.
+typedef struct __yo_future_vtable_t {
+  void (*resume)(void*);
+  void (*set_effect)(void*, const char*, void*);
+  void (*cancel_pending)(void*, int);
+} __yo_future_vtable_t;
 #define __YO_FUTURE_PREFIX \\
   __yo_ref_header_t header; \\
   int state; \\
-  void (*cancel_pending_fn)(void*, int); \\
+  const __yo_future_vtable_t* vt; \\
   void (*continuation_fn)(void*); \\
   void* continuation_sm;
 typedef struct __yo_future_header_t {
@@ -1078,7 +1086,7 @@ typedef struct __yo_future_header_t {
 typedef struct __yo_io_future_t {
   __yo_ref_header_t header;
   _Atomic int state;
-  void (*cancel_pending_fn)(void*, int);
+  const __yo_future_vtable_t* vt;  // NULL: an I/O operation is cancelled through cancel_fn
   _Atomic(void (*)(void*)) continuation_fn;
   _Atomic(void*) continuation_sm;
   int32_t result;
@@ -1095,7 +1103,7 @@ typedef struct __yo_io_future_t {
   void* backend_link;
 } __yo_io_future_t;
 _Static_assert(offsetof(__yo_io_future_t, state) == offsetof(__yo_future_header_t, state), "future prefix: state");
-_Static_assert(offsetof(__yo_io_future_t, cancel_pending_fn) == offsetof(__yo_future_header_t, cancel_pending_fn), "future prefix: cancel_pending_fn");
+_Static_assert(offsetof(__yo_io_future_t, vt) == offsetof(__yo_future_header_t, vt), "future prefix: vt");
 _Static_assert(offsetof(__yo_io_future_t, continuation_fn) == offsetof(__yo_future_header_t, continuation_fn), "future prefix: continuation_fn");
 _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_future_header_t, continuation_sm), "future prefix: continuation_sm");
 
@@ -1561,23 +1569,21 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// Emit the generic Future trait-object interface struct for a
 /// `FutureTraitT`.
 ///. Every async state-machine
-/// struct begins with this exact prefix (`__YO_FUTURE_PREFIX`, then result/
-/// __yo_resume_fn/__yo_set_effect_fn), so a concrete SM
+/// struct begins with this exact prefix (`__YO_FUTURE_PREFIX`, then result),
+/// so a concrete SM
 /// future pointer casts to this interface — it is the C lowering for a
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
 generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
   result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
-  em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), abort hook, waiter"));
+  em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), type operations, waiter"));
   if(is_unit_type(result_type), {
     em.emit_declaration_string_line(String.from("  uint8_t result;"));
   }, {
     result_c := get_type_string(result_type, context);
     em.emit_declaration_string_line(`  ${result_c.clone()} result;`);
   });
-  em.emit_declaration_string_line(String.from("  void (*__yo_resume_fn)(void*);"));
-  em.emit_declaration_string_line(String.from("  void (*__yo_set_effect_fn)(void*, const char*, void*);"));
   em.emit_declaration_string_line(String.from("};"));
   em.emit_declaration_string_line(String.from(""));
 });
