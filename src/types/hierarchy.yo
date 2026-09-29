@@ -16,6 +16,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
 // ---------------------------------------------------------------------------
 // Forward reference slot for type_of_type_with_visited
@@ -81,7 +82,19 @@ _determine_type_universe :: (
 // ---------------------------------------------------------------------------
 // type_of_type_with_visited — the recursive core
 // ---------------------------------------------------------------------------
-type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)(
+(g_universe_memo : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_universe_guard_fired : bool) = false;
+/// The recursive universe walk. Per TOP-LEVEL call (`type_of_type` /
+/// `type_of_type_with_visited`), every NAMED aggregate (struct/enum/union)
+/// is memoized by its eval id — declaration-stable per declaration at
+/// module level, eval-fresh per generic instantiation, so the key is unique
+/// per distinct type. Without it a struct DAG (`S(i) :: struct(a : S(i-1),
+/// b : S(i-1))`) is re-walked once per PATH through its 2^depth leaf tree
+/// (issues/defining-a-deep-struct-dag-is-exponential.md). Entries computed
+/// while the name-cycle guard fired are NOT stored: their result depends on
+/// the path's visited set. Tuples/arrays are not memoized — they appear in
+/// source-proportional counts or behind a named boundary whose memo catches.
+_universe_of :: (fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)(
   match(
     ty,
     // Primitives -------------------------------------------------------------
@@ -124,42 +137,78 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     // Source-namespace structs (anonymous modules / imports) are
     // type-level-1, like traits (modules ARE structs; the namespace
     // itself is a comptime entity).
-    .Struct({ name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
+    .Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
       cond(
         s_sns => TypeValue.TypeUni(usize(1)),
-        _name_in_visited(visited, sname) => TypeValue.TypeUni(usize(0)),
+        _name_in_visited(visited, sname) => {
+          g_universe_guard_fired = true;
+          TypeValue.TypeUni(usize(0))
+        },
         true => {
-          new_visited := visited.clone();
-          new_visited.push(sname.clone());
-          _determine_type_universe(ftypes, new_visited)
+          mk := `struct:${sid}`;
+          match(
+            g_universe_memo.get(mk.clone()),
+            .Some(hit) => hit,
+            .None => {
+              guard_before := g_universe_guard_fired;
+              new_visited := visited.clone();
+              new_visited.push(sname.clone());
+              r := _determine_type_universe(ftypes, new_visited);
+              if(g_universe_guard_fired == guard_before, {
+                _ := g_universe_memo.insert(mk.clone(), r);
+              });
+              r
+            }
+          )
         }
       ),
     // EnumT: flatten all variant field types, then check the universe ------
-    .EnumT(_, ename, _, variant_fields, _, _, _, _, _) =>
+    .EnumT(eid, ename, _, variant_fields, _, _, _, _, _) =>
       cond(
-        _name_in_visited(visited, ename) => TypeValue.TypeUni(usize(0)),
+        _name_in_visited(visited, ename) => {
+          g_universe_guard_fired = true;
+          TypeValue.TypeUni(usize(0))
+        },
         true => {
-          new_visited := visited.clone();
-          new_visited.push(ename.clone());
-          all_fields := ArrayList(TypeValue).new();
-          vi := usize(0);
-          while(vi < variant_fields.len(), {
-            vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
-            fi := usize(0);
-            while(fi < vfields.len(), {
-              ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-              all_fields.push(ft);
-              fi = (fi + usize(1));
-            });
-            vi = (vi + usize(1));
-          });
-          _determine_type_universe(all_fields, new_visited)
+          mk2 := `enum:${eid}`;
+          match(
+            g_universe_memo.get(mk2.clone()),
+            .Some(hit2) => hit2,
+            .None => {
+              guard_before2 := g_universe_guard_fired;
+              new_visited := visited.clone();
+              new_visited.push(ename.clone());
+              all_fields := ArrayList(TypeValue).new();
+              vi := usize(0);
+              while(vi < variant_fields.len(), {
+                vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+                fi := usize(0);
+                while(fi < vfields.len(), {
+                  ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                  all_fields.push(ft);
+                  fi = (fi + usize(1));
+                });
+                vi = (vi + usize(1));
+              });
+              r2 := _determine_type_universe(all_fields, new_visited);
+              if(g_universe_guard_fired == guard_before2, {
+                _ := g_universe_memo.insert(mk2.clone(), r2);
+              });
+              r2
+            }
+          )
         }
       ),
     // Union: same as Struct -------------------------------------------------
+    // Union carries no eval id (name, labels, fields) — two modules may
+    // define same-named unions, so a name key is unsound and unions are NOT
+    // memoized (rare, never generic; a union DAG stays path-walked).
     .Union(uname, _, ftypes) =>
       cond(
-        _name_in_visited(visited, uname) => TypeValue.TypeUni(usize(0)),
+        _name_in_visited(visited, uname) => {
+          g_universe_guard_fired = true;
+          TypeValue.TypeUni(usize(0))
+        },
         true => {
           new_visited := visited.clone();
           new_visited.push(uname.clone());
@@ -183,14 +232,16 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
 // top-level assignment reassigns the real global.
 g_type_of_type_visited_fn =
   Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)).Some(
-    type_of_type_with_visited
+    _universe_of
   );
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 /// Get the meta-type (type universe) of any `TypeValue`.
 ///
-type_of_type :: (fn(ty : TypeValue) -> TypeValue)(
-  type_of_type_with_visited(ty, ArrayList(String).new())
-);
+type_of_type :: (fn(ty : TypeValue) -> TypeValue)({
+  g_universe_memo.clear();
+  g_universe_guard_fired = false;
+  _universe_of(ty, ArrayList(String).new())
+});
 export(type_of_type);

@@ -2,7 +2,24 @@
 
 **Severity:** S3 — no real program has been seen hitting it; a struct type that holds the same struct type several times, nested deep, makes every check of the module slow
 
-**Status:** OPEN (filed 2026-09-29).
+**Status: FIXED** (2026-09-29): `type_of_type_with_visited`'s replacement
+`_universe_of` (`src/types/hierarchy.yo`) memoizes each named aggregate by
+its eval id — declaration-stable per declaration, eval-fresh per generic
+instantiation — within one top-level walk, so a struct DAG's shared subtrees
+are walked once per distinct type instead of once per leaf path. Entries
+computed while the name-cycle guard fired are not stored (their result is
+path-dependent). Unions are not memoized (they carry no eval id; a name key
+would be unsound across modules) — a union DAG stays path-walked; filed as
+the residual below. Measured after the fix (same machine as the table above): depth 22
+48 s → 2.8 s, depth 26 >100 s → 6.2 s, depth 28 (unmeasurable before)
+19.3 s. Still superlinear (~3× per +2 depth) — a second walk with the same
+shape remains; attribution open. Regression:
+`tests/cli-cases/deep-struct-dag-defines-fast` (depth-24 binary DAG behind a
+30 s timeout — the unfixed build times out at rc 124; the fixed build
+passes).
+
+**Status:** OPEN (filed 2026-09-29). RESIDUAL: union-typed DAGs are still
+path-walked (no eval id to key on).
 **Found:** building the regression fixture for
 `issues/fixed/match-exhaustiveness-walks-the-whole-field-tree-of-an-unmatched-struct.md`, whose first
 reproducer (a binary DAG) was slow with or without a `match`.
@@ -31,5 +48,5 @@ type's expanded field tree, not the d + 1 type definitions.
 A `sample` at depth 22 is dominated by `type_of_type_with_visited` (`src/types/hierarchy.yo`). For a
 struct, it recurses into the fields, and `visited` guards against cycles by name along the current
 path only. Nothing remembers a struct already computed, so a type reached along 2^k paths is walked
-2^k times. Whether one memoized walk per struct is enough, or other walks (`type_key`, size or
-layout) have the same shape, is not yet known.
+2^k times. Whether other walks (`type_key`, size or layout) have the same shape is
+still open as of the fix; the fix covers `type_of_type` only.
