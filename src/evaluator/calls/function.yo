@@ -2285,7 +2285,7 @@ _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(Type
     return(Option(TypeValue).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -2760,7 +2760,7 @@ _funcval_bind_foralls :: (
     };
     // The binder's first binding (explicit or from an argument) and the
     // argument that made it, for the per-call consistency check below.
-    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.get(fa_bound_types.len() - usize(1)), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
+    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
     (fa_first_arg : Option(usize)) = Option(usize).None;
     while(ptn_i < n_ptn, {
       ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
@@ -2893,7 +2893,7 @@ _funcval_bind_foralls :: (
       se_vars := get_variables_from_env(se, fa_name);
       if(se_vars.len() > usize(0), {
         match(
-          se_vars.get(se_vars.len() - usize(1)),
+          se_vars.last(),
           .Some(se_var) => match(
             se_var.value.get(usize(0)),
             .Some(se_val) => match(
@@ -3948,7 +3948,7 @@ _evaluate_funcval_runtime_call :: (
       fbn_vars := get_variables_from_env(fresh_env, fbn);
       if(fbn_vars.len() > usize(0), {
         match(
-          fbn_vars.get(fbn_vars.len() - usize(1)),
+          fbn_vars.last(),
           .Some(fbn_var) => match(
             fbn_var.value.get(usize(0)),
             .Some(fbn_val) => {
@@ -6572,7 +6572,7 @@ Fix: wrap the call:
                   lp_vars := get_variables_from_env(lp_se, lp_fn.clone());
                   if(lp_vars.len() > usize(0), {
                     match(
-                      lp_vars.get(lp_vars.len() - usize(1)),
+                      lp_vars.last(),
                       .Some(lp_v) => match(
                         lp_v.value.get(usize(0)),
                         .Some(lp_val) => match(

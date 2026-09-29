@@ -157,7 +157,7 @@ collect_variable_refs_in_expr :: (
           if(variables.len() > usize(0), {
             // The last binding wins (innermost scope).
             variable := match(
-              variables.get(variables.len() - usize(1)),
+              variables.last(),
               .Some(v) => v,
               .None => return()
             );
@@ -223,7 +223,7 @@ collect_variable_refs_in_expr :: (
               bind_vars := get_variables_from_env(bind_ei.env, lhs_tok.value);
               if(bind_vars.len() > usize(0), {
                 bind_var := match(
-                  bind_vars.get(bind_vars.len() - usize(1)),
+                  bind_vars.last(),
                   .Some(v) => v,
                   .None => return()
                 );
@@ -4147,7 +4147,7 @@ generate_async_block_resume_function :: (
   });
   body_last_expr := if(
     body_exprs.len() > usize(0),
-    match(body_exprs.get(body_exprs.len() - usize(1)), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
+    match(body_exprs.last(), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
     Option(AstExpr).None
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id}`);
@@ -4252,7 +4252,7 @@ generate_async_block_resume_function :: (
         is_last_with_result := ((is_last_segment && !(is_unit_result)) && (segment.expressions.len() > usize(0)));
         seg_last := if(
           segment.expressions.len() > usize(0),
-          match(segment.expressions.get(segment.expressions.len() - usize(1)), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
+          match(segment.expressions.last(), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
           Option(AstExpr).None
         );
         same_as_body_last := match(

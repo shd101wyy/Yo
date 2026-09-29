@@ -1231,7 +1231,7 @@ module_global_recording_mark :: (fn() -> usize)({
 rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
   while(g_mg_recorded_keys.len() > mark, {
     match(
-      g_mg_recorded_keys.get(g_mg_recorded_keys.len() - usize(1)),
+      g_mg_recorded_keys.last(),
       .Some(k) => {
         g_module_level_globals.remove(k.clone());
         // The thread-local registry is keyed identically and is a SUBSET, so
@@ -1521,7 +1521,7 @@ pop_active_where_trait_ids :: (fn() -> unit)({
 });
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
-    g_active_where_trait_ids.get(g_active_where_trait_ids.len() - usize(1)),
+    g_active_where_trait_ids.last(),
     .Some(top) => top,
     .None => ArrayList(String).new()
   )
@@ -1588,7 +1588,7 @@ branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_br
 sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
   out := ArrayList(BranchInitRecord).new();
   match(
-    g_branch_group_stack.get(g_branch_group_stack.len() - usize(1)),
+    g_branch_group_stack.last(),
     .Some(g) => {
       gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
       ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));

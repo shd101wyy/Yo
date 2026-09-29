@@ -76,7 +76,7 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : AstExpr, context : Functio
       context.base.get_expr_info(atom),
       .Some(aei) => {
         vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
-        if(vars.len() == usize(0), Option(Variable).None, vars.get(vars.len() - usize(1)))
+        if(vars.len() == usize(0), Option(Variable).None, vars.last())
       },
       .None => Option(Variable).None
     ),
@@ -167,7 +167,7 @@ _variable_moved_before_cleanup_point :: (fn(v : Variable, cleanup_expr : AstExpr
 _resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(Variable), cleanup_token : Token, context : FunctionGenerationContext) -> Option(Variable))(
   match(
     _get_deferred_drop_target_variable(drop_expr, context),
-    .None => if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))),
+    .None => if(variables.len() == usize(0), Option(Variable).None, variables.last()),
     .Some(tv) => {
       n := variables.len();
       (i : usize) = usize(0);
@@ -187,7 +187,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(
         .Some(v) => Option(Variable).Some(v),
         .None => {
           decl_token := match(tv.initialized_at_token, .Some(t) => t, .None => tv.token);
-          if(_tokens_are_comparable(decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))))
+          if(_tokens_are_comparable(decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last()))
         }
       )
     }
@@ -729,7 +729,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             ia_vars := get_variables_from_env(aei2.env, avn.clone());
             if(ia_vars.len() > usize(0), {
               match(
-                ia_vars.get(ia_vars.len() - usize(1)),
+                ia_vars.last(),
                 .Some(iav) => if(iav.is_ref, {
                   is_inout_arg_atom = true;
                 }),
@@ -895,7 +895,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             ra_vars := get_variables_from_env(ra_ei.env, ast_expr_token(arg).value);
             if(ra_vars.len() > usize(0), {
               match(
-                ra_vars.get(ra_vars.len() - usize(1)),
+                ra_vars.last(),
                 .Some(rav) => if(rav.is_ref, {
                   arg_is_ref_atom = true;
                 }),
@@ -1086,7 +1086,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               vars.len() == usize(0),
               Option(HashSet(String)).None,
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => if(v.is_owning_the_rc_value, {
                   s := HashSet(String).new();
                   s.insert(name);

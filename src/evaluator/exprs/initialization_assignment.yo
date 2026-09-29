@@ -242,7 +242,7 @@ _evaluate_inout_local_binding :: (
   shadow_existing := get_variables_from_env(env, var_name.clone());
   if(shadow_existing.len() > usize(0), {
     match(
-      shadow_existing.get(shadow_existing.len() - usize(1)),
+      shadow_existing.last(),
       .Some(shadow_var) => {
         sh_entries := ArrayList(TokenAndError).new();
         sh_entries.push(
@@ -305,7 +305,7 @@ _evaluate_inout_local_binding :: (
   if(root_vars.len() == usize(0), {
     exn.throw(dyn(format_error_message(root_tok, `Variable "${root_tok.value}" is not defined.`)));
   });
-  root_var := match(root_vars.get(root_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
+  root_var := match(root_vars.last(), .Some(v) => v, .None => make_err_variable(env));
   if(root_var.is_compile_time_only, {
     exn.throw(
       dyn(
@@ -1114,7 +1114,7 @@ Use \`::\` for compile-time definitions inside impl.`
       shadow_existing := get_variables_from_env(env, var_name);
       if(shadow_existing.len() > usize(0), {
         match(
-          shadow_existing.get(shadow_existing.len() - usize(1)),
+          shadow_existing.last(),
           .Some(shadow_var) => if(match(prebound_opt, .Some(pb) => (pb.id == shadow_var.id), .None => false), (), {
             sh_entries := ArrayList(TokenAndError).new();
             sh_entries.push(
