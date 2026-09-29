@@ -2,8 +2,10 @@
 
 **Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
 Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
-the rest of phase 1 (#1008) and phase 6 (layout from liveness) are open as
-stacked PRs; phase 4 is subsumed by them, and phase 7 is in progress. The owning `JoinHandle` of phase 2
+the rest of phase 1 (#1008), phase 6 (layout from liveness) and phase 7 (the
+state-machine pools) are open as stacked PRs, and phase 4 is subsumed by
+them. What remains waits for a seed that carries phase 5: `for_await`, the
+seed-safe spellings in `src/`/`std/`, and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
 waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
 The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
@@ -759,6 +761,55 @@ measured before choosing:
   the leaf-spawn benchmark). The future is already counted, so the handle can
   be that counted reference itself.
 
+**Status: the free list is implemented on `async-sm-p7` (2026-09-29); the
+other two options are declined or seed-gated.**
+
+- **Per-type pools of released state machines.**
+  - A machine's constructor takes a block from its type's pool
+    (`__yo_sm_take`), and the dispose dispatch gives a released machine's
+    memory back (`__yo_sm_give`) instead of freeing it. `__yo_dispose_dispatch`
+    now returns whether it kept the memory, and both RC release paths honor
+    that.
+  - A pool is thread-local, holds at most 32 blocks, and is drained with the
+    continuation pool when the thread's async runtime is torn down, including
+    at thread exit.
+  - It is off under AddressSanitizer, so a use after free of a task is still
+    caught, and off in cycle-GC mode, whose collector frees through its own
+    path.
+  - The test runner builds with ASan, so the CLI case
+    `async-state-machine-pools` is what exercises the pools: 1000 reuses of
+    one type, a sync future, aborted tasks, and a thread's pools drained at
+    its exit. Valgrind reports no leak.
+
+  Callgrind instructions per op (§3.4 programs; the phase 6 branch before,
+  this branch after):
+
+  | Path | before | after |
+  |---|---|---|
+  | cold `sync_fut_t` leaf | 311 | 176 (−43%) |
+  | cold state machine that completes synchronously | 328 | 193 (−41%) |
+  | one-await chain (`d1`) | 632 | 362 (−43%) |
+  | chain depth 4 | 1544 | 869 (−44%) |
+  | spawn 100k no-await leaves, then await each | 666 | 697 (+5%) |
+  | spawn 100k one-await machines, then await each | 987 | 883 (−11%) |
+
+  The spawn rows hold 100k machines at once, more than a pool keeps, so
+  they pay the pool's check and gain little. After this, a cold await's
+  largest cost is the release: `__yo_decr_rc` with the dispatch and the
+  dispose, 61 of the 193 instructions.
+- **Declined: embedding an immediately awaited child in the parent.** The
+  child's memory would have to outlive every reference to it: waiters, a
+  handle, a field it was stored in. That needs an escape proof per await,
+  plus a header state that tells the release not to free. The pool already
+  removed the malloc and free this would have saved; what is left is the
+  release path, which embedding keeps.
+- **Seed-gated: the spawn handle without a box.** The design is a value
+  struct whose one field is the counted future (possible since #1008's
+  `Impl(Future)` fields); see
+  `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
+  2 of `issues/join-handle-ownership-waits-for-the-seed.md`, since the seed
+  lowers `io.spawn` itself, and it lands with that seed bump.
+
 ### Docs and instructions, per phase
 
 - Phase 0/1: `.github/instructions/c-codegen.instructions.md` (store-rule
@@ -985,3 +1036,6 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
     - a `return(x)` read the walk could not resolve left `x` a C local
       across the await before it.
 - 2026-09-29: phase 4 is recorded as subsumed by phases 5 and 6.
+- 2026-09-29: phase 7 on `async-sm-p7` (stacked on phase 6): per-type
+  pools of released state machines, 41–44% fewer instructions per cold
+  await. Embedding is declined, and the unboxed handle is seed-gated.

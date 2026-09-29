@@ -195,6 +195,18 @@ source order.
 - **`YO_DEBUG_ASYNC_LAYOUT=1`** prints, per `io.async` block, each closure
   parameter's declaration sites and each captured local's id, site and
   whether it got a field.
+- **Released machines go back to a per-type pool** (phase 7). A
+  constructor allocates with `__yo_sm_take(<pool>, sizeof)`
+  (`_sm_alloc_call`), and `__yo_dispose_dispatch` returns 1 when it gave the
+  memory to `__yo_sm_give`. Every caller of the dispatch must then skip
+  `__yo_free`; both release paths in `gc_runtime.yo` do.
+  - Anything else that frees a future's memory must go through the dispatch
+    too.
+  - The pools are thread-local, capped at 32 blocks, drained by
+    `__yo_async_free_cont_pool` (the async thread-exit hook), and off under
+    ASan (`__YO_SM_POOLS`).
+  - Since the test runner builds with ASan, pool behavior is tested by the
+    CLI case `async-state-machine-pools`.
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
