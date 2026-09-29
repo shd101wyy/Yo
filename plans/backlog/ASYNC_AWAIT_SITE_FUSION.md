@@ -141,14 +141,21 @@ Three facts from its code shape the lowering:
 - **Every variable is a slot from the caller's analysis.** A fused wrapper's
   parameters, prologue locals and block locals must join the caller's slot
   list, named per fused site.
-- **`ExprInfo`'s `Option(EvalValue)` reads are destructive moves in codegen**
-  (`io_async_await_analysis` documents it). A codegen-side detector that
-  looked up the callee's function value would consume the value the call's
-  own generation reads afterwards. So **fusability is decided in the
-  evaluator**, where the callee's function value and body are in hand. It is
-  recorded on the await's `ExprInfo` as plain data (the callee's `func_id`,
-  and the verdict or the rule that rejected it). F1 prints that record, and
-  F2 reads it. §3.1's rules are unchanged; only where they run moves.
+- **Fusability is decided in the evaluator**, at the call's evaluation
+  (`_evaluate_funcval_runtime_call`, the arm that already sees through an
+  `Impl(...)`-returning callee to its body), where the callee's function
+  value and body are in hand. It is recorded by the call's expression id as
+  plain data: the callee's `func_id`, and the verdict or the rule that
+  rejected it. F1 prints that record from codegen, and F2 reads it. §3.1's
+  rules are unchanged; only where they run moves.
+
+  Codegen comments (`io_async_await_analysis`, `generate_async_block`) call
+  `ExprInfo`'s `Option(EvalValue)` field reads "destructive moves". That was
+  **not reproduced** for an `Option(String)` field or an `Option(ref enum)`
+  field with a boxed payload, each read twice under the v0.2.45 seed that
+  compiles `src/`: both reads saw the value. The evaluator-side record is
+  kept anyway, because the value is in hand there and codegen then needs no
+  lookup at all.
 
 ## 3. Design
 
