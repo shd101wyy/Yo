@@ -140,6 +140,26 @@ _msof_key :: (fn(elem : VcSort) -> String)(
 // ============================================================================
 // Terms
 // ============================================================================
+/// `(<name> <arg>...)` for a constructor or function with arguments.
+_encode_ctor_app :: (fn(name : String, args : ArrayList(VcTerm)) -> String)({
+  sb := StringBuilder.new();
+  sb.write_byte(u8(0x28));
+  sb.write_string(name.clone());
+  (ci : usize) = usize(0);
+  while(ci < args.len(), {
+    match(
+      args.get(ci),
+      .Some(a) => {
+        sb.write_byte(u8(0x20));
+        sb.write_string(encode_term(a));
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  sb.write_byte(u8(0x29));
+  sb.to_string()
+});
 /// The SMT-LIB spelling of a term (deterministic walk).
 encode_term :: (fn(t : VcTerm) -> String)(
   match(
@@ -182,25 +202,12 @@ encode_term :: (fn(t : VcTerm) -> String)(
       sb.write_byte(u8(0x29));
       sb.to_string()
     },
-    .Ctor(name, args) => {
-      sb := StringBuilder.new();
-      sb.write_byte(u8(0x28));
-      sb.write_string(name.clone());
-      (ci : usize) = usize(0);
-      while(ci < args.len(), {
-        match(
-          args.get(ci),
-          .Some(a) => {
-            sb.write_byte(u8(0x20));
-            sb.write_string(encode_term(a));
-          },
-          .None => ()
-        );
-        ci = (ci + usize(1));
-      });
-      sb.write_byte(u8(0x29));
-      sb.to_string()
-    },
+    // A zero-argument application is the bare symbol: SMT-LIB rejects
+    // `(Name)` ("invalid function application, arguments missing").
+    .Ctor(name, args) => cond(
+      (args.len() == usize(0)) => name.clone(),
+      true => _encode_ctor_app(name, args)
+    ),
     // NOTE: the child bindings are deliberately NOT named `t` — binding the
     // scrutinee's own name hit the codegen self-referential-initializer UB
     // (C11 6.2.1p4; issues/fixed/match-binding-shadows-scrutinee-...) and the
