@@ -3826,7 +3826,14 @@ _call_term :: (
           if(ast_expr_is_atom(lr.recv), {
             new_len := _app3(VcOp.IteOp, non_empty, last_i, len_t);
             rebound := VcTerm.Ctor(name : _list_ctor_name(lr.elem), args : _two_terms(_list_contents_term(lr.elem, xs_t), new_len));
-            ctx.vars.insert(ast_expr_token(lr.recv).value, rebound);
+            rnm := ast_expr_token(lr.recv).value;
+            ctx.vars.insert(rnm.clone(), rebound);
+            // A popped parameter is a mutation its callers must learn of
+            // through old(), exactly as a push is (the subset rule in
+            // verify_function_body).
+            if(!ctx.mutated_names.contains(rnm.clone()), {
+              ctx.mutated_names.push(rnm);
+            });
           });
           return(result);
         });

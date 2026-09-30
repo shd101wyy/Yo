@@ -34,8 +34,9 @@ pop_last :: (
   )
 );
 
-// pop on an empty list leaves it empty.
-pop_empty :: (fn(xs : ArrayList(i32), requires(xs.is_empty()), ensures(xs.len() == usize(0))) -> (r : bool))(
+// pop on an empty list leaves it unchanged. The contract must still relate
+// xs to old(xs): a pop is a mutation as far as callers can tell.
+pop_empty :: (fn(xs : ArrayList(i32), requires(xs.is_empty()), ensures(xs.len() == old(xs.len()))) -> (r : bool))(
   match(
     xs.pop(),
     .Some(_) => true,
