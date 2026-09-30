@@ -657,6 +657,11 @@ VcCtx :: ref(
     /// call mutates, so the callee's `old(self.len())` reads the state
     /// before the call and not the caller's function entry.
     call_pre : Option(HashMap(String, VcTerm)),
+    /// Every NAME a call in this body rebound through the mutation model
+    /// (R1 slice 2) — a parameter here whose own contract never says
+    /// `old(<param>)` is the loud gap of
+    /// issues/questions/modifies-clause-for-callee-side-effects.md.
+    mutated_names : ArrayList(String),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -708,6 +713,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     loop_depth : usize(0),
     entry_vars : HashMap(String, VcTerm).new(),
     call_pre : Option(HashMap(String, VcTerm)).None,
+    mutated_names : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -4837,6 +4843,9 @@ _callee_call_term :: (
                 ctx.vars.insert(hcp.clone(), hnew);
                 havoc_names.push(hnm.clone());
                 havoc_terms.push(hnew);
+                if(!ctx.mutated_names.contains(hnm.clone()), {
+                  ctx.mutated_names.push(hnm.clone());
+                });
               }),
               _ => ()
             ),
@@ -5282,6 +5291,26 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     Option(VcTerm).None,
     _expr_term(ctx, input.body)
   );
+  // R1 slice 2: a list-typed PARAMETER this body mutated (a `push` on it
+  // rebound the name) must be related to `old(<param>)` by the contract —
+  // a caller keeps its pre-call knowledge of any argument the contract
+  // never mentions with `old`, so a silent mutation would be unsound at
+  // every call site (issues/questions/modifies-clause-for-callee-side-effects.md).
+  (mpi : usize) = usize(0);
+  while(mpi < input.param_names.len(), {
+    match(
+      input.param_names.get(mpi),
+      .Some(mpn) => if(ctx.mutated_names.contains(mpn.clone()) && !_contracts_mention_old_of(input.requires_exprs, input.ensures_exprs, mpn.clone()), {
+        _fail_subset(
+          ctx,
+          `the body mutates parameter '${mpn}' (a call rebinds it) but no contract clause relates it to old(${mpn}) — write ensures(${mpn}.len() == ...old(${mpn}.len())...) so callers learn the change`,
+          input.body
+        );
+      }),
+      .None => ()
+    );
+    mpi = (mpi + usize(1));
+  });
   match(
     body_val,
     .Some(bv) => {

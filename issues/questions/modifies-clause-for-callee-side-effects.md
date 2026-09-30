@@ -35,7 +35,8 @@ than add syntax:
    (its havoc set contains the parameter name) and no contract clause
    mentions `old(<param>)`, report a subset error naming the parameter
    ("the body mutates `xs` but the contract does not relate it to
-   `old(xs)`"). The verifier already computes both facts.
+   `old(xs)`"). **Done in the same slice** (`verify_function_body`,
+   `ctx.mutated_names`; fixture `negative/dml_list_silent_mutation.yo`).
 2. For `assumed()` bodies nothing can be checked; the std annotation
    review is the gate (every mutator in `std/collections/array_list.yo`
    already writes its `old(self.len())` clause).

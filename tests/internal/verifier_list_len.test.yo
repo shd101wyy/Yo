@@ -221,3 +221,22 @@ test("a wrong concat length and an over-claimed push both REFUTE", {
     `both must refute, got: [${_reports_dump(reports)}]`
   );
 });
+
+test("a body that mutates a list parameter without an old(param) clause is a precise subset error", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_silent_mutation.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(1),
+    `grow reports, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("subset-error")) == usize(1),
+    `grow must be a subset error naming old(xs), got: [${_reports_dump(reports)}]`
+  );
+});
