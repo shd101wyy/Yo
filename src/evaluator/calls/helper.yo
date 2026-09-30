@@ -19,7 +19,7 @@
 //! stub that used to live here has been retired.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ current_spec } :: import("../../expr.yo");
+{ current_spec, enter_spec, leave_spec, mint_spec_id, body_node_ids } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -206,7 +206,8 @@ pragma(Pragma.AllowUnsafe);
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, alias_closure_some_id, note_closure_for_some_id } :: import("../utils/closure.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
+{ HashSet } :: import("std/collections/hash_set");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
@@ -2211,7 +2212,80 @@ _somes_are_closure_forall_args :: (fn(somes : ArrayList(TypeValue), forall_args 
   });
   true
 });
+/// Errors `_create_specialized_guarded` caught, innermost last (nested
+/// specializations each push and pop their own).
+(g_spec_inline_errs : ArrayList(AnyError)) = ArrayList(AnyError).new();
+/// The node ids of each generic function's body, by func_id: the nodes every
+/// specialization of it owns (`mint_spec_id`). One set per function, shared
+/// by all its specializations.
+(g_generic_body_ids : HashMap(String, HashSet(usize))) = HashMap(String, HashSet(usize)).new();
+_generic_body_ids :: (fn(func_id : String, body : AstExpr) -> HashSet(usize))(
+  match(
+    g_generic_body_ids.get(func_id.clone()),
+    .Some(ids) => ids,
+    .None => {
+      ids := body_node_ids(body);
+      g_generic_body_ids.insert(func_id, ids);
+      ids
+    }
+  )
+);
+/// Specialize a generic function: evaluate its body for the concrete
+/// arguments and return the specialized FuncVal. The body is evaluated in
+/// place, not cloned: the specialization mints a spec that owns the body's
+/// nodes, so each specialization's per-node facts are keyed apart
+/// (`spec_key`, src/expr.yo; plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4
+/// Design 1). The spec current on entry is restored on every exit, a throw
+/// included: the error is caught, the spec restored, and the error re-thrown
+/// through `exn`.
 create_specialized_function_inline :: (
+  fn(
+    original_func_val : EvalValue,
+    func_type : TypeValue,
+    arg_values : ArgValues,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> EvalValue
+)({
+  entry_spec := current_spec();
+  errs_at_entry := g_spec_inline_errs.len();
+  out := ArrayList(EvalValue).new();
+  _create_specialized_guarded(original_func_val, func_type, arg_values, callee_env, caller_env, ctx, out);
+  leave_spec(entry_spec);
+  match(
+    out.last(),
+    .Some(v) => v,
+    .None => {
+      err := match(g_spec_inline_errs.last(), .Some(e) => e, .None => __yo_panic("create_specialized_function_inline: failed without an error"));
+      g_spec_inline_errs.truncate(errs_at_entry);
+      exn.throw(err)
+    }
+  )
+});
+_create_specialized_guarded :: (
+  fn(
+    original_func_val : EvalValue,
+    func_type : TypeValue,
+    arg_values : ArgValues,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(EvalValue)
+  ) -> unit
+)({
+  guard_exn := Exception(
+    throw : (
+      _g_err -> {
+        g_spec_inline_errs.push(_g_err);
+        unwind(())
+      }
+    )
+  );
+  out.push(_create_specialized_function_inline_in_spec(original_func_val, func_type, arg_values, callee_env, caller_env, ctx, guard_exn));
+});
+_create_specialized_function_inline_in_spec :: (
   fn(
     original_func_val : EvalValue,
     func_type : TypeValue,
@@ -3416,18 +3490,21 @@ create_specialized_function_inline :: (
             }));
             rbp_i = (rbp_i + usize(1));
           });
-          // CLONE the body with FRESH ids for this specialization. Each
-          // specialization of a generic function must own its body AST: codegen
-          // walks the body per-node and reads per-node ExprInfo / side-tables
-          // (e.g. `g_method_callee_values` for a `v.to_string()` method
-          // dispatch). If every specialization shared the ORIGINAL body nodes,
-          // the LAST specialization's body eval would overwrite each node's
-          // entry — so `println<str>` and `println<i32>`, sharing one body, both
-          // emitted a call to the i32 `to_string` (the str call printed garbage).
-          // A fresh-id clone gives each specialization independent nodes. The
-          // specialized FuncVal below carries this clone so codegen walks the
-          // right nodes.
-          cloned_body := clone_expr_fresh_ids(body);
+          // Evaluate the ORIGINAL body under a fresh spec that owns its
+          // nodes. Each specialization of a generic function must keep its
+          // own per-node facts: codegen walks the body per node and reads its
+          // ExprInfo / side tables (e.g. `g_method_callee_values` for a
+          // `v.to_string()` dispatch). Shared ids without a spec let the LAST
+          // specialization's evaluation overwrite each node's entry, so
+          // `println<str>` and `println<i32>` both emitted the i32
+          // `to_string`. The spec keys this evaluation's entries apart
+          // (`spec_key`) instead of a fresh-id clone of the body, which kept
+          // 1.43 M cloned nodes alive (plans/EVALUATOR_MEMORY_REDUCTION.md
+          // Phase 4 Design 1). The specialized FuncVal below carries the spec,
+          // and whoever reads its body enters it. The caller
+          // (`create_specialized_function_inline`) restores the entry spec.
+          body_spec := mint_spec_id(_generic_body_ids(func_id.clone(), body));
+          _body_prev_spec := enter_spec(body_spec);
           // Set `ctx.self_type` to the concrete receiver so `Self` — and
           // especially `Self.static_method` like HashMap's
           // `Self._find_bucket(self, ...)` — resolves inside the specialized
@@ -3563,7 +3640,7 @@ create_specialized_function_inline :: (
           };
           push_active_where_trait_ids(spec_where_ids);
           specialized_body := evaluate_begin_expression(
-            cloned_body,
+            body,
             callee_env,
             ctx,
             ArrayList(Variable).new(),
@@ -3620,7 +3697,7 @@ create_specialized_function_inline :: (
                 exn.throw(
                   dyn(
                     format_error_message(
-                      ast_expr_token(cloned_body),
+                      ast_expr_token(body),
                       `Function body has type \`${type_to_string(sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`${sb_inst}.`
                     )
                   )
@@ -3783,9 +3860,9 @@ create_specialized_function_inline :: (
           });
           // Evaluate the specialized body to get its return type
           specialized_body;
-          // Create the specialized function value — carries the fresh-id CLONE
-          // (not the shared original body) so codegen walks this specialization's
-          // own nodes and reads its own per-node ExprInfo / method-callee entries.
+          // Create the specialized function value. It carries the original
+          // body and `body_spec`, so codegen reads this specialization's own
+          // per-node ExprInfo / method-callee entries.
           if(have_cap_vars, {
             new_env_key = mint_funcval_env_key();
             register_funcval_cap_slices(new_env_key, cap_slices_with_list(spec_prefix, new_cap_vars));
@@ -3797,11 +3874,11 @@ create_specialized_function_inline :: (
                 params : params,
                 param_type_names : param_type_names,
                 evidence_params : evidence_params,
-                body : cloned_body,
+                body : body,
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
                 func_id : specialized_func_id,
-                env_key : new_env_key, spec_id : __fvm2.*.spec_id
+                env_key : new_env_key, spec_id : body_spec
               )
             ),
             new_cap_vals

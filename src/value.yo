@@ -808,6 +808,8 @@ is_str_lit :: (fn(v : EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => fals
 is_var_ref :: (fn(v : EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
 is_enum_val :: (fn(v : EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
 is_func_val :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
+/// The spec a FuncVal's body facts are keyed under (0 for a non-FuncVal).
+funcval_spec_id :: (fn(v : EvalValue) -> usize)(match(v, .FuncVal(fvd, _) => fvd.*.spec_id, _ => usize(0)));
 is_return_val :: (fn(v : EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
 is_break_val :: (fn(v : EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
 is_continue_val :: (fn(v : EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
@@ -968,7 +970,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
 export(EvalValue, FuncValData, EvalResult, eval_result, create_type_value, type_of_eval_value);
 export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
-export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
+export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val, funcval_spec_id);
 export(is_tuple_val, is_array_val, is_ptr_val, is_trait_val);
 export(is_comptime_list_val, is_expr_val, is_unknown_val);
 export(
