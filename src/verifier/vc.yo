@@ -415,6 +415,54 @@ _register_list_datatype :: (fn(elem : VcSort) -> unit)({
   ()
 });
 /// `len(xs)` and `contents(xs)` of a list term.
+/// Whether `acc` is the `len` accessor of a registered list datatype.
+_is_list_len_acc :: (fn(acc : String) -> bool)({
+  (found : bool) = false;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && !found, {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_len_acc(es) == acc, {
+        found = true;
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
+/// The element sort of the list datatype whose `contents` accessor is `acc`.
+_list_elem_of_contents_acc :: (fn(acc : String) -> Option(VcSort))({
+  (found : Option(VcSort)) = Option(VcSort).None;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_contents_acc(es) == acc, {
+        found = Option(VcSort).Some(es);
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
+/// The list datatype sort a `List_<elem>_mk(...)` constructor term builds.
+_list_sort_of_ctor :: (fn(name : String) -> Option(VcSort))({
+  (found : Option(VcSort)) = Option(VcSort).None;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_ctor_name(es) == name, {
+        found = Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(es)));
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
 _list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
 _list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
@@ -593,6 +641,11 @@ VcObligation :: ref(
     /// Proved here, may this obligation remove its guard? False when an
     /// unenforced assumption (`VcCtx.unenforced`) was on the path.
     (elidable : bool) ?= false,
+    /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
+    /// an ELISION-ONLY obligation decides its guard and nothing else. Not
+    /// proved, the guard stays and is itself the defined behavior, so it never
+    /// fails the function or counts toward its outcome.
+    (elision_only : bool) ?= false,
     /// Literal-construction CTFE folding: the goal constant-folded to a
     /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
     (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
@@ -637,6 +690,8 @@ VcCtx :: ref(
     /// verifier never walks can break the assumption
     /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
     unenforced : ArrayList(VcTerm),
+    /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
+    (elision_obligations : bool) ?= false,
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -678,6 +733,11 @@ VcCtx :: ref(
     /// `old(<param>)` is the loud gap of
     /// issues/questions/modifies-clause-for-callee-side-effects.md.
     mutated_names : ArrayList(String),
+    /// Every list-typed LOCAL bound from an existing list rather than a
+    /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
+    /// reference type, so such a local may be the same list as another
+    /// name, and the model (one value per name) cannot follow the alias.
+    list_alias_locals : ArrayList(String),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -730,6 +790,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     entry_vars : HashMap(String, VcTerm).new(),
     call_pre : Option(HashMap(String, VcTerm)).None,
     mutated_names : ArrayList(String).new(),
+    list_alias_locals : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -876,11 +937,12 @@ _fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit((av + bv) & m, aw)),
-    // a - b ≡ a + (~b + 1) — a literal subtraction would trip the
-    // compile-time arithmetic folder's underflow check (see _fold_mask).
-    .BvSub => Option(VcTerm).Some(VcTerm.BvLit((av + (~bv + u64(1))) & m, aw)),
-    .BvMul => Option(VcTerm).Some(VcTerm.BvLit((av * bv) & m, aw)),
+    // Wrapping u64 arithmetic, then the width mask: the bit-vectors wrap,
+    // and checked `+ - *` would abort the run on a 64-bit carry or a zero
+    // subtrahend (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
+    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_add(bv) & m, aw)),
+    .BvSub => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_sub(bv) & m, aw)),
+    .BvMul => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_mul(bv) & m, aw)),
     .BvAndOp => Option(VcTerm).Some(VcTerm.BvLit(av & bv, aw)),
     .BvOrOp => Option(VcTerm).Some(VcTerm.BvLit(av | bv, aw)),
     .BvXorOp => Option(VcTerm).Some(VcTerm.BvLit(av ^ bv, aw)),
@@ -897,7 +959,7 @@ _fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit((~av + u64(1)) & m, aw)),
+    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit(u64(0).wrapping_sub(av) & m, aw)),
     .BvNotOp => Option(VcTerm).Some(VcTerm.BvLit(~av & m, aw)),
     _ => Option(VcTerm).None
   )
@@ -1060,7 +1122,8 @@ _emit :: (
     label : String,
     extra_assumptions : ArrayList(VcTerm),
     goal : VcTerm,
-    (site : Option(GuardSite)) ?= Option(GuardSite).None
+    (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    (elision_only : bool) ?= false
   ) -> unit
 )({
   // Unique within the function: a guard obligation carries its 1-based
@@ -1325,7 +1388,7 @@ _emit :: (
       uk = (uk + usize(1));
     });
   });
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable));
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable, elision_only : elision_only));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
@@ -1846,13 +1909,69 @@ _is_value_enum_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// Whether call `e`'s callee is a bare atom (`.(Variant, ...)`, `f(x)`),
+/// not itself a call (`(xs.get)(i)`).
+_callee_is_atom :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => ast_expr_is_atom(f),
+    .Atom(_, _) => false
+  )
+);
+/// The variant atom of `Enum.Variant` spelled as `.(Enum, Variant)`: two
+/// atom dot arguments where the first names no variant of the enum and the
+/// second does.
+_qualified_nullary_variant :: (fn(info : ExprInfo, dot_args : ArrayList(AstExpr)) -> Option(AstExpr))(
+  match(
+    info.ty,
+    .EnumT({ variant_names : q_names }) => cond(
+      (dot_args.len() != usize(2)) => Option(AstExpr).None,
+      !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      true => Option(AstExpr).None
+    ),
+    _ => Option(AstExpr).None
+  )
+);
+/// The variant atom of a payload construction `(.Variant)(...)` or
+/// `(Enum.Variant)(...)`, else `.None`. An instance method call
+/// (`xs.get(i)`) has the same shape; its callee is recorded in the
+/// method-callee table, which rules it out.
+_payload_ctor_variant :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => match(
+      f,
+      .FnCall(_, dot, dargs, _, _) => cond(
+        !(ast_expr_is_atom(dot) && (ast_expr_token(dot).value == ".")) => Option(AstExpr).None,
+        lookup_method_callee_value(ast_expr_id(e)).is_some() => Option(AstExpr).None,
+        ((dargs.len() == usize(1)) && ast_expr_is_atom(dargs.get(usize(0)).unwrap())) => dargs.get(usize(0)),
+        ((dargs.len() == usize(2)) && ast_expr_is_atom(dargs.get(usize(1)).unwrap())) => dargs.get(usize(1)),
+        true => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
 /// `.(Variant, args...)` construction as a datatype Ctor term.
 _enum_ctor_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, dot_args : ArrayList(AstExpr), info : ExprInfo) -> Option(VcTerm)
 )(
   match(
     dot_args.get(usize(0)),
-    .Some(v_atom) => _enum_ctor_first(ctx, e, info, v_atom, dot_args),
+    .Some(v_atom) => match(
+      _qualified_nullary_variant(info, dot_args),
+      // `Enum.Variant` (no payload) is `.(Enum, Variant)`: the variant is
+      // the SECOND dot argument.
+      .Some(qv) => {
+        only := ArrayList(AstExpr).new();
+        only.push(qv);
+        _enum_ctor_first(ctx, e, info, qv, only)
+      },
+      .None => _enum_ctor_first(ctx, e, info, v_atom, dot_args)
+    ),
     .None => {
       _fail_subset(ctx, String.from("malformed enum construction"), e);
       Option(VcTerm).None
@@ -1875,7 +1994,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, e_id.clone(), e_names, e_fields, variant, dot_args),
+    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, info.ty, e_id.clone(), e_names, e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -1886,6 +2005,7 @@ _build_enum_ctor :: (
   fn(
     inout(ctx) : VcCtx,
     e : AstExpr,
+    ety : TypeValue,
     e_id : String,
     e_names : ArrayList(String),
     e_fields : ArrayList(ArrayList(TypeValue)),
@@ -1924,20 +2044,10 @@ _build_enum_ctor :: (
         );
         return(Option(VcTerm).None);
       });
-      _note_enum_datatype(
-        ctx,
-        .EnumT(
-          e_id.clone(),
-          String.new(),
-          e_names,
-          e_fields,
-          Option(String).None,
-          ArrayList(ArrayList(String)).new(),
-          ArrayList(i64).new(),
-          false,
-          false
-        )
-      );
+      // Register the construction's OWN enum type: a synthetic copy without
+      // the variant field labels declared accessors a later `match` on the
+      // same value could not name.
+      _note_enum_datatype(ctx, ety);
       Option(VcTerm).Some(VcTerm.Ctor(name : _enum_ctor_name(e_id, vname), args : cargs))
     },
     true => {
@@ -2041,12 +2151,14 @@ _match_last_arm_ir :: (
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   test_opt := _arm_ir_bind(arm.pattern, scrut, e_ty, ctx, saved_names, saved_vals);
-  _restore_vars(ctx, saved_names, saved_vals);
-  match(
+  // The body reads the pattern's bindings: restore only AFTER walking it.
+  body_t := match(
     test_opt,
     .Some(_) => _expr_term(ctx, arm.body),
     .None => Option(VcTerm).None
-  )
+  );
+  _restore_vars(ctx, saved_names, saved_vals);
+  body_t
 });
 /// One non-final arm over its COMPILED pattern: bind the pattern's names
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
@@ -2423,6 +2535,15 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
           // callee's contract mentions `old(self...)`) rebinds the receiver
           // name at the call (R1 slice 2), so it joins the havoc set.
           match(
+            _pop_receiver_name(e),
+            .Some(pn) => {
+              if(!out.contains(pn.clone()), {
+                out.push(pn.clone());
+              });
+            },
+            .None => ()
+          );
+          match(
             _mutated_receiver_name(table, e),
             .Some(rn) => {
               if(!out.contains(rn.clone()), {
@@ -2470,6 +2591,43 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
     }
   )
 );
+/// The receiver NAME of a bare `name.pop()` — the walk rebinds it (R1
+/// slice 3); shape-only, a false positive is a sound extra havoc.
+_pop_receiver_name :: (fn(e : AstExpr) -> Option(String))({
+  callee := match(
+    e,
+    .FnCall(_, f, cargs, _, _) => cond(
+      (cargs.len() == usize(0)) => f,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      ((ast_expr_token(cf).value == ".") && (da.len() == usize(2))) => da,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  recv := dot_args.get(usize(0)).unwrap();
+  m := dot_args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(recv) || !ast_expr_is_atom(m), {
+    return(Option(String).None);
+  });
+  if(ast_expr_token(m).value != "pop", {
+    return(Option(String).None);
+  });
+  Option(String).Some(ast_expr_token(recv).value)
+});
 /// The receiver NAME of a method call whose callee's contract mentions
 /// `old(self...)` — a call that mutates its receiver (R1 slice 2).
 _mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(String))({
@@ -2662,11 +2820,23 @@ _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
   ok
 });
 /// The havoc constant's sort for an existing binding: a Var carries its
-/// own; anything else keeps the term's bit width (width 1 = bool).
+/// own, a list constructor (a popped list) or an `ite` over bindings (a
+/// branch that pushed) has the sort of what it builds, and anything else
+/// keeps the term's bit width (width 1 = bool).
 _havoc_binding_sort :: (fn(old : VcTerm) -> VcSort)(
   match(
     old,
     .Var(_, s) => s,
+    .Ctor(cn, _) => match(
+      _list_sort_of_ctor(cn),
+      .Some(ls) => ls,
+      .None => VcSort.BoolS
+    ),
+    .App(.IteOp, iargs) => match(
+      iargs.get(usize(1)),
+      .Some(then_t) => _havoc_binding_sort(then_t),
+      .None => VcSort.BoolS
+    ),
     _ => cond(
       (_term_width(old) > usize(1)) => VcSort.BvS(width : _term_width(old)),
       true => VcSort.BoolS
@@ -2970,7 +3140,7 @@ _quant_term :: (
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   (bi : usize) = usize(0);
-  while(bi < (args.len() - usize(1)), {
+  while((bi + usize(1)) < args.len(), {
     b := match(
       args.get(bi),
       .Some(bb) => bb,
@@ -3032,7 +3202,7 @@ _quant_term :: (
     bi = (bi + usize(1));
   });
   ctx.quant_depth = (ctx.quant_depth + usize(1));
-  body := _expr_term(ctx, args.get(args.len() - usize(1)).unwrap());
+  body := _expr_term(ctx, args.last().unwrap());
   ctx.quant_depth = (ctx.quant_depth - usize(1));
   // Restore the shadowed bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
@@ -3192,11 +3362,35 @@ _call_term :: (
         _guard_site(e, String.from("shift-in-width"))
       );
     });
+    if(ctx.elision_obligations, {
+      _emit_binop_elision_obligation(ctx, e, op, at, bt, info.ty);
+    });
     return(Option(VcTerm).Some(_app2(op, at, bt)));
   });
   // --- unary --------------------------------------------------------------
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
+    if(ctx.elision_obligations && ((head == "-") && _int_is_signed(info.ty)), {
+      match(
+        a,
+        .Some(neg_t) => match(
+          _int_width(info.ty),
+          .Some(nw) => {
+            _emit(
+              ctx,
+              String.from("neg-no-overflow"),
+              ArrayList(VcTerm).new(),
+              _app1(VcOp.NotOp, _app2(VcOp.EqOp, neg_t, _int_min_lit(nw))),
+              _guard_site(e, String.from("neg-no-overflow")),
+              true
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
     return(
       match(
         a,
@@ -3219,9 +3413,30 @@ _call_term :: (
   // Parses as `.(Variant, args...)` — a dot-call whose FIRST argument
   // names the variant. Only reached when the call's own type is a VALUE
   // enum (the guard below); other dot-calls fall through to the subset
-  // error at the callee-call tail.
+  // error at the callee-call tail. The callee must be the bare `.` atom:
+  // a method call `(xs.get)(i)` also reports head `.` (its callee is the
+  // `.`-call `xs.get`) and can be Option-typed, but it is no construction.
   if((head == ".") && _is_value_enum_type(info.ty), {
-    return(_enum_ctor_term(ctx, e, args, info));
+    if(_callee_is_atom(e), {
+      return(_enum_ctor_term(ctx, e, args, info));
+    });
+    // A variant WITH a payload parses as `(.Variant)(payload...)` or
+    // `(Enum.Variant)(payload...)`: the variant is the callee's last dot
+    // argument and the payload is this call's arguments.
+    match(
+      _payload_ctor_variant(e),
+      .Some(vatom) => {
+        ctor_args := ArrayList(AstExpr).new();
+        ctor_args.push(vatom);
+        (pai : usize) = usize(0);
+        while(pai < args.len(), {
+          ctor_args.push(args.get(pai).unwrap());
+          pai = (pai + usize(1));
+        });
+        return(_enum_ctor_named(ctx, e, info, ast_expr_token(vatom).value, ctor_args));
+      },
+      .None => ()
+    );
   });
   // --- match(scrutinee, arms...) ---------------------------------------------
   if(head == "match", {
@@ -3239,7 +3454,7 @@ _call_term :: (
     return(_while_term(ctx, e, args));
   });
   if(head == "for", {
-    _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the iterator model is outside the subset for now)"), e);
+    _fail_subset(ctx, String.from("for loop (write it as a while over an explicit index with an invariant; a verified for waits for a ghost of the elements consumed so far — issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md)"), e);
     return(Option(VcTerm).None);
   });
   // break/continue are STATEMENT-level constructs (V4.2): `_begin_term`
@@ -3755,6 +3970,42 @@ _call_term :: (
         if((lr.method == "is_empty") && (n == usize(0)), {
           return(Option(VcTerm).Some(_app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))));
         });
+        // `xs.get(i)` (R1 slice 3): the TOTAL read — `Some(select)` in
+        // bounds, `None` past the end; no obligation (that is the point of
+        // `get` over `xs(i)`). The result's `Option(T)` is a value enum
+        // datatype the walk already declares.
+        if((lr.method == "get") && (n == usize(1)), {
+          idx_t := _expr_term(ctx, args.get(usize(0)).unwrap());
+          if(idx_t.is_none(), {
+            return(Option(VcTerm).None);
+          });
+          return(_list_option_term(ctx, e, info.ty, lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), len_t));
+        });
+        // `xs.pop()` (R1 slice 3): `Some(last)` and the receiver rebound to
+        // (contents, len - 1) when non-empty; `None` and unchanged when
+        // empty. A bare-name receiver is rebound in place (the loop havoc
+        // scan lists `.pop()` receivers, `_scan_assigned`).
+        if((lr.method == "pop") && (n == usize(0)), {
+          xs_t := recv_t.unwrap();
+          one := VcTerm.BvLit(value : u64(1), width : usize(64));
+          zero := VcTerm.BvLit(value : u64(0), width : usize(64));
+          non_empty := _app2(VcOp.BvUgt, len_t, zero);
+          last_i := _app2(VcOp.BvSub, len_t, one);
+          result := _list_option_term(ctx, e, info.ty, lr.elem, xs_t, last_i, len_t);
+          if(ast_expr_is_atom(lr.recv), {
+            new_len := _app3(VcOp.IteOp, non_empty, last_i, len_t);
+            rebound := VcTerm.Ctor(name : _list_ctor_name(lr.elem), args : _two_terms(_list_contents_term(lr.elem, xs_t), new_len));
+            rnm := ast_expr_token(lr.recv).value;
+            ctx.vars.insert(rnm.clone(), rebound);
+            // A popped parameter is a mutation its callers must learn of
+            // through old(), exactly as a push is (the subset rule in
+            // verify_function_body).
+            if(!ctx.mutated_names.contains(rnm.clone()), {
+              ctx.mutated_names.push(rnm);
+            });
+          });
+          return(result);
+        });
       },
       .None => ()
     );
@@ -3823,6 +4074,36 @@ _list_len_read_by_var :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))
     ),
     .None => Option(VcTerm).None
   )
+});
+/// `ite(i < len, Some(select(contents, i)), None)` as the call's own
+/// `Option(T)` datatype (`ty` is the call's ExprInfo type).
+_list_option_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, ty : TypeValue, elem : VcSort, xs : VcTerm, i64_t : VcTerm, len_t : VcTerm) -> Option(VcTerm)
+)({
+  e_id := match(
+    t_refine_inner(ty),
+    .EnumT({ id : oid, is_reference_semantics : oref }) => cond(
+      (oref || (oid.len() == usize(0))) => String.new(),
+      true => oid.clone()
+    ),
+    _ => String.new()
+  );
+  if(e_id.len() == usize(0), {
+    _fail_subset(ctx, String.from("ArrayList get/pop whose result is not a value Option(T) datatype"), e);
+    return(Option(VcTerm).None);
+  });
+  _note_enum_datatype(ctx, t_refine_inner(ty));
+  some_args := ArrayList(VcTerm).new();
+  some_args.push(_app2(VcOp.SelectOp, _list_contents_term(elem, xs), i64_t));
+  some_t := VcTerm.Ctor(name : _enum_ctor_name(e_id.clone(), String.from("Some")), args : some_args);
+  none_t := VcTerm.Ctor(name : _enum_ctor_name(e_id, String.from("None")), args : ArrayList(VcTerm).new());
+  Option(VcTerm).Some(_app3(VcOp.IteOp, _lt_unsigned_term(i64_t, len_t), some_t, none_t))
+});
+_two_terms :: (fn(a : VcTerm, b : VcTerm) -> ArrayList(VcTerm))({
+  out := ArrayList(VcTerm).new();
+  out.push(a);
+  out.push(b);
+  out
 });
 /// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
 /// is the dot-call `.(recv, method)` and `recv`'s ExprInfo type is a list.
@@ -3970,7 +4251,7 @@ _unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize
   (k : usize) = (ctx.path.len() - (base + guard_count));
   while(k > usize(0), {
     match(
-      ctx.path.get(ctx.path.len() - usize(1)),
+      ctx.path.last(),
       .Some(top) => keep.push(top),
       .None => ()
     );
@@ -4343,6 +4624,60 @@ _note_ms_of :: (
 /// fixed-length Array type records its ArrS sort; any other type clears
 /// a stale entry, so a name re-shadowed as a non-array never reads as
 /// indexable. A missing ExprInfo leaves the table alone.
+/// Records `name` in `ctx.list_alias_locals` when `rhs` is a list that is
+/// not freshly constructed (see the field).
+_note_list_alias :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(rhs)),
+    .Some(ri) => if(_list_elem_type(ri.ty).is_some() && !_is_fresh_list_ctor(rhs), {
+      if(!ctx.list_alias_locals.contains(name.clone()), {
+        ctx.list_alias_locals.push(name);
+      });
+    }),
+    .None => ()
+  )
+);
+/// `ArrayList(T).new()` / `ArrayList(T).with_capacity(n)`: a list no other
+/// name can refer to yet.
+_is_fresh_list_ctor :: (fn(rhs : AstExpr) -> bool)(
+  match(
+    rhs,
+    .FnCall(_, f, _, _, _) => match(
+      f,
+      .FnCall(_, dot, dargs, _, _) => {
+        is_dot := (ast_expr_is_atom(dot) && (ast_expr_token(dot).value == "."));
+        recv_ok := match(
+          dargs.get(usize(0)),
+          .Some(recv) => match(
+            recv,
+            .FnCall(_, g, _, _, _) => (ast_expr_is_atom(g) && (ast_expr_token(g).value == "ArrayList")),
+            .Atom(_, _) => false
+          ),
+          .None => false
+        );
+        method_ok := match(
+          dargs.get(usize(1)),
+          .Some(m) => (ast_expr_is_atom(m) && ((ast_expr_token(m).value == "new") || (ast_expr_token(m).value == "with_capacity"))),
+          .None => false
+        );
+        is_dot && recv_ok && method_ok
+      },
+      .Atom(_, _) => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The SMT datatype name of a modeled list type, else `.None`.
+_list_dt_of_type :: (fn(t : TypeValue) -> Option(String))(
+  cond(
+    _list_elem_type(t).is_some() => match(
+      _type_sort(t),
+      .Some(.DataS(dn)) => Option(String).Some(dn),
+      _ => Option(String).None
+    ),
+    true => Option(String).None
+  )
+);
 _note_array_binding :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(rhs)),
@@ -4437,6 +4772,7 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
             .Some(vt) => {
               ctx.vars.insert(name.clone(), vt);
               _note_array_binding(ctx, name.clone(), ba.get(usize(1)).unwrap());
+              _note_list_alias(ctx, name.clone(), ba.get(usize(1)).unwrap());
               result = Option(VcTerm).Some(vt);
             },
             .None => {
@@ -5257,6 +5593,57 @@ _expr_mentions_atom :: (fn(e : AstExpr, name : String) -> bool)(
 // ============================================================================
 // Small term helpers
 // ============================================================================
+/// The signed minimum of width `w` (`#b10…0`) as a bit-vector literal.
+_int_min_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : (u64(1) << u64(w - usize(1))), width : w)
+);
+/// All ones of width `w` (signed `-1`).
+_all_ones_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : if(w >= usize(64), u64.MAX, (u64(1) << u64(w)) - u64(1)), width : w)
+);
+/// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6): the
+/// elision-only obligation of one integer binary operation, decided at its
+/// runtime guard. Signed `/` `%`: `div-no-overflow`, not `MIN / -1`. `+ - *`
+/// (signed and unsigned): `no-overflow`, the exact result fits, checked by
+/// widening (one bit for `+ -`, to twice the width for `*`) and comparing
+/// with the widened wrapped result. Any other operation adds nothing.
+_emit_binop_elision_obligation :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, op : VcOp, at : VcTerm, bt : VcTerm, ty : TypeValue) -> unit
+)(
+  match(
+    _int_width(ty),
+    .Some(w) => {
+      signed := _int_is_signed(ty);
+      cond(
+        ((op == VcOp.BvSdiv) || (op == VcOp.BvSrem)) => {
+          _emit(
+            ctx,
+            String.from("div-no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app1(VcOp.NotOp, _app2(VcOp.AndOp, _app2(VcOp.EqOp, at, _int_min_lit(w)), _app2(VcOp.EqOp, bt, _all_ones_lit(w)))),
+            _guard_site(e, String.from("div-no-overflow")),
+            true
+          );
+        },
+        ((op == VcOp.BvAdd) || ((op == VcOp.BvSub) || (op == VcOp.BvMul))) => {
+          ww := if(op == VcOp.BvMul, w * usize(2), w + usize(1));
+          exact := _app2(op, _widen_or_trunc(at, w, ww, signed), _widen_or_trunc(bt, w, ww, signed));
+          wrapped := _widen_or_trunc(_app2(op, at, bt), w, ww, signed);
+          _emit(
+            ctx,
+            String.from("no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app2(VcOp.EqOp, exact, wrapped),
+            _guard_site(e, String.from("no-overflow")),
+            true
+          );
+        },
+        true => ()
+      );
+    },
+    .None => ()
+  )
+);
 _nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
   match(
     t,
@@ -5280,6 +5667,63 @@ _term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
     _ => Option(VcSort).None
   )
 );
+/// The bit width of an operator application (1 = Bool). Comparisons and
+/// connectives are Bool whatever their operands; an `ite` has its branches'
+/// width, not its condition's; the casts carry their own.
+_app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
+  match(
+    op,
+    (.BvUlt | .BvUle | .BvUgt | .BvUge | .BvSlt | .BvSle | .BvSgt | .BvSge) => usize(1),
+    (.EqOp | .DistinctOp | .NotOp | .AndOp | .OrOp | .ImpOp) => usize(1),
+    .IteOp => _arg_width(args, usize(1)),
+    .SignExtendOp(se) => (_arg_width(args, usize(0)) + se),
+    .ZeroExtendOp(ze) => (_arg_width(args, usize(0)) + ze),
+    .ExtractOp(eh, el) => ((eh - el) + usize(1)),
+    .IntToBvOp(iw) => iw,
+    .SelectOp => match(
+      args.get(usize(0)),
+      .Some(arr) => _array_elem_width(arr),
+      .None => usize(1)
+    ),
+    _ => _arg_width(args, usize(0))
+  )
+);
+_arg_width :: (fn(args : ArrayList(VcTerm), i : usize) -> usize)(
+  match(
+    args.get(i),
+    .Some(a) => _term_width(a),
+    .None => usize(1)
+  )
+);
+_sort_width :: (fn(s : VcSort) -> usize)(
+  match(
+    s,
+    .BvS(w) => w,
+    _ => usize(1)
+  )
+);
+/// The element width of an array-valued term: a declared array or set, a
+/// list's contents projection, or a store / ite over one of those.
+_array_elem_width :: (fn(t : VcTerm) -> usize)(
+  match(
+    t,
+    .Var(_, .ArrS(ael, _)) => _sort_width(ael),
+    .Var(_, .FunS(_, frg)) => _sort_width(frg),
+    .Proj(pacc, _, _) => match(
+      _list_elem_of_contents_acc(pacc),
+      .Some(pel) => _sort_width(pel),
+      .None => usize(1)
+    ),
+    .App(aop, aargs) => match(
+      aop,
+      .StoreOp => match(aargs.get(usize(0)), .Some(inner) => _array_elem_width(inner), .None => usize(1)),
+      .IteOp => match(aargs.get(usize(1)), .Some(inner) => _array_elem_width(inner), .None => usize(1)),
+      _ => usize(1)
+    ),
+    .ArrConst(_, alit) => _term_width(alit),
+    _ => usize(1)
+  )
+);
 _term_width :: (fn(t : VcTerm) -> usize)(
   match(
     t,
@@ -5287,14 +5731,15 @@ _term_width :: (fn(t : VcTerm) -> usize)(
     .Var(_, _) => usize(1),
     .BvLit(_, w) => w,
     .BoolLit(_) => usize(1),
-    .App(op, args) => match(
-      args.get(usize(0)),
-      .Some(a) => _term_width(a),
-      .None => usize(1)
-    ),
+    .App(op, args) => _app_width(op, args),
     .Ctor(_, _) => usize(1),
     .Test(_, _) => usize(1),
-    .Proj(_, _, _) => usize(1),
+    // A Proj carries no sort; the list `len` accessor is the one whose
+    // width a caller consults (`xs.get(xs.len())`, `xs(xs.len() - 1)`).
+    .Proj(pacc, _, _) => cond(
+      _is_list_len_acc(pacc) => usize(64),
+      true => usize(1)
+    ),
     .Quant(_, _, _, _, _) => usize(1),
     .ArrConst(_, _) => usize(1)
   )
@@ -5321,13 +5766,17 @@ VerifyFnInput :: ref(
     table : ExprInfoTable,
     /// Per `requires_exprs` entry: enforced by a runtime entry assert
     /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
-    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
+    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new(),
+    /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+    /// when it records guard sites, `yo verify --elision`).
+    (elision_obligations : bool) ?= false
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
+  ctx.elision_obligations = input.elision_obligations;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
   param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.
@@ -5501,6 +5950,43 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
       .None => ()
     );
     mpi = (mpi + usize(1));
+  });
+  // ArrayList is a reference type but the model gives each NAME its own
+  // list value, so a mutation is sound only while no two live names can be
+  // the same list: no local bound from an existing list, and no second
+  // parameter of the mutated parameter's list type (a caller may pass one
+  // list twice). Anything else would verify a claim the aliased name breaks
+  // at runtime (issues/fixed/verifier-list-model-ignores-aliasing.md).
+  if(ctx.mutated_names.len() > usize(0), {
+    match(
+      ctx.list_alias_locals.get(usize(0)),
+      .Some(al) => _fail_subset(
+        ctx,
+        `the body mutates a list and binds '${al}' from an existing list — ArrayList is a reference type, so '${al}' may be the same list as another name, and the list model cannot follow aliases (bind it from ArrayList(T).new() instead)`,
+        input.body
+      ),
+      .None => ()
+    );
+    (api : usize) = usize(0);
+    while(api < input.param_names.len(), {
+      apn := input.param_names.get(api).unwrap();
+      adt := match(input.param_types.get(api), .Some(apt) => _list_dt_of_type(apt), .None => Option(String).None);
+      if(ctx.mutated_names.contains(apn.clone()) && adt.is_some(), {
+        (apj : usize) = usize(0);
+        while(apj < input.param_names.len(), {
+          bdt := match(input.param_types.get(apj), .Some(bpt) => _list_dt_of_type(bpt), .None => Option(String).None);
+          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())), {
+            _fail_subset(
+              ctx,
+              `the body mutates list parameter '${apn}' and '${input.param_names.get(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases`,
+              input.body
+            );
+          });
+          apj = (apj + usize(1));
+        });
+      });
+      api = (api + usize(1));
+    });
   });
   match(
     body_val,

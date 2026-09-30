@@ -25,8 +25,8 @@ import("std/fmt");
 } :: import("../../expr.yo");
 { TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env, get_variables_from_env, copy_frames } :: import("../../env.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr_info.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -129,7 +129,7 @@ evaluate_binding :: (
   });
   rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
   // Update env from rhs evaluation.
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -376,7 +376,7 @@ evaluate_binding :: (
     shadow_existing := get_variables_from_env(env, variable_name);
     if(shadow_existing.len() > usize(0), {
       match(
-        shadow_existing.get(shadow_existing.len() - usize(1)),
+        shadow_existing.last(),
         .Some(shadow_var) => {
           sh_entries := ArrayList(TokenAndError).new();
           sh_entries.push(
@@ -436,10 +436,8 @@ evaluate_binding :: (
   );
   // Write ExprInfo for the lhs expression.
   // pathCollection = [[variableName]] (one-element path collection).
-  lhs_path := ArrayList(String).new();
-  lhs_path.push(variable_name);
   lhs_info := new_expr_info(env, user_defined_type);
-  expr_info_paths_for_write(lhs_info).push(lhs_path);
+  lhs_info.path_collection = path_collection_of_name(variable_name);
   lhs_info.variable_name = .Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
   // Write ExprInfo for the whole ":" expression.

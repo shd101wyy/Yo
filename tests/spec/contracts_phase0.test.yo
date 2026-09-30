@@ -120,6 +120,16 @@ test("invariant(...) inside cond branch is rejected", {
   }, "invariant");
 });
 
+test("invariant(...) in a for body is rejected with a hint to use an indexed while", {
+  comptime_expect_error({
+    (n : i32) = i32(0);
+    for(usize(0) .. usize(3), k => {
+      invariant(n >= i32(0));
+      n = (n + i32(1));
+    });
+  }, "A 'for(...)' loop cannot carry an invariant");
+});
+
 test("duplicate requires(...) clauses in a signature are rejected", {
   comptime_expect_error({
     f :: (fn(x : i32, requires(x > i32(0)), requires(x < i32(100))) -> i32)(x);

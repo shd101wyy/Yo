@@ -219,11 +219,6 @@ If a `match`/`cond` branch returns an enum variant and the evaluator reports
 "Failed to infer enum variant type", qualify the variant explicitly, e.g.
 `TypeValue.Unit` instead of `.Unit`.
 
-Do not write sibling enum-payload literal patterns such as `.Some(false)` and
-`.Some(true)`. Match the variant once (`.Some(value)`) and branch on `value`
-inside the arm. The self-hosted codegen can otherwise emit duplicate C `case`
-labels for the same enum variant.
-
 When writing large enum matches, avoid binding a pattern variable with the same
 name as a variant field (for example, prefer `struct_field_types` over
 `field_types`). Some self-hosted codegen paths can currently emit invalid C for
@@ -718,7 +713,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 ### Return-slot modifiers: `inout` is BANNED; `comptime` goes on the label
 
-**Functions cannot return `inout`.** It is second-class and exists in parameter position and as a LOCAL BINDING (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`): `inout(y) := x;` names x's slot for the rest of the block (`y = v` writes x; `x = v` is seen through y; `copy := y` copies the pointee). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, `io.async` bodies, and MOVING the root while a binding is live (`sink(own(x))`). Return the value instead of an inout (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `inout` binding, which pins).
+**Functions cannot return `inout`.** It is second-class and exists in parameter position and as a LOCAL BINDING (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`): `inout(y) := x;` names x's slot for the rest of the block (`y = v` writes x; `x = v` is seen through y; `copy := y` copies the pointee). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, and MOVING the root while a binding is live (`sink(own(x))`). A binding inside an `io.async` body works across its awaits: the reference, its pin and the place's root live in task slots (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). Return the value instead of an inout (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `inout` binding, which pins).
 
 | Form                                                              | Verdict                                       |
 | ----------------------------------------------------------------- | --------------------------------------------- |
@@ -822,7 +817,7 @@ for(chain.map(f), (y) => println(y));            // combinator chain: pass as th
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place).
-- **The borrowed form `for(coll, inout(x) => body)`** (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is bound to a hidden local (pinned) and its RUNTIME borrow flag is held for the whole loop; `x` is an `inout` local into the element's storage — struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same pointer. `break`/`continue`/`return`/`unwind` release the flag. Growing, shrinking or removing from the collection inside the body — through the same variable or ANY alias — PANICS (`container operation while an interior reference … borrows from it`); collect changes and apply them after the loop — the compiler emits that assert at the entry of every RC-object method whose body may mutate the object, so third-party collections need no annotation. Maps: use `for(map, (k, inout(v)) => body)` (key by value, value borrowed); plain `inout(e)` yields the whole entry. Works on every collection with a pointer `iter()` (ArrayList, Deque, LinkedList, PriorityQueue, HashMap, HashSet, OrderedMap, BTreeMap); `Array(T, N)` and combinator chains take the value form. Not available inside an `io.async` body that suspends (v1; same rule as `inout` local bindings). The old spelling `ref(x) =>` is gone.
+- **The borrowed form `for(coll, inout(x) => body)`** (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is bound to a hidden local (pinned) and its RUNTIME borrow flag is held for the whole loop; `x` is an `inout` local into the element's storage — struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same pointer. `break`/`continue`/`return`/`unwind` release the flag. Growing, shrinking or removing from the collection inside the body — through the same variable or ANY alias — PANICS (`container operation while an interior reference … borrows from it`); collect changes and apply them after the loop — the compiler emits that assert at the entry of every RC-object method whose body may mutate the object, so third-party collections need no annotation. Maps: use `for(map, (k, inout(v)) => body)` (key by value, value borrowed); plain `inout(e)` yields the whole entry. Works on every collection with a pointer `iter()` (ArrayList, Deque, LinkedList, PriorityQueue, HashMap, HashSet, OrderedMap, BTreeMap); `Array(T, N)` and combinator chains take the value form. Available inside an `io.async` body, with awaits in the loop body (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). The old spelling `ref(x) =>` is gone.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/fixed/eval-for-loop-3arg-vs-2arg.md`.)
 
 ## Function call syntax — required immediate `(`
@@ -893,7 +888,7 @@ raw_bytes : (fn(self: Self) -> RawSlice(u8))(
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
 
 Patterns are ordinary expressions the parser already produces; the evaluator
-compiles them into a pattern IR (`src/pattern.yo`, plans/MATCH_PATTERN_MATCHING.md).
+compiles them into a pattern IR (`src/pattern.yo`, plans/reference/MATCH_PATTERN_MATCHING.md).
 Every infix pattern needs its own parentheses (no operator precedence):
 
 | form | example | meaning |
@@ -923,12 +918,14 @@ Rules that follow:
   `.Some(false)`) is a WARNING. A trailing `_`/binding arm is always accepted.
 - **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
   `E0609` invalid pattern (`yo explain E0607`).
-- **Inside an `io.async` arm that awaits**, only the classic shapes (`_`,
-  `.V`, `.V(binders / numeric literals)`, labeled/curly binders) are lowered
-  today; the new forms fail loudly at codegen. Bind the payload and match
-  again inside the arm, or move the await out of the arm.
-- Struct/tuple scrutinees and patterns through `Box(...)` payloads are not
-  supported yet (P4).
+- **Inside an `io.async` arm that awaits, every pattern form is lowered**
+  (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Box`;
+  `tests/match_async_arms.test.yo` is the spec). Bindings an arm reads after
+  an await are routed through the state machine's fields. One adjacent shape
+  is still rejected — an `io.await(...)` in a cond CONDITION inside an arm
+  (`issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`).
+- Struct/tuple scrutinees and patterns through `Box(...)` payloads are
+  supported (P4 landed; `tests/match_{tuples,structs,nested}.test.yo`).
 
 ## Match destructuring forms
 

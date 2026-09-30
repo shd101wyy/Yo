@@ -2151,7 +2151,7 @@ second :: (fn(l : List) -> i32)(
 
 在会 `await` 的 `io.async` 分支中，所有模式形式均可用：分支的测试与绑定在
 状态机的首轮执行中完成，分支体沿用常规的挂起/恢复机制
-（`plans/MATCH_PATTERN_MATCHING.md` §4.9）。
+（`plans/reference/MATCH_PATTERN_MATCHING.md` §4.9）。
 
 ## 字符串
 

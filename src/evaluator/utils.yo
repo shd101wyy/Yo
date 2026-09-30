@@ -158,7 +158,7 @@ attach_temp_variable_to_expr :: (
           // Update the existing variable (if found in env).
           existing_vars := get_variables_from_env(info.env, existing_name);
           if(existing_vars.len() > usize(0), {
-            existing_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(info.env));
+            existing_var := match(existing_vars.last(), .Some(v) => v, .None => make_err_variable(info.env));
             // Preserve borrowing: if variable was not owning, keep it not-owning.
             preserved_rc := cond(
               !existing_var.is_owning_the_rc_value => false,
@@ -273,7 +273,7 @@ find_rc_value_owner_relationship :: (
         return(Option(Variable).None);
       });
       (candidate_opt : Option(Variable)) = Option(Variable).Some(
-        match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env))
+        match(vars.last(), .Some(v) => v, .None => make_err_variable(env))
       );
       visited := HashSet(usize).new();
       // Follow the chain until we find an owning variable or it breaks.
@@ -422,7 +422,7 @@ require_expr_not_consumed :: (
         );
         exn.throw(dyn(format_error_messages_with_help(entries, hint)));
       });
-      v := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
+      v := match(vars.last(), .Some(v) => v, .None => make_err_variable(env));
       match(
         v.consumed_at_token,
         .None => (),
@@ -565,7 +565,7 @@ set_expr_as_consumed :: (
             );
             exn.throw(dyn(format_error_messages_with_help(entries, hint)));
           });
-          v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
+          v := match(vars.last(), .Some(x) => x, .None => make_err_variable(env));
           // A compile-time-only FUNCTION binding (`f :: (fn(...) -> R)(...)`)
           // is a code pointer re-materialized at every use: like a type value,
           // it is never consumed. Passing a named function to an `own`
@@ -783,7 +783,7 @@ set_expr_as_needs_to_call_dup :: (
         .Some(dvn) => {
           dvars := get_variables_from_env(ei.env, dvn);
           if(dvars.len() > usize(0), {
-            dv := match(dvars.get(dvars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(ei.env));
+            dv := match(dvars.last(), .Some(x) => x, .None => make_err_variable(ei.env));
             if(dv.consumed_at_token.is_none(), {
               dv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_dup)));
             });
@@ -996,7 +996,7 @@ _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)(
     return(false);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => !v.is_compile_time_only,
     .None => false
   )
@@ -1036,7 +1036,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   if(vars.len() == usize(0), {
     return(false);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
+  v := match(vars.last(), .Some(x) => x, .None => return(false));
   !v.is_compile_time_only
 });
 // ---------------------------------------------------------------------------
@@ -1080,7 +1080,7 @@ consume_case_body_temp_var :: (
       if(vars.len() == usize(0), {
         return(());
       });
-      v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
+      v := match(vars.last(), .Some(x) => x, .None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
         v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_body)));
@@ -2009,7 +2009,7 @@ _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
   cond(
     (vars.len() == usize(0)) => Option(EvalValue).None,
     true => match(
-      vars.get(vars.len() - usize(1)),
+      vars.last(),
       .None => Option(EvalValue).None,
       .Some(last) => match(
         last.value.get(usize(0)),
@@ -2028,7 +2028,7 @@ _get_last_var_type :: (fn(vars : ArrayList(Variable)) -> Option(TypeValue))(
   cond(
     (vars.len() == usize(0)) => Option(TypeValue).None,
     true => match(
-      vars.get(vars.len() - usize(1)),
+      vars.last(),
       .None => Option(TypeValue).None,
       .Some(last) => Option(TypeValue).Some(last.ty)
     )
@@ -2162,7 +2162,7 @@ adopt_never_type :: (fn(e : AstExpr, ty : TypeValue, ctx : EvalContext) -> unit)
         e,
         .FnCall(_, _, nargs, _, _) => cond(
           ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => if(nargs.len() > usize(0), {
-            match(nargs.get(nargs.len() - usize(1)), .Some(tail) => recur(tail, ty, ctx), .None => ());
+            match(nargs.last(), .Some(tail) => recur(tail, ty, ctx), .None => ());
           }),
           (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => {
             (ai : usize) = usize(0);

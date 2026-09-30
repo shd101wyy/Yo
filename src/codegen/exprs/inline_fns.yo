@@ -7,7 +7,7 @@
 //! a statement (or nothing) and return "". Fresh temp names via random_id.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
+{ guard_site_is_proved, guard_site_pair_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 {
   AstExpr,
   ast_expr_token,
@@ -134,11 +134,15 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     true => String.new()
   );
   if(signed_wide.len() > usize(0), {
+    // 5b: the signed guard covers two traps, so it elides only when both
+    // `divisor-nonzero` and `div-no-overflow` (`MIN / -1`) are proved.
+    if(guard_site_pair_is_proved(expr, "divisor-nonzero", "div-no-overflow"), {
+      return(_binop(args, op));
+    });
     return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
   });
   if(is_u8_type(ty) || (is_u16_type(ty) || (is_u32_type(ty) || (is_u64_type(ty) || is_usize_type(ty)))), {
-    // 5b: a proved non-zero divisor needs no guard. A signed `/` also needs
-    // its `MIN / -1` proof (Phase 2), so only the unsigned guard elides here.
+    // 5b: a proved non-zero divisor needs no guard.
     if(guard_site_is_proved(expr, "divisor-nonzero"), {
       return(_binop(args, op));
     });
@@ -185,15 +189,26 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
   fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
+  // 5b Phase 2: where a guard is emitted, a proof that the exact result fits
+  // the type licenses the plain operation, narrowed back to it (same value).
+  // Asked inside each guarded branch only, so an unguarded operation is never
+  // counted as elided.
+  plain := `((${ct})((${a}) ${op} (${b})))`;
   if(is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty)) || (is_isize_type(ty) && wasm), {
     bounds := cond(
       is_i16_type(ty) => String.from("(-32768), 32767"),
       (is_i32_type(ty) || is_isize_type(ty)) => String.from("(-2147483647 - 1), 2147483647"),
       true => String.from("(-128), 127")
     );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`((${ct})__yo_${fnbase}_chk_s((long long)(${a}), (long long)(${b}), ${bounds}${loc}))`);
   });
   if(is_i64_type(ty) || is_isize_type(ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`(__yo_${fnbase}_chk_s64((${a}), (${b})${loc}))`);
   });
   if(is_u8_type(ty) || (is_u16_type(ty) || is_u32_type(ty)) || (is_usize_type(ty) && wasm), {
@@ -202,9 +217,17 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
       (is_u32_type(ty) || is_usize_type(ty)) => String.from("4294967295ULL"),
       true => String.from("255")
     );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`((${ct})__yo_${fnbase}_chk_u((unsigned long long)(${a}), (unsigned long long)(${b}), ${hi}${loc}))`);
   });
-  if(is_u64_type(ty), {
+  // A 64-bit `usize` is a u64: it traps too
+  // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md).
+  if(is_u64_type(ty) || is_usize_type(ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
     return(`(__yo_${fnbase}_chk_u64((${a}), (${b})${loc}))`);
   });
   // Non-integer (float): plain op.
@@ -223,6 +246,10 @@ _neg_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
+  // 5b Phase 2: the verifier proved the operand is not the type's MIN.
+  if(guard_site_is_proved(expr, "neg-no-overflow"), {
+    return(_unop_narrowed(args, "-", expr, context));
+  });
   if(is_i8_type(ty), {
     return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-128)${loc}))`);
   });

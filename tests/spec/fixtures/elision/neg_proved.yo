@@ -1,0 +1,13 @@
+// expect-elided: 1
+// 5b Phase 2 twin: `x > -5` rules out MIN, so the negation guard elides.
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+negate :: (fn(x : i64, requires(x > i64(-5))) -> i64)(
+  -x
+);
+
+main :: (fn() -> unit)({
+  println(negate(i64(3)));
+});
+export(main);

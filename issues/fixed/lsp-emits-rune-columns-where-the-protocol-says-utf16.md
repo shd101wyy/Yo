@@ -245,7 +245,7 @@ Four mechanics that will otherwise waste a cycle:
   gate scans `tests/cli-cases`, and the fixture hash is baked into
   `expected_tree`.
 - Keep the emoji out of *identifiers*:
-  `issues/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`
+  `issues/fixed/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`
   is open, and a fixture that trips it tests the wrong bug.
 - Assert the golden contains real responses, not just the handshake — the
   cli-diff harness fed `/dev/null` to stdin until 2026-08-22

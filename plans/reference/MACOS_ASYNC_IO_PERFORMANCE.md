@@ -21,7 +21,7 @@ the fix and passes after.
 | `dup2` over a descriptor with a parked op hung the op | `issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md` |
 | An aborted task's parked `recv` kept its FIFO place and took the next bytes | `issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md` |
 | An inline `recv` overtook a parked one (FIFO order broken) | `issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md` |
-| A dropped, still-armed sleep fired into freed memory (SIGSEGV) | `issues/pending-io-future-local-drop-uaf.md` (macOS part) |
+| A dropped, still-armed sleep fired into freed memory (SIGSEGV) | `issues/fixed/pending-io-future-local-drop-uaf.md` (macOS part) |
 | A `std/net` stream write to a closed peer killed the process (SIGPIPE) — Linux too | `issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md` |
 | The close hook was a process-global written by every loop thread | `issues/fixed/macos-kqueue-close-hook-is-a-process-global-written-by-every-loop-thread.md` |
 | An fs watch rescanned its directory on every loop pass (25.7 s CPU for 20,000 passes) | `issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md` |
@@ -117,6 +117,14 @@ C timing only the call (medians of 9) gives `write` 1.40 µs, `send(0)` 1.51,
 of the ~0.5 µs std gap is `send` over `write`, kept for the reason below, and
 the rest is std's per-operation wrapper work
 (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
+
+Both halves have a fix underway. For `send` over `write`, std owns its stream
+sockets, so it can make them non-blocking and `SO_NOSIGPIPE` and then write
+them with `write(2)`, as libuv does. The runtime op exists (stage 1), and std
+adopts it once the seed carries it
+(`issues/std-net-stream-writes-take-send-where-write-is-cheaper.md`;
+prototyped on the emitted C: 3,582 → 3,450 ns a round trip on the std
+8-connection row). The wrapper half is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
 
 Reading the rows:
 

@@ -196,7 +196,7 @@ _unwrap_begin_blocks :: (fn(expr : AstExpr) -> AstExpr)({
       if(args.len() == usize(0), {
         go = false;
       }, {
-        current = match(args.get(args.len() - usize(1)), .Some(a) => a, .None => current);
+        current = match(args.last(), .Some(a) => a, .None => current);
       });
     }, {
       go = false;
@@ -273,7 +273,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
       return(false);
     });
     v := match(
-      vars.get(vars.len() - usize(1)),
+      vars.last(),
       .Some(x) => x,
       .None => {
         return(false);
@@ -692,7 +692,7 @@ require_ref_own_argument_exclusivity :: (
               vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
               if(vars.len() > usize(0), {
                 match(
-                  vars.get(vars.len() - usize(1)),
+                  vars.last(),
                   .Some(vv) => {
                     if(is_ref, {
                       ref_root_vars.push(vv);
@@ -793,7 +793,7 @@ _reject_if_container_reachable :: (
   if(cvars.len() == usize(0), {
     return(());
   });
-  cvar := match(cvars.get(cvars.len() - usize(1)), .Some(v) => v, .None => return(()));
+  cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
   cname := ast_expr_token(container_atom).value;
   fix := cond(
     (kind == "index") => String.from("Copy the element out with \".get(i)\" first, or split the calls."),
@@ -973,7 +973,7 @@ require_valid_ref_argument_places :: (
                 root_vars := get_variables_from_env(env, ast_expr_token(cur).value);
                 if(root_vars.len() > usize(0), {
                   match(
-                    root_vars.get(root_vars.len() - usize(1)),
+                    root_vars.last(),
                     .Some(rv) => {
                       root_is_object := (is_reference_struct_type(rv.ty) || is_atomic_reference_struct_type(rv.ty));
                       ref_type_contains_rc := match(

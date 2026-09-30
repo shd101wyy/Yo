@@ -791,7 +791,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
   binder_names := ArrayList(String).new();
   binder_types := ArrayList(TypeValue).new();
   (bi : usize) = usize(0);
-  while(bi < (args.len() - usize(1)), {
+  while((bi + usize(1)) < args.len(), {
     barg := match(
       args.get(bi),
       .Some(bb) => bb,
@@ -900,7 +900,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
     vi = (vi + usize(1));
   });
   body := match(
-    args.get(args.len() - usize(1)),
+    args.last(),
     .Some(bb) => bb,
     .None => make_err_expr()
   );
@@ -1404,13 +1404,11 @@ clear_proved_guard_sites :: (fn() -> unit)({
 elided_guard_count :: (fn() -> usize)(
   g_elided_guard_nodes.len()
 );
-/// May codegen emit `expr`'s `class` guard as the raw operation? Only when a
-/// proof recorded exactly this node, this class, and this node's own
-/// canonical position. Any mismatch keeps the guard.
-guard_site_is_proved :: (fn(expr : AstExpr, class : str) -> bool)({
-  nid := ast_expr_id(expr);
+/// Did a proof record exactly this node, this class, and this node's own
+/// canonical position? Any mismatch is `false`.
+_guard_site_recorded :: (fn(expr : AstExpr, class : str) -> bool)(
   match(
-    g_proved_guard_sites.get(nid),
+    g_proved_guard_sites.get(ast_expr_id(expr)),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(tok.module_path.clone());
@@ -1418,7 +1416,6 @@ guard_site_is_proved :: (fn(expr : AstExpr, class : str) -> bool)({
       while(i < sites.len(), {
         gs := sites(i);
         if((((gs.class == class) && (gs.module == canon)) && (gs.row == usize(tok.row))) && (gs.column == usize(tok.column)), {
-          g_elided_guard_nodes.insert(`${nid.to_string()}/${class}`);
           return(true);
         });
         i = (i + usize(1));
@@ -1427,6 +1424,24 @@ guard_site_is_proved :: (fn(expr : AstExpr, class : str) -> bool)({
     },
     .None => false
   )
+);
+/// May codegen emit `expr`'s `class` guard as the raw operation? Counts the
+/// elision when it answers yes.
+guard_site_is_proved :: (fn(expr : AstExpr, class : str) -> bool)({
+  if(_guard_site_recorded(expr, class), {
+    g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class}`);
+    return(true);
+  });
+  false
+});
+/// The same for a guard that needs TWO proofs (the signed division guard:
+/// `divisor-nonzero` and `div-no-overflow`). One guard, counted once.
+guard_site_pair_is_proved :: (fn(expr : AstExpr, class_a : str, class_b : str) -> bool)({
+  if(_guard_site_recorded(expr, class_a) && _guard_site_recorded(expr, class_b), {
+    g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`);
+    return(true);
+  });
+  false
 });
 /// V5 honest diagnostics: when a verify-target function's definition-time
 /// body trial SWALLOWS an error (E0902/E0401 class — the load continues,
@@ -3179,6 +3194,7 @@ export(
   clear_proved_guard_sites,
   elided_guard_count,
   guard_site_is_proved,
+  guard_site_pair_is_proved,
   evaluate_seq_unit,
   evaluate_seq_append,
   evaluate_seq_len,

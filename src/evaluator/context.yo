@@ -716,19 +716,22 @@ track_variable_usage_resolved :: (
       if(frame_level >= eval_env.frame_count(), {
         return(());
       });
-      // Find the variable in the evaluation environment. Per-frame, use the
-      // name index when available (see Frame.name_index / _frame_first_position —
-      // the same fast path get_variables_from_env uses) with the original
-      // linear scan as the small-frame fallback: this walk runs once per
-      // tracked identifier read under scope-end drop evaluation, and the
-      // blind per-candidate `v.name == variable_name` String compares (each
-      // paying an Rc incr/decr pair) dominated heavy `check` runs. Semantics
-      // identical: first match, outermost frame first.
+      // Find the variable in the evaluation environment: the INNERMOST
+      // binding at or below `frame_level` (the frame the read resolved in),
+      // as resolution does. Walking outermost-first found an OUTER binding a
+      // closure parameter shadows (`io.async((io : Io) => …)` inside a fn that
+      // has its own `io`), so the parameter-frame test below never fired and
+      // the outer name was captured as well
+      // (issues/fixed/io-async-param-shadowing-an-outer-name-still-captures-it.md).
+      // Per-frame, use the name index when available (see Frame.name_index /
+      // _frame_first_position — the same fast path get_variables_from_env
+      // uses) with the linear scan as the small-frame fallback: this walk runs
+      // once per tracked identifier read under scope-end drop evaluation.
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
-      fi := usize(0);
-      n_frames := eval_env.frame_count();
-      while(fi < n_frames, {
+      (fi : usize) = (frame_level + usize(1));
+      while(fi > usize(0), {
+        fi = (fi - usize(1));
         frame_opt := eval_env.frames.get(fi);
         match(
           frame_opt,
@@ -740,7 +743,7 @@ track_variable_usage_resolved :: (
                 .Some(v) => {
                   var_found = Option(Variable).Some(v);
                   actual_frame_level = fi;
-                  fi = n_frames; // break outer loop
+                  fi = usize(0); // break outer loop
                 },
                 .None => ()
               ),
@@ -756,7 +759,7 @@ track_variable_usage_resolved :: (
                         var_found = Option(Variable).Some(v);
                         actual_frame_level = fi;
                         vi = n_vars; // break inner loop
-                        fi = n_frames; // break outer loop
+                        fi = usize(0); // break outer loop
                       });
                     },
                     .None => ()
@@ -768,7 +771,6 @@ track_variable_usage_resolved :: (
           },
           .None => ()
         );
-        fi = (fi + usize(1));
       });
       match(
         var_found,
@@ -1380,7 +1382,7 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
     current_forcing_def(),
     .Some(_) => {
       (top : PendingDef) = match(
-        g_forcing_stack.get(g_forcing_stack.len() - usize(1)),
+        g_forcing_stack.last(),
         .Some(d) => d,
         .None => return(())
       );
@@ -2196,7 +2198,7 @@ begin_module_walk :: (
   // Phase 3b's post-walk re-forces: the walker pops the frame from `env` when
   // the module finishes, but a re-validation still evaluates against it.
   module_frame := match(
-    env.frames.get(env.frames.len() - usize(1)),
+    env.frames.last(),
     .Some(f) => f,
     .None => new_frame(false)
   );
@@ -2316,7 +2318,7 @@ _active_walk_for :: (fn(module_path : String) -> Option(ModuleWalk))({
 /// stack), if any.
 current_forcing_def :: (fn() -> Option(PendingDef))(
   cond(
-    (g_forcing_stack.len() > usize(0)) => g_forcing_stack.get(g_forcing_stack.len() - usize(1)),
+    (g_forcing_stack.len() > usize(0)) => g_forcing_stack.last(),
     true => Option(PendingDef).None
   )
 );
@@ -2378,6 +2380,24 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue
         def.phase_a_value = Option(EvalValue).Some(value);
         def.phase_a_type = Option(TypeValue).Some(ty);
       });
+    }),
+    .None => ()
+  )
+);
+/// Phase A for an anonymous `->`/`=>` literal that IS an impl member's value
+/// (`impl(T, Eq(T)((==) : ((lhs, rhs) -> ...)))`, the form the derive rules
+/// write). Its type is the member's expected type (the trait signature), known
+/// before the body trial, so a recursive call from the body — `l == r` on a
+/// `Self` payload — binds the member itself, exactly as a `(fn(...) -> R)(body)`
+/// member does through `publish_pending_phase_a`. A TOP-LEVEL `f :: (x) -> ...`
+/// stays unpublished: its type is inferred from the body, which is why a
+/// recursive top-level function must be written `(fn(...) -> R)(body)`
+/// (the cycle diagnostic above).
+publish_pending_member_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue) -> unit)(
+  match(
+    current_forcing_def(),
+    .Some(def) => if(ast_expr_is_fn_call_of(def.expr, BK_COLON, .Some(usize(2))), {
+      publish_pending_phase_a(rhs_id, value, ty);
     }),
     .None => ()
   )
@@ -2460,7 +2480,7 @@ module_walk_force_env :: (fn(walk : ModuleWalk) -> Environment)({
   // frame.
   (has_module_frame : bool) = false;
   match(
-    frames.get(frames.len() - usize(1)),
+    frames.last(),
     .Some(last) => {
       has_module_frame = (last.id == walk.module_frame_id);
     },
@@ -2481,11 +2501,11 @@ module_walk_force_env :: (fn(walk : ModuleWalk) -> Environment)({
 module_frame_variable :: (fn(walk : ModuleWalk, name : String) -> Option(Variable))({
   fenv := module_walk_force_env(walk);
   match(
-    fenv.frames.get(fenv.frames.len() - usize(1)),
+    fenv.frames.last(),
     .Some(frame) => {
       vars := get_variables_from_frame(frame, name);
       cond(
-        (vars.len() > usize(0)) => vars.get(vars.len() - usize(1)),
+        (vars.len() > usize(0)) => vars.last(),
         true => Option(Variable).None
       )
     },
@@ -3250,6 +3270,7 @@ export(
   push_forcing_def,
   pop_forcing_def,
   publish_pending_phase_a,
+  publish_pending_member_phase_a,
   pending_prebound_variable,
   record_pending_def_variable,
   module_walk_force_env,

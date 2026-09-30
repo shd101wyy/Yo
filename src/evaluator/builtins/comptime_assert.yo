@@ -31,7 +31,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { is_bool_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 /// Raise the assertion failure, using the optional second argument as the
 /// message. Shared by the executing path and the validation path — a
@@ -109,7 +109,11 @@ evaluate_comptime_assert :: (
     match(
       arg_expr_opt,
       .Some(arg_expr) => {
-        evaluated_arg := evaluate_expression(arg_expr, env, ctx);
+        // The condition's own error propagates (the swallowing 3-argument
+        // `evaluate_expression` made a malformed condition inside a function
+        // body pass validation silently — Phase 6 site #16 residue); a def-time
+        // trial around the body decides what to raise.
+        evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
         arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
         match(
           arg_info_opt,

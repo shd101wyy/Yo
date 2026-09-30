@@ -6,8 +6,10 @@ fixture it emits C twice, once normally and once with `--no-guard-elision`,
 and checks three things:
 
 1. Soundness: every guard present in the reference C but missing from the
-   elided C is a `proved` obligation site in `yo verify --format json` for
-   the same file (same file, row, column and class).
+   elided C has each proof it needs as a `proved` obligation site in
+   `yo verify --elision --format json` for the same file (same file, row,
+   column and class). A signed division needs two: `divisor-nonzero` and
+   `div-no-overflow`.
 2. Nothing else changes: every differing line of the reference C carries
    one of those removed guards, and the line counts match.
 3. Firing: a fixture whose header says `// expect-elided: N` has exactly N
@@ -31,21 +33,65 @@ import subprocess
 import sys
 import tempfile
 
-GUARD = re.compile(r'(__yo_idx_chk|__yo_div_guard_u|__yo_sh_chk)\((.*?)"([^"]*)", (\d+), (\d+)\)')
-CLASS = {
-    "__yo_idx_chk": "index-in-bounds",
-    "__yo_div_guard_u": "divisor-nonzero",
-    "__yo_sh_chk": "shift-in-width",
-}
+# A guard helper call. Its last three arguments are the site: "file", row, col.
+HELPER = re.compile(r'\b(__yo_idx_chk|__yo_div_guard_u|__yo_div_guard|__yo_sh_chk|__yo_(?:add|sub|mul)_chk_(?:s64|s|u64|u)|__yo_neg_chk_(?:s64|s))\(')
+SITE_TAIL = re.compile(r'"([^"]*)", (\d+), (\d+)$')
+# The proofs each guard needs (obligation classes at its site). A signed
+# division's one guard covers two traps: divide by zero and MIN / -1.
+def needs(helper):
+    if helper == "__yo_idx_chk":
+        return {"index-in-bounds"}
+    if helper == "__yo_div_guard_u":
+        return {"divisor-nonzero"}
+    if helper == "__yo_div_guard":
+        return {"divisor-nonzero", "div-no-overflow"}
+    if helper == "__yo_sh_chk":
+        return {"shift-in-width"}
+    if helper.startswith("__yo_neg_chk"):
+        return {"neg-no-overflow"}
+    return {"no-overflow"}
 ELIDED_LINE = re.compile(r"verify: (\d+) guard\(s\) elided")
 EXPECT = re.compile(r"^//\s*expect-elided:\s*(\d+)\s*$", re.M)
 
 
+def _call_args(text, open_at):
+    """The text between the parenthesis at `open_at` and its match, or None."""
+    depth = 0
+    i = open_at
+    in_str = False
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == "\\":
+                i += 1
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_at + 1:i]
+        elif ch == "\n":
+            return None
+        i += 1
+    return None
+
+
 def guards(c_text):
-    """(class, file, row, col) of every guard helper call, 1-based."""
+    """(helper, file, row, col) of every guard helper call, 1-based. Nested
+    calls are each found: the scan restarts after every helper NAME, not
+    after its whole call."""
     out = set()
-    for m in GUARD.finditer(c_text):
-        out.add((CLASS[m.group(1)], m.group(3), int(m.group(4)), int(m.group(5))))
+    for m in HELPER.finditer(c_text):
+        args = _call_args(c_text, m.end() - 1)
+        if args is None:
+            continue
+        t = SITE_TAIL.search(args)
+        if t:
+            out.add((m.group(1), t.group(1), int(t.group(2)), int(t.group(3))))
     return out
 
 
@@ -58,7 +104,7 @@ def compile_c(binary, src, out_base, extra, env=None):
 
 
 def proved_sites(binary, src):
-    p = subprocess.run([binary, "verify", src, "--format", "json"], capture_output=True, text=True)
+    p = subprocess.run([binary, "verify", src, "--elision", "--format", "json"], capture_output=True, text=True)
     lines = p.stdout.split("\n")
     start = next((i for i, l in enumerate(lines) if l.startswith("{")), None)
     if start is None:
@@ -98,9 +144,10 @@ def check(binary, src, work):
         if proved is None:
             fails.append("no JSON report from yo verify")
             proved = set()
-        for cls, f, r, col in sorted(removed):
-            if (cls, os.path.basename(f), r, col) not in proved:
-                fails.append(f"guard removed WITHOUT a proof: {cls} at {f}:{r}:{col}")
+        for helper, f, r, col in sorted(removed):
+            missing = [c for c in sorted(needs(helper)) if (c, os.path.basename(f), r, col) not in proved]
+            if missing:
+                fails.append(f"guard removed WITHOUT a proof: {helper} at {f}:{r}:{col} (unproved: {', '.join(missing)})")
     lines_a = c_a.split("\n")
     lines_b = c_b.split("\n")
     if len(lines_a) != len(lines_b):

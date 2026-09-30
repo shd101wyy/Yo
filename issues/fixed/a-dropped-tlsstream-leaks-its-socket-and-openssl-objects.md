@@ -57,7 +57,7 @@ RNG), opened on first use rather than per stream.
 
 The IMPLICIT path — letting a `TlsStream` go out of scope — still does not
 release it, and that is a separate defect:
-`issues/a-ref-value-passed-to-an-async-future-is-never-released.md`.
+`issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md`.
 `TlsStream` is passed as a parameter to the `_flush_wbio` and `_feed_rbio`
 futures on every read and write, and each of those leaks a reference, so its
 count never reaches zero. The `Dispose` added here is what makes the explicit

@@ -1,0 +1,75 @@
+# async codegen: duplicate `while_loop_N_continue` labels when awaits sit in nested cond arms inside nested whiles
+
+**Severity:** S2 — duplicate C labels from nested awaiting conds — clang rejects a valid program
+
+**Status: FIXED (2026-09-29).** Found 2026-08-22 implementing
+`follow_symlinks` in `std/fs/walker.yo` (S0 C9).
+
+## Symptom
+
+clang rejects the emitted C:
+
+```
+tests/fs/.yo_selftest_batch_1_0.bin.c:18661:7: error: redefinition of label 'while_loop_3_continue'
+tests/fs/.yo_selftest_batch_1_0.bin.c:18711:7: error: redefinition of label 'after_while_loop_3'
+```
+
+Both duplicated labels sit under `// Execute remaining code from outer while
+loop body` blocks guarded by `if (sm->while_loop_3_active)` — the state
+machine's loop-resume path emits the SAME loop's continue/after labels in
+more than one state.
+
+## Trigger shape (unminimized)
+
+Inside `io.async`, a `while` (stack loop) containing a `while` (entries
+loop) whose body has a `match` with an arm containing:
+
+```rust
+follows_dir := cond(
+  options.follow_symlinks => e.io.await(_file.is_dir(...), e.io),
+  true => false
+);
+cond(
+  follows_dir => {
+    canon := e.io.await(_file.canonical(...), e);
+    ...
+  },
+  true => ()
+);
+```
+
+i.e. TWO award points inside cond arms, inside a match arm, inside
+while-in-while. The exact pre-restructure diff of `std/fs/walker.yo` that
+reproduces is in the reflog of branch `std/s0-https-refuse` (the walker was
+restructured to hoist the awaits into a separate post-loop while, which
+compiles fine).
+
+`yo check` passes over this (evaluator-only); it fails only at the C
+compile — same detection story as the other async state-machine
+restrictions (AGENTS.md "check misses async codegen rules").
+
+## Next steps
+
+1. Minimize: reproduce in `tmp/fixme.yo` with a small async fn of the same
+   nesting shape.
+2. Fix the state-machine emitter (`src/codegen/async/`) to dedupe the
+   loop-resume label emission (emit the resume path once per loop, or
+   qualify labels per state).
+3. Possibly related to `issues/async-await-nested-if-lost-continuation.md`
+   (also deep-nesting async emission); check whether one fix covers both.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**STILL REPRODUCES, and it is now minimized to a much more common shape** (seed and tree build): `redefinition of label 'while_loop_2_continue'` and `'after_while_loop_2'`. No cond or match is needed. An outer `while` holding an inner `while` with TWO sequential awaits, plus one statement after the inner loop, is enough: `issues/repros/async-nested-while-two-awaits-duplicate-labels.yo` (expected `r=600`). The labels are emitted once per resume state (states 1 and 2) by `_emit_outer_while_continuation` (`src/codegen/async/state_machine.yo`), which neither deduplicates them nor re-indexes them.
+
+## Fix (2026-09-29, async state-machine plan phase 5)
+
+The segment lowering this shape broke is deleted. An `io.async` body is now
+emitted once, by the ordinary expression generators, into its resume
+function: each await suspends where it is written and resumes at its own
+label, and every local, pattern binding and await result lives in the task
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
+
+Regression tests (each fails on the v0.2.45 seed): `tests/async_await.test.yo` "two awaits in the body of a nested while".

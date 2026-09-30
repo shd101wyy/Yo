@@ -312,6 +312,15 @@ _names_unique :: (fn(rp : VerifyFnReport) -> bool)({
   true
 });
 
+// The literal folder wraps like the bit-vectors it models: a zero operand
+// of `-` or unary `-` used to overflow its checked u64 arithmetic and abort
+// the whole run (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
+test("the literal folder wraps: subtracting or negating a zero literal does not abort", {
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/fold_wrapping_literals.yo"), io);
+  assert(reports.len() == usize(2), `both functions are reported (got ${reports.len().to_string()})`);
+  assert(_count_outcome(reports, String.from("ok")) == usize(2), "both fold to a proof");
+});
+
 test("obligation names are unique and guard obligations carry their site", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/obligation_sites.yo"), io);
   match(

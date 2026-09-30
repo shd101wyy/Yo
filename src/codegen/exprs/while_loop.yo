@@ -28,36 +28,26 @@ _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 _strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
   if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e), e)
 );
-/// Generate the step expression of a 3-arg while: `lhs = rhs` (single), comma-
-/// joined assignments (begin block), or a plain expression.
-generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGenerationContext) -> String)(
+/// Generate the step expression of a 3-arg while: `lhs = rhs` (single), a
+/// block, or a plain expression. The code returned is a C expression
+/// statement, or empty when the step emitted itself.
+///
+/// A block step (`{ t := f(i); i = t; }`) is emitted as a real C block at
+/// `indent`: its declarations, statements and scope-end drops are the begin
+/// generator's, and its unit value is discarded. Rendering only its `=`
+/// statements, comma-joined, dropped every other statement, and a later
+/// `i = t` then read a `t` that was never declared
+/// (issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md).
+generate_step_expression :: (fn(step_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   cond(
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
-      out := String.from("");
-      args := _args(step_expr);
-      n := args.len();
-      (i : usize) = usize(0);
-      (any : bool) = false;
-      while(i < n, {
-        match(
-          args.get(i),
-          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_ASSIGN, .Some(usize(2))), {
-            aargs := _args(arg);
-            lhs := match(aargs.get(usize(0)), .Some(l) => l, .None => arg);
-            rhs := match(aargs.get(usize(1)), .Some(r) => r, .None => arg);
-            if(any, {
-              out.push_str(", ");
-            });
-            any = true;
-            out.push_string(_call_generate_expr(lhs, String.from(""), context));
-            out.push_str(" = ");
-            out.push_string(_call_generate_expr(rhs, String.from(""), context));
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      out
+      em := context.base.emitter;
+      _emit_line(em, indent.clone(), String.from("{"));
+      inner := indent.clone();
+      inner.push_str("  ");
+      _call_generate_expr(step_expr, inner, context);
+      _emit_line(em, indent.clone(), String.from("}"));
+      String.from("")
     },
     ast_expr_is_fn_call_of(step_expr, BK_ASSIGN, .Some(usize(2))) => {
       aargs := _args(step_expr);
@@ -345,11 +335,13 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         s.push_str(":;");
         s
       });
-      step_code := generate_step_expression(step_expr, context);
-      _emit_line(em, body_indent.clone(), {
-        s := step_code;
-        s.push_str(";");
-        s
+      step_code := generate_step_expression(step_expr, body_indent.clone(), context);
+      if(step_code.len() > usize(0), {
+        _emit_line(em, body_indent.clone(), {
+          s := step_code;
+          s.push_str(";");
+          s
+        });
       });
       _emit_line(em, indent.clone(), String.from("}"));
       _emit_line(em, indent.clone(), {

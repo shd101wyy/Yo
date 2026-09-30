@@ -91,19 +91,25 @@ goes through the closure path, the line is gone.
 
 ## Fix
 
-- `src/evaluator/context.yo`: a function body's evaluation context starts with
-  `is_inside_io_async_call` false. A nested `io.async(...)` call sets it again
-  for its own argument.
-- `src/evaluator/values/anonymous_function.yo`: after a closure's body is
-  evaluated, its captures are tracked again against the defining context. The
-  tracker's own filters drop the enclosing body's locals and parameters.
-- `src/codegen/exprs/atom.yo`: `captured_value_source_code` is the one rule for
-  reading a captured name where a capture struct is built. In order: an in-scope
-  C local, a state-machine field, the enclosing closure's `closure_context`,
-  then the C name. `closures.yo` (through its resolver hook) and both capture
-  sites in `async.yo` use it.
+- `src/evaluator/context.yo` (this fix): a function body's evaluation context
+  starts with `is_inside_io_async_call` false. A nested `io.async(...)` call
+  sets it again for its own argument. This fixes (2) and (3).
+- (1), both parts, landed on develop in #1018 while this fix was in review.
+  The branch that carried this issue first had its own versions, and they were
+  dropped for develop's when it was merged:
+  - part a: `generate_closure_construction` (`src/codegen/exprs/closures.yo`)
+    reads an enclosing closure's capture through `closure_context`
+    (`_enclosing_closure_capture_read`). Its phase-6 rule reads a C local of
+    an enclosing state-machine body by its own name;
+  - part b: `propagate_captures_to_enclosing` (`src/evaluator/utils/closure.yo`)
+    records a nested closure's captures on the enclosing one. It is the same
+    mechanism the branch had
+    (`issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md`).
 
 ## Verification
+
+Measured on the branch before the merge with #1018, with the branch's own
+versions of (1). The PR's gate re-runs all of it on the merged tree.
 
 - The repro prints `result: 2 6` with a tree-built compiler, and fails on the
   v0.2.46 seed.
@@ -126,6 +132,6 @@ goes through the closure path, the line is gone.
 
 `issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md`:
 the same root as (1), part b. The io.async block read an `Impl(Fn)` parameter
-only through an inner closure, so it never captured it. Fixed by the same
-change.
+only through an inner closure, so it never captured it. Fixed on develop by
+#1018.
 

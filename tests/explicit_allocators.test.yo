@@ -133,6 +133,34 @@ test("A task keeps its scope across a suspension", {
   // arena's; the runtime's own `yield` future is not (Rule 2).
   assert(arena.live_blocks() == usize(2), `task + post-await point: ${arena.live_blocks()}`);
 });
+// One state-machine type for both allocators: the per-type task pool
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7) is shared between them.
+_pooled_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    i32(3)
+  })
+);
+test("A task an explicit allocator placed goes back to it, never to the task pool", {
+  arena := _arena();
+  r := {
+    task := arena.scoped(() => _pooled_task(io));
+    io.await(task, io)
+  };
+  assert(r == i32(3), "result");
+  assert(arena.live_blocks() == usize(0), `the released task went back to the arena: ${arena.live_blocks()}`);
+});
+test("A task created in a scope never takes a pooled global block", {
+  arena := _arena();
+  // A global task of the same type, released: its block may now sit in the pool.
+  g := {
+    task := _pooled_task(io);
+    io.await(task, io)
+  };
+  task := arena.scoped(() => _pooled_task(io));
+  assert(arena.live_blocks() == usize(1), `the scoped task is the arena's: ${arena.live_blocks()}`);
+  assert((io.await(task, io) + g) == i32(6), "results");
+});
 test("An unwind handled inside the scope keeps the scope, and the scope ends with the call", {
   arena := _arena();
   Raise :: (ctl(code : i32) -> i32);

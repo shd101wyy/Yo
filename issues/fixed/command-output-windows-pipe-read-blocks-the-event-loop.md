@@ -3,7 +3,7 @@
 **Status: FIXED (2026-08-30).** Split out of
 `issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md`
 (2026-08-29) when its fix landed for Linux/macOS. The write-side residue is
-`issues/command-stdin-windows-pipe-write-blocks-the-event-loop.md`.
+`issues/fixed/command-stdin-windows-pipe-write-blocks-the-event-loop.md`.
 
 ## What
 

@@ -296,7 +296,7 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 `obligations[]` —— 每个义务一个对象，含 `name`、`verdict`
 （`proved` / `refuted` / `unproven` / `solver-error`）、`cached`、
 `folded`、`goal`（按 SMT-LIB 渲染的义务本体 —— 求解器被问的东西）
-与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……
+与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……加 `--elision` 时，报告还会列出溢出义务（`div-no-overflow`、`no-overflow`、`neg-no-overflow`），每条都带 `"elision_only": true`；它们从不改变函数的 `outcome` 或 `vacuous`。
 
 `--explain <模式>` 把报告收窄到 id 匹配（子串 —— 裸函数名或
 `文件:行号` 皆可）的函数，并强制输出明细：每个义务列出判定**及其目标
@@ -340,8 +340,11 @@ refuted  fn@src/math.yo:8 [verify]
   的，或 `ghost_fn` 内部的任何 `requires`）、`refine` 参数，或被调用函数的 `ensures`；
 - 目标平台是 64 位。
 
-目前覆盖下标、无符号 `/` 与 `%`，以及移位，且只在入口文件中生效；有符号 `/`
-在 `MIN / -1` 情形也被证明之前仍保留守卫。没有求解器时什么都证明不了，因此什么也不移除。
+覆盖下标、`/` 与 `%`、移位、`+ - *` 以及取负，且只在入口文件中生效。有符号 `/` 或 `%`
+只有在两种陷阱都被排除时才会移除守卫：除数为零，以及 `MIN / -1`。溢出检查（`MIN / -1`、
+`+ - *`、取负）是*仅用于移除守卫*的义务：没被证明时守卫照常保留，它从不导致编译失败，
+也不影响函数的结果。`yo verify` 只在加 `--elision` 时证明它们，因此普通运行的报告不变。
+没有求解器时什么都证明不了，因此什么也不移除。
 `--no-guard-elision` 保留所有守卫，`scripts/check-guard-elision.py` 检查每个被移除的守卫
 都有一条指明其位置的证明（plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md）。
 
@@ -367,7 +370,7 @@ refuted  fn@src/math.yo:8 [verify]
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
 | `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
-| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove` 把 `len()` 与 `old(len())` 关联起来）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。对列表的 `for`、`get`（返回 `Option`）和嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–2 片） |
+| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数（`issues/fixed/verifier-list-model-ignores-aliasing.md`）。对列表的 `for` 和嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片） |
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
 | 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |

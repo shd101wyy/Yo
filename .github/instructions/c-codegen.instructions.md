@@ -116,59 +116,115 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
 
-## Shared cond/match await points — consult the dispatch predicate
+## The single-pass async lowering (`io.async` state machines)
 
-A `cond`/`match` whose branches await shares ONE await point (one suspension
-state — only one branch runs). Branches can await futures of DIFFERENT C
-types, mix named and anonymous futures, or mix io/state-machine kinds, so any
-emission touching that point's future (slot declaration, branch stores,
-readiness/registration, result extraction, branch continuation) MUST route
-through `cond_await_point_needs_dispatch` (`src/codegen/async/state_code_gen.yo`):
+An `io.async` body is emitted ONCE, by the ordinary expression generators,
+into its resume function (`generate_async_block_resume_function_inline`,
+`src/codegen/async/state_machine.yo`; plan: `plans/ASYNC_STATE_MACHINE_GENERATION.md`
+phase 5). There are no segments, continuation functions, or per-construct
+async emitters: `await` is legal in any expression position and suspends in
+source order.
 
-- **uniform-anonymous** (all awaiting branches anonymous, same future C name):
-  the classic single-slot emission, unchanged.
-- **dispatch** (any named-future branch, or any type mismatch): the slot is a
-  type-erased `void*`; registration and extraction are emitted inside
-  `switch (sm->cond_branch_N)`, each case accessing the future through ITS
-  branch's exact type (`cond_branch_future_access`).
-
-Mixing the two modes at different sites emits ill-typed C. Full defect history
-(eight shapes, two silently wrong at runtime in released compilers):
-`issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md`.
-
-Related CI trap: `-Wincompatible-pointer-types` is a **default error in clang
-22+ that `-w` does not downgrade**, and the two Windows runners carry different
-clang majors (`windows-latest` pre-installs LLVM 20 so `choco install llvm`
-no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
-may be a clang VERSION difference, not an architecture one — check the
-versions in the job logs first.
-
-## `sm->await_future_N` OWNS its reference — a borrowed future must be dup'd
-
-The state machine `__yo_decr_rc`s that slot in three places: when the await's
-result is extracted, when the awaited future aborts, and in the state machine's
-dispose function. So whatever is stored there must be a reference the slot owns:
-
-- a future the awaited expression **produces** (an `io.async(…)` block, a
-  `__yo_async_*_start()` extern, a call returning `Impl(Future)`) hands over the
-  reference it just created, and its temp's deferred drop is aliased onto the
-  slot rather than emitted separately (`state_machine.yo`, Phase 1b);
-- a **named** future is never stored in the slot at all — the await reads the
-  variable's own field, because storing it would hand the slot a reference it
-  does not own;
-- a future read out of a **place** (a field, or a chain of them) is BORROWED:
-  the owner still drops it, so the slot must `__yo_incr_rc` its own.
-
-All seven store sites go through `emit_await_future_store`
-(`src/codegen/async/state_code_gen.yo`) for exactly that reason — do not write
-a bare `sm->await_future_N = …` at a new one. The missing dup was a
-use-after-free in `Park.wait`, which awaits `self._future`
-(`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`);
-it does not reproduce by running the program locally (this box's
-`--sanitize address` is inert — the runner prints "AddressSanitizer is not
-functional with this compiler setup … Skipping sanitizer"), while ALL SIX CI
-`test (…)` legs die on it. An RC change around awaits is not clean until those
-legs have run; until then, read the counts in the emitted C.
+- **Shape.** An aborted-entry guard, `goto __yo_dispatch;`, `__yo_state_0:`,
+  the body, its completion, then `__yo_dispatch: switch (sm->state)` listing
+  exactly the labels the body produced. `generate_await` in state-machine
+  context calls `emit_inline_await`, which emits the suspension (state store,
+  ready check, cold start, waiter registration, `return`) and the
+  `__yo_resume_K:` label it continues at. An await reached outside the resume
+  function is a `codegen_fatal_expr`, and an await emitted TWICE is a
+  `codegen_fatal`: an emitter must generate an expression that contains an
+  await exactly once.
+- **Rule 1: nothing that lives across an await is a C local.** A jump out of
+  the function and back to a label leaves every C local garbage. A captured
+  non-unit local that is live across a suspension lives in `sm->var_<id>`
+  (`compute_cross_boundary_variables`, a linear live-range walk: a read counts
+  at the end of its statement, a local defined before a loop and used in it
+  is live through the loop, a local with a scope-end drop or whose address is
+  taken lives to the end of its scope). Every other local is an ordinary C
+  local — the resume function jumps past its declaration, which C allows, and
+  nothing reads it after the jump — so the escape path must release it:
+  `emit_effect_unwind_check` emits the pending drops in a state machine as
+  in a plain function (a field's drop zeroes the slot, so the abort dispose
+  does not release it twice). A node from another module (a macro
+  expansion) makes the positions incomparable, and then every local gets a
+  field. Pattern bindings are locals too, including one bound
+  compile-time-only because its scrutinee is known at compile time (captured
+  at its declaration atom, `_capture_pattern_bindings`; an extern constant
+  keeps its own C name). A pattern binding is declared in its arm, stored into
+  its slot by `_bind_pattern_name`, found by declaration site
+  (`_inline_binding_sm_field`: sibling arms share names), and read back
+  through `shadow_slots`.
+- **Await results** live in `sm->__yo_await_result_<k>` only when a later
+  await in the same statement can suspend before the result is consumed
+  (`f(await a, await b)`); any other result is a C local
+  (`g_local_await_results`, consulted by the struct emitter and by
+  `emit_inline_await`).
+- **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
+  `resume`, `set_effect`, `cancel_pending`, `bundle_offset`, `bundle_size`),
+  not three pointers per instance. A raw I/O future's `vt` is NULL; every
+  read site tests `X->vt && X->vt->op`. A whole effect bundle
+  (`io.await(f, bundle)`, `io.spawn`) is injected with
+  `__yo_future_set_bundle(f, &bundle)`, a `memcpy` to the vtable's bundle
+  slot. The per-type `set_effect` handles only per-field injections by name.
+  `generate_future_effect_setter` returns the vtable's bundle pair, so the
+  setter and the table cannot disagree.
+- **A closure parameter lives in its `__yo_param_<i>` slot** only; its own
+  local (matched by declaration site) is dropped from the field set. The
+  struct definition and the resume function must read ONE cross-boundary
+  result (`_block_cross_boundary`): a second `compute_cross_boundary_variables`
+  call that skips a filter declares a field nothing uses (the `Io` bundle,
+  32 B, was stored twice this way).
+- **A read the live-range walk cannot resolve is a use of every local with
+  that name** (`_LiveWalk.names`). Some atoms carry no environment (a
+  `return(x)` argument is one); skipping them silently made a local a C local
+  across the await that reads it.
+- **Slot sharing** (`compute_overlapping_slots`): locals of the same C type
+  whose ranges do not overlap share `sm->slot_<k>`, heap-owning ones
+  included. That is sound because a slot is non-zero exactly while it owns
+  its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
+  (`generate_drop`), every consuming read zeroes it (`_sm_consuming_read`),
+  and the dispose drops a shared RC slot once. Pattern bindings (they borrow
+  the scrutinee) and both sides of `is_owning_the_same_rc_value_as` never
+  share. Two RC locals of ONE scope always overlap (both live to its end);
+  sibling scopes are what share.
+- **A consuming read of a slot takes the value and zeroes the slot**
+  (`_sm_consuming_read`): the evaluator's `consumed_at_token` is that atom.
+  A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
+  set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
+  drop's operand as the consuming read, and the drop is emitted again on
+  every exit path.
+- **In an SM, a C local renders by its source token** (`_generate_sm_atom`
+  step 5 uses `_var_read_code`), for the reason in the next section.
+- **Nested blocks are ordinary C blocks.** A `goto` into one is legal; do not
+  splice a block into its parent (the segment lowering did, and a block's
+  locals then lived until the task ended).
+- **`YO_DEBUG_ASYNC_LAYOUT=1`** prints, per `io.async` block, each closure
+  parameter's declaration sites and each captured local's id, site and
+  whether it got a field.
+- **Released machines go back to a per-type pool** (phase 7). A
+  constructor allocates with `__yo_sm_take(<pool>, sizeof)`
+  (`_sm_alloc_call`), and `__yo_dispose_dispatch` returns 1 when it gave the
+  memory to `__yo_sm_give`. Every caller of the dispatch must then skip
+  `__yo_free`; both release paths in `gc_runtime.yo` do.
+  - Anything else that frees a future's memory must go through the dispatch
+    too.
+  - The pools are thread-local, capped at 32 blocks, drained by
+    `__yo_async_free_cont_pool` (the async thread-exit hook), and off under
+    ASan (`__YO_SM_POOLS`).
+  - Since the test runner builds with ASan, pool behavior is tested by the
+    CLI case `async-state-machine-pools`.
+- **One `__yo_await_slot`** (a task has at most one pending await) owns an
+  anonymous future. `emit_future_store_into_slot` dups a future read out of a
+  place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
+  and the future's temp goes into `moved_into_slot`, which suppresses its
+  scope-end drop. A named future is awaited in place and stays with its owner.
+- **Do not redeclare a self-named atom.** The materializers (a `return`'s
+  deferred dup, an arm value, a dup-or-code) declare `T <variable_name> =
+  <rendered code>;` when the two differ. For an atom named after itself the
+  rendering is its slot (`sm->var_…`), and the declaration redefines the
+  binding in its own C scope. Test `is_self_named_atom` first
+  (`src/codegen/utils/index.yo`); every site that compares a temp name to the
+  raw code needs it.
 
 ## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
 

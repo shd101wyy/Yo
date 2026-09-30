@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 { printf } :: import("std/libc/stdio.yo");
 Id :: trait(
   id : (fn(self : Self) -> Self)
@@ -337,4 +338,79 @@ test("explicit `<:` dispatch of a generic static binds Self to the receiver", {
   // The plain dot form must keep agreeing with it.
   c := SdBox(i32).sd_make();
   assert(c.value == a.value, "plain dot form agrees with the <: form");
+});
+
+// A trait-impl operator member that calls ITSELF from its own body. While the
+// impl is being evaluated the operator used to resolve to the member's
+// in-flight trait SIGNATURE, which has no value: the operator path stamped no
+// callee and codegen emitted `// Failed to transpile`, an abort() stub at the
+// first `==`. A trait constructor's members are now pending fields, so the
+// call binds the member's phase-A FuncVal
+// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+SelfEqTree :: ref(struct(v : i32, kid : Option(Self)));
+impl(
+  SelfEqTree,
+  Eq(SelfEqTree)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.v == rhs.v) && match(lhs.kid, .Some(a) => match(rhs.kid, .Some(b) => (a == b), .None => false), .None => rhs.kid.is_none())
+    )
+  )
+);
+SelfEqKind :: ref(enum(Leaf, Other, Node(elem : Self)));
+impl(
+  SelfEqKind,
+  Eq(SelfEqKind)(
+    (==) : ((lhs, rhs) -> match(lhs, .Leaf => match(rhs, .Leaf => true, _ => false), .Other => match(rhs, .Other => true, _ => false), .Node(l) => match(rhs, .Node(r) => (l == r), _ => false)))
+  )
+);
+
+test("a trait operator member calls itself recursively", {
+  a := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(2), kid : .None)));
+  b := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(2), kid : .None)));
+  c := SelfEqTree(v : i32(1), kid : .Some(SelfEqTree(v : i32(3), kid : .None)));
+  assert(a == b, "equal trees");
+  assert(!(a == c), "the child differs");
+  assert(a != c, "the default != goes through the recursive ==");
+  k := SelfEqKind.Node(elem : SelfEqKind.Leaf);
+  assert(k == SelfEqKind.Node(elem : SelfEqKind.Leaf), "-> literal member recursion");
+  assert(!(k == SelfEqKind.Node(elem : SelfEqKind.Other)), "payload differs");
+});
+
+// A helper placed AFTER the impl, forced from `==`'s body, calls `!=` — a
+// LATER member of the same trait entry, not evaluated yet. The miss forces
+// `!=` out of order (whose body calls back into `==`'s phase-A FuncVal).
+MrE :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+impl(
+  MrE,
+  Eq(MrE)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(a, b), _ => false))
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+_mr_kids_eq :: (fn(a : ArrayList(MrE), b : ArrayList(MrE)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    if(a(i) != b(i), {
+      return(false);
+    });
+  });
+  true
+});
+
+test("a helper after the impl calls a later operator member of the same trait", {
+  a := ArrayList(MrE).new();
+  a.push(MrE.Leaf(i32(1)));
+  b := ArrayList(MrE).new();
+  b.push(MrE.Leaf(i32(1)));
+  c := ArrayList(MrE).new();
+  c.push(MrE.Leaf(i32(2)));
+  assert(MrE.Node(a) == MrE.Node(b), "equal children");
+  assert(MrE.Node(a) != MrE.Node(c), "a child differs");
 });

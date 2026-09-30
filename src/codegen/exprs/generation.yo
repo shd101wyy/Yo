@@ -83,7 +83,6 @@
   BF_GHOST_FN,
   BF_COMPTIME_EXPECT_ERROR,
   BF_COMPTIME_ASSERT,
-  BF_YO_VAR_PRINT_INFO,
   BF_YO_VAR_IS_OWNING_RC,
   BF_YO_VAR_HAS_OTHER_ALIASES,
   BF_REQUIRES,
@@ -374,7 +373,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // two unbound `io.spawn(...)` statements in one C scope redefine
   // `__spawn_future`. `variable_name` is absent for unbound spawns, so
   // fall back to the deterministic ast expr id
-  // (issues/yo-self-async-emission-cluster.md item 1).
+  // (issues/retired/yo-self-async-emission-cluster.md item 1).
   spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${ast_expr_id(expr).to_string()}`);
   spawn_var := `__spawn_future_${spawn_suffix.clone()}`;
   spawn_state_var := `__spawn_state_${spawn_suffix.clone()}`;
@@ -389,9 +388,9 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
   is_io_future := match(context.base.get_expr_info(future_arg), .Some(ei) => is_io_future_type(ei.ty), .None => false);
   if(!is_io_future, {
-    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
+    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->vt && ${spawn_var.clone()}->vt->resume) {`);
     em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
-    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
   });
   // The lowering follows the prelude's JoinHandle: an OWNING `ref` struct,
@@ -563,7 +562,7 @@ _materialize_owned_rc_comptime_value :: (
   if(!is_temp_variable_name(ei.env.module_path, var_name), return(comptime_code));
   vars := get_variables_from_env(ei.env, var_name.clone());
   is_owning := match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => v.is_owning_the_rc_value,
     .None => false
   );
@@ -612,9 +611,20 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // See issues/fixed/yo-self-hollow-language-test-files.md.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None), return(String.from("")));
+  // `Var.is_owning_the_rc_value` / `Var.has_other_aliases` are answered at
+  // compile time, but they are VALUES: used at run time (`assert(Var.… (p))`)
+  // they must emit the answer. Emitting nothing produced `bool a = ;`. The
+  // evaluator records the answer as the call node's value.
+  if(
+    ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None),
+    return(
+      match(
+        context.base.get_expr_info(expr),
+        .Some(vi) => match(vi.value, .Some(v) => match(v, .BoolVal(b) => String.from(if(b, "true", "false")), _ => String.new()), .None => String.new()),
+        .None => String.new()
+      )
+    )
+  );
   if(ast_expr_is_fn_call_of(expr, BF_REQUIRES, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));

@@ -36,7 +36,7 @@ than changed blind.
 | `dyn` interface vtable fn-pointer parameters | `src/codegen/types/generation.yo`, `src/codegen/functions/dyn.yo` | parameter → placeholder (`get_storage_type_string`) |
 | `dyn` interface non-function members | same | storage → **erase** |
 | a module-level `unit` global | module-variable emission | storage → **erase** (no global) |
-| a `unit` local that crosses an `io.await` (async state-machine slot) | `src/codegen/async/` | storage → **erase** (no slot) |
+| a `unit` local that crosses an `io.await` (async state-machine slot) | `src/codegen/async/` | **DONE 2026-09-29** — the single-pass lowering gives no slot to a unit local (`compute_cross_boundary_variables` skips `is_unit_type`); test: `tests/async_await.test.yo` "a unit local read across awaits" |
 | a `unit` parameter of `main` | `src/codegen/functions/generation.yo` (`_main_call_args` emits `(void){0}`) | parameter → placeholder, fed `0` |
 | parallelism spawn zero-initialization | `src/codegen/parallelism/` | storage → **erase** |
 

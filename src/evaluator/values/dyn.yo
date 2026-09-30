@@ -169,7 +169,7 @@ _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
 /// with the binding in place at specialization, which is where the bound is
 /// enforced instead. Same conservative scoping as
 /// `validate_where_constraints_for_call`'s no-SomeT guard
-/// (issues/yo-self-where-clause-full-enforcement.md).
+/// (issues/fixed/yo-self-where-clause-full-enforcement.md).
 _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeValue))({
   if(type_contains_some_type_deep(t), {
     return(Option(TypeValue).None);
@@ -956,10 +956,15 @@ evaluate_dyn_value :: (
   if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
     box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from("box"));
     box_tok := synthetic_token(box_fn_name, cur_env.module_path);
-    box_atom := AstExpr.Atom(usize(0), box_tok);
+    // Fresh node ids, as the non-executing path above mints them: the
+    // ExprInfo side table is keyed by id, and id 0 is shared by every other
+    // node built with it, so the callee atom could read another node's entry
+    // — a test-body trial reported "box is not callable: it has type unit"
+    // (issues/fixed/an-auto-boxed-dyn-value-builds-its-box-call-with-node-id-zero.md).
+    box_atom := AstExpr.Atom(alloc_global_expr_id(), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
-    box_call := AstExpr.FnCall(usize(0), box_atom, box_args, false, expr_tok);
+    box_call := AstExpr.FnCall(alloc_global_expr_id(), box_atom, box_args, false, expr_tok);
     boxed_expr := evaluate_expression_raw(box_call, cur_env, ctx, exn);
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
     match(

@@ -38,8 +38,13 @@ than add syntax:
    `old(xs)`"). **Done in the same slice** (`verify_function_body`,
    `ctx.mutated_names`; fixture `negative/dml_list_silent_mutation.yo`).
 2. For `assumed()` bodies nothing can be checked; the std annotation
-   review is the gate (every mutator in `std/collections/array_list.yo`
-   already writes its `old(self.len())` clause).
+   review is the gate. **That gate failed once:** this point used to say
+   every mutator in `std/collections/array_list.yo` already wrote its
+   `old(self.len())` clause, and only `push` did
+   (`issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md`).
+   Each contracted mutator now mentions `old(self)`, and
+   `tests/spec/fixtures/negative/dml_list_mutators_false.yo` pins the
+   rebind for each one.
 3. Revisit a real `modifies(...)` clause only if (1) turns out to reject
    idiomatic code — it also needs the verifier's heap model (open question
    1 of `FORMAL_VERIFICATION.md`) to mean anything for aliased handles.

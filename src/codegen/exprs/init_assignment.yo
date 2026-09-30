@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -19,9 +19,9 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, get_state_machine_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
-{ codegen_fatal_expr, codegen_user_error_expr } :: import("../constants.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
@@ -79,8 +79,34 @@ _tuple_index_of :: (fn(rhs_type : TypeValue, label : String) -> Option(usize))(
 _newtype_single_label :: (fn(rhs_type : TypeValue) -> Option(String))(
   if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
-/// Emit destructuring binds for `{x, y} := rhs`.
-_emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+/// The task slot (`sm->…`) a binding of `name` writes to in an `io.async`
+/// state machine, or `.None` when it has none (outside one, or a C local).
+/// `env` is the binding node's own post-binding env: an LHS atom's env
+/// predates the binding. A local sharing a captured local's RC value writes
+/// that owner's slot (`sm_storage_id`).
+_sm_binding_slot :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
+  if(context.in_async_state_machine.is_none(), {
+    return(Option(String).None);
+  });
+  vs := get_variables_from_env(env, name);
+  v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
+  id := sm_storage_id(v, smv, context.variable_id_remapping);
+  if(!smv.get(id.clone()).is_some(), {
+    return(Option(String).None);
+  });
+  field := match(
+    context.state_machine_field_aliases,
+    .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+    .None => sm_local_field_name(id.clone())
+  );
+  Option(String).Some(`sm->${field}`)
+});
+/// Emit destructuring binds for `{x, y} := rhs`. In a state machine a name
+/// with a task slot is written there: its reads render the slot, and a C local
+/// would be read by nothing (the `(n, from) := got` after an await in
+/// `tests/net/udp.test.yo`).
+_emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, bind_env : Environment, indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   rhs_code := _call_generate_expr(rhs, indent.clone(), context);
   member_op := if(is_reference_struct_type(rhs_type), String.from("->"), String.from("."));
@@ -91,7 +117,7 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
       destructurings.get(i),
       .Some(rd) => if(!(rd.variable_name == "_"), {
         sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
-        var_type_and_name := get_variable_type_string(rd.ty, sanitized, context.base);
+        var_type_and_name := match(_sm_binding_slot(bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(rd.ty, sanitized, context.base));
         // Newtype: destructuring the single field is just the value.
         handled_newtype := match(
           _newtype_single_label(rhs_type),
@@ -148,8 +174,8 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
 /// `inout(name) := place;` → `T* name = &(place);` (+ the owner pin).
 /// Evaluator twin: `_evaluate_inout_local_binding`
 /// (evaluator/exprs/initialization_assignment.yo) — it has already rejected
-/// every shape this cannot lower (rvalues, index/deref places, async bodies,
-/// module level, `::`), so the place code here is always a C lvalue chain.
+/// every shape this cannot lower (rvalues, index/deref places, module level,
+/// `::`), so the place code here is always a C lvalue chain.
 ///
 /// - The place is generated as an rvalue expression and then ADDRESSED: a
 ///   `(*x)` (the place is itself an `inout`) folds to `x` — the pointer is
@@ -165,7 +191,28 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
 ///   `Obj* pin = <dup(obj)>;` BEFORE the binding. The pin is an ordinary
 ///   owning local of the frame, so the scope-end drop the evaluator already
 ///   scheduled for it releases the `+1` on every exit path.
-_generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+/// The task slot of local `v` when it has one (`sm->var_<id>`, or the slot it
+/// shares), else `.None`: it is a C local.
+_sm_local_slot :: (fn(v : Variable, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    context.state_machine_variables,
+    .Some(smv) => {
+      id := v.id.to_string();
+      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id);
+      match(
+        smv.get(canon),
+        .Some(cv) => match(
+          cv.kind,
+          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`),
+          .Outer => Option(String).None
+        ),
+        .None => Option(String).None
+      )
+    },
+    .None => Option(String).None
+  )
+);
+_generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, bind_env : Option(Environment), indent : String, context : FunctionGenerationContext) -> Option(String))({
   em := context.base.emitter;
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
@@ -176,19 +223,11 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
   );
   var_name := ast_expr_token(name_expr).value;
   place_type := resolve_some_type_to_concrete(name_ei.ty);
-  // §9 H5: a state machine addresses a local both as `sm->var_x` and as a
-  // per-state C copy, so a reference binding could read a stale copy after a
-  // write through it. The evaluator cannot see the state machine (an
-  // `io.async` closure body is evaluated as an ordinary closure; the machine
-  // is a codegen decision, like the await-position rules in
-  // async/state_code_gen.yo), so the rejection lives here.
-  if(context.in_async_state_machine.is_some(), {
-    return(
-      Option(String).Some(
-        codegen_user_error_expr(ast_expr_token(name_expr), `'inout(${var_name}) := ...' is not supported inside an 'io.async' body that awaits yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
-      )
-    );
-  });
+  // In an `io.async` state machine the reference and its pin live in their
+  // task slots when they are live across a suspension (`_sm_local_slot`);
+  // the place's root keeps its slot to the end of its scope, so the address
+  // stays valid across every resume (plans/ASYNC_STATE_MACHINE_GENERATION.md
+  // phase 6).
   // The pin, if any.
   match(
     context.base.get_expr_info(lhs),
@@ -199,7 +238,7 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(pin_expr, indent.clone(), context);
           pin_decl := indent.clone();
-          pin_decl.push_string(get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base));
+          pin_decl.push_string(match(_sm_local_slot(pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base)));
           pin_decl.push_str(" = ");
           pin_decl.push_string(generate_dup_code_for_value(pin_code, pin_var.ty, context));
           pin_decl.push_str(";");
@@ -225,7 +264,18 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
     addr.push_str("))");
   });
   line := indent.clone();
-  line.push_string(get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base));
+  ref_slot := match(
+    bind_env,
+    .Some(benv) => {
+      vs := get_variables_from_env(benv, var_name.clone());
+      cond(
+        (vs.len() == usize(0)) => Option(String).None,
+        true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(rv, context), .None => Option(String).None)
+      )
+    },
+    .None => Option(String).None
+  );
+  line.push_string(match(ref_slot, .Some(slot) => slot, .None => get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base)));
   line.push_str(" = ");
   line.push_string(addr);
   line.push_str(";");
@@ -278,14 +328,14 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     return(Option(String).Some(String.from("")));
   });
   if(ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), {
-    return(_generate_inout_local_binding(lhs, rhs, indent.clone(), context));
+    return(_generate_inout_local_binding(lhs, rhs, Option(Environment).Some(ei.env), indent.clone(), context));
   });
   // Destructuring binds.
   match(
     expr_info_runtime_destructurings(ei),
     .Some(destructurings) => {
       rhs_type := match(context.base.get_expr_info(rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
-      _emit_destructurings(destructurings, rhs, rhs_type, indent.clone(), context);
+      _emit_destructurings(destructurings, rhs, rhs_type, ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
     .None => ()
@@ -307,7 +357,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
-    // `void _temp = ;` class, issues/yo-self-async-emission-cluster.md item 4).
+    // `void _temp = ;` class, issues/retired/yo-self-async-emission-cluster.md item 4).
     // Same prototype-agreement rule as generate_function_body's result_is_unit.
     lhs_type := resolve_some_type_to_concrete(lhs_ei.ty);
     // Skip compile-time and module-level globals.
@@ -325,57 +375,22 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     // node's OWN recorded env (`ei.env`, stamped post-binding) — the LHS
     // atom's env predates the binding and misses the variable.
     if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
-      sm_bind_vars := get_variables_from_env(ei.env, var_name.clone());
-      if(sm_bind_vars.len() > usize(0), {
-        match(
-          sm_bind_vars.get(sm_bind_vars.len() - usize(1)),
-          .Some(sm_bind_var) => {
-            (sm_bind_id : String) = match(
-              sm_bind_var.is_owning_the_same_rc_value_as,
-              .Some(ob) => ob.*.id.to_string(),
-              .None => sm_bind_var.id.to_string()
-            );
-            match(
-              context.variable_id_remapping,
-              .Some(rm) => match(
-                rm.get(sm_bind_id.clone()),
-                .Some(mapped) => {
-                  sm_bind_id = mapped;
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
-            sm_has := match(
-              context.state_machine_variables,
-              .Some(smv) => smv.get(sm_bind_id.clone()).is_some(),
-              .None => false
-            );
-            if(sm_has, {
-              sm_field := match(
-                context.state_machine_field_aliases,
-                .Some(al) => match(
-                  al.get(sm_bind_id.clone()),
-                  .Some(af) => af,
-                  .None => sm_local_field_name(sm_bind_id.clone())
-                ),
-                .None => sm_local_field_name(sm_bind_id.clone())
-              );
-              // The RHS must go through the deferred-dup chain before it lands
-              // in the slot: compute ONE `rhsCode` through all four
-              // dup-emitting arms and only then pick `sm->field` as the
-              // destination. Returning early with
-              // the raw expression skipped the +1 while the slot's drop was
-              // still emitted, so `element := list(i)` inside an async loop
-              // freed the element out from under the live list.
-              sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
-              em.emit_string_line(`${indent.clone()}sm->${sm_field.clone()} = ${sm_rhs.clone()};`);
-              return(Option(String).Some(String.from("")));
-            });
-          },
-          .None => ()
-        );
-      });
+      match(
+        _sm_binding_slot(ei.env, var_name.clone(), context),
+        .Some(sm_slot) => {
+          // The RHS must go through the deferred-dup chain before it lands
+          // in the slot: compute ONE `rhsCode` through all four
+          // dup-emitting arms and only then pick `sm->field` as the
+          // destination. Returning early with
+          // the raw expression skipped the +1 while the slot's drop was
+          // still emitted, so `element := list(i)` inside an async loop
+          // freed the element out from under the live list.
+          sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+          em.emit_string_line(`${indent.clone()}${sm_slot} = ${sm_rhs.clone()};`);
+          return(Option(String).Some(String.from("")));
+        },
+        .None => ()
+      );
     });
     if(is_array_type(lhs_type), {
       // Array initialization (literal or struct copy — copy spills an Rc/temp

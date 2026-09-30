@@ -146,6 +146,45 @@ _tk_seen :: (fn(id : String) -> bool)({
   });
   found
 });
+/// A struct's node on the `g_tk_visited` path: its id plus the identities of
+/// its type arguments (`_tk_arg_id`). A true self-reference (a recursive
+/// struct's `Option(Self)` field) repeats both; two instantiations sharing a
+/// def-era id do not.
+_tk_node_id :: (fn(sid : String, tas : ArrayList(TypeValue)) -> String)(_tk_args_sig(sid, tas, usize(0)));
+_tk_args_sig :: (fn(head : String, tas : ArrayList(TypeValue), depth : usize) -> String)({
+  node := head.clone();
+  (i : usize) = usize(0);
+  while(i < tas.len(), {
+    match(
+      tas.get(i),
+      .Some(ta) => {
+        node.push_str("|");
+        node.push_string(_tk_arg_id(ta, depth));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  node
+});
+/// A type argument's identity for the cycle guard: a nominal argument by its
+/// id and, for a generic instantiation, its own arguments (the combinators
+/// nest `IterMap(IterMap(IterMap(I, …), …), …)` under ONE def-era id, so an
+/// id alone reads the chain as a cycle); a SomeT by its id and its
+/// resolution's end; anything else by its spelling. Nested arguments stop at a
+/// fixed depth, which only a cycle through type arguments reaches.
+_tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
+  match(
+    t,
+    .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
+    .EnumT(sh_eid, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
+    .SomeT({ id : sh_tid }) => {
+      sh_end := resolve_cell_chain(t);
+      match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
+    },
+    _ => type_to_string(t)
+  )
+);
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
@@ -169,10 +208,16 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       // they never collide with value structs; ref structs still dedup among
       // themselves (constant marker). See issues/fixed/yo-self-gc-traverse-value-struct-field.md.
       ref_pfx := if(s_is_ref, String.from("R#"), String.from(""));
-      // Cycle guard (see g_tk_visited): a struct id already on the expansion
+      // Cycle guard (see g_tk_visited): a struct already on the expansion
       // path renders via its recorded cfid-key / id — no re-recursion into
-      // its (already-being-expanded) type arguments.
-      if((sid.len() > usize(0)) && _tk_seen(sid), {
+      // its (already-being-expanded) type arguments. The node is the id AND
+      // its type arguments' identities (`_tk_node_id`): substitution
+      // keeps an instance's def-era id, so a combinator applied twice nests
+      // one `IterMap` inside another under ONE id, and an id-only guard cut
+      // the inner one to its bare id, which gave the returned instance a
+      // second C type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
+      tk_node := _tk_node_id(sid, stas);
+      if((sid.len() > usize(0)) && _tk_seen(tk_node), {
         cyc_inner := match(
           g_struct_cfid_keys.get(sid),
           // A POISONED slot ("!AMBIG" — multiple instantiations share this
@@ -191,7 +236,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         return(cyc_out);
       });
       if(sid.len() > usize(0), {
-        g_tk_visited.push(sid.clone());
+        g_tk_visited.push(tk_node.clone());
       });
       raw_key := cond(
         // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).

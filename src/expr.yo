@@ -231,7 +231,6 @@ BF_YO_TYPE_JOIN_FIELDS :: "__yo_type_join_fields";
 BF_YO_TYPE_MAP_VARIANTS :: "__yo_type_map_variants";
 BF_YO_COMPTIME_STRING_TO_EXPR :: "__yo_comptime_string_to_expr";
 // Var builtins
-BF_YO_VAR_PRINT_INFO :: "__yo_var_print_info";
 BF_YO_VAR_IS_OWNING_RC :: "__yo_var_is_owning_the_rc_value";
 BF_YO_VAR_HAS_OTHER_ALIASES :: "__yo_var_has_other_aliases";
 // Process builtins
@@ -819,7 +818,7 @@ export(BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE);
 export(BF_YO_TYPE_TO_COMPTIME_STRING, BF_YO_ARE_TYPES_COMPATIBLE, BF_YO_ARE_TYPES_EQUAL);
 export(BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_CAN_FORM_RC_CYCLE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO);
 export(BF_YO_TYPE_JOIN_FIELDS, BF_YO_TYPE_MAP_VARIANTS, BF_YO_COMPTIME_STRING_TO_EXPR);
-export(BF_YO_VAR_PRINT_INFO, BF_YO_VAR_IS_OWNING_RC, BF_YO_VAR_HAS_OTHER_ALIASES);
+export(BF_YO_VAR_IS_OWNING_RC, BF_YO_VAR_HAS_OTHER_ALIASES);
 export(BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS);
 export(BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY);
 export(BF_YO_BUILD_TEST, BF_YO_BUILD_RUN, BF_YO_BUILD_STEP, BF_YO_BUILD_STEP_DEPEND_ON);
@@ -1212,12 +1211,11 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
         });
       });
       // `return(x.await(...))` → `begin(t := x.await(...), return(t))`. The two
-      // mean the same thing everywhere, and the second is the form an
-      // `io.async` state machine can split at: its await is the value of a
-      // `:=` binding, a state boundary in every position, while an await
-      // nested inside `return(...)` has no state to resume into (E0904,
-      // issues/fixed/return-of-an-await-is-rejected-inside-io-async.md). The
-      // temp is a compiler-minted `__yo_` name, unique per node.
+      // mean the same thing everywhere. The segment lowering could only split
+      // at the second form (issues/fixed/return-of-an-await-is-rejected-inside-io-async.md);
+      // the single-pass lowering suspends in either, and the rewrite is kept
+      // as an equivalence. The temp is a compiler-minted `__yo_` name, unique
+      // per node.
       if(_is_return_of_await(e), {
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");

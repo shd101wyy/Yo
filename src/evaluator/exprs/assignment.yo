@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BF_DOT
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, expr_info_paths_for_write, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -32,8 +32,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   get_variables_from_env,
   get_all_variables_from_env,
-  update_existing_variable,
-  copy_frames
+  update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
@@ -274,7 +273,7 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
   });
   vars := get_variables_from_env(env, ast_expr_token(cur).value.clone());
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => cond(
       (((v.is_owning_the_rc_value || v.is_ref) || v.is_compile_time_only) || v.is_module_level) => Option(Variable).None,
       true => Option(Variable).Some(v)
@@ -336,7 +335,7 @@ _module_global_root_var :: (
     return(Option(Variable).None);
   });
   match(
-    variables.get(variables.len() - usize(1)),
+    variables.last(),
     .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
@@ -523,7 +522,7 @@ get_atomic_object_root_type :: (
     return(Option(TypeValue).None);
   });
   (root_type : TypeValue) = match(
-    variables.get(variables.len() - usize(1)),
+    variables.last(),
     .Some(v) => v.ty,
     .None => return(Option(TypeValue).None)
   );
@@ -707,7 +706,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -721,7 +720,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -743,7 +742,7 @@ evaluate_assignment :: (
         prop_root_vars := get_variables_from_env(env, ast_expr_token(prop_root_expr).value.clone());
         if(prop_root_vars.len() > usize(0), {
           match(
-            prop_root_vars.get(prop_root_vars.len() - usize(1)),
+            prop_root_vars.last(),
             .Some(rv) => {
               container_frame_level = i64(rv.frame_level);
             },
@@ -861,7 +860,7 @@ evaluate_assignment :: (
         pc_vars := get_variables_from_env(env, pc_var_name);
         if(pc_vars.len() > usize(0), {
           pc_var := match(
-            pc_vars.get(pc_vars.len() - usize(1)),
+            pc_vars.last(),
             .Some(v) => v,
             .None => make_err_variable(env)
           );
@@ -1083,7 +1082,7 @@ evaluate_assignment :: (
       );
       if(bvn.len() == usize(0), false, {
         bvars := get_variables_from_env(env, bvn);
-        if(bvars.len() == usize(0), false, match(bvars.get(bvars.len() - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+        if(bvars.len() == usize(0), false, match(bvars.last(), .Some(v) => v.is_compile_time_only, .None => false))
       })
     };
     if((!is_comptime_only_prop && lhs_info.value.is_some()) && prop_rhs_info.value.is_some() && base_var_is_comptime, {
@@ -1127,7 +1126,7 @@ evaluate_assignment :: (
       match(
         binding_info_opt,
         .Some(info) => {
-          env.frames = copy_frames(info.env.frames);
+          env.frames = info.env.frames;
           env.module_path = info.env.module_path;
           env.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env.input_string = info.env.input_string;
@@ -1166,7 +1165,7 @@ evaluate_assignment :: (
     // `len() - 1` is only safe past the emptiness throw above — usize
     // underflows.
     (tl_var : Variable) = match(
-      tl_vars.get(tl_vars.len() - usize(1)),
+      tl_vars.last(),
       .Some(v) => v,
       .None => make_err_variable(env)
     );
@@ -1200,7 +1199,7 @@ evaluate_assignment :: (
   if(is_typed_binding_lhs, {
     mcb_vars := get_variables_from_env(env, variable_name.clone());
     match(
-      mcb_vars.get(mcb_vars.len() - usize(1)),
+      mcb_vars.last(),
       .Some(mcb_v) => if(mcb_v.is_module_level && type_is_control_bound(mcb_v.ty), {
         exn.throw(
           dyn(
@@ -1243,7 +1242,7 @@ Bound type: ${type_to_string(mcb_v.ty)}`
     );
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
-  variable := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
+  variable := match(vars.last(), .Some(v) => v, .None => make_err_variable(env));
   // Closure capture tracking — a WRITE to an outer variable from inside a
   // function body / async block is a capture too (tracked with usage "own").
   // Reads are tracked by the
@@ -1337,7 +1336,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       );
     });
   });
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -1378,7 +1377,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     cvars := get_variables_from_env(env, variable_name);
     cond(
       (cvars.len() > usize(0)) => match(
-        cvars.get(cvars.len() - usize(1)),
+        cvars.last(),
         .Some(lv) => lv.consumed_at_token.is_some(),
         .None => false
       ),
@@ -1397,7 +1396,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
     .Some(ri_after_dup) => {
-      env.frames = copy_frames(ri_after_dup.env.frames);
+      env.frames = ri_after_dup.env.frames;
       env.module_path = ri_after_dup.env.module_path;
       env.function_declaration_frame_level = ri_after_dup.env.function_declaration_frame_level;
       env.input_string = ri_after_dup.env.input_string;
@@ -1439,7 +1438,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // Re-fetch variable after RHS evaluation (env may have been updated).
   updated_vars := get_variables_from_env(env, variable_name);
   updated_variable := match(
-    updated_vars.get(updated_vars.len() - usize(1)),
+    updated_vars.last(),
     .Some(v) => v,
     .None => make_err_variable(env)
   );
@@ -1670,10 +1669,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
     });
   });
   // Write ExprInfo for the lhs.
-  lhs_path := ArrayList(String).new();
-  lhs_path.push(variable_name);
   lhs_info2 := new_expr_info(env, rhs_type);
-  expr_info_paths_for_write(lhs_info2).push(lhs_path);
+  lhs_info2.path_collection = path_collection_of_name(variable_name);
   lhs_info2.variable_name = .Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
   // Write ExprInfo for the whole `=` expression:

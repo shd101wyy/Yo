@@ -813,7 +813,7 @@ consume_argument_for_parameter :: (
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env, arg_var_name);
         if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env));
+          arg_var := match(arg_vars.last(), .Some(v) => v, .None => make_err_variable(caller_env));
           cond(
             // An `inout` parameter or `inout(name) := place` binding names a
             // slot it does not own: the callee gets a COPY (+1) of the
@@ -981,7 +981,7 @@ check_if_function_parameter_matches_argument :: (
   // from the shared mutable env chain, concretizing the action closure's
   // expected with a SIBLING call's resolution (the [DRIVER]-probe-confirmed
   // poison path: 126x `Fn(e : Io) -> unit` expecteds under the batch main's
-  // body eval — full chain in issues/yo-self-async-emission-cluster.md).
+  // body eval — full chain in issues/retired/yo-self-async-emission-cluster.md).
   // The two bundle-shape corpus files this skip regressed pre-v13 were
   // victims of the SAME stale-binding persistence, since fixed by the
   // call-scoped rebinds (67acb7390) + lineage-identity gate (92b27f68b).
@@ -1648,9 +1648,19 @@ _find_specialization_cache :: (
                           // type arguments).
                           // Require type_key equality — the exact identity the
                           // emitted C is keyed by — before reusing the spec.
+                          //
+                          // The same holds for any instantiation with type
+                          // arguments: substitution keeps an instance's
+                          // def-era struct id, and `are_types_compatible_exact`
+                          // judges two instances of one id equal without
+                          // their arguments, so `StreamMap(StreamMap(…), …)`
+                          // reused the spec built for `StreamMap(Channel, …)`
+                          // and a third `map` in a chain returned the second's
+                          // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
                           ck_tyargs := ArrayList(TypeValue).new();
                           _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
-                          if(ck_tyargs.len() > usize(0), {
+                          ck_has_args := match(cached_ty, .Struct({ type_arguments : ck_tas }) => (ck_tas.len() > usize(0)), _ => false);
+                          if((ck_tyargs.len() > usize(0)) || ck_has_args, {
                             if(!(type_key(cached_ty) == type_key(current_ty)), {
                               rt_match = false;
                             });
@@ -3478,7 +3488,7 @@ create_specialized_function_inline :: (
             spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
             if(spec_self_vars.len() > usize(0), {
               match(
-                spec_self_vars.get(spec_self_vars.len() - usize(1)),
+                spec_self_vars.last(),
                 .Some(spec_self_v) => {
                   ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
                   spec_self_src = String.from("b-env-self");
@@ -4795,15 +4805,14 @@ evaluate_ctl_function_body_inline :: (
 /// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
 /// the default-args side table).
 ///
-/// DOCUMENTED DIVERGENCE: only MARKER-trait constraints
-/// (traits without methods — Send/Acyclic/user markers) are enforced, and only
-/// against FULLY CONCRETE bound types (no SomeT anywhere in the type) —
-/// `type_implements_trait` still has gaps for (a) method-trait satisfaction
-/// on concrete
-/// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
-/// through generic-instantiation fields that still carry constraint-bearing
-/// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
-/// Widen as the trait checker closes those gaps.
+/// Scope: this is the MARKER channel — traits without methods (Send/Acyclic/
+/// user markers), decided for function values by their captures and reach
+/// (rules D1/D4) and otherwise against fully concrete bound types. Method and
+/// composite bounds (`K <: (Eq(K), Hash)`) are enforced where the callee's
+/// function type is evaluated with its parameters bound
+/// (`apply_single_trait_constraint` → `validate_concrete_type_constraints`,
+/// types/function.yo); a bound type still carrying a SomeT is decided there
+/// at instantiation (issues/fixed/yo-self-where-clause-full-enforcement.md).
 validate_where_constraints_for_call :: (
   fn(
     func_id : String,
@@ -4851,7 +4860,7 @@ validate_where_constraints_for_call :: (
     lhs_vars := get_variables_from_env(callee_env, wce.lhs_label);
     if(lhs_vars.len() > usize(0), {
       match(
-        lhs_vars.get(lhs_vars.len() - usize(1)),
+        lhs_vars.last(),
         .Some(lhs_var) => match(
           lhs_var.value.get(usize(0)),
           .Some(lv) => match(
@@ -4991,7 +5000,7 @@ reapply_where_clause_exprs_for_call :: (
                   wge_vars := get_variables_from_env(callee_env, ast_expr_token(wge_lhs).value);
                   if(wge_vars.len() > usize(0), {
                     match(
-                      wge_vars.get(wge_vars.len() - usize(1)),
+                      wge_vars.last(),
                       .Some(wge_var) => match(
                         wge_var.value.get(usize(0)),
                         .Some(wge_val) => {
@@ -5278,7 +5287,7 @@ _evaluated_expr_type :: (
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
-            e_vars.get(e_vars.len() - usize(1)),
+            e_vars.last(),
             .Some(e_v) => Option(TypeValue).Some(e_v.ty),
             .None => Option(TypeValue).None
           )
@@ -5574,7 +5583,7 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
     return(Option(TypeValue).None);
   });
   bound := match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -5608,7 +5617,7 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
     return(false);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -5634,7 +5643,7 @@ _forall_len_binding_now :: (fn(env : Environment, label : String) -> Option(Stri
     return(Option(String).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
@@ -6445,7 +6454,7 @@ try_to_call_function_with_arguments :: (
                       (tb_already : bool) = false;
                       if(tb_existing.len() > usize(0), {
                         match(
-                          tb_existing.get(tb_existing.len() - usize(1)),
+                          tb_existing.last(),
                           .Some(tb_var) => match(
                             tb_var.value.get(usize(0)),
                             .Some(tb_val) => if(is_type_val(tb_val), {
@@ -6494,7 +6503,7 @@ try_to_call_function_with_arguments :: (
                         (eb_already : bool) = false;
                         if(eb_existing.len() > usize(0), {
                           match(
-                            eb_existing.get(eb_existing.len() - usize(1)),
+                            eb_existing.last(),
                             .Some(eb_var) => match(
                               eb_var.value.get(usize(0)),
                               .Some(eb_val) => if(is_type_val(eb_val), {
@@ -6570,7 +6579,7 @@ try_to_call_function_with_arguments :: (
                   (ne_already : bool) = false;
                   if(ne_existing.len() > usize(0), {
                     match(
-                      ne_existing.get(ne_existing.len() - usize(1)),
+                      ne_existing.last(),
                       .Some(ne_var) => match(
                         ne_var.value.get(usize(0)),
                         .Some(ne_val) => if(is_type_val(ne_val), {
@@ -6657,7 +6666,7 @@ try_to_call_function_with_arguments :: (
                             ew_vars := get_variables_from_env(callee_env, ast_expr_token(ew_lhs).value);
                             if(ew_vars.len() > usize(0), {
                               match(
-                                ew_vars.get(ew_vars.len() - usize(1)),
+                                ew_vars.last(),
                                 .Some(ew_var) => match(
                                   ew_var.value.get(usize(0)),
                                   .Some(ew_val) => {
@@ -6721,7 +6730,7 @@ try_to_call_function_with_arguments :: (
                     ew_fvars := get_variables_from_env(callee_env, ew_fl);
                     (ew_is_unknown : bool) = false;
                     match(
-                      ew_fvars.get(ew_fvars.len() - usize(1)),
+                      ew_fvars.last(),
                       .Some(ew_fvar) => match(
                         ew_fvar.value.get(usize(0)),
                         .Some(.UnknownVal(_, _)) => {
@@ -6792,7 +6801,7 @@ try_to_call_function_with_arguments :: (
                         ewa_lvars := get_variables_from_env(callee_env, ast_expr_token(ewa_lhs).value);
                         if(ewa_lvars.len() > usize(0), {
                           match(
-                            ewa_lvars.get(ewa_lvars.len() - usize(1)),
+                            ewa_lvars.last(),
                             .Some(lv) => match(
                               lv.value.get(usize(0)),
                               .Some(.TypeVal(lvt)) => if(!(is_some_type(lvt)), {
@@ -6832,7 +6841,7 @@ try_to_call_function_with_arguments :: (
                                   ewa_xvars := get_variables_from_env(callee_env, ewa_xn);
                                   if(ewa_xvars.len() > usize(0), {
                                     match(
-                                      ewa_xvars.get(ewa_xvars.len() - usize(1)),
+                                      ewa_xvars.last(),
                                       .Some(xv) => match(
                                         xv.value.get(usize(0)),
                                         .Some(.TypeVal(xvt)) => if(!(is_some_type(xvt)), {

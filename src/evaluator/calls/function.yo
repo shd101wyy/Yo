@@ -16,6 +16,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
+  next_global_expr_id,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
@@ -28,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -876,10 +877,10 @@ _trial_call_overload_candidate :: (
     ok_out : ArrayList(bool)
   ) -> unit
 )({
-  trial_exn := Exception(throw : ((_err) -> unwind(())));
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
   // polluting the real expr's eval data;
   // an id-preserving clone would overwrite the real ExprInfo entries.
+  clone_lo := next_global_expr_id();
   cloned_args := ArrayList(AstExpr).new();
   (ci : usize) = usize(0);
   while(ci < args.len(), {
@@ -892,12 +893,40 @@ _trial_call_overload_candidate :: (
     );
     ci = (ci + usize(1));
   });
+  cloned_call := clone_expr_fresh_ids(call_expr);
+  clone_hi := next_global_expr_id();
+  _run_overload_trial(fn_val, fn_ty, cloned_call, func_expr, cloned_args, callee_env, ctx, ok_out);
+  // Only the verdict survives the trial: the clones' own metadata is dead
+  // either way (the real call evaluates the originals). Specializations the
+  // trial created have ids past `clone_hi` and stay.
+  purge_executed_clone_metadata(ctx.expr_info_table, cloned_call, clone_lo, clone_hi);
+  (pi : usize) = usize(0);
+  while(pi < cloned_args.len(), {
+    match(cloned_args.get(pi), .Some(a) => purge_executed_clone_metadata(ctx.expr_info_table, a, clone_lo, clone_hi), .None => ());
+    pi = (pi + usize(1));
+  });
+});
+/// The trial itself: a failure unwinds out of THIS function (the handler is
+/// created here), so the caller's purge runs on both outcomes.
+_run_overload_trial :: (
+  fn(
+    fn_val : EvalValue,
+    fn_ty : TypeValue,
+    call_expr : AstExpr,
+    func_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    callee_env : Environment,
+    ctx : EvalContext,
+    ok_out : ArrayList(bool)
+  ) -> unit
+)({
+  trial_exn := Exception(throw : ((_err) -> unwind(())));
   try_to_call_function_with_arguments(
     Option(EvalValue).Some(fn_val),
     fn_ty,
-    clone_expr_fresh_ids(call_expr),
+    call_expr,
     func_expr,
-    cloned_args,
+    args,
     callee_env,
     ctx,
     false,
@@ -1643,7 +1672,7 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
 /// the first call's resolution then poisoned every sibling io.async call
 /// (def-eval re-runs saw a wrong CONCRETE expected result — "expected unit,
 /// got i32" — threw, and the trial swallow left stale registrations: the
-/// async_await void-closure class, issues/yo-self-async-emission-cluster.md
+/// async_await void-closure class, issues/retired/yo-self-async-emission-cluster.md
 /// item 7). With per-call fresh ids the SAME registry becomes per-call-
 /// correct: the await's `T` instance arrives via the future ARG's carried
 /// type, which shares the fresh id.
@@ -2288,7 +2317,7 @@ _scratch_len_binding :: (fn(se : Environment, name : String) -> Option(String))(
     return(Option(String).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
@@ -2305,7 +2334,7 @@ _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(Type
     return(Option(TypeValue).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -2777,7 +2806,7 @@ _funcval_bind_foralls :: (
     };
     // The binder's first binding (explicit or from an argument) and the
     // argument that made it, for the per-call consistency check below.
-    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.get(fa_bound_types.len() - usize(1)), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
+    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
     (fa_first_arg : Option(usize)) = Option(usize).None;
     while(ptn_i < n_ptn, {
       ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
@@ -2918,7 +2947,7 @@ _funcval_bind_foralls :: (
       se_vars := get_variables_from_env(se, fa_name);
       if(se_vars.len() > usize(0), {
         match(
-          se_vars.get(se_vars.len() - usize(1)),
+          se_vars.last(),
           .Some(se_var) => match(
             se_var.value.get(usize(0)),
             .Some(se_val) => match(
@@ -3723,7 +3752,7 @@ _evaluate_funcval_runtime_call :: (
   // returned wrapper to the callee's async block: the SM struct is
   // registered under the async-block future's identity, which only the
   // body's stamped ExprInfo carries (the async-future family root,
-  // issues/yo-self-async-emission-cluster.md 2026-07-20 convergence).
+  // issues/retired/yo-self-async-emission-cluster.md 2026-07-20 convergence).
   // One SomeT-with-resolution level of the body type is unwrapped first,
   // as the async delegation wrappers require.
   if(is_some_type(resolved_ret), {
@@ -3974,7 +4003,7 @@ _evaluate_funcval_runtime_call :: (
       fbn_vars := get_variables_from_env(fresh_env, fbn);
       if(fbn_vars.len() > usize(0), {
         match(
-          fbn_vars.get(fbn_vars.len() - usize(1)),
+          fbn_vars.last(),
           .Some(fbn_var) => match(
             fbn_var.value.get(usize(0)),
             .Some(fbn_val) => {
@@ -4668,7 +4697,25 @@ _evaluate_function_call_unanchored :: (
     receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => ri.ty, .None => t_unit()));
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
-    op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    (op_methods : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4), exactly as a
+    // dot call does: a miss on a NAMED receiver may be answered by an `impl`
+    // placed later in its module, so force those impls and look up once more
+    // before the hard error below. Without it, a helper defined ABOVE the
+    // type's `Eq` impl, whose definition-time trial runs first, failed E0610
+    // on `a(i) != b(i)` (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
+    if(op_methods.len() == usize(0), {
+      match(
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty)),
+        .Forced => {
+          op_methods = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+        },
+        .Error({ msg : op_force_msg }) => {
+          flag_pending_impl_force_error(op_force_msg);
+        },
+        .NoneForced => ()
+      );
+    });
     // A PRIMITIVE receiver with no operator impl is a hard error:
     // `true < false` / `(1 < 2) < 3` must report "No matching call found
     // with arguments: …" because `bool` has no `Ord`/`(<)` impl in the prelude
@@ -6662,7 +6709,7 @@ Fix: wrap the call:
                   lp_vars := get_variables_from_env(lp_se, lp_fn.clone());
                   if(lp_vars.len() > usize(0), {
                     match(
-                      lp_vars.get(lp_vars.len() - usize(1)),
+                      lp_vars.last(),
                       .Some(lp_v) => match(
                         lp_v.value.get(usize(0)),
                         .Some(lp_val) => match(
@@ -8130,7 +8177,7 @@ Fix: wrap the call:
           // fresh OUTPUT id makes the closure-result registration below
           // and the io.await resolution PER-CALL (previously the preserved
           // shared id cross-poisoned sibling calls — item 7 of
-          // issues/yo-self-async-emission-cluster.md).
+          // issues/retired/yo-self-async-emission-cluster.md).
           ret_type_rt = _freshen_io_async_result(ret_type_rt);
           match(
             _future_output_some_id(ret_type_rt),

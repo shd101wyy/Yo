@@ -50,5 +50,5 @@ SomeT that reaches this branch.)
 
 With the declaration fixed, the scope-end auto-drop of such a local COMPILES —
 and is itself wrong for a still-armed timer. That hole is filed separately and
-stays OPEN: `issues/pending-io-future-local-drop-uaf.md`. std avoids the shape
+stays OPEN: `issues/fixed/pending-io-future-local-drop-uaf.md`. std avoids the shape
 entirely (`timeout()` uses a spawned deadline task).

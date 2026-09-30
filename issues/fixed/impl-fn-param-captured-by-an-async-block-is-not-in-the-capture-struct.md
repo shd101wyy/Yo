@@ -87,25 +87,17 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 
 **STILL REPRODUCES for the committed repro, but at a different site** (seed and tree build): `error: use of undeclared identifier 'cb'` in `.cb = cb`. It now fires in the SYNC-future closure (`closure_yo_id_…`, a body with no await), which never reads `closure_context`. With an `io.await` added (the resume-function shape the doc describes), it works (`n=42`). What remains: `generate_io_async_sync_call` plus the capture-init fallback, i.e. the io.async closure's transitive capture of an `Impl(Fn)` parameter.
 
-## Fix (2026-09-30)
+## Fix (2026-09-29, async state-machine plan)
 
-**Root cause (measured):** a closure's captures never reached the closure it
-was written in. The io.async block in the repro reads `cb` only inside the
-inner `() => { sink.send(cb()); () }`, so the block's own capture struct
-had no `cb` field, and the inner capture struct was then built from the bare
-name. `YO_DEBUG_CAPTURE=1` showed the read tracked in the inner body's context
-only. The hypothesis above (a valueless `Impl(Fn)` binding dropped as
-compile-time-only) was not the cause.
+A closure built inside a no-await `io.async` block initialized its capture struct with a bare name for a variable the block itself captured. The fallback in `generate_closure_construction` (`src/codegen/exprs/closures.yo`) now reads it through `closure_context`, with the same membership test `generate_atom` uses (`_enclosing_closure_capture_read`). Test: `tests/async_await.test.yo` "an Impl(Fn) parameter captured inside a no-await io.async block" (a C compile error on the v0.2.45 seed).
 
-**Fix:** after a closure's body is evaluated, its captures are tracked again
-against the defining context (`src/evaluator/values/anonymous_function.yo`).
-The tracker's own filters drop the enclosing body's locals and parameters, so
-only real outer names propagate. The inner capture-struct initializer now
-reads a captured name through one rule shared by every capture-struct builder
-(`captured_value_source_code`, `src/codegen/exprs/atom.yo`).
-
-**Verification:** the repro prints `n=42` with a tree-built compiler and fails
-on the v0.2.46 seed (`use of undeclared identifier 'cb'`). The shape is a test
-case in `tests/closure_inside_io_async.test.yo`, which fails to compile on the
-seed and passes 7/7 after the fix. The "near neighbour" above (calling `cb()`
-directly in the block) already runs on the v0.2.46 seed (`n=7`).
+**Measured independently (2026-09-30).** The root cause was also measured on
+the `fix/closure-local-in-io-async` branch (PR #1031) before #1018 landed.
+`YO_DEBUG_CAPTURE=1` showed the block's read of `cb` tracked only in the
+inner closure's body context, which is the capture-propagation gap that
+`propagate_captures_to_enclosing` closes
+(`issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md`).
+That branch carries this repro's shape as a case in
+`tests/closure_inside_io_async.test.yo`. It fails to compile on the v0.2.46
+seed. The PR's gate re-runs it on the merged tree, where develop's mechanism
+replaces the branch's own.
