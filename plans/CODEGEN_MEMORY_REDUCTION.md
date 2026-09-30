@@ -524,15 +524,15 @@ Phase 0 measures it.
    finished units could be streamed to disk.
 4. **Stop retaining trial-born specializations in the specialization
    cache** (the 8 GB plan's residual).
+5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
+   1.43 M cloned nodes are all retained there. It is parked on
+   `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
+   it is the largest lever.
 6. **Share equal path collections (§0.10: 185 K distinct among ~710 K).**
    `expr_info_paths_for_write` copies while the collection is shared, and
    equal collections are interned when they are recorded. Measure the RSS,
    not only the census: §0.7 showed that memory freed after evaluation has
    peaked comes back only partly.
-5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
-   1.43 M cloned nodes are all retained there. It is parked on
-   `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
-   it is the largest lever.
 
 ## 4. Gates (every change)
 
