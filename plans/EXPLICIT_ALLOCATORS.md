@@ -1,8 +1,11 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: ACTIVE — P0–P5 implemented as stacked PRs on #1015
-> (2026-09-29/30); P3c (default mutable-container constructors follow the
-> scope) is written and parked until `SEED_VERSION` carries the scope hooks.
+> **Status: ACTIVE — P0–P5 LANDED 2026-09-30** (#1015, #1021, #1023, #1027,
+> #1029, #1032, #1033, #1035, #1042). The one open phase is P3c (default
+> mutable-container constructors follow the scope, #1034), parked until
+> `SEED_VERSION` carries P3's runtime hooks. The async state-machine pools
+> of #1018 (not yet landed) are to pool only on the global allocator and
+> never recycle a tagged block, as agreed with its author.
 > Landed decisions: [`reference/EXPLICIT_ALLOCATORS.md`](reference/EXPLICIT_ALLOCATORS.md).** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation

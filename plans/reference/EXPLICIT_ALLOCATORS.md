@@ -1,7 +1,6 @@
 # Explicit Allocators — the landed decisions
 
-> **Status: IMPLEMENTED (P0–P5), 2026-09-30, as a stack of draft PRs on
-> #1015; authoritative once the stack merges.** The one open item is P3c
+> **Status: LANDED (P0–P5), 2026-09-30** (#1015 … #1042). The one open item is P3c
 > (default mutable-container constructors follow the scope), parked behind
 > the seed and tracked in the active plan
 > [`plans/EXPLICIT_ALLOCATORS.md`](../EXPLICIT_ALLOCATORS.md), which holds
