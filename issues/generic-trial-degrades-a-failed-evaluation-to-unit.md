@@ -51,8 +51,13 @@ static call on an `Array` type with a value-dependent length) and make it an err
 
 ## A second degrading case: a method from a later impl of the same type (measured 2026-09-30)
 
-The `Array(u8, T.BYTES)` case above is fixed on `tss/impl-self-operator` (symbolic array
-lengths). Dropping the `unit` exclusion there (commit `6308fed65`) made `check ./std` fail
+An attempt on `tss/impl-self-operator` bound a variable array length symbolically
+(`N := VarRef("T.BYTES")` in the synthesizer's var-var `Array` case, aliased into the
+`Substitution`), so `Array(u8, T.BYTES).fill(u8(0))` matched its impl in the trial. Built for the
+first time on 2026-09-30, it broke develop's own `tests/array.test.yo` (the `_Widthy` blanket
+impl): "Cannot unify incompatible types: usize and Type" at the prelude `fill`'s
+`while(i < U, …)`. It was reverted (`e8ac3c0f2`); the `Array` case stays open. Dropping the
+`unit` exclusion (commit `6308fed65`) also made `check ./std` fail
 at `std/string/string.yo:1605`, `(rest : String) = self.clone()` inside the generic
 `splitn`: "Expected String, Given unit". The commit was reverted.
 
