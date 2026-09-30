@@ -1,7 +1,7 @@
 # Explicit allocators (Zig-style) beside reference counting
 
 > **Status: ACTIVE — implementation started 2026-09-29 (stacked PRs on
-> #1015; P0 implemented).** Design audited 2026-09-29 (two passes). Verdict:
+> #1015; P0 and P1 implemented).** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation
 > falls back to the global allocator when no
@@ -748,32 +748,55 @@ two new CLI cases.
 
 ### P1 — containers take allocators (std-only)
 
-Files: `std/collections/{array_list,hash_map,hash_set,deque}.yo`,
-`std/string/builder.yo`, `std/imm/{vec,map,string}.yo`, their `*.test.yo`
-siblings.
+**Status: implemented 2026-09-29** (branch `explicit-allocators-p1`).
 
-1. Capacity-bit + `_CAP_MASK` per container (§3.3); every capacity reader
-   masked; growth/shrink/dispose route on the bit. `HashMap` tags its
-   bucket-capacity word once and routes both buffers (ctrl + data) through
-   the same allocator. `HashSet` and `StringBuilder` inherit through the
-   container they wrap.
-2. `new_in` / `with_capacity_in` on each; eager first buffer in `new_in`.
-3. Gates:
-   - `yo test ./std --bail`; `yo test ./tests --exclude tests/internal
-     --exclude tests/cli-cases --bail`.
-   - **Layout gate**: the emitted C `typedef struct` of every touched
-     container is unchanged (diff the `--emit-c` output of a fixture that
-     instantiates each container against develop).
-   - New cases in each container's test file: `_in` construction, growth
-     across several capacity doublings inside an arena (buffer stays
-     prefixed), `try_push` OOM against a tiny arena returns
-     `AllocError.OutOfMemory`, dispose routes (arena live count returns to
-     0), `capacity()` never reports the bit.
-   - Leak oracle (`--allocator fixed --debug-heap`) clean on the new cases;
-     ASan on the container test files.
-   - The self-compile A/B (`yo build` time + RSS, three runs each) within
-     noise of develop — the push-path AND is the only default-path cost.
-   - D4 recorded in this doc.
+Files: `std/collections/{array_list,hash_map,hash_set,deque}.yo`,
+`std/string/string_builder.yo`, their test files.
+
+1. **Where the owner bit lives**, one private word per container, chosen so
+   the hot path pays at most one AND:
+   - `ArrayList`: the top bit of `_capacity`. The ZST anchor's capacity moves
+     from `SIZE_MAX` (whose top bit is set) to `_CAP_MASK`; `capacity()` still
+     reports `SIZE_MAX` for a zero-sized `T`. `with_capacity` /
+     `ensure_total_capacity` treat a capacity above `_CAP_MASK` as capacity
+     overflow, so a count can never reach the tag.
+   - `HashMap`: the top bit of the tombstone count, NOT `capacity` — the
+     bucket count feeds every probe (`% capacity`), the tombstone count is read
+     only by the load check. The field becomes private (`_tombstones`) and
+     `tombstones()` a method, matching `HashSet.tombstones()`; the five test
+     reads move to the method.
+   - `Deque`: the top bit of `_capacity`, masked at each index computation
+     (the compiler uses `Deque` in one place, so the AND costs nothing
+     measurable).
+   - `HashSet` and `StringBuilder` inherit through the container they wrap.
+2. `new_in(alloc)` / `with_capacity_in(alloc, n)` on all five, plus
+   `allocator() -> Option(Allocator)`. **`new_in` allocates only the owner
+   prefix** (a zero-byte `Allocator.alloc`), not a four-element buffer: that
+   block is how the container remembers its allocator at capacity zero. An
+   arena list's `shrink_to_fit` on an empty list shrinks to that prefix
+   instead of freeing, so the list keeps its allocator.
+3. **Derived containers**: `clone` keeps the source's allocator (Rust's
+   `Vec<T, A>: Clone`); a `HashMap` resize allocates the new tables from the
+   old ones' owner; `StringBuilder.to_string` hands the buffer to the
+   `String` and takes its next buffer from the same allocator. Every other
+   method that builds a new container (`slice_copy`, `drain`, `map`, …) builds
+   it on the global allocator, which P3's scope can redirect.
+4. **The `imm` family moves to P3.** A persistent container builds new nodes
+   on every update, so an explicit `_in` constructor would have to thread the
+   allocator through every derived version. Because each buffer records its
+   owner in its prefix, P3 instead lets the default constructors consult the
+   current scope (see P3 step 3), which covers `imm/{vec,map,string}` and
+   every derived version at once.
+5. Gates (green 2026-09-29, stage-1 built from P0 with the tree std):
+   `tests/collections/{array_list,array_list_convenience,hash_map,hash_set,deque}.test.yo`,
+   `tests/string/{string_builder,string}.test.yo`, `tests/arena.test.yo`,
+   `tests/allocator.test.yo` all green (new cases: growth inside the arena,
+   `capacity()` / `tombstones()` never report the tag, clone keeps the
+   allocator, shrink keeps it, `try_push` against an exhausted arena returns
+   `OutOfMemory`, a ZST list in an arena, every buffer back in the arena at
+   dispose); the verifier outcome lines of `yo check
+   std/collections/array_list.yo` identical to develop. **Layout gate** and
+   **self-compile A/B**: see the P1 PR.
 
 ### P2 — the tag bit and routed frees (codegen, behavior-identical)
 

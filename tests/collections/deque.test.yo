@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ Arena } :: import("std/arena");
 { Deque } :: import("std/collections/deque");
 { String } :: import("std/string");
 // ===== Construction Tests =====
@@ -438,4 +439,24 @@ test("Deque Default is the empty deque", {
   assert(d.len() == usize(0), "default deque is empty");
   d.push_back(i32(2));
   assert(d.len() == usize(1), "the default deque is a usable deque");
+});
+// ===== Explicit allocators (plans/EXPLICIT_ALLOCATORS.md P1) =====
+test("Deque.new_in keeps its ring in the arena through growth and wrap-around", {
+  arena := Arena.new(usize(1) << usize(16));
+  a := arena.allocator();
+  {
+    d := Deque(i32).new_in(a);
+    i := i32(0);
+    while(runtime(i < i32(100)), {
+      d.push_back(i);
+      d.push_front(i32(0) - i);
+      i = (i + i32(1));
+    });
+    assert(d.len() == usize(200), "len");
+    assert(d.front().unwrap() == i32(-99), "front");
+    assert(d.back().unwrap() == i32(99), "back");
+    assert(d.allocator().unwrap().same(a), "the ring is the arena's");
+    assert(arena.live_blocks() == usize(1), "growth frees the old ring into the arena");
+  };
+  assert(arena.live_blocks() == usize(0), "dispose released the ring");
 });

@@ -28,10 +28,16 @@
 //! wrap-around cases. Missing pieces such as `Debug` or a `retain` would be
 //! additive.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator");
 { SIZE_MAX } :: import("../libc/stdint");
 { assert } :: import("../assert");
 { malloc, realloc, free } :: GlobalAllocator;
+// The top bit of `_capacity`: set when the ring came from an explicit
+// `Allocator` and carries its owner prefix (`std/allocator.yo`), so growth and
+// release go through it. Kept inside an existing word so the deque object does
+// not grow (plans/EXPLICIT_ALLOCATORS.md §3.3); every capacity read masks it.
+_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_MASK :: (_CAP_TAG - usize(1));
 /// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
@@ -51,6 +57,35 @@ impl(
   new : (fn() -> Self)(
     Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
   ),
+  /// Empty deque whose ring lives in `alloc`. Every growth and the final
+  /// release go through `alloc`. Takes one allocation right away — a block
+  /// holding only the owner prefix, which is how the deque remembers its
+  /// allocator. PANICS when that allocation fails.
+  new_in : (fn(alloc : Allocator) -> Self)(
+    match(
+      alloc.alloc(usize(0)),
+      .Some(p) => Self(_buf : .Some((*T)(p)), _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : _CAP_TAG),
+      .None => __yo_panic("Deque.new_in: allocation failed")
+    )
+  ),
+  // The ring's slot count without the allocator tag.
+  _cap : (fn(self : Self) -> usize)(self._capacity & _CAP_MASK),
+  // True when the ring came from an explicit `Allocator`.
+  _owned : (fn(self : Self) -> bool)((self._capacity & _CAP_TAG) != usize(0)),
+  /// The allocator the ring lives in, or `.None` for the global one.
+  allocator : (fn(self : Self) -> Option(Allocator))(
+    cond(
+      self._owned() => .Some(Allocator.owner_of((*void)(self._buf.unwrap()))),
+      true => .None
+    )
+  ),
+  // Release a ring buffer the way it was allocated.
+  _free_buf : (fn(self : Self, p : *T) -> unit)(
+    cond(
+      self._owned() => Allocator.free(.Some((*void)(p))),
+      true => free(.Some((*void)(p)))
+    )
+  ),
   /// Number of elements. O(1); not the ring's capacity.
   len : (fn(self : Self) -> usize)(
     self._len
@@ -62,8 +97,8 @@ impl(
   // Ensure at least `min_cap` slots are available.
   _grow : (fn(self : Self, min_cap : usize) -> unit)({
     new_cap := cond(
-      (self._capacity == usize(0)) => usize(8),
-      true => (self._capacity * usize(2))
+      (self._cap() == usize(0)) => usize(8),
+      true => (self._cap() * usize(2))
     );
     // Same wrap as ArrayList.with_capacity: `new_cap * sizeof(T)` is computed in
     // usize, and the doubling loop itself can wrap to 0 and spin forever
@@ -71,19 +106,28 @@ impl(
     // every other collection carries; Deque was the one left out).
     while(new_cap < min_cap, {
       new_cap = cond(
-        (new_cap > (SIZE_MAX / usize(2))) => min_cap,
+        (new_cap > (_CAP_MASK / usize(2))) => min_cap,
         true => (new_cap * usize(2))
       );
     });
-    if(size_would_overflow(T, new_cap), {
+    if(size_would_overflow(T, new_cap) || (new_cap > _CAP_MASK), {
       __yo_panic("Deque: capacity overflow");
     });
     size := (new_cap * sizeof(T));
-    new_buf := (*T)(malloc(size).unwrap());
+    // The new ring comes from the allocator that owns the old one.
+    new_raw := cond(
+      self._owned() => Allocator.owner_of((*void)(self._buf.unwrap())).alloc(size),
+      true => malloc(size)
+    );
+    new_buf := match(
+      new_raw,
+      .Some(p) => (*T)(p),
+      .None => __yo_panic("Deque: allocation failed")
+    );
     // Linearise existing elements into the new buffer
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      idx := ((self._head + i) % self._capacity);
+      idx := ((self._head + i) % self._cap());
       buf := self._buf.unwrap();
       consume((new_buf.add(i)).* = (buf.add(idx)).*);
     });
@@ -93,7 +137,7 @@ impl(
       Type.contains_rc_type(T) => {
         j := usize(0);
         while(j < self._len, j = (j + usize(1)), {
-          old_idx := ((self._head + j) % self._capacity);
+          old_idx := ((self._head + j) % self._cap());
           old_buf := self._buf.unwrap();
           unsafe.drop((old_buf.add(old_idx)).*);
         });
@@ -102,13 +146,13 @@ impl(
     );
     match(
       self._buf,
-      .Some(p) => free(.Some((*void)(p))),
+      .Some(p) => self._free_buf(p),
       .None => ()
     );
     self._buf = .Some(new_buf);
     self._head = usize(0);
     self._tail = self._len;
-    self._capacity = new_cap;
+    self._capacity = (new_cap | (self._capacity & _CAP_TAG));
   }),
   /// Add an element at the back — amortized O(1). Rust's `push_back`.
   ///
@@ -117,12 +161,12 @@ impl(
   /// invalidates every pointer into the buffer.
   push_back : (fn(self : Self, val : T) -> unit)({
     cond(
-      (self._len == self._capacity) => self._grow(self._len + usize(1)),
+      (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
     );
     buf := self._buf.unwrap();
     consume((buf.add(self._tail)).* = val);
-    self._tail = ((self._tail + usize(1)) % self._capacity);
+    self._tail = ((self._tail + usize(1)) % self._cap());
     self._len = (self._len + usize(1));
   }),
   /// Add an element at the front — amortized O(1) and no shifting, which is
@@ -132,11 +176,11 @@ impl(
   /// Grows exactly like `push_back` when the ring is full.
   push_front : (fn(self : Self, val : T) -> unit)({
     cond(
-      (self._len == self._capacity) => self._grow(self._len + usize(1)),
+      (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
     );
     self._head = cond(
-      (self._head == usize(0)) => (self._capacity - usize(1)),
+      (self._head == usize(0)) => (self._cap() - usize(1)),
       true => (self._head - usize(1))
     );
     buf := self._buf.unwrap();
@@ -153,7 +197,7 @@ impl(
         element_ptr := buf.add(self._head);
         val := element_ptr.*;
         unsafe.drop(element_ptr.*);
-        self._head = ((self._head + usize(1)) % self._capacity);
+        self._head = ((self._head + usize(1)) % self._cap());
         self._len = (self._len - usize(1));
         .Some(val)
       }
@@ -165,7 +209,7 @@ impl(
       (self._len == usize(0)) => .None,
       true => {
         self._tail = cond(
-          (self._tail == usize(0)) => (self._capacity - usize(1)),
+          (self._tail == usize(0)) => (self._cap() - usize(1)),
           true => (self._tail - usize(1))
         );
         buf := self._buf.unwrap();
@@ -198,7 +242,7 @@ impl(
       (index >= self._len) => .None,
       true => {
         buf := self._buf.unwrap();
-        idx := ((self._head + index) % self._capacity);
+        idx := ((self._head + index) % self._cap());
         .Some((buf.add(idx)).*)
       }
     )
@@ -216,13 +260,13 @@ impl(
             Type.contains_rc_type(T) => {
               i := usize(0);
               while(i < self._len, i = (i + usize(1)), {
-                idx := ((self._head + i) % self._capacity);
+                idx := ((self._head + i) % self._cap());
                 unsafe.drop((p.add(idx)).*);
               });
             },
             true => ()
           );
-          free(.Some((*void)(p)));
+          self._free_buf(p);
           self._buf = .None;
         },
         .None => ()
@@ -255,7 +299,7 @@ impl(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
-          idx := ((self._deque._head + self._pos) % self._deque._capacity);
+          idx := ((self._deque._head + self._pos) % self._deque._cap());
           buf := self._deque._buf.unwrap();
           value := (buf.add(idx)).*;
           self._pos = (self._pos + usize(1));
@@ -279,7 +323,7 @@ impl(
           // `_remaining - 1` never underflows. `_pos` + `_remaining` already
           // bracket both ends, so back-iteration needs no new field.
           self._remaining = (self._remaining - usize(1));
-          idx := ((self._deque._head + self._pos + self._remaining) % self._deque._capacity);
+          idx := ((self._deque._head + self._pos + self._remaining) % self._deque._cap());
           buf := self._deque._buf.unwrap();
           .Some((buf.add(idx)).*)
         }
@@ -320,7 +364,7 @@ impl(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
-          idx := ((self._deque._head + self._pos) % self._deque._capacity);
+          idx := ((self._deque._head + self._pos) % self._deque._cap());
           buf := self._deque._buf.unwrap();
           element_ptr := buf.add(idx);
           self._pos = (self._pos + usize(1));
@@ -348,7 +392,7 @@ impl(
     index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
-      physical_idx := ((self._head + idx) % self._capacity);
+      physical_idx := ((self._head + idx) % self._cap());
       buf.add(physical_idx)
     })
   )
@@ -370,7 +414,7 @@ impl(
         .Some(base) => {
           (k : usize) = usize(0);
           while(k < self._len, {
-            slot := ((self._head + k) % self._capacity);
+            slot := ((self._head + k) % self._cap());
             tracer.visit(base.add(slot));
             k = (k + usize(1));
           });
