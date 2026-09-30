@@ -29,10 +29,12 @@
 { TypeValue } :: import("../types/definitions.yo");
 { type_display_name } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
+{ file_exists_sync } :: import("../manifest.yo");
+{ fs_path_to_uri } :: import("./protocol.yo");
 { type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
 { find_generic_impl_method_value } :: import("../evaluator/values/impl.yo");
 { resolve_module_path, ModuleResolveResult } :: import("../evaluator/exprs/import.yo");
-{ mm_module_source } :: import("../module_manager.yo");
+{ mm_module_source, mm_resolve_import_abs } :: import("../module_manager.yo");
 { str_lit_unquote_bytes } :: import("../utils.yo");
 { Path } :: import("std/path");
 { JsonValue } :: import("std/encoding/json");
@@ -961,4 +963,132 @@ handle_type_definition :: (
     .None => Option(JsonValue).None
   )
 });
-export(handle_definition, handle_type_definition);
+export(handle_definition, handle_type_definition, handle_document_links);
+
+/// `textDocument/documentLink`: every `import("path")` string literal of
+/// the document as a link to the file it names — std/ paths through the
+/// std path, ./ and ../ paths through the importing document's directory
+/// (the same resolution `import` itself applies). Only links whose target
+/// EXISTS are answered — a dead link is worse than none — and a dependency
+/// name (resolved through the nearest manifest by the loader) carries no
+/// link: the manifest lookup is the loader's, not the LSP's.
+handle_document_links :: (
+  fn(text : String, doc_abs : String, lines : ArrayList(String), std_path : String) -> JsonValue
+)({
+  out := ArrayList(JsonValue).new();
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  base_dir := _dir_of(doc_abs.clone());
+  (i : usize) = usize(0);
+  while(i < tokens.len(), {
+    t := match(
+      tokens.get(i),
+      .Some(x) => x,
+      .None => {
+        return(JsonValue.Array(items : out));
+      }
+    );
+    if(t.kind == TokenKind.StringLit, {
+      // The link's string must be a plain `import(<this string>)`: the
+      // previous non-whitespace tokens are `(` then the identifier
+      // `import`, and the next non-whitespace token closes the call.
+      prev := _tok_before(tokens, i);
+      prev2 := _tok_before(tokens, prev.idx);
+      next := _tok_after(tokens, i);
+      if((prev.tok.kind == TokenKind.LParen) && (prev2.tok.kind == TokenKind.Identifier)
+      && (
+        (prev2.tok.value == String.from("import")) && (next.tok.kind == TokenKind.RParen)
+        && (t.value.len() > usize(0))
+      ), {
+        // The resolver answers a `file://` URI spelling (like every module
+        // path in the loader); file_exists_sync and fs_path_to_uri both
+        // want the plain path.
+        // The StringLit VALUE carries its quotes (the raw quoted source);
+        // the resolver wants the unquoted path, and the token's rune width
+        // IS the quoted source width.
+        path := str_lit_unquote_bytes(t.value.clone());
+        target := uri_to_fs_path(mm_resolve_import_abs(path, base_dir.clone(), std_path.clone()));
+        if(file_exists_sync(target.clone()), {
+          out.push(
+            jb().put(
+              "range",
+              j_range_in(
+                lines,
+                usize(t.row),
+                usize(t.column),
+                usize(t.row),
+                // The token's column is the OPENING quote; the span runs
+                // over the quoted source (paths carry no escapes, so the
+                // decoded value's width is the source width).
+                usize(t.column) + t.value.chars().count()
+              )
+            ).put("target", jstr(fs_path_to_uri(target.clone()))).obj()
+          );
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : out)
+});
+
+/// The directory of `/a/b/c.yo` — `/a/b` (no trailing slash; a path with
+/// no slash comes back as `.`).
+_dir_of :: (fn(path : String) -> String)(
+  match(
+    path.last_index_of(String.from("/")),
+    .Some(slash) => cond(
+      (slash == usize(0)) => String.from("/"),
+      true => path.substring(
+        usize(0),
+        slash
+      )
+    ),
+    .None => String.from(".")
+  )
+);
+/// The nearest non-whitespace token before index `i`, with its index
+/// (index 0's "before" is a synthetic End marker — kind End, never equal
+/// to a real token kind).
+_TokAt :: struct(
+  tok : Token,
+  idx : usize
+);
+_tok_before :: (fn(tokens : ArrayList(Token), i : usize) -> _TokAt)({
+  (j : usize) = i;
+  while(j > usize(0), {
+    j = (j - usize(1));
+    match(
+      tokens.get(j),
+      .Some(t) => {
+        if(t.kind != TokenKind.Whitespace, {
+          return(_TokAt(tok : t, idx : j));
+        });
+      },
+      .None => ()
+    );
+  });
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : String.new(), input : String.new()), idx : usize(0))
+});
+/// The nearest non-whitespace token at/after index `i` (past the end is
+/// the same synthetic End marker).
+_tok_after :: (fn(tokens : ArrayList(Token), i : usize) -> _TokAt)({
+  (j : usize) = (i + usize(1));
+  while(j < tokens.len(), {
+    match(
+      tokens.get(j),
+      .Some(t) => {
+        if(t.kind != TokenKind.Whitespace, {
+          return(_TokAt(tok : t, idx : j));
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : String.new(), input : String.new()), idx : usize(0))
+});

@@ -41,8 +41,8 @@ json :: import("std/encoding/json");
 } :: import("./protocol.yo");
 { analyze_document, LspDiag, RelatedInfo, AnalyzeOutcome } :: import("./diagnostics.yo");
 { handle_hover } :: import("./hover.yo");
-{ handle_definition, handle_type_definition } :: import("./definition.yo");
-{ handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, WorkspaceDoc } :: import("./symbols.yo");
+{ handle_definition, handle_type_definition, handle_document_links } :: import("./definition.yo");
+{ handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, handle_implementations, WorkspaceDoc } :: import("./symbols.yo");
 { handle_references, handle_document_highlight } :: import("./references.yo");
 { handle_folding_ranges, handle_semantic_tokens } :: import("./folding.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("./rename.yo");
@@ -440,7 +440,7 @@ _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
     (enc == usize(2)) => String.from("utf-8"),
     true => String.from("utf-16")
   );
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("declarationProvider", JsonValue.Bool(value : true)).put("implementationProvider", JsonValue.Bool(value : true)).put("documentLinkProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -647,6 +647,32 @@ _handle_message :: (
       );
       _respond(id_opt, def_result);
     },
+    (method == String.from("textDocument/declaration")) => {
+      // A binding's declaration IS its definition in yo (no separate .h
+      // shape), so this answers exactly what `textDocument/definition`
+      // does — clients that bind "go to declaration" separately keep
+      // working.
+      (decl_result : JsonValue) = JsonValue.Null;
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            match(
+              handle_definition(st.text, st.entry_abs, st.lines, std_path.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              .Some(loc) => {
+                decl_result = loc;
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, decl_result);
+    },
     (method == String.from("textDocument/typeDefinition")) => {
       (td_result : JsonValue) = JsonValue.Null;
       match(
@@ -668,6 +694,30 @@ _handle_message :: (
         .None => ()
       );
       _respond(id_opt, td_result);
+    },
+    (method == String.from("textDocument/implementation")) => {
+      (impl_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            impl_result = handle_implementations(
+              st.text,
+              st.entry_abs,
+              _params_uri(params),
+              st.lines,
+              st.outcome.exprs,
+              pos.line,
+              pos.character
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, impl_result);
     },
     (method == String.from("textDocument/documentHighlight")) => {
       (dh_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
@@ -973,6 +1023,21 @@ _handle_message :: (
       );
       _respond(id_opt, comp_result);
     },
+    (method == String.from("textDocument/documentLink")) => {
+      (links_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            links_result = handle_document_links(st.text, st.entry_abs, st.lines, std_path.clone());
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, links_result);
+    },
     (method == String.from("textDocument/didOpen")) => {
       match(
         params_opt,
@@ -1042,6 +1107,82 @@ _handle_message :: (
             });
           },
           .None => ()
+        ),
+        .None => ()
+      );
+    },
+    (method == String.from("workspace/didChangeWatchedFiles")) => {
+      // A file changed OUTSIDE the editor: purge it (and every dependent)
+      // from the loader cache, then re-analyze each OPEN document so its
+      // diagnostics and analyses see the new on-disk imports — this used
+      // to need a server restart. Open documents manage their own state
+      // (their buffer is the truth), so their own paths are not purged.
+      match(
+        params_opt,
+        .Some(params) => match(
+          params.get(String.from("changes")),
+          .Some(.Array(changes)) => {
+            (ci : usize) = usize(0);
+            while(ci < changes.len(), {
+              match(
+                changes.get(ci),
+                .Some(ch) => {
+                  changed_fs := uri_to_fs_path(_jfield_str(ch, "uri"));
+                  if(changed_fs.len() > usize(0), {
+                    is_open := false;
+                    for(docs, entry => {
+                      if(entry.value.entry_abs == changed_fs, {
+                        is_open = true;
+                      });
+                    });
+                    if(!is_open, {
+                      _inv3 := mm_invalidate_document(changed_fs);
+                    });
+                  });
+                },
+                .None => ()
+              );
+              ci = (ci + usize(1));
+            });
+            // Re-analyze every open document against the purged cache;
+            // the open buffer's own text stays authoritative for its file.
+            open_uris := ArrayList(String).new();
+            open_texts := ArrayList(String).new();
+            for(docs, entry => {
+              open_uris.push(entry.key.clone());
+            });
+            (oi : usize) = usize(0);
+            while(oi < open_uris.len(), {
+              match(
+                open_uris.get(oi),
+                .Some(u) => match(
+                  docs.get(u.clone()),
+                  .Some(st) => {
+                    open_texts.push(st.text.clone());
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              oi = (oi + usize(1));
+            });
+            (ai : usize) = usize(0);
+            while(ai < open_uris.len(), {
+              match(
+                open_uris.get(ai),
+                .Some(u) => match(
+                  open_texts.get(ai),
+                  .Some(txt) => {
+                    _analyze_and_publish(u.clone(), txt.clone(), std_path.clone(), docs, io);
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              ai = (ai + usize(1));
+            });
+          },
+          _ => ()
         ),
         .None => ()
       );

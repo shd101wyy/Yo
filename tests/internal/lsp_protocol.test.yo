@@ -39,6 +39,8 @@ json :: import("std/encoding/json");
 } :: import("../../src/lsp/protocol.yo");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { handle_hover } :: import("../../src/lsp/hover.yo");
+{ handle_implementations } :: import("../../src/lsp/symbols.yo");
+{ handle_document_links } :: import("../../src/lsp/definition.yo");
 { handle_type_definition } :: import("../../src/lsp/definition.yo");
 { handle_references, handle_document_highlight } :: import("../../src/lsp/references.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
@@ -333,6 +335,8 @@ _SEM_DOC :: "{ String } :: import(\"std/string\");\ns := String.from(\"hi\");\nn
 _ASTRAL_DOC :: "emoji := \"🎉\"; n := 1;\n";
 _ML_COMMENT_DOC :: "/* one\n   two */\nx := 1;\n";
 _FN_DECL_DOC :: "answer :: (fn() -> i32)(i32(42));\nmain :: (fn() -> unit)({ answer(); });\nexport(main);\n";
+_IMPL_DOC :: "Show :: trait(show : (fn(self : Self) -> String));\nPoint :: struct(x : i32);\nimpl(Point, Show(show : (fn(self : Self) -> String)(String.from(\"p\"))));\nimpl(Point, show_dist : (fn(self : Self) -> String)(String.from(\"d\")));\nVec :: struct(y : i32);\nimpl(Vec, Show(show : (fn(self : Self) -> String)(String.from(\"v\"))));\n";
+_LINKS_DOC :: "{ helper } :: import(\"./link_helper.yo\");\n{ println } :: import(\"std/fmt\");\nmain :: (fn() -> unit)({ println(\"x\"); () });\nexport(main);\n";
 _RUNTIME_DECL_DOC :: "(c : i32) = i32(3);\nx := i32(4);\nthread_local(t) := i32(5);\n(thread_local(u) : i32) = i32(6);\n";
 
 test("rename_rejection: only legal binding names pass", {
@@ -957,5 +961,90 @@ test("documentSymbol lists runtime and thread_local declarations", {
       assert(syms.contains("\"name\":\"u\",\"kind\":13"), "(thread_local(name) : T) = init is a Variable");
     },
     .None => assert(false, "runtime-decl document: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The gaps the audit did not cover (2026-09-30 closeout, PR B):
+// textDocument/implementation, textDocument/documentLink.
+// ---------------------------------------------------------------------------
+test("implementation: a trait cursor lists this file's impls of it; a type cursor lists its impls", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_impl.yo`;
+  text := String.from(_IMPL_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.parsed, "the impl document parses");
+      // Cursor on the trait Show (line 0, column 1): both impls that
+      // implement Show — Point's and Vec's — and NOT Point's inherent
+      // impl (no trait argument).
+      from_trait := json.stringify(
+        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), oc.exprs, usize(0), usize(1))
+      );
+      assert(from_trait.contains("\"line\":2"), "Point's trait impl is offered from the trait");
+      assert(from_trait.contains("\"line\":5"), "Vec's trait impl is offered from the trait");
+      assert(!from_trait.contains("\"line\":3"), "Point's INHERENT impl (no trait) is not offered from the trait");
+      // Cursor on the type Point (line 1, column 1): both of Point's impls.
+      from_type := json.stringify(
+        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), oc.exprs, usize(1), usize(1))
+      );
+      assert(from_type.contains("\"line\":2"), "Point's trait impl is offered from the type");
+      assert(from_type.contains("\"line\":3"), "Point's inherent impl is offered from the type");
+      assert(!from_type.contains("\"line\":5"), "Vec's impl is not offered from Point");
+    },
+    .None => assert(false, "impl document: no outcome")
+  );
+});
+
+test("documentLink: import paths link to the files they name", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  helper_path := `${dir}/link_helper.yo`;
+  io.await(write_string(Path.new(helper_path.clone()), String.from("helper :: (fn() -> i32)(i32(1));\nexport(helper);\n"), io), ioexn);
+  doc_path := `${dir}/doc_links.yo`;
+  text := String.from(_LINKS_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  mm_forget_open_document(helper_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  _pre2 := mm_invalidate_document(helper_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the links document analyzes ok");
+      lines := text.split(String.from("\n"));
+      links := json.stringify(handle_document_links(text.clone(), doc_path.clone(), lines, std_path.clone()));
+      // The relative import links to the helper file next to the document;
+      // the std import links into std/fmt. Both carry the quoted-string
+      // range on their line.
+      assert(links.contains("link_helper.yo"), "the ./ import resolves to the sibling file");
+      assert(links.contains("std/fmt"), "the std/ import resolves into the std path");
+      assert(links.contains("\"start\":{\"line\":0,\"character\":21}"), "the first link's range starts at the opening quote");
+      assert((links.split("target").len() - usize(1)) == usize(2), "exactly two links — the two imports");
+    },
+    .None => assert(false, "links document: no outcome")
   );
 });

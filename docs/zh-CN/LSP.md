@@ -94,13 +94,21 @@ add_one
   prelude 类型、导入的名字）以及关键字。标识符与导入列表按**前缀**匹配（`Poi` 给出
   `Point`，不会给出 `JoinHandle`）；点号补全同样按前缀。
 
-### 4. 跳转到定义
+### 4. 跳转到定义 / 声明 / 实现
 
-跳转到变量、函数、类型或导入名字的声明位置（导入的名字会跨文件跳转），也支持成员：
-字段访问或结构体字面量标签（`p.x`、`Point(x : …)`）落在 `struct(...)` 中的字段上，
-变体（`Color.Red`、`.Red` 模式）落在 `enum(...)` 中的变体上，方法（`p.dist()`、
-`list.push`）落在声明它的 `impl(...)` 块中的 `label : value` 对上（固有、trait 或泛型
-impl，无论在本文件还是标准库中），`mod.f` 落在被导入模块的 `f ::` 绑定上。
+**定义**：跳转到变量、函数、类型或导入名字的声明位置（导入的名字会跨文件跳转），
+也支持成员：字段访问或结构体字面量标签（`p.x`、`Point(x : …)`）落在 `struct(...)`
+中的字段上，变体（`Color.Red`、`.Red` 模式）落在 `enum(...)` 中的变体上，方法
+（`p.dist()`、`list.push`）落在声明它的 `impl(...)` 块中的 `label : value` 对上
+（固有、trait 或泛型 impl，无论在本文件还是标准库中），`mod.f` 落在被导入模块的
+`f ::` 绑定上。
+
+**声明**（`declaration`）应答的内容与定义完全相同 —— yo 的绑定只有一个位置，没有
+独立的头文件形态 —— 因此把“跳转到声明”单独映射的编辑器也能正常工作。
+
+**实现**（`textDocument/implementation`）列出光标下的类型或 trait 在本文件中的
+`impl(...)` 块：trait 名给出文件中它的每个 impl，类型名给出它的固有 impl 和 trait
+impl（目前与引用、重命名一样限于同一文件）。
 
 ### 5. 文档符号
 
@@ -158,7 +166,13 @@ std 导入行、在 `}` 前插入 `;`；见 `ERROR_DIAGNOSTICS.md`）。该操�
 `workspace/symbol` 搜索每个**已打开**文档的顶层符号（大小写不敏感的子串匹配；空查询
 列出全部）。未打开的文件不在索引内 —— 跨模块搜索需要先做索引形态的决策。
 
-### 14. 语义 token
+### 14. 文档链接
+
+`textDocument/documentLink` 把每个 `import("path")` 字符串字面量变成指向其所命名
+文件的链接 —— `std/…` 路径经由标准库解析，`./…`/`../…` 路径经由导入文档所在目录。
+只应答目标确实存在的链接；依赖包名（由编译器经由最近的 manifest 解析）不携带链接。
+
+### 15. 语义 token
 
 `textDocument/semanticTokens/full` 提供 TextMate 语法无法企及的着色：关键字、字符串、
 数字和注释来自词法分析，标识符由分析分类 —— 类型、函数、普通变量，结构体字段 /
@@ -173,8 +187,10 @@ std 导入行、在 `}` 前插入 `;`；见 `ERROR_DIAGNOSTICS.md`）。该操�
 完整程序以及求值器在出错前记录的所有类型。
 
 对已打开的被导入文件的修改，会在下一次分析任何导入它的文档时生效（服务器把打开的缓冲区
-叠加到模块加载器上，并使依赖它的模块失效）。在编辑器**之外**修改被导入文件，或者修改
-`std/prelude.yo`，需要重启服务器。
+叠加到模块加载器上，并使依赖它的模块失效）。在编辑器**之外**修改被导入文件时，修改以
+`workspace/didChangeWatchedFiles` 到达（编辑器会监视工作区）：该模块从缓存中清除，
+每个已打开的文档被重新分析 —— VS Code 扩展监视 `**/*.yo`。修改 `std/prelude.yo`
+仍需重启服务器（prelude 环境只缓存一次）。
 
 ## 位置编码
 
@@ -203,10 +219,10 @@ std 导入行、在 `}` 前插入 `;`；见 `ERROR_DIAGNOSTICS.md`）。该操�
 | `src/lsp/diagnostics.yo`      | 文档分析与 `publishDiagnostics`；诊断携带 `textDocument/codeAction`（在 `server.yo`）所提供的 `Repair` |
 | `src/lsp/hover.yo`            | 悬停、共享的 token/候选辅助函数、原子角色           |
 | `src/lsp/completion.yo`       | `textDocument/completion`                        |
-| `src/lsp/definition.yo`       | `textDocument/definition` 与 `typeDefinition`    |
+| `src/lsp/definition.yo`       | `textDocument/definition`、`typeDefinition`、`declaration` 与 `documentLink` |
 | `src/lsp/references.yo`       | `textDocument/references`、`documentHighlight` 与出现位置遍历 |
 | `src/lsp/rename.yo`           | `textDocument/rename` 与 `prepareRename`          |
-| `src/lsp/symbols.yo`          | `textDocument/documentSymbol` 与 `workspace/symbol` |
+| `src/lsp/symbols.yo`          | `textDocument/documentSymbol`、`workspace/symbol` 与 `implementation` |
 | `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                     |
 | `src/lsp/folding.yo`          | `textDocument/foldingRange` 与 `semanticTokens`  |
 

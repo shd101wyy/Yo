@@ -52,3 +52,21 @@ fix if evaluating them is unsound for some reason.
 Make the field non-optional and pass the default explicitly at every
 construction site (`related : ArrayList(RelatedInfo).new()` in
 `src/lsp/diagnostics.yo`).
+
+## Root cause narrowed (2026-10-01 closeout session)
+
+The default IS evaluated at definition time (`src/evaluator/types/field.yo`
+`?=` arm: `evaluate_expression_raw(dv_expr, …)` with a comptime-known-value
+gate — that is why `check` passes). For `ArrayList(usize).new()` the
+resulting EvalValue is a FuncVal-shaped artifact of the comptime generic-
+method specialization (`yo_id_…__ret_R_gs_yo_id_…_usize`), which
+`comptime_value.yo`'s struct-value emission cannot name in C. Two facts for
+the fix:
+
+- The field record retains `default_value_expr` — the literal-site fix the
+  issue proposes (evaluate the default EXPRESSION at each construction,
+  which is also the correct ALIASING semantics for a mutable container
+  default: sharing one comptime-evaluated ArrayList across every literal
+  site would alias the same container) has the expression available.
+- A `check`-stage rejection of FuncVal-typed defaults would also close the
+  hole (smaller, but rejects a program that could instead work).
