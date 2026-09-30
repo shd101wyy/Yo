@@ -294,6 +294,23 @@ static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, 
   }
 }`
   );
+  // The overflow helpers' shared trap: out of line, cold and noreturn, so
+  // each of the thousands of inlined guard sites is a compare and a call
+  // rather than its own fprintf + abort. Inlining that pair made a
+  // usize-guarded compiler compile itself 19% slower; this recovers it
+  // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md). The
+  // attributes are GCC/Clang spellings behind a guard; other compilers get
+  // a plain function.
+  context.emitter.emit_header_string_line(
+    `
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold, noreturn))
+#endif
+static inline void __yo_ovf_trap(const char* what, const char* f, int r, int c) {
+  fprintf(stderr, "integer %s overflow (at %s:%d:%d)\\n", what, f, r, c);
+  abort();
+}`
+  );
   // Safe mode Phase 3a (plans/SAFE_MODE.md §6, ruling D1): integer
   // overflow in + - * and negation of MIN abort with a diagnostic at every
   // optimization level — the runtime match of comptime's check_int_overflow.
@@ -306,8 +323,7 @@ static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, 
 static inline long long __yo_add_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a + b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -317,8 +333,7 @@ static inline long long __yo_add_chk_s(long long a, long long b, long long lo, l
 static inline long long __yo_sub_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a - b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -328,8 +343,7 @@ static inline long long __yo_sub_chk_s(long long a, long long b, long long lo, l
 static inline long long __yo_mul_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a * b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -339,8 +353,7 @@ static inline long long __yo_mul_chk_s(long long a, long long b, long long lo, l
 static inline unsigned long long __yo_add_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
   unsigned long long rr = a + b;
   if (rr > hi) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -351,8 +364,7 @@ static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned l
   unsigned long long rr = a - b;
   (void)hi;
   if (a < b) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -363,8 +375,7 @@ static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned l
   unsigned long long rr = a * b;
   (void)hi;
   if (b != 0 && rr / b != a) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -374,8 +385,7 @@ static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned l
 static inline int64_t __yo_add_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
   int64_t rr = (int64_t)((uint64_t)a + (uint64_t)b);
   if (((a ^ rr) & (b ^ rr)) < 0) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -385,8 +395,7 @@ static inline int64_t __yo_add_chk_s64(int64_t a, int64_t b, const char* f, int 
 static inline int64_t __yo_sub_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
   int64_t rr = (int64_t)((uint64_t)a - (uint64_t)b);
   if (((a ^ b) & (a ^ rr)) < 0) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -402,8 +411,7 @@ static inline int64_t __yo_mul_chk_s64(int64_t a, int64_t b, const char* f, int 
     ovf = (b > 0) ? (a < (INT64_MIN / b)) : (b < (INT64_MAX / a));
   }
   if (ovf) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -413,8 +421,7 @@ static inline int64_t __yo_mul_chk_s64(int64_t a, int64_t b, const char* f, int 
 static inline uint64_t __yo_add_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   uint64_t rr = a + b;
   if (rr < a) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -423,8 +430,7 @@ static inline uint64_t __yo_add_chk_u64(uint64_t a, uint64_t b, const char* f, i
     `
 static inline uint64_t __yo_sub_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   if (a < b) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return a - b;
 }`
@@ -434,8 +440,7 @@ static inline uint64_t __yo_sub_chk_u64(uint64_t a, uint64_t b, const char* f, i
 static inline uint64_t __yo_mul_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   uint64_t rr = a * b;
   if (b != 0 && rr / b != a) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -444,8 +449,7 @@ static inline uint64_t __yo_mul_chk_u64(uint64_t a, uint64_t b, const char* f, i
     `
 static inline long long __yo_neg_chk_s(long long a, long long lo, const char* f, int r, int c) {
   if (a == lo) {
-    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("negation", f, r, c);
   }
   return -a;
 }`
@@ -454,8 +458,7 @@ static inline long long __yo_neg_chk_s(long long a, long long lo, const char* f,
     `
 static inline int64_t __yo_neg_chk_s64(int64_t a, const char* f, int r, int c) {
   if (a == INT64_MIN) {
-    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("negation", f, r, c);
   }
   return (int64_t)(0 - (uint64_t)a);
 }`

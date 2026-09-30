@@ -813,7 +813,7 @@ consume_argument_for_parameter :: (
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env, arg_var_name);
         if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env));
+          arg_var := match(arg_vars.last(), .Some(v) => v, .None => make_err_variable(caller_env));
           cond(
             // An `inout` parameter or `inout(name) := place` binding names a
             // slot it does not own: the callee gets a COPY (+1) of the
@@ -3478,7 +3478,7 @@ create_specialized_function_inline :: (
             spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
             if(spec_self_vars.len() > usize(0), {
               match(
-                spec_self_vars.get(spec_self_vars.len() - usize(1)),
+                spec_self_vars.last(),
                 .Some(spec_self_v) => {
                   ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
                   spec_self_src = String.from("b-env-self");
@@ -4851,7 +4851,7 @@ validate_where_constraints_for_call :: (
     lhs_vars := get_variables_from_env(callee_env, wce.lhs_label);
     if(lhs_vars.len() > usize(0), {
       match(
-        lhs_vars.get(lhs_vars.len() - usize(1)),
+        lhs_vars.last(),
         .Some(lhs_var) => match(
           lhs_var.value.get(usize(0)),
           .Some(lv) => match(
@@ -4991,7 +4991,7 @@ reapply_where_clause_exprs_for_call :: (
                   wge_vars := get_variables_from_env(callee_env, ast_expr_token(wge_lhs).value);
                   if(wge_vars.len() > usize(0), {
                     match(
-                      wge_vars.get(wge_vars.len() - usize(1)),
+                      wge_vars.last(),
                       .Some(wge_var) => match(
                         wge_var.value.get(usize(0)),
                         .Some(wge_val) => {
@@ -5278,7 +5278,7 @@ _evaluated_expr_type :: (
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
-            e_vars.get(e_vars.len() - usize(1)),
+            e_vars.last(),
             .Some(e_v) => Option(TypeValue).Some(e_v.ty),
             .None => Option(TypeValue).None
           )
@@ -5574,7 +5574,7 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
     return(Option(TypeValue).None);
   });
   bound := match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -5608,7 +5608,7 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
     return(false);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -6408,7 +6408,7 @@ try_to_call_function_with_arguments :: (
                       (tb_already : bool) = false;
                       if(tb_existing.len() > usize(0), {
                         match(
-                          tb_existing.get(tb_existing.len() - usize(1)),
+                          tb_existing.last(),
                           .Some(tb_var) => match(
                             tb_var.value.get(usize(0)),
                             .Some(tb_val) => if(is_type_val(tb_val), {
@@ -6457,7 +6457,7 @@ try_to_call_function_with_arguments :: (
                         (eb_already : bool) = false;
                         if(eb_existing.len() > usize(0), {
                           match(
-                            eb_existing.get(eb_existing.len() - usize(1)),
+                            eb_existing.last(),
                             .Some(eb_var) => match(
                               eb_var.value.get(usize(0)),
                               .Some(eb_val) => if(is_type_val(eb_val), {
@@ -6533,7 +6533,7 @@ try_to_call_function_with_arguments :: (
                   (ne_already : bool) = false;
                   if(ne_existing.len() > usize(0), {
                     match(
-                      ne_existing.get(ne_existing.len() - usize(1)),
+                      ne_existing.last(),
                       .Some(ne_var) => match(
                         ne_var.value.get(usize(0)),
                         .Some(ne_val) => if(is_type_val(ne_val), {
@@ -6620,7 +6620,7 @@ try_to_call_function_with_arguments :: (
                             ew_vars := get_variables_from_env(callee_env, ast_expr_token(ew_lhs).value);
                             if(ew_vars.len() > usize(0), {
                               match(
-                                ew_vars.get(ew_vars.len() - usize(1)),
+                                ew_vars.last(),
                                 .Some(ew_var) => match(
                                   ew_var.value.get(usize(0)),
                                   .Some(ew_val) => {
@@ -6684,7 +6684,7 @@ try_to_call_function_with_arguments :: (
                     ew_fvars := get_variables_from_env(callee_env, ew_fl);
                     (ew_is_unknown : bool) = false;
                     match(
-                      ew_fvars.get(ew_fvars.len() - usize(1)),
+                      ew_fvars.last(),
                       .Some(ew_fvar) => match(
                         ew_fvar.value.get(usize(0)),
                         .Some(.UnknownVal(_, _)) => {
@@ -6755,7 +6755,7 @@ try_to_call_function_with_arguments :: (
                         ewa_lvars := get_variables_from_env(callee_env, ast_expr_token(ewa_lhs).value);
                         if(ewa_lvars.len() > usize(0), {
                           match(
-                            ewa_lvars.get(ewa_lvars.len() - usize(1)),
+                            ewa_lvars.last(),
                             .Some(lv) => match(
                               lv.value.get(usize(0)),
                               .Some(.TypeVal(lvt)) => if(!(is_some_type(lvt)), {
@@ -6795,7 +6795,7 @@ try_to_call_function_with_arguments :: (
                                   ewa_xvars := get_variables_from_env(callee_env, ewa_xn);
                                   if(ewa_xvars.len() > usize(0), {
                                     match(
-                                      ewa_xvars.get(ewa_xvars.len() - usize(1)),
+                                      ewa_xvars.last(),
                                       .Some(xv) => match(
                                         xv.value.get(usize(0)),
                                         .Some(.TypeVal(xvt)) => if(!(is_some_type(xvt)), {

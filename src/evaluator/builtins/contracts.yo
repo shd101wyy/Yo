@@ -791,7 +791,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
   binder_names := ArrayList(String).new();
   binder_types := ArrayList(TypeValue).new();
   (bi : usize) = usize(0);
-  while(bi < (args.len() - usize(1)), {
+  while((bi + usize(1)) < args.len(), {
     barg := match(
       args.get(bi),
       .Some(bb) => bb,
@@ -900,7 +900,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
     vi = (vi + usize(1));
   });
   body := match(
-    args.get(args.len() - usize(1)),
+    args.last(),
     .Some(bb) => bb,
     .None => make_err_expr()
   );

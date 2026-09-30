@@ -374,7 +374,7 @@ _first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeVa
 /// function always meant.
 _capitalize_last_segment :: (fn(label : String) -> String)({
   parts := label.split(".");
-  last := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => label.clone()), label.clone());
+  last := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
@@ -447,7 +447,7 @@ generate_future_effect_setter :: (
           keyword := if(first_case, String.from("if"), String.from("else if"));
           first_case = false;
           parts := m.effect_label.split(".");
-          last_seg := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
+          last_seg := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
           cap_last := _capitalize_last_segment(m.effect_label.clone());
           // Build the OR'd strcmp condition over the unique aliases.
           cond := String.from("");

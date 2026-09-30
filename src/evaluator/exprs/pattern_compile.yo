@@ -195,7 +195,7 @@ _constant_in_scope :: (fn(name : String, env : Environment) -> bool)({
   if(vars.len() == usize(0), {
     return(false);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
+  v := match(vars.last(), .Some(x) => x, .None => return(false));
   if(!v.is_compile_time_only, {
     return(false);
   });
@@ -203,7 +203,7 @@ _constant_in_scope :: (fn(name : String, env : Environment) -> bool)({
     return(false);
   });
   match(
-    v.value.get(v.value.len() - usize(1)),
+    v.value.last(),
     .Some(.IntLit(_)) => true,
     .Some(.FloatLit(_)) => true,
     .Some(.BoolVal(_)) => true,
@@ -961,7 +961,7 @@ _struct_type_in_scope :: (fn(name : String, env : Environment) -> Option(TypeVal
   if(vars.len() == usize(0), {
     return(Option(TypeValue).None);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  v := match(vars.last(), .Some(x) => x, .None => return(Option(TypeValue).None));
   if(!v.is_compile_time_only, {
     return(Option(TypeValue).None);
   });
@@ -969,7 +969,7 @@ _struct_type_in_scope :: (fn(name : String, env : Environment) -> Option(TypeVal
     return(Option(TypeValue).None);
   });
   match(
-    v.value.get(v.value.len() - usize(1)),
+    v.value.last(),
     .Some(val) => match(
       val,
       .TypeVal(t) => cond(is_struct_type(t) => Option(TypeValue).Some(t), true => Option(TypeValue).None),

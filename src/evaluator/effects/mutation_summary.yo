@@ -994,7 +994,7 @@ _msp_atom_root :: (fn(ctx : _MspCtx, atom : AstExpr) -> _MspRoot)({
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
+  v := match(vars.last(), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
   if(v.is_compile_time_only, {
     return(_msp_root(MSP_NONE));
   });
@@ -1022,7 +1022,7 @@ _msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(Option(String).None));
+  v := match(vars.last(), .Some(x) => x, .None => return(Option(String).None));
   if((v.is_compile_time_only || v.is_parameter) || v.is_module_level, {
     return(Option(String).None);
   });
@@ -1592,7 +1592,7 @@ impl(
       return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(a0, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if(head == "begin", {
-      return(match(args.get(args.len() - usize(1)), .Some(last) => _MsP.classify(last, ctx), .None => _msp_root(MSP_NONE)));
+      return(match(args.last(), .Some(last) => _MsP.classify(last, ctx), .None => _msp_root(MSP_NONE)));
     });
     if((head == "cond") || (head == "match"), {
       (acc : _MspRoot) = _msp_root(MSP_NONE);
@@ -1806,7 +1806,7 @@ impl(
           return(());
         });
         if(head == "begin", {
-          match(args.get(args.len() - usize(1)), .Some(last) => _MsP.flowing(last, ctx, out), .None => ());
+          match(args.last(), .Some(last) => _MsP.flowing(last, ctx, out), .None => ());
           return(());
         });
         if((head == "cond") || (head == "match"), {
@@ -2180,7 +2180,7 @@ impl(
             .Some(env) => {
               vars := get_variables_from_env(env, lt.value.clone());
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: into the caller's storage.
                   (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(rhs, ctx, match(_msp_param_index(ctx, lt.value.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
@@ -2775,7 +2775,7 @@ impl(
             .Some(env) => {
               vars := get_variables_from_env(env, lt.value.clone());
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: the caller's storage for it.
                   (v.is_parameter && v.is_ref) => match(
@@ -3156,7 +3156,7 @@ _msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variabl
       expr_info_table_get(table, ast_expr_id(ba)),
       .Some(bi) => {
         vars := get_variables_from_env(bi.env, ast_expr_token(ba).value);
-        vars.get(vars.len() - usize(1))
+        vars.last()
       },
       .None => Option(Variable).None
     ),
@@ -3376,7 +3376,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(v0) => v0, .None => return(Option(String).None));
+  v := match(vars.last(), .Some(v0) => v0, .None => return(Option(String).None));
   if((!v.is_module_level || v.is_compile_time_only) || is_thread_local(tok.module_path.clone(), name.clone()), {
     return(Option(String).None);
   });
@@ -3416,7 +3416,7 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(vv) => match(
@@ -3450,7 +3450,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
       env := match(_gr_env_of(e, ctx), .Some(en) => en, .None => ctx.env);
       vars := get_variables_from_env(env, name);
       if(vars.len() > usize(0), {
-        fv = match(vars.get(vars.len() - usize(1)), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
+        fv = match(vars.last(), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
       });
     });
   });

@@ -2274,7 +2274,7 @@ apply_single_trait_constraint :: (
     if(existing_vars.len() == usize(0), {
       return(false);
     });
-    last_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(false));
+    last_var := match(existing_vars.last(), .Some(v) => v, .None => return(false));
     match(
       last_var.value.get(usize(0)),
       .Some(ev) => {
@@ -2469,7 +2469,7 @@ parse_where_clause_constraints :: (
       var_name := ast_expr_token(lhs_expr).value;
       existing_vars := get_variables_from_env(env_mut, var_name);
       if(existing_vars.len() > usize(0), {
-        last_v := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(pending_traits));
+        last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
         match(
           last_v.value.get(usize(0)),
           .Some(ev) => {
@@ -3106,7 +3106,7 @@ evaluate_function_parameters :: (
             )
           );
         });
-        row_var_opt := row_vars.get(row_vars.len() - usize(1));
+        row_var_opt := row_vars.last();
         match(
           row_var_opt,
           .None => {
@@ -4389,7 +4389,7 @@ evaluate_function_type :: (
       ct_vars := get_variables_from_env(env_mut, wpp.label);
       if(ct_vars.len() > usize(0), {
         match(
-          ct_vars.get(ct_vars.len() - usize(1)),
+          ct_vars.last(),
           .Some(ct_var) => match(
             ct_var.value.get(usize(0)),
             .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),

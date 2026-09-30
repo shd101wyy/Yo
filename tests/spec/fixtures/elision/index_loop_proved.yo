@@ -1,7 +1,9 @@
-// expect-elided: 2
-// 5b twin: the loop invariant bounds `i`, so both the read `s(i + 1)` and the
-// write `s(i) = ...` are proved in bounds. The write's site is its LHS index
-// node, which is where the store guard is emitted (plan §6).
+// expect-elided: 4
+// 5b twin: the loop invariant bounds `i`, so the read `s(i + 1)` and the
+// write `s(i) = ...` are proved in bounds, and both `usize` additions
+// (`i + 1` in the index and in the increment) are proved not to overflow.
+// The write's site is its LHS index node, which is where the store guard is
+// emitted (plan §6).
 pragma(Pragma.Verify);
 { println } :: import("std/fmt");
 
