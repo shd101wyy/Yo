@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, HUSK_MARK, husk_read, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, get_variables_from_env, HUSK_MARK, husk_read, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1018,6 +1018,15 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
 );
 // ── scratch prototype (plans/CODEGEN_MEMORY_REDUCTION.md §6, "what would work") ──
 (g_scope_husk_on : bool) = debug_knob(`YO_PROTO_SCOPE_HUSK`).is_some();
+(g_sv_same : usize) = usize(0);
+(g_sv_diff : usize) = usize(0);
+(g_sv_multi : usize) = usize(0);
+(g_sv_none : usize) = usize(0);
+(g_sv_absent : usize) = usize(0);
+(g_scope_sv_only : bool) = debug_knob(`YO_PROTO_SCOPE_SV_ONLY`).is_some();
+(g_scope_records_on : bool) = debug_knob(`YO_PROTO_SCOPE_RECORDS`).is_some();
+(g_scope_records : HashMap(ExprId, ArrayList(ArrayList(Variable)))) = HashMap(ExprId, ArrayList(ArrayList(Variable))).new();
+(g_scope_record_lists : usize) = usize(0);
 (g_scope_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
 (g_scope_husks : HashMap(String, Environment)) = HashMap(String, Environment).new();
 (g_scope_husked : usize) = usize(0);
@@ -1045,6 +1054,9 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
             h1
           }
         );
+        if(g_scope_records_on, {
+          _scope_build_records(info);
+        });
         info.env = h;
         g_scope_husked = (g_scope_husked + usize(1));
       },
@@ -1055,6 +1067,44 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
   g_scope_infos.truncate(mark);
 });
 scope_husk_count :: (fn() -> usize)(g_scope_husked);
+// Records a real version would keep (the resolutions codegen asks for):
+// the atom's own name, its variable_name, its deferred drop/dup targets.
+_scope_list_names :: (fn(info : ExprInfo, lst : Option(ArrayList(AstExpr)), out : ArrayList(ArrayList(Variable))) -> unit)(
+  match(
+    lst,
+    .Some(l) => {
+      (k : usize) = usize(0);
+      while(k < l.len(), {
+        match(l.get(k), .Some(d) => match(d, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a0) => match(a0, .Atom(_, tok) => {
+          out.push(get_variables_from_env(info.env, tok.value.clone()));
+        }, _ => ()), .None => ()), _ => ()), .None => ());
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+_scope_build_records :: (fn(info : ExprInfo) -> unit)({
+  match(info.source_variable, .Some(sv0) => {
+    vs := get_variables_from_env(info.env, sv0.name.clone());
+    match(vs.last(), .Some(lv) => {
+      if(lv.id == sv0.id, { g_sv_same = (g_sv_same + usize(1)); }, { g_sv_diff = (g_sv_diff + usize(1)); });
+    }, .None => { g_sv_none = (g_sv_none + usize(1)); });
+    if(vs.len() > usize(1), { g_sv_multi = (g_sv_multi + usize(1)); });
+  }, .None => { g_sv_absent = (g_sv_absent + usize(1)); });
+  if(g_scope_sv_only, { return(()); });
+  out := ArrayList(ArrayList(Variable)).new();
+  match(info.source_variable, .Some(sv) => out.push(get_variables_from_env(info.env, sv.name.clone())), .None => ());
+  match(info.variable_name, .Some(vn) => out.push(get_variables_from_env(info.env, vn.clone())), .None => ());
+  _scope_list_names(info, info.deferred_drop_expressions, out);
+  _scope_list_names(info, expr_info_deferred_dup_expressions(info), out);
+  if(out.len() > usize(0), {
+    g_scope_record_lists = (g_scope_record_lists + out.len());
+    g_scope_records.insert(g_scope_records.len(), out);
+  });
+});
+scope_record_stats :: (fn() -> String)(`records=${g_scope_records.len().to_string()} lists=${g_scope_record_lists.to_string()} sv_same=${g_sv_same.to_string()} sv_diff=${g_sv_diff.to_string()} sv_none=${g_sv_none.to_string()} sv_multi=${g_sv_multi.to_string()} sv_absent=${g_sv_absent.to_string()}`);
+export(scope_record_stats);
 export(scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_count, scope_husk_depth, scope_husk_set_depth);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   if(g_scope_husk_on, {
