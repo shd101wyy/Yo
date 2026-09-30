@@ -147,7 +147,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
 - **D2, `Iso`.** `^v` is the only safe constructor; it proves the whole graph unique at runtime (`__yo_iso_unique`), through the traversal functions. `T` must be a non-atomic reference object.
 - **D5 / D7, runtime.** `std/sync` primitives record their owner and trap on misuse. A thread that touches ANOTHER thread's event loop registers in the loop's `visitors` count while the loop is provably alive, and loop teardown waits for it (`__yo_async_loop_quiesce`). The loop's live-waker count drops only in the owner's drain.
 
-## Explicit allocators: placement, not lifetime (`plans/EXPLICIT_ALLOCATORS.md`)
+## Explicit allocators: placement, not lifetime (`plans/archive/EXPLICIT_ALLOCATORS.md`)
 
 - An `Allocator` (`std/allocator.yo`) is `{ctx, vtable}`: a two-word `Send`
   value, never reference counted. Every block it hands out carries a 16-byte

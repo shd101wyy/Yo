@@ -1,12 +1,14 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: ACTIVE — P0–P5 LANDED 2026-09-30** (#1015, #1021, #1023, #1027,
-> #1029, #1032, #1033, #1035, #1042). The one open phase is P3c (default
-> mutable-container constructors follow the scope, #1034), parked until
-> `SEED_VERSION` carries P3's runtime hooks. The async state-machine pools
-> of #1018 (not yet landed) are to pool only on the global allocator and
-> never recycle a tagged block, as agreed with its author.
-> Landed decisions: [`reference/EXPLICIT_ALLOCATORS.md`](reference/EXPLICIT_ALLOCATORS.md).** Design audited 2026-09-29 (two passes). Verdict:
+> **Status: CLOSED — every phase landed.** P0–P5 on 2026-09-30
+> (#1015, #1021, #1023, #1027, #1029, #1032, #1033, #1035, #1042); P3c
+> (default mutable-container constructors follow the scope, #1034) once
+> v0.2.48 was the seed: it carries P3's runtime hooks (v0.2.47) and the three
+> codegen fixes the P3c std needs to compile (#1066). The async
+> state-machine pools (#1018) pool only on the global allocator and never
+> recycle a tagged block. Authoritative summary:
+> [`reference/EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md); this
+> document is the frozen phase-by-phase record.** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation
 > falls back to the global allocator when no
@@ -18,7 +20,7 @@
 > freezing needs a second implementor — an arena or a counting allocator").
 > It is the per-object layer **on top of** — not a replacement for — the
 > compile-time global allocator choice of
-> [`FIXED_REGION_ALLOCATOR.md`](reference/FIXED_REGION_ALLOCATOR.md) §0
+> [`FIXED_REGION_ALLOCATOR.md`](../reference/FIXED_REGION_ALLOCATOR.md) §0
 > (which scoped itself to "Yo keeps one global allocator" and recorded the
 > Zig-style parameter as out of that plan's scope).
 >
@@ -914,10 +916,12 @@ the arena, and each release routes back there. The compiler does not import
    sorted map 21, sorted set 20, iterators 13; vec 50 plus its 4 develop
    leaks), `tests/explicit_allocators.test.yo`'s `imm` cases.
 
-### P3c — default mutable containers follow the scope (std; PARKED on the seed)
+### P3c — default mutable containers follow the scope (std; landed once v0.2.48 was the seed)
 
-**Status: written and tested, parked** (branch `explicit-allocators-p3c`,
-#1034) until `SEED_VERSION` carries P3.
+**Status: landed** (#1034), after v0.2.48 became the seed. The
+merge kept develop's verification contract on `ArrayList.new`
+(`ensures(r.len() == usize(0))`, `assumed()`); both branches of the scoped body
+return an empty list.
 
 `ArrayList.new()` / `with_capacity`, `HashMap.new()` / `with_capacity` (and
 through them `HashSet`, `StringBuilder`, `String`), and `Deque.new()` consult
@@ -929,7 +933,15 @@ so their calls into the scope hooks would reference runtime functions the
 seed's emitted runtime does not define, and the stage-1 build would not link.
 P3c therefore lands only once `SEED_VERSION` carries P3
 (`plans/backlog/SEED_VERSION_AUTOMATION.md`, the two-step rule in
-`.github/instructions/c-codegen.instructions.md`). It is testable before then:
+`.github/instructions/c-codegen.instructions.md`). v0.2.47 carried P3, but
+its codegen still could not compile the P3c std: `ArrayList(Dyn(ToString +
+Error)).with_capacity` reaches `size_would_overflow`, whose
+`type_size :: sizeof(T)` was an undeclared C identifier for a dyn `T`. Three
+bugs sat on that path —
+`issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md`,
+`issues/fixed/a-comptime-binding-with-an-unknown-value-emits-an-undeclared-identifier.md`,
+`issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md` — fixed on
+develop (#1066), so the gate moved to v0.2.48. It is testable before then:
 a P3 (or later) stage-1 runs the tests against the P3c std — measured with
 the top-of-stack stage-1: `tests/explicit_allocators.test.yo` 14/14 (its four
 P3c cases included), ArrayList 126, HashMap 86, Deque 41.

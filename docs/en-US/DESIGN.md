@@ -1026,7 +1026,7 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 #### Explicit Allocators
 
-RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, and containers take one directly with `new_in`:
+RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, including the buffers of containers built there; `new_in` names an allocator explicitly:
 
 ```rust
 { Arena } :: import("std/arena");

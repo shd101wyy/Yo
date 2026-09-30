@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-29 (branch `explicit-allocators-fixes`)
 **Severity:** S3 — a valid conversion is rejected with a misleading message ("converts integers, floats, enum discriminants and C-compatible values only"); writing the plain `bool` into the slot is the other spelling
-**Found:** 2026-09-29, writing `std/arena.yo` for `plans/EXPLICIT_ALLOCATORS.md` P0.
+**Found:** 2026-09-29, writing `std/arena.yo` for `plans/archive/EXPLICIT_ALLOCATORS.md` P0.
 
 ## Reproducer
 

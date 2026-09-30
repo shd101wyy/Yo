@@ -7,7 +7,7 @@
 //! `std.mem.Allocator` shape), `with_allocator`, `current_allocator`. The
 //! vtable (`alloc`, `realloc`, `free`, context first) and the 16-byte owner
 //! prefix are frozen: codegen writes the same prefix for every RC object a
-//! scope places (`plans/EXPLICIT_ALLOCATORS.md`). Implementors: the global
+//! scope places (`plans/archive/EXPLICIT_ALLOCATORS.md`). Implementors: the global
 //! allocator, `std/arena.yo`'s `Arena`, and a counting allocator in
 //! `tests/arena.test.yo`.
 //!
@@ -326,7 +326,9 @@ impl(
 ///
 /// The scope is per thread: a `spawn` body starts on the global allocator
 /// (pass the `Allocator` value in and call `with_allocator` there). Container
-/// buffers follow their own constructor — `new_in(alloc)` puts one in `alloc`.
+/// buffers created in the scope (`ArrayList.new()`, `HashMap.new()`,
+/// `Deque.new()`, and `String`/`StringBuilder`/`HashSet` through them) live in
+/// `alloc` too; `new_in(alloc)` names an allocator outside a scope.
 /// Runtime only: a compile-time call is an extern call.
 ///
 /// ```rust

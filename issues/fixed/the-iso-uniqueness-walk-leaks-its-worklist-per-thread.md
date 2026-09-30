@@ -1,7 +1,7 @@
 # The Iso uniqueness walk leaks its worklist once per thread
 
 **Severity:** S3 — a bounded leak (one worklist per thread that ever ran `^`); LeakSanitizer reports it in every program that isolates a value, and it hid other leaks in those suites
-**Found:** 2026-09-30, running the RC and Iso suites locally (the default ASan and LSan run) for `plans/EXPLICIT_ALLOCATORS.md` P2. `develop` at `f7f1331fb` fails the same six tests.
+**Found:** 2026-09-30, running the RC and Iso suites locally (the default ASan and LSan run) for `plans/archive/EXPLICIT_ALLOCATORS.md` P2. `develop` at `f7f1331fb` fails the same six tests.
 
 ## Reproducer
 

@@ -1,7 +1,7 @@
 # An allocator vtable call counts as mutating everything, so `ArrayList.clone` trips the borrowed-`for` check
 
 **Severity:** S2 — a valid program is rejected under `pragma(Pragma.StrictBorrow)`, and panics at run time without it. Every `xs.clone()` inside `for(xs, ...)` is affected, including for lists on the global allocator.
-**Found:** 2026-09-30, running the language suite on the explicit-allocators stack (`plans/EXPLICIT_ALLOCATORS.md` P1). Develop passes both tests.
+**Found:** 2026-09-30, running the language suite on the explicit-allocators stack (`plans/archive/EXPLICIT_ALLOCATORS.md` P1). Develop passes both tests.
 
 ## Symptom
 
@@ -37,7 +37,7 @@ tripped the flag too.
 The analysis already trusts the global allocator family by name: `__yo_malloc`
 returns fresh storage, and `realloc` / `free` act on their first argument. The
 explicit-allocator vtable is part of that family now, with the same contract
-(`plans/EXPLICIT_ALLOCATORS.md` §3). `_msp_allocator_slot` recognizes a call
+(`plans/archive/EXPLICIT_ALLOCATORS.md` §3). `_msp_allocator_slot` recognizes a call
 through a slot of `std/allocator.yo`'s `AllocatorVTable`.
 
 - `alloc(ctx, size)` returns a fresh block and mutates nothing a caller can

@@ -1,7 +1,7 @@
 # A method on a phantom generic struct is not found through a `comptime(K) : Type` parameter
 
 **Severity:** S2 — a valid program is rejected with "No method"; writing a module-level helper function instead of a method is the other spelling
-**Found:** 2026-09-29, making `std/imm/map.yo`'s node buffers follow the allocation scope (`plans/EXPLICIT_ALLOCATORS.md` P3b): `MapBranch(K, V)` is `ref(struct(bitmap : u32, _children_ptr : *void, _children_len : u8))`, which uses neither `K` nor `V`.
+**Found:** 2026-09-29, making `std/imm/map.yo`'s node buffers follow the allocation scope (`plans/archive/EXPLICIT_ALLOCATORS.md` P3b): `MapBranch(K, V)` is `ref(struct(bitmap : u32, _children_ptr : *void, _children_len : u8))`, which uses neither `K` nor `V`.
 
 ## Reproducer
 
