@@ -22,7 +22,6 @@ Status as of 2026-09-30:
 - **Measured and rejected:** env interning (§0.7) and per-function env
   release (§0.8).
 - **Next:**
-  - share the property-access path collections (the rest of lever 6);
   - after #1002 and #1016 land: trial-born specializations (§0.11: 313 K
     entries), Phase 4 Design 1 (the specialization clones) and env-free
     codegen (§6).
@@ -466,6 +465,13 @@ Mimalloc stage-2s, same tree, C byte-identical:
 | end of evaluation | 2,455 MB | 2,368 MB |
 | `check src/main.yo` (4 / 3 runs) | 932–935 MB | 936–939 MB (+2 to +4) |
 | instructions (`check src/types/intern.yo`) | 86,647,184,881 | 86,650,559,002 (+0.004 %) |
+
+**The field-access half, measured and rejected (2026-09-30).**
+`build_field_path_collection` results were shared by a content key under the
+same switch (branch `mem/path-share-fields`). On the rebased tree, `compile`
+went 2,807 → 2,804 MB (−4) and `check` 964–965 → 963 MB, with byte-identical
+C. Not worth a second process-wide map; the identifier/binding/assignment
+sites held nearly all the duplicates.
 
 The residual `check` cost is unexplained: sharing is off there, and the
 per-ExprInfo allocation shape is unchanged. It is kept against the
