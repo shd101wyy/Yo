@@ -429,7 +429,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
         },
         (t.kind == TokenKind.RParen) => {
           if(stack.len() > usize(0), {
-            left := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
+            left := match(stack.last(), .Some(x) => x, .None => usize(0));
             _r := stack.pop();
             pairs.insert(left, i);
           });
@@ -455,7 +455,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
       .Some(t) => cond(
         (t.kind == TokenKind.LParen) => {
           if(stack.len() > usize(0), {
-            parent := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
+            parent := match(stack.last(), .Some(x) => x, .None => usize(0));
             parents.insert(i, parent);
           });
           stack.push(i);
@@ -561,7 +561,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
         },
         (t.kind == TokenKind.RBracket) => {
           if(stack.len() > usize(0), {
-            left_idx := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
+            left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
             left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(t.row > left_tok.row, {
@@ -595,7 +595,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
         },
         (t.kind == TokenKind.RCurlyBracket) => {
           if(stack.len() > usize(0), {
-            left_idx := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
+            left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
             left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(inline_curly_indices.contains(left_idx) && (t.row > left_tok.row), {
@@ -2551,11 +2551,11 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.RCurlyBracket) => {
                     // Pop frame
                     cur_inline := cond(
-                      (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.get(curly_stack_inline.len() - usize(1)), .Some(x) => x, .None => false),
+                      (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.last(), .Some(x) => x, .None => false),
                       true => false
                     );
                     cur_multiline := cond(
-                      (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.get(curly_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                      (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.last(), .Some(x) => x, .None => false),
                       true => false
                     );
                     if(curly_stack_inline.len() > usize(0), {
@@ -2709,7 +2709,7 @@ _format_yo_source_impl :: (
                       );
                     });
                     is_multiline := cond(
-                      (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.get(paren_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                      (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.last(), .Some(x) => x, .None => false),
                       true => false
                     );
                     if(paren_stack_multiline.len() > usize(0), {
@@ -2779,7 +2779,7 @@ _format_yo_source_impl :: (
                       );
                     });
                     is_multiline_b := cond(
-                      (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                      (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.last(), .Some(x) => x, .None => false),
                       true => false
                     );
                     if(bracket_stack_multiline.len() > usize(0), {
@@ -2867,19 +2867,19 @@ _format_yo_source_impl :: (
                     );
                     if(!next_is_closer && match(next, .None => false, .Some(_) => true), {
                       cur_bracket_ml := cond(
-                        (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                        (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
                       cur_curly_inline := cond(
-                        (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.get(curly_stack_inline.len() - usize(1)), .Some(x) => x, .None => false),
+                        (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
                       cur_curly_ml := cond(
-                        (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.get(curly_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                        (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
                       cur_paren_ml := cond(
-                        (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.get(paren_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
+                        (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
                       cond(
@@ -3315,7 +3315,7 @@ find_yo_format_files :: (
         is_dup := cond(
           (deduped.len() == usize(0)) => false,
           true => match(
-            deduped.get(deduped.len() - usize(1)),
+            deduped.last(),
             .Some(last) => (last == f),
             .None => false
           )

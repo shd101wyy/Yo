@@ -274,7 +274,7 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
   });
   vars := get_variables_from_env(env, ast_expr_token(cur).value.clone());
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => cond(
       (((v.is_owning_the_rc_value || v.is_ref) || v.is_compile_time_only) || v.is_module_level) => Option(Variable).None,
       true => Option(Variable).Some(v)
@@ -336,7 +336,7 @@ _module_global_root_var :: (
     return(Option(Variable).None);
   });
   match(
-    variables.get(variables.len() - usize(1)),
+    variables.last(),
     .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
@@ -523,7 +523,7 @@ get_atomic_object_root_type :: (
     return(Option(TypeValue).None);
   });
   (root_type : TypeValue) = match(
-    variables.get(variables.len() - usize(1)),
+    variables.last(),
     .Some(v) => v.ty,
     .None => return(Option(TypeValue).None)
   );
@@ -743,7 +743,7 @@ evaluate_assignment :: (
         prop_root_vars := get_variables_from_env(env, ast_expr_token(prop_root_expr).value.clone());
         if(prop_root_vars.len() > usize(0), {
           match(
-            prop_root_vars.get(prop_root_vars.len() - usize(1)),
+            prop_root_vars.last(),
             .Some(rv) => {
               container_frame_level = i64(rv.frame_level);
             },
@@ -861,7 +861,7 @@ evaluate_assignment :: (
         pc_vars := get_variables_from_env(env, pc_var_name);
         if(pc_vars.len() > usize(0), {
           pc_var := match(
-            pc_vars.get(pc_vars.len() - usize(1)),
+            pc_vars.last(),
             .Some(v) => v,
             .None => make_err_variable(env)
           );
@@ -1083,7 +1083,7 @@ evaluate_assignment :: (
       );
       if(bvn.len() == usize(0), false, {
         bvars := get_variables_from_env(env, bvn);
-        if(bvars.len() == usize(0), false, match(bvars.get(bvars.len() - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+        if(bvars.len() == usize(0), false, match(bvars.last(), .Some(v) => v.is_compile_time_only, .None => false))
       })
     };
     if((!is_comptime_only_prop && lhs_info.value.is_some()) && prop_rhs_info.value.is_some() && base_var_is_comptime, {
@@ -1166,7 +1166,7 @@ evaluate_assignment :: (
     // `len() - 1` is only safe past the emptiness throw above — usize
     // underflows.
     (tl_var : Variable) = match(
-      tl_vars.get(tl_vars.len() - usize(1)),
+      tl_vars.last(),
       .Some(v) => v,
       .None => make_err_variable(env)
     );
@@ -1200,7 +1200,7 @@ evaluate_assignment :: (
   if(is_typed_binding_lhs, {
     mcb_vars := get_variables_from_env(env, variable_name.clone());
     match(
-      mcb_vars.get(mcb_vars.len() - usize(1)),
+      mcb_vars.last(),
       .Some(mcb_v) => if(mcb_v.is_module_level && type_is_control_bound(mcb_v.ty), {
         exn.throw(
           dyn(
@@ -1243,7 +1243,7 @@ Bound type: ${type_to_string(mcb_v.ty)}`
     );
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
-  variable := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
+  variable := match(vars.last(), .Some(v) => v, .None => make_err_variable(env));
   // Closure capture tracking — a WRITE to an outer variable from inside a
   // function body / async block is a capture too (tracked with usage "own").
   // Reads are tracked by the
@@ -1378,7 +1378,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     cvars := get_variables_from_env(env, variable_name);
     cond(
       (cvars.len() > usize(0)) => match(
-        cvars.get(cvars.len() - usize(1)),
+        cvars.last(),
         .Some(lv) => lv.consumed_at_token.is_some(),
         .None => false
       ),
@@ -1439,7 +1439,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // Re-fetch variable after RHS evaluation (env may have been updated).
   updated_vars := get_variables_from_env(env, variable_name);
   updated_variable := match(
-    updated_vars.get(updated_vars.len() - usize(1)),
+    updated_vars.last(),
     .Some(v) => v,
     .None => make_err_variable(env)
   );

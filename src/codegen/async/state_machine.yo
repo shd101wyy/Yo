@@ -1238,7 +1238,7 @@ generate_async_block_resume_function_inline :: (
   // completed already. Only the TAIL counts: a `return` nested in an arm
   // leaves the fall-through path to complete here
   // (issues/fixed/build-smoke-hangs-registry-perturbation.md).
-  tail_returns := match(body_exprs.get(n_body - usize(1)), .Some(le) => ast_expr_is_fn_call_of(le, "return", Option(usize).None), .None => false);
+  tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(le, "return", Option(usize).None), .None => false);
   if(!(tail_returns), {
     match(
       match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),

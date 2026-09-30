@@ -347,13 +347,10 @@ _capture_pattern_bindings :: (
         get_info(pat),
         .Some(info) => {
           vars := get_variables_from_env(info.env, tok.value.clone());
-          at_decl := cond(
-            (vars.len() == usize(0)) => false,
-            true => match(
-              vars.get(vars.len() - usize(1)),
-              .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),
-              .None => false
-            )
+          at_decl := match(
+            vars.last(),
+            .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),
+            .None => false
           );
           if(at_decl, {
             _capture_env_variable(tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);

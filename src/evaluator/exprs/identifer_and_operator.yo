@@ -477,7 +477,7 @@ evaluate_identifier_and_operator :: (
               if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
                 cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
                 cap_dbg_ev_top := match(sub_ctx.eval_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
-                cap_dbg_cur_top := match(env.frames.get(env.frames.len() - usize(1)), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
+                cap_dbg_cur_top := match(env.frames.last(), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
                 eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
               });
               if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
