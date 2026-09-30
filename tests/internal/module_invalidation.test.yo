@@ -295,6 +295,45 @@ test("CTFE: an executed clone's metadata does not outlive the call", {
   // `make`'s body, whose entries must be gone once the call returned.
   assert(per_call <= usize(8), `each CTFE call retains ${per_call.to_string()} ExprInfo entries; expected at most its own 8 nodes`);
 });
+/// A document whose `g` negates a runtime `bool` `calls` times. `!` is the
+/// prelude's `Call :: (not, comptime_not)` pair, so every use trials both
+/// candidates on fresh-id clones of the call and its argument.
+_overload_doc :: (fn(calls : usize) -> String)({
+  doc := String.from("g :: (fn(flag : bool) -> unit)({\n");
+  (k : usize) = usize(0);
+  while(k < calls, {
+    doc.push_string(`  _b${k.to_string()} := !(flag);\n`);
+    k = (k + usize(1));
+  });
+  doc.push_str("});\nmain :: (fn() -> unit)(g(true));\nexport(main);\n");
+  doc
+});
+test("overload trials: a trial's clones leave no metadata behind", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_overload_trial_purge_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  std_path := resolve_std_path();
+  one_path := `${dir}/one.yo`;
+  eleven_path := `${dir}/eleven.yo`;
+  io.await(write_string(Path.new(one_path.clone()), _overload_doc(usize(1)), io), ioexn);
+  io.await(write_string(Path.new(eleven_path.clone()), _overload_doc(usize(11)), io), ioexn);
+  one := _retained_info_count(one_path, _overload_doc(usize(1)), std_path.clone(), io);
+  eleven := _retained_info_count(eleven_path, _overload_doc(usize(11)), std_path, io);
+  per_call := ((eleven - one) / usize(10));
+  // `_b<k> := !(flag);` is 6 nodes (`:=`, its atom, `_b<k>`, the call, `!`,
+  // `flag`); each candidate's check also records its trait-typed signature
+  // evaluation (2 per candidate, minted during the trial, outside its clone
+  // range). The trials' own clones must be gone: before the purge each call
+  // retained 12.
+  assert(per_call <= usize(10), `each negation retains ${per_call.to_string()} ExprInfo entries; expected at most 10`);
+});
 /// A generic function in a module with several top-level bindings (all of which
 /// its definition-site FuncVal captures), specialized twice.
 _SPEC_CAPTURE_DOC :: "LIMIT :: i32(3);\nOFFSET :: i32(4);\nscale :: (fn(x : i32) -> i32)((x * LIMIT));\npick :: (fn(generic(T : Type), a : T, b : T) -> T)(a);\nmain :: (fn() -> unit)({\n  _p := pick(i32(1), i32(2));\n  _q := pick(true, false);\n  _s := scale(OFFSET);\n});\nexport(main);\n";
