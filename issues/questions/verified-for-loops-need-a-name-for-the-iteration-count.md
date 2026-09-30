@@ -1,6 +1,6 @@
 # A verified `for` over a list needs a name for how far it has got
 
-**Kind:** design question — an open decision, not a defect. Filed 2026-09-30
+**Kind:** design question. **DECIDED 2026-09-30 (the user): option 1 now, option 3 with R2.** The misleading message is fixed: the evaluator's placement error now names `for` and points here, and so does the verifier's subset error. Filed 2026-09-30
 by R1 of `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` ("`for` over a list" is
 R1's last shape).
 

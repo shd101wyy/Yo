@@ -215,8 +215,27 @@ seed gate for `std/` and `src/` adoption.
 > belongs with R2. Two encoder bugs surfaced on the way: a zero-field
 > constructor encoded as `(Name)`
 > (`issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md`)
-> and a projection's bit width read as 1. Left: task 4 (generic bodies),
-> `for` over a list.
+> and a projection's bit width read as 1.
+> **Slice 4 (branch `feat/verifier-dml-fixtures`):** task 5's remaining
+> worked examples, `zip`, `filter` and `reverse`, prove and their twins
+> refute (`valid/dml_list_zip_filter_reverse.yo`), driven from
+> `tests/internal/verifier_list_len.test.yo` rather than a new
+> `verifier_dml.test.yo`. Two false-proof classes closed on the way:
+> - `insert`/`remove`/`swap_remove`/`swap`/`drain`/`set_len` never
+>   mentioned `old(self)`, so a call left the list unchanged
+>   (`issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md`);
+> - a loop havoc gave `filter`'s branch-pushed list, and any `cond`-bound
+>   integer, the wrong sort
+>   (`issues/fixed/verifier-loop-havoc-takes-the-sort-of-an-ite-condition.md`).
+>
+> The risk item below (a runtime fixture per contract) is met by the std
+> test suite: a canary with a deliberately wrong `insert` clause aborts
+> under both `yo compile` and `yo test`, and every contracted mutator has
+> edge-case calls in `tests/collections/array_list.test.yo`. **`for` over a
+> list is deferred to R2** (decided 2026-09-30,
+> `issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`):
+> its invariants need a ghost of the elements consumed so far, which is
+> R2's sequence layer. Left: task 4 (generic bodies).
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
