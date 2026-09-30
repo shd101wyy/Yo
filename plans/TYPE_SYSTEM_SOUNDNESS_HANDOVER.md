@@ -77,7 +77,7 @@ owning handle waits for a release: `issues/join-handle-ownership-waits-for-the-s
 
 ### 3.1 Stream combinator used twice in one chain
 
-`issues/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`. On
+`issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`. On
 `tss/stream-repeat`: the three id-keyed identity guards key on the type arguments too (type_key's
 cycle guard, the spec cache, the intern key's struct token), plus the pre-where-pass bindings.
 2-deep chains are fixed; the intern-key change for 3- and 4-deep chains still needs a build

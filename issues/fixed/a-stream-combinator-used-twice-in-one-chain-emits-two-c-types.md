@@ -1,6 +1,6 @@
 # A `Stream` combinator used twice in one chain emits two C types for its result
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-30 (`tss/impl-self-operator`)
 **Found:** 2026-09-28, while fixing the Stream-combinator E0905 on `tss/p37-registry-v2`. It reproduces on develop (`1d161bee3`, compiler built from the tree) as well: it is not a regression of that branch.
 
 ## Symptom
@@ -83,5 +83,9 @@ a nested match of the same impl overwrite it.
 
 ## Status
 
-Two-deep repeats and alternating chains are fixed and tested on the branch. Three-deep and
-deeper repeats await a build of fix 3.
+Fixed with all three changes, measured on the branch's build (2026-09-30). `map` repeated 2, 3
+and 4 times in one chain compiles and yields the right values (first items 4, 7, 11 for the
+repro's source); develop's compiler fails all three in the C compiler ("incompatible pointer
+types"). Regression: `tests/async/combinators.test.yo`, "Test the same combinator repeated in one
+chain" (2, 3 and 4 maps, and an alternating `map`/`take`/`map`); on #996's compiler its batch
+fails to compile.
