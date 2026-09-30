@@ -652,6 +652,11 @@ VcCtx :: ref(
     /// body start, taken before the walk): `old(e)` walks e against it
     /// (V5 two-state). Body-locals have no entry binding.
     entry_vars : HashMap(String, VcTerm),
+    /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
+    /// 2): callee param label → its PRE-call term for every argument the
+    /// call mutates, so the callee's `old(self.len())` reads the state
+    /// before the call and not the caller's function entry.
+    call_pre : Option(HashMap(String, VcTerm)),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -702,6 +707,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     path_dead : false,
     loop_depth : usize(0),
     entry_vars : HashMap(String, VcTerm).new(),
+    call_pre : Option(HashMap(String, VcTerm)).None,
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -2316,6 +2322,18 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
         .Some(xp) => _scan_assigned(table, xp, out),
         .None => {
           head := ast_expr_token(f).value;
+          // A mutating METHOD call on a named receiver (`out.push(v)`: the
+          // callee's contract mentions `old(self...)`) rebinds the receiver
+          // name at the call (R1 slice 2), so it joins the havoc set.
+          match(
+            _mutated_receiver_name(table, e),
+            .Some(rn) => {
+              if(!out.contains(rn.clone()), {
+                out.push(rn.clone());
+              });
+            },
+            .None => ()
+          );
           if(((head == ":=") || (head == "=")) && (fargs.len() == usize(2)), {
             match(
               _binding_name_of(fargs.get(usize(0)).unwrap()),
@@ -2355,6 +2373,56 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
     }
   )
 );
+/// The receiver NAME of a method call whose callee's contract mentions
+/// `old(self...)` — a call that mutates its receiver (R1 slice 2).
+_mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(String))({
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      (ast_expr_token(cf).value == ".") => da,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(Option(String).None);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  if(!ast_expr_is_atom(recv), {
+    return(Option(String).None);
+  });
+  fid := match(
+    expr_info_table_get(table, ast_expr_id(callee)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+        _ => String.new()
+      ),
+      .None => String.new()
+    ),
+    .None => String.new()
+  );
+  if(fid.len() == usize(0), {
+    return(Option(String).None);
+  });
+  if(_contracts_mention_old_of(get_func_requires_exprs(fid.clone()), get_func_ensures_exprs(fid.clone()), String.from("self")), {
+    return(Option(String).Some(ast_expr_token(recv).value));
+  });
+  Option(String).None
+});
 /// Extract the loop body's leading `invariant(...)` predicates and the
 /// optional trailing `decreases(...)` measure; every other statement is
 /// the executable body. Returns `.None` when no invariant leads the body.
@@ -3146,6 +3214,58 @@ _call_term :: (
   // could not rebind — V4 legalized `=` on locals, and identity then read
   // the CURRENT binding, a false PROOF (`y := x; y = (y + 1);
   // assert(y == old(y))` "proved" though it is false for every x).
+  if(((head == "old") && (n == usize(1))) && ctx.call_pre.is_some(), {
+    // Inside a callee's ensures at a CALL SITE (R1 slice 2): `old(e)` is
+    // e over the pre-call bindings of the mutated arguments (every other
+    // name is unchanged by the call, so its current binding IS its pre
+    // state).
+    oa_pre := args.get(usize(0)).unwrap();
+    pre_map := ctx.call_pre.unwrap();
+    saved_pre_vars := ctx.vars;
+    overlay := HashMap(String, VcTerm).new();
+    ovi := ctx.vars.keys();
+    (ovgo : bool) = true;
+    while(ovgo, {
+      match(
+        ovi.next(),
+        .Some(ovk) => {
+          match(
+            ctx.vars.get(ovk.clone()),
+            .Some(ovv) => {
+              overlay.insert(ovk.clone(), ovv);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          ovgo = false;
+        }
+      );
+    });
+    pmi := pre_map.keys();
+    (pmgo : bool) = true;
+    while(pmgo, {
+      match(
+        pmi.next(),
+        .Some(pmk) => {
+          match(
+            pre_map.get(pmk.clone()),
+            .Some(pmv) => {
+              overlay.insert(pmk.clone(), pmv);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          pmgo = false;
+        }
+      );
+    });
+    ctx.vars = overlay;
+    t_pre := _expr_term(ctx, oa_pre);
+    ctx.vars = saved_pre_vars;
+    return(t_pre);
+  });
   if((head == "old") && (n == usize(1)), {
     oa := args.get(usize(0)).unwrap();
     // A bare name must be bound AT ENTRY — a body-local name has no entry
@@ -3520,22 +3640,16 @@ _call_term :: (
           return(Option(VcTerm).None);
         });
         len_t := _list_len_term(lr.elem, recv_t.unwrap());
-        return(
-          cond(
-            ((lr.method == "len") && (n == usize(0))) => Option(VcTerm).Some(len_t),
-            ((lr.method == "is_empty") && (n == usize(0))) => Option(VcTerm).Some(
-              _app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))
-            ),
-            true => {
-              _fail_subset(
-                ctx,
-                `ArrayList method '${lr.method}' (the list model covers len(), is_empty() and index reads; mutation is the next slice)`,
-                e
-              );
-              Option(VcTerm).None
-            }
-          )
-        );
+        // Every other method (`push`, `pop`, `insert`, …) is a contracted
+        // std callee: the receiver is its `self` argument, and the call
+        // rebinds the receiver to a fresh list term whose relation to the
+        // old one is the callee's `ensures` (R1 slice 2, `_callee_call_term`).
+        if((lr.method == "len") && (n == usize(0)), {
+          return(Option(VcTerm).Some(len_t));
+        });
+        if((lr.method == "is_empty") && (n == usize(0)), {
+          return(Option(VcTerm).Some(_app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))));
+        });
       },
       .None => ()
     );
@@ -4566,6 +4680,10 @@ _callee_call_term :: (
     ),
     .None => ArrayList(String).new()
   );
+  // A METHOD call (`xs.push(v)`) parses with the receiver inside the
+  // dot-callee, not among the args; the callee's first param is `self`.
+  // Align: the effective argument list is [receiver] ++ args (R1 slice 2).
+  eff_args := _method_effective_args(ctx, e, args, callee_params);
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   arg_terms := ArrayList(VcTerm).new();
@@ -4582,9 +4700,9 @@ _callee_call_term :: (
     ).clone()
   );
   (i : usize) = usize(0);
-  while(i < args.len(), {
+  while(i < eff_args.len(), {
     match(
-      args.get(i),
+      eff_args.get(i),
       .Some(a) => {
         v := _expr_term(ctx, a);
         match(
@@ -4666,7 +4784,7 @@ _callee_call_term :: (
       .Some(pred_fid) => {
         if(pred_fid.len() > usize(0), {
           at2 := match(
-            args.get(ri2),
+            eff_args.get(ri2),
             .Some(a2) => a2,
             .None => e
           );
@@ -4688,6 +4806,50 @@ _callee_call_term :: (
       .None => ()
     );
     ri2 = (ri2 + usize(1));
+  });
+  // R1 slice 2 — the MUTATION model. A list-typed argument that is a bare
+  // NAME and whose callee contract mentions `old(<param>...)` is one the
+  // callee mutates (an RC handle: `push` writes through `self`): its name
+  // is rebound to a fresh term, the callee's param is bound to that term
+  // for the ensures, and `old(<param>)` reads the pre-call term
+  // (`ctx.call_pre`). A contract that never says `old(p)` promises no
+  // change to `p` and leaves it bound (the "old mentions modifies" rule;
+  // the standing gap is issues/questions/modifies-clause-for-callee-side-effects.md).
+  havoc_names := ArrayList(String).new();
+  havoc_terms := ArrayList(VcTerm).new();
+  pre_map := HashMap(String, VcTerm).new();
+  (hvi : usize) = usize(0);
+  while(hvi < eff_args.len(), {
+    match(
+      eff_args.get(hvi),
+      .Some(ha) => if(ast_expr_is_atom(ha), {
+        hnm := ast_expr_token(ha).value;
+        hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
+        if((hcp.len() > usize(0)) && _contracts_mention_old_of(reqs, enss, hcp.clone()), {
+          match(
+            arg_terms.get(hvi),
+            .Some(hpre) => match(
+              hpre,
+              .Var(_, hsort) => if(_list_sort_elem(hsort).is_some(), {
+                fresh_h := _next_fresh(ctx);
+                hnew := VcTerm.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort);
+                pre_map.insert(hcp.clone(), hpre);
+                ctx.vars.insert(hcp.clone(), hnew);
+                havoc_names.push(hnm.clone());
+                havoc_terms.push(hnew);
+              }),
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+    hvi = (hvi + usize(1));
+  });
+  if(havoc_names.len() > usize(0), {
+    ctx.call_pre = Option(HashMap(String, VcTerm)).Some(pre_map);
   });
   // Assume ensures with a fresh result bound. The callee's ensures name
   // the return value through ITS return label (V1 decision D3) — bind that
@@ -4734,6 +4896,7 @@ _callee_call_term :: (
     );
     ei = (ei + usize(1));
   });
+  ctx.call_pre = Option(HashMap(String, VcTerm)).None;
   // Restore the caller's bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
   while(si > usize(0), {
@@ -4761,8 +4924,133 @@ _callee_call_term :: (
       .None => ()
     );
   });
+  // The mutated arguments' NAMES now stand for the post-call terms (after
+  // the restore, which only touched the callee's labels).
+  (hri3 : usize) = usize(0);
+  while(hri3 < havoc_names.len(), {
+    match(
+      havoc_names.get(hri3),
+      .Some(hn) => match(
+        havoc_terms.get(hri3),
+        .Some(ht) => {
+          ctx.vars.insert(hn.clone(), ht);
+          ()
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    hri3 = (hri3 + usize(1));
+  });
   Option(VcTerm).Some(ret_var)
 });
+/// The argument list a callee's params bind to: for a method call
+/// (`recv.m(args)`, the callee is the dot-call `.(recv, m)` and the callee's
+/// first param is `self`) the receiver goes first; a static dot-call
+/// (`ArrayList(i32).new()`, receiver is a TYPE, no `self` param) and a plain
+/// call bind `args` as written.
+_method_effective_args :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), callee_params : ArrayList(String)) -> ArrayList(AstExpr)
+)({
+  first_is_self := match(callee_params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
+  if(!first_is_self, {
+    return(args);
+  });
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(args);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      (ast_expr_token(cf).value == ".") => da,
+      true => {
+        return(args);
+      }
+    ),
+    .Atom(_, _) => {
+      return(args);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(args);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  // A receiver that is a TYPE value (`Self.new()`, `ArrayList(i32).new()`)
+  // is not an argument.
+  recv_is_type := match(
+    expr_info_table_get(ctx.table, ast_expr_id(recv)),
+    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .None => false
+  );
+  if(recv_is_type, {
+    return(args);
+  });
+  out := ArrayList(AstExpr).new();
+  out.push(recv);
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    match(args.get(ai), .Some(a) => out.push(a), .None => ());
+    ai = (ai + usize(1));
+  });
+  out
+});
+/// Does any contract clause mention `old(...)` over the param `label`?
+_contracts_mention_old_of :: (fn(reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), label : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    if(_old_mentions(reqs.get(i).unwrap(), label.clone()), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < enss.len(), {
+    if(_old_mentions(enss.get(j).unwrap(), label.clone()), {
+      return(true);
+    });
+    j = (j + usize(1));
+  });
+  false
+});
+_old_mentions :: (fn(e : AstExpr, label : String) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, f, fargs, _, _) => {
+      here := ((ast_expr_token(f).value == "old") && (fargs.len() == usize(1))) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone());
+      (found : bool) = here;
+      (i : usize) = usize(0);
+      while((i < fargs.len()) && !found, {
+        if(_old_mentions(fargs.get(i).unwrap(), label.clone()), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+_expr_mentions_atom :: (fn(e : AstExpr, name : String) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => (ast_expr_token(e).value == name),
+    .FnCall(_, f, fargs, _, _) => {
+      (found : bool) = _expr_mentions_atom(f, name.clone());
+      (i : usize) = usize(0);
+      while((i < fargs.len()) && !found, {
+        if(_expr_mentions_atom(fargs.get(i).unwrap(), name.clone()), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
 // ============================================================================
 // Small term helpers
 // ============================================================================

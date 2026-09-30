@@ -178,3 +178,46 @@ test("a caller violating get's requires and an out-of-bounds read both REFUTE (g
     `get itself stays ok (modular), got: [${_reports_dump(reports)}]`
   );
 });
+
+// ---------------------------------------------------------------------------
+// Slice 2 — the mutation model: push rebinds the receiver, old() at a call
+// site reads the pre-call state, and a loop over pushes carries `out` in its
+// havoc set.
+// ---------------------------------------------------------------------------
+test("concat's body verifies through new()'s and push()'s std contracts; two pushes compose", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_concat.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `concat and push_two report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(2),
+    `both must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a wrong concat length and an over-claimed push both REFUTE", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_concat_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `concat_wrong and push_once report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(reports)}]`
+  );
+});

@@ -88,7 +88,7 @@ impl(
   }),
   /// Empty list. Allocates nothing — the first `push` buys the buffer (four
   /// elements), as Rust's `Vec::new` does.
-  new : (fn() -> Self)(
+  new : (fn(ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
     Self(
       _ptr : .None,
       _length : usize(0),
@@ -154,7 +154,7 @@ impl(
   /// panics with the same message), and on allocation failure. A zero-sized
   /// element type takes the one-byte anchor buffer instead of allocating
   /// `cap` of nothing.
-  with_capacity : (fn(cap : usize) -> Self)(
+  with_capacity : (fn(cap : usize, ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
     cond(
       (cap == usize(0)) =>
         Self.new(),

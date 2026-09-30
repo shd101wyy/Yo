@@ -191,10 +191,18 @@ seed gate for `std/` and `src/` adoption.
 > parameters and callee results are one datatype-sorted term, so the
 > length contracts below discharge modularly (`tests/spec/fixtures/valid/dml_list_get.yo`,
 > `negative/dml_list_get_false.yo`, `tests/internal/verifier_list_len.test.yo`).
-> Task 1 done for reads; tasks 2 and 3 (the std `assumed()` contracts and
-> the mutation model — a mutating method on a by-value RC handle is a heap
-> effect the two-state rule does not cover, so `push` needs "havoc the
-> receiver name, assume the ensures relating new to old") are slice 2.
+> **Slice 2 (branch `feat/verifier-list-mutation`, stacked, 2026-09-30):**
+> the mutation model. std already carried `assumed()` contracts on
+> `push`/`insert`/`remove`/`swap`/`set_len` (V6 task 5); `new` and
+> `with_capacity` gained `ensures(r.len() == usize(0))`. At a call site a
+> method call's receiver is its `self` argument; a list-typed named
+> argument whose callee contract mentions `old(<param>)` is rebound to a
+> fresh term and the ensures is assumed with `old(...)` reading the
+> pre-call term (`ctx.call_pre`); a loop body's havoc set includes such
+> receivers. `concat`'s body proves (`valid/dml_list_concat.yo`). The
+> "old mentions modifies" convention is filed as
+> `issues/questions/modifies-clause-for-callee-side-effects.md`. Left: task 4
+> (generic bodies), `pop`/`get` (Option results), `for` over a list.
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
