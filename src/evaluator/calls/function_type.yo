@@ -1339,166 +1339,147 @@ Result type: ${type_to_string(result_box)}`
         if(((vmode == "verify") || (vmode == "verify+")) &&
           !(result_is_comptime_only) &&
             (is_assumed || !(should_defer_ft)), {
-          if(is_assumed, {
-            register_verify_task(
-              VerifyTask(
-                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
-                func_id : fn_val_id.clone(),
-                module_path : tok.module_path.clone(),
-                body : body_expr_raw.clone(),
-                param_names : param_labels.clone(),
-                param_types : param_types.clone(),
-                result_type : result_box.clone(),
-                requires_exprs : get_func_requires_exprs(fn_val_id.clone()),
-                ensures_exprs : get_func_ensures_exprs(fn_val_id.clone()),
-                decreases_expr : get_func_decreases_expr(fn_val_id.clone()),
-                return_label : get_func_return_label(fn_val_id.clone()),
-                table : ctx.expr_info_table,
-                mode : vmode,
-                func_val : func_val,
-                body_assumed : true,
-                requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
-              )
-            );
-            ()
-          }, {
-            // The predicates are diagnostic-EVALUATED here (the plan's "one
-            // diagnostic evaluation pass"): the side-table nodes are the
-            // original signature AST, but ExprInfo lands on the evaluated
-            // forms — the verifier's walk keys everything by ExprInfo. The
-            // evaluation env shares the module frames (so predicates may
-            // reference module-level names) and binds the parameters plus
-            // the return label as unknown values — exactly the names a
-            // predicate may mention.
-            pred_env := _share_def_time_frames(caller_env, false);
-            pred_env.push_frame(false);
-            (pv_i : usize) = usize(0);
-            while(pv_i < param_labels.len(), {
-              pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
-              pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
-              if(pv_name.len() > usize(0), {
-                add_variable_to_env(
-                  pred_env,
-                  pv_name.clone(),
-                  pv_ty.clone(),
-                  Option(EvalValue).Some(create_unknown_val(pv_ty.clone())),
-                  false,
-                  false,
-                  false,
-                  false,
-                  tok
-                );
-              });
-              pv_i = (pv_i + usize(1));
+          // The predicates are diagnostic-EVALUATED here (the plan's "one
+          // diagnostic evaluation pass"): the side-table nodes are the
+          // original signature AST, but ExprInfo lands on the evaluated
+          // forms — the verifier's walk keys everything by ExprInfo. The
+          // evaluation env shares the module frames (so predicates may
+          // reference module-level names) and binds the parameters plus
+          // the return label as unknown values — exactly the names a
+          // predicate may mention.
+          pred_env := _share_def_time_frames(caller_env, false);
+          pred_env.push_frame(false);
+          (pv_i : usize) = usize(0);
+          while(pv_i < param_labels.len(), {
+            pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+            pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
+            if(pv_name.len() > usize(0), {
+              add_variable_to_env(
+                pred_env,
+                pv_name.clone(),
+                pv_ty.clone(),
+                Option(EvalValue).Some(create_unknown_val(pv_ty.clone())),
+                false,
+                false,
+                false,
+                false,
+                tok
+              );
             });
-            raw_label := get_func_return_label(fn_val_id.clone());
+            pv_i = (pv_i + usize(1));
+          });
+          raw_label := get_func_return_label(fn_val_id.clone());
+          match(
+            raw_label,
+            .Some(rl) => {
+              add_variable_to_env(
+                pred_env,
+                rl.clone(),
+                result_box.clone(),
+                Option(EvalValue).Some(create_unknown_val(result_box.clone())),
+                false,
+                false,
+                false,
+                false,
+                tok
+              );
+            },
+            .None => ()
+          );
+          evd_reqs := ArrayList(AstExpr).new();
+          raw_reqs := get_func_requires_exprs(fn_val_id.clone());
+          _pred_soft_fail := false;
+          (vr : usize) = usize(0);
+          while(vr < raw_reqs.len(), {
             match(
-              raw_label,
-              .Some(rl) => {
-                add_variable_to_env(
-                  pred_env,
-                  rl.clone(),
-                  result_box.clone(),
-                  Option(EvalValue).Some(create_unknown_val(result_box.clone())),
-                  false,
-                  false,
-                  false,
-                  false,
-                  tok
-                );
+              raw_reqs.get(vr),
+              .Some(rp) => {
+                if(should_defer_ft, {
+                  match(
+                    _soft_evaluated_for_verify(rp.clone(), pred_env, ctx),
+                    .Some(ev) => {
+                      evd_reqs.push(ev);
+                    },
+                    .None => ()
+                  );
+                  if(_pred_eval_failed(), {
+                    _pred_soft_fail = true;
+                  });
+                }, {
+                  evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+                });
               },
               .None => ()
             );
-            evd_reqs := ArrayList(AstExpr).new();
-            raw_reqs := get_func_requires_exprs(fn_val_id.clone());
-            _pred_soft_fail := false;
-            (vr : usize) = usize(0);
-            while(vr < raw_reqs.len(), {
-              match(
-                raw_reqs.get(vr),
-                .Some(rp) => {
-                  if(should_defer_ft, {
-                    match(
-                      _soft_evaluated_for_verify(rp.clone(), pred_env, ctx),
-                      .Some(ev) => {
-                        evd_reqs.push(ev);
-                      },
-                      .None => ()
-                    );
-                    if(_pred_eval_failed(), {
-                      _pred_soft_fail = true;
-                    });
-                  }, {
-                    evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
-                  });
-                },
-                .None => ()
-              );
-              vr = (vr + usize(1));
-            });
-            evd_enss := ArrayList(AstExpr).new();
-            raw_enss := get_func_ensures_exprs(fn_val_id.clone());
-            (ve : usize) = usize(0);
-            while(ve < raw_enss.len(), {
-              match(
-                raw_enss.get(ve),
-                .Some(ep) => {
-                  if(should_defer_ft, {
-                    match(
-                      _soft_evaluated_for_verify(ep.clone(), pred_env, ctx),
-                      .Some(ev) => {
-                        evd_enss.push(ev);
-                      },
-                      .None => ()
-                    );
-                    if(_pred_eval_failed(), {
-                      _pred_soft_fail = true;
-                    });
-                  }, {
-                    evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
-                  });
-                },
-                .None => ()
-              );
-              ve = (ve + usize(1));
-            });
-            // V6 task 2: the DIAGNOSTIC TRIAL of the deferred (generic)
-            // body — evaluate it once with the parameters bound to unknowns
-            // of their declared types so the body's nodes get ExprInfo for
-            // the abstract walk. Operator dispatch that cannot resolve over
-            // the type variable fails INSIDE the trial's swallow handler
-            // (those nodes stay hollow — the WALK reports them loudly as
-            // untyped, task 2's loud-failure scope).
-            if(should_defer_ft, {
-              dg_out := ArrayList(AstExpr).new();
-              _trial_eval_fn_body(body_expr_raw.clone(), pred_env, ctx, dg_out);
-              ();
-            });
-            register_verify_task(
-              VerifyTask(
-                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
-                func_id : fn_val_id.clone(),
-                module_path : tok.module_path.clone(),
-                body : body_expr_raw.clone(),
-                param_names : param_labels.clone(),
-                param_types : param_types.clone(),
-                result_type : result_box.clone(),
-                requires_exprs : evd_reqs,
-                ensures_exprs : evd_enss,
-                decreases_expr : match(
-                  get_func_decreases_expr(fn_val_id.clone()),
-                  .Some(dm) => Option(AstExpr).Some(evaluated_for_verify(dm.clone(), pred_env, ctx, exn)),
-                  .None => Option(AstExpr).None
-                ),
-                return_label : get_func_return_label(fn_val_id.clone()),
-                table : ctx.expr_info_table,
-                mode : vmode,
-                func_val : func_val,
-                requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
-              )
-            );
-            ()
+            vr = (vr + usize(1));
           });
+          evd_enss := ArrayList(AstExpr).new();
+          raw_enss := get_func_ensures_exprs(fn_val_id.clone());
+          (ve : usize) = usize(0);
+          while(ve < raw_enss.len(), {
+            match(
+              raw_enss.get(ve),
+              .Some(ep) => {
+                if(should_defer_ft, {
+                  match(
+                    _soft_evaluated_for_verify(ep.clone(), pred_env, ctx),
+                    .Some(ev) => {
+                      evd_enss.push(ev);
+                    },
+                    .None => ()
+                  );
+                  if(_pred_eval_failed(), {
+                    _pred_soft_fail = true;
+                  });
+                }, {
+                  evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+                });
+              },
+              .None => ()
+            );
+            ve = (ve + usize(1));
+          });
+          // V6 task 2: the DIAGNOSTIC TRIAL of the deferred (generic)
+          // body — evaluate it once with the parameters bound to unknowns
+          // of their declared types so the body's nodes get ExprInfo for
+          // the abstract walk. Operator dispatch that cannot resolve over
+          // the type variable fails INSIDE the trial's swallow handler
+          // (those nodes stay hollow — the WALK reports them loudly as
+          // untyped, task 2's loud-failure scope).
+          if(should_defer_ft && !(is_assumed), {
+            dg_out := ArrayList(AstExpr).new();
+            _trial_eval_fn_body(body_expr_raw.clone(), pred_env, ctx, dg_out);
+            ();
+          });
+          register_verify_task(
+            VerifyTask(
+              fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
+              func_id : fn_val_id.clone(),
+              module_path : tok.module_path.clone(),
+              body : body_expr_raw.clone(),
+              param_names : param_labels.clone(),
+              param_types : param_types.clone(),
+              result_type : result_box.clone(),
+              requires_exprs : evd_reqs,
+              ensures_exprs : evd_enss,
+              decreases_expr : match(
+                get_func_decreases_expr(fn_val_id.clone()),
+                .Some(dm) => Option(AstExpr).Some(evaluated_for_verify(dm.clone(), pred_env, ctx, exn)),
+                .None => Option(AstExpr).None
+              ),
+              return_label : get_func_return_label(fn_val_id.clone()),
+              table : ctx.expr_info_table,
+              mode : vmode,
+              func_val : func_val,
+              // V6 task 5: an `assumed()` body is not walked, but its
+              // predicates were evaluated above all the same, so a caller
+              // that assumes them reads TYPED nodes (a method call in an
+              // assumed spec, `r.len()`, was untyped before — R1 slice 2).
+              body_assumed : is_assumed,
+              requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
+            )
+          );
+          ()
         });
       });
       result_box;
