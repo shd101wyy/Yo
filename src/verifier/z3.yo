@@ -508,6 +508,39 @@ z3_check_sat_of :: (fn(forms : ArrayList(Z3Sexpr)) -> Option(String))({
   });
   Option(String).None
 });
+/// An `(error "...")` form that z3 printed BEFORE its check-sat verdict:
+/// the script itself was rejected (a malformed declaration, an unknown
+/// constant), and the verdict that follows judges whatever survived the
+/// parse — a `sat` there is not a counter-example. `.None` when every
+/// error form comes after the verdict (the tolerated post-check-sat
+/// evidence errors) or there is none
+/// (issues/fixed/verifier-a-malformed-smt-script-reports-refuted-with-an-empty-model.md).
+z3_error_before_verdict :: (fn(forms : ArrayList(Z3Sexpr)) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < forms.len(), {
+    match(
+      forms.get(i),
+      .Some(form) => match(
+        form,
+        .Atom(t) => {
+          if((t == "unsat") || (t == "sat") || (t == "unknown"), {
+            return(Option(String).None);
+          });
+        },
+        .List(items) => match(
+          _head_atom_text(items),
+          .Some(h) => if(h == "error", {
+            return(Option(String).Some(z3_sexpr_to_string(form)));
+          }),
+          .None => ()
+        )
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
 /// The text of `items[0]` when it is an atom (`.None` otherwise) — the
 /// nested-match helper for keyword-led response forms.
 _head_atom_text :: (fn(items : ArrayList(Z3Sexpr)) -> Option(String))(
@@ -687,5 +720,6 @@ export(
   z3_sexpr_to_string,
   z3_check_sat_of,
   z3_unsat_core_of,
+  z3_error_before_verdict,
   z3_value_pairs_of
 );
