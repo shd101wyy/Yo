@@ -146,6 +146,30 @@ matches a `SomeT` on **(name, frame_level)** and the declaration's
 matters. Identical `before-ids` and `after-ids` is that bug; identical emitted
 C is the same bug seen later and more expensively.
 
+## Pitfalls learned on the explicit-allocators stack (2026-09-30)
+
+- **A struct's `id` does not contain its name.** It is
+  `struct_decl_<module stem>_<anchoring definition>_s<n>_r<row>c<col>`
+  (`stable_position_id`, `src/utils.yo`), e.g.
+  `struct_decl_std__allocator_aligned_free_s2_r14c19` for `AllocatorVTable`.
+  To recognize a std type, match `name` plus the module-stem prefix.
+- **A borrowed-`for` panic or a "Strict borrow: … may mutate" on a method that
+  only reads**: run `YO_DEBUG_BORROW_MASK=1 yo compile …` and read the
+  `[borrow-all]` lines. An unresolvable call, such as an indirect call through
+  a function-pointer field, counts as "mutates everything"
+  (`issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md`).
+- **E0613 on a call whose `T` should come from a closure**: `YO_DEBUG_RRE=1`
+  prints `[rre] callee=… hkt=… resolved_ret=…`. `hkt=T` means no forall binding
+  reached the return re-evaluation.
+- **Which predicate decides that a definition defers** (its body is checked
+  per call instead of at definition): `should_defer_ft`,
+  `src/evaluator/calls/function_type.yo`. It reads
+  `type_contains_some_type_for_codegen_param`, not `get_all_some_types`.
+- **Evaluator changes rebuild in ~12–17 min, not ~25**, with
+  `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg`
+  (host: a stage-1). Use it for debug-trace rounds; gate on a real
+  `yo build --std-path ./std`.
+
 ## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
 
 Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a

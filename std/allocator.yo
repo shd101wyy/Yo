@@ -2,13 +2,14 @@
 //!
 //! ## Stability
 //!
-//! unstable — `Layout`, `AllocError` and the `GlobalAllocator` names are
-//! settled. `Allocator` (a context pointer plus a vtable, Zig's
-//! `std.mem.Allocator` shape) is the pluggable surface; its second
-//! implementor is `std/arena.yo`'s `Arena`, and a counting allocator in
-//! `tests/arena.test.yo` is the third. The vtable freezes when containers
-//! take allocators (`plans/EXPLICIT_ALLOCATORS.md` P1) and the RC object
-//! layer lands (P3).
+//! stable — `Layout`, `AllocError`, `GlobalAllocator`, and the pluggable
+//! surface: `Allocator` (a context pointer plus a vtable, Zig's
+//! `std.mem.Allocator` shape), `with_allocator`, `current_allocator`. The
+//! vtable (`alloc`, `realloc`, `free`, context first) and the 16-byte owner
+//! prefix are frozen: codegen writes the same prefix for every RC object a
+//! scope places (`plans/EXPLICIT_ALLOCATORS.md`). Implementors: the global
+//! allocator, `std/arena.yo`'s `Arena`, and a counting allocator in
+//! `tests/arena.test.yo`.
 //!
 //! ## Explicit allocators and the owner prefix
 //!
