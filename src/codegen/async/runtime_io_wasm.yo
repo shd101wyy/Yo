@@ -791,12 +791,18 @@ static __yo_io_future_t* __yo_async_closedir_start(void* dir) {
 // every entry that did not fit the caller's first buffer is silently lost —
 // read_dir truncated any directory larger than one buffer (caught by the
 // 200-file regression test on the emscripten arm).
+// The list is PER THREAD, as the macOS one is: emscripten has pthreads, and a
+// process-global list that several threads iterating directories push onto,
+// walk and unlink from raced — freed nodes (memory access out of bounds), and
+// a stream found under another thread's fd (a directory read back with the
+// wrong entries). Each thread's event loop owns its own read_dir streams.
+// (issues/fixed/emscripten-concurrent-directory-iteration-intermittently-faults.md)
 typedef struct __yo_getdents_stream {
   int fd;
   DIR* dir;
   struct __yo_getdents_stream* next;
 } __yo_getdents_stream_t;
-static __yo_getdents_stream_t* __yo_getdents_streams = NULL;
+static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;
 
 static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
   __yo_getdents_stream_t* stream = __yo_getdents_streams;
