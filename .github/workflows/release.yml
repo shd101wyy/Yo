@@ -917,6 +917,25 @@ jobs:
           echo "context smoke: $CTX"
           case "$CTX" in yo\ *) ;; *) echo "::error::yo context did not find the bundled pack"; exit 1;; esac
 
+      # The LSP framing gate (plans/LSP_AUDIT_2026-09-29.md §6.2): every
+      # smoke step above drives the CLI; none opens an LSP session — which is
+      # exactly how the Windows text-mode framing bug shipped for so long
+      # (issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md:
+      # every conforming client hung on initialize). This step drives one
+      # full editor session — initialize, didOpen, publishDiagnostics,
+      # shutdown, exit — through a strict base-protocol parser (exact
+      # CRLFCRLF terminator, exact Content-Length) against the SHIPPED
+      # bundle binary. Windows-only: the bug class is the CRT's text-mode
+      # CRLF translation; Linux/macOS framing bytes are already pinned
+      # byte-exactly by the lsp cli-case goldens in every test battery.
+      # `python` is preinstalled on windows-latest / windows-11-arm images.
+      - name: "Strict-framing LSP handshake gate"
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          BUNDLE_DIR="$PWD/$BUNDLE"
+          python scripts/lsp-strict-handshake.py "$BUNDLE_DIR/bin/yo.exe"
+
       - name: Attach the bundle to the release
         shell: bash
         env:
