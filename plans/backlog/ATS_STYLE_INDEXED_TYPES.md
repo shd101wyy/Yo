@@ -305,6 +305,40 @@ literals and fixed arrays (`ms_of`).
    emits the second shape. Decide by measurement on
    `spec_insertion_sort.yo` (the existing capstone) re-spelled over an
    `ArrayList`.
+
+   **Measured 2026-09-30 (Z3 5.1.0, hand-written scripts, the verifier's
+   own preamble: rlimit 5,000,000, seed 0).** The ghost is the count a
+   permutation spec over a list needs, `cnt(c, n, v)` = occurrences of `v`
+   in `c[0..n)`, over the R1 contents sort
+   `(Array (_ BitVec 64) (_ BitVec 32))`:
+
+   | Obligation | `define-fun-rec` | axiom + `:pattern` |
+   | --- | --- | --- |
+   | unfold three known elements | unsat, 49 ms | unsat, 6 ms |
+   | loop step `cnt(c, i+1) = cnt(c, i) + [c[i] = v]` | unsat, 6 ms | unsat, 16 ms |
+   | push `cnt(store(c, n, x), n+1)`, no lemma | unknown, 435 ms | unknown, 523 ms |
+   | the same with the frame lemma | unsat, 174 ms | unsat, 21 ms |
+   | frame `cnt(store(c, n, x), n) = cnt(c, n)`, no lemma | unknown | unknown |
+   | the same with the frame lemma | unsat, 5 ms | unsat, 6 ms |
+   | swap `i < j < n` keeps the count, frame lemma only | unknown | unknown |
+   | the same with the point-update lemma | unknown, 696 ms | **unsat, 89 ms** |
+
+   The frame lemma is `m <= k ⇒ cnt(store(c, k, x), m) = cnt(c, m)`. The
+   point-update lemma is `k < m ⇒ cnt(store(c, k, y), m) = cnt(c, m) +
+   [y = v] - [c[k] = v]`.
+
+   **Decision: the axiom + trigger encoding.** It matches `ms_of`, is
+   faster wherever both prove, and is the only one that proves `swap` from
+   the update lemma. **The deeper finding is that the encoding is not the
+   hard part.** Every obligation that needs induction (frame, push, swap)
+   is `unknown` under both encodings until a lemma is supplied, because
+   Z3 does not do induction. So R2's core is ATS's `prfun` layer: a
+   `lemma` (a `ghost_fn` returning `unit` with `requires`/`ensures` and a
+   `decreases`) whose body is checked by induction once, and whose
+   `ensures` becomes a triggered axiom at every use. std should ship the
+   frame and point-update lemmas for each list measure it defines.
+   Scripts: regenerate them from this table; each is a `define-fun-rec` or
+   a `declare-fun` + `forall` over the declarations above.
 2. `seq_of(xs)` for an `ArrayList` (the R1 contents array as a ghost `Seq`),
    so `ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))` — ATS's
    `append` `dataprop` — is one line.
