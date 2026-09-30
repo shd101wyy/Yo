@@ -3,16 +3,23 @@
 //! ## Stability
 //!
 //! unstable — `Layout`, `AllocError` and the `GlobalAllocator` names are
-//! settled, but this module is a TRAIT SURFACE with exactly one implementor
-//! and that has never been tested. Nothing in `std` is generic over an
-//! allocator: every container calls `GlobalAllocator.malloc`/`free` directly,
-//! so the abstraction has never had to survive a second backend, and the
-//! shape a custom allocator would need (does it get `Layout`, or size +
-//! alignment? is `realloc` required or defaulted?) is unanswered by use.
-//! Freezing needs a second implementor — an arena or a counting allocator in
-//! `tests/` would do — and a decision on whether containers take an allocator
-//! parameter the way Zig's and Rust's do. Until then, treat this as the
-//! global allocator's own interface rather than as a pluggable one.
+//! settled. `Allocator` (a context pointer plus a vtable, Zig's
+//! `std.mem.Allocator` shape) is the pluggable surface; its second
+//! implementor is `std/arena.yo`'s `Arena`, and a counting allocator in
+//! `tests/arena.test.yo` is the third. The vtable freezes when containers
+//! take allocators (`plans/EXPLICIT_ALLOCATORS.md` P1) and the RC object
+//! layer lands (P3).
+//!
+//! ## Explicit allocators and the owner prefix
+//!
+//! Every block handed out by `Allocator.alloc` carries a 16-byte prefix
+//! immediately before the returned pointer, holding the allocator's `ctx` and
+//! `vtable`. `Allocator.realloc` and `Allocator.free` read it, so a block is
+//! always released to the allocator that made it, whoever releases it and on
+//! whichever thread. Implementors never see the prefix: their `alloc` hands out
+//! a raw block `16` bytes larger than asked, and this module owns the layout.
+//! The same layout is emitted by codegen for reference-counted objects placed
+//! by an explicit allocator, so the two sides must never diverge.
 pragma(Pragma.AllowUnsafe);
 { SIZE_MAX } :: import("./libc/stdint.yo");
 /// Memory allocation error variants.
@@ -160,10 +167,139 @@ GlobalAllocator :: impl({
     aligned_free
   );
 });
+/// The functions behind an `Allocator`. Implementing one needs
+/// `pragma(Pragma.AllowUnsafe)`.
+///
+/// - `alloc(ctx, size)` returns a block of at least `size` bytes aligned to
+///   16, or `.None`.
+/// - `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
+///   returned, keeping its first `min(old, new_size)` bytes. `.None` leaves
+///   the original block untouched and still owned by the caller.
+/// - `free(ctx, ptr)` releases such a block.
+///
+/// There is no size at `free` and no aligned family: every container buffer
+/// and every RC block uses the plain family (see the module notes).
+AllocatorVTable :: struct(
+  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+);
+/// An allocator value: an opaque context plus an immortal vtable. Two words,
+/// copied freely; it is not reference counted, because an allocator must not
+/// itself need an allocator.
+Allocator :: struct(
+  ctx : ?*void,
+  vtable : *AllocatorVTable
+);
+// The audited base (plans/reference/PARALLELISM_RULES.md D1/D9): a bare `fn`
+// field is never `Send` on its own, so without this no allocator could cross
+// into a spawn body. Every std vtable function reaches no thread-affine
+// global and every std implementor guards its `ctx`; a user implementor is
+// under `AllowUnsafe` and carries the same obligation.
+impl(Allocator, Send());
+/// Size of the owner prefix in front of every `Allocator.alloc` block. 16 keeps
+/// the returned pointer aligned for any scalar the plain family serves.
+ALLOC_PREFIX_SIZE :: usize(16);
+// The owner prefix. Mirrors codegen's `__yo_alloc_prefix_t`: `ctx` at offset
+// 0, `vtable` at offset `sizeof(*void)`, the rest of the 16 bytes unused.
+_AllocPrefix :: struct(
+  ctx : ?*void,
+  vtable : *AllocatorVTable
+);
+_global_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)(__yo_malloc(size));
+_global_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(__yo_realloc(ptr, new_size));
+_global_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(__yo_free(ptr));
+// A module-level `:=` global: the vtable is ONE object with one address for
+// the whole program, which is what the owner prefix stores. (`&(K)` of a `::`
+// constant also gets static storage since
+// issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md, but
+// this module is compiled into the compiler by the seed, which predates it.)
+_GLOBAL_VTABLE := AllocatorVTable(
+  alloc : _global_alloc,
+  realloc : _global_realloc,
+  free : _global_free
+);
+// The prefix of a block `Allocator.alloc` returned.
+_prefix_of :: (fn(ptr : *void) -> *_AllocPrefix)(
+  // SAFETY: `ptr` came from `Allocator.alloc`/`realloc`, which returned
+  // `raw + ALLOC_PREFIX_SIZE` for a raw block whose first bytes are the prefix.
+  (*_AllocPrefix)(unsafe((*u8)(ptr).sub(ALLOC_PREFIX_SIZE)))
+);
+// Write the prefix into a raw block and return the caller's pointer.
+_stamp :: (fn(raw : *void, ctx : ?*void, vtable : *AllocatorVTable) -> ?*void)({
+  pre := (*_AllocPrefix)(raw);
+  // SAFETY: `raw` is a fresh block of at least ALLOC_PREFIX_SIZE bytes.
+  unsafe(pre.* = _AllocPrefix(ctx : ctx, vtable : vtable));
+  .Some((*void)(unsafe((*u8)(raw).add(ALLOC_PREFIX_SIZE))))
+});
+impl(
+  Allocator,
+  /// The global allocator as an `Allocator` value. Blocks it returns carry an
+  /// owner prefix like any other; the global allocator's own static surface
+  /// (`GlobalAllocator`) never does.
+  global : (fn() -> Allocator)(Allocator(ctx : .None, vtable : &_GLOBAL_VTABLE)),
+  /// Allocate `size` bytes owned by this allocator, 16-aligned. `.None` on
+  /// failure (including a size too large to carry the prefix). Release with
+  /// `Allocator.free`.
+  alloc : (fn(self : Self, size : usize) -> ?*void)(
+    cond(
+      (size > (SIZE_MAX - ALLOC_PREFIX_SIZE)) => .None,
+      true => match(
+        self.vtable.*.alloc(self.ctx, size + ALLOC_PREFIX_SIZE),
+        .Some(raw) => _stamp(raw, self.ctx, self.vtable),
+        .None => .None
+      )
+    )
+  ),
+  /// Resize a block from `Allocator.alloc`, through the allocator that owns it.
+  /// `.None` on failure, in which case the original block is untouched.
+  realloc : (fn(ptr : *void, new_size : usize) -> ?*void)(
+    cond(
+      (new_size > (SIZE_MAX - ALLOC_PREFIX_SIZE)) => .None,
+      true => {
+        pre := _prefix_of(ptr);
+        // SAFETY: `pre` is the live prefix of `ptr` (see `_prefix_of`).
+        owner := unsafe(pre.*);
+        match(
+          owner.vtable.*.realloc(owner.ctx, .Some((*void)(pre)), new_size + ALLOC_PREFIX_SIZE),
+          .Some(raw) => _stamp(raw, owner.ctx, owner.vtable),
+          .None => .None
+        )
+      }
+    )
+  ),
+  /// Release a block from `Allocator.alloc`/`realloc` to the allocator that
+  /// owns it. `.None` is a no-op.
+  free : (fn(ptr : ?*void) -> unit)(
+    match(
+      ptr,
+      .Some(p) => {
+        pre := _prefix_of(p);
+        // SAFETY: `pre` is the live prefix of `p` (see `_prefix_of`).
+        owner := unsafe(pre.*);
+        owner.vtable.*.free(owner.ctx, .Some((*void)(pre)));
+      },
+      .None => ()
+    )
+  ),
+  /// The allocator that owns a block from `Allocator.alloc`/`realloc`.
+  owner_of : (fn(ptr : *void) -> Allocator)({
+    // SAFETY: `ptr` came from `Allocator.alloc`/`realloc`.
+    pre := unsafe(_prefix_of(ptr).*);
+    Allocator(ctx : pre.ctx, vtable : pre.vtable)
+  }),
+  /// Whether two allocator values are the same allocator.
+  same : (fn(self : Self, other : Allocator) -> bool)(
+    (self.ctx == other.ctx) && (self.vtable == other.vtable)
+  )
+);
 export(
   size_would_overflow,
   Layout,
   layout_of,
   AllocError,
-  GlobalAllocator
+  GlobalAllocator,
+  AllocatorVTable,
+  Allocator,
+  ALLOC_PREFIX_SIZE
 );

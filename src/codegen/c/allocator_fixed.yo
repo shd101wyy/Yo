@@ -325,16 +325,16 @@ void __yo_fixed_free(void* ptr) {
   if (ptr == NULL) return;
   if ((p < (char*)__yo_fixed_heap_region) ||
       (p >= (char*)__yo_fixed_heap_region + __YO_FIXED_HEAP_BYTES)) {
-    fprintf(stderr, "__yo_fixed_free: pointer %p is not from the fixed heap\\n", ptr);
-    abort();
+    fflush(stdout); fprintf(stderr, "__yo_fixed_free: pointer %p is not from the fixed heap\\n", ptr);
+    __yo_abort();
   }
   __yo_fixed_lock_acquire();
   __yo_fixed_ensure_init();
   b = __yo_fixed_ptr_to_block(ptr);
   if ((b->size & __YO_FIXED_FREE_BIT) != 0) {
     __yo_fixed_lock_release();
-    fprintf(stderr, "__yo_fixed_free: double free of %p\\n", ptr);
-    abort();
+    fflush(stdout); fprintf(stderr, "__yo_fixed_free: double free of %p\\n", ptr);
+    __yo_abort();
   }
   freed = __yo_fixed_bsize(b);
   next = __yo_fixed_next_phys(b);
@@ -502,10 +502,10 @@ void* __yo_fixed_aligned_alloc(size_t alignment, size_t size) {
 // OOM panic for the fixed arm: name the request and the heap state.
 ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
   __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
-  fprintf(stderr,
+  fflush(stdout); fprintf(stderr,
       "out of memory: requested %zu bytes (fixed heap %zu bytes, live %zu bytes in %zu blocks)\\n",
       size, (size_t)__YO_FIXED_HEAP_BYTES, c->live_bytes, c->live_blocks);
-  abort();
+  __yo_abort();
 }
 `
   );

@@ -2597,7 +2597,25 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
     }),
     .None => ()
   );
-  // Recurse into arguments.
+  // Recurse into the callee, the arguments and a macro call's expansion. The
+  // callee holds the receiver of a method call, so `io.await(f, io).m()` (and
+  // every template interpolation, which the parser desugars to
+  // `e.to_string()`) awaits inside it; the arguments alone missed that await,
+  // the async runtime was never emitted, and the blocking await's
+  // `__yo_async_poll_step()` was an undeclared function in the C
+  // (issues/fixed/an-await-in-a-method-receiver-does-not-pull-in-the-async-runtime.md).
+  // A macro call keeps its head in the AST, and the code emitted is its
+  // expansion: walk that instead of the raw arguments, as
+  // `expr_contains_await` does.
+  match(
+    lookup_macro_expansion(ast_expr_id(expr)),
+    .Some(me) => {
+      recur(me, context);
+      return(());
+    },
+    .None => ()
+  );
+  match(expr, .FnCall(_, callee, _, _, _) => recur(callee, context), _ => ());
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < args.len(), {

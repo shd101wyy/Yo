@@ -165,7 +165,14 @@ EvalValue :: ref(
     ///
     /// Equality is always `false` for pointers (alias identity is not portable
     /// in the compile-time evaluator context).
-    PtrVal(target_value : ArrayList(Self), target_index : usize),
+    ///
+    /// `aggregate_ty` is the type of the aggregate an element or field pointer
+    /// points INTO (`&(A(i))`, `&(K.f)`, `&(t.0)`) and `.None` for a pointer to
+    /// a whole value. The two share one cell shape (`ArrayVal` of the
+    /// elements or fields), so codegen needs the type to emit the aggregate
+    /// the pointer addresses
+    /// (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
+    PtrVal(target_value : ArrayList(Self), target_index : usize, aggregate_ty : Option(TypeValue)),
     /// A compile-time trait object value.
     ///
     /// `ty_name` is the trait type name (e.g. `"Display"`).
@@ -411,7 +418,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         _ => false
       ),
     // PtrVal: pointer alias identity is not portable; always unequal.
-    .PtrVal(_, _) => false,
+    .PtrVal(_, _, _) => false,
     .TraitVal(atn, afnames, afvals) =>
       match(
         b,
@@ -694,7 +701,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
         true => `[${parts_arr}]`
       )
     },
-    .PtrVal(target_value, target_index) =>
+    .PtrVal(target_value, target_index, _) =>
       match(
         target_value.get(usize(0)),
         .Some(cell0) => match(
@@ -806,7 +813,7 @@ is_struct_val :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => tru
 is_module_val :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
 is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
 is_array_val :: (fn(v : EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
-is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v, .PtrVal(_, _) => true, _ => false));
+is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v, .PtrVal(_, _, _) => true, _ => false));
 is_trait_val :: (fn(v : EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
 is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
 is_expr_val :: (fn(v : EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));

@@ -5,7 +5,8 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, BF_DOT } :: import("../../expr.yo");
+{ is_array_type, is_struct_type, is_tuple_type } :: import("../../types/guards.yo");
 {
   ExprInfo,
   ComptimeRef,
@@ -40,6 +41,34 @@ _cell1 :: (fn(v : EvalValue) -> ArrayList(EvalValue))({
   c
 });
 { panic, assert } :: import("std/assert");
+// The type of the aggregate an element/field place points into: the object
+// of `obj.f`, else the receiver of `a(i)` (the callee, or the first argument
+// of a lowered index builtin) — whichever is an array, struct or tuple.
+_aggregate_type_of :: (fn(place : AstExpr, ctx : EvalContext) -> Option(TypeValue))(
+  match(
+    place,
+    .FnCall(_, callee, args, _, _) => {
+      candidates := ArrayList(AstExpr).new();
+      if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
+        candidates.push(callee);
+      });
+      match(args.get(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
+      (found : Option(TypeValue)) = .None;
+      (k : usize) = usize(0);
+      while((k < candidates.len()) && found.is_none(), k = (k + usize(1)), {
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(candidates(k))),
+          .Some(ci) => if(is_array_type(ci.ty) || is_struct_type(ci.ty) || is_tuple_type(ci.ty), {
+            found = .Some(ci.ty);
+          }),
+          .None => ()
+        );
+      });
+      found
+    },
+    .Atom(_, _) => .None
+  )
+);
 evaluate_address_call :: (
   fn(
     expr : AstExpr,
@@ -145,20 +174,21 @@ evaluate_address_call :: (
   // Each arm wraps the AGGREGATE value in a FRESH single-element cell;
   // aliasing is preserved through the aggregate's SHARED inner
   // elements list, and `target_index` selects the element within it.
+  agg_ty := _aggregate_type_of(eval_arg, ctx);
   ptr_val_from_comptime_ref := match(
     comptime_ref_opt,
     .Some(cref) => Option(EvalValue).Some(
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(elements)), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(elements)), index, agg_ty),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(elements)), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(elements)), index, agg_ty),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(field_values)), field_index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(field_values)), field_index, agg_ty),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(fields)), field_index)
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(fields)), field_index, agg_ty)
       )
     ),
     .None => Option(EvalValue).None
@@ -186,7 +216,7 @@ evaluate_address_call :: (
       // Only an executing (CTFE) evaluation addresses the cell.
       .Some(src_var) => if(
         (src_var.value.len() > usize(0)) && (!(src_var.is_parameter && !src_var.is_compile_time_only) || ctx.is_executing),
-        Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0))),
+        Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0), .None)),
         Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
