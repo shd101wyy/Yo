@@ -18,7 +18,10 @@ proved index, division, shift and overflow guards are emitted as the bare
 operation. Open: 5b Phase 3, imported verified modules
 (`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), and 6, which is gated
 on 5b. The 2026-09-29 work also closed a 3a hole: a 64-bit `usize` `+ - *` was
-never trapped (#1024).**
+never trapped (#1024). Its one shared cold overflow trap recovered a measured
+19% self-compile cost across 9933 inlined sites. Doing the same for the index,
+division and shift guards was measured and dropped: a guard-bound microbenchmark
+ran 0.44 s both ways, and the compiler has only ~765 of those sites.**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
 
