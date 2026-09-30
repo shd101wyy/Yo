@@ -67,8 +67,9 @@ by three stage-2 builds of that tree, two runs each):
 | `usize` guard, outlined trap | 9933 | 174.5 s, 172.4 s | — |
 
 All three emit byte-identical C. The helpers now call one
-`__yo_ovf_trap(what, f, r, c)`: `static inline`, `noinline, cold, noreturn`
-under `__GNUC__`/`__clang__`, a plain function elsewhere. It serves every
+`__yo_ovf_trap(what, f, r, c)`. It is C11 `_Noreturn static inline`, with
+`noinline, cold` under `__GNUC__`/`__clang__`, and it ends in
+`fflush(stdout)` + `__yo_abort()` like every runtime trap (#1023). It serves every
 overflow helper, so the existing `i32`/`u64` guards get the same outlining.
 
 Regression test: the cli-case `usize-add-overflow-panics` (`usize.MAX + 1`
