@@ -7,8 +7,6 @@
 - [Function Declaration](#function-declaration)
   - [Variadic functions](#variadic-functions)
 - [Advanced Types](#advanced-types)
-  - [Dependent types](#dependent-types)
-  - [Refinement types](#refinement-types)
   - [Existential types](#existential-types)
 
 <!-- /code_chunk_output -->
@@ -18,6 +16,11 @@
 > - **Higher-Kinded Types (HKT)** — see [Advanced Type System](../../docs/en-US/DESIGN.md#advanced-type-system)
 > - **Generalized Algebraic Data Types (GADTs)** — see [Advanced Type System](../../docs/en-US/DESIGN.md#generalized-algebraic-data-types-gadts)
 > - **Partial Application with `_`** — see [Function Declaration](../../docs/en-US/DESIGN.md#partial-application-with-_)
+
+> **Decided non-goals** (see [DEPENDENT_TYPES_POSITION.md](DEPENDENT_TYPES_POSITION.md), decided 2026-07-24):
+>
+> - **Runtime dependent types** — types computed from runtime values are a permanent non-goal. Types may already depend on compile-time-known values (the comptime layer: `Array(T, N)`, GADT indices, phantom parameters); properties of runtime values (bounds, sortedness, length relationships) belong to the verifier's `requires`/`ensures` clauses ([FORMAL_VERIFICATION.md](FORMAL_VERIFICATION.md)), not the type system.
+> - **Type-system refinement types** (a `T |: predicate` type former) — rejected for the same reason: refinement is discharged by an SMT solver over signatures, keeping type checking decidable. These two sections were removed from this page when the position was decided.
 
 ## Function Declaration
 
@@ -77,73 +80,6 @@ add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int
 ```
 
 ## Advanced Types
-
-### Dependent types
-
-Dependent types are types which depend on values.
-
-```rust
-Vector :: (fn(comptime(N) : i32) -> comptime(Type))
-  Array(i32, N)
-;
-
-add_vectors :: (fn(forall(N : comptime(i32)), a: Vector(N), b: Vector(N)) -> Vector(N))
-  a.map((x, i) -> (x + b(i)))
-;
-
-v1 := [1, 2, 3]; // v1: Array(i32, 3), which is Vector(3)
-v2 := [4, 5, 6]; // v2: Array(i32, 3), which is Vector(3)
-result := add_vectors(v1, v2); // [5, 7, 9]
-
-// The code below will not compile
-v3 := [1, 2]; // v3: Array(i32, 2), which is Vector(2)
-v4 := [4, 5, 6]; // v4: Array(i32, 3), which is Vector(3)
-// error := add_vectors(v3, v4); // Compiler Error: Vector(2) and Vector(3) are different types.
-```
-
-### Refinement types
-
-Refinement types consists of all values of a given type which satisfy a given predicate.
-
-```rust
-PositiveNumber :: (comptime(i32) |: (@ > 0));
-NonEmptyString :: (comptime(String) |: (@.length() > 0));
-
-divide :: (fn(x: PositiveNumber, y: PositiveNumber) -> PositiveNumber)
-  (x / y)
-;
-
-x := 10; // Valid: x: PositiveNumber
-// y := -10; // Compiler Error: -10 is not a PositiveNumber
-
-result := divide(10, 2); // Valid
-```
-
-```rust
-NaturalNumber :: (i32 |: (@ >= 0));
-PositiveNumber :: (i32 |: (@ > 0));
-Equal :: (fn(comptime(n): i32) -> Type)
-  (i32 |: (@ == n))
-;
-Index :: (fn(comptime(T): Type, comptime(a): Array(T, _)) -> Type)
-  (NaturalNumber |: (@ < a.length()))
-;
-NotEmptyArray :: (fn(comptime(T): Type) -> Type)
-  (Array(T, _) |: (@.length() > 0))
-;
-
-get :: (fn(forall(T: Type, a: Array(T, _)), index: Index(T, a), array: a) -> T)
-  array(index)
-;
-
-set :: (fn(forall(T: Type, a: Array(T, _)), index: Index(T, a), array: a, value: T) -> a)
-  { array(index) = value; array }
-;
-
-head :: (fn(forall(T: Type), array: NotEmptyArray(T)) -> T)
-  array(0)
-;
-```
 
 ### Existential types
 

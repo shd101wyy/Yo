@@ -5,8 +5,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/backlog/IN_DESIGN.md).
-
 Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
@@ -33,14 +31,18 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Discarding a call result](#discarding-a-call-result)
   - [Type inference](#type-inference)
     - [Uninitialized variable](#uninitialized-variable)
+    - [Integer literals and compile-time integers](#integer-literals-and-compile-time-integers)
 - [Function Declaration](#function-declaration)
+  - [Parameter modes are part of the function type](#parameter-modes-are-part-of-the-function-type)
   - [Named arguments](#named-arguments)
+  - [The `never` type](#the-never-type)
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+  - [Private members](#private-members)
   - [recur](#recur)
   - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
     - [Reference-Semantics Type](#reference-semantics-type)
@@ -52,6 +54,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [`Option` of a handle is one pointer](#option-of-a-handle-is-one-pointer)
+  - [Memory Safety](#memory-safety)
+  - [`inout` Parameters](#inout-parameters)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Ranges](#array--ranges)
@@ -61,6 +65,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Array.len](#arraylen)
   - [Array Length Inference](#array-length-inference)
   - [Array Assignment and Copying](#array-assignment-and-copying)
+- [Arithmetic and Failure Semantics](#arithmetic-and-failure-semantics)
 - [Control Flow](#control-flow)
   - [cond](#cond)
   - [if/else](#ifelse)
@@ -75,6 +80,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
     - [GADT match type refinement](#gadt-match-type-refinement)
     - [GADT exhaustiveness](#gadt-exhaustiveness)
+    - [GADT indices are part of the type](#gadt-indices-are-part-of-the-type)
     - [Multi-parameter GADTs](#multi-parameter-gadts)
     - [GADTs with custom discriminants](#gadts-with-custom-discriminants)
     - [Mixed GADT and regular variants](#mixed-gadt-and-regular-variants)
@@ -83,11 +89,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [Coherence: one impl per type and trait](#coherence-one-impl-per-type-and-trait)
 - [Pattern Matching](#pattern-matching)
+  - [Pattern forms](#pattern-forms)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
+      - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
@@ -123,6 +132,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
+    - [Trait impls are visible through your imports](#trait-impls-are-visible-through-your-imports)
   - [Anonymous module](#anonymous-module)
   - [Module-level mutable variables](#module-level-mutable-variables)
 - [Naming Convention](#naming-convention)
@@ -3024,7 +3034,8 @@ ret` bodies cannot contain `unwind`.
 
 Effects compose with `async`/`await`: handlers inside `io.async`
 tasks work correctly. If `unwind` is called inside an async task, the
-Future is marked as escaped and awaiting it causes a panic.
+Future enters the `Aborted` state: `io.await` on it panics, while a
+spawned task's `JoinHandle.await` returns `.None`.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
 documentation.
