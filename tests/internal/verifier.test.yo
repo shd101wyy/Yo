@@ -76,6 +76,19 @@ test("encode_term: indexed operators (casts)", {
     "sign_extend shape (arity is the builder's concern in V2)"
   );
 });
+test("encode_term: a zero-field constructor is the bare symbol, not (Name)", {
+  // issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md
+  assert(
+    encode_term(VcTerm.Ctor(name : String.from("Opt_None"), args : ArrayList(VcTerm).new())) == "Opt_None",
+    "nullary constructor"
+  );
+  one := ArrayList(VcTerm).new();
+  one.push(_bv32_var(String.from("x")));
+  assert(
+    encode_term(VcTerm.Ctor(name : String.from("Opt_Some"), args : one)) == "(Opt_Some x)",
+    "constructor with a field"
+  );
+});
 test("encode_term: quantifier shape", {
   names := ArrayList(String).new();
   names.push(String.from("i"));
