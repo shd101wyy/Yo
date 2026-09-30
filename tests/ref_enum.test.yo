@@ -283,3 +283,52 @@ test("ref(enum) can implement Dispose; it runs once at the last release", {
   };
   assert((g_ref_enum_disposed - before) == i32(2), "Dispose also runs for a payload-free variant");
 });
+
+// A ref(enum) with one payload-free variant and one `Self` payload is a heap
+// object like any other ref(enum), never folded into its payload's pointer (the
+// nullable-pointer layout is for VALUE enums such as `Option(T)`). Folded, it
+// emitted `typedef T* T` and failed to compile; with `derive(Eq)` the derived
+// `==`'s recursive call on the payload was an abort() stub
+// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+Chain :: ref(enum(End, Link(next : Self)));
+derive(Chain, Eq(Chain));
+chain_len :: (fn(c : Chain) -> i32)(
+  match(c, .End => i32(0), .Link(next) => (recur(next) + i32(1)))
+);
+Kind3 :: ref(enum(Leaf, Other, Node(elem : Self)));
+derive(Kind3, Eq(Kind3));
+Payload :: ref(struct(n : i32));
+Slot :: ref(enum(Vacant, Held(p : Payload)));
+
+test("ref(enum) with a unit variant and a Self payload builds, matches and recurses", {
+  c := Chain.Link(next : Chain.Link(next : Chain.End));
+  assert(chain_len(c) == i32(2), "two links");
+  assert(chain_len(Chain.End) == i32(0), "the end has no links");
+});
+
+test("derive(Eq) on a ref(enum) with a Self payload compares structurally", {
+  a := Chain.Link(next : Chain.End);
+  b := Chain.Link(next : Chain.End);
+  c := Chain.Link(next : Chain.Link(next : Chain.End));
+  assert(a == b, "equal chains built separately");
+  assert(!(a == c), "different lengths");
+  assert(a != c, "the derived != agrees");
+  assert(Chain.End == Chain.End, "unit variants");
+  k := Kind3.Node(elem : Kind3.Node(elem : Kind3.Leaf));
+  assert(k == Kind3.Node(elem : Kind3.Node(elem : Kind3.Leaf)), "three-variant shape, nested payloads");
+  assert(!(k == Kind3.Node(elem : Kind3.Node(elem : Kind3.Other))), "the innermost variant differs");
+  assert(!(Kind3.Leaf == Kind3.Other), "distinct unit variants");
+});
+
+test("a ref(enum) whose only payload is a ref handle keeps its own identity", {
+  // The payload is built inline, so only the variant field holds it. Laid out
+  // as its payload's pointer, the enum would share the payload's count.
+  s := Slot.Held(p : Payload(n : i32(7)));
+  alias := s;
+  assert(rc(s) == 2, "the enum handle is shared by s and alias");
+  payload_rc := match(alias, .Held(q) => rc(q), .Vacant => usize(0));
+  assert(payload_rc == 1, "the payload has its own count: only the variant field holds it");
+  n := match(alias, .Held(q) => q.n, .Vacant => i32(0));
+  assert(n == i32(7), "payload read through the alias");
+  assert(match(Slot.Vacant, .Vacant => true, .Held(_) => false), "payload-free variant");
+});

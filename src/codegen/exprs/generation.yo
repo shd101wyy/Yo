@@ -83,7 +83,6 @@
   BF_GHOST_FN,
   BF_COMPTIME_EXPECT_ERROR,
   BF_COMPTIME_ASSERT,
-  BF_YO_VAR_PRINT_INFO,
   BF_YO_VAR_IS_OWNING_RC,
   BF_YO_VAR_HAS_OTHER_ALIASES,
   BF_REQUIRES,
@@ -612,9 +611,20 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // See issues/fixed/yo-self-hollow-language-test-files.md.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None), return(String.from("")));
+  // `Var.is_owning_the_rc_value` / `Var.has_other_aliases` are answered at
+  // compile time, but they are VALUES: used at run time (`assert(Var.… (p))`)
+  // they must emit the answer. Emitting nothing produced `bool a = ;`. The
+  // evaluator records the answer as the call node's value.
+  if(
+    ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None),
+    return(
+      match(
+        context.base.get_expr_info(expr),
+        .Some(vi) => match(vi.value, .Some(v) => match(v, .BoolVal(b) => String.from(if(b, "true", "false")), _ => String.new()), .None => String.new()),
+        .None => String.new()
+      )
+    )
+  );
   if(ast_expr_is_fn_call_of(expr, BF_REQUIRES, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));

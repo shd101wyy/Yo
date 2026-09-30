@@ -365,6 +365,22 @@ test("Test a consumer generic over Stream", {
   assert(all.len() == usize(3), "a generic-Item consumer collects a chain");
   assert(all(usize(0)) == i32(6), "and keeps the values");
 });
+// issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md
+// The same combinator more than once in one chain: each `map` over a
+// different inner stream is its own type. They were interned as one C type
+// (incompatible pointer types in the emitted C), two deep and deeper.
+test("Test the same combinator repeated in one chain", {
+  two := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).collect(io), io);
+  assert(two.len() == usize(3), "two maps keep every item");
+  assert(two(usize(0)) == i32(6), "two maps: 3 + 1 + 2");
+  three := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).collect(io), io);
+  assert(three(usize(0)) == i32(9), "three maps: 3 + 1 + 2 + 3");
+  four := io.await(Countdown(_n : i32(3)).map(x => (x + i32(1))).map(x => (x + i32(2))).map(x => (x + i32(3))).map(x => (x + i32(4))).collect(io), io);
+  assert(four(usize(0)) == i32(13), "four maps: 3 + 1 + 2 + 3 + 4");
+  alt := io.await(Countdown(_n : i32(3)).map(x => (x * i32(2))).take(usize(2)).map(x => (x + i32(1))).collect(io), io);
+  assert(alt.len() == usize(2), "map, take, map: the take applies");
+  assert(alt(usize(1)) == i32(5), "and the outer map sees the inner one's values: 2 * 2 + 1");
+});
 // ---------------------------------------------------------------------------
 // S4. Each combinator, awaited from inside a spawned task
 // ---------------------------------------------------------------------------
