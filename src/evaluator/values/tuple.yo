@@ -313,14 +313,11 @@ evaluate_tuple_value :: (
     while(m < result.values.len(), {
       match(
         result.values.get(m),
-        .Some(opt) => match(
-          opt,
-          .Some(v) => {
-            val_list.push(v);
-            ();
-          },
-          .None => ()
-        ),
+        .Some(.Some(v)) => {
+          val_list.push(v);
+          ();
+        },
+        .Some(.None) => (),
         .None => ()
       );
       m = (m + usize(1));

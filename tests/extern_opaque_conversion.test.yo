@@ -1,0 +1,20 @@
+//! `T(x)` for an extern-opaque C type `T` accepts every source the implicit
+//! slot coercion accepts, `bool` included
+//! (issues/fixed/atomic-bool-conversion-rejects-a-bool.md).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ atomic_bool, atomic_load } :: import("std/libc/stdatomic");
+_Flagged :: struct(lock : atomic_bool, n : i32);
+test("atomic_bool(bool) converts a literal", {
+  f := _Flagged(lock : atomic_bool(true), n : i32(1));
+  assert(unsafe(atomic_load(&f.lock)) == true, "literal true");
+});
+test("atomic_bool(bool) converts a runtime bool", {
+  flag := (i32(1) == i32(2));
+  g := _Flagged(lock : atomic_bool(flag), n : i32(2));
+  assert(unsafe(atomic_load(&g.lock)) == false, "runtime false");
+});
+test("A numeric target still rejects a bool", {
+  flag := true;
+  comptime_expect_error(usize(flag), "Cannot convert a value of type bool");
+});

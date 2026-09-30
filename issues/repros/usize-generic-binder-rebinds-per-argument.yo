@@ -1,0 +1,16 @@
+// issues/a-usize-generic-binder-rebinds-per-argument.md
+// Expected: `yo check` rejects every call below (one `N` bound to 2 AND 3 in
+// one call). Measured 2026-09-30 (develop df3798c4a, seed v0.2.46): check,
+// compile and run all pass; prints `3`, `2`, `2` — the LAST argument's length
+// wins, so `n_of` reports a length neither `a` nor `b` can both have.
+{ println } :: import("std/fmt");
+n_of :: (fn(generic(N : usize), a : Array(u8, N), b : Array(u8, N)) -> usize)(N);
+last_b :: (fn(generic(N : usize), a : Array(u8, N), b : Array(u8, N)) -> u8)(b(N - usize(1)));
+main :: (fn() -> unit)({
+  x := [u8(1), u8(2)];
+  y := [u8(3), u8(4), u8(5)];
+  println(n_of(x, y));
+  println(n_of(y, x));
+  println(last_b(y, x));
+});
+export(main);

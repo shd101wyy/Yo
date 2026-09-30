@@ -444,8 +444,8 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   );
   if(has_algebraic_effects, {
     em.emit_string_line(`${indent.clone()}    if (${pre_await_state_var.clone()} == -2) {`);
-    em.emit_string_line(`${indent.clone()}      fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
-    em.emit_string_line(`${indent.clone()}      abort();`);
+    em.emit_string_line(`${indent.clone()}      fflush(stdout); fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
+    em.emit_string_line(`${indent.clone()}      __yo_abort();`);
     em.emit_string_line(`${indent.clone()}    }`);
     // Drop in-scope locals (excluding the not-yet-declared await result var).
     saved_drops := context.pending_deferred_drops;
@@ -525,8 +525,8 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       .None => em.emit_string_line(`${indent.clone()}    return;`)
     );
   }, {
-    em.emit_string_line(`${indent.clone()}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
-    em.emit_string_line(`${indent.clone()}    abort();`);
+    em.emit_string_line(`${indent.clone()}    fflush(stdout); fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
+    em.emit_string_line(`${indent.clone()}    __yo_abort();`);
   });
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);

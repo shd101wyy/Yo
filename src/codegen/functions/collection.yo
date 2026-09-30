@@ -425,13 +425,10 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
       while(tp_i < param_types.len(), {
         match(
           param_types.get(tp_i),
-          .Some(tp_t) => match(
-            tp_t,
-            .TypeUni(_) => {
-              has_type_param = true;
-            },
-            _ => ()
-          ),
+          .Some(.TypeUni(_)) => {
+            has_type_param = true;
+          },
+          .Some(_) => (),
           .None => ()
         );
         tp_i = (tp_i + usize(1));
@@ -586,11 +583,8 @@ collect_required_functions :: (
         label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
-          .Some(opt_value) => match(
-            opt_value,
-            .Some(value) => _collect_required_function_field(label, value, context, info, is_top_level_export),
-            .None => ()
-          ),
+          .Some(.Some(value)) => _collect_required_function_field(label, value, context, info, is_top_level_export),
+          .Some(.None) => (),
           .None => ()
         );
         i = (i + usize(1));

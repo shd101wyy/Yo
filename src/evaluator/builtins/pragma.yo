@@ -74,21 +74,15 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
       if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
-        .Some(lhs) => match(
-          lhs,
-          .Atom(_, tok) => (tok.value == "Pragma"),
-          .FnCall(_, _, _, _, _) => false
-        ),
+        .Some(.Atom(_, tok)) => (tok.value == "Pragma"),
+        .Some(.FnCall(_, _, _, _, _)) => false,
         .None => false
       );
       if(!lhs_is_pragma, return(Option(Pragma).None));
       match(
         args.get(usize(1)),
-        .Some(rhs) => match(
-          rhs,
-          .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.clone()),
-          .FnCall(_, _, _, _, _) => Option(Pragma).None
-        ),
+        .Some(.Atom(_, tok)) => pragma_kind_from_variant_name(tok.value.clone()),
+        .Some(.FnCall(_, _, _, _, _)) => Option(Pragma).None,
         .None => Option(Pragma).None
       )
     }
@@ -114,13 +108,10 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
               args.get(usize(0)),
               .Some(arg) => match(
                 recognize_pragma_arg(arg),
-                .Some(kind) => match(
-                  kind,
-                  .SkipPrelude => {
-                    found = true;
-                  },
-                  _ => ()
-                ),
+                .Some(.SkipPrelude) => {
+                  found = true;
+                },
+                .Some(_) => (),
                 .None => ()
               ),
               .None => ()
@@ -179,15 +170,12 @@ evaluate_pragma :: (
   // resolve `Pragma`.
   skip_fast := match(
     recognize_pragma_arg(arg),
-    .Some(k) => match(
-      k,
-      .SkipPrelude => true,
-      .AllowMacroDef => {
-        register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
-        true
-      },
-      _ => false
-    ),
+    .Some(.SkipPrelude) => true,
+    .Some(.AllowMacroDef) => {
+      register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
+      true
+    },
+    .Some(_) => false,
     .None => false
   );
   if(skip_fast, {

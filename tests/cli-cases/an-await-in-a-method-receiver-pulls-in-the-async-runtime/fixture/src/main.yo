@@ -1,0 +1,13 @@
+// The program's only awaits sit in a method call's RECEIVER: an explicit
+// `.to_string()` and a template interpolation, which the parser desugars to
+// one. Neither pulled in the async runtime, so the blocking await called an
+// undeclared `__yo_async_poll_step`
+// (issues/fixed/an-await-in-a-method-receiver-does-not-pull-in-the-async-runtime.md).
+{ println, ToString } :: import("std/fmt");
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+main :: (fn(io : Io) -> unit)({
+  s := io.await(leaf(io, i32(1)), io).to_string();
+  println(`receiver: ${s}`);
+  println(`interpolated: ${io.await(leaf(io, i32(2)), io)}`);
+});
+export(main);

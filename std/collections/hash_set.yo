@@ -32,7 +32,7 @@
 //! Freezing follows those two decisions.
 pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
-{ AllocError } :: import("../allocator.yo");
+{ AllocError, Allocator } :: import("../allocator.yo");
 { HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash_map");
 /// Error variants for HashSet operations.
 ///
@@ -82,6 +82,16 @@ impl(
   with_capacity : (fn(requested_capacity : usize) -> Self)(
     Self(_map : HashMap(T, unit).with_capacity(requested_capacity))
   ),
+  /// Empty set whose table lives in `alloc` (see `HashMap.new_in`).
+  new_in : (fn(alloc : Allocator) -> Self)(
+    Self(_map : HashMap(T, unit).new_in(alloc))
+  ),
+  /// `with_capacity` with the table in `alloc`.
+  with_capacity_in : (fn(alloc : Allocator, requested_capacity : usize) -> Self)(
+    Self(_map : HashMap(T, unit).with_capacity_in(alloc, requested_capacity))
+  ),
+  /// The allocator the set's table lives in, or `.None` for the global one.
+  allocator : (fn(self : Self) -> Option(Allocator))(self._map.allocator()),
   /// Insert an element, reporting allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
@@ -131,7 +141,7 @@ impl(
   /// set's twin of `HashMap`'s public `tombstones` field (the reclamation
   /// tests assert the load invariant through it).
   tombstones : (fn(self : Self) -> usize)(
-    self._map.tombstones
+    self._map.tombstones()
   ),
   /// True when the set holds no elements.
   is_empty : (fn(self : Self) -> bool)(

@@ -1069,11 +1069,8 @@ _find_comptime_index_method :: (
                         // Comptime-parameter gate.
                         ci_flags := match(
                           m.method_value,
-                          .Some(mv) => match(
-                            mv,
-                            .FuncVal(__cifvd1, _) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
-                            _ => ArrayList(bool).new()
-                          ),
+                          .Some(.FuncVal(__cifvd1, _)) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
+                          .Some(_) => ArrayList(bool).new(),
                           .None => ArrayList(bool).new()
                         );
                         self_is_ct := match(ci_flags.get(usize(0)), .Some(b) => b, .None => false);
@@ -1196,7 +1193,7 @@ _try_comptime_custom_type_index :: (
   // Fresh 1-elem cell around self.
   self_ptr_cell := ArrayList(EvalValue).new();
   self_ptr_cell.push(self_value);
-  self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0));
+  self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0), .None);
   ct_p0_ty := match(
     ct_fn_type,
     .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)), .Some(t) => t, .None => t_unit()),
@@ -1321,7 +1318,7 @@ _try_comptime_custom_type_index :: (
   // arms cover the paths that hand back an unwrapped target.
   match(
     ct_return_value,
-    .PtrVal(ct_target_cell, ct_index) => {
+    .PtrVal(ct_target_cell, ct_index, _) => {
       ct_target := match(ct_target_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal);
       (ct_deref : EvalValue) = ct_target;
       (ct_cref : Option(ComptimeRef)) = Option(ComptimeRef).None;
@@ -1432,11 +1429,8 @@ try_to_call_with_index_trait :: (
   );
   string_raw_opt := match(
     self_value,
-    .Some(v) => match(
-      v,
-      .StrLit(r) => Option(String).Some(r),
-      _ => Option(String).None
-    ),
+    .Some(.StrLit(r)) => Option(String).Some(r),
+    .Some(_) => Option(String).None,
     .None => Option(String).None
   );
   has_array_or_slice := array_val.is_some();

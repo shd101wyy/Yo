@@ -190,11 +190,8 @@ _verdict_of_json :: (fn(v : JsonValue) -> Option(VerifyVerdict))({
   // the arm's value unit).
   kind := match(
     v.get(String.from("verdict")),
-    .Some(kind_val) => match(
-      kind_val,
-      .Str(s) => s.clone(),
-      _ => String.new()
-    ),
+    .Some(.Str(s)) => s.clone(),
+    .Some(_) => String.new(),
     .None => String.new()
   );
   if(kind.len() == usize(0), {
@@ -213,20 +210,14 @@ _verdict_of_json :: (fn(v : JsonValue) -> Option(VerifyVerdict))({
     ),
     (kind == "unproven") => match(
       v.get(String.from("reason")),
-      .Some(reason_val) => match(
-        reason_val,
-        .Str(r) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
-        _ => Option(VerifyVerdict).None
-      ),
+      .Some(.Str(r)) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
+      .Some(_) => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     (kind == "solver-error") => match(
       v.get(String.from("message")),
-      .Some(msg_val) => match(
-        msg_val,
-        .Str(m) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
-        _ => Option(VerifyVerdict).None
-      ),
+      .Some(.Str(m)) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
+      .Some(_) => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     true => Option(VerifyVerdict).None

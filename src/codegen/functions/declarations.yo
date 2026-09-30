@@ -710,15 +710,12 @@ awaited_future_c_type_override :: (
   );
   match(
     callee_v,
-    .Some(cv) => match(
-      cv,
-      .FuncVal(__afd, _) => _async_override_return_type(
-        get_func_type(__afd.*.func_id),
-        Option(AstExpr).Some(__afd.*.body),
-        context
-      ),
-      _ => Option(String).None
+    .Some(.FuncVal(__afd, _)) => _async_override_return_type(
+      get_func_type(__afd.*.func_id),
+      Option(AstExpr).Some(__afd.*.body),
+      context
     ),
+    .Some(_) => Option(String).None,
     .None => Option(String).None
   )
 });

@@ -451,14 +451,11 @@ _receiver_at :: (
   (unwrapped : bool) = false;
   match(
     info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(t) => {
-        recv = t;
-        unwrapped = true;
-      },
-      _ => ()
-    ),
+    .Some(.TypeVal(t)) => {
+      recv = t;
+      unwrapped = true;
+    },
+    .Some(_) => (),
     .None => ()
   );
   // Env refinement (hover's shape): several bindings can share the name;
@@ -473,14 +470,11 @@ _receiver_at :: (
           (var_unwrapped : bool) = false;
           match(
             sv.value.get(usize(0)),
-            .Some(vv) => match(
-              vv,
-              .TypeVal(t2) => {
-                recv = t2;
-                var_unwrapped = true;
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(t2)) => {
+              recv = t2;
+              var_unwrapped = true;
+            },
+            .Some(_) => (),
             .None => ()
           );
           if(!(var_unwrapped), {
@@ -584,13 +578,10 @@ _expected_enum_at :: (
                         (found : TypeValue) = tinfo.ty;
                         match(
                           tinfo.value,
-                          .Some(tv) => match(
-                            tv,
-                            .TypeVal(t) => {
-                              found = t;
-                            },
-                            _ => ()
-                          ),
+                          .Some(.TypeVal(t)) => {
+                            found = t;
+                          },
+                          .Some(_) => (),
                           .None => ()
                         );
                         match(

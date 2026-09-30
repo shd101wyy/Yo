@@ -307,9 +307,15 @@ if [[ ${#WANTED[@]} -gt 0 ]]; then
   done
 else
   while IFS= read -r d; do
-    [[ -f "$d/cmd" ]] && CASES+=("$d")
+    CASES+=("$d")
   done < <(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort)
 fi
+# Every directory here is a case, and `cmd` is what runs it. A directory
+# without one used to be skipped silently, so a case whose `cmd` was never
+# committed (goldens only) was never scored and still read as a green run.
+for d in "${CASES[@]}"; do
+  [[ -f "$d/cmd" ]] || { echo "error: case $(basename "$d") has no cmd file (every directory under $CASES_DIR is a case)" >&2; exit 2; }
+done
 [[ ${#CASES[@]} -eq 0 ]] && { echo "error: no cases found under $CASES_DIR" >&2; exit 2; }
 
 # ── run the case ────────────────────────────────────────────────────────────

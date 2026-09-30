@@ -129,6 +129,31 @@ main :: (fn() -> unit)({
 
 这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 
+## 显式分配器与 Arena
+
+显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。放在 arena 里的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器。内存块不会比它的簿记活得更久，也不可能被释放到错误的分配器。
+
+```rust
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
+{ ArrayList } :: import("std/collections/array_list");
+
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(1) << usize(20)); // 一个 1 MiB 的区域
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
+xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
+```
+
+- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`box`、`arc`、`dyn` 盒子、`Iso` 值、在其中创建的任务状态机，以及 `imm` 集合的缓冲区。运行时自己的簿记仍使用全局分配器。可变容器显式接收分配器：`ArrayList`、`HashMap`、`HashSet`、`Deque` 和 `StringBuilder` 提供 `new_in` / `with_capacity_in`。
+- **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `arena.allocator()` 传进 spawn 体，并在那里调用 `with_allocator`。
+- **arena 不会在活跃块之下死亡。** 只要还有活跃块，`Arena.deinit()`（最后一个 `Arena` 句柄消失时也会调用）就会 **panic**：`Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。在 Zig 中这是释放后使用；在 Yo 中它是确定的、显式的失败。通过过期的 `Allocator` 副本从已 deinit 的 arena 分配同样会 panic。arena 的簿记从不释放，所以过期副本访问到的是一个带标记的状态，而不是已释放的内存。
+- **进程生命周期的 arena 调用 `abandon()`。** 它停止跟踪并且永不释放区域，此后 `deinit` 不做任何事。适用于启动表和字符串驻留表。
+- **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`；arena 的每个操作都持有自己的锁，所以一个 arena 可以服务多个线程。`Arena` 句柄本身是引用计数的，不是 `Send`。
+- **泄漏检测能看到 arena。** 在 `--allocator fixed --debug-heap` 下，退出报告会列出每个从未 deinit 的 arena 和每个被 abandon 的 arena，以及它的活跃块数和已用字节数。
+
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。设计文档：`plans/EXPLICIT_ALLOCATORS.md`。
+
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 
 当你确实需要原始指针时 —— 绑定 C 库、编写自定义分配器、实现新集合 —— 在文件顶部加一行声明，进入 unsafe-capable 模式：

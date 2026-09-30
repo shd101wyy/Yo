@@ -147,6 +147,30 @@ The guarantee is data-race freedom for every program that compiles without `prag
 - **D2, `Iso`.** `^v` is the only safe constructor; it proves the whole graph unique at runtime (`__yo_iso_unique`), through the traversal functions. `T` must be a non-atomic reference object.
 - **D5 / D7, runtime.** `std/sync` primitives record their owner and trap on misuse. A thread that touches ANOTHER thread's event loop registers in the loop's `visitors` count while the loop is provably alive, and loop teardown waits for it (`__yo_async_loop_quiesce`). The loop's live-waker count drops only in the owner's drain.
 
+## Explicit allocators: placement, not lifetime (`plans/EXPLICIT_ALLOCATORS.md`)
+
+- An `Allocator` (`std/allocator.yo`) is `{ctx, vtable}`: a two-word `Send`
+  value, never reference counted. Every block it hands out carries a 16-byte
+  owner prefix (`{ctx, vtable}`) in front of the returned pointer, and every
+  release routes through it, so a block always returns to its allocator, on
+  any thread. Codegen writes the same layout (`__yo_alloc_prefix_t`) for an RC
+  object placed by a scope and marks it with the top bit of `ref_count`
+  (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
+- `with_allocator(a, f)` makes `a` current on this thread while `f` runs; the
+  six user-visible RC constructor sites consult it (`__yo_rc_alloc_scoped`),
+  the runtime's own blocks never do (`__yo_rc_alloc`). A task keeps the scope
+  it was created in across suspensions (its resume wrapper reinstates it); a
+  spawned thread starts on the global allocator.
+- Containers record their allocator in the top bit of a word they already
+  have (ArrayList/Deque/imm capacity, HashMap's tombstone count, imm/map's
+  node lengths), never in a new field — the object size is measured and
+  tuned. Read such a word through its masked accessor (`_cap()`, `tombstones()`,
+  `_capn()`, `_clen()`).
+- `Arena` (`std/arena.yo`): its state is never freed (dead states are pooled),
+  so a stale `Allocator` copy panics instead of touching freed memory; the
+  `Arena` handle itself is not `Send` — share the arena through its
+  `Allocator` value.
+
 ## SomeType
 
 - `SomeType` automatically implements the `Runtime` trait by default.

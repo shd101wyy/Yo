@@ -513,12 +513,9 @@ evaluate_yo_comptime_numeric_functions :: (
         result_ty = t_comptime_string();
         result_val = match(
           lhs_val,
-          .Some(av) => match(
-            av,
-            .IntLit(raw) => EvalValue.StrLit(str_lit_quote(raw)),
-            .FloatLit(raw) => EvalValue.StrLit(str_lit_quote(raw)),
-            _ => create_unknown_val(t_comptime_string())
-          ),
+          .Some(.IntLit(raw)) => EvalValue.StrLit(str_lit_quote(raw)),
+          .Some(.FloatLit(raw)) => EvalValue.StrLit(str_lit_quote(raw)),
+          .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         );
       },
@@ -567,20 +564,14 @@ evaluate_yo_comptime_numeric_functions :: (
       // ---- Float binary path. --------------------------------------------
       lhs_f := match(
         lhs_val,
-        .Some(av) => match(
-          av,
-          .FloatLit(raw) => parse_raw_float(raw),
-          _ => Option(f64).None
-        ),
+        .Some(.FloatLit(raw)) => parse_raw_float(raw),
+        .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       rhs_f := match(
         rhs_val,
-        .Some(av) => match(
-          av,
-          .FloatLit(raw) => parse_raw_float(raw),
-          _ => Option(f64).None
-        ),
+        .Some(.FloatLit(raw)) => parse_raw_float(raw),
+        .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       cond(
@@ -674,20 +665,14 @@ evaluate_yo_comptime_numeric_functions :: (
       // ---- Integer binary path. ------------------------------------------
       lhs_n := match(
         lhs_val,
-        .Some(av) => match(
-          av,
-          .IntLit(raw) => parse_raw_int(raw),
-          _ => Option(i64).None
-        ),
+        .Some(.IntLit(raw)) => parse_raw_int(raw),
+        .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       rhs_n := match(
         rhs_val,
-        .Some(av) => match(
-          av,
-          .IntLit(raw) => parse_raw_int(raw),
-          _ => Option(i64).None
-        ),
+        .Some(.IntLit(raw)) => parse_raw_int(raw),
+        .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       // Comptime integers are carried as `i64`, so a `u64`/`usize` value above
