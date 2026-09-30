@@ -8,6 +8,40 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 - Stick with **C11 standard**. Do not use GNU extensions — we target multiple C compilers.
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
+- **With the flag OFF, `--line-directives` emission is byte-identical to the
+  pre-flag compiler** — that is a standing acceptance property
+  (plans/reference/LINE_DIRECTIVES.md). Any new emitter statement loop should
+  call `note_line_position(em, stmt)` at its top; it is a no-op unless the
+  compile ran with the flag.
+
+## `#line` directives (`--line-directives`, plans/reference/LINE_DIRECTIVES.md)
+
+- **Statement flush points** (the begin/function-body/loop-body/case-body/
+  cond-arm statement loops in `begin.yo`, `while_loop.yo`, `match.yo`,
+  `cond.yo`, `functions/generation.yo`) call `note_line_position(em, expr)`
+  (`src/codegen/utils/index.yo`) before `_call_generate_expr`. The emitter
+  dedupes: adjacent statements from one `.yo` line pay zero directives.
+  Function boundaries call `em.clear_yo_line_position()` so generated
+  scaffolding keeps honest C numbering.
+- **Restore directives** are emitted as `#line 00000000 "<c>"` — the 8 zeros
+  are a MARKER, because the real number is unknowable at emission time (the
+  declarations buffer keeps growing after bodies are emitted). The patch
+  passes — `Emitter.patch_restore_line_numbers` (via `sections`/`print`) and
+  `_ca_patch_chunk_markers` in chunk_assembly.yo — rewrite the digits in
+  place against the final layout. Never emit a zero-padded number yourself:
+  a leading-zero pp-number reads as octal and clang warns.
+- **Pseudo-paths never map**: `_` (error nodes), `drop` (synthesized drops)
+  and `auto-generated://` (macro/derive expansions — the "path" embeds the
+  expansion text, newlines and all). The gate lives in
+  `Emitter.set_yo_line_position`.
+- The **code spill is disabled** when the flag is on (a marker inside the
+  spill file could not be patched in place); chunked emission rewrites the
+  markers per translation unit instead. `assemble_chunks` mints chunk file
+  names from the driver's `<base>_chunk` prefix — main.yo's `_pad3` and
+  `_ca_pad3` must stay in sync.
+- Debugging emitted C with the flag: `yo compile x.yo --line-directives -g -o
+  x && lldb ./x` steps through `.yo` files; a failing C compile re-renders
+  the C compiler's stderr as structured diagnostics carrying `.yo` spans.
 
 ## Writing emitted C inside a Yo backtick literal
 

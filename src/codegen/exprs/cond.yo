@@ -26,7 +26,7 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -230,6 +230,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
   prev_consumed := context.consumed_var_pending_drops;
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
+  note_line_position(context.base.emitter, value);
   _emit_value_arm_body(value, value_indent.clone(), temp_var_opt, is_unit, cond_outer_is_ptr, context);
   // A call nested under an operator in the arm value (`c => (f(tmp) > 0)`)
   // records its argument temps' drops on the VALUE node, which no call's
@@ -430,6 +431,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
         .Some(barg) => match(
           context.base.get_expr_info(barg),
           .Some(bei) => {
+            note_line_position(em, barg);
             arg_code := _call_generate_expr(barg, value_indent.clone(), context);
             if((arg_code.len() > usize(0)) && !is_temp_variable_name(bei.env.module_path.clone(), arg_code.clone()), {
               line := value_indent.clone();
@@ -453,6 +455,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
       .Some(final_expr) => match(
         context.base.get_expr_info(final_expr),
         .Some(fei) => {
+          note_line_position(em, final_expr);
           // Final expr carrying deferred `___dup`s (returning a borrowed value
           // out of the arm — e.g. evaluate_raw_pointer_call's `{ ...; expr }`):
           // declare the eval temp, emit the balancing dup, then assign the
