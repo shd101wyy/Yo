@@ -1846,19 +1846,14 @@ _fused_sm_variables :: (fn(site : FusedAwaitSite) -> HashMap(String, CapturedVar
   );
   vars
 });
+/// The field aliases a fused block is emitted with: only its bundle
+/// parameter's `__closure_param_<i>` onto the site's slot. Its locals need
+/// none (their registry names are the fields), and must have none: an alias
+/// on a local shadows the closure-param preference in the atom emitter, so the
+/// block's `e` (a local AND the parameter in the wrapper's analysis) read an
+/// uninitialized local field instead of the bundle.
 _fused_sm_aliases :: (fn(site : FusedAwaitSite) -> HashMap(String, String))({
   aliases := HashMap(String, String).new();
-  lfs := _fused_local_fields(site);
-  (li : usize) = usize(0);
-  while(li < lfs.len(), li = (li + usize(1)), {
-    match(
-      lfs.get(li),
-      .Some(lf) => {
-        aliases.insert(lf.id.clone(), lf.field_name.clone());
-      },
-      .None => ()
-    );
-  });
   slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
   (pi : usize) = usize(0);
   while(pi < slots.len(), pi = (pi + usize(1)), {
