@@ -51,6 +51,9 @@ verifier's design, V1–V7 landed),
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (verifier-driven removal of proved runtime guards; strict mode builds on it).
+[`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
+state-machine plan's phase 7 design for std's single-await I/O wrappers
+(an immediately awaited wrapper runs in its caller's frame).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
