@@ -14,6 +14,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ platform, Platform } :: import("std/process");
 { BufReader } :: import("std/io/bufio");
 { Stdin } :: import("std/io/stdio");
 { print } :: import("std/fmt");
@@ -102,4 +103,33 @@ write_lsp_message :: (fn(body : String) -> unit)({
   _f := unsafe(fflush(.Some(stdout)));
 });
 
-export(read_lsp_message, write_lsp_message);
+/// Windows: put stdout in binary mode, once, before the first frame.
+///
+/// The MSVC CRT opens stdout in TEXT mode, where libc stdio translates every
+/// `\n` into `\r\n` — on top of the explicit `\r\n\r\n` `write_lsp_message`
+/// prints, every frame would be terminated `\r\r\n\r\r\n`, and no LSP
+/// client's header parser accepts that (vscode-jsonrpc scans for exactly
+/// `\r\n\r\n`), so `initialize` would never complete at all
+/// (issues/lsp-windows-text-mode-framing-breaks-every-client.md). The
+/// well-known descriptors are 0/1/2 by CRT startup convention, so fd 1 names
+/// stdout without a `_fileno` call. The `_setmode` result (the previous
+/// mode, or -1) is deliberately ignored: there is nothing to fall back to
+/// here, and the strict-handshake gate script surfaces a still-translating
+/// stream on its own.
+_setmode_binary_stdout_windows :: (fn() -> unit)({
+  { _setmode } :: c_include("<io.h>", _setmode : (fn(fd : int, mode : int) -> int));
+  { _O_BINARY } :: c_include("<fcntl.h>", _O_BINARY : int);
+  unsafe(_setmode(int(1), _O_BINARY));
+});
+/// Prepare the wire for this platform before the first frame: binary stdout
+/// on Windows, nothing elsewhere (POSIX stdio has no text mode). One comptime
+/// `cond` arm per platform so the `<io.h>` / `<fcntl.h>` externs only reach
+/// Windows C — the std/env.yo convention, the same shape as main.yo's
+/// `_current_rss_mb`. MUST run before the first `write_lsp_message`.
+prepare_wire :: (fn() -> unit)(
+  cond(
+    (platform == Platform.Windows) => _setmode_binary_stdout_windows(),
+    true => ()
+  )
+);
+export(read_lsp_message, write_lsp_message, prepare_wire);
