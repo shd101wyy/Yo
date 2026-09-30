@@ -1,0 +1,10 @@
+# A safe-mode `unwrap` (D7) inside an `io.async` closure body. The body is
+# evaluated in a definition-time trial, which swallowed the plain E0611 throw,
+# so `yo check` passed and `yo compile` gave only E0905 (the body was never
+# fully evaluated)
+# (issues/fixed/safe-mode-unwrap-in-an-io-async-body-is-swallowed.md). The D7
+# rejection is now raised through the flow-violation flag, which the trial's
+# caller re-raises: rc=1 and the E0611 at the `unwrap`. The file's check
+# verdict is kept too, so a compiler with the bug scores a GOLDEN-DIFF
+# (`bad.yo — evaluator OK`) rather than a vacuous empty match.
+stdout_keep_match=(error\[E0611\]: `unwrap` on an Option/Result discards the failure case|bad\.yo — evaluator OK|[0-9]+ file\(s\) failed evaluator coverage)
