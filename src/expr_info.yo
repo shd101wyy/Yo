@@ -958,11 +958,45 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 /// call this first. Detects the shared instance by POINTER identity and swaps in
 /// a private list. Reads can use the field directly.
 expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
-  if(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)), {
-    info.path_collection = path_collection_new();
-  });
+  cond(
+    unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)) => {
+      info.path_collection = path_collection_new();
+    },
+    // Shared (`path_collection_of_name`, or aliased by another ExprInfo):
+    // write into a private deep copy.
+    (rc(info.path_collection) > usize(1)) => {
+      fresh := path_collection_new();
+      (i : usize) = usize(0);
+      while(i < info.path_collection.len(), {
+        match(info.path_collection.get(i), .Some(p) => fresh.push(p.clone()), .None => ());
+        i = (i + usize(1));
+      });
+      info.path_collection = fresh;
+    },
+    true => ()
+  );
   info.path_collection
 });
+/// The one-path collection `[[name]]`, shared by every ExprInfo that names
+/// `name` (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
+/// lhs of bindings and assignments each built a fresh one, and ~3 of every 4
+/// recorded collections were duplicates. Nothing writes a stored collection
+/// in place; `expr_info_paths_for_write` copies a shared one.
+(g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
+path_collection_of_name :: (fn(name : String) -> PathCollection)(
+  match(
+    g_name_path_collections.get(name),
+    .Some(pc) => pc,
+    .None => {
+      p := ArrayList(String).new();
+      p.push(name);
+      pc := path_collection_new();
+      pc.push(p);
+      _prev := g_name_path_collections.insert(name, pc);
+      pc
+    }
+  )
+);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
@@ -1891,7 +1925,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
