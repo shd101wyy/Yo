@@ -222,13 +222,10 @@ evaluate_anonymous_struct_value :: (
         .None => {
           ac = false;
         },
-        .Some(fvo) => match(
-          fvo,
-          .None => {
-            ac = false;
-          },
-          .Some(_) => ()
-        )
+        .Some(.None) => {
+          ac = false;
+        },
+        .Some(.Some(_)) => ()
       );
       ai = (ai + usize(1));
     });
@@ -249,13 +246,10 @@ evaluate_anonymous_struct_value :: (
         );
         match(
           field_values.get(si),
-          .Some(fvo) => match(
-            fvo,
-            .Some(v) => {
-              sv_vals.push(v);
-            },
-            .None => ()
-          ),
+          .Some(.Some(v)) => {
+            sv_vals.push(v);
+          },
+          .Some(.None) => (),
           .None => ()
         );
         si = (si + usize(1));

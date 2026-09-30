@@ -123,11 +123,8 @@ evaluate_impl_constraint :: (
         });
         trait_tv := match(
           mod_info.value,
-          .Some(v) => match(
-            v,
-            .TypeVal(tv_box) => tv_box,
-            _ => TypeValue.TypeUni(usize(0))
-          ),
+          .Some(.TypeVal(tv_box)) => tv_box,
+          .Some(_) => TypeValue.TypeUni(usize(0)),
           .None => TypeValue.TypeUni(usize(0))
         );
         if(!is_trait_type(trait_tv), {

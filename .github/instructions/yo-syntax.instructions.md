@@ -595,6 +595,17 @@ Inside an unsafe-capable file, the following operations require an explicit `uns
 
 Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`(*u8)(p)`).
 
+`&(K)` of a compile-time constant (`K :: P(...)`, an element `&(A(i))`, a field
+`&(K.f)`, a `::`-bound pointer) points at STATIC storage and may be returned
+and stored: codegen emits the constant, or the whole aggregate it lives in,
+as one file-scope static shared by every site. A constant holding
+reference-counted values cannot be addressed (it has no static initializer);
+bind it with `:=`. Before 2026-09-29 every such `&(K)` emitted
+`/* skip generating value */` and failed in the C compiler
+(`issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md`).
+A std module the compiler imports must still use a `:=` global for an
+address, because the seed predates that fix.
+
 `unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
 
 `pragma(...)` is also a regular builtin call. The argument `Pragma.AllowUnsafe` is recognized at the AST level; you can place the pragma anywhere at the top of the file (after the file's leading `//` comments). Multiple `pragma(...)` declarations are allowed.

@@ -18,7 +18,7 @@ lines wired to no subcommand and SIGSEGV'd the first time it ran. See
 
 | file                 | required | meaning                                                                                                                                               |
 | -------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmd`                | yes      | one shell-quoted argv per line, run in order in the sandbox project                                                                                   |
+| `cmd`                | yes      | one shell-quoted argv per line, run in order in the sandbox project; a directory without one fails the run (every directory is a case)               |
 | `fixture/`           | no       | copied into the sandbox project dir before the first command                                                                                          |
 | `ignore`             | no       | one path glob per line, dropped from the tree comparison                                                                                              |
 | `opts`               | no       | `stdout=strict\|ignore`, `stdout_keep=<ERE>`, `network=1`, `timeout=<seconds>`, `env=K=V` (repeatable; `<PROJ>`/`<HOME>` expand to the sandbox paths) |

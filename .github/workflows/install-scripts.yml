@@ -22,7 +22,9 @@ on:
         scripts/install.ps1,
         .github/workflows/install-scripts.yml,
       ]
+  # Develop-base PRs only, like test.yml: a stacked PR runs no CI.
   pull_request:
+    branches: [develop]
     paths:
       [
         scripts/install.sh,
@@ -42,6 +44,7 @@ jobs:
   posix:
     name: install.sh (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -105,8 +108,8 @@ jobs:
     # a release actually publishes a musl bundle, but the SELECTION logic is
     # what regresses silently, and it is testable today: `is_musl` must detect
     # musl through `ldd --version` (which prints to stderr and exits non-zero),
-    # the musl bundle must be probed, and its absence must fall back to the
-    # glibc bundle with a warning instead of failing.
+    # the musl bundle must be probed and chosen. Releases publish it now, so
+    # falling back off it (the old glibc-with-a-warning path) is a failure.
     #
     # This is the only Alpine coverage anywhere in CI — the posix matrix above
     # is glibc-only, so without this job every musl branch in install.sh is
@@ -172,6 +175,7 @@ jobs:
   windows:
     name: install.ps1 (windows-x64)
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

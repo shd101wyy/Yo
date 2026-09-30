@@ -1734,21 +1734,18 @@ evaluate_type_join_fields :: (
   local_env = expr_info_adopt_env(info2);
   combiner_expr := match(
     info2.value,
-    .Some(v) => match(
-      v,
-      .ExprVal(e_box) => e_box,
-      _ => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(arg2),
-              String.from("__yo_type_join_fields: third argument must be a quoted expression")
-            )
+    .Some(.ExprVal(e_box)) => e_box,
+    .Some(_) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg2),
+            String.from("__yo_type_join_fields: third argument must be a quoted expression")
           )
-        );
-        make_err_expr()
-      }
-    ),
+        )
+      );
+      make_err_expr()
+    },
     .None => {
       exn.throw(
         dyn(
@@ -1851,21 +1848,18 @@ evaluate_type_join_fields :: (
     local_env = expr_info_adopt_env(call_info);
     result_expr := match(
       call_info.value,
-      .Some(v) => match(
-        v,
-        .ExprVal(e_box) => e_box,
-        _ => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(arg1),
-                String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
-              )
+      .Some(.ExprVal(e_box)) => e_box,
+      .Some(_) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg1),
+              String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
             )
-          );
-          make_err_expr()
-        }
-      ),
+          )
+        );
+        make_err_expr()
+      },
       .None => {
         exn.throw(
           dyn(
