@@ -2371,9 +2371,24 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue
   match(
     current_forcing_def(),
     .Some(def) => if((!(def.is_impl) && def.phase_a_value.is_none()), {
+      // `f :: ghost_fn((fn(...) -> R)(body))` defines a function too: the
+      // wrapper evaluates the SAME literal node and returns its FuncVal, so
+      // the literal inside it may publish, and a recursive ghost_fn (R2, it
+      // carries `decreases`) can name itself.
       def_rhs_id := match(
         def.expr,
-        .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(1)), .Some(r) => ast_expr_id(r), .None => usize(0)),
+        .FnCall(_, _, cargs, _, _) => match(
+          cargs.get(usize(1)),
+          .Some(r) => cond(
+            ast_expr_is_fn_call_of(r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
+              r,
+              .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(gl), .None => usize(0)),
+              .Atom(_, _) => usize(0)
+            ),
+            true => ast_expr_id(r)
+          ),
+          .None => usize(0)
+        ),
         .Atom(_, _) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
