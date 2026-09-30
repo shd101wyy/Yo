@@ -26,12 +26,27 @@ Status as of 2026-09-30:
   2,807 → **2,707 MB**, `check` 966 → 909 MB, C identical.
 - **Measured and rejected:** env interning (§0.7), per-function env
   release (§0.8), a bigger snapshot ring and adopt-time env reuse (§0.12).
-- **Env-free codegen, step 1 measured (§6):** 3.56 M env queries during
-  `compile_module`. Nearly all are keyed by an ExprInfo whose own node
-  yields the name; collect's 82 K read live envs only.
-- **Next**, after #1018 (the async state-machine stack, which rewrites most
-  of the code these touch) lands: env-free codegen steps 2–4 (§6) and
-  Phase 4 Design 1 (the specialization clones).
+- **Env-free codegen (§6): measured and rejected in its drop-at-emit form.**
+  - Dropping every recorded env at the start of emit, with no records at
+    all, lowers `compile`'s max RSS only 2,692 → 2,656 MB.
+  - With mimalloc told to purge immediately, the same drop lowers it
+    2,685 → 2,611 MB.
+  - The records it would need cost more than that: +316 MB measured with a
+    partial record set.
+
+  Memory freed after evaluation only offsets what collect and emit still
+  allocate. The 746 MB matters only if evaluation stops retaining it (§6,
+  "What would work").
+- **`fetch_package`'s emit transient (§0.7) is gone** since #1018's
+  single-pass lowering: the deferred-async-blocks mark moves 2,622 → 2,624 MB.
+  Develop `29bf728b4` compiles itself at **2,692 MB** max RSS.
+- **Next:** the levers left all reduce what EVALUATION retains (§5).
+  - Phase 4 Design 1 (the specialization clones, allocation avoided);
+  - resolving env records at scope exit during evaluation (§6, a large
+    refactor);
+  - purging more never-read entries while evaluation runs, as lever 4 did,
+    once a category with a clean evaluation-time test is found (§6's read
+    classification found none among the obvious ones).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -655,7 +670,28 @@ Proposed, to confirm after Phase 0:
   mimalloc (from 3.25 GB);
 - the CI cgroup peak (C compiler included) below **2.5 GB** (from 3.36 GiB).
 
-## 6. Design (step 1 measured): env-free codegen, for §0.6's 746 MB
+**Where it stands (2026-09-30).**
+- The self-compile is at 2,692 MB (develop `29bf728b4`).
+- The CI cgroup peak was 3,144,408 kB (3.0 GiB) at #1041, before #1054.
+
+What the campaign learned about reaching 2.0 GB:
+- **The peak is set late**, at the end of emit. Evaluation ends at
+  ~2,350 MB, collect adds ~200 MB and emit ~75 MB.
+- **Memory freed after evaluation returns little RSS.** mimalloc keeps the
+  scattered freed slots and reuses them only for what is allocated later
+  (§0.7 interning, §0.8 release, §6's env drop).
+- So the remaining ~700 MB can only come from what evaluation allocates and
+  retains. The only lever that did it here is lever 4, which purges while
+  evaluation still allocates.
+
+The candidates, largest first:
+- scope-exit env records (§6), up to a few hundred MB, large and risky;
+- Phase 4 Design 1, ~100–150 MB;
+- further in-evaluation purges.
+
+2.0 GB needs most of them.
+
+## 6. Design: env-free codegen, for §0.6's 746 MB — measured and REJECTED in its drop-at-emit form (2026-09-30)
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -804,6 +840,58 @@ The record's shape decides whether that survives:
     same one-element list).
 
   The query sites then ask by node, which is the step-3 change.
+
+**Step 2 prototyped and rejected (2026-09-30).** Before refactoring the ~112
+query sites (the re-inventory on develop `29bf728b4`: 27 own-token rows, 50
+`variable_name` rows, 15 ITVN-only rows, 8 child-name rows, 15 rows needing
+a redesign), a scratch prototype measured the win. The prototype is on
+branch `wip/env-drop-prototype`, behind `YO_PROTO_ENVFREE`. At the start of
+emit it builds the records the table alone yields, then points every
+recorded env at a frameless per-module env. `YO_PROTO_NORECORDS` skips the
+records. Its C is wrong; only its memory counts. Same binary, same tree,
+mimalloc:
+
+| variant | max RSS | end of collect | end of emit |
+| --- | --- | --- | --- |
+| knob off (develop `29bf728b4` + the scratch code) | 2,692 MB | 2,549 | 2,624 |
+| records (654 K atom lists, 1.39 M name lists) + envs dropped | 3,008 (+316) | 2,549 | 2,932 |
+| envs dropped, no records | 2,656 (−36) | 2,555 | 2,589 |
+| `MIMALLOC_PURGE_DELAY=0`, knob off | 2,685 | 2,550 | 2,621 |
+| `MIMALLOC_PURGE_DELAY=0`, envs dropped, no records | 2,611 (−74) | 2,549 | 2,495 (2,451 right after the drop) |
+
+- **The ceiling of dropping envs after evaluation is emit's own growth**,
+  plus what mimalloc can purge: −36 MB, or −74 MB with immediate purging.
+  It is not §0.6's 746 MB. The census counted live objects; RSS keeps the
+  scattered pages they free.
+- **Records cost more than the drop frees.** The lever as designed
+  (steps 2–4) is rejected.
+
+**The read classification** (the same branch, `YO_CODEGEN_READS` plus a
+per-entry class of value kind × type): no large class is entirely unread.
+Unit-typed runtime nodes, `Type`-valued type expressions, and `String` /
+`ArrayList` / `Option` locals all appear on both the read and the unread
+side. A lever-4-style purge needs a structural test at evaluation time,
+such as "this node belongs to a body that will never be emitted", not a
+type test.
+
+**What would work.** Stop evaluation from retaining the envs, while the heap
+is still growing:
+- when a function body's or begin block's evaluation ends and its frames
+  are final, resolve the records of the ExprInfos created inside it;
+- then release their env references, so the frames die during evaluation
+  and later evaluation reuses the space.
+
+The costs:
+- the same records (~200 MB measured);
+- a hook at every scope exit;
+- the 15 hard rows redesigned (pending drops across envs, capture labels,
+  whole-env `given` scans, the handler-installation frame predicate);
+- `mutation_summary.yo` converted;
+- all ~112 sites switched.
+
+The possible win is §0.6's retention minus the records, a few hundred MB.
+It is the largest lever left, and also the largest refactor. It is not
+started.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
