@@ -270,10 +270,7 @@ Then run: `yo build doc`
 ### Verification build step — proofs as part of the build
 
 ```rust
-// Generation A spelling (until the seed carries `__yo_build_verify`; then
-// `build.verify({ name : "proofs", root : "./src" })`):
-__yo_build_verify("proofs", "./src", "verify", false);   // (name, root, "verify"|"verify+", strict)
-proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+proofs :: build.verify({ name : "proofs", root : "./src" });   // mode : build.VerifyMode.Verify (default) | .VerifyOrAssert; strict : bool
 install.depend_on(proofs);
 ```
 
