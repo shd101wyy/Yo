@@ -921,7 +921,12 @@ the arena, and each release routes back there. The compiler does not import
 **Status: landed** (#1034), after v0.2.48 became the seed. The
 merge kept develop's verification contract on `ArrayList.new`
 (`ensures(r.len() == usize(0))`, `assumed()`); both branches of the scoped body
-return an empty list.
+return an empty list. The rebase also met #1041's lazy `HashMap.new` (no
+buffers until the first insert). An empty map records its allocator only in
+its buffers' owner prefix, so the lazy map grew on the global allocator even
+inside a scope. The P3c test "A default HashMap and a String built in the
+scope are placed there" caught it. Inside a scope, `new` is now `new_in(a)`;
+outside one it stays lazy.
 
 `ArrayList.new()` / `with_capacity`, `HashMap.new()` / `with_capacity` (and
 through them `HashSet`, `StringBuilder`, `String`), and `Deque.new()` consult
