@@ -1,10 +1,10 @@
 # `textDocument/references` ignores `context.includeDeclaration`
 
-**Status:** FIXED 2026-09-29 (audit §2 PR, plans/LSP_AUDIT_2026-09-29.md): `handle_references` takes `include_declaration` (default true, read from `params.context` in the dispatch); `collect_symbol_occurrences_with_decl` reports the declaration token and the declaration occurrence is dropped when the client asked for references only. Was: **Severity:** S3 — "Find All References" always includes the declaration even when the client asked to exclude it; minor protocol-conformance defect, no data loss.
+**Status:** FIXED 2026-09-29 (audit §2 PR, plans/archive/LSP_AUDIT_2026-09-29.md): `handle_references` takes `include_declaration` (default true, read from `params.context` in the dispatch); `collect_symbol_occurrences_with_decl` reports the declaration token and the declaration occurrence is dropped when the client asked for references only. Was: **Severity:** S3 — "Find All References" always includes the declaration even when the client asked to exclude it; minor protocol-conformance defect, no data loss.
 
 ## Reproduction
 
-`plans/LSP_AUDIT_2026-09-29.md` probe session A, against the installed v0.2.45
+`plans/archive/LSP_AUDIT_2026-09-29.md` probe session A, against the installed v0.2.45
 binary. Same document, same position (the `p` declaration at 1:1), both
 `context` values:
 

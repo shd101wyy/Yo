@@ -757,7 +757,7 @@ _handle_message :: (
     },
     (method == String.from("workspace/symbol")) => {
       // The top-level symbols of every OPEN document whose name matches the
-      // query (plans/LSP_AUDIT_2026-09-29.md §3) — open-docs-only by design;
+      // query (plans/archive/LSP_AUDIT_2026-09-29.md §3) — open-docs-only by design;
       // cross-module symbol search wants an index shape decision first.
       (ws_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
@@ -1207,7 +1207,7 @@ _handle_message :: (
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
 run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   // Windows text-mode stdout would corrupt every frame header
-  // (issues/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
+  // (issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
   // to binary before anything can be written.
   prepare_wire();
   // The server re-forces definitions of finished walks on every edit

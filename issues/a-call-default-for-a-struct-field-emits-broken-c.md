@@ -1,6 +1,6 @@
 # A CALL expression as an optional struct-field default passes check and emits broken C
 
-**Severity:** S2 — a valid construct is accepted by `yo check` and fails only at the C-compile stage with an opaque generated-C error; found 2026-09-29 while landing the audit §3 `relatedInformation` work (`plans/LSP_AUDIT_2026-09-29.md`).
+**Severity:** S2 — a valid construct is accepted by `yo check` and fails only at the C-compile stage with an opaque generated-C error; found 2026-09-29 while landing the audit §3 `relatedInformation` work (`plans/archive/LSP_AUDIT_2026-09-29.md`).
 
 ## Reproduction
 
