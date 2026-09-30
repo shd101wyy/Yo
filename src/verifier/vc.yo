@@ -4955,6 +4955,16 @@ _refine_pred_chain_term :: (
   });
   out
 });
+/// A fresh list holding the same sorts (`VcSort` has no `Clone`).
+_sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
+  out := ArrayList(VcSort).new();
+  (si : usize) = usize(0);
+  while(si < src.len(), {
+    out.push(src.get(si).unwrap());
+    si = (si + usize(1));
+  });
+  out
+});
 /// R2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
 /// `decreases` as the uninterpreted function `f`, applied to the walked
 /// actuals. Its meaning is the definitional axiom
@@ -5067,7 +5077,7 @@ _ghost_fn_app_term :: (
   // Declare the function and its definitional axiom once.
   if(!ctx.gfn_keys.contains(fname.clone()), {
     ctx.gfn_keys.push(fname.clone());
-    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : arg_sorts.clone(), result : res_sort.unwrap()));
+    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : _sorts_copy(arg_sorts), result : res_sort.unwrap()));
     binder_names := ArrayList(String).new();
     binder_terms := ArrayList(VcTerm).new();
     saved_bn := ArrayList(String).new();
@@ -5098,11 +5108,11 @@ _ghost_fn_app_term :: (
     match(
       body_t,
       .Some(bt) => {
-        lhs := VcTerm.Ctor(name : fname.clone(), args : binder_terms.clone());
+        lhs := VcTerm.Ctor(name : fname.clone(), args : binder_terms);
         triggers := ArrayList(VcTerm).new();
         triggers.push(lhs);
         ctx.axioms.push(
-          VcTerm.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : arg_sorts.clone(), body : _app2(VcOp.EqOp, lhs, bt), triggers : triggers)
+          VcTerm.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : _sorts_copy(arg_sorts), body : _app2(VcOp.EqOp, lhs, bt), triggers : triggers)
         );
       },
       .None => {
