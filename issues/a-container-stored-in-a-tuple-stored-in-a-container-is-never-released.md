@@ -1,6 +1,6 @@
 # A container stored in a tuple stored in a container is never released — LeakSanitizer fails `tests/basic.test.yo`
 
-**Severity:** S1 — an unbounded RC leak in safe code: every `ArrayList(Tuple(i32, ArrayList(i32)))` that dies leaks its inner container (measured 48 bytes / 2 allocations per instance, scaling linearly), and `tests/basic.test.yo` is RED under the default sanitized test run.
+**Severity:** S3 (downgraded from S1 — see "CI cross-check", resolved) — on Linux/WSL2 every `ArrayList(Tuple(i32, ArrayList(i32)))` that dies leaks its inner container (measured 48 bytes / 2 allocations per instance, scaling linearly) and `tests/basic.test.yo` is RED under the default sanitized test run; stock CI Linux does NOT reproduce it, so it is plausibly an LSan false positive local to WSL2's runtime/kernel. Still worth root-causing (every WSL2 developer sees a red basic suite), but it gates nothing.
 
 **Found:** 2026-09-30, the `plans/reference/MATCH_PATTERN_MATCHING.md` closeout audit (a dynamic verification run of the match suite; the failing test contains no match code — the bug is orthogonal to the match work and predates it).
 
@@ -72,14 +72,17 @@ for the mirror-image over-drop): any fix needs the dup/drop emit-diff gate plus
 an over-drop canary (the over-drop direction is a use-after-free), and a
 Dispose-counter regression test shaped like the reproducer above.
 
-## CI cross-check (open)
+## CI cross-check (resolved 2026-09-30)
 
-Measured on Linux/WSL2. The CI ubuntu legs run the same sanitized suite, and
-`tests/basic.test.yo` is in the fast suite — the last few develop batteries
-were cancelled back-to-back, so the most recent COMPLETED language-suite
-verdict predates this finding. If the next completed battery's language suite
-is green on `basic.test.yo`, treat this as WSL2-local and downgrade to S3; if
-it is red with the same 180-byte signature, it is confirmed on stock Linux.
+Measured on Linux/WSL2. PR #1049's battery (2026-09-30) ran the language
+suite GREEN on both stock Linux legs — `test (ubuntu-latest)` and
+`test (ubuntu-24.04-arm)`, `basic.test.yo` included — while the same test
+stays red on this WSL2 box under two different binaries (the v0.2.46 seed
+and a tree stage-1). Per this doc's own rule the finding is downgraded to
+S3: most likely an LSan root-scanning false positive specific to the
+WSL2/nix toolchain combination rather than a real unreachable leak. The
+minimal reproducer still shows the signature for anyone digging further;
+if a stock-Linux machine ever reproduces it, restore the S1 verdict.
 
 ## Fix sketch
 
