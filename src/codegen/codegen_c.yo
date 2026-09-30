@@ -1,9 +1,11 @@
 //! Top-level C code-generation orchestrator — `compile_module` (below) drives
 //! the full pipeline.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { Instant } :: import("std/time/instant");
-{ ast_expr_token } :: import("../expr.yo");
+{ ast_expr_token, ast_expr_id, ast_expr_to_string, AstExpr } :: import("../expr.yo");
 { profile_record_phase, profile_record_function_census, profile_memory_mark, debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { raise_codegen_error, clear_codegen_error } :: import("./constants.yo");
@@ -11,14 +13,14 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_consumed_variable_drop_expressions, ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type } :: import("../types/guards.yo");
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
-{ Environment } :: import("../env.yo");
+{ Environment, cgq_set_active, cgq_log, cgq_set_phase, cgq_var_counts } :: import("../env.yo");
 { EvalContext, force_pending_count } :: import("../evaluator/context.yo");
 { CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
@@ -30,7 +32,7 @@
 { generate_function_declarations } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
-{ register_generate_expr } :: import("./exprs/generation.yo");
+{ register_generate_expr, cgq_nodes, cgq_parents } :: import("./exprs/generation.yo");
 { register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
 { _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
@@ -301,6 +303,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
 compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false, (code_spill_path : String) ?= String.new()) -> ArrayList(String))({
+  cgq_set_active(true);
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -453,6 +456,7 @@ typedef enum {
   profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
+  cgq_set_phase(usize(1));
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
@@ -625,7 +629,212 @@ static Slice_uint8_t_u42_ __yo_args;
     prof_i = (prof_i + usize(1));
   });
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
+  cgq_set_active(false);
+  _cgq_report(info);
   base.emitter.close_code_spill();
   base.emitter.sections()
 });
+/// Scratch instrument (plans/CODEGEN_MEMORY_REDUCTION.md §6 step 1).
+_cgq_atoms :: (fn(e : AstExpr, depth : usize, out : ArrayList(String)) -> unit)(
+  match(
+    e,
+    .Atom(_, tok) => out.push(tok.value.clone()),
+    .FnCall(_, callee, args, _, _) => if(depth > usize(0), {
+      _cgq_atoms(callee, (depth - usize(1)), out);
+      (k : usize) = usize(0);
+      while(k < args.len(), {
+        match(args.get(k), .Some(a) => _cgq_atoms(a, (depth - usize(1)), out), .None => ());
+        k = (k + usize(1));
+      });
+    })
+  )
+);
+_cgq_has :: (fn(xs : ArrayList(String), n : String) -> bool)({
+  (k : usize) = usize(0);
+  (hit : bool) = false;
+  while((k < xs.len()) && !(hit), {
+    match(xs.get(k), .Some(x) => if(x == n, { hit = true; }), .None => ());
+    k = (k + usize(1));
+  });
+  hit
+});
+_cgq_list_names :: (fn(info : ExprInfoTable, lst : Option(ArrayList(AstExpr)), out : ArrayList(String)) -> unit)(
+  match(
+    lst,
+    .Some(l) => {
+      (k : usize) = usize(0);
+      while(k < l.len(), {
+        match(
+          l.get(k),
+          .Some(d) => {
+            _cgq_atoms(d, usize(3), out);
+            match(info.data.get(ast_expr_id(d)), .Some(di) => match(di.variable_name, .Some(v) => out.push(v.clone()), .None => ()), .None => ());
+          },
+          .None => ()
+        );
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+_cgq_sub_ids :: (fn(e : AstExpr, depth : usize, out : ArrayList(usize)) -> unit)({
+  out.push(ast_expr_id(e));
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, _, _) => if(depth > usize(0), {
+      _cgq_sub_ids(callee, (depth - usize(1)), out);
+      (k : usize) = usize(0);
+      while(k < args.len(), {
+        match(args.get(k), .Some(a) => _cgq_sub_ids(a, (depth - usize(1)), out), .None => ());
+        k = (k + usize(1));
+      });
+    })
+  );
+});
+_cgq_report :: (fn(info : ExprInfoTable) -> unit)(
+  if(debug_knob(`YO_CODEGEN_ENVQ`).is_some(), {
+    log := cgq_log();
+    nodes := cgq_nodes();
+    counts := HashMap(String, usize).new();
+    pairs := HashMap(String, bool).new();
+    samples := ArrayList(String).new();
+    (k : usize) = usize(0);
+    while(k < log.len(), {
+      match(
+        log.get(k),
+        .Some(q) => {
+          (cls : String) = match(
+            nodes.get(q.id),
+            .None => {
+              if(((k % usize(9973)) == usize(3)) && (samples.len() < usize(150)), {
+                samples.push(`nonode name=${q.name} depth=${q.depth.to_string()}`);
+              });
+              if(q.name.starts_with(String.from("_file_")), String.from("nonode-temp"), String.from("nonode"))
+            },
+            .Some(node) => match(
+              info.data.get(q.id),
+              .None => String.from("noinfo"),
+              .Some(ni) => {
+                subids := ArrayList(usize).new();
+                _cgq_sub_ids(node, usize(3), subids);
+                subvn := ArrayList(String).new();
+                (childenv : bool) = false;
+                (si2 : usize) = usize(1);
+                while(si2 < subids.len(), {
+                  match(info.data.get(subids.get(si2).unwrap()), .Some(ci) => {
+                    if(unsafe(__yo_ptr_eq(ci.env, q.env)), { childenv = true; });
+                    match(ci.variable_name, .Some(v) => subvn.push(v.clone()), .None => ());
+                  }, .None => ());
+                  si2 = (si2 + usize(1));
+                });
+                (parentenv : bool) = false;
+                (anc : usize) = q.id;
+                (hops : usize) = usize(0);
+                parents := cgq_parents();
+                while((hops < usize(64)) && !(parentenv), {
+                  match(parents.get(anc), .Some(pid) => {
+                    anc = pid;
+                    match(info.data.get(pid), .Some(pi) => if(unsafe(__yo_ptr_eq(pi.env, q.env)), { parentenv = true; }), .None => ());
+                  }, .None => { hops = usize(64); });
+                  hops = (hops + usize(1));
+                });
+                ancdd := ArrayList(String).new();
+                (anc2 : usize) = q.id;
+                (hops2 : usize) = usize(0);
+                while(hops2 < usize(64), {
+                  match(parents.get(anc2), .Some(pid) => {
+                    anc2 = pid;
+                    match(info.data.get(pid), .Some(pi) => {
+                      _cgq_list_names(info, pi.deferred_drop_expressions, ancdd);
+                      _cgq_list_names(info, expr_info_consumed_variable_drop_expressions(pi), ancdd);
+                    }, .None => ());
+                  }, .None => { hops2 = usize(64); });
+                  hops2 = (hops2 + usize(1));
+                });
+                envrel := cond(
+                  unsafe(__yo_ptr_eq(ni.env, q.env)) => "ownenv",
+                  childenv => "childenv",
+                  parentenv => "parentenv",
+                  true => "otherenv"
+                );
+                own := match(node, .Atom(_, tok) => (tok.value == q.name), _ => false);
+                if(own, {
+                  sv_ok := match(ni.source_variable, .Some(sv) => (sv.name == q.name), .None => false);
+                  sv_k := if(sv_ok, "own-sv", "own-nosv");
+                  pv := match(counts.get(String.from(sv_k)), .Some(c) => c, .None => usize(0));
+                  counts.insert(String.from(sv_k), (pv + usize(1)));
+                });
+                if(!(own), {
+                  pk := `${q.id.to_string()}|${q.name}`;
+                  _pp := pairs.insert(pk, true);
+                });
+                vn := match(ni.variable_name, .Some(v) => (v == q.name), .None => false);
+                dd := ArrayList(String).new();
+                _cgq_list_names(info, ni.deferred_drop_expressions, dd);
+                _cgq_list_names(info, expr_info_deferred_dup_expressions(ni), dd);
+                _cgq_list_names(info, expr_info_consumed_variable_drop_expressions(ni), dd);
+                sub := ArrayList(String).new();
+                _cgq_atoms(node, usize(3), sub);
+                src := cond(
+                  own => "own",
+                  vn => "vn",
+                  _cgq_has(dd, q.name) => "deferred",
+                  _cgq_has(sub, q.name) => "subtree",
+                  _cgq_has(subvn, q.name) => "subvn",
+                  _cgq_has(ancdd, q.name) => "ancdrop",
+                  true => "other"
+                );
+                if(((src == "other") || (envrel == "otherenv")) && ((k % usize(20011)) == usize(7)) && (samples.len() < usize(150)), {
+                  s := ast_expr_to_string(node);
+                  samples.push(`k=${(k + usize(1)).to_string()} ${src}/${envrel} name=${q.name} depth=${q.depth.to_string()} node=${s.substring(usize(0), if((s.len() > usize(160)), usize(160), s.len()))}`);
+                });
+                `${src}/${envrel}`
+              }
+            )
+          );
+          pcls := `${if((q.phase == usize(0)), "C", "E")}:${cls}`;
+          prev := match(counts.get(pcls.clone()), .Some(c) => c, .None => usize(0));
+          counts.insert(pcls, (prev + usize(1)));
+        },
+        .None => ()
+      );
+      k = (k + usize(1));
+    });
+    eprintln(`[cgq] queries=${log.len().to_string()} ${cgq_var_counts()} nonatom_pairs=${pairs.len().to_string()} own_sv=${match(counts.get(String.from("own-sv")), .Some(c) => c, .None => usize(0)).to_string()} own_nosv=${match(counts.get(String.from("own-nosv")), .Some(c) => c, .None => usize(0)).to_string()}`);
+    classes := ArrayList(String).new();
+    for_c := ArrayList(String).new();
+    for_c.push(String.from("own"));
+    for_c.push(String.from("vn"));
+    for_c.push(String.from("deferred"));
+    for_c.push(String.from("subtree"));
+    for_c.push(String.from("subvn"));
+    for_c.push(String.from("ancdrop"));
+    for_c.push(String.from("other"));
+    (ci : usize) = usize(0);
+    while(ci < for_c.len(), {
+      c := for_c.get(ci).unwrap();
+      classes.push(`${c}/ownenv`);
+      classes.push(`${c}/childenv`);
+      classes.push(`${c}/parentenv`);
+      classes.push(`${c}/otherenv`);
+      ci = (ci + usize(1));
+    });
+    classes.push(String.from("nonode"));
+    classes.push(String.from("nonode-temp"));
+    classes.push(String.from("noinfo"));
+    (cj : usize) = usize(0);
+    while(cj < classes.len(), {
+      c := classes.get(cj).unwrap();
+      eprintln(`[cgq] C:${c} ${match(counts.get(`C:${c}`), .Some(v) => v, .None => usize(0)).to_string()} E:${c} ${match(counts.get(`E:${c}`), .Some(v) => v, .None => usize(0)).to_string()}`);
+      cj = (cj + usize(1));
+    });
+    (si : usize) = usize(0);
+    while(si < samples.len(), {
+      match(samples.get(si), .Some(x) => eprintln(`[cgq-sample] ${x}`), .None => ());
+      si = (si + usize(1));
+    });
+  })
+);
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

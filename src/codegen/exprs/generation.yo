@@ -3,6 +3,8 @@
 //! registered as the target of the `_call_generate_expr` indirection
 //! (set_generate_expr_fn) so every emitter's recursive calls land here.
 { String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ cgq_on, cgq_push, cgq_pop } :: import("../../env.yo");
 { ArrayList } :: import("std/collections/array_list");
 { eprintln : ceg_eprintln } :: import("std/fmt");
 {
@@ -912,7 +914,30 @@ _calls_a_never_function :: (fn(expr : AstExpr, context : FunctionGenerationConte
     _ => false
   )
 );
-_generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+(g_cgq_nodes : HashMap(usize, AstExpr)) = HashMap(usize, AstExpr).new();
+(g_cgq_parent : HashMap(usize, usize)) = HashMap(usize, usize).new();
+(g_cgq_cur : ArrayList(usize)) = ArrayList(usize).new();
+cgq_nodes :: (fn() -> HashMap(usize, AstExpr))(g_cgq_nodes);
+cgq_parents :: (fn() -> HashMap(usize, usize))(g_cgq_parent);
+export(cgq_nodes, cgq_parents);
+_generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  on := cgq_on();
+  if(on, {
+    cgq_push(ast_expr_id(expr));
+    g_cgq_nodes.insert(ast_expr_id(expr), expr);
+    match(g_cgq_cur.last(), .Some(par) => if(!(g_cgq_parent.contains_key(ast_expr_id(expr))), {
+      g_cgq_parent.insert(ast_expr_id(expr), par);
+    }), .None => ());
+    g_cgq_cur.push(ast_expr_id(expr));
+  });
+  r := _generate_expr_inner(expr, indent, context);
+  if(on, {
+    cgq_pop();
+    _q := g_cgq_cur.pop();
+  });
+  r
+});
+_generate_expr_inner :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, _, _, _) => {
