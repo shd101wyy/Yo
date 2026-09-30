@@ -22,13 +22,16 @@ Status as of 2026-09-30:
   landed in between; same input tree, stage-2, mimalloc): `compile`
   3,417 → **2,808 MB** (−17.8 %), `check` 1,011 → 966 MB, instructions
   109.45 G → 108.63 G (−0.75 %, `check src/types/intern.yo`), C identical.
-- **Lever 4, the overload-trial clone purge (§0.12):** `compile`
+- **Lever 4, the overload-trial clone purge (§0.12, #1054):** `compile`
   2,807 → **2,707 MB**, `check` 966 → 909 MB, C identical.
 - **Measured and rejected:** env interning (§0.7), per-function env
   release (§0.8), a bigger snapshot ring and adopt-time env reuse (§0.12).
-- **Next**, after #1002 and #1016 land (they rewrite most of the code these
-  touch): Phase 4 Design 1 (the specialization clones) and env-free codegen
-  (§6).
+- **Env-free codegen, step 1 measured (§6):** 3.56 M env queries during
+  `compile_module`. Nearly all are keyed by an ExprInfo whose own node
+  yields the name; collect's 82 K read live envs only.
+- **Next**, after #1018 (the async state-machine stack, which rewrites most
+  of the code these touch) lands: env-free codegen steps 2–4 (§6) and
+  Phase 4 Design 1 (the specialization clones).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -652,7 +655,7 @@ Proposed, to confirm after Phase 0:
   mimalloc (from 3.25 GB);
 - the CI cgroup peak (C compiler included) below **2.5 GB** (from 3.36 GiB).
 
-## 6. Design (not started): env-free codegen, for §0.6's 746 MB
+## 6. Design (step 1 measured): env-free codegen, for §0.6's 746 MB
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -742,6 +745,43 @@ after they land.
    - `gates_fast`'s corpus;
    - a knob that panics when an emptied env is queried;
    - `YO_DEBUG_FROZEN=1`.
+
+**Step 1 measured (2026-09-30).** A scratch instrument, not in the tree:
+`_generate_expr` pushes the node it generates, `get_variables_from_env` logs
+`(current node, name, env)` while `compile_module` runs, and a report
+classifies each query by where its name comes from and which env is passed
+(the node's own recorded env, a subtree node's, an ancestor's, or another).
+gdb backtraces (a hook at a chosen query index, `-O1 -g` build) name the
+sites of the unclassified rows. Self-compile, 3,563,490 queries:
+
+| rows | queries | what they are |
+| --- | --- | --- |
+| collect phase | 82,074 | all outside any generated expression: late evaluation (specializations, synthesized disposers) looking names up in LIVE envs, not recorded ones |
+| emit, the node's own token in its own env | 1,431,337 | the design's main case |
+| emit, the node's `variable_name`, a deferred dup/drop/consumed target, or an atom or temp of its subtree (depth ≤ 3), in its own or a subtree node's env | 443,561 | fits, if a node's record also covers its subtree's atoms and temps |
+| emit, a name from those sources in an unrelated env | 101,714 | unexplained, ~3 % |
+| emit, an unrelated name in its own env | 36,250 | unexplained, ~1 % |
+| emit, an unrelated name in an unrelated env | 807,077 | cleanup points: `_keep_pending_drop` → `_get_deferred_drop_target_variable` resolves each enclosing pending drop in its TARGET ATOM's own env by the atom's own name (4 of 4 samples) |
+| emit, no generated expression current | 661,477 | function epilogues checking parameter and local drops (the drop target atom's env again, 3 of 4 samples), and `evaluator/effects/mutation_summary.yo` (`_msp_atom_root`, `_msp_atom_local_name`), which `generate_function` runs at emit time and which reads atoms' recorded envs by their own token (1 of 4) |
+
+So the key for nearly every query is an ExprInfo whose own node yields the
+name: the node itself, one of its subtree's atoms, or a pending drop's target
+atom. What step 2 has to change:
+- **Record per atom, not per cleanup node.** A cleanup point asks each
+  pending drop's target atom, so the record is the atom's own resolution,
+  and the cleanup point's lookup becomes a read of that record.
+- **A node's record covers its subtree's atoms and temps**: the `:=` lhs,
+  field tokens, path bases and capture labels of the audit, down to the
+  depth the instrument saw.
+- **`mutation_summary.yo` is a reader too.** It is an evaluator module the
+  audit of `src/codegen` did not list, and it runs per emitted function.
+- **Collect can keep its envs.** Its 82 K queries read live envs. Dropping
+  recorded envs at the start of emit, not of collect, answers the first open
+  question below (collect adds 2.887 M → 2.953 M entries, which then need
+  records made at the end of collect).
+- **The ~4 % unexplained rows** (137,964) are the first thing step 2's
+  implementation classifies by site. A panicking empty-env knob finds them
+  directly.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
