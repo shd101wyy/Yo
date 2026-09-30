@@ -343,7 +343,9 @@ discharges a runtime guard (`divisor-nonzero`, `shift-in-width`,
 assert obligations have `"site": null`. Names are unique within a function: a
 guard obligation carries its position (`…/divisor-nonzero@12:9`), and a name
 that repeats anyway (two calls of one callee's `requires#0`) gets `~2`, `~3`,
-… in walk order.
+… in walk order. Under `--elision` the report also lists the overflow
+obligations (`div-no-overflow`, `no-overflow`, `neg-no-overflow`), each with
+`"elision_only": true`; they never change a function's `outcome` or `vacuous`.
 
 `--explain <pattern>` narrows the report to functions whose id matches
 (substring — a bare name or a `file:line` both work) and forces the
@@ -393,10 +395,14 @@ A guard is removed only when all of these hold:
   `ensures`;
 - the target is 64-bit.
 
-Today that covers subscripts, unsigned `/` and `%`, and shifts, in the
-entry file only; a signed `/` keeps its guard until the `MIN / -1` case is
-proved too. Without a solver nothing is proved, so nothing is removed.
-`--no-guard-elision` keeps every guard, and
+That covers subscripts, `/` and `%`, shifts, `+ - *` and negation, in the
+entry file only. A signed `/` or `%` elides only when both of its traps are
+ruled out: a zero divisor and `MIN / -1`. The overflow checks (`MIN / -1`,
+`+ - *`, negation) are *elision-only* obligations. When one is not proved,
+its guard simply stays; it never fails the compile or the function's
+outcome. `yo verify` proves them only under `--elision`, so a plain run's
+report is unchanged. Without a solver nothing is proved, so nothing is
+removed. `--no-guard-elision` keeps every guard, and
 `scripts/check-guard-elision.py` checks that each removed guard has a proof
 naming its site (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
 

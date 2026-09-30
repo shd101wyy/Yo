@@ -1,0 +1,21 @@
+// expect-elided: 2
+// 5b Phase 2 twin: the bounds make `a * b` and the sum exact in i32, so both
+// nested overflow guards elide.
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+mul_add :: (
+  fn(
+    a : i32,
+    b : i32,
+    c : i32,
+    requires((a > i32(-1000)) && (a < i32(1000)), (b > i32(-1000)) && (b < i32(1000)), (c > i32(-1000)) && (c < i32(1000)))
+  ) -> i32
+)(
+  (a * b) + c
+);
+
+main :: (fn() -> unit)({
+  println(mul_add(i32(7), i32(-6), i32(5)));
+});
+export(main);

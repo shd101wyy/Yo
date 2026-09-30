@@ -641,6 +641,11 @@ VcObligation :: ref(
     /// Proved here, may this obligation remove its guard? False when an
     /// unenforced assumption (`VcCtx.unenforced`) was on the path.
     (elidable : bool) ?= false,
+    /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
+    /// an ELISION-ONLY obligation decides its guard and nothing else. Not
+    /// proved, the guard stays and is itself the defined behavior, so it never
+    /// fails the function or counts toward its outcome.
+    (elision_only : bool) ?= false,
     /// Literal-construction CTFE folding: the goal constant-folded to a
     /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
     (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
@@ -685,6 +690,8 @@ VcCtx :: ref(
     /// verifier never walks can break the assumption
     /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
     unenforced : ArrayList(VcTerm),
+    /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
+    (elision_obligations : bool) ?= false,
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -930,11 +937,12 @@ _fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit((av + bv) & m, aw)),
-    // a - b ≡ a + (~b + 1) — a literal subtraction would trip the
-    // compile-time arithmetic folder's underflow check (see _fold_mask).
-    .BvSub => Option(VcTerm).Some(VcTerm.BvLit((av + (~bv + u64(1))) & m, aw)),
-    .BvMul => Option(VcTerm).Some(VcTerm.BvLit((av * bv) & m, aw)),
+    // Wrapping u64 arithmetic, then the width mask: the bit-vectors wrap,
+    // and checked `+ - *` would abort the run on a 64-bit carry or a zero
+    // subtrahend (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
+    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_add(bv) & m, aw)),
+    .BvSub => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_sub(bv) & m, aw)),
+    .BvMul => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_mul(bv) & m, aw)),
     .BvAndOp => Option(VcTerm).Some(VcTerm.BvLit(av & bv, aw)),
     .BvOrOp => Option(VcTerm).Some(VcTerm.BvLit(av | bv, aw)),
     .BvXorOp => Option(VcTerm).Some(VcTerm.BvLit(av ^ bv, aw)),
@@ -951,7 +959,7 @@ _fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
   m := _fold_mask(aw);
   match(
     op,
-    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit((~av + u64(1)) & m, aw)),
+    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit(u64(0).wrapping_sub(av) & m, aw)),
     .BvNotOp => Option(VcTerm).Some(VcTerm.BvLit(~av & m, aw)),
     _ => Option(VcTerm).None
   )
@@ -1114,7 +1122,8 @@ _emit :: (
     label : String,
     extra_assumptions : ArrayList(VcTerm),
     goal : VcTerm,
-    (site : Option(GuardSite)) ?= Option(GuardSite).None
+    (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    (elision_only : bool) ?= false
   ) -> unit
 )({
   // Unique within the function: a guard obligation carries its 1-based
@@ -1379,7 +1388,7 @@ _emit :: (
       uk = (uk + usize(1));
     });
   });
-  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable));
+  ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable, elision_only : elision_only));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
@@ -1909,13 +1918,60 @@ _callee_is_atom :: (fn(e : AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// The variant atom of `Enum.Variant` spelled as `.(Enum, Variant)`: two
+/// atom dot arguments where the first names no variant of the enum and the
+/// second does.
+_qualified_nullary_variant :: (fn(info : ExprInfo, dot_args : ArrayList(AstExpr)) -> Option(AstExpr))(
+  match(
+    info.ty,
+    .EnumT({ variant_names : q_names }) => cond(
+      (dot_args.len() != usize(2)) => Option(AstExpr).None,
+      !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      true => Option(AstExpr).None
+    ),
+    _ => Option(AstExpr).None
+  )
+);
+/// The variant atom of a payload construction `(.Variant)(...)` or
+/// `(Enum.Variant)(...)`, else `.None`. An instance method call
+/// (`xs.get(i)`) has the same shape; its callee is recorded in the
+/// method-callee table, which rules it out.
+_payload_ctor_variant :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => match(
+      f,
+      .FnCall(_, dot, dargs, _, _) => cond(
+        !(ast_expr_is_atom(dot) && (ast_expr_token(dot).value == ".")) => Option(AstExpr).None,
+        lookup_method_callee_value(ast_expr_id(e)).is_some() => Option(AstExpr).None,
+        ((dargs.len() == usize(1)) && ast_expr_is_atom(dargs.get(usize(0)).unwrap())) => dargs.get(usize(0)),
+        ((dargs.len() == usize(2)) && ast_expr_is_atom(dargs.get(usize(1)).unwrap())) => dargs.get(usize(1)),
+        true => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
 /// `.(Variant, args...)` construction as a datatype Ctor term.
 _enum_ctor_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, dot_args : ArrayList(AstExpr), info : ExprInfo) -> Option(VcTerm)
 )(
   match(
     dot_args.get(usize(0)),
-    .Some(v_atom) => _enum_ctor_first(ctx, e, info, v_atom, dot_args),
+    .Some(v_atom) => match(
+      _qualified_nullary_variant(info, dot_args),
+      // `Enum.Variant` (no payload) is `.(Enum, Variant)`: the variant is
+      // the SECOND dot argument.
+      .Some(qv) => {
+        only := ArrayList(AstExpr).new();
+        only.push(qv);
+        _enum_ctor_first(ctx, e, info, qv, only)
+      },
+      .None => _enum_ctor_first(ctx, e, info, v_atom, dot_args)
+    ),
     .None => {
       _fail_subset(ctx, String.from("malformed enum construction"), e);
       Option(VcTerm).None
@@ -1938,7 +1994,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, e_id.clone(), e_names, e_fields, variant, dot_args),
+    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, info.ty, e_id.clone(), e_names, e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -1949,6 +2005,7 @@ _build_enum_ctor :: (
   fn(
     inout(ctx) : VcCtx,
     e : AstExpr,
+    ety : TypeValue,
     e_id : String,
     e_names : ArrayList(String),
     e_fields : ArrayList(ArrayList(TypeValue)),
@@ -1987,20 +2044,10 @@ _build_enum_ctor :: (
         );
         return(Option(VcTerm).None);
       });
-      _note_enum_datatype(
-        ctx,
-        .EnumT(
-          e_id.clone(),
-          String.new(),
-          e_names,
-          e_fields,
-          Option(String).None,
-          ArrayList(ArrayList(String)).new(),
-          ArrayList(i64).new(),
-          false,
-          false
-        )
-      );
+      // Register the construction's OWN enum type: a synthetic copy without
+      // the variant field labels declared accessors a later `match` on the
+      // same value could not name.
+      _note_enum_datatype(ctx, ety);
       Option(VcTerm).Some(VcTerm.Ctor(name : _enum_ctor_name(e_id, vname), args : cargs))
     },
     true => {
@@ -2104,12 +2151,14 @@ _match_last_arm_ir :: (
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   test_opt := _arm_ir_bind(arm.pattern, scrut, e_ty, ctx, saved_names, saved_vals);
-  _restore_vars(ctx, saved_names, saved_vals);
-  match(
+  // The body reads the pattern's bindings: restore only AFTER walking it.
+  body_t := match(
     test_opt,
     .Some(_) => _expr_term(ctx, arm.body),
     .None => Option(VcTerm).None
-  )
+  );
+  _restore_vars(ctx, saved_names, saved_vals);
+  body_t
 });
 /// One non-final arm over its COMPILED pattern: bind the pattern's names
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
@@ -3313,11 +3362,35 @@ _call_term :: (
         _guard_site(e, String.from("shift-in-width"))
       );
     });
+    if(ctx.elision_obligations, {
+      _emit_binop_elision_obligation(ctx, e, op, at, bt, info.ty);
+    });
     return(Option(VcTerm).Some(_app2(op, at, bt)));
   });
   // --- unary --------------------------------------------------------------
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
+    if(ctx.elision_obligations && ((head == "-") && _int_is_signed(info.ty)), {
+      match(
+        a,
+        .Some(neg_t) => match(
+          _int_width(info.ty),
+          .Some(nw) => {
+            _emit(
+              ctx,
+              String.from("neg-no-overflow"),
+              ArrayList(VcTerm).new(),
+              _app1(VcOp.NotOp, _app2(VcOp.EqOp, neg_t, _int_min_lit(nw))),
+              _guard_site(e, String.from("neg-no-overflow")),
+              true
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
     return(
       match(
         a,
@@ -3347,6 +3420,23 @@ _call_term :: (
     if(_callee_is_atom(e), {
       return(_enum_ctor_term(ctx, e, args, info));
     });
+    // A variant WITH a payload parses as `(.Variant)(payload...)` or
+    // `(Enum.Variant)(payload...)`: the variant is the callee's last dot
+    // argument and the payload is this call's arguments.
+    match(
+      _payload_ctor_variant(e),
+      .Some(vatom) => {
+        ctor_args := ArrayList(AstExpr).new();
+        ctor_args.push(vatom);
+        (pai : usize) = usize(0);
+        while(pai < args.len(), {
+          ctor_args.push(args.get(pai).unwrap());
+          pai = (pai + usize(1));
+        });
+        return(_enum_ctor_named(ctx, e, info, ast_expr_token(vatom).value, ctor_args));
+      },
+      .None => ()
+    );
   });
   // --- match(scrutinee, arms...) ---------------------------------------------
   if(head == "match", {
@@ -5503,6 +5593,57 @@ _expr_mentions_atom :: (fn(e : AstExpr, name : String) -> bool)(
 // ============================================================================
 // Small term helpers
 // ============================================================================
+/// The signed minimum of width `w` (`#b10…0`) as a bit-vector literal.
+_int_min_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : (u64(1) << u64(w - usize(1))), width : w)
+);
+/// All ones of width `w` (signed `-1`).
+_all_ones_lit :: (fn(w : usize) -> VcTerm)(
+  VcTerm.BvLit(value : if(w >= usize(64), u64.MAX, (u64(1) << u64(w)) - u64(1)), width : w)
+);
+/// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6): the
+/// elision-only obligation of one integer binary operation, decided at its
+/// runtime guard. Signed `/` `%`: `div-no-overflow`, not `MIN / -1`. `+ - *`
+/// (signed and unsigned): `no-overflow`, the exact result fits, checked by
+/// widening (one bit for `+ -`, to twice the width for `*`) and comparing
+/// with the widened wrapped result. Any other operation adds nothing.
+_emit_binop_elision_obligation :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, op : VcOp, at : VcTerm, bt : VcTerm, ty : TypeValue) -> unit
+)(
+  match(
+    _int_width(ty),
+    .Some(w) => {
+      signed := _int_is_signed(ty);
+      cond(
+        ((op == VcOp.BvSdiv) || (op == VcOp.BvSrem)) => {
+          _emit(
+            ctx,
+            String.from("div-no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app1(VcOp.NotOp, _app2(VcOp.AndOp, _app2(VcOp.EqOp, at, _int_min_lit(w)), _app2(VcOp.EqOp, bt, _all_ones_lit(w)))),
+            _guard_site(e, String.from("div-no-overflow")),
+            true
+          );
+        },
+        ((op == VcOp.BvAdd) || ((op == VcOp.BvSub) || (op == VcOp.BvMul))) => {
+          ww := if(op == VcOp.BvMul, w * usize(2), w + usize(1));
+          exact := _app2(op, _widen_or_trunc(at, w, ww, signed), _widen_or_trunc(bt, w, ww, signed));
+          wrapped := _widen_or_trunc(_app2(op, at, bt), w, ww, signed);
+          _emit(
+            ctx,
+            String.from("no-overflow"),
+            ArrayList(VcTerm).new(),
+            _app2(VcOp.EqOp, exact, wrapped),
+            _guard_site(e, String.from("no-overflow")),
+            true
+          );
+        },
+        true => ()
+      );
+    },
+    .None => ()
+  )
+);
 _nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
   match(
     t,
@@ -5625,13 +5766,17 @@ VerifyFnInput :: ref(
     table : ExprInfoTable,
     /// Per `requires_exprs` entry: enforced by a runtime entry assert
     /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
-    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
+    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new(),
+    /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+    /// when it records guard sites, `yo verify --elision`).
+    (elision_obligations : bool) ?= false
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
+  ctx.elision_obligations = input.elision_obligations;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
   param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.
