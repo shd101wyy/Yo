@@ -4271,10 +4271,12 @@ run_compile :: (
     // before the last C part.
     code_spill_path := `${output}.yo-code-spill`;
     c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone());
+    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
+    // `--emit-c` (a debug path) reads the spill whole to print it; the file
+    // write below copies it in pieces.
     (c_spilled : ArrayList(u8)) = ArrayList(u8).new();
-    if(io.await(exists(Path.new(code_spill_path.clone()), io), io), {
+    if(emit_c && c_spill_exists, {
       c_spilled = io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
-      io.await(remove_file(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
     });
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
@@ -4370,8 +4372,8 @@ run_compile :: (
         c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
         (pw : usize) = usize(0);
         while(pw < c_parts.len(), {
-          if((pw == usize(4)) && (c_spilled.len() > usize(0)), {
-            _pw_s := io.await(c_file.write_bytes(c_spilled, io), IoExn(io : io, exn : exn));
+          if((pw == usize(4)) && c_spill_exists, {
+            _copy_file_into(code_spill_path.clone(), c_file, io, exn);
           });
           match(
             c_parts.get(pw),
@@ -4385,6 +4387,9 @@ run_compile :: (
         io.await(c_file.close(io), IoExn(io : io, exn : exn));
       }
     );
+    if(c_spill_exists, {
+      io.await(remove_file(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+    });
     profile_record_phase(String.from("write C"), prof_write_t0.elapsed().as_nanos());
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
@@ -5070,6 +5075,29 @@ _current_rss_mb :: (fn() -> usize)(
     true => _current_rss_mb_linux()
   )
 );
+/// Append the file at `src_path` to `dst` in 4 MiB pieces (the code spill,
+/// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
+/// the ~110 MB of function bodies back in memory at the end).
+_copy_file_into :: (fn(src_path : String, dst : File, io : Io, exn : Exception) -> unit)({
+  chunk := usize(4194304);
+  src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
+  buf := (*u8)(valve_malloc(chunk).unwrap());
+  (going : bool) = true;
+  while(going, {
+    n := io.await(src.read(buf, chunk, io), IoExn(io : io, exn : exn));
+    if(n == usize(0), {
+      going = false;
+    }, {
+      (done : usize) = usize(0);
+      while(done < n, {
+        w := io.await(dst.write(buf.add(done), (n - done), io), IoExn(io : io, exn : exn));
+        done = (done + w);
+      });
+    });
+  });
+  valve_free(.Some((*void)(buf)));
+  io.await(src.close(io), IoExn(io : io, exn : exn));
+});
 /// The process's peak resident set so far (`--profile` marks). Linux reads
 /// `VmHWM` from `/proc/self/status`; elsewhere 0 (the marks' rss still reads).
 _peak_rss_mb :: (fn() -> usize)(
