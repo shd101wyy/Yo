@@ -530,6 +530,54 @@ name is one of:
 - the atom name of one of its deferred dup/drop/consumed expressions;
 - a name codegen derived from those.
 
+**Audited 2026-09-30** (a read-only pass over every read path, 114 rows):
+the hypothesis holds for about 90 of them. The name is the env owner's own
+token, its `variable_name`, or a deferred dup's `variable_name`. The
+`is_temp_variable_name` rows (28) need only the module path. The rows that
+break it, by kind:
+- **Pending drops at a cleanup point.** `exprs/atom.yo:336` (break/continue),
+  `exprs/return.yo:315` and `:497` look up the names of the ENCLOSING
+  scopes' pending drops (`context.pending_deferred_drops`,
+  `consumed_var_pending_drops`) in the cleanup node's env, then match all
+  same-named `Variable`s by id (`_resolve_drop_target_in_scope`). Fix: a
+  pending drop carries the resolved `Variable` from where it was
+  registered. The cleanup point's lookup becomes an identity check.
+- **A name from another node, looked up in this node's env.**
+  - `exprs/init_assignment.yo:328` and `async/state_machine.yo:223`: the lhs
+    of `:=` looked up in the `:=` node's env, deliberately, since the lhs
+    atom's env predates the binding.
+  - `exprs/property_access.yo:343`: a field token in the `.` node's env.
+  - `exprs/assignment.yo:86`: a path-collection base in the lhs env.
+  - Capture-struct labels in `exprs/closures.yo:221–223`,
+    `exprs/async.yo:1605/1612/3137`.
+
+  These are still a finite name set per node, just not the node's own.
+  The record must include them.
+- **Whole-env scans.**
+  - `exprs/await.yo:133` and `async/state_machine.yo:1287` iterate every
+    variable to find `given` bindings.
+  - `exprs/other_fn_call.yo:983–1049` asks whether the innermost frame
+    holding X lies above `function_declaration_frame_level` and is a begin
+    block.
+
+  Fix: evaluation records the answer (the implicit `given` bindings in
+  scope, the handler-installation boolean) on those call nodes.
+- **Late evaluations.** `functions/collection.yo` evaluates `trace`
+  specializations and synthesized `___dispose`/`___drop` during codegen
+  (`clone_env(module_env)`, not an ExprInfo env). Their new ExprInfos need
+  records too, so records are filled when an ExprInfo is created, not in a
+  pass at the end.
+
+`get_variable_name_for_codegen` reads more than the innermost match:
+`is_parameter` over all matches, the extern-C type meta, the module-global
+registries. So the record stores resolved `Variable` handles, and the C name
+is still computed at emission. Precedent: `ExprInfo.source_variable` already
+stamps one `Variable` per info.
+
+Most of these rows are in `src/codegen/async/` and `exprs/async.yo`,
+`await.yo` and `match.yo`, which #1002/#1016 rewrite. The refactor starts
+after they land.
+
 **Proposed.**
 1. **Enumerate the names.** Log each site's `(ExprInfo key, name)` under a
    knob (the `YO_CODEGEN_READS` pattern), run the self-compile and
