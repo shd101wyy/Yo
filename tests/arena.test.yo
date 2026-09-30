@@ -52,9 +52,11 @@ test("The owner prefix is ctx then vtable, 16 bytes before the block", {
   arena := Arena.new(usize(256));
   a := arena.allocator();
   p := (*u8)(a.alloc(usize(8)).unwrap());
-  // SAFETY: every Allocator.alloc block is preceded by its 16-byte prefix.
-  word0 := unsafe((*?*void)(p.sub(usize(16))).*);
-  word1 := unsafe((**AllocatorVTable)(p.sub(usize(8))).*);
+  // SAFETY: every Allocator.alloc block is preceded by its 16-byte prefix:
+  // `ctx` at offset 0, `vtable` at `sizeof(*void)` (4 on wasm32, not 8).
+  prefix := p.sub(usize(16));
+  word0 := unsafe((*?*void)(prefix).*);
+  word1 := unsafe((**AllocatorVTable)(prefix.add(sizeof(*void))).*);
   assert(word0 == a.ctx, "prefix word 0 is ctx");
   assert(word1 == a.vtable, "prefix word 1 is the vtable");
   Allocator.free(.Some((*void)(p)));
