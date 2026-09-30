@@ -188,6 +188,10 @@ VcTerm :: ref(
 );
 /// One declared constant of a query.
 VcDecl :: struct(name : String, sort : VcSort);
+/// One uninterpreted function symbol (R2: a recursive `ghost_fn`), rendered
+/// as `(declare-fun <name> (<args>) <result>)` before the axioms that
+/// define it.
+VcFunDecl :: struct(name : String, args : ArrayList(VcSort), result : VcSort);
 /// One assumed term of a query. The optional name participates in unsat
 /// cores (`(! term :named <name>)`) so a proof failure can name the
 /// smallest violated clause.
@@ -212,6 +216,8 @@ VcQuery :: ref(
     /// terms (the per-array `ms_of` definitions, with `:pattern` triggers)
     /// asserted ahead of the path assumptions.
     axioms : ArrayList(VcTerm),
+    /// Uninterpreted function symbols the axioms and terms apply (R2).
+    fun_decls : ArrayList(VcFunDecl),
     /// Declared UNINTERPRETED sorts (V6 task 2) — one mangled name per
     /// abstractly verified generic parameter. Rendered as
     /// `(declare-sort <name> 0)` lines before the datatypes.
@@ -250,6 +256,7 @@ new_vc_query :: (fn(name : String) -> VcQuery)(
     goal : VcTerm.BoolLit(true),
     fundecls : ArrayList(VcSort).new(),
     axioms : ArrayList(VcTerm).new(),
+    fun_decls : ArrayList(VcFunDecl).new(),
     sorts : ArrayList(String).new(),
     datatypes : ArrayList(String).new()
   )
@@ -310,6 +317,7 @@ export(
   VcTerm,
   VcQuantKind,
   VcDecl,
+  VcFunDecl,
   VcAssumption,
   VcQuery,
   new_vc_query,

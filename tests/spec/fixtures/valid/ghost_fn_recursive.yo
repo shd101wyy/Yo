@@ -1,0 +1,30 @@
+// R2 slice 1 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a recursive
+// ghost_fn (it carries `decreases`) is an uninterpreted function defined by
+// a triggered axiom, so a loop invariant can state an unbounded,
+// list-length-indexed property. The checker's invariant step is proved by
+// ONE unfolding of all_pos at i + 1; the ghost_fn's own task proves its
+// measure decreases.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+all_pos :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => true,
+      true => (all_pos(xs, n - usize(1)) && (xs(n - usize(1)) > i32(0)))
+    )
+  )
+);
+
+check_all :: (fn(xs : ArrayList(i32), ensures(r ==> all_pos(xs, xs.len()))) -> (r : bool))({
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), ok ==> all_pos(xs, i));
+    if(xs(i) <= i32(0), {
+      ok = false;
+    });
+    i = (i + usize(1));
+  });
+  ok
+});

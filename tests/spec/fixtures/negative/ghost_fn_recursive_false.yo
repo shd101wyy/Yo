@@ -1,0 +1,34 @@
+// The false twins of valid/ghost_fn_recursive.yo.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+all_pos :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => true,
+      true => (all_pos(xs, n - usize(1)) && (xs(n - usize(1)) > i32(0)))
+    )
+  )
+);
+
+// Never clears `ok`: the claim is false for a list holding a 0.
+check_wrong :: (fn(xs : ArrayList(i32), ensures(r ==> all_pos(xs, xs.len()))) -> (r : bool))({
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), ok ==> all_pos(xs, i));
+    i = (i + usize(1));
+  });
+  ok
+});
+
+// A recursive ghost_fn whose measure does not decrease: its own task
+// refutes decreases-step (the definitional axiom would be inconsistent).
+spin :: ghost_fn(
+  (fn(n : usize, decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => true,
+      true => spin(n)
+    )
+  )
+);

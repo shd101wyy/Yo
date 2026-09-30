@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
-{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
@@ -765,7 +765,11 @@ VcCtx :: ref(
     /// deduped by the encoded array term — the same array term walked
     /// from several invariants defines the same function application.
     axioms : ArrayList(VcTerm),
-    ms_axiom_keys : ArrayList(String)
+    ms_axiom_keys : ArrayList(String),
+    /// R2: the uninterpreted function of every recursive `ghost_fn` walked
+    /// so far, and the keys that dedupe their definitional axioms.
+    fun_decls : ArrayList(VcFunDecl),
+    gfn_keys : ArrayList(String)
   )
 );
 _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
@@ -797,7 +801,9 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     fundecls : ArrayList(VcSort).new(),
     fundecl_keys : ArrayList(String).new(),
     axioms : ArrayList(VcTerm).new(),
-    ms_axiom_keys : ArrayList(String).new()
+    ms_axiom_keys : ArrayList(String).new(),
+    fun_decls : ArrayList(VcFunDecl).new(),
+    gfn_keys : ArrayList(String).new()
   )
 );
 _next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
@@ -1264,6 +1270,11 @@ _emit :: (
       .None => ()
     );
     fdi = (fdi + usize(1));
+  });
+  (ufi : usize) = usize(0);
+  while(ufi < ctx.fun_decls.len(), {
+    q.fun_decls.push(ctx.fun_decls.get(ufi).unwrap());
+    ufi = (ufi + usize(1));
   });
   (axi : usize) = usize(0);
   while(axi < ctx.axioms.len(), {
@@ -4944,9 +4955,171 @@ _refine_pred_chain_term :: (
   });
   out
 });
+/// R2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
+/// `decreases` as the uninterpreted function `f`, applied to the walked
+/// actuals. Its meaning is the definitional axiom
+/// `forall ps. f(ps) == body[ps]` with the application as its trigger, the
+/// encoding measured against `define-fun-rec` (the axiom proves what the
+/// recursive definition cannot, `swap` from an update lemma). Termination
+/// keeps the axiom consistent: inside the ghost_fn's OWN task each self
+/// call proves `decreases-step`; a caller assumes the axiom whatever that
+/// task's verdict, the same modular rule as a callee's `ensures`.
+_ghost_fn_app_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  callee_atom := match(
+    at,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => at
+  );
+  params := ArrayList(String).new();
+  (body : AstExpr) = make_err_expr();
+  (found : bool) = false;
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(.FuncVal(gfvd, _)) => {
+        params = gfvd.*.params;
+        body = gfvd.*.body;
+        found = true;
+      },
+      .Some(_) => (),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(!found, {
+    _fail_subset(ctx, String.from("recursive ghost_fn without a resolvable body"), at);
+    return(Option(VcTerm).None);
+  });
+  if(args.len() != params.len(), {
+    _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
+    return(Option(VcTerm).None);
+  });
+  // The actuals, and each one's sort (from its type, else its term).
+  arg_terms := ArrayList(VcTerm).new();
+  arg_sorts := ArrayList(VcSort).new();
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    a := args.get(ai).unwrap();
+    at_t := _expr_term(ctx, a);
+    if(at_t.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    srt := match(
+      expr_info_table_get(ctx.table, ast_expr_id(a)),
+      .Some(ainf) => _type_sort(ainf.ty),
+      .None => Option(VcSort).None
+    );
+    srt2 := match(srt, .Some(s1) => Option(VcSort).Some(s1), .None => _term_sort(at_t.unwrap()));
+    if(srt2.is_none(), {
+      _fail_subset(ctx, String.from("recursive ghost_fn argument of an unmodeled sort"), a);
+      return(Option(VcTerm).None);
+    });
+    arg_terms.push(at_t.unwrap());
+    arg_sorts.push(srt2.unwrap());
+    ai = (ai + usize(1));
+  });
+  res_sort := match(
+    expr_info_table_get(ctx.table, ast_expr_id(at)),
+    .Some(rinf) => _type_sort(rinf.ty),
+    .None => Option(VcSort).None
+  );
+  if(res_sort.is_none(), {
+    _fail_subset(ctx, String.from("recursive ghost_fn result of an unmodeled sort"), at);
+    return(Option(VcTerm).None);
+  });
+  fname := mangle_vc_name(fid.clone(), String.from("gfn"));
+  // Inside the ghost_fn's own task a self call is where termination is
+  // proved: the measure over the actuals is below the current one.
+  if((fid == ctx.func_id) && ctx.decreases.is_some(), {
+    dm := ctx.decreases.unwrap();
+    m_current := _expr_term(ctx, dm);
+    saved_mn := ArrayList(String).new();
+    saved_mv := ArrayList(Option(VcTerm)).new();
+    (mi : usize) = usize(0);
+    while(mi < params.len(), {
+      pn := params.get(mi).unwrap();
+      saved_mn.push(pn.clone());
+      saved_mv.push(ctx.vars.get(pn.clone()));
+      ctx.vars.insert(pn, arg_terms.get(mi).unwrap());
+      mi = (mi + usize(1));
+    });
+    m_actual := _expr_term(ctx, dm);
+    _restore_vars(ctx, saved_mn, saved_mv);
+    match(
+      m_current,
+      .Some(mc) => match(
+        m_actual,
+        .Some(ma) => {
+          step_op := cond(
+            _measure_is_signed(ctx, dm) => VcOp.BvSlt,
+            true => VcOp.BvUlt
+          );
+          _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(step_op, ma, mc));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  // Declare the function and its definitional axiom once.
+  if(!ctx.gfn_keys.contains(fname.clone()), {
+    ctx.gfn_keys.push(fname.clone());
+    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : arg_sorts.clone(), result : res_sort.unwrap()));
+    binder_names := ArrayList(String).new();
+    binder_terms := ArrayList(VcTerm).new();
+    saved_bn := ArrayList(String).new();
+    saved_bv := ArrayList(Option(VcTerm)).new();
+    (bi : usize) = usize(0);
+    while(bi < params.len(), {
+      bname := `__yo_gfp${bi.to_string()}`;
+      bvar := VcTerm.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap());
+      binder_names.push(bname);
+      binder_terms.push(bvar);
+      pn2 := params.get(bi).unwrap();
+      saved_bn.push(pn2.clone());
+      saved_bv.push(ctx.vars.get(pn2.clone()));
+      ctx.vars.insert(pn2, bvar);
+      bi = (bi + usize(1));
+    });
+    // The definition's own obligations (AoRTE in the body) belong to the
+    // ghost_fn's task, not to this caller: drop whatever the walk emits.
+    ob_mark := ctx.obligations.len();
+    saved_func := ctx.func_id.clone();
+    ctx.func_id = String.from("__yo_gfn_definition");
+    body_t := _expr_term(ctx, body);
+    ctx.func_id = saved_func;
+    while(ctx.obligations.len() > ob_mark, {
+      _ := ctx.obligations.pop();
+    });
+    _restore_vars(ctx, saved_bn, saved_bv);
+    match(
+      body_t,
+      .Some(bt) => {
+        lhs := VcTerm.Ctor(name : fname.clone(), args : binder_terms.clone());
+        triggers := ArrayList(VcTerm).new();
+        triggers.push(lhs);
+        ctx.axioms.push(
+          VcTerm.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : arg_sorts.clone(), body : _app2(VcOp.EqOp, lhs, bt), triggers : triggers)
+        );
+      },
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+  });
+  Option(VcTerm).Some(VcTerm.Ctor(name : fname, args : arg_terms))
+});
 _ghost_fn_inline_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
+  // R2: a ghost_fn with `decreases` may recurse. It is not inlined: it is
+  // an uninterpreted function defined by a triggered axiom.
+  if(get_func_decreases_expr(fid.clone()).is_some(), {
+    return(_ghost_fn_app_term(ctx, at, args, fid));
+  });
   (si : usize) = usize(0);
   while(si < g_ghost_inline_stack.len(), {
     if(g_ghost_inline_stack.get(si).unwrap() == fid, {
