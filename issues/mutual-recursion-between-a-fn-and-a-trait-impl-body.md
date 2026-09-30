@@ -23,7 +23,19 @@ throw) runs `force_pending_impls_for_type_name` with a head name that does not m
 type whose `type_head_name_for_impl_forcing` is not `E`. Which spelling it has (an enum shell,
 the internal `enum_decl_…` name, a pointer) is the next measurement, and it needs a debug print
 in a built compiler. The mutual recursion only matters because that is where such a helper
-occurs. `issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails with
+occurs.
+
+Likely mechanism (REASONED from the source, not yet measured). A self-referential enum
+evaluates its variants against a shell `EnumT` with a distinct id. `ArrayList(Self)` is
+instantiated with that shell, and the finished type is recorded under the shell's id with an
+EMPTY name (`register_enum_final(shell_id, EnumT(enum_id, "", …))`, `evaluator/types/enum.yo`).
+An element read from the list is the shell. The operator path calls `resolve_enum_shell`, which
+returns that nameless final, so `type_head_name_for_impl_forcing` returns `""` and
+`force_pending_impls_for_type_name` exits at "an unnamed receiver cannot select an impl". A
+parameter typed `E` carries the bound, named type and forces normally. To confirm, print the
+head name at the operator-miss branch in a built compiler.
+
+`issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails with
 E0610 at 9:13. Found 2026-09-09 while writing `Eq` for the recursive `JsonValue` tree.
 
 ## Reproducer
