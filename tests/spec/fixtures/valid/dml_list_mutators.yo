@@ -1,0 +1,32 @@
+// R1 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: the std mutators' length
+// contracts compose at call sites. Each contract mentions old(self), which is
+// what makes a call rebind the receiver
+// (issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+ins :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+  xs.insert(usize(0), v);
+});
+
+rem :: (
+  fn(xs : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
+)(xs.remove(usize(0)));
+
+srem :: (
+  fn(xs : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
+)(xs.swap_remove(usize(0)));
+
+sw :: (fn(xs : ArrayList(i32), requires(xs.len() >= usize(2)), ensures(xs.len() == old(xs.len()))) -> unit)({
+  xs.swap(usize(0), usize(1));
+});
+
+// insert then remove is back to the old length. The requires is headroom:
+// the length contracts are bit-vector arithmetic, and at len = 2^64 - 1 the
+// insert's old + 1 wraps to 0 (no real list gets there).
+round_trip :: (
+  fn(xs : ArrayList(i32), v : i32, requires(xs.len() < usize(1024)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
+)({
+  xs.insert(usize(0), v);
+  xs.remove(usize(0))
+});

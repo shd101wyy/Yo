@@ -282,7 +282,7 @@ evaluate_while :: (
     .Some(inv_viol) => {
       inv_msg := cond(
         inv_viol.non_first_stmt => String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
-        true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.")
+        true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement. A 'for(...)' loop cannot carry an invariant (it expands to a 'while' that fetches the next element first, and binds no index an invariant could name): write the loop as a 'while' over an explicit index (issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md).")
       );
       exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg)));
     },
