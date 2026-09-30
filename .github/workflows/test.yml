@@ -599,6 +599,47 @@ jobs:
             verify-collections.json
           retention-days: 7
 
+  # 5b's C-diff oracle (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md
+  # §5.3): every guard the verifier removed has a proof naming its site, no
+  # other line of the C changed, and the elision fixtures elide exactly what
+  # their `expect-elided` header says. It needs the TREE's compiler (the seed
+  # has no `--no-guard-elision`), hence stage 1 rather than the verify job.
+  # NOTE: add to branch protection's required checks by hand (manual list).
+  guard-elision:
+    name: Verified guard elision oracle (pinned Z3)
+    needs: [changes, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      YO_Z3_PATH: /usr/local/bin/z3
+      YO_STD: ${{ github.workspace }}/std
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install the pinned Z3
+        run: |
+          set -euo pipefail
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y unzip
+          curl -fsSL -o /tmp/z3.zip \
+            "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -o /tmp/z3.zip -d /tmp/z3-install
+          sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
+          z3 --version
+      - name: Download stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Make the candidate executable
+        run: chmod +x yo-stage1
+      - name: C-diff oracle over the elision and valid fixtures
+        run: python3 scripts/check-guard-elision.py --bin "$PWD/yo-stage1"
+
   # The SELF-VERIFICATION sweep (plans/SELF_VERIFICATION.md, milestone M0):
   # `yo verify` over the whole compiler tree, scored into outcomes.tsv and
   # ratcheted against scripts/bootstrap/verify-src-baseline.tsv. It fails on a

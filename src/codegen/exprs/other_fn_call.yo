@@ -646,6 +646,22 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
   });
   out
 });
+/// The struct a constructor call builds: the call's own type when it is an
+/// instantiation of the callee's struct. The evaluator instantiates a struct
+/// over the closure identity an `Impl(Fn)`-typed field received
+/// (`_instantiate_struct_over_closure_args`, calls/function.yo), so the callee
+/// type still has that field abstract and would lower it to `void*`.
+_constructed_struct_type :: (fn(callee_ty : TypeValue, call_ty : TypeValue) -> TypeValue)(
+  match(
+    callee_ty,
+    .Struct({ id : c_id }) => match(
+      call_ty,
+      .Struct({ id : r_id }) => if((c_id.len() > usize(0)) && (c_id == r_id), call_ty, callee_ty),
+      _ => callee_ty
+    ),
+    _ => callee_ty
+  )
+);
 /// Build an object/struct constructor's runtime-field VALUE exprs by matching
 /// the struct's runtime fields (in declaration order) to the FnCall's labeled
 /// args `label : value`. Used as a fallback when `runtime_arg_exprs_in_order` is
@@ -1706,7 +1722,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .Some(fv) => match(
       fv,
       .TypeVal(wrapped_box) => {
-        wrapped := wrapped_box;
+        wrapped := _constructed_struct_type(wrapped_box, ei.ty);
         if(is_reference_struct_type(wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_obj"));
           obj_fncall_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

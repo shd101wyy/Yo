@@ -1442,13 +1442,52 @@ kernel, reap, resume) costs far more than the syscall itself:
   descriptor ends a blocked wait, so a callback fires while unrelated I/O is
   in flight, and `Watcher.next` parks rather than polling.
 
+### What runs where on macOS
+
+The kqueue backend follows the same "finish it without the loop" rule, and adds
+two macOS-specific ones: the loop never pays for a kernel scan that can find
+nothing, and it never wakes without a reason.
+
+- **Sockets:** `send`/`recv`/`sendto`/`recvfrom`/`accept` are attempted
+  inline (with `MSG_DONTWAIT`) first; only a would-block result parks the
+  task on the descriptor's `EVFILT_READ`/`EVFILT_WRITE` knote. An inline
+  attempt never runs ahead of an earlier operation of the same direction still
+  parked on that descriptor. A socket whose last inline `recv` would have
+  blocked parks its next one directly, until a receive turns out to have had
+  its data already. A delivered `recv` without flags is a plain `read`: the
+  event reports the byte count, so it cannot block.
+- **Regular files:** `pread`/`pwrite` complete at start (the unified buffer
+  cache makes them fast). A `pread` that answers `ESPIPE` (pipe, socket, FIFO)
+  or `ENXIO` (tty) falls back to the readiness path. A descriptor opened
+  `O_APPEND` writes at end-of-file.
+- **Timers:** a sleep is a node in a per-thread timer heap, and the loop's
+  `kevent()` wait is bounded by the earliest deadline. Arming and cancelling
+  one costs no syscall. The OS still coalesces timer wakeups: a 1 ms deadline
+  wakes after ~1.25 ms, the same as libuv and any other `kevent()` timeout.
+- **The loop's kernel entries:** a turn with nothing in the kernel (only
+  timers, or operations that all completed at start) makes no syscall. A turn
+  that leaves no task runnable makes no poll of its own, because the next
+  step's blocking `kevent()` reaps the same events in the same call. On macOS
+  26 a zero-timeout `kevent()` that finds nothing costs ~12 µs, so a
+  non-blocking poll first asks the kqueue descriptor with a zero-timeout
+  `select()` (~0.2 µs). With tasks still queued, the kernel is polled every
+  61 turns (tokio's interval). While traffic is flowing (the last wait was
+  answered within 50 µs), a wait is bounded by 50 µs rather than unbounded:
+  on macOS a wait with a near deadline wakes sooner, which is worth ~7% on a
+  loopback-TCP round trip. The first such wait that times out empty ends it.
+- **Watches** (`std/sys/events` poll handles, `std/fs/watch`): they share one
+  watch kqueue per thread, nested in the loop's. A watched descriptor ends a
+  blocked wait, and a directory watch rescans on the directory's vnode events,
+  plus at most every 50 ms for writes into existing entries, which only a
+  rescan sees.
+
 ### Operation lifetimes are the same on every backend
 
 - **Closing a descriptor ends the operations still pending on it**: they
   complete with `-EBADF` (kqueue, epoll and io_uring alike — the ring cancels
   its requests, because an io_uring request holds its own file reference and
-  would otherwise outlive the descriptor). On Linux that includes `dup2` over
-  an open descriptor, which closes it. Close descriptors the runtime has
+  would otherwise outlive the descriptor). That includes `dup2` over an open
+  descriptor, which closes it. Close descriptors the runtime has
   waited on through std (`file.close`, `tcp.close`, `pipe.dup2`), not a raw
   `libc` `close`: the backend cannot see a close it is not told about.
 - **Concurrent receives on one stream socket:** kqueue and epoll complete
@@ -1457,6 +1496,11 @@ kernel, reap, resume) costs far more than the syscall itself:
   `recv`.
 - **Aborting a task cancels the operation it is suspended in**, so an aborted
   `recv` never consumes data a later `recv` should see.
+- **A `std/net` stream write to a peer that has closed throws**
+  (`IoError.BrokenPipe`, or a reset) instead of raising `SIGPIPE`, whose
+  default action kills the process: `TcpStream`/`UnixStream` writes pass
+  `std/sys/socket`'s `MSG_NOSIGNAL`. The raw `std/sys` `send` passes its
+  flags through unchanged.
 - **Sockets may be blocking or nonblocking** for `send`/`recv`/`sendto`/
   `recvfrom`: the readiness backends attempt them with `MSG_DONTWAIT`.
   `accept`, `connect` and `read`/`write` on a pipe or tty need a nonblocking

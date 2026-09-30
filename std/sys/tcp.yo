@@ -130,9 +130,9 @@ connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
 ///
 /// `flags` is passed straight to the syscall. Note that nothing in the
 /// generated runtime ignores `SIGPIPE`, so on POSIX a send to a peer that has
-/// closed will KILL the process unless you either pass `MSG_NOSIGNAL`
-/// (Linux), set `SO_NOSIGPIPE` (macOS) or install a handler with
-/// `std/sys/signal`.
+/// closed will KILL the process unless you either pass `std/sys/socket`'s
+/// `MSG_NOSIGNAL` (the per-platform value; `std/net`'s stream writes always
+/// do) or install a handler with `std/sys/signal`.
 send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
