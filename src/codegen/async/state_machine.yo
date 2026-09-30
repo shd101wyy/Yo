@@ -4153,7 +4153,7 @@ generate_async_block_resume_function :: (
   // `void*`, not `${struct_name}*`: every caller reaches it through a
   // `void (*)(void*)` slot (__yo_resume_fn, continuation_fn, the task queue),
   // and a call through an incompatible function type is UB (C11 6.5.2.2p9).
-  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`static void ${resume_function_name}__body(void* sm_ptr) {`);
   em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally-aborted entry guard: JoinHandle.abort marks a suspended/queued
@@ -4315,9 +4315,28 @@ generate_async_block_resume_function :: (
   });
   em.emit_string_line(`  }`);
   em.emit_string_line(`}`);
+  em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
   local_var_drop_codes
 });
+/// The resume entry point every queue and waiter calls: it runs the body in
+/// the allocation scope the task was created in — the owner prefix of a
+/// task an explicit allocator placed, the global allocator otherwise — so a
+/// task keeps its scope across suspensions, wherever it is resumed from
+/// (plans/EXPLICIT_ALLOCATORS.md §3.5). The scope is read before the body
+/// runs, because the body may release the task.
+resume_scope_wrapper :: (fn(name : String) -> String)(
+  `void ${name.clone()}(void* sm_ptr) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    ${name.clone()}__body(sm_ptr);
+    return;
+  }
+  __yo_alloc_scope_t __yo_prev_scope = __yo_current_allocator;
+  __yo_current_allocator = __yo_scope_of_object(sm_ptr);
+  ${name.clone()}__body(sm_ptr);
+  __yo_current_allocator = __yo_prev_scope;
+}`
+);
 /// Emit the async block's abort hook (`cancel_pending_fn`), called by
 /// `__yo_future_abort` once the task is marked -2, with the state it was in.
 ///
@@ -4405,6 +4424,7 @@ generate_async_block_cancel_pending_function :: (
   Option(String).Some(fn_name)
 });
 export(
+  resume_scope_wrapper,
   is_io_future_type,
   StateMachineInfo,
   generate_resume_function_declaration,

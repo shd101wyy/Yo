@@ -1,0 +1,242 @@
+//! The ArrayList list-model tests — R1 slice 1 of
+//! plans/backlog/ATS_STYLE_INDEXED_TYPES.md: an `ArrayList(T)` parameter or
+//! result is the `List_<elem>` pair datatype, `xs.len()` / `xs.is_empty()` /
+//! `xs(i)` are modeled, index reads carry `index-in-bounds` against `len`, and
+//! a callee's `ensures` over lengths discharges at call sites.
+//!
+//! Gates: the runtime-mode twin needs no solver; the proof layer needs real
+//! Z3 (YO_TEST_Z3=1), exactly like the other verifier tests.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport,
+  summarize_verify_reports
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_list_len: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), outcome : String) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.outcome == outcome, {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
+
+test("list model in runtime mode: the module evaluates unchanged and registers no verify tasks", {
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_get_runtime.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(0),
+    `runtime mode must register no verify tasks, got ${reports.len().to_string()}`
+  );
+});
+
+test("get/first/sum2 over an ArrayList prove; an assumed concat's length ensures discharges at its caller", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_get.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(5),
+    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(4),
+    `get, first, sum2 and total must verify, got: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("assumed")) == usize(1),
+    `concat_len is the assumed spec, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a caller violating get's requires and an out-of-bounds read both REFUTE (get stays ok)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_get_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(3),
+    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(2),
+    `bad (requires#1) and bad_sum (index-in-bounds) must refute, got: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(1),
+    `get itself stays ok (modular), got: [${_reports_dump(reports)}]`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Slice 2 — the mutation model: push rebinds the receiver, old() at a call
+// site reads the pre-call state, and a loop over pushes carries `out` in its
+// havoc set.
+// ---------------------------------------------------------------------------
+test("concat's body verifies through new()'s and push()'s std contracts; two pushes compose", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_concat.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `concat and push_two report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(2),
+    `both must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a wrong concat length and an over-claimed push both REFUTE", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_concat_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `concat_wrong and push_once report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a body that mutates a list parameter without an old(param) clause is a precise subset error", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_silent_mutation.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(1),
+    `grow reports, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("subset-error")) == usize(1),
+    `grow must be a subset error naming old(xs), got: [${_reports_dump(reports)}]`
+  );
+});

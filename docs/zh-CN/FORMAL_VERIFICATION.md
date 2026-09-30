@@ -370,6 +370,7 @@ refuted  fn@src/math.yo:8 [verify]
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
 | `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
+| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove` 把 `len()` 与 `old(len())` 关联起来）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。对列表的 `for`、`get`（返回 `Option`）和嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–2 片） |
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
 | 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |
@@ -441,3 +442,7 @@ sha256 为键）；传 `--no-cache` 可跳过。确定性来自 `:rlimit` 预算
 ```bash
 yo verify ./tests/spec/verify_straight_line.test.yo
 ```
+
+要让证明成为项目构建的一部分、而不是靠人记得去跑的命令，在 `build.yo` 里声明
+一个验证步骤 —— 见 [BUILD_SYSTEM.md § 验证步骤](BUILD_SYSTEM.md#验证步骤)。
+`yo check` 从不运行求解器；构建步骤才是项目级开关。

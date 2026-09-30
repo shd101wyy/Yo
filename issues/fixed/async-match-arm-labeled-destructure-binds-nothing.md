@@ -1,6 +1,6 @@
 # A labeled / curly destructuring pattern in an await-carrying `match` arm binds nothing — the body reads zeroed state-machine fields
 
-**Status: OPEN (found 2026-09-13 during the `match` audit, `plans/MATCH_PATTERN_MATCHING.md` §2.1 row A3).**
+**Status: FIXED (found 2026-09-13 during the `match` audit, `plans/MATCH_PATTERN_MATCHING.md` §2.1 row A3; fixed by the P0 async-emitter rework, regression-pinned in `tests/match_async_arms.test.yo`'s nullable-pointer labeled/curly arm test).**
 Silent wrong answer. Reproduces on `develop` `1780b90cb` with the v0.2.31 seed
 and with a compiler built from PR #661's branch (the PR does not touch this
 emitter).

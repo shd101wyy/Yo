@@ -1,0 +1,12 @@
+// The bugged twin of valid/dml_list_get.yo: `bad` violates `get`'s
+// requires (index 3 into a list of unknown length), and `bad_sum` reads
+// index 1 with only `len() >= 1` known — the index-in-bounds obligation
+// refutes with a one-element model.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+
+bad :: (fn(xs : ArrayList(i32)) -> (r : i32))(get(xs, usize(3)));
+
+bad_sum :: (fn(xs : ArrayList(i32), requires(xs.len() >= usize(1))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));

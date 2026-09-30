@@ -75,7 +75,7 @@
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
-{ expr_info_adopt_env, expr_info_macro_expansion } :: import("../../expr_info.yo");
+{ expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value } :: import("../../expr_info.yo");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -1862,6 +1862,58 @@ _callsite_arg_type :: (
     .Atom(_, _) => Option(TypeValue).None
   )
 );
+/// A method call's RECEIVER expression when the callee is the dot-call
+/// `.(recv, m)`, the callee's first param is `self` and the receiver is a
+/// value (not a type: `ArrayList(i32).new()` is a static call).
+_callsite_method_receiver :: (
+  fn(ctx : EvalContext, f : AstExpr, params : ArrayList(String)) -> Option(AstExpr)
+)({
+  first_is_self := match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
+  if(!first_is_self, {
+    return(Option(AstExpr).None);
+  });
+  dot_args := match(
+    f,
+    .FnCall(_, cf, fa, _, _) => cond(
+      ((ast_expr_token(cf).value == ".") && (fa.len() == usize(2))) => fa,
+      true => {
+        return(Option(AstExpr).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(AstExpr).None);
+    }
+  );
+  recv := match(dot_args.get(usize(0)), .Some(r) => r, .None => make_err_expr());
+  recv_is_type := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .None => false
+  );
+  cond(
+    recv_is_type => Option(AstExpr).None,
+    true => Option(AstExpr).Some(recv)
+  )
+});
+/// The concrete type bound to the callee's `i`-th param at this call
+/// site: the receiver's for `self` of a method call, else the matching
+/// argument's (shifted by one after a receiver).
+_callsite_param_type :: (
+  fn(ctx : EvalContext, e : AstExpr, recv : Option(AstExpr), i : usize) -> Option(TypeValue)
+)(
+  match(
+    recv,
+    .Some(r) => cond(
+      (i == usize(0)) => match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(r)),
+        .Some(ri) => Option(TypeValue).Some(ri.ty.clone()),
+        .None => Option(TypeValue).None
+      ),
+      true => _callsite_arg_type(ctx, e, i - usize(1))
+    ),
+    .None => _callsite_arg_type(ctx, e, i)
+  )
+);
 /// For one call site: read the callee FuncVal's contracts (through the
 /// hooks — types/function.yo is not importable here), evaluate fresh-id
 /// clones with the callee's params + return label bound to unknowns of
@@ -1878,19 +1930,33 @@ _stash_callsite_contracts :: (
     exn : Exception
   ) -> unit
 )({
-  callee_info := match(
+  // The callee: the callee node's FuncVal, or — for an INSTANCE method
+  // call (`xs.push(v)`, resolved through the receiver at call time) — the
+  // specialized FuncVal the method-callee side table holds under the CALL
+  // node (R1 slice 2: std's `push`/`insert`/… are contracted generic
+  // methods, and their clauses must be typed at the concrete receiver).
+  callee_val := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(f)),
-    .Some(ci) => ci,
-    .None => {
-      return(());
-    }
+    .Some(ci) => match(
+      ci.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(_, _) => Option(EvalValue).Some(v),
+        _ => lookup_method_callee_value(ast_expr_id(e))
+      ),
+      .None => lookup_method_callee_value(ast_expr_id(e))
+    ),
+    .None => lookup_method_callee_value(ast_expr_id(e))
   );
   fid := match(
-    callee_info.value,
-    .Some(.FuncVal(fvd, _)) => fvd.*.func_id.clone(),
-    .Some(_) => {
-      return(());
-    },
+    callee_val,
+    .Some(cv) => match(
+      cv,
+      .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+      _ => {
+        return(());
+      }
+    ),
     .None => {
       return(());
     }
@@ -1902,13 +1968,18 @@ _stash_callsite_contracts :: (
   });
   // The callee's param labels (FuncVal order) and the CONCRETE types:
   // each argument's ExprInfo type at this call site, the call node's own
-  // type for the return label.
+  // type for the return label. A method call's receiver is its `self`
+  // argument, so the params shift by one against the call's own args.
   fvd_params := match(
-    callee_info.value,
-    .Some(.FuncVal(fvd2, _)) => fvd2.*.params,
-    .Some(_) => ArrayList(String).new(),
+    callee_val,
+    .Some(v2) => match(
+      v2,
+      .FuncVal(fvd2, _) => fvd2.*.params,
+      _ => ArrayList(String).new()
+    ),
     .None => ArrayList(String).new()
   );
+  recv_expr := _callsite_method_receiver(ctx, f, fvd_params);
   ret_ty := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
     .Some(ei) => ei.ty.clone(),
@@ -1921,7 +1992,7 @@ _stash_callsite_contracts :: (
     __pn := match(fvd_params.get(bi), .Some(x) => x, .None => String.new());
     if(__pn.len() > usize(0), {
       __pt := match(
-        _callsite_arg_type(ctx, e, bi),
+        _callsite_param_type(ctx, e, recv_expr, bi),
         .Some(at) => at,
         .None => t_unit()
       );

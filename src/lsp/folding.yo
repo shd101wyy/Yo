@@ -10,9 +10,15 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { Token, TokenKind } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
+{ AstExpr, ast_expr_id } :: import("../expr.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ EvalValue } :: import("../value.yo");
+{ classify_atom_roles, AtomRoles } :: import("./hover.yo");
+{ keyword_names } :: import("./completion.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum } :: import("./protocol.yo");
 
@@ -80,4 +86,198 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
   });
   JsonValue.Array(items : out)
 });
-export(handle_folding_ranges);
+export(handle_folding_ranges, handle_semantic_tokens);
+
+// ---------------------------------------------------------------------------
+// textDocument/semanticTokens (plans/LSP_AUDIT_2026-09-29.md §3) — a
+// syntactic first cut: what a TextMate grammar cannot know (which
+// identifiers are types, functions, members/labels vs plain variables),
+// read off the ExprInfo side table and the atom roles; literals, comments
+// and keywords come straight from the lexer. Legend indices: 0 keyword,
+// 1 type, 2 function, 3 variable, 4 property, 5 string, 6 number,
+// 7 comment.
+_SEM_KEYWORD :: usize(0);
+_SEM_TYPE :: usize(1);
+_SEM_FUNCTION :: usize(2);
+_SEM_VARIABLE :: usize(3);
+_SEM_PROPERTY :: usize(4);
+_SEM_STRING :: usize(5);
+_SEM_NUMBER :: usize(6);
+_SEM_COMMENT :: usize(7);
+
+/// Record the semantic kind of every ATOM of the program, keyed
+/// "row:column" — a member or label is a property, a type-valued expr is a
+/// type, a Func-typed expr a function, everything else a variable. Written
+/// only on first sight (duplicate AST paths classify identically).
+_semantic_walk :: (
+  fn(
+    e : AstExpr,
+    roles : AtomRoles,
+    info_table : ExprInfoTable,
+    out : HashMap(String, usize)
+  ) -> unit
+)({
+  match(
+    e,
+    .Atom(
+      id,
+      tok
+    ) => {
+      key := `${usize(tok.row)}:${usize(tok.column)}`;
+      if(!out.contains_key(key.clone()), {
+        kind := _SEM_VARIABLE;
+        if(roles.members.contains(id) || roles.labels.contains(id), {
+          kind = _SEM_PROPERTY;
+        });
+        if(kind == _SEM_VARIABLE, {
+          match(
+            expr_info_table_get(info_table, id),
+            .Some(info) => {
+              is_type_val := match(
+                info.value,
+                .Some(v) => match(
+                  v,
+                  .TypeVal(_) => true,
+                  _ => false
+                ),
+                .None => false
+              );
+              if(is_type_val, {
+                kind = _SEM_TYPE;
+              }, {
+                match(
+                  info.ty,
+                  .Func(_, _, _, _, _, _, _) => {
+                    kind = _SEM_FUNCTION;
+                  },
+                  _ => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        });
+        out.insert(key, kind);
+      });
+    },
+    .FnCall(
+      _,
+      func_box,
+      args,
+      _,
+      _
+    ) => {
+      recur(func_box, roles, info_table, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, roles, info_table, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// `textDocument/semanticTokens/full`: the whole document's tokens,
+/// delta-encoded 5-tuples (deltaLine, deltaStartChar, length, tokenType,
+/// tokenModifiers — always 0, no modifiers in the legend). Identifiers the
+/// analysis could not classify (a stale token match) are SKIPPED rather
+/// than guessed; keywords are classified from the token itself.
+handle_semantic_tokens :: (
+  fn(text : String, doc_abs : String, exprs : ArrayList(AstExpr), info_table : ExprInfoTable) -> JsonValue
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(jb().put("data", JsonValue.Array(items : ArrayList(JsonValue).new())).obj())
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  roles := classify_atom_roles(exprs);
+  atom_kinds := HashMap(String, usize).new();
+  (wi : usize) = usize(0);
+  while(wi < exprs.len(), {
+    match(
+      exprs.get(wi),
+      .Some(e) => _semantic_walk(e, roles, info_table, atom_kinds),
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+  kws := keyword_names();
+  data := ArrayList(JsonValue).new();
+  (prev_line : usize) = usize(0);
+  (prev_char : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < tokens.len(), {
+    t := match(
+      tokens.get(ti),
+      .Some(x) => x,
+      .None => {
+        return(jb().put("data", JsonValue.Array(items : data)).obj());
+      }
+    );
+    ti = (ti + usize(1));
+    if(t.kind == TokenKind.Whitespace, {
+      continue;
+    });
+    kind := match(
+      t.kind,
+      TokenKind.StringLit => _SEM_STRING,
+      TokenKind.TemplateString => _SEM_STRING,
+      TokenKind.CharLit => _SEM_STRING,
+      TokenKind.Integer => _SEM_NUMBER,
+      TokenKind.Float => _SEM_NUMBER,
+      TokenKind.Bool => _SEM_KEYWORD,
+      TokenKind.SingleLineComment => _SEM_COMMENT,
+      TokenKind.MultiLineComment => _SEM_COMMENT,
+      TokenKind.DocLineComment => _SEM_COMMENT,
+      TokenKind.DocBlockComment => _SEM_COMMENT,
+      TokenKind.InnerDocLineComment => _SEM_COMMENT,
+      TokenKind.InnerDocBlockComment => _SEM_COMMENT,
+      TokenKind.Identifier => {
+        is_kw := false;
+        (ki : usize) = usize(0);
+        while((ki < kws.len()) && !is_kw, {
+          match(
+            kws.get(ki),
+            .Some(kw) => {
+              if(kw == t.value, {
+                is_kw = true;
+              });
+            },
+            .None => ()
+          );
+          ki = (ki + usize(1));
+        });
+        cond(
+          is_kw => _SEM_KEYWORD,
+          true => match(
+            atom_kinds.get(`${usize(t.row)}:${usize(t.column)}`),
+            .Some(k) => k,
+            .None => usize(999)
+          )
+        )
+      },
+      _ => usize(999)
+    );
+    if(kind == usize(999), {
+      continue;
+    });
+    row := usize(t.row);
+    col := usize(t.column);
+    delta_line := (row - prev_line);
+    delta_char := cond((row == prev_line) => (col - prev_char), true => col);
+    length := t.value.chars().count();
+    data.push(jnum(delta_line));
+    data.push(jnum(delta_char));
+    data.push(jnum(length));
+    data.push(jnum(kind));
+    data.push(jnum(usize(0)));
+    prev_line = row;
+    prev_char = col;
+  });
+  jb().put("data", JsonValue.Array(items : data)).obj()
+});

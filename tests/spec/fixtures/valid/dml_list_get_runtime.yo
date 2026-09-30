@@ -1,0 +1,13 @@
+// The runtime-mode twin of dml_list_get.yo: no pragma, so the contracts are
+// runtime asserts and the list model registers no verify task. Pins that the
+// fixture's spellings are ordinary Yo.
+{ ArrayList } :: import("std/collections/array_list");
+
+get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(7));
+  _ := get(xs, usize(0));
+});
+export(main);

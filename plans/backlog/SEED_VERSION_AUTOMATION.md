@@ -110,6 +110,77 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
+
+**Generation A DONE 2026-09-30** (issues/fixed/verify-by-default-for-a-project.md):
+the compiler carries `__yo_build_verify(name, root, mode, strict)` — a
+`BuildVerifyConfig` in the build registry, a `Verify` DAG node, and
+`run_verify_step` in `src/build_runner.yo`, which runs `yo verify <root>
+--verify-mode <mode> [--strict]` in the child the way a test suite runs
+`yo test`. `std/build.yo` gained only the seed-safe `StepKind.Verification`
+variant; a build file calls the builtin directly and wraps the Step itself —
+cli-case `build-verify-dry-run`, docs `docs/*/BUILD_SYSTEM.md` § Verification
+steps.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying it):** add the
+friendly wrapper to `std/build.yo` after `export(doc);` — it was written and
+parked here because the seed evaluates `std/build.yo` and fails E0401 on the
+unknown builtin (measured 2026-09-30 with v0.2.46: every wrapper shape fails,
+a plain body included):
+
+```rust
+// ── Verification ─────────────────────────────────────────────────────
+/// The mode a `build.verify` step runs its target files in (the same two
+/// modes `Pragma.Verify` / `Pragma.VerifyOrAssert` select per file, see
+/// docs/en-US/FORMAL_VERIFICATION.md §Modes).
+VerifyMode :: enum(
+  /// `verify`: every obligation must be proved; a refuted, unproven or
+  /// outside-subset contracted function fails the step.
+  Verify,
+  /// `verify+`: a refutation fails the step; an unproven obligation keeps its
+  /// runtime assert and warns.
+  VerifyOrAssert
+);
+export(VerifyMode);
+/// Configuration for a verification step.
+VerifyConfig :: struct(
+  /// Step name (e.g., "verify").
+  name : comptime_str,
+  /// Root source file or directory to verify (every `.yo` file under it).
+  root : comptime_str,
+  /// Verification mode (default: `Verify`).
+  (mode : VerifyMode) ?= VerifyMode.Verify,
+  /// Pass `--strict` (a vacuous `ok` with zero obligations fails, see
+  /// docs/en-US/FORMAL_VERIFICATION.md §Strict mode).
+  (strict : bool) ?= false
+);
+export(VerifyConfig);
+/// Register a verification step: `yo build <name>` runs `yo verify <root>`
+/// with the pinned Z3. Returns a Step for dependency wiring. This is the
+/// project-level "every build proves my contracts" switch; `yo check` stays
+/// solver-free by design.
+///
+/// ## Examples
+///
+/// ```yo
+/// build :: import("std/build");
+///
+/// proofs :: build.verify({ name : "verify", root : "./src" });
+///
+/// install :: build.step("install", "Build all artifacts");
+/// install.depend_on(proofs);
+/// ```
+verify :: (fn(comptime(config) : VerifyConfig) -> comptime(Step))({
+  mode_str :: match(config.mode, .Verify => "verify", .VerifyOrAssert => "verify+");
+  __yo_build_verify(config.name, config.root, mode_str, config.strict);
+  Step(name : config.name, kind : StepKind.Verification)
+});
+export(verify);
+```
+
+Then point the cli-case fixture and both `BUILD_SYSTEM.md` at `build.verify`,
+and drop the Generation-A paragraphs there and in the workflow cheatsheet.
+
 ## Seed-gated follow-up (2026-09-12): `build.manifest` in `std/build.yo`
 
 **Generation A DONE 2026-09-12** (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
