@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 190 open bug
-docs in `issues/` root and the 15 design questions in
+**Generated** by `scripts/gen-issue-triage.py` over the 179 open bug
+docs in `issues/` root and the 13 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,15 +29,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
-| Async / effects | 20 | 6 |
+| Async / effects | 13 | 2 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 23 | 5 |
 | Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
-| Self-hosting legacy | 15 | 2 |
+| Self-hosting legacy | 12 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 36 | 9 |
-| **Total** | **190** | **39** |
+| Other | 35 | 8 |
+| **Total** | **179** | **34** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 42 |
-| S2 | 93 |
-| S3 | 54 |
+| S1 | 37 |
+| S2 | 89 |
+| S3 | 52 |
 | (missing) | 1 |
 
 - MISSING SEVERITY: `a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`
@@ -60,7 +60,6 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`builtin-name-shadows-user-definition.md`](./questions/builtin-name-shadows-user-definition.md) — which name-resolution policy when user definitions collide with builtins: reserve, prefer user bindings, or warn
 - [`emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md`](./questions/emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md) — grow the emscripten heap, size it from a flag, or make the OOM abort say what happened
 - [`httpmethod-from-string-returns-option-not-result.md`](./questions/httpmethod-from-string-returns-option-not-result.md) — `HttpMethod.from_string` should be a `FromString` impl — with which error type
-- [`impl-future-struct-field-emits-incompatible-pointer.md`](./questions/impl-future-struct-field-emits-incompatible-pointer.md) — support `Impl(Future(T, E))` struct fields (the `Impl(Fn(...), Send)` precedent) or reject them at check with alternatives
 - [`lsp-completion-substring-matching.md`](./questions/lsp-completion-substring-matching.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./questions/manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) — how the `[package] yo` MSRV field is enforced: error vs warning, `>=` or range, checked where
 - [`modifies-clause-for-callee-side-effects.md`](./questions/modifies-clause-for-callee-side-effects.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
@@ -71,7 +70,6 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`stddoc-sys-signal-handler-data-always-null.md`](./questions/stddoc-sys-signal-handler-data-always-null.md) — carry the `SignalHandler` user data (the `events.yo` precedent) or drop the parameter
 - [`with-lock-and-with-permit-cannot-see-an-unwind.md`](./questions/with-lock-and-with-permit-cannot-see-an-unwind.md) — correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent
 - [`yo-doc-document-private-flag-is-a-no-op.md`](./questions/yo-doc-document-private-flag-is-a-no-op.md) — implement or remove the inert `--document-private` flag
-- [`yoself-accepts-await-in-cond-that-ts-rejects.md`](./questions/yoself-accepts-await-in-cond-that-ts-rejects.md) — is an await nested in a `cond` condition legal, and is it lowered correctly
 
 ## Cross-cutting buckets
 
@@ -142,7 +140,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 ### Largest docs (usually clusters, not single defects)
 
-- [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) — 40 KB
 - [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
@@ -150,6 +147,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
 - [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
+- [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) — 10 KB
 
 ---
 
@@ -173,26 +171,19 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (20)
+### Async / effects (13)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) | S1 | OPEN — an inner | — |
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | S2 | OPEN | — |
-| [`a-ref-value-passed-to-an-async-future-is-never-released.md`](./a-ref-value-passed-to-an-async-future-is-never-released.md) | S1 | — | yes |
 | [`async-abort-dispose-double-drops-moved-enum-payload.md`](./async-abort-dispose-double-drops-moved-enum-payload.md) | S1 | — | yes |
 | [`async-await-nested-if-lost-continuation.md`](./async-await-nested-if-lost-continuation.md) | S1 | — | — |
 | [`async-capture-mode-argument-rendering-cluster.md`](./async-capture-mode-argument-rendering-cluster.md) | S2 | — | — |
-| [`async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`](./async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md) | S2 | — | — |
 | [`async-tail-match-return-hangs-state-machine.md`](./async-tail-match-return-hangs-state-machine.md) | S1 | OPEN — std avoids the shape (the | — |
-| [`closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`](./closure-argument-inside-an-io-async-body-loses-the-future-result-type.md) | S2 | — | yes |
 | [`command-stdin-windows-pipe-write-blocks-the-event-loop.md`](./command-stdin-windows-pipe-write-blocks-the-event-loop.md) | S1 | — | — |
-| [`impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md`](./impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md) | S2 | open | yes |
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | S1 | OPEN — worked around in `std/thread | yes |
-| [`io-async-param-shadowing-an-outer-name-still-captures-it.md`](./io-async-param-shadowing-an-outer-name-still-captures-it.md) | S3 | — | yes |
-| [`io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`](./io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md) | S3 | OPEN | — |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | S1 | OPEN on | — |
-| [`sync-main-awaits-propagate-errors-through-a-null-exn.md`](./sync-main-awaits-propagate-errors-through-a-null-exn.md) | S1 | — | — |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
@@ -322,15 +313,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | S3 | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | S3 | — | — |
 
-### Self-hosting legacy (15)
+### Self-hosting legacy (12)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`desugar-token-clones-evaluator-regression.md`](./desugar-token-clones-evaluator-regression.md) | S3 | — | — |
 | [`self-hosted-emit-leaks-remaining-classes.md`](./self-hosted-emit-leaks-remaining-classes.md) | S1 | — | — |
-| [`yo-self-async-await-argcount-overpermissive.md`](./yo-self-async-await-argcount-overpermissive.md) | S2 | — | — |
-| [`yo-self-async-completion-drop-set-divergence.md`](./yo-self-async-completion-drop-set-divergence.md) | S1 | — | — |
-| [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) | S1 | — | — |
 | [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) | S1 | — | yes |
 | [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) | S3 | — | — |
 | [`yo-self-ctfe-nested-fn-analysis-gap.md`](./yo-self-ctfe-nested-fn-analysis-gap.md) | S2 | — | — |
@@ -350,7 +338,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (36)
+### Other (35)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -365,7 +353,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
-| [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | S1 | — | yes |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
