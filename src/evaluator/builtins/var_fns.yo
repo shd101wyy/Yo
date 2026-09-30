@@ -13,7 +13,8 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -26,8 +27,10 @@ pragma(Pragma.AllowUnsafe);
 /// evaluating the argument.
 _VarArg :: struct(env : Environment, variable : Variable);
 /// Evaluate the call's one argument (its errors propagate) and resolve the
-/// variable it names. Throws when there is no argument or the argument does
-/// not name a variable.
+/// variable it names. Throws when there is no argument or the argument is not
+/// an identifier: a constructor call or any other expression is bound to a
+/// compiler temp, which is a variable too, so resolving the evaluated
+/// argument alone would answer about the temp.
 _introspected_variable :: (
   fn(
     expr : AstExpr,
@@ -45,6 +48,17 @@ _introspected_variable :: (
       return(Option(_VarArg).None);
     }
   );
+  if(!(ast_expr_is_atom(var_arg) && (ast_expr_token(var_arg).kind == TokenKind.Identifier)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(var_arg),
+          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(var_arg)}`
+        )
+      )
+    );
+    return(Option(_VarArg).None);
+  });
   eval_var_arg := evaluate_expression_raw(var_arg, env, ctx, exn);
   var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
   (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
