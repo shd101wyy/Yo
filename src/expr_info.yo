@@ -1018,6 +1018,10 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
 );
 // ── scratch prototype (plans/CODEGEN_MEMORY_REDUCTION.md §6, "what would work") ──
 (g_scope_husk_on : bool) = debug_knob(`YO_PROTO_SCOPE_HUSK`).is_some();
+(g_scope_ids : ArrayList(ExprId)) = ArrayList(ExprId).new();
+(g_side_on : bool) = debug_knob(`YO_PROTO_SCOPE_SIDE`).is_some();
+(g_side_temps : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
+(g_side_atom_exc : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
 (g_renv_on : bool) = debug_knob(`YO_PROTO_SCOPE_RENV`).is_some();
 (g_renv_intern : HashMap(String, Environment)) = HashMap(String, Environment).new();
 (g_renv_built : usize) = usize(0);
@@ -1158,7 +1162,10 @@ _renv_release :: (fn(mark : usize, k : usize, boundary_frame_id : usize) -> unit
     i = j;
   });
   g_scope_infos.truncate(mark);
+  g_scope_ids.truncate(mark);
 });
+scope_side_stats :: (fn() -> String)(`side_temps=${g_side_temps.len().to_string()} side_atom_exc=${g_side_atom_exc.len().to_string()}`);
+export(scope_side_stats);
 scope_renv_stats :: (fn() -> String)(`renv_built=${g_renv_built.to_string()} renv_interned=${g_renv_intern.len().to_string()} renv_kept=${g_renv_kept.to_string()}`);
 export(scope_renv_stats);
 scope_husk_release_at :: (fn(mark : usize, k : usize, boundary_frame_id : usize) -> unit)(
@@ -1184,6 +1191,22 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
         if(g_scope_records_on, {
           _scope_build_records(info);
         });
+        if(g_side_on, {
+          sid := g_scope_ids.get(i).unwrap();
+          match(info.variable_name, .Some(vn) => {
+            tv := get_variables_from_env(info.env, vn.clone());
+            match(tv.last(), .Some(t) => {
+              g_side_temps.insert(sid, t);
+            }, .None => ());
+          }, .None => ());
+          match(info.source_variable, .Some(sv) => {
+            av := get_variables_from_env(info.env, sv.name.clone());
+            ok := ((av.len() == usize(1)) && match(av.last(), .Some(l) => (l.id == sv.id), .None => false));
+            if(!(ok), {
+              g_side_atom_exc.insert(sid, av);
+            });
+          }, .None => ());
+        });
         info.env = h;
         g_scope_husked = (g_scope_husked + usize(1));
       },
@@ -1192,6 +1215,7 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
     i = (i + usize(1));
   });
   g_scope_infos.truncate(mark);
+  g_scope_ids.truncate(mark);
 });
 scope_husk_count :: (fn() -> usize)(g_scope_husked);
 // Records a real version would keep (the resolutions codegen asks for):
@@ -1236,6 +1260,7 @@ export(scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_count, sco
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   if(g_scope_husk_on, {
     g_scope_infos.push(info);
+    g_scope_ids.push(id);
   });
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
