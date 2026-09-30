@@ -103,6 +103,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../function_value.yo");
 {
   enrich_captured_variables,
+  propagate_captures_to_enclosing,
   generate_captured_variable_dup_expressions,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
@@ -1937,6 +1938,9 @@ Result type: ${type_to_string(decl_result_ty)}`
     // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
+    if(is_creating_closure, {
+      match(closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
+    });
   });
   // Deferred generic body: trial-evaluate a CLONE to catch a concrete
   // return against the declared generic return type (`(value -> i32(0))`
