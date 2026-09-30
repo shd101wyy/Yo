@@ -48,7 +48,9 @@ verifier's design, V1–V7 landed),
 [`SEED_VERSION_AUTOMATION`](backlog/SEED_VERSION_AUTOMATION.md),
 [`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md) and its
 2026-09-30 ATS audit [`ATS_STYLE_INDEXED_TYPES`](backlog/ATS_STYLE_INDEXED_TYPES.md)
-(indexed types and existentials: what Yo has, what the verifier still needs),
+(indexed types and existentials: what Yo has, what the verifier still needs)
+with its sequel [`ATS_LESSONS_BEYOND_INDEXED_TYPES`](backlog/ATS_LESSONS_BEYOND_INDEXED_TYPES.md)
+(the rest of ATS: lemmas, must-use results, an init proof token, typestate),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
