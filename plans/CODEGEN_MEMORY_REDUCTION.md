@@ -15,14 +15,17 @@ Status as of 2026-09-30:
   - emit's C sections with in-place truncation (§0.6);
   - the code spill (§0.10).
 
-  Together `compile` goes 3,284 → **2,766 MB** on mimalloc (−16 %) and
-  `check` 971 → 932 MB, with fewer instructions and byte-identical C.
+  - shared `[[name]]` path collections (§0.11).
+
+  Together `compile` goes 3,284 → **2,676 MB** on mimalloc (−18.5 %) and
+  `check` 971 → ~937 MB, with fewer instructions and byte-identical C (#1041).
 - **Measured and rejected:** env interning (§0.7) and per-function env
   release (§0.8).
 - **Next:**
-  - §3 lever 6: shared path collections;
-  - after #1002 and #1016 land: Phase 4 Design 1 (the specialization clones)
-    and env-free codegen (§6).
+  - share the property-access path collections (the rest of lever 6);
+  - after #1002 and #1016 land: trial-born specializations (§0.11: 313 K
+    entries), Phase 4 Design 1 (the specialization clones) and env-free
+    codegen (§6).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -434,6 +437,46 @@ is chunked.
 count, 2026-09-30), about 3 of every 4 a duplicate. Sharing them needs
 `expr_info_paths_for_write` to copy when shared (today it copies only the
 empty sentinel), the same shape as §0.5. That is §3 lever 6.
+
+### 0.11 Landed lever: shared `[[name]]` path collections (§3 lever 6, 2026-09-30)
+
+A read-only audit of every path-collection site found:
+- **Construction:** nothing writes a stored `PathCollection`, or a `Path`
+  inside one, in place. Every push lands on a local list before
+  `expr_info_table_set`, and a dozen sites already alias another ExprInfo's
+  collection.
+- **Identity:** the only identity test is the empty sentinel's.
+
+So:
+- `path_collection_of_name(name)` hands the identifier, binding-lhs and
+  assignment-lhs sites one shared `[[name]]` per name;
+- `expr_info_paths_for_write` deep-copies a shared collection (`rc > 1`)
+  before a write.
+
+Sharing is on only while `compile`'s shared table is live
+(`mm_set_shared_expr_info_table`). In `check` each module's table dies with
+its walk, and a process-wide map outlived them: +20 MB on `check` in the
+first version.
+
+Mimalloc stage-2s, same tree, C byte-identical:
+
+| | before (spill) | shared paths |
+| --- | --- | --- |
+| `compile` max RSS | 2,769 MB | **2,676 MB (−92, −3.3 %)** |
+| end of evaluation | 2,455 MB | 2,368 MB |
+| `check src/main.yo` (4 / 3 runs) | 932–935 MB | 936–939 MB (+2 to +4) |
+| instructions (`check src/types/intern.yo`) | 86,647,184,881 | 86,650,559,002 (+0.004 %) |
+
+The residual `check` cost is unexplained: sharing is off there, and the
+per-ExprInfo allocation shape is unchanged. It is kept against the
+`compile` win. The property-access collections (`build_field_path_collection`)
+are not shared yet; they are the rest of the 185 K distinct of ~710 K.
+
+**Trial-born specializations (§3 lever 4), sized:** 74,728 outermost
+overload trials leave **313,432 of 2,888,577** shared-table entries (10.9 %;
+scratch id-range instrument on `_trial_call_overload_candidate`'s two call
+sites). The lever is real. Its code is in `evaluator/calls/function.yo` and
+`helper.yo`, next to the async PRs, so it is scheduled after them.
 
 ## 1. Rules carried over from the evaluator campaign
 
