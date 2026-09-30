@@ -237,8 +237,8 @@ Emitter :: ref(
     /// C brace and records named-local + temp decls — the escape gate's
     /// block-scope-aware liveness signal. See `_emitter_track_scope`.
     scope_ref : Option(ArrayList(String)),
-    /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): when
-    /// `code_spill_fd >= 0`, finished code past `CODE_SPILL_BYTES` is written
+    /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
+    /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
     /// to that file between functions and the `code` buffer is cleared, so
     /// the ~117 MB of C bodies never sit in memory at once.
     /// `code_spilled_bytes` is how much of the code section is on disk,
@@ -269,17 +269,22 @@ impl(
       code_spill_threshold : CODE_SPILL_BYTES
     )
   ),
-  /// Spill finished code to `path` from now on (truncating it). Returns false
-  /// when the file cannot be opened: the code then stays in memory.
-  start_code_spill : (fn(inout(self) : Self, path : String) -> bool)({
-    cpath := path.to_cstr();
+  /// Spill finished code to `path` from now on. The file is created at the
+  /// first spill, so a program whose code never reaches the threshold (and a
+  /// compile that fails before it does) leaves no file behind.
+  start_code_spill : (fn(inout(self) : Self, path : String) -> unit)({
+    self.code_spill_path = path;
+    self.code_spilled_bytes = usize(0);
+  }),
+  _open_code_spill : (fn(inout(self) : Self) -> bool)({
+    cpath := self.code_spill_path.to_cstr();
     fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
     if(fd < i32(0), {
+      // Unopenable: stop trying; the code stays in memory.
+      self.code_spill_path = String.new();
       return(false);
     });
     self.code_spill_fd = fd;
-    self.code_spill_path = path;
-    self.code_spilled_bytes = usize(0);
     true
   }),
   /// Between functions: write the code buffer to the spill file once it holds
@@ -287,7 +292,10 @@ impl(
   /// threshold). Callers only spill at a function boundary — every in-buffer
   /// offset a function takes (`before`, stub marks) is then still valid.
   spill_code_if_large : (fn(inout(self) : Self) -> unit)(
-    if((self.code_spill_fd >= i32(0)) && (self.code.len() >= self.code_spill_threshold), {
+    if((self.code_spill_path.len() > usize(0)) && (self.code.len() >= self.code_spill_threshold), {
+      if((self.code_spill_fd < i32(0)) && !self._open_code_spill(), {
+        return(());
+      });
       bytes := self.code.as_bytes();
       n := bytes.len();
       base_ptr := bytes.ptr().unwrap();

@@ -253,7 +253,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
   plain := Emitter.new();
   spilled := Emitter.new();
   path := String.from(".yo_emitter_spill_test.c.spill");
-  assert(spilled.start_code_spill(path.clone()), "the spill file opens");
+  spilled.start_code_spill(path.clone());
   spilled.code_spill_threshold = usize(1);
   plain.emit_header_line("#include <stdint.h>");
   spilled.emit_header_line("#include <stdint.h>");
@@ -284,7 +284,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
 test("rewrite_code_spill replaces the spilled code and its length", {
   em := Emitter.new();
   path := String.from(".yo_emitter_spill_rewrite_test.c.spill");
-  assert(em.start_code_spill(path.clone()), "the spill file opens");
+  em.start_code_spill(path.clone());
   em.code_spill_threshold = usize(1);
   em.emit_line("int a;");
   em.spill_code_if_large();
