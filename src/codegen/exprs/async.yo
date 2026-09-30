@@ -45,19 +45,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid } :: import("../../function_value.yo");
-{
-  ExprInfo,
-  lookup_some_resolved_concrete,
-  register_some_resolved_concrete,
-  expr_info_table_set,
-  lookup_hollow_body_error,
-  expr_info_closure_function_value,
-  expr_info_async_state_machine_struct_name,
-  expr_info_set_async_state_machine_struct_name,
-  expr_info_capture_type,
-  expr_info_deferred_dup_expressions,
-  expr_info_set_deferred_dup_expressions
-} :: import("../../expr_info.yo");
+{ ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -94,7 +82,8 @@
   compute_overlapping_slots,
   inline_await_result_fields,
   generate_async_block_resume_function_inline,
-  generate_async_block_cancel_pending_function_inline
+  generate_async_block_cancel_pending_function_inline,
+  resume_scope_wrapper
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -486,6 +475,14 @@ AsyncBlockStructInfo :: ref(
     closure_param_slots : Option(ArrayList(ClosureParamSlot))
   )
 );
+/// The result type (`T` of `Future(T)`) each async block's emission resolved,
+/// keyed by `<output SomeT id>@@<async block id>`, so the block and its await
+/// sites agree without a sibling closure that shares the `Future(T)` trait
+/// seeing it. Codegen-local: it used to borrow the SomeT resolution registry
+/// with the same composite key (Phase 3 step 7 part 2).
+(g_async_block_result_types : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Find the C name of the capture struct for `capture_type`: the registered
+/// type-entry c_name if present, else `async_capture_<id>`.
 _find_capture_type_c_name :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
   vals := context.base.types.values();
@@ -1230,13 +1227,17 @@ generate_async_block_state_dispose_function :: (
   }, em.emit_line("  (void)sm_ptr;"));
   em.emit_line("}");
 });
-/// The allocation of a future of type `struct_name`: from its type's pool
+/// The allocation of a future of type `struct_name` in the allocation scope
+/// held by the C variable `scope`: an explicit allocator's block when one is
+/// current (plans/EXPLICIT_ALLOCATORS.md §3.5), else one from its type's pool
 /// under lightweight RC (phase 7; the dispose dispatch gives released ones
-/// back), else a fresh RC block. The caller zeroes it either way.
-_sm_alloc_call :: (fn(struct_name : String, dispose_function_name : String, context : FunctionGenerationContext) -> String)(
-  if(context.base.needs_cycle_gc, `__yo_rc_alloc(sizeof(${struct_name}))`, {
+/// back), else a fresh RC block. A pooled block never carries an owner
+/// prefix, so the pool is consulted only for the global allocator. The
+/// caller zeroes it either way.
+_sm_alloc_call :: (fn(struct_name : String, dispose_function_name : String, scope : String, context : FunctionGenerationContext) -> String)(
+  if(context.base.needs_cycle_gc, `__yo_rc_alloc_scoped(${scope}, sizeof(${struct_name}))`, {
     pid := context.base.sm_pool_id_for(dispose_function_name);
-    `__yo_sm_take(${pid.to_string()}, sizeof(${struct_name}))`
+    `(${scope.clone()}.vtable ? __yo_rc_alloc_scoped(${scope.clone()}, sizeof(${struct_name.clone()})) : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
   })
 );
 /// Generate the constructor for an async block: heap-allocates + zero-inits the
@@ -1263,12 +1264,13 @@ generate_async_block_constructor :: (
   );
   // Allocate + zero-init the state machine.
   em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
+  em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), String.from("__yo_sc"), context)};`);
   em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   em.emit_line("");
   // Reference-counting header.
   em.emit_line("  // Initialize reference counting header");
-  em.emit_line("  sm->header.ref_count = 1;  // Caller owns initial reference");
+  em.emit_line("  sm->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // Caller owns initial reference; the tag marks an explicit allocator's block");
   em.emit_string_line(`  GC_DEBUG("AsyncBlock ${struct_name.clone()}: Created ptr=%p RC=1\\n", (void*)sm);`);
   if(context.base.needs_cycle_gc, {
     em.emit_line("  sm->header.gc_flags = 0;");
@@ -1840,7 +1842,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   _per_clone_rsid.push_string(async_block_id.clone());
   if(is_some_type(result_type), {
     match(
-      lookup_some_resolved_concrete(_per_clone_rsid.clone()),
+      g_async_block_result_types.get(_per_clone_rsid.clone()),
       .Some(rct) => {
         result_type = rct;
       },
@@ -1872,9 +1874,8 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
-                bsid := match(bt, .SomeT({ id : i }) => i, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(bsid),
+                  some_resolution(bt),
                   .Some(r) => {
                     result_type = r;
                   },
@@ -1895,7 +1896,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Register under the per-closure key so future lookups (by the same closure
   // or await site) resolve to this concrete type without clobbering siblings.
   if(!(is_some_type(result_type)), {
-    register_some_resolved_concrete(_per_clone_rsid.clone(), result_type.clone());
+    g_async_block_result_types.insert(_per_clone_rsid.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
   em := context.base.emitter;
@@ -2501,7 +2502,25 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
     }),
     .None => ()
   );
-  // Recurse into arguments.
+  // Recurse into the callee, the arguments and a macro call's expansion. The
+  // callee holds the receiver of a method call, so `io.await(f, io).m()` (and
+  // every template interpolation, which the parser desugars to
+  // `e.to_string()`) awaits inside it; the arguments alone missed that await,
+  // the async runtime was never emitted, and the blocking await's
+  // `__yo_async_poll_step()` was an undeclared function in the C
+  // (issues/fixed/an-await-in-a-method-receiver-does-not-pull-in-the-async-runtime.md).
+  // A macro call keeps its head in the AST, and the code emitted is its
+  // expansion: walk that instead of the raw arguments, as
+  // `expr_contains_await` does.
+  match(
+    lookup_macro_expansion(ast_expr_id(expr)),
+    .Some(me) => {
+      recur(me, context);
+      return(());
+    },
+    .None => ()
+  );
+  match(expr, .FnCall(_, callee, _, _, _) => recur(callee, context), _ => ());
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < args.len(), {
@@ -2565,10 +2584,9 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   );
   (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
-  // it to a concrete type below, we register it under this id so the matching
-  // `io.await` site (same future type → same output SomeType id) can resolve the
-  // awaited value's type via `lookup_some_resolved_concrete` instead of lowering
-  // the await binding to `void*`.
+  // it to a concrete type below, we record it under this id (with the block id,
+  // `g_async_block_result_types`) so this block's later emission agrees with it
+  // instead of lowering the await binding to `void*`.
   output_some_id := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
   // Per-closure composite key: append the unique async_block_id to the
   // output_some_id so that different closures implementing the same Future(T)
@@ -2588,9 +2606,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   per_clone_key.push_str("@@");
   per_clone_key.push_string(ab_id.clone());
   if(is_some_type(result_type), {
-    rsid := per_clone_key.clone();
     match(
-      lookup_some_resolved_concrete(rsid),
+      g_async_block_result_types.get(per_clone_key.clone()),
       .Some(rct) => {
         result_type = rct;
       },
@@ -2603,9 +2620,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
-                bsid := match(bt, .SomeT({ id : i }) => i, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(bsid),
+                  some_resolution(bt),
                   .Some(r) => {
                     result_type = r;
                   },
@@ -2651,7 +2667,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // resolve the awaited value's type. The await site matches because it shares
   // the same async_block_id (it awaits the same io.async expression).
   if(!(is_some_type(result_type)) && !(per_clone_key.is_empty()), {
-    register_some_resolved_concrete(per_clone_key.clone(), result_type.clone());
+    g_async_block_result_types.insert(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
   struct_name := match(expr_info_async_state_machine_struct_name(ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));
@@ -2797,7 +2813,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   context.state_machine_field_aliases = sync_saved_smfa;
   em.emit_declaration_line("");
   // Resume function — calls the closure with the embedded capture data.
-  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
+  em.emit_declaration_string_line(`static void ${resume_function_name.clone()}__body(void* ptr) {`);
   em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
   if(!(is_unit_type(result_type)), {
     em.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
@@ -2829,6 +2845,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("  }");
   em.emit_declaration_line("  __yo_decr_rc(ptr);");
   em.emit_declaration_line("}");
+  em.emit_declaration_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_declaration_line("");
   // Dispose function.
   capture_drop_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
@@ -2950,9 +2967,10 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // Allocation + initialization (body code).
   result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
-  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
+  em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
+  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1;`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u | __yo_rc_tag_of(${result_var.clone()}__sc);`);
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_flags = 0;`);
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.gc_mark = __YO_GC_UNMARKED;`);

@@ -191,21 +191,15 @@ evaluate_yo_comptime_string_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(
-            av,
-            .StrLit(raw) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_uppercase())),
-            _ => create_unknown_val(t_comptime_string())
-          ),
+          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_uppercase())),
+          .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(
-            av,
-            .StrLit(raw) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_lowercase())),
-            _ => create_unknown_val(t_comptime_string())
-          ),
+          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_lowercase())),
+          .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {

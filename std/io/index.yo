@@ -66,29 +66,29 @@ Reader :: trait(
   /// actually read; `0` means end-of-stream. Throws `IoExn` on failure.
   read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   /// Read until end-of-stream, resolving to all remaining bytes. Loops the
-  /// raw `read` with an internal chunk buffer, so implementors get it for
-  /// free and callers never touch a raw pointer.
+  /// raw `read` straight into the result's spare capacity, doubling it
+  /// whenever it fills (Rust's `default_read_to_end`), so implementors get it
+  /// for free and callers never touch a raw pointer.
   (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
     (
       (self, io) ->
         io.async(e => {
-          out := ArrayList(u8).new();
-          chunk := ArrayList(u8).with_capacity(usize(4096));
-          (ci : usize) = usize(0);
-          while(ci < usize(4096), ci = (ci + usize(1)), {
-            chunk.push(u8(0));
-          });
-          p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
+          // It used to read into a separate 4 KiB chunk (filled first with
+          // 4096 pushes) and copy every byte over with its own `push`: a 16 KiB
+          // file cost five reads and ~20k contract-checked pushes.
+          out := ArrayList(u8).with_capacity(usize(8192));
           (done : bool) = false;
           while(!done, {
-            n := e.io.await(Self.read(self, p, usize(4096), io), e);
+            if(out.len() == out.capacity(), {
+              out.reserve(out.capacity());
+            });
+            len := out.len();
+            p := match(out.ptr(), .Some(q) => q.add(len), .None => (*u8)(""));
+            n := e.io.await(Self.read(self, p, out.capacity() - len, io), e);
             if(n == usize(0), {
               done = true;
             }, {
-              (i : usize) = usize(0);
-              while(i < n, i = (i + usize(1)), {
-                out.push(chunk(i));
-              });
+              out.set_len(len + n);
             });
           });
           out

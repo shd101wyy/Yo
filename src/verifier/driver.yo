@@ -18,7 +18,8 @@ json :: import("std/encoding/json");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body, register_recursion_cliques, GuardSite } :: import("./vc.yo");
-{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site } :: import("../evaluator/builtins/contracts.yo");
+{ get_current_target } :: import("../target.yo");
 {
   Z3_VERSION,
   ensure_z3,
@@ -189,11 +190,8 @@ _verdict_of_json :: (fn(v : JsonValue) -> Option(VerifyVerdict))({
   // the arm's value unit).
   kind := match(
     v.get(String.from("verdict")),
-    .Some(kind_val) => match(
-      kind_val,
-      .Str(s) => s.clone(),
-      _ => String.new()
-    ),
+    .Some(.Str(s)) => s.clone(),
+    .Some(_) => String.new(),
     .None => String.new()
   );
   if(kind.len() == usize(0), {
@@ -212,20 +210,14 @@ _verdict_of_json :: (fn(v : JsonValue) -> Option(VerifyVerdict))({
     ),
     (kind == "unproven") => match(
       v.get(String.from("reason")),
-      .Some(reason_val) => match(
-        reason_val,
-        .Str(r) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
-        _ => Option(VerifyVerdict).None
-      ),
+      .Some(.Str(r)) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
+      .Some(_) => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     (kind == "solver-error") => match(
       v.get(String.from("message")),
-      .Some(msg_val) => match(
-        msg_val,
-        .Str(m) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
-        _ => Option(VerifyVerdict).None
-      ),
+      .Some(.Str(m)) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
+      .Some(_) => Option(VerifyVerdict).None,
       .None => Option(VerifyVerdict).None
     ),
     true => Option(VerifyVerdict).None
@@ -478,7 +470,9 @@ VerifyFnObligation :: ref(
     (goal : String) ?= String.new(),
     /// The runtime guard this obligation discharges (`vc.yo`'s `GuardSite`);
     /// `.None` for contract, loop and assert obligations.
-    (site : Option(GuardSite)) ?= Option(GuardSite).None
+    (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    /// Proved with no unenforced assumption on its path (`VcObligation.elidable`).
+    (elidable : bool) ?= false
   )
 );
 /// The verification report for one function.
@@ -740,6 +734,41 @@ _ens_obligation_index :: (fn(name : String) -> Option(usize))({
 /// additionally get their PROVED `ensures` asserts stripped from the
 /// function body (plan task 6): the report's verdicts index-map onto the
 /// wrapper's splice order.
+/// Record every guard these reports license codegen to remove
+/// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1): the
+/// function's outcome is `ok` (all-or-nothing, rule 2); the obligation is
+/// `Proved`, folded proofs included (rule 1); it has a guard site and no
+/// unenforced assumption on its path (rule 3); and the target's pointer width
+/// is 64 (rule 4, conservative until the wasm32 twin case is validated).
+/// Returns how many sites were recorded.
+record_elidable_guard_sites :: (fn(reports : ArrayList(VerifyFnReport)) -> usize)({
+  if(get_current_target().pointer_size_bits != u32(64), {
+    return(usize(0));
+  });
+  (n : usize) = usize(0);
+  (ri : usize) = usize(0);
+  while(ri < reports.len(), {
+    rp := reports(ri);
+    if(rp.outcome == "ok", {
+      (oi : usize) = usize(0);
+      while(oi < rp.obligations.len(), {
+        obl := rp.obligations(oi);
+        proved := match(obl.verdict, .Proved(_) => true, _ => false);
+        match(
+          obl.site,
+          .Some(gs) => if(proved && obl.elidable, {
+            record_proved_guard_site(ProvedGuardSite(node_id : gs.node_id, module : gs.module.clone(), row : gs.row, column : gs.column, class : gs.class.clone()));
+            n = (n + usize(1));
+          }),
+          .None => ()
+        );
+        oi = (oi + usize(1));
+      });
+    });
+    ri = (ri + usize(1));
+  });
+  n
+});
 verify_and_strip_tasks :: (
   fn(cfg : VerifyRunConfig, binary : String, tasks : ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
 )({
@@ -819,7 +848,8 @@ verify_and_strip_tasks :: (
           ensures_exprs : t.ensures_exprs.clone(),
           decreases_expr : t.decreases_expr.clone(),
           return_label : t.return_label.clone(),
-          table : t.table
+          table : t.table,
+          requires_enforced : t.requires_enforced.clone()
         );
         body_res := verify_function_body(input);
         match(
@@ -876,7 +906,8 @@ verify_and_strip_tasks :: (
                         cached : false,
                         folded : true,
                         goal : encode_term(obl.query.goal),
-                        site : obl.site
+                        site : obl.site,
+                        elidable : obl.elidable
                       )
                     );
                     rank := if(pre_is_proved, usize(0), usize(3));
@@ -903,7 +934,8 @@ verify_and_strip_tasks :: (
                         verdict : clean_verdict,
                         cached : r.cached,
                         goal : encode_term(obl.query.goal),
-                        site : obl.site
+                        site : obl.site,
+                        elidable : obl.elidable
                       )
                     );
                     // 0 ok < 1 unproven < 2 solver-error < 3 refuted
@@ -1043,5 +1075,6 @@ export(
   verify_summary_count,
   verify_registered_functions,
   verify_and_strip_tasks,
+  record_elidable_guard_sites,
   unmangle_for_display
 );

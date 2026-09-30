@@ -15,6 +15,7 @@
 { StringBuilder } :: import("std/fmt");
 {
   AstExpr,
+  ExprId,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -70,7 +71,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ display_module_path } :: import("../../utils.yo");
+{ display_module_path, canonical_module_path } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
@@ -843,21 +844,18 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
     cur_env = expr_info_adopt_env(ty_info);
     bt := match(
       ty_info.value,
-      .Some(biv) => match(
-        biv,
-        .TypeVal(tv) => tv,
-        _ => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(barg),
-                String.from("quantifier binder must be (name : Type)")
-              )
+      .Some(.TypeVal(tv)) => tv,
+      .Some(_) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(barg),
+              String.from("quantifier binder must be (name : Type)")
             )
-          );
-          t_unit()
-        }
-      ),
+          )
+        );
+        t_unit()
+      },
       .None => {
         exn.throw(
           dyn(
@@ -1355,10 +1353,81 @@ VerifyTask :: ref(
     /// V6 task 5: the signature carried `assumed()` — the verifier reports
     /// the fn as `assumed` without walking the body (raw-pointer internals
     /// are outside the verifiable subset); its contracts still gate callers.
-    (body_assumed : bool) ?= false
+    (body_assumed : bool) ?= false,
+    /// Per `requires_exprs` entry: whether a runtime entry assert enforces
+    /// it (always in `verify+`; in `verify`, only a runtime-checkable one
+    /// outside a `ghost_fn`). An unenforced requires is an assumption a
+    /// caller the verifier never walks can break, so no guard may be elided
+    /// on it (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
+    /// Empty = none enforced.
+    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
+// ============================================================================
+// Proved guard sites (5b: plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §4.1)
+// ============================================================================
+// The verifier records here each runtime guard it PROVED can never fire and
+// that passed the §5.1 filter; codegen's guard emitters ask
+// `guard_site_is_proved` before splicing their helper. The table lives in the
+// evaluator (beside the task registry) so neither codegen nor the evaluator
+// imports `src/verifier/`. It is filled and drained within one compile.
+/// One proved guard site. The node id is the trust key; the position is a
+/// cross-check against node-id aliasing (the single-expression begin shares
+/// its tail's id). `row`/`column` are 0-based like the token.
+ProvedGuardSite :: struct(
+  node_id : ExprId,
+  module : String,
+  row : usize,
+  column : usize,
+  /// The obligation label: `divisor-nonzero`, `shift-in-width`,
+  /// `index-in-bounds`.
+  class : String
+);
+(g_proved_guard_sites : HashMap(ExprId, ArrayList(ProvedGuardSite))) = HashMap(ExprId, ArrayList(ProvedGuardSite)).new();
+/// Node ids whose guard codegen elided (a set: multi-pass emission may ask
+/// twice for one node).
+(g_elided_guard_nodes : HashSet(String)) = HashSet(String).new();
+record_proved_guard_site :: (fn(site : ProvedGuardSite) -> unit)({
+  existing := match(g_proved_guard_sites.get(site.node_id), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
+  existing.push(site);
+  g_proved_guard_sites.insert(site.node_id, existing);
+  ()
+});
+/// Drop every recorded site and the elision count (the start of a compile).
+clear_proved_guard_sites :: (fn() -> unit)({
+  g_proved_guard_sites = HashMap(ExprId, ArrayList(ProvedGuardSite)).new();
+  g_elided_guard_nodes = HashSet(String).new();
+  ()
+});
+/// How many distinct guards codegen elided since the last clear.
+elided_guard_count :: (fn() -> usize)(
+  g_elided_guard_nodes.len()
+);
+/// May codegen emit `expr`'s `class` guard as the raw operation? Only when a
+/// proof recorded exactly this node, this class, and this node's own
+/// canonical position. Any mismatch keeps the guard.
+guard_site_is_proved :: (fn(expr : AstExpr, class : str) -> bool)({
+  nid := ast_expr_id(expr);
+  match(
+    g_proved_guard_sites.get(nid),
+    .Some(sites) => {
+      tok := ast_expr_token(expr);
+      canon := canonical_module_path(tok.module_path.clone());
+      (i : usize) = usize(0);
+      while(i < sites.len(), {
+        gs := sites(i);
+        if((((gs.class == class) && (gs.module == canon)) && (gs.row == usize(tok.row))) && (gs.column == usize(tok.column)), {
+          g_elided_guard_nodes.insert(`${nid.to_string()}/${class}`);
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .None => false
+  )
+});
 /// V5 honest diagnostics: when a verify-target function's definition-time
 /// body trial SWALLOWS an error (E0902/E0401 class — the load continues,
 /// the body never gets ExprInfo), the real message is recorded here keyed
@@ -1803,13 +1872,10 @@ _stash_callsite_contracts :: (
   );
   fid := match(
     callee_info.value,
-    .Some(v) => match(
-      v,
-      .FuncVal(fvd, _) => fvd.*.func_id.clone(),
-      _ => {
-        return(());
-      }
-    ),
+    .Some(.FuncVal(fvd, _)) => fvd.*.func_id.clone(),
+    .Some(_) => {
+      return(());
+    },
     .None => {
       return(());
     }
@@ -1824,11 +1890,8 @@ _stash_callsite_contracts :: (
   // type for the return label.
   fvd_params := match(
     callee_info.value,
-    .Some(v2) => match(
-      v2,
-      .FuncVal(fvd2, _) => fvd2.*.params,
-      _ => ArrayList(String).new()
-    ),
+    .Some(.FuncVal(fvd2, _)) => fvd2.*.params,
+    .Some(_) => ArrayList(String).new(),
     .None => ArrayList(String).new()
   );
   ret_ty := match(
@@ -2340,11 +2403,8 @@ _callee_member_cond :: (
 _dot_arg1_is :: (fn(dot_args : ArrayList(AstExpr), name : String) -> bool)(
   match(
     dot_args.get(usize(1)),
-    .Some(second) => match(
-      second,
-      .Atom(_, st) => (st.value == name),
-      .FnCall(_, _, _, _, _) => false
-    ),
+    .Some(.Atom(_, st)) => (st.value == name),
+    .Some(.FnCall(_, _, _, _, _)) => false,
     .None => false
   )
 );
@@ -2520,6 +2580,25 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
     }
   )
 );
+/// `VerifyTask.requires_enforced` for a task's requires, mirroring what
+/// `wrap_function_body_with_contracts` splices: `verify+` asserts every
+/// requires; `verify` asserts only a runtime-checkable one, and nothing in a
+/// `ghost_fn`.
+requires_enforced_flags :: (fn(reqs : ArrayList(AstExpr), mode : String, in_ghost_fn : bool, table : ExprInfoTable) -> ArrayList(bool))({
+  out := ArrayList(bool).new();
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    out.push(
+      cond(
+        (mode == "verify+") => true,
+        in_ghost_fn => false,
+        true => match(reqs.get(i), .Some(p) => requires_is_runtime_checkable(p, table), .None => false)
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 wrap_function_body_with_contracts :: (
   fn(
     body : AstExpr,
@@ -3023,6 +3102,12 @@ export(
   ghost_fn_def_of,
   is_ghost_fn,
   requires_is_runtime_checkable,
+  requires_enforced_flags,
+  ProvedGuardSite,
+  record_proved_guard_site,
+  clear_proved_guard_sites,
+  elided_guard_count,
+  guard_site_is_proved,
   evaluate_seq_unit,
   evaluate_seq_append,
   evaluate_seq_len,

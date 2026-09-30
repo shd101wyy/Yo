@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 167 open bug
-docs in `issues/` root and the 11 design questions in
+**Generated** by `scripts/gen-issue-triage.py` over the 174 open bug
+docs in `issues/` root and the 12 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,16 +28,16 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 11 | 1 |
+| CI/Release/Build | 12 | 1 |
 | Async / effects | 13 | 2 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 22 | 4 |
-| Std library | 50 | 12 |
+| Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 12 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 26 | 6 |
-| **Total** | **167** | **31** |
+| Other | 31 | 7 |
+| **Total** | **174** | **32** |
 
 ## Counts by severity
 
@@ -45,12 +45,12 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 34 |
-| S2 | 84 |
-| S3 | 48 |
+| S1 | 35 |
+| S2 | 87 |
+| S3 | 51 |
 | (missing) | 1 |
 
-- MISSING SEVERITY: `ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`
+- MISSING SEVERITY: `a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`
 
 ## Design questions (issues/questions/)
 
@@ -66,6 +66,7 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`stddoc-io-url-empty-host-collapses-to-none.md`](./questions/stddoc-io-url-empty-host-collapses-to-none.md) — empty authority host: `.Some("")` plus an authority bit (Rust's shape) vs keeping `.None`
 - [`stddoc-str-regex-split-emits-the-literal-string-undefined.md`](./questions/stddoc-str-regex-split-emits-the-literal-string-undefined.md) — `Regex.split`: Rust's shape (pieces only) vs Python's shape (`ArrayList(Option(String))`)
 - [`stddoc-sys-signal-handler-data-always-null.md`](./questions/stddoc-sys-signal-handler-data-always-null.md) — carry the `SignalHandler` user data (the `events.yo` precedent) or drop the parameter
+- [`verify-by-default-for-a-project.md`](./questions/verify-by-default-for-a-project.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`with-lock-and-with-permit-cannot-see-an-unwind.md`](./questions/with-lock-and-with-permit-cannot-see-an-unwind.md) — correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent
 - [`yo-doc-document-private-flag-is-a-no-op.md`](./questions/yo-doc-document-private-flag-is-a-no-op.md) — implement or remove the inert `--document-private` flag
 
@@ -152,12 +153,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ## By area
 
 
-### CI/Release/Build (11)
+### CI/Release/Build (12)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`build-option-value-cannot-feed-an-artifact-field.md`](./build-option-value-cannot-feed-an-artifact-field.md) | S2 | OPEN (found 2026-09-12) | — |
 | [`build-release-small-is-identical-to-release-safe.md`](./build-release-small-is-identical-to-release-safe.md) | S3 | OPEN | — |
+| [`ci-workflow-audit-open-findings.md`](./ci-workflow-audit-open-findings.md) | S2 | — | — |
 | [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) | S1 | — | — |
 | [`leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`](./leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md) | S3 | OPEN | — |
 | [`release-gate-accepts-a-docs-only-fast-path-success.md`](./release-gate-accepts-a-docs-only-fast-path-success.md) | S3 | open (found 2026-09-10 while cutting v0 | — |
@@ -180,7 +182,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`async-tail-match-return-hangs-state-machine.md`](./async-tail-match-return-hangs-state-machine.md) | S1 | OPEN — std avoids the shape (the | — |
 | [`command-stdin-windows-pipe-write-blocks-the-event-loop.md`](./command-stdin-windows-pipe-write-blocks-the-event-loop.md) | S1 | — | — |
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | S1 | OPEN — worked around in `std/thread | yes |
-| [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | S1 | OPEN — analysis-verified hazard, not | — |
+| [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | S1 | OPEN on | — |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
@@ -236,7 +238,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (50)
+### Std library (51)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -263,6 +265,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | S3 | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | S3 | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | S3 | — | yes |
+| [`std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`](./std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md) | S3 | — | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | S1 | OPEN — | yes |
@@ -333,25 +336,30 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (26)
+### Other (31)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
+| [`a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md`](./a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md) | S3 | — | — |
+| [`a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`](./a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md) | — | OPEN | — |
+| [`a-usize-generic-binder-rebinds-per-argument.md`](./a-usize-generic-binder-rebinds-per-argument.md) | S2 | open | yes |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-escaped-task-leaks-references-to-values-it-bound.md`](./an-escaped-task-leaks-references-to-values-it-bound.md) | S2 | OPEN (measured; not yet diagnosed) | yes |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
+| [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
-| [`defining-a-deep-struct-dag-is-exponential.md`](./defining-a-deep-struct-dag-is-exponential.md) | S3 | OPEN (filed 2026-09-29) | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
+| [`linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md`](./linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
+| [`method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`](./method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md) | S3 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
-| [`ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`](./ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md) | — | — | — |
+| [`ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`](./ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md) | S1 | — | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
 | [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |

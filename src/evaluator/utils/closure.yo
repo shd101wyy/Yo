@@ -31,7 +31,7 @@
 { format_error_message } :: import("../../error.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr_info.yo");
 { get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
@@ -141,25 +141,21 @@ _raise_capture_trait_violation :: (
 _capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Option(TypeValue))(
   match(
     ty,
-    .SomeT({ id : sid, resolution : rc }) => match(
-      rc,
+    .SomeT({ id : _ }) => match(
+      some_resolution(ty),
       .Some(c) => Option(TypeValue).Some(c),
       .None => match(
-        lookup_some_resolved_concrete(sid),
-        .Some(c2) => Option(TypeValue).Some(c2),
-        .None => match(
-          value,
-          .Some(v) => match(
-            v,
-            .FuncVal(fvd, _) => match(
-              get_closure_capture_info(fvd.*.func_id.clone()),
-              .Some(cci) => Option(TypeValue).Some(cci.capture_type),
-              .None => Option(TypeValue).None
-            ),
-            _ => Option(TypeValue).Some(ty)
+        value,
+        .Some(v) => match(
+          v,
+          .FuncVal(fvd, _) => match(
+            get_closure_capture_info(fvd.*.func_id.clone()),
+            .Some(cci) => Option(TypeValue).Some(cci.capture_type),
+            .None => Option(TypeValue).None
           ),
-          .None => Option(TypeValue).Some(ty)
-        )
+          _ => Option(TypeValue).Some(ty)
+        ),
+        .None => Option(TypeValue).Some(ty)
       )
     ),
     _ => Option(TypeValue).Some(ty)
@@ -312,13 +308,10 @@ _captures_offense :: (
         .Some(info) => if(!_declared_bound_requires(info.ty, marker), {
           match(
             function_value_marker(info.ty, info.value, marker, env, ctx),
-            .Some(fvm) => match(
-              fvm,
-              .Some(o) => {
-                return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
-              },
-              .None => ()
-            ),
+            .Some(.Some(o)) => {
+              return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
+            },
+            .Some(.None) => (),
             .None => match(
               _capture_judgement_type(info.ty, info.value),
               .Some(judged) => if(!type_implements_trait_bool(judged, marker, env), {
@@ -403,13 +396,10 @@ _function_value_offense :: (
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
     g_closure_capture_offense.get(`${fid}|${mname}`),
-    .Some(cv) => match(
-      cv,
-      .Some(co) => {
-        return(Option(String).Some(`${co} — ${cap_hint}`));
-      },
-      .None => ()
-    ),
+    .Some(.Some(co)) => {
+      return(Option(String).Some(`${co} — ${cap_hint}`));
+    },
+    .Some(.None) => (),
     .None => match(
       get_closure_capture_info(fid.clone()),
       .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
@@ -462,13 +452,10 @@ function_value_marker :: (
   });
   match(
     witness,
-    .Some(wv) => match(
-      wv,
-      .FuncVal(wfvd, _) => {
-        return(Option(Option(String)).Some(_function_value_offense(wfvd.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.body), marker, env, ctx)));
-      },
-      _ => ()
-    ),
+    .Some(.FuncVal(wfvd, _)) => {
+      return(Option(Option(String)).Some(_function_value_offense(wfvd.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.body), marker, env, ctx)));
+    },
+    .Some(_) => (),
     .None => ()
   );
   if(!_is_function_like(ty), {
@@ -688,18 +675,15 @@ validate_capture_trait_requirements :: (
                       // D1) — not by its type (`function_value_marker`).
                       match(
                         function_value_marker(info.ty, info.value, trait_type, env, ctx),
-                        .Some(fvm) => match(
-                          fvm,
-                          .Some(fvm_o) => {
-                            _raise_capture_trait_violation(
-                              ctx,
-                              exn,
-                              info.token,
-                              `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
-                            );
-                          },
-                          .None => ()
-                        ),
+                        .Some(.Some(fvm_o)) => {
+                          _raise_capture_trait_violation(
+                            ctx,
+                            exn,
+                            info.token,
+                            `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
+                          );
+                        },
+                        .Some(.None) => (),
                         .None => match(
                           _capture_judgement_type(info.ty, info.value),
                           .None => (),

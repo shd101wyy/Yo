@@ -15,6 +15,7 @@ pragma(Pragma.SkipWasm32Wasi); // no AF_UNIX in standalone WASI
 { remove_file } :: import("std/fs/dir");
 { platform, Platform } :: import("std/process");
 { temp_dir } :: import("std/env");
+{ sleep } :: import("std/sys/timer");
 
 _sock :: (fn(name : str) -> Path)(
   Path.new(temp_dir() + `/yo_unix_`.to_string() + String.from(name))
@@ -134,4 +135,50 @@ test("dup.sock cleanup", {
   e := IoExn(io : io, exn : e0);
   io.await(remove_file(_sock("dup.sock"), io), e);
   assert(true, "cleaned");
+});
+_remove_stale :: (fn(path : Path, io : Io) -> unit)({
+  quiet := Exception(throw : (_err -> unwind(())));
+  io.await(remove_file(path, io), IoExn(io : io, exn : quiet));
+});
+// A write to a peer that has closed must THROW (EPIPE), not raise SIGPIPE,
+// whose default action killed the whole process
+// (issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md).
+_unix_write_until_error :: (fn(s : UnixStream, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  write failed as expected\n"));
+        unwind(true);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  (i : i32) = i32(0);
+  while(i < i32(50), i = (i + i32(1)), {
+    io.await(s.write_str("x", io), e);
+    io.await(sleep(u64(2)), e);
+  });
+  false
+});
+test("a UnixStream write to a peer that has closed throws instead of killing the process", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("sigpipe.sock");
+  // A run killed by the very SIGPIPE this pins leaves its socket file behind.
+  _remove_stale(path, io);
+  listener := io.await(UnixListener.bind(path, io), e);
+  client := io.await(UnixStream.connect(path, io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(client.close(io), e);
+  assert(_unix_write_until_error(server, io), "a write to the closed peer reported an error");
+  io.await(server.close(io), e);
+  io.await(listener.close(io), e);
+  io.await(remove_file(path, io), e);
 });

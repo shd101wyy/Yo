@@ -106,7 +106,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 **Platform implementations:**
 
 - **Linux**: `io_uring` — per-thread event loop submits SQEs and processes CQEs; the epoll fallback runs where the ring cannot exist. Both follow one rule (`plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md`): an op that can finish now finishes inline (socket ops try `MSG_DONTWAIT` first; the metadata ops and creating/truncating opens that io_uring always punts to io-wq are plain syscalls); sleeps are a userspace timer heap whose earliest deadline bounds the wait; reserve SQEs through `__yo_io_get_sqe` (it flushes a full SQ) — never `__yo_uring_get_sqe` directly; an inline attempt must not run ahead of a queued op of the same direction on that fd (`__yo_io_fd_busy`). Any runtime path that closes a descriptor calls `__yo_io_close_hook` first (including `dup2` over an open fd).
-- **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications. kqueue keeps **one knote per (ident, filter)** — a second `EV_ADD` for the same pair UPDATES the knote (replacing its `udata`) instead of adding one — so the knote's `udata` is a per-(fd, filter) **registration** (`__yo_io_registration_t`) owning a FIFO waiter list of pending ops, never a single operation's context; delivery services waiters until one would-blocks, then re-arms the one-shot knote. Closes must purge an fd's registrations (`__yo_kq_drop_fd`, reached from the async close and from `__yo_file_close` through `__yo_kq_close_hook` — the sys runtime is emitted for every program, so it cannot name kqueue symbols directly) so waiters fail with `-EBADF` and a reused fd number cannot collide with a stale registration (`issues/fixed/macos-kqueue-concurrent-ops-on-one-fd-orphan-the-earlier-pending-op.md`).
+- **macOS**: `kqueue` — per-thread event loop; one rule with Linux (`plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md`). Regular file I/O is synchronous: `pread` first (`ESPIPE`/`ENXIO` → the readiness path), and `F_GETFL` before a write (macOS `pwrite` honors the offset on `O_APPEND`). Pipes and sockets try the op inline (`MSG_DONTWAIT`) and park on a per-(fd, filter) **registration** — a FIFO of waiters in the per-fd slot table `__yo_kq_slots` — only on would-block. kqueue keeps **one knote per (ident, filter)**, registered `EV_DISPATCH` and re-enabled per park with `EV_ADD|EV_ENABLE` (XNU's `EV_ADD` alone does NOT re-enable a dispatched knote). Events are matched to registrations by **(ident, filter), never udata**, so an event for a registration whose last waiter was cancelled finds an empty slot. Every parked op sets `cancel_fn`/`backend_link` and holds a future reference; an inline attempt must not run ahead of a parked op of the same direction (`__yo_kq_dir_busy`). Timers are a userspace heap bounding the wait. **A zero-timeout `kevent()` that finds nothing costs ~12 µs on macOS 26** (0.2 µs when an event is ready): non-blocking passes probe with `select()` on the kqueue fd first (`__yo_kq_has_events`), and `__yo_io_poll` skips the kernel when the next step will block anyway. Poll/fs-event handles live in one watch kqueue nested in the loop's. Any runtime path that closes a descriptor calls the per-thread `__yo_kq_close_hook` first, including `dup2` over an open fd (the sys runtime is emitted for every program, so it cannot name kqueue symbols directly).
 - **Windows**: IOCP — per-thread `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**
@@ -302,6 +302,16 @@ Every guard is a `static inline` C11 helper emitted by `src/codegen/c/collection
 - `__yo_sat_i64` / `__yo_sat_u64` for float→int casts.
 
 **No GNU builtins** (`__builtin_*_overflow`): the MSVC target makes C11 the ceiling. Derive width bounds from the type, never from hard-coded 61/63, because `usize` is 32 bits on wasm32. Validate new helper arithmetic with a standalone C probe before splicing it in. `--sanitize undefined` (with `-fno-sanitize-recover=all`) is the instrument for checking that the guards themselves are UB-free.
+
+### Every runtime trap is `fflush(stdout); fprintf(stderr, …); __yo_abort();`
+
+Never emit a bare `abort()`. stdio fully buffers a piped stdout and `abort()`
+discards the buffer, so a program's own output vanished from CI logs and
+`build run` whenever it panicked
+(`issues/fixed/panic-loses-buffered-stdout-when-piped.md`). `__yo_abort()`
+(emitted right after the includes, `src/codegen/c/collection.yo`) flushes and
+aborts; a site that prints a message flushes stdout BEFORE its `fprintf`, so a
+piped run keeps the terminal's order.
 
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 

@@ -5,8 +5,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/backlog/IN_DESIGN.md).
-
 Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
@@ -33,18 +31,23 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Discarding a call result](#discarding-a-call-result)
   - [Type inference](#type-inference)
     - [Uninitialized variable](#uninitialized-variable)
+    - [Integer literals and compile-time integers](#integer-literals-and-compile-time-integers)
 - [Function Declaration](#function-declaration)
+  - [Parameter modes are part of the function type](#parameter-modes-are-part-of-the-function-type)
   - [Named arguments](#named-arguments)
+  - [The `never` type](#the-never-type)
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+  - [Private members](#private-members)
   - [recur](#recur)
   - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
     - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Explicit Allocators](#explicit-allocators)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
@@ -52,6 +55,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [`Option` of a handle is one pointer](#option-of-a-handle-is-one-pointer)
+  - [Memory Safety](#memory-safety)
+  - [`inout` Parameters](#inout-parameters)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Ranges](#array--ranges)
@@ -61,6 +66,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Array.len](#arraylen)
   - [Array Length Inference](#array-length-inference)
   - [Array Assignment and Copying](#array-assignment-and-copying)
+- [Arithmetic and Failure Semantics](#arithmetic-and-failure-semantics)
 - [Control Flow](#control-flow)
   - [cond](#cond)
   - [if/else](#ifelse)
@@ -75,6 +81,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
     - [GADT match type refinement](#gadt-match-type-refinement)
     - [GADT exhaustiveness](#gadt-exhaustiveness)
+    - [GADT indices are part of the type](#gadt-indices-are-part-of-the-type)
     - [Multi-parameter GADTs](#multi-parameter-gadts)
     - [GADTs with custom discriminants](#gadts-with-custom-discriminants)
     - [Mixed GADT and regular variants](#mixed-gadt-and-regular-variants)
@@ -83,11 +90,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [Coherence: one impl per type and trait](#coherence-one-impl-per-type-and-trait)
 - [Pattern Matching](#pattern-matching)
+  - [Pattern forms](#pattern-forms)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
+      - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
@@ -123,6 +133,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
+    - [Trait impls are visible through your imports](#trait-impls-are-visible-through-your-imports)
   - [Anonymous module](#anonymous-module)
   - [Module-level mutable variables](#module-level-mutable-variables)
 - [Naming Convention](#naming-convention)
@@ -1007,6 +1018,21 @@ s3 := s2; // RC = 3
 The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
 
 See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+
+#### Explicit Allocators
+
+RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, and containers take one directly with `new_in`:
+
+```rust
+{ Arena } :: import("std/arena");
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(4096));
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
+p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
+```
+
+No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas).
 
 ## Pointers
 
@@ -3024,7 +3050,8 @@ ret` bodies cannot contain `unwind`.
 
 Effects compose with `async`/`await`: handlers inside `io.async`
 tasks work correctly. If `unwind` is called inside an async task, the
-Future is marked as escaped and awaiting it causes a panic.
+Future enters the `Aborted` state: `io.await` on it panics, while a
+spawned task's `JoinHandle.await` returns `.None`.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
 documentation.

@@ -90,6 +90,7 @@ pragma(Pragma.AllowUnsafe);
   verifier_harness_self_test,
   verify_registered_functions,
   verify_and_strip_tasks,
+  record_elidable_guard_sites,
   VerifyResult,
   VerifyFnReport,
   verify_report_is_vacuous,
@@ -101,7 +102,7 @@ pragma(Pragma.AllowUnsafe);
   summarize_verify_reports,
   verify_summary_count
 } :: import("./verifier/driver.yo");
-{ set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
+{ set_verify_mode_override, set_verify_target_paths, take_verify_tasks, clear_proved_guard_sites, elided_guard_count } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
 { Z3_VERSION } :: import("./verifier/z3.yo");
 json :: import("std/encoding/json");
@@ -842,8 +843,10 @@ collect_check_files :: (
 /// annotated std/collections made every tier-1 `check ./std` red in
 /// solver-less environments).
 _run_contract_verification :: (
-  fn(io : Io, exn : Exception, strict_missing_solver : bool) -> bool
+  fn(io : Io, exn : Exception, strict_missing_solver : bool, record_guard_sites : bool) -> bool
 )({
+  // 5b: every compile starts with an empty proved-site table (watch rounds).
+  clear_proved_guard_sites();
   tasks := take_verify_tasks();
   if((tasks.len() == usize(0)), {
     return(true);
@@ -886,6 +889,11 @@ _run_contract_verification :: (
     }
   );
   reports := verify_and_strip_tasks(cfg, binary, tasks);
+  // 5b: license codegen to drop the guards these proofs discharge
+  // (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+  if(record_guard_sites, {
+    _ := record_elidable_guard_sites(reports);
+  });
   (all_ok : bool) = true;
   (ri : usize) = usize(0);
   while(ri < reports.len(), {
@@ -942,7 +950,7 @@ check_single_file :: (
   });
   // check measures evaluator coverage — solver-less environments pass the
   // verify-mode files with the loud hint (see the header comment).
-  _run_contract_verification(io, exn, false)
+  _run_contract_verification(io, exn, false, false)
 });
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
@@ -3516,6 +3524,9 @@ run_compile :: (
   // verify-pragma fixtures otherwise).
   (no_verify : bool) = false;
   (skip_cc : bool) = false;
+  // 5b: keep every runtime guard even where a proof licenses its removal
+  // (the C-diff oracle's reference build).
+  (no_guard_elision : bool) = false;
   // Phase 4 (§7 step 1) gate plumbing: set by `--warm-reuse` (the second
   // pass of `--warm-selfcheck`). The self-containment clears further below
   // are skipped, so the pass compiles against the FIRST pass's warm module
@@ -3730,6 +3741,10 @@ run_compile :: (
       },
       (a_name == "--skip-c-compiler") => {
         skip_cc = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--no-guard-elision") => {
+        no_guard_elision = true;
         ai = (ai + usize(1));
       },
       // Internal to `--warm-selfcheck` (never user-facing): skip the
@@ -4229,7 +4244,7 @@ run_compile :: (
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
     prof_verify_t0 := Instant.now();
-    if(!(_run_contract_verification(io, exn, true)), {
+    if(!(_run_contract_verification(io, exn, true, !(no_guard_elision))), {
       _compile_fail(watch_mode, int(1));
       return(());
     });
@@ -4254,6 +4269,11 @@ run_compile :: (
         (chunk_parts.len() > usize(1)) => (chunk_parts.len() - usize(1)),
         true => usize(0)
       );
+    });
+    // 5b: report the guards the proofs removed, so a test can assert the
+    // elision FIRED (not just that nothing broke).
+    if(elided_guard_count() > usize(0), {
+      eprintln(`verify: ${elided_guard_count().to_string()} guard(s) elided (proved safe)`);
     });
     // --emit-c prints the generated C to stdout —
     // and compilation continues; only --skip-c-compiler stops before the link.
@@ -8069,8 +8089,9 @@ run_explain :: (
   );
 });
 _subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
-  cond(
-    (subcmd == "compile") => Option(String).Some(
+  match(
+    subcmd,
+    "compile" => Option(String).Some(
       tr(
         `Usage: yo compile <file.yo> [options]
 
@@ -8104,6 +8125,7 @@ Options:
   --emit-c-to <path>        Write the generated C to <path> instead of <output>.c
   --emit-deps <path>        Write the files this compile read, one per line
   --skip-c-compiler         Generate C but skip the C compile
+  --no-guard-elision        Keep every safe-mode runtime guard, even ones a proof removed
   --skip-codegen            Evaluate only (no C generation)
   --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
                             auto picks n from emitted size and core count (YO_JOBS overrides)
@@ -8154,6 +8176,7 @@ Examples:
   --emit-c-to <path>        把生成的 C 写到 <path>，代替 <output>.c
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
   --skip-c-compiler         只生成 C，跳过 C 编译
+  --no-guard-elision        保留所有安全模式运行期守卫，即使证明可以移除它们
   --skip-codegen            只做求值（不生成 C）
   --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
                             auto 按产物大小与核数选 n（可用 YO_JOBS 覆盖）
@@ -8175,7 +8198,7 @@ Examples:
   $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`
       )
     ),
-    (subcmd == "build") => Option(String).Some(
+    "build" => Option(String).Some(
       tr(
         `Usage: yo build [steps...] [options]
 
@@ -8241,7 +8264,7 @@ Examples:
   $ yo build -Dstrip=true   传递构建选项`
       )
     ),
-    (subcmd == "test") => Option(String).Some(
+    "test" => Option(String).Some(
       tr(
         `Usage: yo test [path] [options]
 
@@ -8332,7 +8355,7 @@ Examples:
   $ yo test ./tests/fs --json`
       )
     ),
-    (subcmd == "fix") => Option(String).Some(
+    "fix" => Option(String).Some(
       tr(
         `Usage: yo fix <file-or-dir> [options]
 
@@ -8368,7 +8391,7 @@ Examples:
   $ yo fix main.yo --dry-run`
       )
     ),
-    (subcmd == "check") => Option(String).Some(
+    "check" => Option(String).Some(
       tr(
         `Usage: yo check <file-or-dir> [options]
 
@@ -8404,7 +8427,7 @@ Examples:
   $ yo check ./std --exclude std/libc`
       )
     ),
-    (subcmd == "verify") => Option(String).Some(
+    "verify" => Option(String).Some(
       tr(
         `Usage: yo verify [path] [options]
 
@@ -8476,7 +8499,7 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
       )
     ),
-    (subcmd == "fmt") => Option(String).Some(
+    "fmt" => Option(String).Some(
       tr(
         `Usage: yo fmt [paths...] [options]
 
@@ -8502,7 +8525,7 @@ Examples:
   $ yo fmt --check ./src ./std ./tests`
       )
     ),
-    (subcmd == "doc") => Option(String).Some(
+    "doc" => Option(String).Some(
       tr(
         `Usage: yo doc [path] [options]
 
@@ -8540,7 +8563,7 @@ Examples:
   $ yo doc ./src/main.yo -o docs --format json`
       )
     ),
-    (subcmd == "init") => Option(String).Some(
+    "init" => Option(String).Some(
       tr(
         `Usage: yo init [dir] [options]
 
@@ -8568,7 +8591,7 @@ Examples:
   $ yo init my-project --name my-project`
       )
     ),
-    (subcmd == "add") => Option(String).Some(
+    "add" => Option(String).Some(
       tr(
         `Usage: yo add <spec> [options]
 
@@ -8626,7 +8649,7 @@ caret 范围（version = "^X.Y.Z"）；没有发布标签的仓库锁定到默�
   $ yo add user/snapshot --dev`
       )
     ),
-    (subcmd == "remove") => Option(String).Some(
+    "remove" => Option(String).Some(
       tr(
         `Usage: yo remove <name> [options]
 
@@ -8648,7 +8671,7 @@ Example:
   $ yo remove raylib_yo`
       )
     ),
-    (subcmd == "install") => Option(String).Some(
+    "install" => Option(String).Some(
       tr(
         `Usage: yo install [options]
 
@@ -8683,7 +8706,7 @@ Example:
   $ yo install`
       )
     ),
-    (subcmd == "update") => Option(String).Some(
+    "update" => Option(String).Some(
       tr(
         `Usage: yo update [name...] [options]
 
@@ -8718,7 +8741,7 @@ Examples:
   $ yo update --latest`
       )
     ),
-    (subcmd == "cache") => Option(String).Some(
+    "cache" => Option(String).Some(
       tr(
         `Usage: yo cache <action>
 
@@ -8750,7 +8773,7 @@ Examples:
   $ yo cache gc`
       )
     ),
-    (subcmd == "version") => Option(String).Some(
+    "version" => Option(String).Some(
       tr(
         `Usage: yo version [action] [options]
 
@@ -8802,7 +8825,7 @@ Examples:
   $ yo version clean 0.2.14`
       )
     ),
-    (subcmd == "effects") => Option(String).Some(
+    "effects" => Option(String).Some(
       tr(
         `Usage: yo effects <file-or-dir> [options]
 
@@ -8844,7 +8867,7 @@ ResumableException(T)）时为 'ctl'；prelude 的 Io 为 'io'；效果行隐式
   $ yo effects main.yo --json`
       )
     ),
-    (subcmd == "explain") => Option(String).Some(
+    "explain" => Option(String).Some(
       tr(
         `Usage: yo explain <CODE> [options]
 
@@ -8879,7 +8902,7 @@ Examples:
   $ yo explain --list`
       )
     ),
-    (subcmd == "lsp") => Option(String).Some(
+    "lsp" => Option(String).Some(
       tr(
         `Usage: yo lsp
 
@@ -8893,7 +8916,7 @@ completion). Used by editor clients such as the VS Code extension.`,
 客户端使用。`
       )
     ),
-    (subcmd == "unsafe-report") => Option(String).Some(
+    "unsafe-report" => Option(String).Some(
       tr(
         `Usage: yo unsafe-report [path] [options]
 
@@ -8915,7 +8938,7 @@ Example:
   $ yo unsafe-report ./std`
       )
     ),
-    (subcmd == "public-safe-report") => Option(String).Some(
+    "public-safe-report" => Option(String).Some(
       tr(
         `Usage: yo public-safe-report [path] [options]
 
@@ -8938,7 +8961,7 @@ Example:
   $ yo public-safe-report ./std`
       )
     ),
-    (subcmd == "skills") => Option(String).Some(
+    "skills" => Option(String).Some(
       tr(
         `Usage: yo skills <action>
 
@@ -8968,7 +8991,7 @@ install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 a
   $ yo skills install       在当前项目中安装技能`
       )
     ),
-    (subcmd == "context") => Option(String).Some(
+    "context" => Option(String).Some(
       tr(
         `Usage: yo context [<module> [<name>] | <name>] [options]
 
@@ -9046,7 +9069,7 @@ Examples:
   $ yo context --deps --list --format json`
       )
     ),
-    true => Option(String).None
+    _ => Option(String).None
   )
 );
 main :: (fn(io : Io) -> unit)({
@@ -9365,7 +9388,10 @@ main :: (fn(io : Io) -> unit)({
     run_check(argv, io, exn);
   }, if(subcmd == "verify", {
     set_owner_logs_enabled(false);
-    set_codegen_tables_enabled(false);
+    // The verifier's match walk reads the compiled Pattern IR
+    // (`lookup_match_arms`) — the one codegen-side table verify needs, so
+    // the tables stay ON here (unlike check/lsp/doc). Nothing invalidates
+    // in a one-shot run, so no owner log is required.
     run_verify_cmd(argv, io, exn);
   }, if(subcmd == "init", {
     run_init(argv, io, exn);

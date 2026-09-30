@@ -92,13 +92,10 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
   while((i < somes.len()) && !(found), {
     match(
       somes.get(i),
-      .Some(st) => match(
-        st,
-        .SomeT({ resolution : has_rc }) => if(has_rc.is_none(), {
-          found = true;
-        }),
-        _ => ()
-      ),
+      .Some(.SomeT({ resolution : has_rc })) => if(has_rc.is_none(), {
+        found = true;
+      }),
+      .Some(_) => (),
       .None => ()
     );
     i = (i + usize(1));
@@ -1307,13 +1304,10 @@ evaluate_comptime_fn_call :: (
   // whatever the alias's arguments are.
   match(
     return_value,
-    .TypeVal(rv_eta) => match(
-      rv_eta,
-      .EnumT({ id : eta_id }) => if(!(eta_id.starts_with("enum_decl_")), {
-        register_enum_type_arguments(eta_id, inst_type_args.clone());
-      }),
-      _ => ()
-    ),
+    .TypeVal(.EnumT({ id : eta_id })) => if(!(eta_id.starts_with("enum_decl_")), {
+      register_enum_type_arguments(eta_id, inst_type_args.clone());
+    }),
+    _ => (),
     _ => ()
   );
   // Stamp the returned type's display name `Box(arg)` for the prelude `Box`

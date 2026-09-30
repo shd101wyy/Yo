@@ -1,4 +1,5 @@
 { assert } :: import("std/assert");
+{ Arena } :: import("std/arena");
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 // ===== String.repeat =====
@@ -139,4 +140,20 @@ test("StringBuilder Default is an empty builder", {
   assert(sb.len() == usize(0), "default builder is empty");
   sb.write_str("hi");
   assert(sb.to_string() == `hi`, "the default builder is a usable builder");
+});
+// ===== Explicit allocators (plans/EXPLICIT_ALLOCATORS.md P1) =====
+test("StringBuilder.new_in builds in the arena and hands the buffer over", {
+  arena := Arena.new(usize(1) << usize(16));
+  a := arena.allocator();
+  {
+    sb := StringBuilder.new_in(a);
+    sb.write_str("hello, ");
+    sb.write_str("arena");
+    s := sb.to_string();
+    assert(s == `hello, arena`, "contents");
+    sb.write_str("again");
+    assert(sb.to_string() == `again`, "the next buffer works");
+    assert(arena.live_blocks() > usize(0), "the strings' bytes live in the arena");
+  };
+  assert(arena.live_blocks() == usize(0), "every buffer went back to the arena");
 });

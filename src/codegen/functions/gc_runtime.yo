@@ -325,8 +325,8 @@ generate_borrow_runtime_primitives :: (fn(context : FunctionGenerationContext) -
 static inline void __yo_borrow_acquire(void* ptr) {
   if (ptr == NULL) return;
   if (((__yo_rc_prefix_t*)ptr)->borrow_count == 0xFFFF) {
-    fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+    __yo_abort();
   }
   ((__yo_rc_prefix_t*)ptr)->borrow_count++;
 }
@@ -337,8 +337,8 @@ static inline void __yo_borrow_release(void* ptr) {
 static inline void __yo_borrow_assert_unborrowed(void* ptr) {
   if (ptr == NULL) return;
   if (((__yo_rc_prefix_t*)ptr)->borrow_count != 0) {
-    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    __yo_abort();
   }
 }
 // The same three for an ATOMIC object (atomic(ref(...)), Arc, Mutex, ...):
@@ -353,8 +353,8 @@ static inline void __yo_borrow_acquire_atomic(void* ptr) {
   uint16_t cur = atomic_load_explicit(bc, memory_order_relaxed);
   do {
     if (cur == 0xFFFF) {
-      fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
-      abort();
+      fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+      __yo_abort();
     }
   } while (!atomic_compare_exchange_weak_explicit(bc, &cur, (uint16_t)(cur + 1), memory_order_acquire, memory_order_relaxed));
 }
@@ -365,8 +365,8 @@ static inline void __yo_borrow_release_atomic(void* ptr) {
 static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
   if (ptr == NULL) return;
   if (atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire) != 0) {
-    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    __yo_abort();
   }
 }`
   );
@@ -383,8 +383,8 @@ generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) ->
   // Chunked emission: the RC primitives are the hot path and must be per-TU
   // `static inline` copies, not one external definition in chunk 0 (measured
   // 16.5% slower). This whole block is header-routable as-is: it touches only
-  // the object header, `__yo_free` and the externally-declared
-  // `__yo_dispose_dispatch`.
+  // the object header, `__yo_rc_free` (a declaration-section static inline,
+  // types/generation.yo) and the externally-declared `__yo_dispose_dispatch`.
   rc_lw_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
   em.emit_string_line(
     `// Lightweight reference counting — no cycle detection needed
@@ -393,12 +393,12 @@ generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) ->
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  if (header->ref_count == 1) {
+  if ((header->ref_count & __YO_RC_COUNT) == 1) {
     // A pooled state machine's memory goes back to its pool, not to free.
     if (header->type_id && __yo_dispose_dispatch(ptr)) {
       return;
     }
-    __yo_free(ptr);
+    __yo_rc_free(ptr);
   } else {
     header->ref_count--;
   }
@@ -435,11 +435,11 @@ static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
-  if (old_count == 1) {
+  if ((old_count & __YO_RC_COUNT) == 1) {
     if (header->type_id && __yo_dispose_dispatch(ptr)) {
       return;
     }
-    __yo_free(ptr);
+    __yo_rc_free(ptr);
   }
 }
 
@@ -548,13 +548,13 @@ static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan grow
   // this path measurably matters (profiled: __yo_decr_rc was 54% of a
   // self-compile, with the TLS reads a further 10%).
   if (!(header->gc_flags & __YO_GC_TRACKED)) {
-    GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
-    if (header->ref_count == 1) {
+    GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)(header->ref_count & __YO_RC_COUNT), (size_t)((header->ref_count & __YO_RC_COUNT) - 1));
+    if ((header->ref_count & __YO_RC_COUNT) == 1) {
       GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
       if (header->dispose_fn) {
         header->dispose_fn(ptr);
       }
-      __yo_free(ptr);
+      __yo_rc_free(ptr);
     } else {
       header->ref_count--;
     }
@@ -572,7 +572,7 @@ static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   header->ref_count++;
-  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)(header->ref_count & __YO_RC_COUNT));
   return ptr;
 }`
   );
@@ -594,9 +594,9 @@ static void __yo_decr_rc_tracked(void* ptr) {
     return;
   }
 
-  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)(header->ref_count & __YO_RC_COUNT), (size_t)((header->ref_count & __YO_RC_COUNT) - 1));
 
-  if (header->ref_count == 1) {
+  if ((header->ref_count & __YO_RC_COUNT) == 1) {
     // Last reference - deallocate immediately (acyclic garbage).
     GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
     // Bacon-Rajan: if buffered as a possible cycle root, unlink first (O(1)).
@@ -607,7 +607,7 @@ static void __yo_decr_rc_tracked(void* ptr) {
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
-    __yo_free(ptr);
+    __yo_rc_free(ptr);
   } else {
     // More than one reference - just decrement. The object's RC dropped but it
     // is not freed → it is a possible root of a garbage CYCLE (Bacon-Rajan):
@@ -642,13 +642,13 @@ static void __yo_decr_rc_atomic(void* ptr) {
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
 
-  if (old_count == 1) {
+  if ((old_count & __YO_RC_COUNT) == 1) {
     // Last reference - deallocate
     // Note: No GC tracking needed for Iso types (they don't participate in cycles)
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
-    __yo_free(ptr);
+    __yo_rc_free(ptr);
   }
 }
 
@@ -935,7 +935,7 @@ static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
-  if (h->ref_count > 0) h->ref_count--;
+  if ((h->ref_count & __YO_RC_COUNT) > 0) h->ref_count--;
   __yo_gc_mark_gray(h);
 }
 static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
@@ -972,7 +972,7 @@ static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {
 }
 static void __yo_gc_scan(__yo_ref_header_t* s) {
   if (s->gc_mark != __YO_GC_TRIAL_DELETED) return;
-  if (s->ref_count > 0) {
+  if ((s->ref_count & __YO_RC_COUNT) > 0) {
     __yo_gc_scan_black(s);
   } else {
     s->gc_mark = __YO_GC_GARBAGE;
@@ -1039,7 +1039,7 @@ static void __yo_gc_collect_incremental() {
   }
   for (size_t i = 0; i < nwhite; i++) {
     __yo_gc_unregister(gc->gc_white[i]);
-    __yo_free(gc->gc_white[i]);
+    __yo_rc_free(gc->gc_white[i]);
   }
   gc->gc_white_count = 0;
   __yo_gc_collecting = 0;
@@ -1063,7 +1063,7 @@ static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {
   if (ptr == NULL) return;
   if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  if (header->ref_count > 0) header->ref_count--;
+  if ((header->ref_count & __YO_RC_COUNT) > 0) header->ref_count--;
 }
 static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {
   (void)child_traverse;
@@ -1096,7 +1096,7 @@ static void __yo_gc_collect() {
     if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
   }
   for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
-    obj->gc_mark = (obj->ref_count == 0) ? __YO_GC_GARBAGE : __YO_GC_LIVE;
+    obj->gc_mark = ((obj->ref_count & __YO_RC_COUNT) == 0) ? __YO_GC_GARBAGE : __YO_GC_LIVE;
   }
   for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
     if (obj->gc_mark == __YO_GC_LIVE) {
@@ -1115,7 +1115,7 @@ static void __yo_gc_collect() {
       if (prev == NULL) gc->tracked_objects = next; else prev->gc_next = next;
       if (next != NULL) next->gc_prev = prev;
       gc->tracked_count--;
-      __yo_free(current);
+      __yo_rc_free(current);
       current = next;
     } else {
       current->gc_mark = __YO_GC_UNMARKED;
@@ -1170,7 +1170,7 @@ static void __yo_cleanup_thread_gc() {
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
     GC_DEBUG("CleanupThread: Freeing object ptr=%p\\n", current);
-    __yo_free(current);
+    __yo_rc_free(current);
     current = next;
   }
 
