@@ -65,7 +65,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       vars := get_variables_from_env(ei.env, var_name.clone());
       if(vars.len() > usize(0), {
         match(
-          vars.get(vars.len() - usize(1)),
+          vars.last(),
           .Some(variable) => {
             // The owner's slot for a local sharing a body local's value, else
             // its own (SSA-renamed ids resolve to the canonical id).
@@ -150,7 +150,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         svars := get_variables_from_env(ei_s.env, var_name.clone());
         if(svars.len() > usize(0), {
           match(
-            svars.get(svars.len() - usize(1)),
+            svars.last(),
             .Some(sv) => {
               read_site = Option(String).Some(`${sv.token.module_path}:${sv.token.row.to_string()}:${sv.token.column.to_string()}`);
             },
@@ -217,7 +217,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       vars2 := get_variables_from_env(ei2.env, var_name.clone());
       if(vars2.len() > usize(0), {
         match(
-          vars2.get(vars2.len() - usize(1)),
+          vars2.last(),
           .Some(variable2) => match(
             variable2.is_owning_the_same_rc_value_as,
             .Some(owner_box2) => {
@@ -426,7 +426,7 @@ _var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
       vs := get_variables_from_env(e, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
-        true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
+        true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
       )
     },
     .None => false
@@ -724,7 +724,7 @@ _sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, conte
   match(low.moved_reads.get(eid), .Some(t) => return(t), .None => ());
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
   vs := get_variables_from_env(ei.env, name);
-  v := cond((vs.len() == usize(0)) => return(sm_code), true => match(vs.get(vs.len() - usize(1)), .Some(x) => x, .None => return(sm_code)));
+  v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
   is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && ((ct.*.row == tok.row) && (ct.*.column == tok.column))), .None => false);
   if(!is_move || !type_contains_rc_type(ei.ty), {

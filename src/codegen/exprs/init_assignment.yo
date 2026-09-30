@@ -90,7 +90,7 @@ _sm_binding_slot :: (fn(env : Environment, name : String, context : FunctionGene
     return(Option(String).None);
   });
   vs := get_variables_from_env(env, name);
-  v := cond((vs.len() == usize(0)) => return(Option(String).None), true => match(vs.get(vs.len() - usize(1)), .Some(x) => x, .None => return(Option(String).None)));
+  v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
   id := sm_storage_id(v, smv, context.variable_id_remapping);
   if(!smv.get(id.clone()).is_some(), {
     return(Option(String).None);

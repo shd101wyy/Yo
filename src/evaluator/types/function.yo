@@ -41,7 +41,7 @@ import("std/fmt");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
@@ -2274,7 +2274,7 @@ apply_single_trait_constraint :: (
     if(existing_vars.len() == usize(0), {
       return(false);
     });
-    last_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(false));
+    last_var := match(existing_vars.last(), .Some(v) => v, .None => return(false));
     match(
       last_var.value.get(usize(0)),
       .Some(ev) => {
@@ -2469,7 +2469,7 @@ parse_where_clause_constraints :: (
       var_name := ast_expr_token(lhs_expr).value;
       existing_vars := get_variables_from_env(env_mut, var_name);
       if(existing_vars.len() > usize(0), {
-        last_v := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(pending_traits));
+        last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
         match(
           last_v.value.get(usize(0)),
           .Some(ev) => {
@@ -3106,7 +3106,7 @@ evaluate_function_parameters :: (
             )
           );
         });
-        row_var_opt := row_vars.get(row_vars.len() - usize(1));
+        row_var_opt := row_vars.last();
         match(
           row_var_opt,
           .None => {
@@ -4389,7 +4389,7 @@ evaluate_function_type :: (
       ct_vars := get_variables_from_env(env_mut, wpp.label);
       if(ct_vars.len() > usize(0), {
         match(
-          ct_vars.get(ct_vars.len() - usize(1)),
+          ct_vars.last(),
           .Some(ct_var) => match(
             ct_var.value.get(usize(0)),
             .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
@@ -4445,6 +4445,22 @@ evaluate_function_type :: (
         break;
       }
     );
+    // A COMPUTED array length (`Array(u8, N + usize(1))`) is legal in a
+    // result type and in a body, where the binders are bound before it is
+    // read, but not in a parameter: a parameter is a matching position, and
+    // a length is inferred only from a bare binder or a bare projection (I1
+    // of plans/backlog/ATS_STYLE_INDEXED_TYPES.md; the DML "index pattern"
+    // rule). Without this rejection the marker would match any length.
+    if(type_has_computed_array_len(pp.ty), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            match(pp.ty_expr, .Some(pte) => ast_expr_token(pte), .None => ast_expr_token(expr)),
+            `Parameter "${pp.label}" has a COMPUTED array length in its type. A parameter's length is a matching position: bind it to a generic(N : usize) parameter and write the bare name (or a single associated constant such as T.BYTES) there; compute the length in the result type or in the body instead.`
+          )
+        )
+      );
+    });
     param_labels.push(pp.label);
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);

@@ -263,7 +263,7 @@ yo build -j 4
 | 字段   | 类型           | 描述                                                                                                    |
 | ------ | -------------- | ------------------------------------------------------------------------------------------------------- |
 | `name` | `comptime_str` | 步骤名称（产物名称，或 `build.step` 的自定义名称）                                                      |
-| `kind` | `StepKind`     | 步骤类型：`Executable`、`StaticLibrary`、`SharedLibrary`、`SystemLibrary`、`TestSuite`、`Run`、`Custom` |
+| `kind` | `StepKind`     | 步骤类型：`Executable`、`StaticLibrary`、`SharedLibrary`、`SystemLibrary`、`TestSuite`、`Run`、`Custom`、`Documentation`、`Verification` |
 
 ### Step 方法
 
@@ -284,6 +284,8 @@ yo build -j 4
 | `TestSuite`     | 由 `build.test()` 返回           |
 | `Run`           | 由 `build.run()` 返回            |
 | `Custom`        | 由 `build.step()` 返回           |
+| `Documentation` | 由 `build.doc()` 返回            |
+| `Verification`  | 验证步骤（见[验证步骤](#验证步骤)） |
 
 列出所有可用步骤：
 
@@ -872,6 +874,46 @@ members = ["packages/*", "examples/demo"]
 
 成员按排序后的顺序访问，因此构建与测试的输出在各平台间保持稳定（原始目录顺序并
 不稳定）。
+
+## 验证步骤
+
+验证步骤把编译期验证器（`yo verify <root>`，使用固定版本的 Z3，见
+[FORMAL_VERIFICATION.md](FORMAL_VERIFICATION.md)）接入构建 DAG，对一个源码根
+目录运行。它是项目级的"每次构建都证明我的契约"开关。`yo check` 按设计不依赖
+求解器：它不产出任何东西，缺少求解器只是提示，不是失败。
+
+在某个发布把这个内建函数带进种子编译器之前，构建文件直接调用它并自己包装
+Step（与 `build.manifest` 相同的分代模式）：
+
+```rust
+build :: import("std/build");
+
+// (name, root, mode, strict)：mode 为 "verify" 或 "verify+"，strict 传递
+// `--strict`（零义务的空洞 `ok` 视为失败）。
+__yo_build_verify("proofs", "./src", "verify", false);
+proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+
+install :: build.step("install", "Build and prove");
+install.depend_on(exe);
+install.depend_on(proofs);
+```
+
+友好写法 `build.verify({ name : "proofs", root : "./src", mode :
+build.VerifyMode.Verify, strict : false })` 将在内建函数之后的下一个发布进入
+`std/build.yo`（见 `plans/backlog/SEED_VERSION_AUTOMATION.md`）。
+
+验证步骤是 DAG 的叶节点（它不依赖任何东西；其他步骤依赖它），像测试套件一样
+在子编译器进程中运行，逐函数流式输出报告，并按 `yo verify` 非零退出的同一规
+则让构建失败：被驳倒的义务总是失败；`verify` 模式下未证明的义务也失败。只有
+根目录下带 `pragma(Pragma.Verify)` / `pragma(Pragma.VerifyOrAssert)` 的文件会
+被验证；步骤的 mode 是对这些文件的 `--verify-mode` 覆盖。
+
+```bash
+yo build install     # 先构建 app，再证明 ./src
+yo build --dry-run   # [dry-run]   verify proofs
+```
 
 ## 依赖管理
 

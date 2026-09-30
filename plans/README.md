@@ -26,6 +26,7 @@ doc.
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
 - [`EXPLICIT_ALLOCATORS.md`](EXPLICIT_ALLOCATORS.md) — Zig-style explicit allocators beside reference counting: placement by allocator, lifetime by RC, frees routed by an owner prefix. P0–P5 landed 2026-09-30; P3c (default containers follow the scope) parked on the seed.
+- [`LSP_AUDIT_2026-09-29.md`](LSP_AUDIT_2026-09-29.md) — the `yo lsp` audit: one S1 (Windows text-mode framing kills the handshake), five smaller verified defects, ranked feature gaps, and the phased fix/sequencing plan.
 
 ## Reference (`reference/`)
 

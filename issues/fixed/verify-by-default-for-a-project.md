@@ -1,8 +1,15 @@
 # Should a project be able to arm every file as a verify target, instead of the per-entry pragma?
 
-**Kind:** design question — an open policy decision, not a defect. Filed
-2026-09-30 by the ATS-style indexed types audit
-(`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` §5 Q1).
+**Kind:** design question — decided. Filed 2026-09-30 by the ATS-style
+indexed types audit (`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` §5 Q1).
+
+**Verdict (2026-09-30, maintainer: "do what you suggest"):** the
+recommendation below. No `check` switch; a verification build step landed the
+same day — `__yo_build_verify(name, root, mode, strict)` + `StepKind.Verification`
+(Generation A; the `build.verify({...})` wrapper is seed-gated, see
+`plans/backlog/SEED_VERSION_AUTOMATION.md`). Docs: `docs/*/BUILD_SYSTEM.md`
+§ Verification steps. Test: cli-case `build-verify-dry-run`,
+`tests/internal/build_runner.test.yo`.
 
 ## The question
 

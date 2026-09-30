@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_ptr, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
@@ -813,7 +813,7 @@ consume_argument_for_parameter :: (
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env, arg_var_name);
         if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env));
+          arg_var := match(arg_vars.last(), .Some(v) => v, .None => make_err_variable(caller_env));
           cond(
             // An `inout` parameter or `inout(name) := place` binding names a
             // slot it does not own: the callee gets a COPY (+1) of the
@@ -3478,7 +3478,7 @@ create_specialized_function_inline :: (
             spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
             if(spec_self_vars.len() > usize(0), {
               match(
-                spec_self_vars.get(spec_self_vars.len() - usize(1)),
+                spec_self_vars.last(),
                 .Some(spec_self_v) => {
                   ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
                   spec_self_src = String.from("b-env-self");
@@ -4851,7 +4851,7 @@ validate_where_constraints_for_call :: (
     lhs_vars := get_variables_from_env(callee_env, wce.lhs_label);
     if(lhs_vars.len() > usize(0), {
       match(
-        lhs_vars.get(lhs_vars.len() - usize(1)),
+        lhs_vars.last(),
         .Some(lhs_var) => match(
           lhs_var.value.get(usize(0)),
           .Some(lv) => match(
@@ -4991,7 +4991,7 @@ reapply_where_clause_exprs_for_call :: (
                   wge_vars := get_variables_from_env(callee_env, ast_expr_token(wge_lhs).value);
                   if(wge_vars.len() > usize(0), {
                     match(
-                      wge_vars.get(wge_vars.len() - usize(1)),
+                      wge_vars.last(),
                       .Some(wge_var) => match(
                         wge_var.value.get(usize(0)),
                         .Some(wge_val) => {
@@ -5278,7 +5278,7 @@ _evaluated_expr_type :: (
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
-            e_vars.get(e_vars.len() - usize(1)),
+            e_vars.last(),
             .Some(e_v) => Option(TypeValue).Some(e_v.ty),
             .None => Option(TypeValue).None
           )
@@ -5574,7 +5574,7 @@ _forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValu
     return(Option(TypeValue).None);
   });
   bound := match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -5608,7 +5608,7 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
     return(false);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ev) => match(
@@ -5625,9 +5625,28 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
     .None => false
   )
 });
-/// One call's binding of a `generic(...)` binder: the concrete type and the
-/// 0-based argument that first fixed it.
-ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize);
+/// The concrete VALUE a call's `generic(N : usize)` binder `label` is bound
+/// to in `env` right now (the synthesizer's Array-length arm binds it to an
+/// `IntLit`), or `.None` while it is unbound or a type binder.
+_forall_len_binding_now :: (fn(env : Environment, label : String) -> Option(String))({
+  vars := get_variables_from_env(env, label);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.last(),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// One call's binding of a `generic(...)` binder: the concrete type (or
+/// `usize` for a value binder, whose value is `len_value`) and the 0-based
+/// argument that first fixed it.
+ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize, len_value : Option(String));
 /// Per-call binder consistency (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
 /// issues/fixed/generic-type-var-rebinds-per-argument.md). Each argument is
 /// matched on its own and a later argument's synthesis REBINDS the binder in
@@ -5636,7 +5655,10 @@ ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize);
 /// nothing compared the two. After argument `arg_index` is matched, every
 /// binder that is now concrete is compared with the binding an earlier
 /// argument fixed; two bindings neither of which is compatible with the other
-/// are an E0601 naming both arguments.
+/// are an E0601 naming both arguments. A VALUE binder (`generic(N : usize)`,
+/// bound through an `Array(T, N)` parameter) is held to the same rule: two
+/// arguments of different lengths are the same E0601
+/// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
 _check_forall_bindings_after_arg :: (
   fn(
     forall_labels : ArrayList(String),
@@ -5652,14 +5674,12 @@ _check_forall_bindings_after_arg :: (
   while(fi < forall_labels.len(), {
     label := match(forall_labels.get(fi), .Some(l) => l, .None => String.new());
     fi = (fi + usize(1));
-    now_opt := _forall_binding_now(env, label.clone());
-    now := match(
-      now_opt,
-      .Some(t) => t,
-      .None => {
-        continue;
-      }
-    );
+    now_ty := _forall_binding_now(env, label.clone());
+    now_len := match(now_ty, .Some(_) => Option(String).None, .None => _forall_len_binding_now(env, label.clone()));
+    if(now_ty.is_none() && now_len.is_none(), {
+      continue;
+    });
+    now := match(now_ty, .Some(t) => t, .None => t_usize());
     (si : usize) = usize(0);
     (found : bool) = false;
     while((si < seen.len()) && !(found), {
@@ -5667,25 +5687,42 @@ _check_forall_bindings_after_arg :: (
         seen.get(si),
         .Some(prev) => if(prev.label == label, {
           found = true;
-          if(!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty)), {
-            prev_name := match(param_labels.get(prev.arg_index), .Some(n) => n, .None => String.new());
-            now_name := match(param_labels.get(arg_index), .Some(n) => n, .None => String.new());
-            exn.throw(
-              dyn(
-                format_error_message(
-                  tok,
-                  `Incompatible types for generic parameter "${label}": it is ${type_to_string(prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+          prev_name := match(param_labels.get(prev.arg_index), .Some(n) => n, .None => String.new());
+          now_name := match(param_labels.get(arg_index), .Some(n) => n, .None => String.new());
+          match(
+            now_len,
+            .Some(nl) => match(
+              prev.len_value,
+              .Some(pl) => if(pl != nl, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      tok,
+                      `Incompatible types for generic parameter "${label}": it is length ${pl} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but length ${nl} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a generic parameter in one call stands for one value.`
+                    )
+                  )
+                );
+              }),
+              .None => ()
+            ),
+            .None => if(prev.len_value.is_none() && (!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty))), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Incompatible types for generic parameter "${label}": it is ${type_to_string(prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+                  )
                 )
-              )
-            );
-          });
+              );
+            })
+          );
         }),
         .None => ()
       );
       si = (si + usize(1));
     });
     if(!(found), {
-      seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index));
+      seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index, len_value : now_len));
     });
   });
 });
@@ -6408,7 +6445,7 @@ try_to_call_function_with_arguments :: (
                       (tb_already : bool) = false;
                       if(tb_existing.len() > usize(0), {
                         match(
-                          tb_existing.get(tb_existing.len() - usize(1)),
+                          tb_existing.last(),
                           .Some(tb_var) => match(
                             tb_var.value.get(usize(0)),
                             .Some(tb_val) => if(is_type_val(tb_val), {
@@ -6457,7 +6494,7 @@ try_to_call_function_with_arguments :: (
                         (eb_already : bool) = false;
                         if(eb_existing.len() > usize(0), {
                           match(
-                            eb_existing.get(eb_existing.len() - usize(1)),
+                            eb_existing.last(),
                             .Some(eb_var) => match(
                               eb_var.value.get(usize(0)),
                               .Some(eb_val) => if(is_type_val(eb_val), {
@@ -6533,7 +6570,7 @@ try_to_call_function_with_arguments :: (
                   (ne_already : bool) = false;
                   if(ne_existing.len() > usize(0), {
                     match(
-                      ne_existing.get(ne_existing.len() - usize(1)),
+                      ne_existing.last(),
                       .Some(ne_var) => match(
                         ne_var.value.get(usize(0)),
                         .Some(ne_val) => if(is_type_val(ne_val), {
@@ -6620,7 +6657,7 @@ try_to_call_function_with_arguments :: (
                             ew_vars := get_variables_from_env(callee_env, ast_expr_token(ew_lhs).value);
                             if(ew_vars.len() > usize(0), {
                               match(
-                                ew_vars.get(ew_vars.len() - usize(1)),
+                                ew_vars.last(),
                                 .Some(ew_var) => match(
                                   ew_var.value.get(usize(0)),
                                   .Some(ew_val) => {
@@ -6684,7 +6721,7 @@ try_to_call_function_with_arguments :: (
                     ew_fvars := get_variables_from_env(callee_env, ew_fl);
                     (ew_is_unknown : bool) = false;
                     match(
-                      ew_fvars.get(ew_fvars.len() - usize(1)),
+                      ew_fvars.last(),
                       .Some(ew_fvar) => match(
                         ew_fvar.value.get(usize(0)),
                         .Some(.UnknownVal(_, _)) => {
@@ -6755,7 +6792,7 @@ try_to_call_function_with_arguments :: (
                         ewa_lvars := get_variables_from_env(callee_env, ast_expr_token(ewa_lhs).value);
                         if(ewa_lvars.len() > usize(0), {
                           match(
-                            ewa_lvars.get(ewa_lvars.len() - usize(1)),
+                            ewa_lvars.last(),
                             .Some(lv) => match(
                               lv.value.get(usize(0)),
                               .Some(.TypeVal(lvt)) => if(!(is_some_type(lvt)), {
@@ -6795,7 +6832,7 @@ try_to_call_function_with_arguments :: (
                                   ewa_xvars := get_variables_from_env(callee_env, ewa_xn);
                                   if(ewa_xvars.len() > usize(0), {
                                     match(
-                                      ewa_xvars.get(ewa_xvars.len() - usize(1)),
+                                      ewa_xvars.last(),
                                       .Some(xv) => match(
                                         xv.value.get(usize(0)),
                                         .Some(.TypeVal(xvt)) => if(!(is_some_type(xvt)), {

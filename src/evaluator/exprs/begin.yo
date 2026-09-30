@@ -312,7 +312,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
           dvars := get_variables_from_env(ei2.env, vn);
           if(dvars.len() > usize(0), {
             match(
-              dvars.get(dvars.len() - usize(1)),
+              dvars.last(),
               .Some(dv) => _push_dup_call(res, dv.id.to_string(), expr),
               .None => ()
             );
@@ -764,7 +764,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
       if(vars.len() == usize(0), {
         return(());
       });
-      latest := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => return(()));
+      latest := match(vars.last(), .Some(v) => v, .None => return(()));
       match(latest.initialized_at_token, .None => return(()), .Some(_) => ());
       if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
         existing := match(expr_info_early_return_only_deferred_drop_expressions(ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
