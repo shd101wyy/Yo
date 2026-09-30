@@ -2,18 +2,29 @@
 
 **Severity:** S2 — fn ↔ trait-impl mutual recursion is wrongly rejected (E0610 on a valid recursive-tree `Eq`)
 
-**Status: OPEN** (re-measured 2026-10-01 on develop after #1062, which was expected to fix it:
-it does not). `issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails `check`
-with E0610 on `!=` at 9:13. Variants: calling `==` instead of `!=` fails the same way
-("No matching call found with arguments"), and so does putting `!=` before `==` in the impl. A
-helper above the impl that calls `!=` WITHOUT the recursion checks fine, so forcing the pending
-impl works. The failure needs the cycle: `_kids_eq`'s trial forces the `Eq(E)` impl, whose `==`
-trial calls `_kids_eq` while it is still being forced. `YO_DEBUG_LAZY=1` shows no in-flight
-member force (`[force-field]`) for `E` at all. Next: instrument the cycle in
-`force_pending_impls_for_type_name` and the pending-definition resolver (`evaluator/context.yo`)
-under a debug build; it probably shares its root with
-`issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`. Found 2026-09-09 while writing `Eq` for the recursive
-`JsonValue` tree.
+**Status: OPEN.** Re-measured 2026-10-01 on develop after #1062, which was expected to fix it
+and does not. The mutual recursion is NOT the trigger. An earlier note here said a non-recursive
+helper checks fine; that was measured on a different shape and is wrong. Measured with v0.2.47
+`yo check`, one file per row, the helper `_h` placed above `impl(E, Eq(E)(…))`:
+
+| `E` | `_h`'s parameters | operands | result |
+| --- | --- | --- | --- |
+| `enum(Leaf(v : i32), Node(n : i32))` | `a : E, b : E` | `a != b` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a : E, b : E` | `a != b` | OK |
+| `enum(Leaf(v : i32), Node(n : i32))` | `a, b : ArrayList(E)` | `a(usize(0)) != b(usize(0))` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a : ArrayList(E)` | two fresh `E.Leaf(…)` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a, b : ArrayList(E)` | `a(usize(0)) != b(usize(0))` | **E0610** |
+| same | same | `(x : E) = a(usize(0))`, `x != y` | **E0610** |
+
+`YO_DEBUG_LAZY=1` prints `[force] impl(E, …)` in every passing row and nothing in the failing
+ones. So the operator-miss path (`calls/function.yo`, the lazy-impl branch before the E0610
+throw) runs `force_pending_impls_for_type_name` with a head name that does not match the impl's
+`E`. The element type of an `ArrayList` over a self-referential enum reaches the operator as a
+type whose `type_head_name_for_impl_forcing` is not `E`. Which spelling it has (an enum shell,
+the internal `enum_decl_…` name, a pointer) is the next measurement, and it needs a debug print
+in a built compiler. The mutual recursion only matters because that is where such a helper
+occurs. `issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails with
+E0610 at 9:13. Found 2026-09-09 while writing `Eq` for the recursive `JsonValue` tree.
 
 ## Reproducer
 
