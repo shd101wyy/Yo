@@ -61,14 +61,20 @@ field. Released binaries are unaffected, because v0.2.46 built them.
 
 ## Fix
 
-The optimizer does not run on a block that awaits (`_contains_io_await_for_opt`,
-the same syntactic test `analyze_await_points` uses: it follows macro
-expansions and does not enter a nested `io.async` body). Only a local live
-across an await becomes a state-machine slot, and such a local's block
-contains the await. There, the store keeps its dup, the slot keeps its own
-count, and both the scope-end drop and the abort dispose release it once.
-This mirrors the isolating-frame rule beside it: both need every count to
-equal its live handles.
+In a block that contains an `io.await`, the optimizer no longer cancels a LOCAL's move into a
+container (`slot_move` in `_optimize_dup_drop_pairs`). The test is `_contains_io_await_for_opt`,
+the same syntactic test `analyze_await_points` uses: it follows macro expansions and does not
+enter a nested `io.async` body. Only a local that lives across an await becomes a state-machine
+slot, and such a local's block contains the await. There, the store keeps its dup, the slot
+keeps its own count, and both the scope-end drop and the abort dispose release it once.
+
+The ALIAS elision (`v := base`, one count kept by the base) still runs there. The state machine
+stores an alias in its base's slot (`sm_storage_id`), which is sound only while the alias owns
+nothing. The first version of this fix disabled the whole optimizer in such blocks. The alias
+then kept its own dup, its scope-end drop zeroed the shared slot, and `for(xs, inout(x) => …)`
+with an await in the body read `xs` as NULL after the loop
+(`tests/async_await.test.yo`, "a for loop's inout element, written after an await in the body").
+The battery caught it.
 
 A compiler built by an unfixed seed still carries the bug in its own machine
 code. So the compiler's source avoids the shape at each site the seed
