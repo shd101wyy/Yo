@@ -367,7 +367,16 @@ test("soundness: two arguments cannot bind one type parameter to two types", {
   comptime_expect_error(_apply_g(x -> true, i32(3)), "declared result type");
   assert(true, "rejected");
 });
+// issues/fixed/a-usize-generic-binder-rebinds-per-argument.md: a VALUE binder
+// (`generic(N : usize)`, bound through `Array(T, N)`) is held to the same rule.
+_n_of :: (fn(generic(N : usize), a : Array(u8, N), b : Array(u8, N)) -> usize)(N);
+test("soundness: two arguments cannot bind one length parameter to two lengths", {
+  comptime_expect_error(_n_of([u8(1), u8(2)], [u8(3), u8(4), u8(5)]), "Incompatible types for generic parameter");
+  comptime_expect_error(_n_of([u8(3), u8(4), u8(5)], [u8(1), u8(2)]), "Incompatible types for generic parameter");
+  assert(true, "rejected");
+});
 test("soundness canary: arguments that agree on a type parameter", {
+  assert(_n_of([u8(1), u8(2)], [u8(3), u8(4)]) == usize(2), "equal lengths still bind");
   assert(_pair_same(i32(3), i32(4)) == i32(3), "same type");
   assert(_pair_same(i32(3), 4) == i32(3), "a literal adopts the binder");
   assert(_apply_g(x => (x + i32(1)), i32(3)) == i32(4), "closure result agrees");

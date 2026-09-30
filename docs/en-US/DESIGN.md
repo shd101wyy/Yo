@@ -121,6 +121,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Dynamic Dispatch](#dynamic-dispatch)
   - [`Dyn` and `dyn`](#dyn-and-dyn)
   - [Examples](#examples)
+- [Existential Types](#existential-types)
+  - [Packed: `Dyn(Trait)`](#packed-dyntrait)
+  - [Opaque: `Impl(Trait)` and closures](#opaque-impltrait-and-closures)
+  - [Not supported: existential enum constructors](#not-supported-existential-enum-constructors)
 - [Impl vs Dyn](#impl-vs-dyn)
 - [Algebraic Effects and Handlers](#algebraic-effects-and-handlers)
 - [Error Handling](#error-handling)
@@ -3013,6 +3017,66 @@ main :: (fn() -> unit)({
 ```
 
 **Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
+
+## Existential Types
+
+"Existential type" names a value whose concrete type is hidden behind an
+interface: `∃T. (T, operations on T)`. Yo has this in the two forms a
+monomorphizing C backend can pay for, and deliberately not in the third.
+Which one to reach for:
+
+| You want to... | Use | What is hidden, and how |
+| --- | --- | --- |
+| store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Dyn(Trait)` + `dyn(v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(d, T)`. |
+| return **one** concrete type without naming it (a closure, an iterator, a future) | `Impl(Trait)` in result position, `Impl(Fn(...))`, `Impl(Future(T, E))` | the type is **opaque, not erased**: every return path must produce the same concrete type, the compiler monomorphizes the callers, nothing is boxed. |
+| hide a **length** or other value the type depends on (`[n:nat] list(a, n)` in ATS / DML) | an ordinary runtime value plus a contract: `ensures(r.len() == ...)`, `requires(i < xs.len())`, `refine(T, p)` | the witness is a **ghost** the verifier reasons about ([FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)); nothing exists at runtime. |
+
+### Packed: `Dyn(Trait)`
+
+```rust
+Shape :: trait(area : (fn(self : Self) -> f64));
+
+// A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
+shapes := ArrayList(Dyn(Shape)).new();
+shapes.push(dyn(Circle(r : f64(1.0))));
+shapes.push(dyn(Square(side : f64(2.0))));
+for(shapes, s => println(s.area()));
+```
+
+The trait must be object-safe (`self` first, no other `Self` in the signature,
+no `generic(...)` parameters), the payload is reference counted, and an
+upcast to a smaller trait set is explicit: `upcast(d, Dyn(Sub))`. Details:
+[DYN_DESIGN.md](./DYN_DESIGN.md).
+
+### Opaque: `Impl(Trait)` and closures
+
+```rust
+// The caller cannot spell the closure's type; the compiler knows it exactly.
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+Each closure is its own type, so one `Impl(Fn(...))` slot holds one closure
+and a container of them is `ArrayList(typeof(k))` — two different closures in
+one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](#closure-type-restrictions)).
+`Impl(Future(T, E))` is the same shape for `async` results.
+
+### Not supported: existential enum constructors
+
+```rust
+// NOT supported: `T` is bound by the constructor, not by the enum.
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+This is the ML-style `pack`. Its lowering in a compiler that monomorphizes
+everything is exactly a `Dyn`: a hidden `T` with no vtable cannot be operated
+on, and with one it is a trait object. It stays a non-goal (see
+[GADTS.md](./GADTS.md#limitations)); write `Dyn(Show)` instead.
+
+Yo therefore has no `exists` at the type level. The identifier `exists` is the
+verifier's ghost quantifier over values, as in
+`ensures(exists(k : i32, xs(k) == target))`.
 
 ## Impl vs Dyn
 

@@ -25,7 +25,7 @@ import("std/fmt");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_array, t_array_var, t_usize } :: import("../../types/creators.yo");
+{ t_array, t_array_var, t_usize, COMPUTED_ARRAY_LEN_PREFIX } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { stable_module_id, parse_raw_int } :: import("../../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -277,22 +277,20 @@ evaluate_array_type :: (
   // compiled, so this was a silently-wrong-type class
   // (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
   //
-  // A single associated-constant projection (`T.BYTES`) is now carried
-  // through as a projection and resolved during substitution, so it is no
-  // longer part of this rejection. Everything else with a variable in it —
-  // any COMPUTED length, `T.BYTES * 2` included — still has nowhere to go,
-  // and an error remains strictly better than a wrong type.
+  // A single associated-constant projection (`T.BYTES`) is carried through
+  // as a projection and resolved during substitution. Everything else with a
+  // variable in it — a COMPUTED length, `N + usize(1)` or `T.BYTES * 2` — is
+  // recorded behind `COMPUTED_ARRAY_LEN_PREFIX` (I1 of
+  // plans/backlog/ATS_STYLE_INDEXED_TYPES.md): in a RESULT type the call site
+  // re-evaluates the return-type expression once the binders are bound (the
+  // `_type_has_array_len_var` re-eval in calls/helper.yo and
+  // calls/function.yo), and a body-local type is evaluated with the binders
+  // already bound, so the marker never reaches codegen from those positions.
+  // A PARAMETER type is a matching position and may not carry one:
+  // evaluator/types/function.yo rejects it with a precise message. The marker
+  // itself is loud everywhere else (codegen's unknown-type fallback), never a
+  // silent zero (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
   len_proj := _length_projection_text(length_expr);
-  if(len_is_var && !ast_expr_is_atom(length_expr) && len_proj.is_none(), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(length_expr),
-          `Array length is not a compile-time constant, a bare generic parameter, or an associated constant:\n${ast_expr_to_string(length_expr)}\n\nA COMPUTED length expression cannot be resolved in a type position. Bind the length to a generic(N : usize) parameter and use that name directly, write a single associated constant such as T.BYTES, or write the type once per instantiation.`
-        )
-      )
-    );
-  });
   array_type := cond(
     (len_is_var && ast_expr_is_atom(length_expr)) =>
       t_array_var(child_type, ast_expr_token(length_expr).value.clone()),
@@ -300,6 +298,8 @@ evaluate_array_type :: (
     // once `T` is bound. See `_length_projection_text` above.
     (len_is_var && len_proj.is_some()) =>
       t_array_var(child_type, match(len_proj, .Some(pt) => pt, .None => String.new())),
+    len_is_var =>
+      t_array_var(child_type, `${COMPUTED_ARRAY_LEN_PREFIX}${ast_expr_to_string(length_expr)}`),
     true => t_array(child_type, len_usize)
   );
   array_type_val := create_type_value(array_type);
