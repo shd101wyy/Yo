@@ -1,6 +1,16 @@
 # Pattern matching: literal values in enum destructuring don't work as expected
 
-## Status: DOCUMENTED LIMITATION — literal patterns (e.g. `.Some(true)`) are not supported; literals in destructure positions bind as variable names instead. Documented in `.github/skills/yo-syntax/syntax-cheatsheet.md`. Implementing real literal pattern matching is a future language feature, not a bug.
+**Severity:** S1 (a silent wrong answer: the arm always matched)
+
+**Status: FIXED.** A literal in a payload position first became a loud
+rejection (match P0, #672, 2026-09-14 — the interim guard against exactly
+this trap), then a real COMPARISON with the full pattern IR (match P1–P3,
+#791, 2026-09-19): `.BoolVal(true)` matches only a true payload, at any
+depth, for numbers, bools, chars and strings. Pinned by
+`tests/match_nested.test.yo`, `tests/match_strings.test.yo` and the
+`match-string-payload-accepted` cli-case; the design record is
+`plans/reference/MATCH_PATTERN_MATCHING.md`. The limitation text below is
+the historical record of the pre-2026-09 behavior.
 
 ## Problem
 
@@ -34,9 +44,12 @@ Always use a variable binding and then check the value with `cond`:
 .BoolVal(bval) => cond(bval => { ... }, true => ()),
 ```
 
-## Status
+## Status (historical)
 
-This is by design — Yo match patterns only support variable binding in enum variant destructuring, not literal matching. This should be documented as a common pitfall.
+This was recorded as by-design at the time — Yo match patterns only
+supported variable binding in enum variant destructuring, not literal
+matching. Real literal matching landed in 2026-09 (see the FIXED status
+above), so the workaround below is no longer needed.
 
 Cleanup of misleading uses:
 
@@ -47,5 +60,7 @@ Cleanup of misleading uses:
 
 ## Related
 
-- Same issue would apply to `.IntLit(42)` — it would bind to variable named `42`, not match the literal
-- Filter's `.BoolVal(keep)` pattern is correct because it uses a variable name and then checks with `cond`
+- `.IntLit(42)` had the same behavior — it bound to a variable named `42`;
+  it compares since #791
+- Filter's `.BoolVal(keep)` pattern was the correct pre-2026-09 spelling
+  (a variable name, then `cond`); today `.BoolVal(true)` is the direct form

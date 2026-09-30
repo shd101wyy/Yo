@@ -51,12 +51,14 @@ authorship from day one.
   ThreadSanitizer run over the whole thread corpus as the standing proof
   ([`archive/PARALLELISM_SOUNDNESS.md`](archive/PARALLELISM_SOUNDNESS.md),
   [`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)).
+- **Real pattern matching.** One `Pattern` IR behind `match`: nested, literal,
+  or, string, range, guard, `:=`, tuple/struct and `Box` patterns in every
+  emitter plus the verifier's subset, exhaustiveness by usefulness with
+  integer intervals; an opportunistic adoption sweep continues inline
+  ([`reference/MATCH_PATTERN_MATCHING.md`](reference/MATCH_PATTERN_MATCHING.md)).
 
 ## Now
 
-- **`match` redesign.** P1–P3 landed; tuple and struct scrutinees, the async
-  lowering and the adoption sweep remain
-  ([`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md)).
 - **Evaluator memory.** `check src/main.yo` went from 19.9 to 2.6 GB (two
   codegen leaks were most of it: `f(match(...))` arguments, 3 GB, and every
   `HashMap` rehash leaking its RC entries, 2.9 GB); a CI memory ratchet, the

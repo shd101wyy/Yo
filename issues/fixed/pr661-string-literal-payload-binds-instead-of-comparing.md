@@ -1,9 +1,14 @@
 # PR #661 turns a string-literal enum payload from a C compile error into a silent wrong answer
 
-**Status: OPEN against PR #661's branch (`fix-enum-pattern-bool-payload`,
-`6fe1f8203`) — NOT a defect on `develop`.** Found 2026-09-13 while auditing
-`match` for `plans/MATCH_PATTERN_MATCHING.md` (§3 gap 4). This should block that
-PR's merge as it stands.
+**Severity:** S2 (a regression a stop-gap would have shipped)
+
+**Status: FIXED (match P0, #672, 2026-09-14; see the fix note at the
+bottom).** Found 2026-09-13 while auditing `match` for
+`plans/MATCH_PATTERN_MATCHING.md` (§3 gap 4), against PR #661's branch
+(`fix-enum-pattern-bool-payload`, `6fe1f8203`). #661 was in fact merged
+before the gaps were closed — the regression below was live on `develop`
+for ~11 hours — and P0 (#672) landed the loud rejection the same day;
+string payloads then became real COMPARISONS in P1–P3 (#791).
 
 ## Symptom
 

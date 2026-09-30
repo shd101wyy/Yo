@@ -1,11 +1,17 @@
 # A boolean literal payload in an enum match pattern is not compared — it matches any payload
 
+**Severity:** S1 (a silent wrong answer)
+
 Status: FIXED 2026-09-13 — literal payload atoms (bool/int/float) now COMPARE
 in both the evaluator (arm selection + no phantom binding) and codegen
 (same-variant arms share one `case` with per-arm `if (<payload> == <literal>)`
 guards). Tests: tests/match_bind_nothing.test.yo. String/char literals in
-payloads still fail loudly at the "Expected identifier, `_`, or labeled
-pattern" guard — unsupported, not silently wrong (left as is).
+payloads were NOT safe on #661's build, contrary to what this doc first
+claimed — they passed the guard as atoms and became silent bindings
+(`issues/fixed/pr661-string-literal-payload-binds-instead-of-comparing.md`,
+§3 gap 4 of the match plan). P0 (#672) made them a loud rejection the same
+day, and P1–P3 (#791) made them real comparisons
+(`tests/match_strings.test.yo`).
 
 ## Reproducer
 

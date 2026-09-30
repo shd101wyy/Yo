@@ -150,7 +150,7 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   // advice that could not fix them
   // (issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md).
   // ── Types & traits (E06xx–E08xx) ───────────────────────────────────────
-  // `match` (plans/MATCH_PATTERN_MATCHING.md §4.10) — before the generic
+  // `match` (plans/reference/MATCH_PATTERN_MATCHING.md §4.10) — before the generic
   // type rules, which would otherwise claim "Pattern type …".
   if(msg.starts_with(String.from("Match expression is not exhaustive")) || msg.contains(
     String.from("for exhaustiveness")
@@ -241,7 +241,7 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   if(msg.contains(String.from("was never fully evaluated")), {
     return(_coded(E_NEVER_FULLY_EVALUATED));
   });
-  if((((msg.contains(String.from("must BE the first condition")) || msg.contains(String.from("is not supported in this position inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an `if` body within an `io.async` block"))) || msg.contains(String.from("in a `match` whose arms await inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an 'io.async' body that awaits")), {
+  if(((msg.contains(String.from("must BE the first condition")) || msg.contains(String.from("is not supported in this position inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an `if` body within an `io.async` block"))) || msg.contains(String.from("is not supported inside an 'io.async' body that awaits")), {
     return(_coded(E_AWAIT_PLACEMENT));
   });
   if(msg.contains(String.from("forward reference")), {
