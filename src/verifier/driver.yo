@@ -63,7 +63,11 @@ VerifyRunConfig :: struct(
   /// Encode/run options (rlimit budget, seed, backstop, evidence).
   encode_opts : EncodeOptions,
   /// Skip the verification cache for this run (`--no-cache`).
-  no_cache : bool
+  no_cache : bool,
+  /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+  /// when it records guard sites, `yo verify --elision`). Not part of the
+  /// cache key: each obligation is its own query.
+  (elision_obligations : bool) ?= false
 );
 /// Default run config: default encode options, no override, cache on.
 default_verify_run_config :: (fn() -> VerifyRunConfig)(
@@ -483,7 +487,10 @@ VerifyFnObligation :: ref(
     /// `.None` for contract, loop and assert obligations.
     (site : Option(GuardSite)) ?= Option(GuardSite).None,
     /// Proved with no unenforced assumption on its path (`VcObligation.elidable`).
-    (elidable : bool) ?= false
+    (elidable : bool) ?= false,
+    /// Decides a guard only; never counts toward the outcome
+    /// (`VcObligation.elision_only`).
+    (elision_only : bool) ?= false
   )
 );
 /// The verification report for one function.
@@ -509,8 +516,21 @@ VerifyFnReport :: ref(
 /// something. See
 /// `issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`.
 verify_report_is_vacuous :: (fn(rp : VerifyFnReport) -> bool)(
-  (rp.outcome == "ok") && (rp.obligations.len() == usize(0))
+  (rp.outcome == "ok") && (verify_correctness_obligation_count(rp) == usize(0))
 );
+/// The obligations that count toward the outcome: every one but the 5b
+/// elision-only ones, which decide a guard and nothing else.
+verify_correctness_obligation_count :: (fn(rp : VerifyFnReport) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    if(!rp.obligations(i).elision_only, {
+      n = (n + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  n
+});
 /// The outcome vocabulary, in report order. `--deny` validates against this
 /// and the usage error lists it, so the CLI can never drift from the set of
 /// outcomes `verify_and_strip_tasks` actually produces.
@@ -860,7 +880,8 @@ verify_and_strip_tasks :: (
           decreases_expr : t.decreases_expr.clone(),
           return_label : t.return_label.clone(),
           table : t.table,
-          requires_enforced : t.requires_enforced.clone()
+          requires_enforced : t.requires_enforced.clone(),
+          elision_obligations : cfg.elision_obligations
         );
         body_res := verify_function_body(input);
         match(
@@ -918,11 +939,12 @@ verify_and_strip_tasks :: (
                         folded : true,
                         goal : encode_term(obl.query.goal),
                         site : obl.site,
-                        elidable : obl.elidable
+                        elidable : obl.elidable,
+                        elision_only : obl.elision_only
                       )
                     );
                     rank := if(pre_is_proved, usize(0), usize(3));
-                    if(rank > worst, {
+                    if((rank > worst) && !obl.elision_only, {
                       worst = rank;
                     });
                   });
@@ -946,7 +968,8 @@ verify_and_strip_tasks :: (
                         cached : r.cached,
                         goal : encode_term(obl.query.goal),
                         site : obl.site,
-                        elidable : obl.elidable
+                        elidable : obl.elidable,
+                        elision_only : obl.elision_only
                       )
                     );
                     // 0 ok < 1 unproven < 2 solver-error < 3 refuted
@@ -957,7 +980,7 @@ verify_and_strip_tasks :: (
                       .SolverError(_) => usize(2),
                       .Refuted(_) => usize(3)
                     );
-                    if(rank > worst, {
+                    if((rank > worst) && !obl.elision_only, {
                       worst = rank;
                     });
                   });
@@ -1077,6 +1100,7 @@ export(
   VerifyFnObligation,
   VerifyFnReport,
   verify_report_is_vacuous,
+  verify_correctness_obligation_count,
   verify_outcome_names,
   is_verify_outcome_name,
   verify_report_is_failure,
