@@ -738,6 +738,28 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       });
       out
     },
+    // A SomeT lowers to the end of its resolution chain when that is a
+    // concrete type, so it renders as that type; an unresolved one renders by
+    // its id. `type_to_string` spells only the binder (`F : (Fn(A) -> B)`),
+    // so `StreamMap(Countdown, i32, F)` rendered alike for two different
+    // closures `F`, and collect_type aliased the second spec's capture struct
+    // onto the first ("unknown type name 'async_capture_…'").
+    .SomeT({ id : sti_sid }) => {
+      sti_term := resolve_cell_chain(t);
+      cond(
+        !is_some_type(sti_term) => {
+          out := String.from("S#");
+          out.push_string(recur(sti_term, depth + usize(1)));
+          out
+        },
+        (sti_sid.len() > usize(0)) => {
+          out := String.from("S#");
+          out.push_string(sti_sid);
+          out
+        },
+        true => type_to_string(t)
+      )
+    },
     _ => type_to_string(t)
   )
 });

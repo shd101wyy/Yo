@@ -5,8 +5,6 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 
 **Yo** 旨在成为一门对 C 和 JavaScript (TypeScript) 程序员来说**易于学习**的编程语言 😉。
 
-**Yo**（将会且）倾向于支持高级类型系统特性，如广义代数数据类型 (GADT)、依赖类型、细化类型 [设计中](../../plans/backlog/IN_DESIGN.md)。
-
 我们的目标是成为一门易用且易学的实用语言。
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
@@ -33,34 +31,42 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [丢弃调用结果](#丢弃调用结果)
   - [类型推断](#类型推断)
     - [未初始化变量](#未初始化变量)
+    - [整数字面量与编译期整数](#整数字面量与编译期整数)
 - [函数声明](#函数声明)
+  - [参数模式是函数类型的一部分](#参数模式是函数类型的一部分)
   - [命名参数](#命名参数)
+  - [`never` 类型](#never-类型)
   - [默认参数值](#默认参数值)
   - [泛型函数](#泛型函数)
   - [类型约束](#类型约束)
   - [Trait 方法消歧义](#trait-方法消歧义)
   - [使用 `_` 进行偏应用（Partial Application）](#使用-_-进行偏应用partial-application)
   - [类型方法](#类型方法)
+  - [私有成员](#私有成员)
   - [recur](#recur)
   - [引用语义类型与内存管理](#引用语义类型与内存管理)
     - [引用语义类型](#引用语义类型)
     - [编译期引用计数优化](#编译期引用计数优化)
+    - [显式分配器](#显式分配器)
 - [指针](#指针)
   - [指针操作](#指针操作)
-  - [指针算术运算](#指针算术运算)
-  - [指针运算符参考](#指针运算符参考)
+  - [指针算术与比较](#指针算术与比较)
+  - [指针操作参考](#指针操作参考)
   - [consume 函数](#consume-函数)
   - [可空指针](#可空指针)
   - [句柄的 `Option` 就是一个指针](#句柄的-option-就是一个指针)
+  - [内存安全](#内存安全)
+  - [`inout` 参数](#inout-参数)
   - [RAII（资源获取即初始化）](#raii资源获取即初始化)
 - [元组](#元组)
 - [数组与区间](#数组与区间)
-  - [使用 `..` 的范围](#使用--的范围)
+  - [使用 `..` 的区间](#使用--的区间)
   - [数组方法](#数组方法)
     - [Array.fill](#arrayfill)
     - [Array.len](#arraylen)
   - [数组长度推断](#数组长度推断)
   - [数组赋值与复制](#数组赋值与复制)
+- [算术与失败语义](#算术与失败语义)
 - [控制流](#控制流)
   - [cond](#cond)
   - [if/else](#ifelse)
@@ -75,6 +81,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [广义代数数据类型（GADTs）](#广义代数数据类型gadts)
     - [GADT 匹配类型细化](#gadt-匹配类型细化)
     - [GADT 穷尽性检查](#gadt-穷尽性检查)
+    - [GADT 索引属于类型本身](#gadt-索引属于类型本身)
     - [多参数 GADTs](#多参数-gadts)
     - [带自定义判别值的 GADTs](#带自定义判别值的-gadts)
     - [混合 GADT 和普通变体](#混合-gadt-和普通变体)
@@ -83,11 +90,14 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [一致性：每个类型对每个 trait 只有一个 impl](#一致性每个类型对每个-trait-只有一个-impl)
 - [模式匹配](#模式匹配)
+  - [模式的形式](#模式的形式)
 - [字符串](#字符串)
   - [字符串字面量作为 `str` 或 C 字符串指针](#字符串字面量作为-str-或-c-字符串指针)
   - [String（可增长字符串）](#string可增长字符串)
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
+      - [格式说明符 —— `${value:spec}`](#格式说明符--valuespec)
 - [集合](#集合)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
@@ -111,6 +121,10 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [动态分发](#动态分发)
   - [`Dyn` 和 `dyn`](#dyn-和-dyn)
   - [示例](#示例)
+- [存在类型](#存在类型)
+  - [打包形式：`Dyn(Trait)`](#打包形式dyntrait)
+  - [不透明形式：`Impl(Trait)` 与闭包](#不透明形式impltrait-与闭包)
+  - [不支持：存在型枚举构造器](#不支持存在型枚举构造器)
 - [Impl 与 Dyn 的对比](#impl-与-dyn-的对比)
 - [代数效应与处理器](#代数效应与处理器)
 - [错误处理](#错误处理)
@@ -123,6 +137,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [隔离类型](#隔离类型)
 - [Arc 类型](#arc-类型)
 - [模块的导入和导出](#模块的导入和导出)
+    - [trait impl 通过你的导入可见](#trait-impl-通过你的导入可见)
   - [匿名模块](#匿名模块)
   - [模块级可变变量](#模块级可变变量)
 - [命名规范](#命名规范)
@@ -986,6 +1001,21 @@ s3 := s2; // RC = 3
 编译器执行[所有权分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)以消除不必要的引用计数操作。
 
 详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+
+#### 显式分配器
+
+引用计数决定对象何时释放，显式分配器决定它放在哪里。`with_allocator(a, f)`（`std/allocator`）把 `f` 运行期间创建的每个引用语义对象放在分配器 `a` 中，容器则通过 `new_in` 直接接收分配器：
+
+```rust
+{ Arena } :: import("std/arena");
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(4096));
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
+p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
+```
+
+不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)。
 
 ## 指针
 
@@ -2885,6 +2915,61 @@ main :: (fn() -> unit)({
 
 **注意：** `Dyn` 类型内部是引用计数的对象，提供自动内存管理，无需手动处理指针。
 
+## 存在类型
+
+"存在类型"指一个具体类型被藏在接口之后的值：`∃T. (T, 对 T 的操作)`。Yo 以一个
+单态化 C 后端负担得起的两种形式提供它，并且有意不提供第三种。按需求选择：
+
+| 你想要…… | 用 | 藏的是什么，怎么藏 |
+| --- | --- | --- |
+| 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Dyn(Trait)` + `dyn(v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(d, T)` 找回具体类型。 |
+| 返回**一个**具体类型但不点名它（闭包、迭代器、future） | 返回位置的 `Impl(Trait)`、`Impl(Fn(...))`、`Impl(Future(T, E))` | 类型是**不透明的，但没有被擦除**：每条返回路径必须产出同一个具体类型，编译器对调用方做单态化，不装箱。 |
+| 隐藏类型所依赖的**长度**或其他值（ATS / DML 里的 `[n:nat] list(a, n)`） | 一个普通的运行时值加上契约：`ensures(r.len() == ...)`、`requires(i < xs.len())`、`refine(T, p)` | 见证是验证器推理的**幽灵值**（[FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)）；运行时什么都不存在。 |
+
+### 打包形式：`Dyn(Trait)`
+
+```rust
+Shape :: trait(area : (fn(self : Self) -> f64));
+
+// 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
+shapes := ArrayList(Dyn(Shape)).new();
+shapes.push(dyn(Circle(r : f64(1.0))));
+shapes.push(dyn(Square(side : f64(2.0))));
+for(shapes, s => println(s.area()));
+```
+
+trait 必须是对象安全的（`self` 在首位、签名中没有其他 `Self`、没有
+`generic(...)` 参数），载荷是引用计数的，向更小的 trait 集合上转型必须显式写出：
+`upcast(d, Dyn(Sub))`。详见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+
+### 不透明形式：`Impl(Trait)` 与闭包
+
+```rust
+// 调用方写不出闭包的类型；编译器却精确地知道它。
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+每个闭包都是自己的类型，所以一个 `Impl(Fn(...))` 槽只能装一个闭包，装它们的
+容器是 `ArrayList(typeof(k))`——同一个容器里装两个不同的闭包需要
+`Dyn(Fn(...))`（见[闭包类型限制](#闭包类型限制)）。`Impl(Future(T, E))` 是
+`async` 结果的同一形态。
+
+### 不支持：存在型枚举构造器
+
+```rust
+// 不支持：`T` 由构造器而不是枚举绑定。
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+这是 ML 风格的 `pack`。在一个把一切单态化的编译器里，它的降级恰好就是一个
+`Dyn`：没有 vtable 的隐藏 `T` 无法被操作，有了 vtable 它就是 trait 对象。它仍
+是非目标（见 [GADTS.md](./GADTS.md#限制)）；请改写为 `Dyn(Show)`。
+
+因此 Yo 在类型层面没有 `exists`。标识符 `exists` 是验证器对值的幽灵量词，如
+`ensures(exists(k : i32, xs(k) == target))`。
+
 ## Impl 与 Dyn 的对比
 
 - **Impl**：静态分发，编译时多态，无运行时开销
@@ -2918,8 +3003,9 @@ continuations）。处理器的类型是专门的**控制函数**类型
    （`raise : Raise`）。调用方在每次调用时显式传递处理器。
 
 效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的处理器
-能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会被标记
-为已逃逸，等待它会导致 panic。
+能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会进入
+`Aborted`（中止）状态：对它 `io.await` 会 panic，而已启动任务的
+`JoinHandle.await` 返回 `.None`。
 
 详细文档请参阅 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)。
 
@@ -3085,9 +3171,9 @@ export(main);
 关键特性：
 
 - `io.async(fn)` 创建一个**冷 Future** — 函数体在被等待或启动之前不会执行
-- `io.await(future)` 启动一个冷 Future 并运行至完成；可以对同一个 Future **多次调用**
-- `io.spawn(future)` 启动一个冷 Future 而不等待，返回 `JoinHandle(T)`
-- `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 逃逸（中止）时返回 `.None`
+- `io.await(future, e)` 启动一个冷 Future 并运行至完成；可以对同一个 Future **多次调用**（`e` 是效应记录 —— 纯 `Io` 任务就是 `io`）
+- `io.spawn(future, e)` 启动一个冷 Future 而不等待，返回 `JoinHandle(T)`
+- `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 任务中止（unwind）时返回 `.None`
 - 所有异步代码运行在**同一线程**上（无线程创建，无数据竞争）
 
 详细文档请参阅 [ASYNC_AWAIT.md](./ASYNC_AWAIT.md)。

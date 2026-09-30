@@ -170,6 +170,19 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
     );
     oi = (oi + usize(1));
   });
+  // Every runtime trap ends in `__yo_abort()`, never a bare `abort()`: stdio
+  // fully buffers a piped stdout and `abort()` discards the buffer, so a
+  // program's output before a panic vanished from CI logs and `build run`
+  // (issues/fixed/panic-loses-buffered-stdout-when-piped.md). Emitted in the
+  // header right after the includes, so every translation unit and every
+  // later runtime block sees it.
+  context.emitter.emit_header_string_line(
+    `
+_Noreturn static inline void __yo_abort(void) {
+  fflush(stdout);
+  abort();
+}`
+  );
   // Add allocator compatibility layer based on the allocator option.
   context.emitter.emit_header_line("");
   cond(
@@ -249,8 +262,8 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
     context.emitter.emit_string_line(
       `
 ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
-  fprintf(stderr, "out of memory: requested %zu bytes\\n", size);
-  abort();
+  fflush(stdout); fprintf(stderr, "out of memory: requested %zu bytes\\n", size);
+  __yo_abort();
 }`
     );
   });
@@ -265,8 +278,8 @@ ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
     `
 static inline size_t __yo_idx_chk(size_t i, size_t n, const char* f, int r, int c) {
   if (i >= n) {
-    fprintf(stderr, "index out of bounds: %zu not in [0, %zu) (at %s:%d:%d)\\n", i, n, f, r, c);
-    abort();
+    fflush(stdout); fprintf(stderr, "index out of bounds: %zu not in [0, %zu) (at %s:%d:%d)\\n", i, n, f, r, c);
+    __yo_abort();
   }
   return i;
 }`
@@ -280,8 +293,8 @@ static inline size_t __yo_idx_chk(size_t i, size_t n, const char* f, int r, int 
     `
 static inline void __yo_div_guard(long long a, long long b, long long tmin, const char* f, int r, int c) {
   if (b == 0 || (a == tmin && b == -1)) {
-    fprintf(stderr, "integer division or remainder by zero%s (at %s:%d:%d)\\n", (b == 0) ? "" : " (MIN / -1)", f, r, c);
-    abort();
+    fflush(stdout); fprintf(stderr, "integer division or remainder by zero%s (at %s:%d:%d)\\n", (b == 0) ? "" : " (MIN / -1)", f, r, c);
+    __yo_abort();
   }
 }`
   );
@@ -289,9 +302,26 @@ static inline void __yo_div_guard(long long a, long long b, long long tmin, cons
     `
 static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, int c) {
   if (b == 0) {
-    fprintf(stderr, "integer division or remainder by zero (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    fflush(stdout); fprintf(stderr, "integer division or remainder by zero (at %s:%d:%d)\\n", f, r, c);
+    __yo_abort();
   }
+}`
+  );
+  // The overflow helpers' shared trap: out of line, cold and noreturn, so
+  // each of the thousands of inlined guard sites is a compare and a call
+  // rather than its own fprintf + abort. Inlining that pair made a
+  // usize-guarded compiler compile itself 19% slower; this recovers it
+  // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md).
+  // `_Noreturn` is C11; the cold/noinline hints are GCC/Clang spellings
+  // behind a guard. It ends in `__yo_abort()` like every runtime trap.
+  context.emitter.emit_header_string_line(
+    `
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+_Noreturn static inline void __yo_ovf_trap(const char* what, const char* f, int r, int c) {
+  fflush(stdout); fprintf(stderr, "integer %s overflow (at %s:%d:%d)\\n", what, f, r, c);
+  __yo_abort();
 }`
   );
   // Safe mode Phase 3a (plans/SAFE_MODE.md §6, ruling D1): integer
@@ -306,8 +336,7 @@ static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, 
 static inline long long __yo_add_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a + b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -317,8 +346,7 @@ static inline long long __yo_add_chk_s(long long a, long long b, long long lo, l
 static inline long long __yo_sub_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a - b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -328,8 +356,7 @@ static inline long long __yo_sub_chk_s(long long a, long long b, long long lo, l
 static inline long long __yo_mul_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
   long long rr = a * b;
   if (rr < lo || rr > hi) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -339,8 +366,7 @@ static inline long long __yo_mul_chk_s(long long a, long long b, long long lo, l
 static inline unsigned long long __yo_add_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
   unsigned long long rr = a + b;
   if (rr > hi) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -351,8 +377,7 @@ static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned l
   unsigned long long rr = a - b;
   (void)hi;
   if (a < b) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -363,8 +388,7 @@ static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned l
   unsigned long long rr = a * b;
   (void)hi;
   if (b != 0 && rr / b != a) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -374,8 +398,7 @@ static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned l
 static inline int64_t __yo_add_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
   int64_t rr = (int64_t)((uint64_t)a + (uint64_t)b);
   if (((a ^ rr) & (b ^ rr)) < 0) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -385,8 +408,7 @@ static inline int64_t __yo_add_chk_s64(int64_t a, int64_t b, const char* f, int 
 static inline int64_t __yo_sub_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
   int64_t rr = (int64_t)((uint64_t)a - (uint64_t)b);
   if (((a ^ b) & (a ^ rr)) < 0) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return rr;
 }`
@@ -402,8 +424,7 @@ static inline int64_t __yo_mul_chk_s64(int64_t a, int64_t b, const char* f, int 
     ovf = (b > 0) ? (a < (INT64_MIN / b)) : (b < (INT64_MAX / a));
   }
   if (ovf) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -413,8 +434,7 @@ static inline int64_t __yo_mul_chk_s64(int64_t a, int64_t b, const char* f, int 
 static inline uint64_t __yo_add_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   uint64_t rr = a + b;
   if (rr < a) {
-    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("addition", f, r, c);
   }
   return rr;
 }`
@@ -423,8 +443,7 @@ static inline uint64_t __yo_add_chk_u64(uint64_t a, uint64_t b, const char* f, i
     `
 static inline uint64_t __yo_sub_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   if (a < b) {
-    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("subtraction", f, r, c);
   }
   return a - b;
 }`
@@ -434,8 +453,7 @@ static inline uint64_t __yo_sub_chk_u64(uint64_t a, uint64_t b, const char* f, i
 static inline uint64_t __yo_mul_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
   uint64_t rr = a * b;
   if (b != 0 && rr / b != a) {
-    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("multiplication", f, r, c);
   }
   return rr;
 }`
@@ -444,8 +462,7 @@ static inline uint64_t __yo_mul_chk_u64(uint64_t a, uint64_t b, const char* f, i
     `
 static inline long long __yo_neg_chk_s(long long a, long long lo, const char* f, int r, int c) {
   if (a == lo) {
-    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("negation", f, r, c);
   }
   return -a;
 }`
@@ -454,8 +471,7 @@ static inline long long __yo_neg_chk_s(long long a, long long lo, const char* f,
     `
 static inline int64_t __yo_neg_chk_s64(int64_t a, const char* f, int r, int c) {
   if (a == INT64_MIN) {
-    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
-    abort();
+    __yo_ovf_trap("negation", f, r, c);
   }
   return (int64_t)(0 - (uint64_t)a);
 }`
@@ -467,8 +483,8 @@ static inline int64_t __yo_neg_chk_s64(int64_t a, const char* f, int r, int c) {
     `
 static inline long long __yo_sh_chk(long long sh, long long bits, const char* f, int r, int c) {
   if (sh < 0 || sh >= bits) {
-    fprintf(stderr, "shift count out of range: %lld not in [0, %lld) (at %s:%d:%d)\\n", sh, bits, f, r, c);
-    abort();
+    fflush(stdout); fprintf(stderr, "shift count out of range: %lld not in [0, %lld) (at %s:%d:%d)\\n", sh, bits, f, r, c);
+    __yo_abort();
   }
   return sh;
 }`

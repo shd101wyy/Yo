@@ -16,7 +16,7 @@
 { is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_case_executed } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, some_resolution, expr_info_case_executed } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { arm_value_with_dups, generate_deferred_drop_expressions } :: import("../exprs/drop_dup.yo");
@@ -51,21 +51,13 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
   // such member (the fs/gc batch C errors).
   some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
-  rc_cell := match(ty, .SomeT({ resolution : io_src }) => io_src, _ => Option(TypeValue).None);
-  rc_final := match(
-    rc_cell,
-    .Some(io_r) => Option(TypeValue).Some(io_r),
-    .None => lookup_some_resolved_concrete(some_id)
-  );
+  rc_final := some_resolution(ty);
   match(
     rc_final,
-    .Some(io_rcv) => match(
-      io_rcv,
-      .ExternOpaqueT(_, _) => {
-        return(true);
-      },
-      _ => ()
-    ),
+    .Some(.ExternOpaqueT(_, _)) => {
+      return(true);
+    },
+    .Some(_) => (),
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
@@ -504,7 +496,7 @@ split_into_state_segments :: (
   // transition into after the await completes / the non-await branch is taken.
   if(segments.len() > usize(0), {
     last_has_await := match(
-      segments.get(segments.len() - usize(1)),
+      segments.last(),
       .Some(last) => match(last.await_point, .Some(_) => true, .None => false),
       .None => false
     );
@@ -547,7 +539,7 @@ split_into_state_segments :: (
                   tap.base.is_body_result = Option(bool).Some(true);
                 });
                 match(
-                  segments.get(segments.len() - usize(1)),
+                  segments.last(),
                   .Some(completion) => {
                     // The completion segment was just created EMPTY, so
                     // append to it.
@@ -989,7 +981,7 @@ _extract_target_var_id :: (
         if(vars.len() > usize(0), {
           return(
             match(
-              vars.get(vars.len() - usize(1)),
+              vars.last(),
               .Some(v) => Option(String).Some(v.id.to_string()),
               .None => Option(String).None
             )
@@ -1357,7 +1349,7 @@ generate_state_segment_code :: (
       // renders "", and both emit paths below skip empty code.
       hp_is_unit := (
         is_unit_type(hp.result_type) || (
-          is_some_type(hp.result_type) && match(hp.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+          is_some_type(hp.result_type) && some_resolution(hp.result_type).is_none()
         )
       );
       if(!(hp_is_unit), {
@@ -3362,11 +3354,8 @@ _aw_destructure_pattern :: (
             )
           ) => match(
             raw.get(usize(0)),
-            .Some(ca) => match(
-              ca,
-              .FnCall(_, _, ia, _, _) => ia,
-              .Atom(_, _) => ArrayList(AstExpr).new()
-            ),
+            .Some(.FnCall(_, _, ia, _, _)) => ia,
+            .Some(.Atom(_, _)) => ArrayList(AstExpr).new(),
             .None => ArrayList(AstExpr).new()
           ),
           true => raw.clone()
@@ -3473,7 +3462,7 @@ _resolve_pattern_binding_sm_field :: (
           // side (atom.yo) and init_assignment.yo:206 apply — without them
           // an env hit resolved a different id spelling than the map key.
           (env_id : String) = match(
-            vars.get(vars.len() - usize(1)),
+            vars.last(),
             .Some(v) => match(
               v.is_owning_the_same_rc_value_as,
               .Some(ob) => ob.*.id.to_string(),

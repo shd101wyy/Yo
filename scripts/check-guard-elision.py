@@ -31,7 +31,9 @@ import subprocess
 import sys
 import tempfile
 
-GUARD = re.compile(r'(__yo_idx_chk|__yo_div_guard_u|__yo_sh_chk)\((.*?)"([^"]*)", (\d+), (\d+)\)')
+# A guard helper call. Its last three arguments are the site: "file", row, col.
+HELPER = re.compile(r'\b(__yo_idx_chk|__yo_div_guard_u|__yo_sh_chk)\(')
+SITE_TAIL = re.compile(r'"([^"]*)", (\d+), (\d+)$')
 CLASS = {
     "__yo_idx_chk": "index-in-bounds",
     "__yo_div_guard_u": "divisor-nonzero",
@@ -41,11 +43,45 @@ ELIDED_LINE = re.compile(r"verify: (\d+) guard\(s\) elided")
 EXPECT = re.compile(r"^//\s*expect-elided:\s*(\d+)\s*$", re.M)
 
 
+def _call_args(text, open_at):
+    """The text between the parenthesis at `open_at` and its match, or None."""
+    depth = 0
+    i = open_at
+    in_str = False
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == "\\":
+                i += 1
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_at + 1:i]
+        elif ch == "\n":
+            return None
+        i += 1
+    return None
+
+
 def guards(c_text):
-    """(class, file, row, col) of every guard helper call, 1-based."""
+    """(class, file, row, col) of every guard helper call, 1-based. The site
+    is the call's own last three arguments, so a guard nested in another's
+    operand (`__yo_idx_chk(__yo_add_chk_u64(i, 1, "f", 3, 9), 4, "f", 3, 5)`,
+    a guarded usize index) is attributed to the right call."""
     out = set()
-    for m in GUARD.finditer(c_text):
-        out.add((CLASS[m.group(1)], m.group(3), int(m.group(4)), int(m.group(5))))
+    for m in HELPER.finditer(c_text):
+        args = _call_args(c_text, m.end() - 1)
+        if args is None:
+            continue
+        t = SITE_TAIL.search(args)
+        if t:
+            out.add((CLASS[m.group(1)], t.group(1), int(t.group(2)), int(t.group(3))))
     return out
 
 

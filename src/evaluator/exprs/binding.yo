@@ -146,11 +146,8 @@ evaluate_binding :: (
   });
   user_defined_type := match(
     rhs_info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(bt) => bt,
-      _ => t_unit()
-    ),
+    .Some(.TypeVal(bt)) => bt,
+    .Some(_) => t_unit(),
     .None => t_unit()
   );
   // Array types with inferred length are not allowed in type annotations.
@@ -379,7 +376,7 @@ evaluate_binding :: (
     shadow_existing := get_variables_from_env(env, variable_name);
     if(shadow_existing.len() > usize(0), {
       match(
-        shadow_existing.get(shadow_existing.len() - usize(1)),
+        shadow_existing.last(),
         .Some(shadow_var) => {
           sh_entries := ArrayList(TokenAndError).new();
           sh_entries.push(

@@ -10,7 +10,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len, emit_await_future_store, _branch_await_target_is_reassign } :: import("./state_code_gen.yo");
@@ -157,7 +157,7 @@ collect_variable_refs_in_expr :: (
           if(variables.len() > usize(0), {
             // The last binding wins (innermost scope).
             variable := match(
-              variables.get(variables.len() - usize(1)),
+              variables.last(),
               .Some(v) => v,
               .None => return()
             );
@@ -223,7 +223,7 @@ collect_variable_refs_in_expr :: (
               bind_vars := get_variables_from_env(bind_ei.env, lhs_tok.value);
               if(bind_vars.len() > usize(0), {
                 bind_var := match(
-                  bind_vars.get(bind_vars.len() - usize(1)),
+                  bind_vars.last(),
                   .Some(v) => v,
                   .None => return()
                 );
@@ -938,7 +938,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
     return(false);
   });
   match(
-    lookup_some_resolved_concrete(fid),
+    some_resolution(future_type),
     .Some(rc) => {
       if(is_some_type(rc), {
         rcid := match(rc, .SomeT({ id }) => id, _ => String.from(""));
@@ -956,9 +956,8 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
             .Some(bucket) => {
               ety := bucket.value.ty;
               if(is_some_type(ety) && type_implements_future(ety), {
-                esid := match(ety, .SomeT({ id }) => id, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(esid),
+                  some_resolution(ety),
                   .Some(erc) => if(is_struct_type(erc), {
                     ercid := match(erc, .Struct({ id }) => id, _ => String.from(""));
                     if(ercid == capture_id, {
@@ -2283,7 +2282,7 @@ _emit_dispatch_extraction_case :: (
           rt_opt,
           .Some(rt) => (
             is_unit_type(rt) || (
-              is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+              is_some_type(rt) && some_resolution(rt).is_none()
             )
           ),
           .None => true
@@ -2443,7 +2442,7 @@ _emit_prev_await_result_extraction :: (
   // Result is unit when the type is unit, or an unresolved Future SomeType.
   is_prev_unit := (
     is_unit_type(prev_await.result_type) || (
-      is_some_type(prev_await.result_type) && match(prev_await.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+      is_some_type(prev_await.result_type) && some_resolution(prev_await.result_type).is_none()
     )
   );
   if(!(is_prev_unit), {
@@ -4147,14 +4146,14 @@ generate_async_block_resume_function :: (
   });
   body_last_expr := if(
     body_exprs.len() > usize(0),
-    match(body_exprs.get(body_exprs.len() - usize(1)), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
+    match(body_exprs.last(), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
     Option(AstExpr).None
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id}`);
   // `void*`, not `${struct_name}*`: every caller reaches it through a
   // `void (*)(void*)` slot (__yo_resume_fn, continuation_fn, the task queue),
   // and a call through an incompatible function type is UB (C11 6.5.2.2p9).
-  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`static void ${resume_function_name}__body(void* sm_ptr) {`);
   em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally-aborted entry guard: JoinHandle.abort marks a suspended/queued
@@ -4252,7 +4251,7 @@ generate_async_block_resume_function :: (
         is_last_with_result := ((is_last_segment && !(is_unit_result)) && (segment.expressions.len() > usize(0)));
         seg_last := if(
           segment.expressions.len() > usize(0),
-          match(segment.expressions.get(segment.expressions.len() - usize(1)), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
+          match(segment.expressions.last(), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None),
           Option(AstExpr).None
         );
         same_as_body_last := match(
@@ -4316,9 +4315,28 @@ generate_async_block_resume_function :: (
   });
   em.emit_string_line(`  }`);
   em.emit_string_line(`}`);
+  em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
   local_var_drop_codes
 });
+/// The resume entry point every queue and waiter calls: it runs the body in
+/// the allocation scope the task was created in — the owner prefix of a
+/// task an explicit allocator placed, the global allocator otherwise — so a
+/// task keeps its scope across suspensions, wherever it is resumed from
+/// (plans/EXPLICIT_ALLOCATORS.md §3.5). The scope is read before the body
+/// runs, because the body may release the task.
+resume_scope_wrapper :: (fn(name : String) -> String)(
+  `void ${name.clone()}(void* sm_ptr) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    ${name.clone()}__body(sm_ptr);
+    return;
+  }
+  __yo_alloc_scope_t __yo_prev_scope = __yo_current_allocator;
+  __yo_current_allocator = __yo_scope_of_object(sm_ptr);
+  ${name.clone()}__body(sm_ptr);
+  __yo_current_allocator = __yo_prev_scope;
+}`
+);
 /// Emit the async block's abort hook (`cancel_pending_fn`), called by
 /// `__yo_future_abort` once the task is marked -2, with the state it was in.
 ///
@@ -4406,6 +4424,7 @@ generate_async_block_cancel_pending_function :: (
   Option(String).Some(fn_name)
 });
 export(
+  resume_scope_wrapper,
   is_io_future_type,
   StateMachineInfo,
   generate_resume_function_declaration,

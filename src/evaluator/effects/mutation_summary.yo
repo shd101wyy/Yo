@@ -295,12 +295,9 @@ impl(
     );
     is_fv := match(
       from_info,
-      .Some(v) => match(
-        v,
-        .FuncVal(_, _) => true,
-        .TypeVal(_) => true,
-        _ => false
-      ),
+      .Some(.FuncVal(_, _)) => true,
+      .Some(.TypeVal(_)) => true,
+      .Some(_) => false,
       .None => false
     );
     if(is_fv, {
@@ -860,6 +857,67 @@ _msp_labels :: (fn(fid : String) -> ArrayList(String))(
 _msp_extern_returns_fresh :: (fn(h : String) -> bool)(
   ((h == "__yo_malloc") || (h == "__yo_calloc")) || ((h == "malloc") || (h == "calloc"))
 );
+/// The allocator-family contract for EXPLICIT allocators
+/// (plans/EXPLICIT_ALLOCATORS.md): a call through a slot of std/allocator.yo's
+/// `AllocatorVTable` is the allocator primitive the slot names, as `__yo_malloc`
+/// / `realloc` / `free` are for the global allocator. `alloc(ctx, size)` returns
+/// a fresh block and touches nothing a caller can reach — `ctx` is
+/// allocator-private state, never container storage; `realloc(ctx, p, n)`
+/// moves the block `p`; `free(ctx, p)` releases it. Without this every
+/// allocation through an explicit allocator was an unresolvable call ("mutates
+/// everything"), and `ArrayList.clone` — which allocates from its source's
+/// allocator — tripped the borrowed-`for` check
+/// (issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md).
+/// The slot's name, or "" for any other call.
+_msp_allocator_slot :: (fn(func_expr : AstExpr, table : ExprInfoTable) -> String)({
+  if(!(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2)))), {
+    return(String.new());
+  });
+  (recv_opt : Option(AstExpr)) = Option(AstExpr).None;
+  (field : String) = String.new();
+  match(
+    func_expr,
+    .FnCall(_, _, dargs, _, _) => {
+      recv_opt = dargs.get(usize(0));
+      match(
+        dargs.get(usize(1)),
+        .Some(fa) => match(
+          fa,
+          .Atom(_, ft) => {
+            field = ft.value.clone();
+          },
+          .FnCall(_, _, _, _, _) => ()
+        ),
+        .None => ()
+      );
+    },
+    .Atom(_, _) => ()
+  );
+  if(!(((field == "alloc") || (field == "realloc")) || (field == "free")), {
+    return(String.new());
+  });
+  recv_ty := match(
+    recv_opt,
+    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(recv)), .Some(ri) => Option(TypeValue).Some(ri.ty), .None => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  is_vtable := match(
+    recv_ty,
+    .Some(rt) => {
+      pointee := match(rt, .Pointer({ pointee : pt }) => pt, _ => rt);
+      match(
+        resolve_struct_shell(pointee),
+        // The declaring module is std/allocator.yo: a struct id carries the
+        // module stem and an anchored position, not the struct's name
+        // (`stable_position_id`, utils.yo).
+        .Struct({ id : sid, name : sname }) => ((sname == "AllocatorVTable") && sid.starts_with("struct_decl_std__allocator_")),
+        _ => false
+      )
+    },
+    .None => false
+  );
+  cond(is_vtable => field, true => String.new())
+});
 /// Reallocation externs hand back the (possibly moved) block of their FIRST
 /// argument: the result is rooted where that pointer was.
 _msp_extern_reallocs :: (fn(h : String) -> bool)(
@@ -997,7 +1055,7 @@ _msp_atom_root :: (fn(ctx : _MspCtx, atom : AstExpr) -> _MspRoot)({
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
+  v := match(vars.last(), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
   if(v.is_compile_time_only, {
     return(_msp_root(MSP_NONE));
   });
@@ -1025,7 +1083,7 @@ _msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(Option(String).None));
+  v := match(vars.last(), .Some(x) => x, .None => return(Option(String).None));
   if((v.is_compile_time_only || v.is_parameter) || v.is_module_level, {
     return(Option(String).None);
   });
@@ -1595,7 +1653,7 @@ impl(
       return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(a0, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if(head == "begin", {
-      return(match(args.get(args.len() - usize(1)), .Some(last) => _MsP.classify(last, ctx), .None => _msp_root(MSP_NONE)));
+      return(match(args.last(), .Some(last) => _MsP.classify(last, ctx), .None => _msp_root(MSP_NONE)));
     });
     if((head == "cond") || (head == "match"), {
       (acc : _MspRoot) = _msp_root(MSP_NONE);
@@ -1634,6 +1692,18 @@ impl(
     });
     if(_MsP.is_index_call(e, ctx.table), {
       return(_msp_extract(_MsP.classify(func_expr, ctx), value_is_rc));
+    });
+    // An allocator vtable slot (`_msp_allocator_slot`): `alloc` hands back a
+    // fresh block, `realloc` the moved block of its pointer argument.
+    slot_c := _msp_allocator_slot(func_expr, ctx.table);
+    if(slot_c.len() > usize(0), {
+      return(
+        cond(
+          (slot_c == "alloc") => _msp_root(MSP_FRESH),
+          (slot_c == "realloc") => match(args.get(usize(1)), .Some(ca1) => _msp_extract(_MsP.classify(ca1, ctx), false), .None => _msp_root(MSP_ROOTED)),
+          true => _msp_root(MSP_NONE)
+        )
+      );
     });
     match(
       _MsP.extern_of(e, func_expr, ctx.table),
@@ -1809,7 +1879,7 @@ impl(
           return(());
         });
         if(head == "begin", {
-          match(args.get(args.len() - usize(1)), .Some(last) => _MsP.flowing(last, ctx, out), .None => ());
+          match(args.last(), .Some(last) => _MsP.flowing(last, ctx, out), .None => ());
           return(());
         });
         if((head == "cond") || (head == "match"), {
@@ -2183,7 +2253,7 @@ impl(
             .Some(env) => {
               vars := get_variables_from_env(env, lt.value.clone());
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: into the caller's storage.
                   (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(rhs, ctx, match(_msp_param_index(ctx, lt.value.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
@@ -2311,6 +2381,15 @@ impl(
       ),
       .None => ()
     );
+    // An allocator vtable slot writes only the block it is handed (`realloc`,
+    // `free`); `alloc` writes nothing a caller can reach.
+    slot_t := _msp_allocator_slot(func_expr, ctx.table);
+    if(slot_t.len() > usize(0), {
+      if(slot_t != "alloc", {
+        match(args.get(usize(1)), .Some(ta1) => _MsP.taint_flowing(ta1, ctx, MSP_SHELL), .None => ());
+      });
+      return(());
+    });
     match(
       _MsP.extern_of(e, func_expr, ctx.table),
       .Some(ex) => {
@@ -2584,6 +2663,24 @@ impl(
       );
       return(());
     });
+    // An allocator vtable slot can only invalidate the block it is handed.
+    slot_s := _msp_allocator_slot(func_expr, table);
+    if(slot_s.len() > usize(0), {
+      if(slot_s != "alloc", {
+        match(
+          args.get(usize(1)),
+          .Some(sa1) => match(
+            _msp_arg_base_var(sa1, table),
+            .Some(sv) => if(_msp_var_is_borrowed(sv, borrowed_ids), {
+              out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(func_expr)}' may release '${ast_expr_to_string(sa1)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      return(());
+    });
     match(
       _MsP.extern_of(e, func_expr, table),
       .Some(ex) => {
@@ -2778,7 +2875,7 @@ impl(
             .Some(env) => {
               vars := get_variables_from_env(env, lt.value.clone());
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: the caller's storage for it.
                   (v.is_parameter && v.is_ref) => match(
@@ -2924,6 +3021,23 @@ impl(
     if(_MsW.is_io_builtin_call(e), {
       m.all = true;
       _msp_debug_all(String.from("walk"), e);
+      return(m);
+    });
+    // An allocator vtable slot mutates only the block it is handed (`realloc`,
+    // `free`); `alloc` mutates nothing a caller can reach.
+    slot_w := _msp_allocator_slot(func_expr, ctx.table);
+    if(slot_w.len() > usize(0), {
+      if(slot_w != "alloc", {
+        match(
+          args.get(usize(1)),
+          .Some(wa1) => {
+            wr1 := _MsP.classify(wa1, ctx);
+            _msp_mask_add_root(m, wr1, wr1.deep);
+          },
+          .None => ()
+        );
+      });
+      _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
       return(m);
     });
     callee_opt := _MsP.callee(e, func_expr, ctx.table);
@@ -3159,7 +3273,7 @@ _msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variabl
       expr_info_table_get(table, ast_expr_id(ba)),
       .Some(bi) => {
         vars := get_variables_from_env(bi.env, ast_expr_token(ba).value);
-        vars.get(vars.len() - usize(1))
+        vars.last()
       },
       .None => Option(Variable).None
     ),
@@ -3379,7 +3493,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.get(vars.len() - usize(1)), .Some(v0) => v0, .None => return(Option(String).None));
+  v := match(vars.last(), .Some(v0) => v0, .None => return(Option(String).None));
   if((!v.is_module_level || v.is_compile_time_only) || is_thread_local(tok.module_path.clone(), name.clone()), {
     return(Option(String).None);
   });
@@ -3419,7 +3533,7 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(vv) => match(
@@ -3453,7 +3567,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
       env := match(_gr_env_of(e, ctx), .Some(en) => en, .None => ctx.env);
       vars := get_variables_from_env(env, name);
       if(vars.len() > usize(0), {
-        fv = match(vars.get(vars.len() - usize(1)), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
+        fv = match(vars.last(), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
       });
     });
   });

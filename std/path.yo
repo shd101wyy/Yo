@@ -237,7 +237,7 @@ impl(
           (top_is_dotdot : bool) = false;
           cond(
             (out.len() > usize(0)) => {
-              top_is_dotdot = (out.get(out.len() - usize(1)).unwrap_or(String.new()) == dotdot);
+              top_is_dotdot = (out.last().unwrap_or(String.new()) == dotdot);
             },
             true => ()
           );
@@ -289,7 +289,7 @@ impl(
       },
       true => ()
     );
-    return(self._segments.get(self._segments.len() - usize(1)));
+    return(self._segments.last());
   }),
   /// Get the filename without its extension, or `.None` for empty paths.
   file_stem : (fn(self : Self) -> Option(String))({

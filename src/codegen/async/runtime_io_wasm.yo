@@ -468,6 +468,9 @@ static void __yo_io_loop_start(void) {
 }
 
 static void __yo_io_init(void) {
+  if (__yo_io_initialized) return;
+  // This thread now has backend state to release when it exits.
+  __yo_async_arm_thread_exit();
   __yo_io_initialized = true;
 }
 

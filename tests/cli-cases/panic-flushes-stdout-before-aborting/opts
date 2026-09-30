@@ -1,0 +1,7 @@
+# A panic flushes stdout before it aborts
+# (issues/fixed/panic-loses-buffered-stdout-when-piped.md). The harness runs
+# the program with stdout on a pipe, where C stdio buffers fully and `abort()`
+# used to discard the buffer: before the fix only the panic message (stderr)
+# reached the log and the program's own line was lost.
+stdout_keep_match=line printed before the panic|boom from the fixture
+timeout=600

@@ -382,8 +382,8 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   em.emit_string_line(`${indent.clone()}${future_type_name} ${spawn_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${spawn_state_var.clone()} = ${spawn_var.clone()}->state;`);
   em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == -2) {`);
-  em.emit_string_line(`${indent.clone()}  fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`);
-  em.emit_string_line(`${indent.clone()}  abort();`);
+  em.emit_string_line(`${indent.clone()}  fflush(stdout); fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`);
+  em.emit_string_line(`${indent.clone()}  __yo_abort();`);
   em.emit_string_line(`${indent.clone()}}`);
   // Inject the bundle effect into the future's SM before cold-starting.
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
@@ -563,7 +563,7 @@ _materialize_owned_rc_comptime_value :: (
   if(!is_temp_variable_name(ei.env.module_path, var_name), return(comptime_code));
   vars := get_variables_from_env(ei.env, var_name.clone());
   is_owning := match(
-    vars.get(vars.len() - usize(1)),
+    vars.last(),
     .Some(v) => v.is_owning_the_rc_value,
     .None => false
   );

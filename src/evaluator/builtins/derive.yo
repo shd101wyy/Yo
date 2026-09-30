@@ -186,7 +186,7 @@ _derive_bind_opt :: (
   _e := evaluate_expression_raw(generate_expr_from_code(opt_code, exn), env, ctx, exn);
   tmp_vars := get_variables_from_env(env, tmp.clone());
   match(
-    tmp_vars.get(tmp_vars.len() - usize(1)),
+    tmp_vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
       .Some(ov) => add_comptime_var(env, var_name.clone(), v.ty, ov),
@@ -626,21 +626,18 @@ evaluate_derive :: (
   // Expect target to be a TypeVal.
   target_type := match(
     target_info.value,
-    .Some(tv) => match(
-      tv,
-      .TypeVal(ty_box) => ty_box,
-      _ => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              tok,
-              String.from("derive: expected a type")
-            )
+    .Some(.TypeVal(ty_box)) => ty_box,
+    .Some(_) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            String.from("derive: expected a type")
           )
-        );
-        TypeValue.Unit
-      }
-    ),
+        )
+      );
+      TypeValue.Unit
+    },
     .None => {
       exn.throw(
         dyn(

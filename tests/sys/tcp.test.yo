@@ -143,6 +143,56 @@ test("SockAddr helper functions", {
   assert(loopback_addr == expected_loopback);
   tcp.free_sockaddr(addr2);
 });
+// A pending recv future bound to a local and dropped at scope end, while the
+// backend still holds the operation: its completion must not be written into
+// freed memory. Windows' IOCP overlapped kept a bare pointer to the future
+// (issues/fixed/pending-io-future-local-drop-uaf.md); the kqueue, epoll and
+// io_uring backends hold a reference for every parked operation.
+_drop_a_pending_recv :: (fn(fd : i32, buf : *u8, io : Io) -> bool)({
+  pending := tcp.recv(fd, buf, usize(64), i32(0));
+  s := io.state(pending);
+  s == FutureState.Completed
+});
+test("a recv future dropped while pending does not complete into freed memory", {
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  assert(server_fd >= i32(0));
+  optval := (*u8)(malloc(usize(4)).unwrap());
+  (optval.add(usize(0))).* = u8(1);
+  (optval.add(usize(1))).* = u8(0);
+  (optval.add(usize(2))).* = u8(0);
+  (optval.add(usize(3))).* = u8(0);
+  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  free(.Some((*void)(optval)));
+  addr := tcp.make_sockaddr_in_loopback(u16(19878));
+  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len), io) == i32(0));
+  assert(io.await(tcp.listen(server_fd, i32(16)), io) == i32(0));
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len), io) == i32(0));
+  peer := (*u8)(malloc(usize(128)).unwrap());
+  peer_len := (*u32)(malloc(usize(4)).unwrap());
+  peer_len.* = u32(128);
+  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len), io);
+  assert(accepted_fd >= i32(0));
+  free(.Some((*void)(peer)));
+  free(.Some((*void)(peer_len)));
+  // The dropped recv's buffer outlives it: the kernel still writes there.
+  dropped_buf := (*u8)(malloc(usize(64)).unwrap());
+  assert(!_drop_a_pending_recv(accepted_fd, dropped_buf, io), "nothing was sent yet, so the recv is pending");
+  // Its completion is delivered while the loop runs the sleep.
+  assert(io.await(tcp.send(client_fd, (*u8)("first"), usize(5), i32(0)), io) == i32(5));
+  io.await(sleep(u64(20)), io);
+  // The socket still works: the next recv gets the next bytes.
+  assert(io.await(tcp.send(client_fd, (*u8)("second"), usize(6), i32(0)), io) == i32(6));
+  buf := (*u8)(malloc(usize(64)).unwrap());
+  got := io.await(tcp.recv(accepted_fd, buf, usize(64), i32(0)), io);
+  assert(got == i32(6), "the recv after the dropped one gets the second message");
+  free(.Some((*void)(buf)));
+  free(.Some((*void)(dropped_buf)));
+  io.await(tcp.close(client_fd), io);
+  io.await(tcp.close(accepted_fd), io);
+  io.await(tcp.close(server_fd), io);
+  tcp.free_sockaddr(addr);
+});
 // The stream-write op std/net will use for its own sockets (stage 2 waits for
 // the seed): write(2) on macOS once SO_NOSIGPIPE is set, send(MSG_NOSIGNAL) on
 // Linux, the ordinary send on Windows. Declared here, not in std/sys/externs,

@@ -3,9 +3,7 @@
 **Severity:** S1 — the scope-end auto-drop frees a pending IoFuture the backend still holds — use-after-free when the armed timer fires
 
 **Found**: 2026-08-27 by analysis while designing `std/async`'s `timeout()`
-(STD_API_AUDIT §7 P0 item 6). **Status**: OPEN on **Windows** only. Fixed on
-Linux and macOS, where the backend now holds its own reference to every
-pending future (direction 2 below, in its reference-counting form).
+(STD_API_AUDIT §7 P0 item 6). **Status**: FIXED (2026-09-29) on every backend. The backend holds its own reference to every pending future: Linux (ring, epoll park, timer heap) and macOS (timer heap, parked descriptor ops) first, then Windows (below).
 
 **Update 2026-09-28 (macOS audit):**
 
@@ -79,3 +77,31 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 
 **macOS (same day, the macOS async-runtime audit):** reproduced as a crash and
 fixed. See the 2026-09-28 update at the top.
+
+## Windows fix (2026-09-29)
+
+Three holders of a bare future pointer in `runtime_io_windows.yo`, read from the
+code:
+
+- **Every IOCP overlapped** (`__yo_win_overlapped_t.future`): reads, writes,
+  accept, connect, send/recv, sendto/recvfrom. The kernel posts the completion
+  through the OVERLAPPED, and `__yo_win_process_completion` writes
+  `ov->future->result` and wakes it. `__yo_win_alloc_overlapped` now takes a
+  reference and `__yo_win_free_overlapped` releases it. Every path frees the
+  overlapped: the IOCP packet, a synchronous completion under
+  `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`, an error. So the reference lives
+  exactly as long as the operation can still write.
+- **The timer list** (`__yo_win_timer_add`): referenced on insert, released
+  when the timer fires, is cancelled (`__yo_win_timer_cancel`, the
+  `cancel_fn`), or is torn down by `__yo_io_cleanup`.
+- **Parked pipe reads** (`__yo_win_pipe_reads`): referenced when parked,
+  released after the tick completes them.
+
+Tests: `tests/sys/timer.test.yo` "a sleep future dropped before it fires does
+not fire into freed memory" no longer skips Windows.
+`tests/sys/tcp.test.yo` "a recv future dropped while pending does not complete
+into freed memory" drops a pending raw recv, then sends so its completion is
+delivered. It checks that the socket still works, on every platform. Windows
+CI runs without a sanitizer (`--disable-sanitize`), so there a regression
+shows as a crash or a corrupted later allocation rather than an ASan report.
+The Linux and macOS legs run the same tests under ASan.

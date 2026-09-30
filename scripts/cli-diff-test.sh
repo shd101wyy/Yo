@@ -113,6 +113,21 @@
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# On Windows the root is `C:/Users/...`, but an LSP reply spells it as a file
+# URI with the colon percent-encoded (`file:///C%3A/Users/...`, often with a
+# lowercase drive letter), which the literal substitution below never matched:
+# a golden recorded there carried the recorder's own path. Both URI spellings,
+# with the path's leading `/`, are rewritten to <REPO> too, so
+# `file:///C%3A/...` normalizes to `file://<REPO>/...` as a POSIX root does.
+# Empty elsewhere.
+REPO_ROOT_URI_UPPER=""
+REPO_ROOT_URI_LOWER=""
+if [[ "$REPO_ROOT" =~ ^([A-Za-z]):(/.*)$ ]]; then
+  _drive="${BASH_REMATCH[1]}"
+  _rest="${BASH_REMATCH[2]}"
+  REPO_ROOT_URI_UPPER="/$(printf '%s' "$_drive" | tr '[:lower:]' '[:upper:]')%3A${_rest}"
+  REPO_ROOT_URI_LOWER="/$(printf '%s' "$_drive" | tr '[:upper:]' '[:lower:]')%3A${_rest}"
+fi
 cd "$REPO_ROOT" || exit 2
 
 YO_SELF_BIN="${YO_SELF_BIN:-/tmp/yo-self-bin}"
@@ -201,6 +216,7 @@ normalize_stream() {
     | sed -e "s|$proj|<PROJ>|g" \
           -e "s|$home|<HOME>|g" \
           -e "s|$REPO_ROOT|<REPO>|g" \
+    | if [[ -n "$REPO_ROOT_URI_UPPER" ]]; then sed -e "s|$REPO_ROOT_URI_UPPER|<REPO>|g" -e "s|$REPO_ROOT_URI_LOWER|<REPO>|g"; else cat; fi \
     | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
@@ -307,9 +323,15 @@ if [[ ${#WANTED[@]} -gt 0 ]]; then
   done
 else
   while IFS= read -r d; do
-    [[ -f "$d/cmd" ]] && CASES+=("$d")
+    CASES+=("$d")
   done < <(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort)
 fi
+# Every directory here is a case, and `cmd` is what runs it. A directory
+# without one used to be skipped silently, so a case whose `cmd` was never
+# committed (goldens only) was never scored and still read as a green run.
+for d in "${CASES[@]}"; do
+  [[ -f "$d/cmd" ]] || { echo "error: case $(basename "$d") has no cmd file (every directory under $CASES_DIR is a case)" >&2; exit 2; }
+done
 [[ ${#CASES[@]} -eq 0 ]] && { echo "error: no cases found under $CASES_DIR" >&2; exit 2; }
 
 # ── run the case ────────────────────────────────────────────────────────────

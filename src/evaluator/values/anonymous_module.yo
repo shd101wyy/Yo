@@ -271,7 +271,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // evaluated here — entries are forced on a lookup miss, or at their own
   // position below, whichever comes first.
   module_frame_id := match(
-    env.frames.get(env.frames.len() - usize(1)),
+    env.frames.last(),
     .Some(mf) => mf.id,
     .None => usize(0)
   );
@@ -391,11 +391,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
                         ext_info.value,
-                        .Some(inner_v) => match(
-                          inner_v,
-                          .StructVal(sn, ns, vs) => Option(EvalValue).Some(EvalValue.StructVal(sn, ns, vs)),
-                          _ => Option(EvalValue).None
-                        ),
+                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn, ns, vs)),
+                        .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
                       // Build excluded-labels list
@@ -673,7 +670,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         forced_var,
                         .Some(fv2) => fv2,
                         .None => match(
-                          vars.get(vars.len() - usize(1)),
+                          vars.last(),
                           .Some(v) => v,
                           .None => {
                             __yo_panic("unreachable: vars.len() was checked above");

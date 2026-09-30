@@ -142,11 +142,8 @@ _eval_comptime_str :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(info) => match(
       info.value,
-      .Some(v) => match(
-        v,
-        .StrLit(s) => Option(String).Some(_strip_delims(decode_str_lit_escapes(s.clone()))),
-        _ => Option(String).None
-      ),
+      .Some(.StrLit(s)) => Option(String).Some(_strip_delims(decode_str_lit_escapes(s.clone()))),
+      .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -330,7 +327,7 @@ _parse_operand :: (
         (var_type : TypeValue) = t_unit();
         (var_initialized : bool) = false;
         match(
-          variables.get(variables.len() - usize(1)),
+          variables.last(),
           .Some(variable) => {
             is_type_var = match(
               variable.value.get(usize(0)),
@@ -383,13 +380,10 @@ _parse_operand :: (
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ty_e)),
       .Some(info) => match(
         info.value,
-        .Some(v) => match(
-          v,
-          .TypeVal(tv) => {
-            out_ty = Option(TypeValue).Some(tv);
-          },
-          _ => ()
-        ),
+        .Some(.TypeVal(tv)) => {
+          out_ty = Option(TypeValue).Some(tv);
+        },
+        .Some(_) => (),
         .None => ()
       ),
       .None => ()
@@ -735,18 +729,15 @@ evaluate_asm :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
         .Some(info) => match(
           info.value,
-          .Some(v) => match(
-            v,
-            .StrLit(s) => {
-              template_parts.push(_strip_delims(decode_str_lit_escapes(s.clone())));
-              matched = true;
-            },
-            .UnknownVal(uty, _) => if(is_comptime_string_type(uty), {
-              template_parts.push(String.new());
-              matched = true;
-            }),
-            _ => ()
-          ),
+          .Some(.StrLit(s)) => {
+            template_parts.push(_strip_delims(decode_str_lit_escapes(s.clone())));
+            matched = true;
+          },
+          .Some(.UnknownVal(uty, _)) => if(is_comptime_string_type(uty), {
+            template_parts.push(String.new());
+            matched = true;
+          }),
+          .Some(_) => (),
           .None => ()
         ),
         .None => ()
@@ -862,7 +853,7 @@ evaluate_asm :: (
             variables := get_variables_from_env(env, tvn.clone());
             if(variables.len() > usize(0), {
               match(
-                variables.get(variables.len() - usize(1)),
+                variables.last(),
                 .Some(variable) => match(
                   variable.initialized_at_token,
                   .None => {
@@ -1007,16 +998,13 @@ evaluate_global_asm :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(info) => match(
       info.value,
-      .Some(v) => match(
-        v,
-        .StrLit(_) => {
-          ok = true;
-        },
-        .UnknownVal(uty, _) => if(is_comptime_string_type(uty), {
-          ok = true;
-        }),
-        _ => ()
-      ),
+      .Some(.StrLit(_)) => {
+        ok = true;
+      },
+      .Some(.UnknownVal(uty, _)) => if(is_comptime_string_type(uty), {
+        ok = true;
+      }),
+      .Some(_) => (),
       .None => ()
     ),
     .None => ()

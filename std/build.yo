@@ -87,7 +87,8 @@ StepKind :: enum(
   TestSuite,
   Run,
   Custom,
-  Documentation
+  Documentation,
+  Verification
 );
 export(StepKind);
 // ── Compilation targets ──────────────────────────────────────────────
@@ -512,3 +513,10 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step))({
   Step(name : config.name, kind : StepKind.Documentation)
 });
 export(doc);
+// ── Verification ─────────────────────────────────────────────────────
+// Generation A (plans/backlog/SEED_VERSION_AUTOMATION.md, "`build.verify`"):
+// the compiler carries `__yo_build_verify(name, root, mode, strict)` and a
+// build file calls it directly, wrapping the result as
+// `Step(name : ..., kind : StepKind.Verification)`. The friendly
+// `build.verify({ ... })` wrapper CANNOT land before a release ships the
+// builtin — the seed evaluates this file (E0401 on the unknown name).
