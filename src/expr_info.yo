@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1015,7 +1015,45 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
     )
   )
 );
+// ── scratch prototype (plans/CODEGEN_MEMORY_REDUCTION.md §6, "what would work") ──
+(g_scope_husk_on : bool) = debug_knob(`YO_PROTO_SCOPE_HUSK`).is_some();
+(g_scope_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
+(g_scope_husks : HashMap(String, Environment)) = HashMap(String, Environment).new();
+(g_scope_husked : usize) = usize(0);
+scope_husk_on :: (fn() -> bool)(g_scope_husk_on);
+scope_husk_mark :: (fn() -> usize)(g_scope_infos.len());
+/// Point every ExprInfo recorded since `mark` at a frameless per-module env.
+scope_husk_release :: (fn(mark : usize) -> unit)({
+  (i : usize) = mark;
+  while(i < g_scope_infos.len(), {
+    match(
+      g_scope_infos.get(i),
+      .Some(info) => {
+        mp := info.env.module_path.clone();
+        h := match(
+          g_scope_husks.get(mp.clone()),
+          .Some(h0) => h0,
+          .None => {
+            h1 := Environment(frames : ArrayList(Frame).new(), module_path : mp.clone(), function_declaration_frame_level : Option(usize).None, input_string : info.env.input_string.clone(), frozen : false);
+            g_scope_husks.insert(mp, h1);
+            h1
+          }
+        );
+        info.env = h;
+        g_scope_husked = (g_scope_husked + usize(1));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_scope_infos.truncate(mark);
+});
+scope_husk_count :: (fn() -> usize)(g_scope_husked);
+export(scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_count);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
+  if(g_scope_husk_on, {
+    g_scope_infos.push(info);
+  });
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
   // — that one is expression-bodied and wrapping it in a block to make room

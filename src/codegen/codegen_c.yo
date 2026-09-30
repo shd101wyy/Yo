@@ -11,7 +11,7 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ scope_husk_on, scope_husk_count, ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
@@ -527,6 +527,9 @@ typedef enum {
   profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
+  if(scope_husk_on(), {
+    eprintln(`[proto-scope] husked=${scope_husk_count().to_string()}`);
+  });
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
