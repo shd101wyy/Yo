@@ -213,16 +213,26 @@ source order.
   `return(x)` argument is one); skipping them silently made a local a C local
   across the await that reads it.
 - **Slot sharing** (`compute_overlapping_slots`): locals of the same C type
-  whose ranges do not overlap share `sm->slot_<k>`, heap-owning ones
-  included. That is sound because a slot is non-zero exactly while it owns
-  its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
-  (`generate_drop`), every consuming read zeroes it (`_sm_consuming_read`),
-  and the dispose drops a shared RC slot once. Pattern bindings (they borrow
-  the scrutinee) and both sides of `is_owning_the_same_rc_value_as` never
+  whose ranges do not overlap share `sm->slot_<k>`, heap-owning temporaries
+  included. That is sound because a temp's slot is non-zero exactly while it
+  owns its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
+  (`generate_drop`), every consuming read of a temp zeroes it
+  (`_sm_consuming_read`), and the dispose drops a shared RC slot once. Pattern
+  bindings (they borrow the scrutinee), both sides of
+  `is_owning_the_same_rc_value_as`, and NAMED RC locals (next item) never
   share. Two RC locals of ONE scope always overlap (both live to its end);
   sibling scopes are what share.
-- **A consuming read of a slot takes the value and zeroes the slot**
-  (`_sm_consuming_read`): the evaluator's `consumed_at_token` is that atom.
+- **A moved-from name still reads its value.** `(cur : T) = t` moves `t`
+  without a dup, and `t` may still be read while `cur` holds the value (sync
+  code keeps the C local as it is). So a named local's slot is NOT emptied by
+  a move: its `uint8_t __yo_mv_<field>` flag (`sm_move_flag_of`) is set, the
+  abort dispose empties a flagged slot before its drops, and every store into
+  the slot (binding, destructuring, reassignment) clears the flag
+  (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+- **A consuming read of a slot takes the value where the consuming line
+  runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
+  `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
+  temp's slot is zeroed; a named local's slot sets its move flag.
   A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
   set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
   drop's operand as the consuming read, and the drop is emitted again on

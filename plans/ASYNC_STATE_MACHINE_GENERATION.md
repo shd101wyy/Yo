@@ -731,7 +731,10 @@ be added.
    - the constructor zeroes the machine;
    - every scope-end drop of a slot zeroes it;
    - every consuming read takes the value and zeroes the slot
-     (`_sm_consuming_read`).
+     (`_sm_consuming_read`). A named local's slot instead keeps the value
+     and sets its move flag, because the moved-from name may still read it;
+     the dispose empties flagged slots first
+     (`issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`).
 
    So the abort dispose, which drops every non-zero slot, drops exactly the
    live set. A table could not replace the zeroing: a local moved on one

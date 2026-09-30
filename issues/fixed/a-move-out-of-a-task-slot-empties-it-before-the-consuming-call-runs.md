@@ -1,6 +1,6 @@
 # A move out of a task slot empties it before the consuming call runs
 
-**Severity:** S1. A task that moves a slot local into a call and reads it again in a later argument of the same call dereferences NULL. v0.2.47's own `yo unsafe-report`, `yo public-safe-report` and `yo update --latest` segfault (rc=139), because the compiler's `generate_unsafe_report` has that shape.
+**Severity:** S1. A task that moves a slot local into a call and reads it again in a later argument of the same call dereferences NULL. v0.2.47's own `yo unsafe-report` and `yo public-safe-report` segfault (rc=139), because the compiler's `generate_unsafe_report` has that shape. The third crashing case, `yo update --latest`, is `issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`.
 
 **Status: FIXED (2026-10-01).** This is a regression of #1002's consuming read (`issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md`), shipped in #1018 and v0.2.47. Develop's "Self-hosted `test` subcommand" job went red once `SEED_VERSION` became v0.2.47: run 36764200992, with three CLI cases at rc=139. yo-bd diagnosed it.
 
@@ -34,4 +34,4 @@ The consuming read renders the slot itself, plus a unique `/*yo_mv:…*/` marker
 
 The lowering emits every suspension inside an expression ahead of that expression's line, so until then the slot still owns the value, and an abort in a later argument's await releases it once. The clearing of a pattern binding's source (`issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md`) rides along in the same deferred statements.
 
-Test in `tests/async/sm_ownership.test.yo`: "a later argument of the consuming call still reads a moved slot local". It also covers an await in a later argument and counts each item's `Dispose`. The three CLI cases pass on a stage 2 built from this tree.
+Test in `tests/async/sm_ownership.test.yo`: "a later argument of the consuming call still reads a moved slot local". It also covers an await in a later argument and counts each item's `Dispose`. `unsafe-report` and `public-safe-report` pass their CLI cases on a stage 2 built from this tree. A named local's slot now keeps its value under a move flag rather than being zeroed (`issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`); the deferral applies to both.
