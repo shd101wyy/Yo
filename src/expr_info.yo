@@ -981,19 +981,37 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
 /// lhs of bindings and assignments each built a fresh one, and ~3 of every 4
 /// recorded collections were duplicates. Nothing writes a stored collection
 /// in place; `expr_info_paths_for_write` copies a shared one.
+/// Sharing is on only while one table holds the whole program (`compile`'s
+/// shared table): `check` gives each module a table that dies with it, and a
+/// process-wide map would outlive those (+20 MB on `check src/main.yo`).
 (g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
+(g_share_name_paths : bool) = false;
+set_name_path_sharing :: (fn(on : bool) -> unit)({
+  g_share_name_paths = on;
+  if(!on, {
+    g_name_path_collections.clear();
+  });
+});
+_fresh_name_path_collection :: (fn(name : String) -> PathCollection)({
+  p := ArrayList(String).new();
+  p.push(name);
+  pc := path_collection_new();
+  pc.push(p);
+  pc
+});
 path_collection_of_name :: (fn(name : String) -> PathCollection)(
-  match(
-    g_name_path_collections.get(name),
-    .Some(pc) => pc,
-    .None => {
-      p := ArrayList(String).new();
-      p.push(name);
-      pc := path_collection_new();
-      pc.push(p);
-      _prev := g_name_path_collections.insert(name, pc);
-      pc
-    }
+  if(
+    !g_share_name_paths,
+    _fresh_name_path_collection(name),
+    match(
+      g_name_path_collections.get(name),
+      .Some(pc) => pc,
+      .None => {
+        pc := _fresh_name_path_collection(name);
+        _prev := g_name_path_collections.insert(name, pc);
+        pc
+      }
+    )
   )
 );
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
@@ -1899,7 +1917,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
