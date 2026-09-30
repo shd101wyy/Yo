@@ -1,0 +1,11 @@
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// issues/fixed/verifier-list-model-ignores-aliasing.md: ys IS xs (ArrayList
+// is a reference type), so the push grows xs and this ensures is false at
+// runtime. The model gives each name its own value, so it would prove it;
+// the verifier reports a subset error instead.
+alias_push :: (fn(xs : ArrayList(i32), ensures(xs.len() == old(xs.len()))) -> unit)({
+  ys := xs;
+  ys.push(i32(1));
+});

@@ -2231,7 +2231,7 @@ accepted. Bindings borrow the matched value for the arm.
 
 Inside an `io.async` arm that awaits, every pattern form works: the arm's
 tests and bindings run on the state machine's initial pass and the body keeps
-the ordinary suspension/resume machinery (`plans/MATCH_PATTERN_MATCHING.md`
+the ordinary suspension/resume machinery (`plans/reference/MATCH_PATTERN_MATCHING.md`
 §4.9).
 
 ## String

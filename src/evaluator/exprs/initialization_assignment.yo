@@ -47,13 +47,11 @@
   variable_set_doc_comment,
   variable_set_inout_borrow_root_id,
   variable_mark_inout_borrow_root,
-  make_err_variable,
-  copy_frames
+  make_err_variable
 } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
-  FuncOrAsyncBlockKind,
   in_def_time_trial,
   pending_prebound_variable,
   record_pending_def_variable
@@ -142,9 +140,8 @@ _inout_place_chain :: (fn(place : AstExpr, hops : ArrayList(_InoutPlaceHop)) -> 
 /// or dropping the visible handle cannot free the storage `name` points into
 /// (§2 P4). Rejected: index/deref places (`xs(i)`, `p.*` — element borrows
 /// are the `for` macro's job), rvalues, `Type.member`, compile-time roots,
-/// the `::` form, module-level declarations, and `io.async` bodies (a state
-/// machine keeps both `sm->var_x` and a per-state C copy of a local, so an
-/// alias could read a stale copy — §9 H5).
+/// the `::` form, and module-level declarations. An `io.async` body is
+/// accepted: its state machine keeps each local in one task slot.
 ///
 /// The bound variable is `is_ref` (reads emit `(*name)`, writes write
 /// through), `is_reassignable`, NOT owning (no scope-end drop of the
@@ -183,10 +180,9 @@ _evaluate_inout_local_binding :: (
       )
     );
   });
-  // Where the binding is declared. (An `io.async` closure body is evaluated
-  // as an ordinary closure — the state machine is a codegen decision — so the
-  // `AsyncBlock` arm below is a belt; the enforcing check is in
-  // codegen/exprs/init_assignment.yo `_generate_inout_local_binding`.)
+  // Where the binding is declared: in a body. An `io.async` body is one; its
+  // state machine keeps the reference, its pin and the place's root in task
+  // slots (codegen/exprs/init_assignment.yo `_generate_inout_local_binding`).
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .None => {
@@ -199,20 +195,7 @@ _evaluate_inout_local_binding :: (
         )
       );
     },
-    .Some(fctx) => match(
-      fctx.kind,
-      .AsyncBlock => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              lhs_tok,
-              String.from("'inout(name) := ...' is not supported inside an 'io.async' body yet. Read the value into a local, or call a function that takes 'inout(name) : T'.")
-            )
-          )
-        );
-      },
-      _ => ()
-    )
+    .Some(_) => ()
   );
   // The LHS: `inout(name)`, one identifier.
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -330,7 +313,7 @@ _evaluate_inout_local_binding :: (
       new_expr_info(env, t_unit())
     }
   );
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -649,7 +632,7 @@ evaluate_initialization_assignment :: (
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      env.frames = copy_frames(rhs_info.env.frames);
+      env.frames = rhs_info.env.frames;
       env.module_path = rhs_info.env.module_path;
       env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
       env.input_string = rhs_info.env.input_string;
@@ -723,7 +706,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
       .Some(ri) => {
-        env.frames = copy_frames(ri.env.frames);
+        env.frames = ri.env.frames;
         env.module_path = ri.env.module_path;
         env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
         env.input_string = ri.env.input_string;
@@ -826,7 +809,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
       synth := synthesize_expr_and_type(rhs, pre_type, env, ctx);
       rhs = synth.expr;
       rhs_type_opt = Option(TypeValue).Some(synth.ty);
-      env.frames = copy_frames(synth.env.frames);
+      env.frames = synth.env.frames;
       env.module_path = synth.env.module_path;
       env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
       env.input_string = synth.env.input_string;
@@ -1275,7 +1258,7 @@ Use \`::\` for compile-time definitions inside impl.`
       ctx,
       exn
     );
-    env.frames = copy_frames(destr_result.env.frames);
+    env.frames = destr_result.env.frames;
     env.module_path = destr_result.env.module_path;
     env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
     env.input_string = destr_result.env.input_string;

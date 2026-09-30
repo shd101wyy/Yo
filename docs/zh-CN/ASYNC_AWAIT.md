@@ -542,34 +542,26 @@ task := io.async((io : Io) => {
 
 ### `io.async` 内部 `await` 可以出现的位置
 
-每个 `await` 都是一次状态转换，因此它必须位于函数体能够被**切分**的位置。分支主体
-天然可切分。条件与 `match` 被匹配值在选择分支之前求值，因此会被**提升**到状态边界
-之外；而 `while` 的条件每轮迭代都要重新求值，于是整个循环在一个状态中循环往复。
+任何可以出现表达式的地方都可以。函数体只经过一次降级：每个 `await` 就在它被写下的位置
+成为一个挂起点，任务也从那里恢复。每个局部变量、模式绑定和中间值都存放在任务本身之中，
+因此跨越挂起点不会丢失任何东西。
 
 ```rust
-// ✓ 支持
 cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
-if(io.await(exists(p, io), io), { ... });
-cond(io.await(ready(io), io) => ..., true => ...);
-match(io.await(num(io), io), 42 => ..., _ => ...);
+if(!(io.await(exists(p, io), io)), { ... });              // 在条件内部
+cond(c1 => ..., io.await(f, io) => ..., true => ...);      // 位于后面的 cond 分支
+match(io.await(num(io), io), 42 => ..., _ => ...);          // 作为 match 的被匹配值
+x := add(io.await(a, io), io.await(b, io));                 // 同一个表达式中的两个 await
 while(io.await(more(io), io), { ... });
-while(c, { ... io.await(f, io) ... }, { ... });   // 三参数形式的步进（第 2 个参数）
-
-// ✗ 拒绝：await 被**嵌套**在更大的条件表达式中
-if(!(io.await(exists(p, io), io)), { ... });
-// ✓ 先绑定到局部变量
-found := io.await(exists(p, io), io);
-if(!(found), { ... });
-
-// ✗ 拒绝：位于**靠后**的 cond 分支。`cond` 惰性求值，提升它会导致即使前面的分支
-//   命中也仍然执行 await——这改变的是语义，而不只是时机。
-cond(c1 => ..., io.await(f, io) => ..., true => ...);
+while(c, { t := io.await(f, io); i = t; }, { ... });        // 三参数 while 的 step
 ```
 
-这些都是真正的挂起：在 await 条件之前 spawn 的任务，会在当前任务挂起期间运行。
+求值顺序就是源代码顺序。在 `add(g(), io.await(f, io))` 中，`g()` 在任务挂起之前运行。
+惰性求值得以保留：位于后面 `cond` 分支中、或 `&&` 右侧的 `await`，只有在该分支或操作数
+被求值时才会运行。
 
-该限制**仅适用于 `io.async` 内部**。在普通 `fn` 体中，`io.await` 会同步驱动事件
-循环，可以出现在任何允许表达式的位置。
+这些都是真正的挂起：在一个被 await 的条件之前 spawn 的任务，会在进行 await 的任务挂起
+期间运行。
 
 ## 事件循环
 
@@ -850,12 +842,15 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 
 ### 状态机内存
 
-状态机很小（约 32-500 字节）：
+一个任务就是一次堆分配：
 
-- 状态 ID：4 字节
-- 捕获的参数：大小不定
-- 捕获的局部变量：大小不定
-- 待处理的 Future：每个 8 字节
+- 40 字节的头部：引用计数、状态、指向该类型操作表的指针（resume、效果绑定、中止钩子），以及第一个等待者；
+- 结果；
+- 捕获的值与闭包参数（一个 `Io` 占 32 字节）；
+- 一个指针，指向任务当前挂起等待的 future；
+- 每个跨越 `await` 仍然存活的局部变量占一个字段。
+
+只在两个 await 之间使用的局部变量仍是 C resume 函数的局部变量，不占任务的空间。存活区间互不重叠、C 类型相同的局部变量共用一个字段，持有堆内存的值也不例外。在 x86_64 上实测：一个 await、捕获很少的任务为 88 字节；十六个顺序 await、结果全部在最后才相加的任务为 152 字节，其中 60 字节是尚待相加的十五个结果。
 
 ## 性能特征
 
@@ -863,14 +858,14 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 
 **10,000 个并发异步操作：**
 
-- 状态机：10,000 × 约 200 字节 = 2MB
+- 状态机：10,000 × 约 100 字节 = 1MB
 - 无需线程栈！
 
 **对比：**
 
 - 10,000 个操作系统线程 × 1MB 栈 = 10GB ❌
 - 10,000 个 Go goroutine × 2KB = 20MB
-- 10,000 个 Yo 异步任务 × 200 字节 = 2MB ✅
+- 10,000 个 Yo 异步任务 × 约 100 字节 = 1MB ✅
 
 ### 吞吐量
 
@@ -939,11 +934,20 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 | --- | --- |
 | `for_each(f, io)` | 驱动流直到结束，对每一项调用 `f` |
 | `collect(io)` | 驱动流直到结束，把所有项收集进 `ArrayList` |
+| `for_await(s, io, x => body)` | 循环形式（一个宏）：每一项运行一次 `body`，其中可以使用 `break`、`continue` 和 `return` |
 
 ```rust
 // 最多取五个“内容变更”事件的名字。
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
+
+// 或者写成可以提前结束的循环：这里遇到第一个空名字就停。
+for_await(names, io, n => {
+  if(n.len() == usize(0), {
+    break;
+  });
+  println(n);
+});
 ```
 
 ### 如何实现一个流
@@ -991,9 +995,8 @@ impl(
    task := io.async((io : Io) => io.await(chain.collect(io), io));   // 在里面 await
    ```
 
-2. **没有 `for_await`。** 用宏写的异步循环，其 `io.await` 会被编译成**阻塞**形式
-   （宏展开体不会被扫描挂起点），在 spawn 出去的任务里会死锁。请用 `for_each`，
-   或者用到处都能工作的手写循环：
+2. **`for_await` 就是这个手写循环。** 它展开成下面的代码，其中的 await 和其他
+   await 一样会挂起所在的任务，所以在 spawn 出去的任务里和在 `main` 里都能用：
 
    ```rust
    (done : bool) = false;

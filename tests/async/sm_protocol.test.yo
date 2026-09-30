@@ -278,3 +278,34 @@ test("an escape after a closed branch drops each value-enum local once", {
   assert(escaped, "the task escaped");
   assert(g_disposed == (before + i32(2)), `both Things were released exactly once, disposed ${g_disposed - before}`);
 });
+
+// issues/fixed/an-escape-inside-a-reassignment-releases-the-old-value-twice.md
+// `t = await(child)` saves t's old value for the drop after the store; the
+// child throws, so the task escapes in that await. The save was written before
+// the await, so t's slot and the save's both held the old Thing and the escape
+// dispose released it twice.
+_sm_throws_thing :: (fn(io : Io) -> Impl(Future(Thing, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    e.exn.throw(dyn(`stop`));
+    Thing(n : i32(0))
+  })
+);
+_sm_reassign_across_escape :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (t : Thing) = Thing(n : i32(1));
+    t = e.io.await(_sm_throws_thing(e.io), e);
+    t.n
+  })
+);
+test("an escape inside a reassignment's await releases the old value once", {
+  stop_exn := Exception(throw : (err -> unwind(())));
+  before := g_disposed;
+  (escaped : bool) = false;
+  {
+    h := io.spawn(_sm_reassign_across_escape(io), IoExn(io : io, exn : stop_exn));
+    escaped = h.await(io).is_none();
+  };
+  assert(escaped, "the task escaped");
+  assert(g_disposed == (before + i32(1)), `the old Thing was released exactly once, disposed ${g_disposed - before}`);
+});

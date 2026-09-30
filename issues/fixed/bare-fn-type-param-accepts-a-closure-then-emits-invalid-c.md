@@ -43,7 +43,7 @@ function — that is the shape it is for.
 ## Why it matters
 
 This is the "`check` is not a real gate" family (compare
-issues/yo-self-async-await-argcount-overpermissive.md and
+issues/fixed/yo-self-async-await-argcount-overpermissive.md and
 issues/cinclude-int-comparison-fails-to-transpile.md): the evaluator accepts a
 program that codegen cannot emit, so `yo check` — the fast iteration loop, and what
 CI's cheap legs run — reports success on code that cannot build.

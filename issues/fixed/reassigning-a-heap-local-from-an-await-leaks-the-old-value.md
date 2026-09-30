@@ -1,5 +1,7 @@
 # `s = io.await(…)` into an existing heap-typed local never drops the old value (leak)
 
+**Severity:** S1 — `s = io.await(...)` into an existing heap local overwrites without releasing — one object leaked per reassignment (per iteration in a loop)
+
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit's control-flow shape sweep (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §8). Confirmed with a tree build of develop `af62bdb28` and the v0.2.45 seed, with the inner future both suspending and completing synchronously, at `-O0` and `-O2`. `yo check` is green for every shape here. Expected values come from the same program written synchronously.
 
 ## Symptom

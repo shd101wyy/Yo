@@ -23,7 +23,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
@@ -633,8 +633,15 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
           raw_code := _call_generate_expr(expr, indent.clone(), context);
           ei.variable_name = Option(String).Some(saved.clone());
           expr_temp_var := get_variable_name_for_codegen(saved.clone(), Option(Environment).Some(ei.env));
-          value_var = Option(String).Some(expr_temp_var.clone());
-          if(!(expr_temp_var == raw_code), {
+          // An atom named after ITSELF (its `variable_name` is the variable,
+          // not a minted temp) has nothing to materialize: its value is its
+          // own rendering. That rendering can differ from the name, a
+          // state-machine slot (`sm->var_…`) under the single-pass async
+          // lowering, and declaring `T name = sm->var_…` then redefined the
+          // binding in its own C scope.
+          self_named := is_self_named_atom(expr, saved.clone());
+          value_var = Option(String).Some(if(self_named, raw_code.clone(), expr_temp_var.clone()));
+          if(!self_named && !(expr_temp_var == raw_code), {
             line := indent.clone();
             rt_ct := get_type_string(ei.ty, context.base);
             line.push_string(rt_ct.clone());
@@ -737,7 +744,11 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               );
             });
           });
-          if(!is_inout_arg_atom && !(arg_temp_var == raw_arg_code), {
+          // A self-named atom's value is its own rendering, which can be its
+          // state-machine slot: declaring `T name = sm->var_…` would redefine
+          // the binding (see handle_func_call_deferred_dup).
+          arg_self := is_self_named_atom(arg, avn.clone());
+          if(!is_inout_arg_atom && !arg_self && !(arg_temp_var == raw_arg_code), {
             dline := indent.clone();
             dline.push_string(get_type_string(aei2.ty, context.base));
             dline.push_str(" ");
@@ -749,7 +760,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             em2.emit_string_line(dline);
             context.base.declared_c_var_names.insert(arg_temp_var.clone());
           });
-          arg_code = if(is_inout_arg_atom, raw_arg_code, arg_temp_var);
+          arg_code = if(is_inout_arg_atom || arg_self, raw_arg_code, arg_temp_var);
         },
         .None => {
           arg_code = _call_generate_expr(arg, indent.clone(), context);
@@ -917,10 +928,17 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           .None => ()
         );
       });
+      // A return temp named after the self-named argument atom is that
+      // variable: there is nothing to declare, and its value is the atom's
+      // rendering (a state-machine slot under the single-pass lowering).
       return_temp_var := if(
         arg_is_ref_atom,
         Option(String).None,
-        match(ei.variable_name, .Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))), .None => Option(String).None)
+        match(
+          ei.variable_name,
+          .Some(vn) => if(is_self_named_atom(arg, vn.clone()), Option(String).None, Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env)))),
+          .None => Option(String).None
+        )
       );
       match(
         return_temp_var,
@@ -1328,6 +1346,12 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   );
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
   if(is_async, {
+    // The body's C locals (phase 6: a local not live across any suspension
+    // has no state-machine field) are released here, as in a plain function;
+    // the abort dispose releases only fields. A field's drop zeroes its slot,
+    // so the dispose does not release it twice.
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None, escaped_result.clone());
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).None, escaped_result.clone());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
     });

@@ -1,6 +1,7 @@
 //! Async (event-loop) channel — `std/async/channel`
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6 / D7).
 pragma(Pragma.AllowUnsafe);
+pragma(Pragma.AllowMacroDef); // the macro-expanded await test below
 { assert } :: import("std/assert");
 { Channel, Sender, Receiver, TryRecvError } :: import("std/async/channel");
 { Stream } :: import("std/async/stream");
@@ -366,4 +367,31 @@ test("Test a consumer loop over a channel fed by another task", {
   assert(seen.len() == usize(3), "the loop saw every value the producer sent");
   assert(seen(usize(0)) == i32(0), "in order");
   assert(seen(usize(2)) == i32(2), "and it ended on the producer's close");
+});
+// ---------------------------------------------------------------------------
+// An `io.await` reached only through a macro expansion is a real suspension.
+//
+// The suspension analysis did not follow macro expansions, so the body below
+// was emitted as a plain closure with a BLOCKING await: the spawned task's
+// cold start never returned, and the `try_send` it waits for never ran
+// (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md,
+// reproducer issues/repros/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.yo).
+// ---------------------------------------------------------------------------
+_recv_one :: (fn(quote(io_arg) : Expr, quote(ch) : Expr) -> unquote(Expr))(
+  return(
+    quote({
+      unquote(io_arg).await(unquote(ch).recv(unquote(io_arg)), unquote(io_arg));
+    })
+  )
+);
+test("an await inside a macro expansion suspends the task", {
+  ch := Channel(i32).new(usize(1));
+  task := io.async((io : Io) => {
+    _recv_one(io, ch);
+    i32(1)
+  });
+  h := io.spawn(task, io);
+  _s := ch.try_send(i32(5));
+  r := h.await(io);
+  assert(match(r, .Some(v) => (v == i32(1)), .None => false), "the task resumed after the send");
 });

@@ -1,0 +1,107 @@
+# Binding a pending IoFuture to a local: scope-end auto-drop frees what the backend still holds
+
+**Severity:** S1 — the scope-end auto-drop frees a pending IoFuture the backend still holds — use-after-free when the armed timer fires
+
+**Found**: 2026-08-27 by analysis while designing `std/async`'s `timeout()`
+(STD_API_AUDIT §7 P0 item 6). **Status**: FIXED (2026-09-29) on every backend. The backend holds its own reference to every pending future: Linux (ring, epoll park, timer heap) and macOS (timer heap, parked descriptor ops) first, then Windows (below).
+
+**Update 2026-09-28 (macOS audit):**
+
+- **Observed as a crash on macOS.** The shape below, run 50 times and then
+  awaiting a 30 ms sleep, segfaulted on every run with develop at af62bdb28
+  (exit 139, with or without GuardMalloc). The kqueue backend's
+  `EVFILT_TIMER` context kept a bare pointer to the freed future.
+- **Fixed on macOS:** the timer heap and every parked descriptor op take a
+  reference (`future->header.ref_count++`) and release it when the operation
+  completes or is cancelled. The local's drop leaves rc 1, and the future is
+  freed after it fires.
+- **Linux** already had this reference on the ring, the timer heap and the
+  epoll park (`runtime_io_linux.yo`) — read, not run on Linux here.
+- **Windows**'s timer list (`__yo_win_timer_add`) still stores the bare future
+  pointer. Read, not run.
+
+Test: `tests/sys/timer.test.yo` "a sleep future dropped before it fires does
+not fire into freed memory". It is skipped on Windows until that backend takes
+the reference too.
+
+## The shape
+
+```rust
+IO_timer :: import("std/sys/timer");
+probe :: (fn(io : Io) -> bool)({
+  deadline := IO_timer.sleep(u64(5)); // armed in the backend immediately
+  s := io.state(deadline);            // fine — non-blocking read
+  s == FutureState.Completed
+});                                    // <-- scope end
+```
+
+At scope end codegen emits `if (deadline != NULL) { __yo_decr_rc((void*)
+deadline); }` for the local. `__yo_async_sleep_start` created the future with
+refcount 1 and ALSO handed a borrow to the I/O backend (the kqueue timer ctx
+holds `ctx->future`; epoll/iocp equivalents likewise). The drop takes rc to 0
+and frees the struct while the timer is still armed; when it fires, the
+completion handler writes `ctx->future->result` and reads fields in
+`__yo_io_wake_continuation` — use-after-free.
+
+The normal async pathway never hits this: an awaited io future lives in the
+state machine's `await_future_N` slot and is released only AFTER completion
+(extraction or the aborted-entry guard), when the backend is done with it.
+
+## History / masking
+
+Until 2026-08-27 this shape did not even compile: the local was DECLARED as
+the bare `__yo_io_future_t` struct by value (see
+`issues/fixed/io-future-named-local-declared-by-value.md`), so `->state` and
+the drop's `(void*)` cast were C errors. Fixing the declaration made the drop
+compile — and made this ownership hole reachable.
+
+## Fix directions (pick one)
+
+1. **Suppress the auto-drop for io-future-typed locals** — ownership of an
+   extern io future is the await machinery's / backend's, never the binding's.
+   Cheap, matches the TS-era behavior of never dropping these, leaks only a
+   never-awaited future (bounded, same class as
+   `issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
+2. **Backend cancellation API** — a real `__yo_io_cancel(fut)` that disarms
+   the pending op and releases the borrow, letting the drop stand. Correct but
+   per-backend work (kqueue EV_DELETE, epoll timerfd close, IOCP CancelIoEx).
+
+Option 1 is the honest minimum; option 2 is what a future `Drop`-correct
+IoFuture story needs.
+
+## Re-verified 2026-09-28 (async state-machine audit)
+
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+
+**NOT REPRODUCED on Linux** (seed and tree build). The doc's probe shape (bind `sleep(5)`, read its state, drop it, then sleep 50 ms) is ASan-clean. In the tree, `__yo_timer_arm` now takes a heap reference (`future->header.ref_count++`, #982). The tree build leaks the 128 B timer-heap array at exit (a leak, not a UAF). The macOS kqueue path still keeps `ctx->future` as a bare borrow, which could not be tested here.
+
+**macOS (same day, the macOS async-runtime audit):** reproduced as a crash and
+fixed. See the 2026-09-28 update at the top.
+
+## Windows fix (2026-09-29)
+
+Three holders of a bare future pointer in `runtime_io_windows.yo`, read from the
+code:
+
+- **Every IOCP overlapped** (`__yo_win_overlapped_t.future`): reads, writes,
+  accept, connect, send/recv, sendto/recvfrom. The kernel posts the completion
+  through the OVERLAPPED, and `__yo_win_process_completion` writes
+  `ov->future->result` and wakes it. `__yo_win_alloc_overlapped` now takes a
+  reference and `__yo_win_free_overlapped` releases it. Every path frees the
+  overlapped: the IOCP packet, a synchronous completion under
+  `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`, an error. So the reference lives
+  exactly as long as the operation can still write.
+- **The timer list** (`__yo_win_timer_add`): referenced on insert, released
+  when the timer fires, is cancelled (`__yo_win_timer_cancel`, the
+  `cancel_fn`), or is torn down by `__yo_io_cleanup`.
+- **Parked pipe reads** (`__yo_win_pipe_reads`): referenced when parked,
+  released after the tick completes them.
+
+Tests: `tests/sys/timer.test.yo` "a sleep future dropped before it fires does
+not fire into freed memory" no longer skips Windows.
+`tests/sys/tcp.test.yo` "a recv future dropped while pending does not complete
+into freed memory" drops a pending raw recv, then sends so its completion is
+delivered. It checks that the socket still works, on every platform. Windows
+CI runs without a sanitizer (`--disable-sanitize`), so there a regression
+shows as a crash or a corrupted later allocation rather than an ASan report.
+The Linux and macOS legs run the same tests under ASan.

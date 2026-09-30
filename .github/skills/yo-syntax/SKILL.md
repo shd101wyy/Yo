@@ -48,7 +48,7 @@ Use this skill when you need to:
 ## Common traps
 
 - `return expr` is invalid; use `return(expr)` or `return()` for unit.
-- Nested patterns like `.Ok(.Some(x))` are not supported; match in stages.
+- Nested patterns like `.Ok(.Some(x))` work to any depth (through `Box` payloads too); every infix pattern needs its own parentheses (`(p && (g))`, `(x := p)`, `(1..=5)`).
 - Unary operators bind ONE postfix expression, written bare: `!ready`, `&value`, `-p.a`, `?*T` (= `?(*(T))`); only an INFIX operand needs parens (`-(1 + 2)`).
 - Use `while(true, { ... })` for infinite runtime loops; use `while(comptime(cond), { ... })` only for compile-time unrolling.
 - A single-expression lambda body should not be wrapped in `{ ... }` unless semicolons make it a begin block.

@@ -379,7 +379,7 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
 generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Forward-declare the dispose dispatch function (defined after all dispose functions).
-  em.emit_declaration_line("static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch");
+  em.emit_declaration_line("static int __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch; 1 = it kept the memory");
   // Chunked emission: the RC primitives are the hot path and must be per-TU
   // `static inline` copies, not one external definition in chunk 0 (measured
   // 16.5% slower). This whole block is header-routable as-is: it touches only
@@ -394,8 +394,9 @@ static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   if ((header->ref_count & __YO_RC_COUNT) == 1) {
-    if (header->type_id) {
-      __yo_dispose_dispatch(ptr);
+    // A pooled state machine's memory goes back to its pool, not to free.
+    if (header->type_id && __yo_dispose_dispatch(ptr)) {
+      return;
     }
     __yo_rc_free(ptr);
   } else {
@@ -435,8 +436,8 @@ static void __yo_decr_rc_atomic(void* ptr) {
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   if ((old_count & __YO_RC_COUNT) == 1) {
-    if (header->type_id) {
-      __yo_dispose_dispatch(ptr);
+    if (header->type_id && __yo_dispose_dispatch(ptr)) {
+      return;
     }
     __yo_rc_free(ptr);
   }

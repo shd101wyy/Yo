@@ -1,9 +1,13 @@
-// P6 of plans/MATCH_PATTERN_MATCHING.md — the verifier's match subset over
+// P6 of plans/reference/MATCH_PATTERN_MATCHING.md — the verifier's match subset over
 // the Pattern IR: literal arms, nested variant patterns, binding-free
 // or-patterns, ranges and guards are direct in SMT (accessor equalities,
 // disjunctions, conjuncts); strings remain outside the subset (they fail
 // loudly). Under `yo test` this file runs its bodies as ordinary asserts;
-// the CI verify job proves every contract under `yo verify`.
+// `yo verify <this file> --format json` proves every contract (7/7, pinned
+// Z3). CI's FV job does not yet run that step: it uses the SEED compiler,
+// whose verifier predates the P6 walk and scores five targets subset-error
+// — add the step when SEED_VERSION carries #1036 (measured on the v0.2.46
+// seed, 2026-09-30).
 pragma(Pragma.Verify);
 
 { assert } :: import("std/assert");

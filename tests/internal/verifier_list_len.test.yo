@@ -232,11 +232,171 @@ test("a body that mutates a list parameter without an old(param) clause is a pre
     true
   );
   assert(
-    reports.len() == usize(1),
-    `grow reports, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    reports.len() == usize(2),
+    `grow and shrink report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("subset-error")) == usize(1),
-    `grow must be a subset error naming old(xs), got: [${_reports_dump(reports)}]`
+    _count_outcome(reports, String.from("subset-error")) == usize(2),
+    `grow and shrink must be subset errors naming old(xs), got: [${_reports_dump(reports)}]`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Slice 3 — the Option-valued reads: get (total) and pop (rebinds).
+// ---------------------------------------------------------------------------
+test("get past the end is None, get in bounds agrees with the index read, pop shrinks by one", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_get_pop.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(4),
+    `four functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(4),
+    `past_end, agrees, pop_last and pop_empty must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a Some at the end and an off-by-one pop length both REFUTE", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_get_pop_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `two functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a list mutation next to a possible alias (a local copy, a second same-typed parameter) is a subset error", {
+  if(!_have_z3(), {
+    return(());
+  });
+  local_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_local.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(local_reports, String.from("subset-error")) == usize(1),
+    `alias_push must be a subset error, got: [${_reports_dump(local_reports)}]`
+  );
+  param_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_params.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(param_reports, String.from("subset-error")) == usize(1),
+    `two must be a subset error, got: [${_reports_dump(param_reports)}]`
+  );
+});
+
+test("insert/remove/swap_remove/swap and an insert-remove round trip verify through the std length contracts", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_mutators.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(5),
+    `5 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(5),
+    `ins, rem, srem, sw and round_trip must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a claim that a mutator left the list unchanged REFUTES (each std mutator mentions old(self))", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_mutators_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(4),
+    `4 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(4),
+    `ins_same, rem_same, srem_same and sw_same must refute, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("zip, filter and reverse prove their result lengths", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_zip_filter_reverse.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(3),
+    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(3),
+    `zip_max, filter_pos and reverse must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("an unchecked zip, an all-keeping filter and a short reverse REFUTE", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_zip_filter_reverse_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(3),
+    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(3),
+    `zip_unchecked, filter_all and reverse_short must refute, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a loop havocs a cond-bound integer and a comparison-bound bool at their own sorts", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/loop_havoc_sorts.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `2 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(2),
+    `count_up and any_less must verify, got: [${_reports_dump(reports)}]`
   );
 });

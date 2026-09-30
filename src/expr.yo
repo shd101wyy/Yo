@@ -1211,12 +1211,11 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
         });
       });
       // `return(x.await(...))` → `begin(t := x.await(...), return(t))`. The two
-      // mean the same thing everywhere, and the second is the form an
-      // `io.async` state machine can split at: its await is the value of a
-      // `:=` binding, a state boundary in every position, while an await
-      // nested inside `return(...)` has no state to resume into (E0904,
-      // issues/fixed/return-of-an-await-is-rejected-inside-io-async.md). The
-      // temp is a compiler-minted `__yo_` name, unique per node.
+      // mean the same thing everywhere. The segment lowering could only split
+      // at the second form (issues/fixed/return-of-an-await-is-rejected-inside-io-async.md);
+      // the single-pass lowering suspends in either, and the rewrite is kept
+      // as an equivalence. The temp is a compiler-minted `__yo_` name, unique
+      // per node.
       if(_is_return_of_await(e), {
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");

@@ -1,0 +1,11 @@
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// issues/fixed/verifier-list-model-ignores-aliasing.md: called as two(xs, xs),
+// b grows with a and the second conjunct is false. The model treats a and b
+// as two lists, so the verifier reports a subset error instead of proving it.
+two :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), ensures((a.len() == (old(a.len()) + usize(1))) && (b.len() == old(b.len())))) -> unit
+)({
+  a.push(i32(1));
+});

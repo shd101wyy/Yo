@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BF_DOT
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, expr_info_paths_for_write, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -32,8 +32,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   get_variables_from_env,
   get_all_variables_from_env,
-  update_existing_variable,
-  copy_frames
+  update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
@@ -707,7 +706,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -721,7 +720,7 @@ evaluate_assignment :: (
       .Some(i) => i,
       .None => new_expr_info(env, t_unit())
     );
-    env.frames = copy_frames(prop_rhs_info.env.frames);
+    env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
     env.input_string = prop_rhs_info.env.input_string;
@@ -1127,7 +1126,7 @@ evaluate_assignment :: (
       match(
         binding_info_opt,
         .Some(info) => {
-          env.frames = copy_frames(info.env.frames);
+          env.frames = info.env.frames;
           env.module_path = info.env.module_path;
           env.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env.input_string = info.env.input_string;
@@ -1337,7 +1336,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       );
     });
   });
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -1397,7 +1396,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
     .Some(ri_after_dup) => {
-      env.frames = copy_frames(ri_after_dup.env.frames);
+      env.frames = ri_after_dup.env.frames;
       env.module_path = ri_after_dup.env.module_path;
       env.function_declaration_frame_level = ri_after_dup.env.function_declaration_frame_level;
       env.input_string = ri_after_dup.env.input_string;
@@ -1670,10 +1669,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
     });
   });
   // Write ExprInfo for the lhs.
-  lhs_path := ArrayList(String).new();
-  lhs_path.push(variable_name);
   lhs_info2 := new_expr_info(env, rhs_type);
-  expr_info_paths_for_write(lhs_info2).push(lhs_path);
+  lhs_info2.path_collection = path_collection_of_name(variable_name);
   lhs_info2.variable_name = .Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
   // Write ExprInfo for the whole `=` expression:

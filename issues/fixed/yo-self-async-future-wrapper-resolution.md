@@ -4,7 +4,7 @@
 level: fs/{file 13, dir 12, metadata 6, temp 7, fs_convenience 9}, sys/bufio
 22 — all counts TS-identical. Remaining: fs/walker (rc=1, 1 passed —
 different tail), sys/timer (needs the multi-await resumable-FSM lowering
-port, tracked in `issues/yo-self-async-emission-cluster.md`).
+port, tracked in `issues/retired/yo-self-async-emission-cluster.md`).
 
 ## Symptom (the whole family)
 
