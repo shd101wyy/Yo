@@ -21,7 +21,7 @@
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ Environment, Frame, frame_truncate_variables } :: import("../../env.yo");
+{ Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
@@ -260,6 +260,7 @@ evaluate_comptime_expect_error :: (
       match(
         saved_frames.get(rf_i),
         .Some(rf) => {
+          env_frames_for_write(env);
           env.frames.push(rf);
         },
         .None => ()

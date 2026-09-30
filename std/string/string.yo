@@ -1669,9 +1669,9 @@ impl(
         if(!self.is_char_boundary(new_len), {
           __yo_panic("String.truncate: new_len is not a char boundary");
         });
-        kept := self.substring(usize(0), new_len);
-        self.clear();
-        self.push_string(kept);
+        // In place, like `clear`: no copy of the kept prefix (the compiler
+        // truncates its ~110 MB code buffer this way).
+        match(self._bytes, .Some(al) => al.truncate(new_len), .None => ());
       }
     );
   }),

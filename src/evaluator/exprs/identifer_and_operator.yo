@@ -12,7 +12,7 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_paths_for_write,
+  path_collection_of_name,
   expr_info_set_origin_type
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
@@ -429,10 +429,8 @@ evaluate_identifier_and_operator :: (
   expr_info_set_origin_type(info, Option(TypeValue).Some(variable.ty));
   info.variable_name = Option(String).Some(variable.name);
   info.source_variable = Option(Variable).Some(variable);
-  // Add [[variable.name]] to path_collection
-  name_path := ArrayList(String).new();
-  name_path.push(variable.name);
-  expr_info_paths_for_write(info).push(name_path);
+  // path_collection = [[variable.name]], shared per name.
+  info.path_collection = path_collection_of_name(variable.name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   // ------------------------------------------------------------------
   // Closure capture tracking — function body

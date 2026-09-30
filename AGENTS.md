@@ -105,7 +105,7 @@ The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`;
 ```bash
 yo build --std-path ./std     # build the compiler → yo-out/<target>/bin/yo. --std-path is LOAD-BEARING: without it the seed compiles its own std, so a std change the seed cannot lower passes locally and breaks CI (#996)
 yo check ./src                # type-check the whole compiler tree (evaluator-only) — run this FIRST
-yo check ./std                # no solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
+yo check ./std --std-path ./std   # --std-path matters: without it an installed yo imports its BUNDLED std beside the checked ./std (22 false failures, issues/check-std-in-a-checkout-evaluates-two-copies-of-std.md). No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches async state-machine rules `check` cannot see (they fire in codegen)
 
 # Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.

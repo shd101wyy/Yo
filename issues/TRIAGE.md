@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 178 open bug
-docs in `issues/` root and the 13 design questions in
+**Generated** by `scripts/gen-issue-triage.py` over the 181 open bug
+docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 11 | 2 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 23 | 5 |
-| Std library | 51 | 12 |
+| Std library | 52 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 12 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 36 | 8 |
-| **Total** | **178** | **34** |
+| Other | 38 | 8 |
+| **Total** | **181** | **34** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 36 |
 | S2 | 88 |
-| S3 | 53 |
+| S3 | 56 |
 | (missing) | 1 |
 
 - MISSING SEVERITY: `a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`
@@ -59,6 +59,7 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 
 - [`builtin-name-shadows-user-definition.md`](./questions/builtin-name-shadows-user-definition.md) — which name-resolution policy when user definitions collide with builtins: reserve, prefer user bindings, or warn
 - [`emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md`](./questions/emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md) — grow the emscripten heap, size it from a flag, or make the OOM abort say what happened
+- [`explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`](./questions/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`httpmethod-from-string-returns-option-not-result.md`](./questions/httpmethod-from-string-returns-option-not-result.md) — `HttpMethod.from_string` should be a `FromString` impl — with which error type
 - [`lsp-completion-substring-matching.md`](./questions/lsp-completion-substring-matching.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./questions/manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) — how the `[package] yo` MSRV field is enforced: error vs warning, `>=` or range, checked where
@@ -238,10 +239,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (51)
+### Std library (52)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`](./cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md) | S3 | — | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | S2 | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | S2 | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | S2 | OPEN | — |
@@ -336,7 +338,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (36)
+### Other (38)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -353,6 +355,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
+| [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
+| [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`emscripten-concurrent-directory-iteration-intermittently-faults.md`](./emscripten-concurrent-directory-iteration-intermittently-faults.md) | S1 | open | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
