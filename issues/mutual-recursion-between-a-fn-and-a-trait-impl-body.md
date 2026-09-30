@@ -2,7 +2,17 @@
 
 **Severity:** S2 — fn ↔ trait-impl mutual recursion is wrongly rejected (E0610 on a valid recursive-tree `Eq`)
 
-**Status: OPEN.** Found 2026-09-09 while writing `Eq` for the recursive
+**Status: OPEN** (re-measured 2026-10-01 on develop after #1062, which was expected to fix it:
+it does not). `issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails `check`
+with E0610 on `!=` at 9:13. Variants: calling `==` instead of `!=` fails the same way
+("No matching call found with arguments"), and so does putting `!=` before `==` in the impl. A
+helper above the impl that calls `!=` WITHOUT the recursion checks fine, so forcing the pending
+impl works. The failure needs the cycle: `_kids_eq`'s trial forces the `Eq(E)` impl, whose `==`
+trial calls `_kids_eq` while it is still being forced. `YO_DEBUG_LAZY=1` shows no in-flight
+member force (`[force-field]`) for `E` at all. Next: instrument the cycle in
+`force_pending_impls_for_type_name` and the pending-definition resolver (`evaluator/context.yo`)
+under a debug build; it probably shares its root with
+`issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`. Found 2026-09-09 while writing `Eq` for the recursive
 `JsonValue` tree.
 
 ## Reproducer
