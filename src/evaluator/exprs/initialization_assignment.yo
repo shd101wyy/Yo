@@ -47,8 +47,7 @@
   variable_set_doc_comment,
   variable_set_inout_borrow_root_id,
   variable_mark_inout_borrow_root,
-  make_err_variable,
-  copy_frames
+  make_err_variable
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -330,7 +329,7 @@ _evaluate_inout_local_binding :: (
       new_expr_info(env, t_unit())
     }
   );
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -649,7 +648,7 @@ evaluate_initialization_assignment :: (
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      env.frames = copy_frames(rhs_info.env.frames);
+      env.frames = rhs_info.env.frames;
       env.module_path = rhs_info.env.module_path;
       env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
       env.input_string = rhs_info.env.input_string;
@@ -723,7 +722,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
       .Some(ri) => {
-        env.frames = copy_frames(ri.env.frames);
+        env.frames = ri.env.frames;
         env.module_path = ri.env.module_path;
         env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
         env.input_string = ri.env.input_string;
@@ -826,7 +825,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
       synth := synthesize_expr_and_type(rhs, pre_type, env, ctx);
       rhs = synth.expr;
       rhs_type_opt = Option(TypeValue).Some(synth.ty);
-      env.frames = copy_frames(synth.env.frames);
+      env.frames = synth.env.frames;
       env.module_path = synth.env.module_path;
       env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
       env.input_string = synth.env.input_string;
@@ -1275,7 +1274,7 @@ Use \`::\` for compile-time definitions inside impl.`
       ctx,
       exn
     );
-    env.frames = copy_frames(destr_result.env.frames);
+    env.frames = destr_result.env.frames;
     env.module_path = destr_result.env.module_path;
     env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
     env.input_string = destr_result.env.input_string;

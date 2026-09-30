@@ -232,11 +232,76 @@ test("a body that mutates a list parameter without an old(param) clause is a pre
     true
   );
   assert(
-    reports.len() == usize(1),
-    `grow reports, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    reports.len() == usize(2),
+    `grow and shrink report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("subset-error")) == usize(1),
-    `grow must be a subset error naming old(xs), got: [${_reports_dump(reports)}]`
+    _count_outcome(reports, String.from("subset-error")) == usize(2),
+    `grow and shrink must be subset errors naming old(xs), got: [${_reports_dump(reports)}]`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Slice 3 — the Option-valued reads: get (total) and pop (rebinds).
+// ---------------------------------------------------------------------------
+test("get past the end is None, get in bounds agrees with the index read, pop shrinks by one", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/dml_list_get_pop.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(4),
+    `four functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(4),
+    `past_end, agrees, pop_last and pop_empty must verify, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a Some at the end and an off-by-one pop length both REFUTE", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_get_pop_false.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(2),
+    `two functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(reports)}]`
+  );
+});
+
+test("a list mutation next to a possible alias (a local copy, a second same-typed parameter) is a subset error", {
+  if(!_have_z3(), {
+    return(());
+  });
+  local_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_local.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(local_reports, String.from("subset-error")) == usize(1),
+    `alias_push must be a subset error, got: [${_reports_dump(local_reports)}]`
+  );
+  param_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_params.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(param_reports, String.from("subset-error")) == usize(1),
+    `two must be a subset error, got: [${_reports_dump(param_reports)}]`
   );
 });

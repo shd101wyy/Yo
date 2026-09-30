@@ -427,7 +427,9 @@ ExprInfo :: ref(
 /// shallow copy, point THIS ExprInfo at it, and hand it out. Other sharers
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
+(g_adopt_env_calls : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
+  g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(info.env);
   info.env = fresh;
   fresh
@@ -955,11 +957,63 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 /// call this first. Detects the shared instance by POINTER identity and swaps in
 /// a private list. Reads can use the field directly.
 expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
-  if(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)), {
-    info.path_collection = path_collection_new();
-  });
+  cond(
+    unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)) => {
+      info.path_collection = path_collection_new();
+    },
+    // Shared (`path_collection_of_name`, or aliased by another ExprInfo):
+    // write into a private deep copy.
+    (rc(info.path_collection) > usize(1)) => {
+      fresh := path_collection_new();
+      (i : usize) = usize(0);
+      while(i < info.path_collection.len(), {
+        match(info.path_collection.get(i), .Some(p) => fresh.push(p.clone()), .None => ());
+        i = (i + usize(1));
+      });
+      info.path_collection = fresh;
+    },
+    true => ()
+  );
   info.path_collection
 });
+/// The one-path collection `[[name]]`, shared by every ExprInfo that names
+/// `name` (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
+/// lhs of bindings and assignments each built a fresh one, and ~3 of every 4
+/// recorded collections were duplicates. Nothing writes a stored collection
+/// in place; `expr_info_paths_for_write` copies a shared one.
+/// Sharing is on only while one table holds the whole program (`compile`'s
+/// shared table): `check` gives each module a table that dies with it, and a
+/// process-wide map would outlive those (+20 MB on `check src/main.yo`).
+(g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
+(g_share_name_paths : bool) = false;
+set_name_path_sharing :: (fn(on : bool) -> unit)({
+  g_share_name_paths = on;
+  if(!on, {
+    g_name_path_collections.clear();
+  });
+});
+_fresh_name_path_collection :: (fn(name : String) -> PathCollection)({
+  p := ArrayList(String).new();
+  p.push(name);
+  pc := path_collection_new();
+  pc.push(p);
+  pc
+});
+path_collection_of_name :: (fn(name : String) -> PathCollection)(
+  if(
+    !g_share_name_paths,
+    _fresh_name_path_collection(name),
+    match(
+      g_name_path_collections.get(name),
+      .Some(pc) => pc,
+      .None => {
+        pc := _fresh_name_path_collection(name);
+        _prev := g_name_path_collections.insert(name, pc);
+        pc
+      }
+    )
+  )
+);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
@@ -977,10 +1031,35 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
   table.data.insert(id, info);
   ()
 });
-/// Retrieve the ExprInfo for the given expression id, or None.
-expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+/// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
+/// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
+/// (`codegen_c.yo` switches it on for collect + emit only).
+(g_codegen_read_log_on : bool) = false;
+(g_codegen_read_keys : HashSet(usize)) = HashSet(usize).new();
+codegen_read_log_set :: (fn(on : bool) -> unit)({
+  g_codegen_read_log_on = on;
+});
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
+_logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
+  _i := g_codegen_read_keys.insert(id);
   table.data.get(id)
+});
+/// Retrieve the ExprInfo for the given expression id, or None. Stays
+/// expression-bodied: a block body on this hot accessor's shape is what
+/// made `new_expr_info` 8x slower (see `expr_info_table_set`).
+expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+  cond(
+    g_codegen_read_log_on => _logged_table_get(table, id),
+    true => table.data.get(id)
+  )
 );
+/// Drop every entry whose key `keep` does not hold; returns how many went.
+/// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
+expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
+  before := table.data.len();
+  table.data.retain((k, _v) => keep.contains(k));
+  (before - table.data.len())
+});
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //
@@ -1838,7 +1917,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
@@ -1896,7 +1975,7 @@ export(
 export(expr_info_await_analysis, expr_info_set_await_analysis);
 export(expr_info_effect_analysis, expr_info_set_effect_analysis);
 export(expr_info_closure_function_value, expr_info_set_closure_function_value);
-export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
+export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
@@ -2022,7 +2101,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()}`);
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);

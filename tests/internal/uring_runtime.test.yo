@@ -17,6 +17,7 @@
 { generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
 { generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
 { generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
+{ generate_async_runtime_io_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
 { parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
@@ -233,4 +234,17 @@ test("the stream-write op: write(2) on macOS, send(MSG_NOSIGNAL) on Linux", {
   assert(m.contains(String.from("__yo_kq_park_or_fail(__YO_IO_OP_WRITE, future, sockfd, EVFILT_WRITE);")), String.from("a would-block stream write does not park as a WRITE"));
   l := emit_linux_runtime();
   assert(l.contains(String.from("  return __yo_async_send_start(sockfd, buf, len, MSG_NOSIGNAL);")), String.from("the Linux stream write lost its MSG_NOSIGNAL"));
+});
+test("the read_dir stream list is per-thread on wasm and on macOS", {
+  // issues/fixed/emscripten-concurrent-directory-iteration-intermittently-faults.md
+  decl := String.from("static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;");
+  wem := Emitter.new();
+  wt := match(parse_target(String.from("wasm32-unknown-emscripten")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(wem, wt);
+  assert(wem.print().contains(decl.clone()), String.from("the wasm read_dir stream list is shared by every thread"));
+  mem := Emitter.new();
+  mt := match(parse_target(String.from("aarch64-apple-darwin")), .Ok(t) => t, .Err(_) => host_target());
+  assert(is_target_macos(mt), String.from("macos triple failed to parse as macos"));
+  generate_async_runtime_io_common(mem, mt);
+  assert(mem.print().contains(decl), String.from("the macOS read_dir stream list is shared by every thread"));
 });

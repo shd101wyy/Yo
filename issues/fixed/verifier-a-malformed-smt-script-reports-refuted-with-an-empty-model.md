@@ -38,9 +38,14 @@ notes). An `(error ...)` line BEFORE the verdict is not distinguished from
 the post-check-sat `unsat core is not available` error, so a script that
 never asserted anything reads as a satisfiable negation.
 
-## Fix
+## Fix (2026-09-30)
 
-Treat any `(error` line that precedes the `sat`/`unsat`/`unknown` token as a
-`solver-error` verdict (keep tolerating errors after it), and include the
-error text in the report. A `verifier.test.yo` case: a canned z3 transcript
-with an error before `sat` maps to `solver-error`, not `refuted`.
+`z3_error_before_verdict` (`src/verifier/z3.yo`) scans the response forms in
+order and returns the first `(error ...)` that precedes the verdict atom;
+`verdict_of_response` (`src/verifier/driver.yo`) maps it to
+`SolverError("z3 rejected the script: ...")` before reading the verdict.
+Errors after the verdict stay tolerated (the post-check-sat evidence
+requests). Test: `tests/internal/verifier.test.yo`, "an error BEFORE the
+verdict is a SolverError, one after it is tolerated" — the R1 transcript
+above maps to `solver-error`; a proof and a refutation with a trailing
+`unsat core is not available` keep their verdicts.

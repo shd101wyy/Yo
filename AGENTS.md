@@ -83,7 +83,7 @@ One line each; the linked doc is authoritative.
 - **`--allocator fixed`** is a TLSF allocator over one static region sized by `--heap-size` (`plans/reference/FIXED_REGION_ALLOCATOR.md`).
 - **Dependencies live in `yo.toml`, not `build.yo`**; `import("dep")` resolves through the nearest manifest in every command; only `yo build` fetches, so every other command needs `yo install` first on a fresh clone (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`).
 - **No runtime dependent types**; runtime properties go through the verifier (`plans/backlog/DEPENDENT_TYPES_POSITION.md`, `plans/backlog/FORMAL_VERIFICATION.md`).
-- **`match` is being redesigned** (`plans/MATCH_PATTERN_MATCHING.md`, active): today value matching exists only on the primitive path.
+- **`match` is real pattern matching** (`plans/reference/MATCH_PATTERN_MATCHING.md`, landed): nested/literal/or/string/range/guard/`:=`/tuple/struct/`Box` patterns in every emitter; exhaustiveness is usefulness (fixed-width integer constants and ranges are intervals); an arm the earlier arms cover only collectively is a warning, single-arm subsumption an error; every infix pattern is parenthesized (`(p && (g))`, `(x := p)`); a bare identifier binds unless it names a literal/enum `::` constant.
 - **No backward-compatibility scaffolding** (single user): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ### Algebraic effects model
@@ -105,7 +105,7 @@ The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`;
 ```bash
 yo build                      # build the compiler with itself → yo-out/<target>/bin/yo
 yo check ./src                # type-check the whole compiler tree (evaluator-only) — run this FIRST
-yo check ./std                # no solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
+yo check ./std --std-path ./std   # --std-path matters: without it an installed yo imports its BUNDLED std beside the checked ./std (22 false failures, issues/check-std-in-a-checkout-evaluates-two-copies-of-std.md). No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches async state-machine rules `check` cannot see (they fire in codegen)
 
 # Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.

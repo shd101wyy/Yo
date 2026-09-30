@@ -1,7 +1,8 @@
 # `match` misses collectively-redundant and range-subsumed arms, and a full `u8` range is not exhaustive
 
+**Severity:** S2 (missed diagnostics, not wrong codegen)
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4).
-**Status:** FIXED on `tss/phase4-5` (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5). Completeness
+**Status:** FIXED (#926, merged 2026-09-26; `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5). Completeness
 of exhaustiveness/usefulness; follows the P1-P3 landing of `plans/MATCH_PATTERN_MATCHING.md`.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 

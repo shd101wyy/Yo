@@ -219,11 +219,6 @@ If a `match`/`cond` branch returns an enum variant and the evaluator reports
 "Failed to infer enum variant type", qualify the variant explicitly, e.g.
 `TypeValue.Unit` instead of `.Unit`.
 
-Do not write sibling enum-payload literal patterns such as `.Some(false)` and
-`.Some(true)`. Match the variant once (`.Some(value)`) and branch on `value`
-inside the arm. The self-hosted codegen can otherwise emit duplicate C `case`
-labels for the same enum variant.
-
 When writing large enum matches, avoid binding a pattern variable with the same
 name as a variant field (for example, prefer `struct_field_types` over
 `field_types`). Some self-hosted codegen paths can currently emit invalid C for
@@ -893,7 +888,7 @@ raw_bytes : (fn(self: Self) -> RawSlice(u8))(
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
 
 Patterns are ordinary expressions the parser already produces; the evaluator
-compiles them into a pattern IR (`src/pattern.yo`, plans/MATCH_PATTERN_MATCHING.md).
+compiles them into a pattern IR (`src/pattern.yo`, plans/reference/MATCH_PATTERN_MATCHING.md).
 Every infix pattern needs its own parentheses (no operator precedence):
 
 | form | example | meaning |
@@ -923,12 +918,14 @@ Rules that follow:
   `.Some(false)`) is a WARNING. A trailing `_`/binding arm is always accepted.
 - **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
   `E0609` invalid pattern (`yo explain E0607`).
-- **Inside an `io.async` arm that awaits**, only the classic shapes (`_`,
-  `.V`, `.V(binders / numeric literals)`, labeled/curly binders) are lowered
-  today; the new forms fail loudly at codegen. Bind the payload and match
-  again inside the arm, or move the await out of the arm.
-- Struct/tuple scrutinees and patterns through `Box(...)` payloads are not
-  supported yet (P4).
+- **Inside an `io.async` arm that awaits, every pattern form is lowered**
+  (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Box`;
+  `tests/match_async_arms.test.yo` is the spec). Bindings an arm reads after
+  an await are routed through the state machine's fields. One adjacent shape
+  is still rejected — an `io.await(...)` in a cond CONDITION inside an arm
+  (`issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`).
+- Struct/tuple scrutinees and patterns through `Box(...)` payloads are
+  supported (P4 landed; `tests/match_{tuples,structs,nested}.test.yo`).
 
 ## Match destructuring forms
 

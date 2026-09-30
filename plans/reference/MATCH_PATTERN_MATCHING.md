@@ -1,11 +1,36 @@
 # `match` — real pattern matching: audit, design, implementation plan
 
-**Status: COMPLETE (2026-09-30). Every phase is landed: P0–P3 (PR
-`feat/match-p1-pattern-ir` + #672 + #926), P4 + Box payloads (#993), the
-async general lowering §4.9 (#995), P5 docs + adoption waves 1–4 (#997,
-#1036), and P6 the verifier subset (#1036).** The one continuing thread is
-the adoption sweep — opportunistic, incremental, with no endpoint of its
-own (see "Still open" below); it no longer gates this plan.
+**Status: LANDED — closed 2026-09-30 and moved to `plans/reference/`.** The
+landed design, authoritative from here on: **a pattern is an ordinary
+expression, compiled once per arm into the `Pattern` IR** (`src/pattern.yo`)
+and consumed by the evaluator (typing, CTFE, usefulness exhaustiveness),
+both C emitters (the switch fast path and the ordered test-chain general
+path, sync and async) and the verifier's match subset. User-facing rules
+live in `docs/{en-US,zh-CN}/DESIGN.md` "Pattern Matching"; agent-facing
+rules in `.github/instructions/yo-syntax.instructions.md`. The 2026-09-30
+closeout audit re-verified every phase against the tree and corrected this
+record's ledger (the corrections are inline below): the adoption counts,
+the P6 date and denominator, the P1–P3 and P5 PR attributions, and the
+previously unrecorded deviations (now items 4–5 below). Two P5
+documentation items the
+ledger claimed but had not executed — the stale prohibitions surviving in
+the cheatsheet/SKILL.md/instructions and the never-updated
+`issues/fixed/pattern-match-literal-in-enum-destructure.md` — were completed
+by the closeout PR.
+
+**COMPLETE (2026-09-30). Every phase is landed: P0–P3 (#791, branch
+`feat/match-p1-pattern-ir`, + #672 + #926), P4 + Box payloads (#993), the
+async general lowering §4.9 (#995), P5 docs (#791, #993, #995) + adoption
+waves 1–4 (#997, #1036), and P6 the verifier subset (#1036).** The one
+continuing thread is the adoption sweep — opportunistic, incremental, with
+no endpoint of its own (see "Still open" below); it no longer gates this
+plan.
+
+**#661's disposition** (the plan below argues it must not merge as it
+stands): it WAS merged 2026-09-13 before the gaps were closed — the §3
+gap-4 regression was live on `develop` for ~11 hours — and P0 (#672)
+landed the loud rejection the same day. The sequencing is history, not an
+open question.
 
 **P4 + Box payloads LANDED 2026-09-29** — tuple scrutinees `(a, b)` (exact
 arity, `tests/match_tuples.test.yo`), struct scrutinees named
@@ -31,9 +56,11 @@ identifier catch-alls (§4.3 rule), `str`/`String` scrutinees, ranges, guards
 `(p && (g))`, whole-value bindings `(name := p)`. Diagnostics carry codes
 E0607 (not exhaustive, structural witness), E0608 (unreachable arm), E0609
 (invalid pattern). Tests: `tests/match_{nested,or_variants,catch_all,strings,
-ranges,guards,at_binding}.test.yo` + five `tests/cli-cases/match-*`.
+ranges,guards,at_binding}.test.yo` + six `tests/cli-cases/match-*` (count
+corrected by the closeout audit; #791 added six).
 
-Three deviations from the design below, each measured on the tree:
+Five deviations from the design below, each measured on the tree (4–5
+recorded by the 2026-09-30 closeout audit):
 
 1. **Constant tests reuse the language's `==`.** A `Const`/`Range` pattern
    binds a HIDDEN SUBJECT variable of the position's type in the arm frame
@@ -54,7 +81,8 @@ Three deviations from the design below, each measured on the tree:
    defensive arm is the idiom the corpus is written in, Rust only warns, and
    Yo has no warnings channel. Exhaustiveness stays full usefulness.
 
-   **Superseded 2026-09-25** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5): the
+   **Superseded 2026-09-26** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5,
+   #926): the
    warnings channel landed (#846), so an arm the earlier arms cover only
    collectively is now a WARNING, single-arm subsumption (now also between
    or-alternatives) stays an error, an arm no value of the type matches (an
@@ -68,15 +96,47 @@ Three deviations from the design below, each measured on the tree:
    emitter's goto chain is not dispatch-aware; §4.9's shared helpers are the
    follow-up.
 
+   **Closed 2026-09-29 (#995):** `_aw_generate_general_match` lowers every
+   form in awaiting arms (see the async section below). One adjacent shape
+   remains rejected and is tracked as its own open issue:
+   `issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`
+   — an `if(io.await(...), ...)` whose AWAIT sits in a cond CONDITION inside
+   a classic arm (a hoisting limitation owned by
+   `plans/ASYNC_STATE_MACHINE_GENERATION.md`, not a pattern-form gap).
+4. **Two designed diagnostics were dropped.** §4.3's const-shadow hint
+   ("Pattern \"n\" compares against the constant n :: … in scope; write _n
+   or rename the constant to bind") and §4.10's dedicated
+   unsupported-scrutinee message (`Cannot match on a value of type <T>`)
+   were never implemented. The landed rule is simpler: an identifier is a
+   constant pattern only when it resolves to a literal- or enum-valued `::`
+   constant (`_constant_in_scope`, `src/evaluator/exprs/pattern_compile.yo`)
+   — every other identifier binds, including one naming a non-comparable
+   constant; a non-matchable scrutinee surfaces as E0609 through the
+   synthesized `==` probe.
+5. **The P2 cleanup of the pre-IR stamps was not done.**
+   `primitive_pattern_values`/`is_primitive_match` survive (ExprInfo fields,
+   written by the evaluator, read by the switch lowerings in both emitters)
+   so the switch fast path emits byte-identical C without reading the
+   compiled-arm registry. Harmless dead surface; delete it only together
+   with an emit-diff gate over the switch-shaped corpus.
+
 Still open (the adoption campaign only — incremental, no endpoint of its
-own, each wave gated by the cli-cases): waves 1–4 converted 195 sites (the
+own, each wave gated by the cli-cases): waves 1–4 converted 175 sites (the
 subcommand help dispatch in `src/main.yo`, five hand conversions, 149
 rewriter-converted `.Some(x) => match(x, …)` double-unwraps across 64
-files, and 20 hand-converted rewriter skips). A strict-shape scan finds
-~226 two-level sites remaining plus the smaller string chains; take them
-wave by wave when touching the files anyway. The plan itself is complete.
+files, and 20 hand-converted rewriter skips; count corrected by the
+closeout audit — the original text said 195, but its own itemization sums
+to 1 + 5 + 149 + 20 and the PR bodies agree). A strict-shape scan
+(same-binder double-unwrap `\.(\w+)\((\w+)\) => match\(\2`, multiline,
+over `src/`+`std/`) finds ~430 two-level sites remaining across ~117
+files, plus ~475 string-comparison `cond` arms across ~53 files (148 of
+them in `src/main.yo`) — the string corpus is the LARGER residue, not the
+smaller; take both wave by wave when touching the files anyway. The plan
+itself is complete.
 
-P6 (verifier subset) LANDED 2026-09-29: the verifier's match walk is
+P6 (verifier subset) LANDED 2026-09-30 (#1036; the original text said
+2026-09-29 — under the repo's +0800 author dates the merge was 11:38 on
+the 30th): the verifier's match walk is
 rewritten over the compiled Pattern IR (`lookup_match_arms` — `verify` now
 keeps the codegen tables on for exactly this table). Every arm contributes
 `ite(pattern-test ∧ guard, body[binds], tail)`: constructor tests on
@@ -89,9 +149,19 @@ Still outside the subset, each failing LOUDLY: string scrutinees (at the
 parameter level), tuple/struct/Box patterns, or-patterns that bind, and a
 GUARDED FINAL arm (the ite tree's bottom would be unsound). Tests:
 `tests/spec/verify_match_patterns.test.yo` — literal, nested, or, guard,
-range and Option-of-Option proofs (7/7 ok, pinned Z3); the existing
-straight_line/refine_types/pragma_verify proofs are unchanged (20/20), and
-directory-mode verify behaves exactly as the seed on the negative fixtures.
+range and Option-of-Option proofs (7/7 obligations ok under `yo verify`,
+pinned Z3 5.1.0, reproducing the original claim: the file's six
+`test(...)` blocks hold six contracted fns and the seventh obligation is a
+vacuous contract-less helper; under `yo test` the same bodies run as
+ordinary asserts, 6/6); the existing straight_line/refine_types/
+pragma_verify proofs are unchanged (20/20), and directory-mode verify
+behaves exactly as the seed on the negative fixtures. (Closeout-audit
+note: CI's FV job proves only `verify_straight_line` among these — the
+match proofs run in CI solely as the runtime asserts of the language
+suite. A dedicated `yo verify ./tests/spec/verify_match_patterns.test.yo`
+step is seed-gated: the v0.2.46 seed's verifier predates the P6 walk and
+scores five of the seven targets `subset-error`, failing the run — add
+the step when `SEED_VERSION` carries #1036.)
 
 **The async general lowering LANDED 2026-09-29 (#995):**
 `_generate_match_with_await_impl` dispatches a non-classic match through
@@ -100,7 +170,10 @@ ordered test chain over the compiled arms (`_aw_emit_general_pattern`, the
 async twin of the sync `_emit_pattern_chain`, bindings routed through
 `_resolve_pattern_binding_sm_field` so a cross-await binding writes the state
 machine field the resume reads) — and the arm body keeps the ordinary
-cond_branch/suspension path. E0904 for match arms is gone;
+cond_branch/suspension path. E0904 no longer fires for a match ARM PATTERN
+(the removed rejection of new-form arms; `if(io.await(...), ...)` in a cond
+condition inside an arm is a different, still-open hoisting limitation —
+deviation 3 above);
 `tests/match_async_arms.test.yo` covers nested/or/guard/string/range/
 catch-all/`:=`/tuple/struct/Box arms with awaits (15 tests). Deviation 3 is
 therefore closed. §8's decisions were taken as recommended: the new modules

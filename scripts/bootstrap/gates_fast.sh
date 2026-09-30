@@ -10,6 +10,11 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:-/tmp/s1}
 P=${P:-fast}
+# Mirror CI: every job that runs these gates sets YO_TEST_LEAK_VERDICT=0 (the
+# staging ratchet for issues/self-hosted-emit-leaks-remaining-classes.md), so
+# a local run without it failed six batteries on LeakSanitizer verdicts CI
+# never sees. Export YO_TEST_LEAK_VERDICT=1 to see them.
+export YO_TEST_LEAK_VERDICT=${YO_TEST_LEAK_VERDICT:-0}
 # GATE 7 runs the CLI cases in sandboxes, and S1 may be staged outside this
 # checkout (CI's /tmp/yo-stage1) — where the exe-relative walk-up finds
 # neither std/ nor .github/skills. The harness passes YO_STD through; pin
