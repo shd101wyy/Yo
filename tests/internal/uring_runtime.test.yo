@@ -15,7 +15,7 @@
 { Emitter } :: import("../../src/emitter.yo");
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
 { generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
-{ generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
+{ generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
 { generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
 { parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
@@ -210,4 +210,17 @@ test("common runtime (macos): sleep arms the heap; watches use the watch kqueue"
   assert(c.contains(String.from("int32_t rc = __yo_io_watch_vnode(handle->fd, __yo_fs_vnode_fflags);")), String.from("fs events are not in the watch kqueue"));
   assert(!c.contains(String.from("handle->watch_fd = kqueue();")), String.from("a private kqueue per watch came back"));
   assert(c.contains(String.from("if (ph->active && (ph->ready || ph->unpollable)) {")), String.from("the tick polls every poll handle again"));
+});
+test("every backend arms the thread-exit hook at init; the macOS cleanup frees its tables", {
+  // issues/fixed/a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md
+  arm := String.from("if (__yo_io_initialized) return;\n  // This thread now has backend state to release when it exits.\n  __yo_async_arm_thread_exit();");
+  assert(emit_macos_runtime().contains(arm.clone()), String.from("the macOS init does not arm the thread-exit hook"));
+  assert(emit_linux_runtime().contains(arm.clone()), String.from("the Linux init does not arm the thread-exit hook"));
+  wem := Emitter.new();
+  generate_async_runtime_io_windows(wem);
+  assert(wem.print().contains(arm), String.from("the Windows init does not arm the thread-exit hook"));
+  m := emit_macos_runtime();
+  assert(m.contains(String.from("__yo_free(__yo_kq_slots);")), String.from("the macOS cleanup keeps its slot table"));
+  assert(m.contains(String.from("__yo_io_registration_free_list = r->next_free;\n    __yo_free(r);")), String.from("the macOS cleanup keeps its registration pool"));
+  assert(m.contains(String.from("__yo_kq_close_hook = NULL;")), String.from("the macOS cleanup leaves its close hook installed"));
 });

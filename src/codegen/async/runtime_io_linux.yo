@@ -574,6 +574,24 @@ unsigned long __yo_io_stats_io_syscalls(void) {
   return __yo_stats_io_syscalls;
 }
 #define __YO_SC(call) (__yo_stats_io_syscalls++, (call))
+// Inline recv attempts that would have blocked (EAGAIN): the syscalls the
+// recv-parks hint exists to save. A ping-pong should pay about none.
+static _Thread_local unsigned long __yo_stats_recv_would_block = 0;
+unsigned long __yo_io_stats_recv_would_block(void) {
+  return __yo_stats_recv_would_block;
+}
+// Incremented by every kernel harvest: each epoll_wait (__yo_epoll_drive) and
+// each io_uring_enter (__yo_uring_enter_arg). An operation delivered by the
+// FIRST harvest after it was issued found its data already there when it was
+// armed: its inline attempt would have succeeded, and that is what clears a
+// descriptor's recv-parks hint (__YO_RING_FD_RECV_PARKS, the epoll slot's
+// recv_parks). The old rule counted only the loop's BLOCKING waits. A
+// ping-pong's loop never blocks (a task ran every step, so it polls), so
+// every delivery landed "in the epoch it parked in" and cleared the hint:
+// one doomed recv a hop on both backends, 79,998 recvfrom for 40,000
+// receives under epoll
+// (issues/fixed/linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md).
+static _Thread_local uint32_t __yo_io_harvest = 0;
 // ============================================================================
 // Vendored io_uring ring layer (plans/reference/DROP_LIBURING.md Phase 1)
 // ============================================================================
@@ -823,6 +841,7 @@ static int __yo_uring_enter_arg(struct __yo_uring* ring, uint32_t to_submit,
                                 uint32_t min_complete, uint32_t flags,
                                 const void* arg, size_t argsz) {
   __yo_stats_kernel_enters++;
+  __yo_io_harvest++;
   // A probe is a GETEVENTS entry that may not block; a plain submit
   // (flags 0) is not one.
   if ((flags & __YO_IORING_ENTER_GETEVENTS) && min_complete == 0) {
@@ -1227,12 +1246,6 @@ static void __yo_epoll_drop_fd(int fd);
 static void __yo_ring_drop_fd(int32_t fd);
 static bool __yo_ring_untrack_fd(__yo_io_future_t* future, int32_t result);
 static void __yo_timer_teardown(void);
-// Incremented every time the loop BLOCKS in __yo_io_wait. An operation that
-// completes in the epoch it was issued in completed without the loop ever
-// waiting for it — it would have succeeded inline — which is what clears a
-// descriptor's recv-parks hint (__YO_RING_FD_RECV_PARKS, the epoll slot's
-// recv_parks).
-static _Thread_local uint32_t __yo_io_wait_epoch = 0;
 static void __yo_ring_fd_teardown(void);
 static bool __yo_epoll_cancel(__yo_io_future_t* future);
 static void __yo_epoll_drive(bool block, int* count_out);
@@ -1271,6 +1284,8 @@ static bool __yo_watch_needs_polling(void);
 // (every __yo_async_*_start), never at loop start: see __yo_io_loop_start.
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
+  // This thread now has backend state to release when it exits.
+  __yo_async_arm_thread_exit();
 
   // Backend selection happens once per thread, never re-decided: the ring
   // first, the epoll fallback when the ring cannot exist (ENOSYS under
@@ -1497,7 +1512,7 @@ typedef struct __yo_ring_fd_node_t {
   struct __yo_ring_fd_node_t* prev;
   struct __yo_ring_fd_node_t* next;
   int fd;
-  uint32_t epoch;  // __yo_io_wait_epoch when it was issued
+  uint32_t harvest;  // __yo_io_harvest when it was issued
   uint8_t dir;
   bool closed;  // the fd closed under it: its -ECANCELED reports as -EBADF
 } __yo_ring_fd_node_t;
@@ -1574,7 +1589,7 @@ static void __yo_ring_track_fd(__yo_io_future_t* future, int fd, uint8_t dir) {
   }
   node->future = future;
   node->fd = fd;
-  node->epoch = __yo_io_wait_epoch;
+  node->harvest = __yo_io_harvest;
   node->dir = dir;
   node->closed = false;
   node->prev = NULL;
@@ -1585,15 +1600,15 @@ static void __yo_ring_track_fd(__yo_io_future_t* future, int fd, uint8_t dir) {
 }
 
 // Unlink at completion. Returns whether the fd was closed under the
-// operation. A recv that got data in the epoch it was issued in never made
-// the loop wait: the socket is answering inline again, so its recv-parks
-// hint is dropped.
+// operation. A recv delivered by the first harvest after it was issued found
+// its data already there: the socket is answering inline again, so its
+// recv-parks hint is dropped.
 static bool __yo_ring_untrack_fd(__yo_io_future_t* future, int32_t result) {
   __yo_ring_fd_node_t* node = (__yo_ring_fd_node_t*)future->backend_link;
   if (!node) return false;
   future->backend_link = NULL;
   bool closed = node->closed;
-  if (node->dir == 0 && result >= 0 && node->epoch == __yo_io_wait_epoch && !closed) {
+  if (node->dir == 0 && result >= 0 && node->harvest + 1 == __yo_io_harvest && !closed) {
     __yo_ring_fd_slots[node->fd].flags &= (uint8_t)~__YO_RING_FD_RECV_PARKS;
   }
   if (node->prev) {
@@ -1957,7 +1972,7 @@ typedef struct __yo_epoll_pending_t {
   };
   struct __yo_epoll_pending_t* next_waiter;
   struct __yo_epoll_pending_t* prev_waiter;
-  uint32_t epoch;  // __yo_io_wait_epoch when it parked
+  uint32_t harvest;  // __yo_io_harvest when it parked
   // The registration whose FIFO this waiter is on (unlink and cancel are
   // O(1): the future reaches its pending through backend_link).
   struct __yo_epoll_reg_t* reg;
@@ -2027,8 +2042,9 @@ typedef struct {
   bool registered;
   // The last inline recv would have blocked: park the next one directly
   // (the arm reports data that is already there, so nothing is missed) and
-  // save the doomed syscall. Cleared by a recv delivered without the loop
-  // waiting, and when the fd closes. The ring's __YO_RING_FD_RECV_PARKS.
+  // save the doomed syscall. Cleared by a recv delivered by the first
+  // harvest after it parked (__yo_io_harvest), and when the fd closes. The
+  // ring's __YO_RING_FD_RECV_PARKS.
   bool recv_parks;
 } __yo_epoll_slot_t;
 static _Thread_local __yo_epoll_slot_t* __yo_epoll_slots = NULL;
@@ -2152,7 +2168,7 @@ static __yo_epoll_pending_t* __yo_epoll_park(__yo_epoll_op_type op,
   }
   pending->op = op;
   pending->future = future;
-  pending->epoch = __yo_io_wait_epoch;
+  pending->harvest = __yo_io_harvest;
   pending->reg = reg;
   pending->next_waiter = NULL;
   pending->prev_waiter = reg->waiters_tail;
@@ -2262,7 +2278,7 @@ static void __yo_epoll_process_reg(__yo_epoll_reg_t* reg) {
                                  pending->recv.flags | MSG_DONTWAIT));
         if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
           pending->future->result = (r < 0) ? -errno : (int32_t)r;
-          if (r >= 0 && pending->epoch == __yo_io_wait_epoch) {
+          if (r >= 0 && pending->harvest + 1 == __yo_io_harvest) {
             __yo_epoll_slot_t* rs = __yo_epoll_slot(pending->recv.fd);
             if (rs) rs->recv_parks = false;
           }
@@ -2426,6 +2442,7 @@ static void __yo_epoll_drive(bool block, int* count_out) {
   }
   int n;
   __yo_stats_kernel_enters++;
+  __yo_io_harvest++;
   if (timeout_ns == 0) __yo_stats_zero_timeout_enters++;
   do {
     n = __yo_epoll_wait_ns(events, 64, timeout_ns);
@@ -2673,6 +2690,7 @@ static __yo_io_future_t* __yo_epoll_recv_start(int32_t sockfd, void* buf, size_t
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
     }
+    __yo_stats_recv_would_block++;
     __yo_epoll_slot_t* slot = __yo_epoll_slot_grow(sockfd);
     if (slot) slot->recv_parks = true;
   }
@@ -3037,7 +3055,6 @@ static int __yo_io_wait(void) {
     }
     __yo_io_arm_watches();
   }
-  __yo_io_wait_epoch++;
   if (__yo_backend == __YO_BACKEND_EPOLL) {
     // The loop drivers skip their 0-timeout __yo_io_poll in an iteration
     // that blocks here, so the tick is this wait's job too (the ring's reap
@@ -3757,6 +3774,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
     }
+    __yo_stats_recv_would_block++;
     __yo_ring_fd_set_flag(sockfd, __YO_RING_FD_RECV_PARKS);
   }
   
