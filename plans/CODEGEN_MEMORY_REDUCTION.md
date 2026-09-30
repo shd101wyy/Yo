@@ -13,12 +13,15 @@ Status as of 2026-09-30:
   - lazy `HashMap` (§0.4);
   - copy-on-write frame lists (§0.5);
   - emit's C sections with in-place truncation (§0.6);
-  - the code spill (§0.10).
-
+  - the code spill (§0.10);
   - shared `[[name]]` path collections (§0.11).
 
   Together `compile` goes 3,284 → **2,676 MB** on mimalloc (−18.5 %) and
   `check` 971 → ~937 MB, with fewer instructions and byte-identical C (#1041).
+  Re-measured after rebasing onto develop `0de5877fb` (explicit allocators
+  landed in between; same input tree, stage-2, mimalloc): `compile`
+  3,417 → **2,808 MB** (−17.8 %), `check` 1,011 → 966 MB, instructions
+  109.45 G → 108.63 G (−0.75 %, `check src/types/intern.yo`), C identical.
 - **Measured and rejected:** env interning (§0.7) and per-function env
   release (§0.8).
 - **Next:**
