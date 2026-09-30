@@ -16,6 +16,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
+  next_global_expr_id,
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
@@ -28,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -876,10 +877,10 @@ _trial_call_overload_candidate :: (
     ok_out : ArrayList(bool)
   ) -> unit
 )({
-  trial_exn := Exception(throw : ((_err) -> unwind(())));
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
   // polluting the real expr's eval data;
   // an id-preserving clone would overwrite the real ExprInfo entries.
+  clone_lo := next_global_expr_id();
   cloned_args := ArrayList(AstExpr).new();
   (ci : usize) = usize(0);
   while(ci < args.len(), {
@@ -892,12 +893,40 @@ _trial_call_overload_candidate :: (
     );
     ci = (ci + usize(1));
   });
+  cloned_call := clone_expr_fresh_ids(call_expr);
+  clone_hi := next_global_expr_id();
+  _run_overload_trial(fn_val, fn_ty, cloned_call, func_expr, cloned_args, callee_env, ctx, ok_out);
+  // Only the verdict survives the trial: the clones' own metadata is dead
+  // either way (the real call evaluates the originals). Specializations the
+  // trial created have ids past `clone_hi` and stay.
+  purge_executed_clone_metadata(ctx.expr_info_table, cloned_call, clone_lo, clone_hi);
+  (pi : usize) = usize(0);
+  while(pi < cloned_args.len(), {
+    match(cloned_args.get(pi), .Some(a) => purge_executed_clone_metadata(ctx.expr_info_table, a, clone_lo, clone_hi), .None => ());
+    pi = (pi + usize(1));
+  });
+});
+/// The trial itself: a failure unwinds out of THIS function (the handler is
+/// created here), so the caller's purge runs on both outcomes.
+_run_overload_trial :: (
+  fn(
+    fn_val : EvalValue,
+    fn_ty : TypeValue,
+    call_expr : AstExpr,
+    func_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    callee_env : Environment,
+    ctx : EvalContext,
+    ok_out : ArrayList(bool)
+  ) -> unit
+)({
+  trial_exn := Exception(throw : ((_err) -> unwind(())));
   try_to_call_function_with_arguments(
     Option(EvalValue).Some(fn_val),
     fn_ty,
-    clone_expr_fresh_ids(call_expr),
+    call_expr,
     func_expr,
-    cloned_args,
+    args,
     callee_env,
     ctx,
     false,
