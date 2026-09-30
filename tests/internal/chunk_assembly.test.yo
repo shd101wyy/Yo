@@ -1,5 +1,8 @@
 //! Chunked C emission assembly gates (plans/reference/CHUNKED_C_EMISSION.md step 2;
-//! src/codegen/chunk_assembly.yo).
+//! src/codegen/chunk_assembly.yo), and the single-file code spill
+//! (src/emitter.yo, plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): the spilled
+//! code spliced between the declarations and the in-memory code tail is the
+//! C `print()` would have produced.
 //!
 //! `assemble_chunks` takes the emitter's three buffers plus the recorded byte
 //! ranges and produces one shared header + N linkable translation units. Every
@@ -38,6 +41,10 @@
 { assert } :: import("std/assert");
 { ChunkRange } :: import("../../src/codegen/utils/index.yo");
 { assemble_chunks } :: import("../../src/codegen/chunk_assembly.yo");
+{ Emitter } :: import("../../src/emitter.yo");
+{ read_file_sync } :: import("../../src/manifest.yo");
+{ panic } :: import("std/assert");
+{ Exception } :: import("std/error");
 _HEADERS :: "#include <stdio.h>\n";
 _DECLS :: "// decls-marker\ntypedef struct { int x; } T1;\nstatic inline int hdr_static_fn(int a) {\n  return a + 1;\n}\nvoid ext_def_fn(void* p) {\n  ext_marker();\n}\nstatic void proto_only_fn(int a);\n";
 _RUNTIME :: "static void proto_only_fn(int a) {\n  runtime_marker(a);\n}\n";
@@ -232,4 +239,60 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   });
   assert(units_with_alpha == usize(1), `fn_alpha must live in exactly one unit, found ${units_with_alpha.to_string()}`);
   assert(units_with_both == usize(1), "two functions of one module must share a unit under --chunk-by module");
+});
+_spill_read :: (fn(path : String) -> String)(
+  String.from_bytes(read_file_sync(path, Exception(throw : (err -> panic(`reading the spill failed: ${err.to_string()}`)))))
+);
+_spill_emit_function :: (fn(em : Emitter, i : usize) -> unit)({
+  em.emit_declaration_string_line(`static int f${i.to_string()}(void);`);
+  em.emit_string_line(`static int f${i.to_string()}(void) {`);
+  em.emit_string_line(`  return ${i.to_string()};`);
+  em.emit_line("}");
+});
+test("a code spill spliced before the code tail is the unspilled C", {
+  plain := Emitter.new();
+  spilled := Emitter.new();
+  path := String.from(".yo_emitter_spill_test.c.spill");
+  assert(spilled.start_code_spill(path.clone()), "the spill file opens");
+  spilled.code_spill_threshold = usize(1);
+  plain.emit_header_line("#include <stdint.h>");
+  spilled.emit_header_line("#include <stdint.h>");
+  (i : usize) = usize(0);
+  while(i < usize(5), {
+    _spill_emit_function(plain, i);
+    _spill_emit_function(spilled, i);
+    spilled.spill_code_if_large();
+    i = (i + usize(1));
+  });
+  // A tail that is never spilled.
+  plain.emit_line("int tail;");
+  spilled.emit_line("int tail;");
+  spilled.close_code_spill();
+  assert(spilled.code_spilled_bytes > usize(0), "the functions were spilled");
+  parts := spilled.sections();
+  joined := String.new();
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    if(pi == usize(4), {
+      joined.push_string(_spill_read(path.clone()));
+    });
+    match(parts.get(pi), .Some(p) => joined.push_string(p), .None => ());
+    pi = (pi + usize(1));
+  });
+  assert(joined == plain.print(), "spill + sections == print()");
+});
+test("rewrite_code_spill replaces the spilled code and its length", {
+  em := Emitter.new();
+  path := String.from(".yo_emitter_spill_rewrite_test.c.spill");
+  assert(em.start_code_spill(path.clone()), "the spill file opens");
+  em.code_spill_threshold = usize(1);
+  em.emit_line("int a;");
+  em.spill_code_if_large();
+  replacement := String.from("__attribute__((error(\"x\")))\nint a;\n");
+  em.rewrite_code_spill(replacement.as_bytes());
+  em.emit_line("int b;");
+  em.spill_code_if_large();
+  em.close_code_spill();
+  assert(_spill_read(path.clone()) == `${replacement}int b;\n`, "the rewrite, then later spills append after it");
+  assert(em.code_spilled_bytes == (replacement.len() + usize(7)), "the spilled length follows the rewrite");
 });

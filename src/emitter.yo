@@ -245,7 +245,10 @@ Emitter :: ref(
     /// ahead of `code`.
     code_spill_fd : i32,
     code_spill_path : String,
-    code_spilled_bytes : usize
+    code_spilled_bytes : usize,
+    /// Spill once `code` holds this many bytes (`CODE_SPILL_BYTES`; tests
+    /// lower it to spill after every function).
+    code_spill_threshold : usize
   )
 );
 /// The code buffer is spilled once it holds this much (8 MiB).
@@ -262,7 +265,8 @@ impl(
       scope_ref : Option(ArrayList(String)).None,
       code_spill_fd : i32(-1),
       code_spill_path : String.new(),
-      code_spilled_bytes : usize(0)
+      code_spilled_bytes : usize(0),
+      code_spill_threshold : CODE_SPILL_BYTES
     )
   ),
   /// Spill finished code to `path` from now on (truncating it). Returns false
@@ -279,11 +283,11 @@ impl(
     true
   }),
   /// Between functions: write the code buffer to the spill file once it holds
-  /// `CODE_SPILL_BYTES`, then clear it (the capacity stays, bounded by the
+  /// `code_spill_threshold` bytes, then clear it (the capacity stays, bounded by the
   /// threshold). Callers only spill at a function boundary — every in-buffer
   /// offset a function takes (`before`, stub marks) is then still valid.
   spill_code_if_large : (fn(inout(self) : Self) -> unit)(
-    if((self.code_spill_fd >= i32(0)) && (self.code.len() >= CODE_SPILL_BYTES), {
+    if((self.code_spill_fd >= i32(0)) && (self.code.len() >= self.code_spill_threshold), {
       bytes := self.code.as_bytes();
       n := bytes.len();
       base_ptr := bytes.ptr().unwrap();

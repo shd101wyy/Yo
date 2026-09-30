@@ -9,18 +9,20 @@ codegen's own working set.
 Status as of 2026-09-30:
 - **Phase 0's instruments are in** (§0.1–§0.3, §0.6): `--profile` phase
   memory and `profile: mark` lines.
-- **Landed levers** (on `mem/codegen-plan`): lazy `HashMap` (§0.4),
-  copy-on-write frame lists (§0.5), and emit's C sections with in-place
-  truncation (§0.6). Together `compile` goes 3,284 → ~2,982 MB on mimalloc
-  (−9 %) and `check` 971 → 932 MB, with fewer instructions and
-  byte-identical C.
+- **Landed levers** (on `mem/codegen-plan`):
+  - lazy `HashMap` (§0.4);
+  - copy-on-write frame lists (§0.5);
+  - emit's C sections with in-place truncation (§0.6);
+  - the code spill (§0.10).
+
+  Together `compile` goes 3,284 → **2,766 MB** on mimalloc (−16 %) and
+  `check` 971 → 932 MB, with fewer instructions and byte-identical C.
 - **Measured and rejected:** env interning (§0.7) and per-function env
   release (§0.8).
 - **Next:**
-  - re-measure the `fetch_package` state-machine spike (~114 MB) once #1002
-    and #1016 land;
-  - then design env-free codegen (§0.8), the one lever left at the scale of
-    the 2.0 GB target.
+  - §3 lever 6: shared path collections;
+  - after #1002 and #1016 land: Phase 4 Design 1 (the specialization clones)
+    and env-free codegen (§6).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -381,7 +383,7 @@ WSL2 box:
 - `check ./src` 279/279; `check ./std --std-path ./std` 176/176.
 - The fixpoint holds.
 - `gates_fast`: the same 8 failures as the develop-based baseline on the same
-  box, all local-only (`issues/gates-fast-batteries-fail-locally-on-wsl-but-pass-in-ci.md`);
+  box, six LeakSanitizer verdicts CI switches off (`YO_TEST_LEAK_VERDICT=0`, now `gates_fast.sh`'s default too) and six CLI goldens (`issues/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`);
   the corpus is 156/156 golden.
 - The fast suite (`tests` minus `internal` and `cli-cases`), each binary in
   its own worktree: branch 4,440 passed / 161 failed, baseline 4,438 / 163.
@@ -389,6 +391,49 @@ WSL2 box:
   baseline failures are the timing-sensitive `spawn_blocking` tests).
   - Running two suites in ONE checkout collides on batch file names:
     `issues/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`.
+
+### 0.10 Landed lever: the code spill (§3 lever 3, 2026-09-30)
+
+Function bodies no longer accumulate in memory.
+- **`Emitter.start_code_spill(path)`:** `compile_module` opens
+  `<output>.yo-code-spill` unless in chunk mode, whose units are cut from
+  byte ranges into the buffer.
+- **`spill_code_if_large()`:** after every emitted function, once `code`
+  holds `code_spill_threshold` bytes (8 MiB), it is written to the file
+  (`write_sync`) and cleared, keeping its capacity.
+- **Why a function boundary:** every in-buffer offset a function takes
+  (`before` in `_emit_capture_drop_lines`, FTT stub marks) is still valid
+  there.
+- **`_insert_attr_before_first_decl`:** also searches the spilled part and
+  rewrites it on a hit (`rewrite_code_spill`, rare).
+- **`main.yo`:** writes headers, declarations, the spill copied in 4 MiB
+  pieces (`_copy_file_into`), then the in-memory tail. `--emit-c` reads the
+  spill whole.
+
+Tests: `tests/internal/chunk_assembly.test.yo`, "a code spill spliced before
+the code tail is the unspilled C" and "rewrite_code_spill replaces the
+spilled code and its length".
+
+Mimalloc stage-2s, same tree, no `--emit-c`, C byte-identical:
+
+| | before | spill |
+| --- | --- | --- |
+| end of emit | 2,803 MB | 2,696 MB |
+| peak across deferred async blocks | 2,917 MB | 2,696 MB |
+| max RSS | 2,987 MB | **2,766 MB (−221, −7.4 %)** |
+
+The `fetch_package` transient of §0.7 is gone with it: that block's working
+memory had been sized by the ~117 MB code buffer. A first version read the
+spill back whole at write time and peaked at 2,999 MB, which is why the copy
+is chunked.
+
+**Measured next: `ExprInfo.path_collection`.** The census puts 710 K
+`ArrayList(ArrayList(String))` (44 MB) and 775 K `ArrayList(String)`
+(47 MB), plus their strings, in the borrow checker's access paths. Only
+**185,186 distinct contents** exist among them (`YO_SPEC_REPORT` scratch
+count, 2026-09-30), about 3 of every 4 a duplicate. Sharing them needs
+`expr_info_paths_for_write` to copy when shared (today it copies only the
+empty sentinel), the same shape as §0.5. That is §3 lever 6.
 
 ## 1. Rules carried over from the evaluator campaign
 
@@ -479,6 +524,11 @@ Phase 0 measures it.
    finished units could be streamed to disk.
 4. **Stop retaining trial-born specializations in the specialization
    cache** (the 8 GB plan's residual).
+6. **Share equal path collections (§0.10: 185 K distinct among ~710 K).**
+   `expr_info_paths_for_write` copies while the collection is shared, and
+   equal collections are interned when they are recorded. Measure the RSS,
+   not only the census: §0.7 showed that memory freed after evaluation has
+   peaked comes back only partly.
 5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
    1.43 M cloned nodes are all retained there. It is parked on
    `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
