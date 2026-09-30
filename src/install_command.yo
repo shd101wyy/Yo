@@ -454,14 +454,11 @@ run_remove :: (
     (removed_from : String) = String.new();
     match(
       remove_entry(text.clone(), String.from("dependencies"), name.clone()),
-      .Ok(r) => match(
-        r,
-        .Some(t) => {
-          edited = t;
-          removed_from = String.from("dependencies");
-        },
-        .None => ()
-      ),
+      .Ok(.Some(t)) => {
+        edited = t;
+        removed_from = String.from("dependencies");
+      },
+      .Ok(.None) => (),
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
       }
@@ -469,14 +466,11 @@ run_remove :: (
     if(removed_from.len() == usize(0), {
       match(
         remove_entry(text.clone(), String.from("dev-dependencies"), name.clone()),
-        .Ok(r) => match(
-          r,
-          .Some(t) => {
-            edited = t;
-            removed_from = String.from("dev-dependencies");
-          },
-          .None => ()
-        ),
+        .Ok(.Some(t)) => {
+          edited = t;
+          removed_from = String.from("dev-dependencies");
+        },
+        .Ok(.None) => (),
         .Err(msg) => {
           e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
         }

@@ -79,24 +79,6 @@ get_adopted_extern_c_type :: (fn(t : TypeValue) -> Option(AdoptedExternCType))(
   )
 );
 // ---------------------------------------------------------------------------
-// Resolved-concrete bridge indirection (reads a SomeT's resolved concrete
-// type). guards.yo is low-level and cannot import
-// expr_info.yo's `lookup_some_resolved_concrete` (would cycle), so the lookup is
-// injected at codegen init via `set_lookup_some_resolved_concrete` — the same
-// indirection pattern as `set_collect_type_fn` in codegen/functions/collection.yo.
-// When unset (e.g. during evaluation, before codegen) it reports "no concrete",
-// preserving prior behavior.
-// ---------------------------------------------------------------------------
-LookupSomeResolvedConcreteFn :: (fn(some_id : String) -> Option(TypeValue));
-(g_lookup_some_resolved_concrete : Option(LookupSomeResolvedConcreteFn)) = Option(LookupSomeResolvedConcreteFn).None;
-set_lookup_some_resolved_concrete :: (fn(f : LookupSomeResolvedConcreteFn) -> unit)({
-  g_lookup_some_resolved_concrete = Option(LookupSomeResolvedConcreteFn).Some(f);
-  ()
-});
-_some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
-  match(g_lookup_some_resolved_concrete, .Some(f) => f(some_id).is_some(), .None => false)
-);
-// ---------------------------------------------------------------------------
 // Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
 // here. These are one-line wrappers around a
 // `match` on the TypeValue variant, used pervasively by callers that want a
@@ -643,12 +625,14 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                .SomeT(id : sid, name : _) => {
+                .SomeT({ resolution : hg_res }) => {
                   // Future-implementing SomeT params are exempt:
                   // they
                   // lower to the future-trait struct pointer, so the
-                  // unspecialized form IS valid C.
-                  if(!_some_type_implements_future(pt) && !_some_param_has_resolved_concrete(sid), {
+                  // unspecialized form IS valid C. A resolution travels on
+                  // the value (`SomeT.resolution`, Phase 3 step 7 part 2) —
+                  // the id-keyed registry this once consulted is retired.
+                  if(!_some_type_implements_future(pt) && hg_res.is_none(), {
                     found = true;
                   });
                 },
@@ -880,7 +864,6 @@ export(
   // Function genericity guards
   is_function_type_generic,
   is_function_type_hard_generic,
-  set_lookup_some_resolved_concrete,
   register_type_decl_module,
   type_decl_module,
   AdoptedExternCType,

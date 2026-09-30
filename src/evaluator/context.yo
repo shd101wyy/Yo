@@ -522,6 +522,10 @@ TypeCallResult :: ref(
     values : ArrayList(Option(EvalValue)),
     path_collection : PathCollection,
     runtime_arg_exprs_in_order : ArrayList(AstExpr),
+    /// Each field's argument type as checked (`.None` for a field filled by
+    /// its default): the struct arm instantiates the constructed type over
+    /// the closure identities passed to `Impl(Fn)`-typed fields.
+    arg_types : ArrayList(Option(TypeValue)),
     caller_env : Environment
   )
 );
@@ -1732,11 +1736,8 @@ fn_ctx_returns_comptime :: (fn(ctx : EvalContext) -> bool)(
       fc.kind,
       .FunctionBody => match(
         fc.func_type,
-        .Some(ft) => match(
-          ft,
-          .Func({ meta : fm }) => fm.*.result_is_comptime_only,
-          _ => false
-        ),
+        .Some(.Func({ meta : fm })) => fm.*.result_is_comptime_only,
+        .Some(_) => false,
         .None => false
       ),
       _ => false
@@ -3044,11 +3045,8 @@ create_function_body_evaluation_context :: (
       block.kind,
       .FunctionBody => match(
         block.func_type,
-        .Some(ft) => match(
-          ft,
-          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
-          _ => Option(TypeValue).None
-        ),
+        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
       _ => Option(TypeValue).Some(t_unit())

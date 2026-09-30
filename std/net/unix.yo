@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_unix :: import("../sys/unix");
+{ MSG_NOSIGNAL } :: import("../sys/socket");
 IoTraits :: import("../io");
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -192,7 +193,7 @@ impl(
   write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, buf, size, i32(0)), e.io);
+      r := e.io.await(IO_unix.send(fd, buf, size, MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -202,7 +203,7 @@ impl(
     s := String.from(data);
     s_bytes := s.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
+      r := e.io.await(IO_unix.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -211,7 +212,7 @@ impl(
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
+      r := e.io.await(IO_unix.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -219,7 +220,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
+      r := e.io.await(IO_unix.send(fd, data.ptr().unwrap(), data.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),

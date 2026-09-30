@@ -55,6 +55,7 @@ pragma(Pragma.AllowUnsafe);
 { gadt_branch_reachable } :: import("../../pattern.yo");
 { get_gadt_variant_args } :: import("../types/gadt_registry.yo");
 { Exception } :: import("std/error");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { find_methods_from_generic_impls, MethodCandidate, get_base_trait_key }
 :: import("../values/impl.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, get_assoc_type_entries }
@@ -616,14 +617,14 @@ evaluate_property_access :: (
   if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
     pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
     if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
-      exn.throw(
-        dyn(
-          format_error_message_with_help(
-            ast_expr_token(property_expr),
-            `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
-            Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
-          )
-        )
+      raise_flow_violation(
+        format_error_message_with_help(
+          ast_expr_token(property_expr),
+          `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+          Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+        ),
+        ctx,
+        exn
       );
     });
   });
@@ -763,11 +764,8 @@ Raw pointer operations may dereference invalid memory.`
   if(is_type_value(obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
-      .Some(v) => match(
-        v,
-        .TypeVal(ty_box) => ty_box,
-        _ => t_unit()
-      ),
+      .Some(.TypeVal(ty_box)) => ty_box,
+      .Some(_) => t_unit(),
       .None => t_unit()
     );
     // --- TypeVal + primitive (Int/Float/Usize/Isize/Bool/C-types) --------
@@ -833,14 +831,14 @@ Raw pointer operations may dereference invalid memory.`
         is_class1_panic_method_name(pr_prop_name.clone()) &&
           is_class1_panic_receiver_type(type_val_inner) &&
             !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
-        exn.throw(
-          dyn(
-            format_error_message_with_help(
-              ast_expr_token(property_expr),
-              `\`${pr_prop_name}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
-              Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
-            )
-          )
+        raise_flow_violation(
+          format_error_message_with_help(
+            ast_expr_token(property_expr),
+            `\`${pr_prop_name}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+            Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+          ),
+          ctx,
+          exn
         );
       });
       generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
@@ -907,14 +905,14 @@ Raw pointer operations may dereference invalid memory.`
         is_class1_panic_method_name(ast_expr_token(property_expr).value) &&
           is_class1_panic_receiver_type(type_val_inner) &&
             !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
-        exn.throw(
-          dyn(
-            format_error_message_with_help(
-              ast_expr_token(property_expr),
-              `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
-              Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
-            )
-          )
+        raise_flow_violation(
+          format_error_message_with_help(
+            ast_expr_token(property_expr),
+            `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+            Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+          ),
+          ctx,
+          exn
         );
       });
       if(!ast_expr_is_atom(property_expr), {
@@ -1447,15 +1445,12 @@ Raw pointer operations may dereference invalid memory.`
                       st_env_vars.get(st_env_vars.len() - usize(1)),
                       .Some(st_ev) => match(
                         st_ev.value.get(usize(0)),
-                        .Some(st_evv) => match(
-                          st_evv,
-                          .TypeVal(st_evt) => {
-                            if(is_some_type(st_evt), {
-                              st_env_bound = Option(TypeValue).Some(st_evt);
-                            });
-                          },
-                          _ => ()
-                        ),
+                        .Some(.TypeVal(st_evt)) => {
+                          if(is_some_type(st_evt), {
+                            st_env_bound = Option(TypeValue).Some(st_evt);
+                          });
+                        },
+                        .Some(_) => (),
                         .None => ()
                       ),
                       .None => ()

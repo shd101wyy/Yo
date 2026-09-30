@@ -114,11 +114,8 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                         true => match(
                           inner_args.get(usize(1)),
                           .None => false,
-                          .Some(ime) => match(
-                            ime,
-                            .FnCall(_, _, _, _, _) => false,
-                            .Atom(_, itok) => (itok.value == obj_name)
-                          )
+                          .Some(.FnCall(_, _, _, _, _)) => false,
+                          .Some(.Atom(_, itok)) => (itok.value == obj_name)
                         )
                       )
                     )
@@ -131,11 +128,8 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                 true => match(
                   dot_args.get(usize(1)),
                   .None => false,
-                  .Some(me) => match(
-                    me,
-                    .FnCall(_, _, _, _, _) => false,
-                    .Atom(_, tok) => (tok.value == method_name)
-                  )
+                  .Some(.FnCall(_, _, _, _, _)) => false,
+                  .Some(.Atom(_, tok)) => (tok.value == method_name)
                 )
               )
             }
@@ -208,11 +202,8 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
             true => match(
               dot_args.get(usize(1)),
               .None => false,
-              .Some(me) => match(
-                me,
-                .FnCall(_, _, _, _, _) => false,
-                .Atom(_, tok) => (tok.value == "await")
-              )
+              .Some(.FnCall(_, _, _, _, _)) => false,
+              .Some(.Atom(_, tok)) => (tok.value == "await")
             )
           )
         )
@@ -663,7 +654,7 @@ get_local_variables_from_body :: (
 /// clone), so the codegen cannot reach it via ExprInfo. The closure's `func_id`,
 /// however, IS what codegen resolves (via the closure value's FuncVal), so the
 /// analysis is side-tabled by func_id — the same eval→codegen bridge pattern as
-/// `g_some_resolved_concrete`. Set in `evaluate_anonymous_function_implementation`
+/// `g_method_callee_values`. Set in `evaluate_anonymous_function_implementation`
 /// for marked io.async closures with awaits; read by the async dispatch +
 /// `generate_async_block` + `preregister_async_blocks_in_expr`.
 (g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();

@@ -8123,8 +8123,9 @@ run_explain :: (
   );
 });
 _subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
-  cond(
-    (subcmd == "compile") => Option(String).Some(
+  match(
+    subcmd,
+    "compile" => Option(String).Some(
       tr(
         `Usage: yo compile <file.yo> [options]
 
@@ -8231,7 +8232,7 @@ Examples:
   $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`
       )
     ),
-    (subcmd == "build") => Option(String).Some(
+    "build" => Option(String).Some(
       tr(
         `Usage: yo build [steps...] [options]
 
@@ -8297,7 +8298,7 @@ Examples:
   $ yo build -Dstrip=true   传递构建选项`
       )
     ),
-    (subcmd == "test") => Option(String).Some(
+    "test" => Option(String).Some(
       tr(
         `Usage: yo test [path] [options]
 
@@ -8388,7 +8389,7 @@ Examples:
   $ yo test ./tests/fs --json`
       )
     ),
-    (subcmd == "fix") => Option(String).Some(
+    "fix" => Option(String).Some(
       tr(
         `Usage: yo fix <file-or-dir> [options]
 
@@ -8424,7 +8425,7 @@ Examples:
   $ yo fix main.yo --dry-run`
       )
     ),
-    (subcmd == "check") => Option(String).Some(
+    "check" => Option(String).Some(
       tr(
         `Usage: yo check <file-or-dir> [options]
 
@@ -8460,7 +8461,7 @@ Examples:
   $ yo check ./std --exclude std/libc`
       )
     ),
-    (subcmd == "verify") => Option(String).Some(
+    "verify" => Option(String).Some(
       tr(
         `Usage: yo verify [path] [options]
 
@@ -8536,7 +8537,7 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
       )
     ),
-    (subcmd == "fmt") => Option(String).Some(
+    "fmt" => Option(String).Some(
       tr(
         `Usage: yo fmt [paths...] [options]
 
@@ -8562,7 +8563,7 @@ Examples:
   $ yo fmt --check ./src ./std ./tests`
       )
     ),
-    (subcmd == "doc") => Option(String).Some(
+    "doc" => Option(String).Some(
       tr(
         `Usage: yo doc [path] [options]
 
@@ -8600,7 +8601,7 @@ Examples:
   $ yo doc ./src/main.yo -o docs --format json`
       )
     ),
-    (subcmd == "init") => Option(String).Some(
+    "init" => Option(String).Some(
       tr(
         `Usage: yo init [dir] [options]
 
@@ -8628,7 +8629,7 @@ Examples:
   $ yo init my-project --name my-project`
       )
     ),
-    (subcmd == "add") => Option(String).Some(
+    "add" => Option(String).Some(
       tr(
         `Usage: yo add <spec> [options]
 
@@ -8686,7 +8687,7 @@ caret 范围（version = "^X.Y.Z"）；没有发布标签的仓库锁定到默�
   $ yo add user/snapshot --dev`
       )
     ),
-    (subcmd == "remove") => Option(String).Some(
+    "remove" => Option(String).Some(
       tr(
         `Usage: yo remove <name> [options]
 
@@ -8708,7 +8709,7 @@ Example:
   $ yo remove raylib_yo`
       )
     ),
-    (subcmd == "install") => Option(String).Some(
+    "install" => Option(String).Some(
       tr(
         `Usage: yo install [options]
 
@@ -8743,7 +8744,7 @@ Example:
   $ yo install`
       )
     ),
-    (subcmd == "update") => Option(String).Some(
+    "update" => Option(String).Some(
       tr(
         `Usage: yo update [name...] [options]
 
@@ -8778,7 +8779,7 @@ Examples:
   $ yo update --latest`
       )
     ),
-    (subcmd == "cache") => Option(String).Some(
+    "cache" => Option(String).Some(
       tr(
         `Usage: yo cache <action>
 
@@ -8810,7 +8811,7 @@ Examples:
   $ yo cache gc`
       )
     ),
-    (subcmd == "version") => Option(String).Some(
+    "version" => Option(String).Some(
       tr(
         `Usage: yo version [action] [options]
 
@@ -8862,7 +8863,7 @@ Examples:
   $ yo version clean 0.2.14`
       )
     ),
-    (subcmd == "effects") => Option(String).Some(
+    "effects" => Option(String).Some(
       tr(
         `Usage: yo effects <file-or-dir> [options]
 
@@ -8904,7 +8905,7 @@ ResumableException(T)）时为 'ctl'；prelude 的 Io 为 'io'；效果行隐式
   $ yo effects main.yo --json`
       )
     ),
-    (subcmd == "explain") => Option(String).Some(
+    "explain" => Option(String).Some(
       tr(
         `Usage: yo explain <CODE> [options]
 
@@ -8939,7 +8940,7 @@ Examples:
   $ yo explain --list`
       )
     ),
-    (subcmd == "lsp") => Option(String).Some(
+    "lsp" => Option(String).Some(
       tr(
         `Usage: yo lsp
 
@@ -8953,7 +8954,7 @@ completion). Used by editor clients such as the VS Code extension.`,
 客户端使用。`
       )
     ),
-    (subcmd == "unsafe-report") => Option(String).Some(
+    "unsafe-report" => Option(String).Some(
       tr(
         `Usage: yo unsafe-report [path] [options]
 
@@ -8975,7 +8976,7 @@ Example:
   $ yo unsafe-report ./std`
       )
     ),
-    (subcmd == "public-safe-report") => Option(String).Some(
+    "public-safe-report" => Option(String).Some(
       tr(
         `Usage: yo public-safe-report [path] [options]
 
@@ -8998,7 +8999,7 @@ Example:
   $ yo public-safe-report ./std`
       )
     ),
-    (subcmd == "skills") => Option(String).Some(
+    "skills" => Option(String).Some(
       tr(
         `Usage: yo skills <action>
 
@@ -9028,7 +9029,7 @@ install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 a
   $ yo skills install       在当前项目中安装技能`
       )
     ),
-    (subcmd == "context") => Option(String).Some(
+    "context" => Option(String).Some(
       tr(
         `Usage: yo context [<module> [<name>] | <name>] [options]
 
@@ -9106,7 +9107,7 @@ Examples:
   $ yo context --deps --list --format json`
       )
     ),
-    true => Option(String).None
+    _ => Option(String).None
   )
 );
 main :: (fn(io : Io) -> unit)({
@@ -9425,7 +9426,10 @@ main :: (fn(io : Io) -> unit)({
     run_check(argv, io, exn);
   }, if(subcmd == "verify", {
     set_owner_logs_enabled(false);
-    set_codegen_tables_enabled(false);
+    // The verifier's match walk reads the compiled Pattern IR
+    // (`lookup_match_arms`) — the one codegen-side table verify needs, so
+    // the tables stay ON here (unlike check/lsp/doc). Nothing invalidates
+    // in a one-shot run, so no owner log is required.
     run_verify_cmd(argv, io, exn);
   }, if(subcmd == "init", {
     run_init(argv, io, exn);

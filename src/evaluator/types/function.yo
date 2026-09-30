@@ -36,7 +36,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -59,7 +59,7 @@ import("std/fmt");
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, substitute, Substitution } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
@@ -2126,21 +2126,18 @@ validate_concrete_type_constraints :: (
     if(is_type_value(info.value), {
       tv := match(
         info.value,
-        .Some(ev) => match(
-          ev,
-          .TypeVal(b) => b,
-          _ => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(t_expr),
-                  String.from("Expected trait type for right-hand side of where clause constraint.")
-                )
+        .Some(.TypeVal(b)) => b,
+        .Some(_) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(t_expr),
+                String.from("Expected trait type for right-hand side of where clause constraint.")
               )
-            );
-            return(());
-          }
-        ),
+            )
+          );
+          return(());
+        },
         .None => {
           exn.throw(
             dyn(
@@ -4395,11 +4392,8 @@ evaluate_function_type :: (
           ct_vars.get(ct_vars.len() - usize(1)),
           .Some(ct_var) => match(
             ct_var.value.get(usize(0)),
-            .Some(cv) => match(
-              cv,
-              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
-              _ => ()
-            ),
+            .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -4904,13 +4898,10 @@ _resolve_some_types_deep :: (
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get(rsd_i),
-              .Some(rsd_rt) => match(
-                rsd_rt,
-                .FutureTraitT(base_name : _) => {
-                  rsd_fut_poisoned = true;
-                },
-                _ => ()
-              ),
+              .Some(.FutureTraitT(base_name : _)) => {
+                rsd_fut_poisoned = true;
+              },
+              .Some(_) => (),
               .None => ()
             );
             rsd_i = (rsd_i + usize(1));
@@ -4945,30 +4936,19 @@ _resolve_some_types_deep :: (
     while(nti < nested.len(), {
       nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
-      if(is_some_type(nres), {
-        // Only fall back to the global table when the env lookup
-        // returned a FRESH SomeType (from get_value_of_some_type_from_env's
-        // self-bound/def-frame gating). Skip the fallback for "E" (effect
-        // param) — the global table is poisoned by prior IoExn registrations
-        // and would resolve E to IoExn even for single-effect io.async calls.
-        _skip_fallback := match(
-          nst,
-          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == "E"),
-          _ => false
+      if(_env_rebound_to_another_some(nst, nres), {
+        // The env bound the slot to ANOTHER SomeType (a per-spec rebuild or
+        // a per-call output): read the resolution that VALUE carries. The
+        // old "skip E" guard existed only because the id-keyed registry was
+        // poisoned by prior IoExn registrations; a value's own resolution
+        // cannot be.
+        match(
+          some_resolution(nres),
+          .Some(c) => {
+            nres = c;
+          },
+          .None => ()
         );
-        if(!_skip_fallback, {
-          match(
-            nres,
-            .SomeT({ id : nrsid }) => match(
-              lookup_some_resolved_concrete(nrsid),
-              .Some(c) => {
-                nres = c;
-              },
-              .None => ()
-            ),
-            _ => ()
-          );
-        });
       });
       if(!is_some_type(nres), {
         match(
@@ -5001,17 +4981,13 @@ _resolve_some_types_deep :: (
     // return type concretize `T` to the spawned future's actual output so the
     // `handle.await` generic-impl match can bind it. See
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
-    if(is_some_type(resolved), {
+    if(_env_rebound_to_another_some(st, resolved), {
       match(
-        resolved,
-        .SomeT({ id : rsid }) => match(
-          lookup_some_resolved_concrete(rsid),
-          .Some(c) => {
-            resolved = c;
-          },
-          .None => ()
-        ),
-        _ => ()
+        some_resolution(resolved),
+        .Some(c) => {
+          resolved = c;
+        },
+        .None => ()
       );
     });
     // A closure identity is its capture struct: `*(T)` with
@@ -5037,6 +5013,23 @@ _resolve_some_types_deep :: (
     true => ty
   )
 });
+/// Did the env resolve the slot `st` to a DIFFERENT SomeType (`r`)? Only then
+/// is `r`'s own resolution a binding learned for this call or specialization:
+/// since Phase 3 step 7 part 2 those travel on the per-spec rebuild the env
+/// binds. A slot the env leaves as itself keeps its declared form; its own
+/// resolution is part of its definition, not a binding. Adopting it anyway
+/// rewrote `Impl(Concrete(__yo_io_future_t), Future(i32))` (std/sys/future.yo's
+/// `IoFuture`) to the extern type inside `Park`'s field, and the substitution
+/// is keyed by (name, level), so the rewrite reached every `Impl` wrapper at
+/// that level. `Park` then had two C structs, one per field spelling
+/// (issues/fixed/p37-registry-retirement-blocked-by-codegen-readers.md).
+_env_rebound_to_another_some :: (fn(st : TypeValue, r : TypeValue) -> bool)(
+  match(
+    r,
+    .SomeT({ id : r_id }) => match(st, .SomeT({ id : st_id }) => (r_id != st_id), _ => true),
+    _ => false
+  )
+);
 /// Re-evaluate (resolve) a function parameter's type at call site.
 ///
 /// Resolves any generic type variables that have been bound since the function
@@ -5160,13 +5153,11 @@ _collect_type_arg_somes :: (
     _ => ()
   )
 );
-/// Resolve those type-argument SomeTs through the SAME three channels
-/// `_resolve_some_types_deep` already uses at this very site (env by name →
-/// the SomeT's own `resolution` → the id-keyed
-/// `lookup_some_resolved_concrete` registry). The registry channel is REQUIRED:
-/// the measured record for this call (issues/retired/yo-self-hollow-root-cause-map.md
-/// "A resolved via the registry, B needed the env fallback") says `A` is
-/// reachable only there. It is a RESOLUTION channel, exactly as
+/// Resolve those type-argument SomeTs through the SAME two channels
+/// `_resolve_some_types_deep` uses at this very site (env by name → the
+/// SomeT's own `resolution`; the retired id-keyed registry's channel is now
+/// the value's resolution, since Phase 3 step 7 part 2 moved every writer
+/// onto the value). It is a RESOLUTION channel, exactly as
 /// `_resolve_some_types_deep` uses it — NOT a memo-COMPARISON channel, which is
 /// what F-era attempt 4 did inside `_ctfe_args_equal` and what the recorded
 /// verdict forbids.
@@ -5185,6 +5176,13 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
       targ_somes.get(tas_i),
       .Some(tas_st) => {
         (tas_r : TypeValue) = get_value_of_some_type_from_env(env, tas_st);
+        // The env binds by NAME, so what it answers substitutes by name. A
+        // resolution read off the slot's OWN value belongs to that SomeT
+        // alone and substitutes by id: `map`'s `F` and `filter`'s `F` share
+        // one (name, level), and a name-keyed entry for the inner one (nested
+        // in `Self`'s type arguments) rewrote the outer one too, so
+        // `ch.map(f).filter(g)` returned `StreamFilter(_, <f's capture>)`.
+        (tas_own : bool) = false;
         if(is_some_type(tas_r), {
           match(
             tas_st,
@@ -5192,6 +5190,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
               tas_cell,
               .Some(tas_c) => {
                 tas_r = tas_c;
+                tas_own = true;
               },
               .None => ()
             ),
@@ -5200,22 +5199,26 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
         });
         if(is_some_type(tas_r), {
           match(
-            tas_r,
-            .SomeT({ id : tas_rid }) => match(
-              lookup_some_resolved_concrete(tas_rid),
-              .Some(tas_g) => {
-                tas_r = tas_g;
-              },
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(tas_r),
+            .Some(tas_g) => {
+              // The env left the slot as itself: this is its own resolution.
+              if(!(_env_rebound_to_another_some(tas_st, tas_r)), {
+                tas_own = true;
+              });
+              tas_r = tas_g;
+            },
+            .None => ()
           );
         });
         if(!is_some_type(tas_r), {
           match(
             tas_st,
-            .SomeT(_, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
-              subst_add(tas_s, tas_name, tas_lvl, tas_r);
+            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
+              if(tas_own && (tas_id.len() > usize(0)), {
+                subst_adopt_own_resolution(tas_s, tas_id);
+              }, {
+                subst_add(tas_s, tas_name, tas_lvl, tas_r);
+              });
               tas_bound_any = true;
             },
             _ => ()
