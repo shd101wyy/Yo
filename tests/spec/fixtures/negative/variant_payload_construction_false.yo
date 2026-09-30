@@ -1,0 +1,13 @@
+// The false twins of valid/variant_payload_construction.yo: each claims the
+// wrong arm, and each must refute (a vacuous encoding would prove them).
+pragma(Pragma.Verify);
+Color :: enum(Red, Green(v : i32));
+
+payload_read_wrong :: (fn(ensures(r == i32(8))) -> (r : i32))({
+  (c : Color) = .Green(i32(7));
+  match(c, .Red => i32(0), .Green(v) => v)
+});
+arm_wrong :: (fn(b : bool, ensures(r == i32(1))) -> (r : i32))({
+  (c : Color) = cond(b => Color.Green(i32(7)), true => Color.Red);
+  match(c, .Red => i32(0), .Green(_) => i32(1))
+});
