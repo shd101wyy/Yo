@@ -53,9 +53,11 @@ Status as of 2026-09-30:
     call. Most of those clones are transient trial, CTFE and where-clause
     clones. Only ~391 K were retained specialization bodies, so the lever is
     small and costs speed.
-- **Next: scope-exit env records (§6, "Its ceiling, measured": −671 MB with
-  no records).** It is the one lever left that is large enough for the
-  2.0 GB target. It starts with the evaluator-reader detector.
+- **Next: scope-exit env records (§6, "Its ceiling, measured").** Releasing
+  at the outermost function body measures −595 MB (2,700 → 2,105 MB) with
+  the evaluator's re-readers traced. The records can be small: an atom's is
+  its `source_variable` in 97.7 % of cases. It is the one lever left that is
+  large enough for the 2.0 GB target. Implementation plan: §6.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -936,6 +938,46 @@ The design this points to:
   bodies, which the prototype could have silently changed.
 - Then the steps above: name enumeration per ExprInfo (§6 step 1's classes),
   the 15 hard rows, the ~112 sites, `mutation_summary.yo`.
+
+**Readers, records and their cost, measured (2026-10-01, same branch).**
+- **Evaluation-time readers of released envs.** A detector (`husk_read` in
+  the main `env.yo` readers and in `expr_info_adopt_env`) counted 30,033
+  lookups and 16,933 adoptions when releasing at every function body's exit.
+  gdb backtraces at sampled hits named two sources:
+  - capture analysis re-walks a nested closure while its enclosing function
+    is still being evaluated;
+  - CTFE (`comptime_fn.yo`) adopts its body's root env right after
+    evaluating it.
+- **Release at the OUTERMOST function body only** (depth tracked; restored
+  on return and around each module walk, so a throw cannot pin it). That
+  fixes the first source. The detector then counts 7,935 lookups and 820
+  adoptions, all traced to CTFE's adoption and to
+  `mutation_summary.yo`'s non-`Send` reach walk
+  (`function_reaches_non_send_global`, an atom's own name).
+  `compile`: **2,105 MB** max RSS (−595 vs 2,700), end of evaluation
+  1,841 MB.
+- **Naive records cost more than they free.** Building, at release, one
+  fresh list per resolution (atom name, `variable_name`, deferred targets)
+  made 2,266,564 records holding 3,322,755 lists. Max RSS: **2,958 MB**.
+- **Atoms need almost no record.** Of the released ExprInfos with a
+  `source_variable`:
+  - 761,546 resolve, at release, to that same Variable as the last match;
+  - 65 resolve to a different one;
+  - 12,302 find nothing;
+  - 5,929 have more than one match.
+
+  3,174,730 have no `source_variable` (non-atoms).
+
+So the record design is:
+- an atom's codegen resolution IS its `source_variable`, already stored.
+  Only the ~18 K exceptions (different, none, several matches) get an
+  explicit record;
+- non-atoms keep a record only for the names §6 step 1 found:
+  `variable_name`, deferred targets, subtree atoms and temps;
+- the replacement env keeps the function's OUTER frames (module and prelude
+  frames, alive regardless) and drops only its local ones. A name no local
+  frame binds then resolves exactly as today, and records hold local
+  resolutions only.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
