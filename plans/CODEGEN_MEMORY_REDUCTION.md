@@ -40,13 +40,22 @@ Status as of 2026-09-30:
 - **`fetch_package`'s emit transient (§0.7) is gone** since #1018's
   single-pass lowering: the deferred-async-blocks mark moves 2,622 → 2,624 MB.
   Develop `29bf728b4` compiles itself at **2,692 MB** max RSS.
-- **Next:** the levers left all reduce what EVALUATION retains (§5).
-  - Phase 4 Design 1 (the specialization clones, allocation avoided);
-  - resolving env records at scope exit during evaluation (§6, a large
-    refactor);
-  - purging more never-read entries while evaluation runs, as lever 4 did,
-    once a category with a clean evaluation-time test is found (§6's read
-    classification found none among the obvious ones).
+- **Phase 4 Design 1 of the evaluator plan: implemented and rejected
+  (2026-10-01)**, on branch `mem/phase4`. Specializations evaluate the
+  original body under a spec that owns its nodes. `spec_key` keys only that
+  body's ids, so foreign evaluation keeps its keys. About 45 body readers
+  enter the FuncVal's spec.
+  - Retained cloned nodes went 1,501,935 → 1,110,984.
+  - `compile` went 2,688 → 2,672 MB (−16), `check` 918 → 914 MB.
+  - Instructions went up 1.55 % (96.95 G → 98.46 G on
+    `check src/types/intern.yo`): the owned-id probe on every table access.
+  - The plan's "1.43 M cloned nodes" counted every `clone_expr_fresh_ids`
+    call. Most of those clones are transient trial, CTFE and where-clause
+    clones. Only ~391 K were retained specialization bodies, so the lever is
+    small and costs speed.
+- **Next: scope-exit env records (§6, "Its ceiling, measured": −671 MB with
+  no records).** It is the one lever left that is large enough for the
+  2.0 GB target. It starts with the evaluator-reader detector.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -639,10 +648,9 @@ Phase 0 measures it.
 4. **Stop retaining trial-born specializations in the specialization
    cache** (the 8 GB plan's residual). **Landed as the trial-clone purge
    (§0.12)**: the clones were 290 K of the 313 K trial-born entries.
-5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
-   1.43 M cloned nodes are all retained there. It is parked on
-   `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
-   it is the largest lever.
+5. **Phase 4 Design 1 of the evaluator plan**: implemented on `mem/phase4`
+   and rejected. −16 MB for +1.55 % instructions; only ~391 K of the
+   "1.43 M" cloned nodes were retained specialization bodies (status block).
 6. **Share equal path collections (§0.10: 185 K distinct among ~710 K).**
    `expr_info_paths_for_write` copies while the collection is shared, and
    equal collections are interned when they are recorded. Measure the RSS,
@@ -685,13 +693,14 @@ What the campaign learned about reaching 2.0 GB:
   evaluation still allocates.
 
 The candidates, largest first:
-- scope-exit env records (§6), up to a few hundred MB, large and risky;
-- Phase 4 Design 1, ~100–150 MB;
+- scope-exit env records (§6): measured ceiling −671 MB (2,700 → 2,029 MB)
+  before the records' own cost. It is large and risky, and it is the only
+  lever that alone could approach 2.0 GB;
 - further in-evaluation purges.
 
-2.0 GB needs most of them.
+Phase 4 Design 1 was measured and rejected (−16 MB, +1.55 % instructions).
 
-## 6. Design: env-free codegen, for §0.6's 746 MB — measured and REJECTED in its drop-at-emit form (2026-09-30)
+## 6. Design: env-free codegen, for §0.6's 746 MB — REJECTED as a drop at emit (2026-09-30); the scope-exit form measured at −671 MB (2026-10-01)
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -889,9 +898,44 @@ The costs:
 - `mutation_summary.yo` converted;
 - all ~112 sites switched.
 
-The possible win is §0.6's retention minus the records, a few hundred MB.
-It is the largest lever left, and also the largest refactor. It is not
-started.
+The possible win is §0.6's retention minus the records. It is the largest
+lever left, and also the largest refactor.
+
+**Its ceiling, measured (2026-10-01).** A second scratch prototype (branch
+`wip/scope-exit-env-release`, knob `YO_PROTO_SCOPE_HUSK`) works like this:
+- `expr_info_table_set` notes every ExprInfo written;
+- a wrapper on `evaluate_begin_expression` marks function bodies;
+- when a function body's evaluation ends, every ExprInfo written since its
+  mark is pointed at a frameless per-module env. No records are built, so
+  the C is wrong.
+
+Evaluation still completes, and `check` still passes. Same binary, same
+tree (develop `6f5dec5db`), mimalloc:
+
+| | max RSS | end of evaluation | end of collect | end of emit |
+| --- | --- | --- | --- | --- |
+| knob off | 2,700 MB | 2,349 | 2,545 | 2,632 |
+| envs released at function-body exit | **2,029 MB (−671, −25 %)** | 1,767 | 1,907 | 1,977 |
+
+4,042,327 ExprInfos were released. `check` went 925 → 1,058 MB, but that
+cost is the prototype's own tracking list, which never lets go of
+module-level entries. Released during evaluation, the frames die while the
+heap is still growing, and later evaluation reuses the space. That is the
+difference from §6's drop at emit (−36 MB).
+
+The design this points to:
+- **Records hold only a body's LOCAL resolutions.** Module-level frames
+  stay alive regardless (module envs, FuncVal definition envs), so a name
+  that no local frame binds resolves at codegen time through the module env,
+  as today. The prototype's numbers already include keeping those frames.
+- **Records are resolved at the body's exit**, when its local frames are
+  final. That is the state codegen reads today, since frames grow in place.
+- **Before any switch-over, a detector:** under a knob, a husked env panics
+  when the EVALUATOR reads it, not only codegen. Run it on the self-compile
+  and `gates_fast`'s corpus to list the evaluation-time readers of finished
+  bodies, which the prototype could have silently changed.
+- Then the steps above: name enumeration per ExprInfo (§6 step 1's classes),
+  the 15 hard rows, the ~112 sites, `mutation_summary.yo`.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
