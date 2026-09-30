@@ -27,3 +27,25 @@ The future is already reference-counted, so the handle does not need a box of it
 - or a `newtype` over the erased future interface.
 
 This belongs with phase 7 (allocation per await). Regression test: the `spawn` row back at or below 691 instructions, with the statement-level spawn test in `tests/async/sm_protocol.test.yo` still passing.
+
+## Design, and why it waits (2026-09-29, phase 7)
+
+- **The design.** Since #1008 a struct field can hold an `Impl(Future(T, E))`
+  (the erased future interface, upcast at every store). The handle is then a
+  VALUE struct whose one field is the counted future, and the value-struct
+  RC code does the rest:
+  - a dup is the future's `__yo_incr_rc`;
+  - a drop is its `__yo_decr_rc`;
+  - detach on drop is the drop itself, because the running task holds its
+    own reference.
+
+  There is no box and no second header.
+- **Why it waits.** It is the same change as step 2 of
+  `issues/join-handle-ownership-waits-for-the-seed.md`. The seed lowers
+  `io.spawn` and `JoinHandle.await` with its own codegen, which hard-codes
+  today's value handle: `.__future = (void*)…` at the spawn, and a release
+  after reading the result. With a counted field it would release the
+  future twice. So this lands with that seed bump, in the same PR.
+- **Measured today**, with the seed-safe value handle, which has no box and
+  also no ownership: `spawn` is 666 instructions per op, and `spawn_sm` 987
+  on the phase 6 branch.

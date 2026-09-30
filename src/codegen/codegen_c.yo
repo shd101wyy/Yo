@@ -4,16 +4,18 @@
 { ArrayList } :: import("std/collections/array_list");
 { Instant } :: import("std/time/instant");
 { ast_expr_token } :: import("../expr.yo");
-{ profile_record_phase, profile_record_function_census, debug_knob } :: import("../utils.yo");
+{ profile_record_phase, profile_record_function_census, profile_memory_mark, debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { raise_codegen_error, clear_codegen_error } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
+{ ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type } :: import("../types/guards.yo");
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
@@ -245,7 +247,9 @@ emit_dispose_dispatch :: (fn(context : CodeGenContext) -> unit)({
     em.emit_string_line(
       `// Type-tag dispatch for dispose — replaces function pointers
 // WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
-static void __yo_dispose_dispatch(void* ptr) {
+// Returns 1 when it kept the object's memory (a pooled state machine,
+// __yo_sm_give), and the caller must not free it.
+static int __yo_dispose_dispatch(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   switch (header->type_id) {`
     );
@@ -261,7 +265,15 @@ static void __yo_dispose_dispatch(void* ptr) {
             line.push_string(id.to_string());
             line.push_str(": ");
             line.push_string(name.clone());
-            line.push_str("(ptr); return;");
+            match(
+              context.sm_pool_ids.get(name.clone()),
+              .Some(pid) => {
+                line.push_str("(ptr); return __yo_sm_give(");
+                line.push_string(pid.to_string());
+                line.push_str(", ptr);");
+              },
+              .None => line.push_str("(ptr); return 0;")
+            );
             em.emit_string_line(line);
           },
           .None => ()
@@ -271,15 +283,81 @@ static void __yo_dispose_dispatch(void* ptr) {
       i = (i + usize(1));
     });
     em.emit_string_line(
-      `    default: return;
+      `    default: return 0;
   }
 }`
     );
   }, {
-    em.emit_string_line(String.from("static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }"));
+    em.emit_string_line(String.from("static int __yo_dispose_dispatch(void* ptr) { (void)ptr; return 0; }"));
   });
 });
-/// Compile a module value to a C11 source string.
+/// The per-type state-machine pools the async runtime declares
+/// (`__yo_sm_take`, `__yo_sm_give`, `__yo_sm_pools_drain`, runtime_core.yo),
+/// defined once every pooled type has its index. Pooled types are the ones
+/// whose constructor asked for an index: under lightweight RC only, since the
+/// cycle collector frees through its own path.
+emit_sm_pools :: (fn(context : CodeGenContext, uses_async : bool) -> unit)({
+  em := context.emitter;
+  n := context.sm_pool_ids.len();
+  // Without the async runtime there is no thread-exit hook to drain a pool,
+  // so every machine is freed as before.
+  if((n == usize(0)) || !uses_async, {
+    em.emit_string_line(
+      `static inline void* __yo_sm_take(size_t pool, size_t size) { (void)pool; return __yo_rc_alloc(size); }
+static inline int __yo_sm_give(size_t pool, void* p) { (void)pool; (void)p; return 0; }
+static inline void __yo_sm_pools_drain(void) { }`
+    );
+    return();
+  });
+  em.emit_string_line(
+    `static _Thread_local __yo_sm_pool_t __yo_sm_pools[${n.to_string()}];
+static inline void* __yo_sm_take(size_t pool, size_t size) {
+#if __YO_SM_POOLS
+  __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
+  void* p = sp->head;
+  if (p) {
+    sp->head = *(void**)p;
+    sp->count--;
+    return p;
+  }
+#else
+  (void)pool;
+#endif
+  return __yo_rc_alloc(size);
+}
+static inline int __yo_sm_give(size_t pool, void* p) {
+#if __YO_SM_POOLS
+  __yo_sm_pool_t* sp = &__yo_sm_pools[pool];
+  // An explicit allocator's block goes back to its owner (__yo_rc_free).
+  if (((__yo_rc_prefix_t*)p)->ref_count & __YO_RC_TAG) return 0;
+  if (sp->count < __YO_SM_POOL_CAP) {
+    *(void**)p = sp->head;
+    sp->head = p;
+    sp->count++;
+    __yo_async_arm_thread_exit();
+    return 1;
+  }
+#else
+  (void)pool; (void)p;
+#endif
+  return 0;
+}
+static inline void __yo_sm_pools_drain(void) {
+  for (size_t i = 0; i < ${n.to_string()}; i++) {
+    while (__yo_sm_pools[i].head) {
+      void* p = __yo_sm_pools[i].head;
+      __yo_sm_pools[i].head = *(void**)p;
+      __yo_free(p);
+    }
+    __yo_sm_pools[i].count = 0;
+  }
+}`
+  );
+});
+/// Compile a module value to C11 source, returned as its parts in order
+/// (`Emitter.sections`: write or print them one after another). With a
+/// `code_spill_path`, the leading part of the code section is in that file
+/// instead: it belongs between the fourth part and the fifth.
 ///
 /// Pipeline: register the collection/dispatch indirections → build the context →
 /// collect required functions + types → emit C includes → the Future-state enum →
@@ -296,7 +374,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false, (code_spill_path : String) ?= String.new()) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -312,10 +390,6 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // Register the FSM await/cond/match/while emitter indirections.
   register_inline_await_emitter(emit_inline_await);
   register_fused_await_emitter(emit_fused_await);
-  // Inject the resolved-concrete lookup into the low-level type guards so
-  // is_function_type_hard_generic can exclude SomeType params that resolved to a
-  // concrete type.
-  set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
   // The entry module's path decides which top-level exports get plain,
@@ -328,6 +402,12 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // emitted size at assembly time (below), so the range recording runs during
   // emission and the split decision happens with exact bytes.
   base.chunk_mode = ((emit_chunks >= usize(1)) || (chunk_auto_cap >= usize(1)));
+  // Stream finished function bodies to `code_spill_path` (plans/CODEGEN_MEMORY_REDUCTION.md
+  // §3 lever 3). Chunk mode keeps the whole code buffer: its units are
+  // assembled from byte ranges into it.
+  if((code_spill_path.len() > usize(0)) && !base.chunk_mode, {
+    base.emitter.start_code_spill(code_spill_path.clone());
+  });
   base.chunk_by_module = chunk_by_module;
   // Seed the always-needed standard C headers. <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
@@ -358,6 +438,41 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // that boundary: the delta against the final count is the specializations
   // minted DURING emission (no single home module — they constrain Phase 2's
   // naming and Phase 5's TU grouping).
+  // plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3 (probes, off by default).
+  // YO_CODEGEN_KEEP=<file of `[cgkey] N` lines from a YO_CODEGEN_READS run>:
+  // drop every shared-table entry codegen will not read, before it starts. The
+  // upper bound of lever 1: its RSS vs a plain run, with byte-identical C.
+  match(
+    debug_knob(`YO_CODEGEN_KEEP`),
+    .Some(keep_path) => {
+      keep := HashSet(usize).new();
+      keep_text := String.from_bytes(read_file_sync(keep_path, exn));
+      keep_lines := keep_text.split(String.from("\n"));
+      (kli : usize) = usize(0);
+      while(kli < keep_lines.len(), {
+        match(
+          keep_lines.get(kli),
+          .Some(kl) => if(kl.starts_with(String.from("[cgkey] ")), {
+            match(
+              kl.substring(usize(8), kl.len()).parse_u64(),
+              .Some(kv) => {
+                _ki := keep.insert(usize(kv));
+              },
+              .None => ()
+            );
+          }),
+          .None => ()
+        );
+        kli = (kli + usize(1));
+      });
+      eprintln(`[codegen-keep] kept ${keep.len().to_string()} keys, dropped ${expr_info_table_retain_keys(info, keep).to_string()} entries`);
+    },
+    .None => ()
+  );
+  (cg_log_reads : bool) = debug_knob(`YO_CODEGEN_READS`).is_some();
+  if(cg_log_reads, {
+    codegen_read_log_set(true);
+  });
   prof_collect_t0 := Instant.now();
   // First pass: collect functions and types reachable from the module exports.
   collect_required_functions(module_value, base, info, true);
@@ -408,11 +523,15 @@ typedef enum {
     eprintln(`[spec-report] registered_fns=${registered_func_type_count().to_string()} forced_defs=${force_pending_count().to_string()} collected_fns=${base.functions.len().to_string()}`);
   });
   (prof_collect_ns : i64) = prof_collect_t0.elapsed().as_nanos();
+  // Recorded here, not with "emit" below, so its memory sample is taken at the
+  // end of collect.
+  profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: type declarations");
   // Upcast target impls first (they re-key with the rest), then re-key dyn
   // impls to C names (now available), then emit dyn box types.
   register_dyn_upcast_targets(base);
@@ -451,6 +570,7 @@ static Slice_uint8_t_u42_ __yo_args;
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: function declarations");
   // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
   // specialized callee whose body calls a closure (e.g. Thread.spawn →
   // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
@@ -458,20 +578,24 @@ static Slice_uint8_t_u42_ __yo_args;
   // Fourth pass: function bodies (the dispatcher was registered above).
   generate_all_functions(ctx);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: function bodies");
   // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
   // vtables, and RC dup/drop).
   generate_dyn_box_functions(ctx);
   generate_dyn_wrapper_functions(ctx);
   generate_dyn_vtables(ctx);
   generate_dyn_dup_drop(ctx);
+  profile_memory_mark("emit: dyn scaffolding");
   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
   // after all regular + dyn functions to avoid nesting.
   generate_deferred_async_blocks(ctx);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: deferred async blocks");
   // Module-level mutable variable declarations (file-scope statics). Emitted for
   // both executable and library builds so the C symbols exist. Returns the
   // (c_var_name, rhs) list for initialization.
   module_vars := emit_module_level_variable_declarations(ctx);
+  profile_memory_mark("emit: module variables");
   // Thread-local accessors carry their initializers and are needed by library
   // builds too, so they are emitted here rather than inside the (executable-
   // only) main wrapper.
@@ -480,9 +604,12 @@ static Slice_uint8_t_u42_ __yo_args;
   if(!is_library, {
     generate_main_wrapper(ctx, module_vars);
   });
+  profile_memory_mark("emit: thread-locals + main wrapper");
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
+  emit_sm_pools(base, ctx.uses_async);
   raise_codegen_error(exn);
+  profile_memory_mark("emit: dispose dispatch");
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;
   // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
@@ -528,8 +655,25 @@ static Slice_uint8_t_u42_ __yo_args;
   // classification matches the defining module's token path against the
   // std root; a RELATIVE std root ("./std", the cwd fallback) is loosened to
   // a "/std/" segment test because token paths are absolute `file://` URLs.
-  profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   profile_record_phase(String.from("codegen: emit"), prof_emit_t0.elapsed().as_nanos());
+  // YO_CODEGEN_READS: the keys codegen read, one `[cgkey] N` line each, after a
+  // summary line (feed the lines to YO_CODEGEN_KEEP).
+  if(cg_log_reads, {
+    codegen_read_log_set(false);
+    ks := codegen_read_keys();
+    eprintln(`[codegen-reads] table=${info.data.len().to_string()} read=${ks.len().to_string()}`);
+    kit := ks.into_iter();
+    (kgo : bool) = true;
+    while(kgo, {
+      match(
+        kit.next(),
+        .Some(kk) => eprintln(`[cgkey] ${kk.to_string()}`),
+        .None => {
+          kgo = false;
+        }
+      );
+    });
+  });
   (prof_std_key : String) = eval_ctx.std_path.clone();
   if(prof_std_key.starts_with(String.from("./")), {
     prof_std_key = String.from("/std/");
@@ -557,6 +701,7 @@ static Slice_uint8_t_u42_ __yo_args;
     prof_i = (prof_i + usize(1));
   });
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
-  base.emitter.print()
+  base.emitter.close_code_spill();
+  base.emitter.sections()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

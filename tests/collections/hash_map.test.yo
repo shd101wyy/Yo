@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ Arena } :: import("std/arena");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap, MapEntry } :: import("std/collections/hash_map");
 { String } :: import("std/string");
@@ -26,6 +27,65 @@ test("HashMap.with_capacity with small capacity uses default", {
   assert(map.len() == usize(0));
   // Should use DEFAULT_CAPACITY (16)
   assert(map.capacity >= usize(4));
+});
+// ===== Lazy allocation (plans/CODEGEN_MEMORY_REDUCTION.md) =====
+// `new()` allocates no bucket arrays until the first insert: the compiler made
+// one empty map per scope frame, ~270 B each. Every operation on an unallocated
+// map must behave exactly like an empty allocated one.
+test("HashMap.new allocates nothing until the first insert", {
+  map := HashMap(i32, i32).new();
+  assert(map.capacity == usize(0), "new() allocates no buckets");
+  assert(map.get(i32(1)).is_none(), "get on an unallocated map");
+  assert(!map.contains_key(i32(1)), "contains_key on an unallocated map");
+  assert(map.remove(i32(1)).is_none(), "remove on an unallocated map");
+  map.clear();
+  map.retain((_k, _v) -> true);
+  (seen : usize) = usize(0);
+  it := map.iter();
+  while(it.next().is_some(), {
+    seen = (seen + usize(1));
+  });
+  assert(seen == usize(0), "iterating an unallocated map yields nothing");
+  copy := map.clone();
+  assert((copy.len() == usize(0)) && (copy.capacity == usize(0)), "a clone of an unallocated map is unallocated");
+  assert(map.capacity == usize(0), "none of the above allocated");
+  map.insert(i32(7), i32(70));
+  assert(map.capacity == usize(16), "the first insert grows to DEFAULT_CAPACITY");
+  assert(map.get(i32(7)) == Option(i32).Some(i32(70)));
+  entry_map := HashMap(i32, i32).new();
+  assert(entry_map.get_or_insert(i32(3), i32(30)) == i32(30), "entry API on an unallocated map inserts");
+  assert(entry_map.len() == usize(1));
+  keyed := HashMap(i32, i32).with_keys(u64(1), u64(2));
+  assert(keyed.capacity == usize(0), "with_keys is lazy too");
+  keyed.insert(i32(1), i32(2));
+  assert(keyed.get(i32(1)) == Option(i32).Some(i32(2)));
+});
+// Growing from capacity 0 goes through `_resize`'s unallocated branch; the
+// rehash-drop loop in there once leaked one reference per RC entry
+// (issues/fixed/cond-unit-arm-statement-is-dropped.md). Every value inserted
+// across several growths is released exactly once.
+(g_hm_lazy_disposed : i32) = i32(0);
+HmLazyTracked :: ref(struct(tag : i32));
+impl(
+  HmLazyTracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_hm_lazy_disposed = (g_hm_lazy_disposed + i32(1));
+    })
+  )
+);
+test("growing an unallocated map releases every RC value exactly once", {
+  {
+    map := HashMap(i32, HmLazyTracked).new();
+    (i : i32) = i32(0);
+    while(i < i32(40), {
+      map.insert(i, HmLazyTracked(tag : i));
+      i = (i + i32(1));
+    });
+    assert(map.len() == usize(40));
+    assert(g_hm_lazy_disposed == i32(0), "nothing released while the map is live");
+  };
+  assert(g_hm_lazy_disposed == i32(40), "each of the 40 values is released exactly once");
 });
 // ===== Set Tests =====
 test("HashMap.set inserts new key-value pair", {
@@ -624,7 +684,7 @@ test("HashMap.remove of an isolated key leaves no tombstone", {
   map := HashMap(i32, i32).new();
   map.insert(i32(7), i32(1));
   map.remove(i32(7));
-  assert(map.tombstones == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
+  assert(map.tombstones() == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
   assert(map.len() == usize(0));
 });
 test("HashMap insert/remove churn keeps live + tombstones under the load threshold and stays correct", {
@@ -642,7 +702,7 @@ test("HashMap insert/remove churn keeps live + tombstones under the load thresho
     assert(removed.unwrap() == (n * i32(3)), "with its value");
     map.insert(i32(2000) + n, (i32(2000) + n) * i32(3));
     threshold := ((map.capacity * usize(7)) / usize(8));
-    assert((map.len() + map.tombstones) <= threshold, "live + tombstones never exceeds the load threshold");
+    assert((map.len() + map.tombstones()) <= threshold, "live + tombstones never exceeds the load threshold");
   });
   assert(map.len() == usize(2000), "size is unchanged by churn");
   assert(map.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
@@ -754,11 +814,11 @@ test("entry reuses a tombstone rather than lengthening the chain", {
   m.insert(i32(2), i32(20));
   m.insert(i32(3), i32(30));
   m.remove(i32(2));
-  before := m.tombstones;
+  before := m.tombstones();
   cap := m.capacity;
   m.entry(i32(2)).or_insert(i32(22));
   assert(m.get(i32(2)).unwrap() == i32(22), "the key came back");
-  assert(m.tombstones <= before, "reusing the slot did not add a tombstone");
+  assert(m.tombstones() <= before, "reusing the slot did not add a tombstone");
   assert(m.capacity == cap, "and did not force a resize");
   assert(m.len() == usize(3), "with the other two intact");
   assert(m.get(i32(1)).unwrap() == i32(10), "key 1 survived");
@@ -863,4 +923,34 @@ test("HashMap Default is the empty map", {
   assert(m.len() == usize(0), "default map is empty");
   m.insert(`k`, i32(1));
   assert(m.len() == usize(1), "the default map is a usable map");
+});
+// ===== Explicit allocators (plans/EXPLICIT_ALLOCATORS.md P1) =====
+test("HashMap.new_in keeps both tables in the arena through resizes", {
+  arena := Arena.new(usize(1) << usize(20));
+  a := arena.allocator();
+  {
+    m := HashMap(i32, i32).new_in(a);
+    assert(arena.live_blocks() == usize(2), "ctrl and data");
+    i := i32(0);
+    while(runtime(i < i32(500)), {
+      m.insert(i, i * i32(2));
+      i = (i + i32(1));
+    });
+    assert(m.len() == usize(500), "len");
+    assert(m.get(i32(499)).unwrap() == i32(998), "lookup after resizes");
+    assert(m.allocator().unwrap().same(a), "the tables are the arena's");
+    assert(arena.live_blocks() == usize(2), "a resize frees the old tables into the arena");
+    assert(m.tombstones() == usize(0), "tombstones() never reports the tag bit");
+    m.remove(i32(3));
+    assert(m.tombstones() <= usize(1), "and counts real tombstones");
+    c := m.clone();
+    assert(c.allocator().unwrap().same(a), "clone keeps the allocator");
+    assert(c.len() == m.len(), "clone copies the entries");
+  };
+  assert(arena.live_blocks() == usize(0), "dispose released every table");
+});
+test("A default HashMap stays on the global allocator", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(2));
+  assert(m.allocator().is_none(), "global");
 });

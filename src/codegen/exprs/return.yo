@@ -12,7 +12,7 @@
 { Token } :: import("../../token.yo");
 { Variable, Environment, get_variables_from_env, variable_undone_moves } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ lookup_some_resolved_concrete, expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -76,7 +76,7 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : AstExpr, context : Functio
       context.base.get_expr_info(atom),
       .Some(aei) => {
         vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
-        if(vars.len() == usize(0), Option(Variable).None, vars.get(vars.len() - usize(1)))
+        if(vars.len() == usize(0), Option(Variable).None, vars.last())
       },
       .None => Option(Variable).None
     ),
@@ -167,7 +167,7 @@ _variable_moved_before_cleanup_point :: (fn(v : Variable, cleanup_expr : AstExpr
 _resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(Variable), cleanup_token : Token, context : FunctionGenerationContext) -> Option(Variable))(
   match(
     _get_deferred_drop_target_variable(drop_expr, context),
-    .None => if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))),
+    .None => if(variables.len() == usize(0), Option(Variable).None, variables.last()),
     .Some(tv) => {
       n := variables.len();
       (i : usize) = usize(0);
@@ -187,7 +187,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(
         .Some(v) => Option(Variable).Some(v),
         .None => {
           decl_token := match(tv.initialized_at_token, .Some(t) => t, .None => tv.token);
-          if(_tokens_are_comparable(decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))))
+          if(_tokens_are_comparable(decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last()))
         }
       )
     }
@@ -736,7 +736,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             ia_vars := get_variables_from_env(aei2.env, avn.clone());
             if(ia_vars.len() > usize(0), {
               match(
-                ia_vars.get(ia_vars.len() - usize(1)),
+                ia_vars.last(),
                 .Some(iav) => if(iav.is_ref, {
                   is_inout_arg_atom = true;
                 }),
@@ -851,8 +851,8 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               }, {
                 match(
                   at,
-                  .SomeT({ id : aid_t }) => match(
-                    lookup_some_resolved_concrete(aid_t),
+                  .SomeT({ id : _ }) => match(
+                    some_resolution(at),
                     .Some(act) => {
                       sm_output_rt = Option(String).Some(get_type_string(act, context.base));
                     },
@@ -906,7 +906,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             ra_vars := get_variables_from_env(ra_ei.env, ast_expr_token(arg).value);
             if(ra_vars.len() > usize(0), {
               match(
-                ra_vars.get(ra_vars.len() - usize(1)),
+                ra_vars.last(),
                 .Some(rav) => if(rav.is_ref, {
                   arg_is_ref_atom = true;
                 }),
@@ -1104,7 +1104,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
               vars.len() == usize(0),
               Option(HashSet(String)).None,
               match(
-                vars.get(vars.len() - usize(1)),
+                vars.last(),
                 .Some(v) => if(v.is_owning_the_rc_value, {
                   s := HashSet(String).new();
                   s.insert(name);
@@ -1153,11 +1153,8 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       // value's type is concrete (not a SomeT itself).
       declared_ret_unresolved := match(
         context.current_function_type,
-        .Some(cft_dr) => match(
-          cft_dr,
-          .Func({ result : dr_r }) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
-          _ => false
-        ),
+        .Some(.Func({ result : dr_r })) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
+        .Some(_) => false,
         .None => false
       );
       if(declared_ret_unresolved && !is_some_type(ei.ty), {
@@ -1349,6 +1346,12 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   );
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
   if(is_async, {
+    // The body's C locals (phase 6: a local not live across any suspension
+    // has no state-machine field) are released here, as in a plain function;
+    // the abort dispose releases only fields. A field's drop zeroes its slot,
+    // so the dispose does not release it twice.
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None, escaped_result.clone());
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).None, escaped_result.clone());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
     });

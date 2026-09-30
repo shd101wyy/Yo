@@ -8,6 +8,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
+{ Variable } :: import("../../env.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 { fnv1a64 } :: import("../../utils.yo");
 /// The C field
@@ -102,3 +103,26 @@ export(
   register_sm_local_field_name,
   register_sm_captured_names
 );
+/// The state-machine variable a local's reads and writes go through. A local
+/// that shares an owner's RC value (`s := c`) is stored in its owner's slot
+/// when the owner is a local of the same body; an owner from outside the body
+/// (a capture) is not a slot, and the local then has storage of its own.
+sm_storage_id :: (fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String))) -> String)({
+  canon := (fn(id : String, remap : Option(HashMap(String, String))) -> String)(
+    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id)
+  );
+  own := canon(v.id.to_string(), remap);
+  match(
+    v.is_owning_the_same_rc_value_as,
+    .Some(ob) => {
+      oid := canon(ob.*.id.to_string(), remap);
+      match(
+        smv.get(oid.clone()),
+        .Some(ocv) => match(ocv.kind, .Local => oid, .Outer => own),
+        .None => own
+      )
+    },
+    .None => own
+  )
+});
+export(sm_storage_id);

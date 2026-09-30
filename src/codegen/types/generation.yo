@@ -13,7 +13,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -445,6 +445,13 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
             pfields.get(pfi),
             .Some(ft) => if(!is_unit_type(ft), {
               union_has_members = true;
+              // Resolve the payload's type string BEFORE the union opens: the
+              // resolution may fire an on-demand declaration into the same
+              // buffer, and inside the open union it is a nested `typedef`
+              // ("type name does not allow storage class to be specified").
+              // The enum twin of `_prewarm_runtime_field_types`
+              // (issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md).
+              get_type_string(ft, context);
             }),
             .None => ()
           );
@@ -1049,6 +1056,106 @@ typedef struct __yo_ref_header_t {
 typedef __yo_ref_header_t __yo_rc_prefix_t;`
     );
   });
+  // Explicit allocators (plans/EXPLICIT_ALLOCATORS.md §3.4): the top bit of
+  // `ref_count` marks a block placed by an explicit `Allocator`; such a block
+  // carries a 16-byte owner prefix (`std/allocator.yo`'s `_AllocPrefix`, the
+  // same layout) and is released through its owner. Every reader that TESTS
+  // the count masks with __YO_RC_COUNT; writers (`++`, `--`, fetch_add/sub)
+  // keep the bit arithmetically. Emitted beside the header typedefs so every
+  // translation unit sees `__yo_rc_free` before any release site.
+  em.emit_declaration_string_line(
+    `
+#define __YO_RC_TAG 0x80000000u
+#define __YO_RC_COUNT 0x7fffffffu
+#define __YO_ALLOC_PREFIX_SIZE 16
+typedef struct { void* ctx; const void* vtable; } __yo_alloc_prefix_t;
+typedef struct {
+  void* (*alloc)(void* ctx, size_t size);
+  void* (*realloc)(void* ctx, void* ptr, size_t new_size);
+  void (*free)(void* ctx, void* ptr);
+} __yo_alloc_vtable_t;
+_Static_assert(sizeof(__yo_alloc_prefix_t) <= __YO_ALLOC_PREFIX_SIZE, "the owner prefix fits its 16 bytes");
+// Release an RC block to whoever allocated it: the global allocator, or the
+// explicit allocator recorded in its owner prefix.
+static inline void __yo_rc_free(void* ptr) {
+  if (((__yo_rc_prefix_t*)ptr)->ref_count & __YO_RC_TAG) {
+    char* raw = (char*)ptr - __YO_ALLOC_PREFIX_SIZE;
+    const __yo_alloc_prefix_t* pre = (const __yo_alloc_prefix_t*)raw;
+    ((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);
+  } else {
+    __yo_free(ptr);
+  }
+}`
+  );
+  // The allocation scope (plans/EXPLICIT_ALLOCATORS.md §3.5): the allocator
+  // `with_allocator` made current on this thread, `{ctx, NULL}` for the
+  // global one. Only the six user-visible constructor sites consult it
+  // (`__yo_rc_alloc_scoped`); the runtime's own blocks keep `__yo_rc_alloc`.
+  // `__yo_scopes_ever_entered` keeps the thread-local read (a
+  // `_tlv_get_addr` call on Darwin) off every allocation of a program that
+  // never enters a scope.
+  em.emit_declaration_line("typedef __yo_alloc_prefix_t __yo_alloc_scope_t;");
+  if(context.chunk_mode, {
+    em.emit_declaration_line("extern _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
+    em.emit_declaration_line("extern atomic_int __yo_scopes_ever_entered;");
+    context.chunk_globals.push_string(String.from("_Thread_local __yo_alloc_scope_t __yo_current_allocator;\natomic_int __yo_scopes_ever_entered;\n"));
+  }, {
+    em.emit_declaration_line("static _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
+    em.emit_declaration_line("static atomic_int __yo_scopes_ever_entered;");
+  });
+  em.emit_declaration_string_line(
+    `static inline __yo_alloc_scope_t __yo_scope_current(void) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    __yo_alloc_scope_t none = { 0, 0 };
+    return none;
+  }
+  return __yo_current_allocator;
+}
+// 0, or the tag bit for a block \`__yo_rc_alloc_scoped\` placed in \`s\`.
+static inline uint32_t __yo_rc_tag_of(__yo_alloc_scope_t s) { return s.vtable ? __YO_RC_TAG : 0u; }
+// The scope an RC object was allocated in: its owner prefix, or the global one.
+static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
+  if (((__yo_rc_prefix_t*)p)->ref_count & __YO_RC_TAG) {
+    return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);
+  }
+  __yo_alloc_scope_t none = { 0, 0 };
+  return none;
+}
+// A user-visible RC block: from the scope's allocator (with the owner prefix
+// in front, the layout std/allocator.yo's Allocator.alloc writes), or from
+// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
+  if (s.vtable == NULL) return __yo_rc_alloc(size);
+  if (size > SIZE_MAX - __YO_ALLOC_PREFIX_SIZE) __yo_alloc_fail(size);
+  char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, size + __YO_ALLOC_PREFIX_SIZE);
+  if (raw == NULL) __yo_alloc_fail(size);
+  ((__yo_alloc_prefix_t*)raw)->ctx = s.ctx;
+  ((__yo_alloc_prefix_t*)raw)->vtable = s.vtable;
+  void* p = raw + __YO_ALLOC_PREFIX_SIZE;
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
+  __asm__ volatile("" : "+r"(p));  // same tcache barrier as __yo_rc_alloc
+#endif
+  return p;
+}
+// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
+// the scope through them, and the default container constructors ask
+// __yo_scope_vtable whether one is current (NULL: the global allocator).
+static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
+static inline void* __yo_scope_vtable(void) { return (void*)__yo_scope_current().vtable; }
+static inline void __yo_scope_set(void* ctx, void* vtable) {
+  if (vtable) atomic_store_explicit(&__yo_scopes_ever_entered, 1, memory_order_relaxed);
+  __yo_current_allocator.ctx = ctx;
+  __yo_current_allocator.vtable = vtable;
+}`
+  );
+  // std/arena.yo's hook: under --debug-heap every live or abandoned arena is
+  // listed in the exit report (plans/EXPLICIT_ALLOCATORS.md P4).
+  em.emit_declaration_line(
+    cond(
+      context.debug_heap => "static inline bool __yo_debug_heap_on(void) { return true; }",
+      true => "static inline bool __yo_debug_heap_on(void) { return false; }"
+    )
+  );
   // Generic Future + I/O Future struct types.
   em.emit_declaration_string_line(
     `
@@ -1056,21 +1163,71 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
 // sync future, an I/O future, the erased \`Impl(Future)\` interface. The
 // runtime (JoinHandle, abort, waiter registration) reads only this, so it
 // must sit at the same offsets in all of them — \`result\` and everything
-// kind-specific come after it. \`cancel_pending_fn\` is the abort hook: called
-// with the pre-abort state once the future is marked -2, it cancels what the
-// task is suspended on and wakes the future's waiters; NULL means abort only
-// wakes the waiters (__yo_future_abort).
-// plans/ASYNC_STATE_MACHINE_GENERATION.md phase 2;
+// kind-specific come after it. \`vt\` points at the future TYPE's operations
+// (one static table per type, not three pointers per instance): \`resume\`
+// starts or continues it, \`set_effect\` injects one effect handler by its
+// field name, \`bundle_offset\`/\`bundle_size\` say where a whole effect
+// bundle goes (__yo_future_set_bundle; size 0: nowhere), and
+// \`cancel_pending\` is the abort hook, called with the pre-abort state once
+// the future is marked -2 to cancel what the task is suspended on and wake
+// its waiters. A NULL \`vt\` (a raw I/O future) or a NULL operation means
+// there is none (__yo_future_abort only wakes the waiters).
+// plans/ASYNC_STATE_MACHINE_GENERATION.md phases 2 and 6;
 // issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md.
+typedef struct __yo_future_vtable_t {
+  void (*resume)(void*);
+  void (*set_effect)(void*, const char*, void*);
+  void (*cancel_pending)(void*, int);
+  size_t bundle_offset;
+  size_t bundle_size;
+} __yo_future_vtable_t;
 #define __YO_FUTURE_PREFIX \\
   __yo_ref_header_t header; \\
   int state; \\
-  void (*cancel_pending_fn)(void*, int); \\
+  const __yo_future_vtable_t* vt; \\
   void (*continuation_fn)(void*); \\
   void* continuation_sm;
 typedef struct __yo_future_header_t {
   __YO_FUTURE_PREFIX
 } __yo_future_header_t;
+// Inject an effect bundle (\`io.await(f, bundle)\`, \`io.spawn(f, bundle)\`):
+// copy it into the slot the future's type reads it from, with no lookup by
+// name (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 3 item 5). A future
+// with no bundle slot, or no table (a raw I/O future), takes none.
+static inline void __yo_future_set_bundle(void* fut, const void* value) {
+  const __yo_future_vtable_t* vt = ((__yo_future_header_t*)fut)->vt;
+  if (vt && vt->bundle_size) memcpy((char*)fut + vt->bundle_offset, value, vt->bundle_size);
+}
+// Per-type pools of released state machines
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7). A task's memory goes back
+// to its type's pool when its last reference is released, and the next task
+// of that type takes it: a pop and a push instead of malloc and free, which
+// were half of a cold await. A pool is thread-local, like the loop that runs
+// its tasks, holds at most __YO_SM_POOL_CAP blocks, and is drained with the
+// continuation pool below. Off under AddressSanitizer, which has to see every
+// task freed to catch a use after free, and off in a program without the
+// async runtime (a sync future nothing awaits), which has no thread-exit hook
+// to drain them. The pools and these functions are defined at the end of the
+// program, where the number of pooled types is known (emit_sm_pools,
+// codegen_c.yo).
+#define __YO_SM_POOL_CAP 32
+#if defined(__SANITIZE_ADDRESS__)
+#define __YO_SM_POOLS 0
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define __YO_SM_POOLS 0
+#endif
+#endif
+#ifndef __YO_SM_POOLS
+#define __YO_SM_POOLS 1
+#endif
+typedef struct __yo_sm_pool_t {
+  void* head;
+  uint32_t count;
+} __yo_sm_pool_t;
+static void* __yo_sm_take(size_t pool, size_t size);
+static int __yo_sm_give(size_t pool, void* p);
+static void __yo_sm_pools_drain(void);
 
 // Generic I/O Future type for extern "Yo" functions returning Impl Future(T).
 // The same prefix as __yo_future_header_t, spelled out because the loop's
@@ -1078,7 +1235,7 @@ typedef struct __yo_future_header_t {
 typedef struct __yo_io_future_t {
   __yo_ref_header_t header;
   _Atomic int state;
-  void (*cancel_pending_fn)(void*, int);
+  const __yo_future_vtable_t* vt;  // NULL: an I/O operation is cancelled through cancel_fn
   _Atomic(void (*)(void*)) continuation_fn;
   _Atomic(void*) continuation_sm;
   int32_t result;
@@ -1095,7 +1252,7 @@ typedef struct __yo_io_future_t {
   void* backend_link;
 } __yo_io_future_t;
 _Static_assert(offsetof(__yo_io_future_t, state) == offsetof(__yo_future_header_t, state), "future prefix: state");
-_Static_assert(offsetof(__yo_io_future_t, cancel_pending_fn) == offsetof(__yo_future_header_t, cancel_pending_fn), "future prefix: cancel_pending_fn");
+_Static_assert(offsetof(__yo_io_future_t, vt) == offsetof(__yo_future_header_t, vt), "future prefix: vt");
 _Static_assert(offsetof(__yo_io_future_t, continuation_fn) == offsetof(__yo_future_header_t, continuation_fn), "future prefix: continuation_fn");
 _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_future_header_t, continuation_sm), "future prefix: continuation_sm");
 
@@ -1232,21 +1389,17 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     // this edge the capture body comes later → "field has incomplete type").
     is_some_type(ft) => match(
       ft,
-      .SomeT({ id : w_sid, resolution : wrc }) => match(
-        wrc,
+      .SomeT({ id : _ }) => match(
+        some_resolution(ft),
+        // `some_resolution` reads the per-object resolution, then the global
+        // registry exactly like get_type_string's SomeT arm (utils/index.yo):
+        // a closure-param capture field (Impl(Fn) SomeT) is registered there
+        // at closure creation, so without it the emitter prints the capture
+        // struct while the dep walk adds no edge → "field has incomplete
+        // type" when a capture struct embeds another closure's capture struct
+        // by value.
         .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
-        // No per-object resolution: fall back to the GLOBAL registry, exactly
-        // like get_type_string's SomeT arm (utils/index.yo) — a closure-param
-        // capture field (Impl(Fn) SomeT) is registered there
-        // (register_some_resolved_concrete at closure creation), so without
-        // this fallback the emitter prints the capture struct while the dep
-        // walk adds no edge → "field has incomplete type" when a capture
-        // struct embeds another closure's capture struct by value.
-        .None => match(
-          lookup_some_resolved_concrete(w_sid),
-          .Some(grct) => recur(deps_set, grct, self_type_id, guard_nullable, cname_to_typeid, context),
-          .None => ()
-        )
+        .None => ()
       ),
       _ => ()
     ),
@@ -1561,23 +1714,21 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// Emit the generic Future trait-object interface struct for a
 /// `FutureTraitT`.
 ///. Every async state-machine
-/// struct begins with this exact prefix (`__YO_FUTURE_PREFIX`, then result/
-/// __yo_resume_fn/__yo_set_effect_fn), so a concrete SM
+/// struct begins with this exact prefix (`__YO_FUTURE_PREFIX`, then result),
+/// so a concrete SM
 /// future pointer casts to this interface — it is the C lowering for a
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
 generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
   result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
-  em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), abort hook, waiter"));
+  em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), type operations, waiter"));
   if(is_unit_type(result_type), {
     em.emit_declaration_string_line(String.from("  uint8_t result;"));
   }, {
     result_c := get_type_string(result_type, context);
     em.emit_declaration_string_line(`  ${result_c.clone()} result;`);
   });
-  em.emit_declaration_string_line(String.from("  void (*__yo_resume_fn)(void*);"));
-  em.emit_declaration_string_line(String.from("  void (*__yo_set_effect_fn)(void*, const char*, void*);"));
   em.emit_declaration_string_line(String.from("};"));
   em.emit_declaration_string_line(String.from(""));
 });
@@ -1664,8 +1815,9 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(info) => if(!info.create_generated, {
           child := info.child_type_c_name.clone();
           em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
-          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_rc_alloc(sizeof(${iso_name.clone()}_struct));`);
-          em.emit_string_line(String.from("  iso->header.ref_count = 1;"));
+          em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
+          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_rc_alloc_scoped(__yo_sc, sizeof(${iso_name.clone()}_struct));`);
+          em.emit_string_line(String.from("  iso->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);"));
           em.emit_string_line(String.from("  iso->header.borrow_count = 0;"));
           if(context.needs_cycle_gc, {
             em.emit_string_line(String.from("  iso->header.gc_mark = __YO_GC_UNMARKED;"));
@@ -1726,8 +1878,8 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           em.emit_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  bool was_extracted = atomic_exchange(&iso->extracted, true);"));
           em.emit_string_line(String.from("  if (was_extracted) {"));
-          em.emit_string_line(`    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
-          em.emit_string_line(String.from("    abort();"));
+          em.emit_string_line(`    fflush(stdout); fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
+          em.emit_string_line(String.from("    __yo_abort();"));
           em.emit_string_line(String.from("  }"));
           em.emit_string_line(String.from("  return iso->value;"));
           em.emit_string_line(String.from("}"));

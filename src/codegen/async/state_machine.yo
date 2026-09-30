@@ -10,16 +10,16 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, lookup_some_resolved_concrete, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
-{ TokenKind } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -43,14 +43,447 @@ CrossBoundaryResult :: ref(
     /// Maps temp variable IDs to their `await_future_N` field name (dedup).
     await_future_temp_var_aliases : HashMap(String, String),
     /// Maps each captured variable id to the segment indices where it is referenced.
-    variable_segments : HashMap(String, HashSet(usize))
+    variable_segments : HashMap(String, HashSet(usize)),
+    /// The ids of match-arm pattern bindings. A binding's slot borrows its
+    /// scrutinee's payload, so it never shares an owning slot.
+    pattern_binding_ids : HashSet(String)
   )
 );
+/// A body local's live range for the single-pass lowering, in source-position
+/// keys (`_lv_pos`): it holds a value from `def_end` (the end of its
+/// initializer, or its pattern binding) to `last` (its last use, counted at
+/// the end of the statement that uses it), extended to `scope_end` when it
+/// must survive to a scope-end drop or has its address taken.
+_LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end : bool));
+/// Await sites (`module:row:col`) whose result needs no task field: no later
+/// await in the same statement can suspend between the result's extraction
+/// and its use, so it is a C local (phase 6). Filled by
+/// `compute_cross_boundary_variables`, read by the struct emitter
+/// (`inline_await_result_fields`) and `emit_inline_await`.
+(g_local_await_results : HashSet(String)) = HashSet(String).new();
+_site_of :: (fn(tok : Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+/// State of the live-range walk over one `io.async` body.
+_LiveWalk :: ref(
+  struct(
+    module_path : String,
+    /// A node from another module was seen (a macro expansion): positions are
+    /// not comparable, so every local is treated as live across the awaits.
+    foreign : bool,
+    vars : HashMap(String, _LiveVar),
+    remap : HashMap(String, String),
+    loop_starts : ArrayList(u64),
+    loop_ends : ArrayList(u64),
+    span_ends : HashMap(usize, u64),
+    /// Every await the walk meets: its site, position, and the end of the
+    /// statement it is in.
+    await_sites : ArrayList(String),
+    await_pos : ArrayList(u64),
+    await_stmt_end : ArrayList(u64),
+    /// The ids of the pattern bindings the walk declared.
+    bindings : HashSet(String),
+    /// The ids declared under each source name: a read the walk cannot
+    /// resolve (its node carries no environment) counts as a use of each.
+    names : HashMap(String, ArrayList(String))
+  )
+);
+/// A token's source position as one ordered key (row major).
+_lv_pos :: (fn(tok : Token, w : _LiveWalk) -> u64)({
+  if(!(tok.module_path == w.module_path), {
+    w.foreign = true;
+  });
+  ((u64(tok.row) * u64(1048576)) + u64(tok.column))
+});
+/// The last source position inside `e` (memoized by node id).
+_lv_span_end :: (fn(e : AstExpr, w : _LiveWalk) -> u64)({
+  eid := ast_expr_id(e);
+  match(w.span_ends.get(eid), .Some(v) => return(v), .None => ());
+  (m : u64) = _lv_pos(ast_expr_token(e), w);
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      fe := recur(func_box, w);
+      if(fe > m, {
+        m = fe;
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            ae := recur(a, w);
+            if(ae > m, {
+              m = ae;
+            });
+          },
+          .None => ()
+        );
+      });
+    }
+  );
+  w.span_ends.insert(eid, m);
+  m
+});
+/// The id (after SSA remapping) of the variable `name` resolves to in `e`'s
+/// environment, and that variable's declaration position.
+_lv_resolve :: (fn(e : AstExpr, name : String, w : _LiveWalk, context : FunctionGenerationContext) -> Option(Variable))(
+  match(
+    context.base.get_expr_info(e),
+    .Some(info) => {
+      vs := get_variables_from_env(info.env, name);
+      cond(
+        (vs.len() == usize(0)) => Option(Variable).None,
+        true => vs.get(vs.len() - usize(1))
+      )
+    },
+    .None => Option(Variable).None
+  )
+);
+_lv_id :: (fn(v : Variable, w : _LiveWalk) -> String)({
+  id := v.id.to_string();
+  match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
+});
+/// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
+_lv_declare :: (fn(id : String, name : String, def_end : u64, scope_end : u64, w : _LiveWalk) -> unit)({
+  if(!(w.vars.contains_key(id.clone())), {
+    w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
+    ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
+    ids.push(id);
+    w.names.insert(name, ids);
+  });
+});
+/// Record a use of `id` at `at`: a local defined before an enclosing loop is
+/// live through the whole loop (the loop comes back to it).
+_lv_use :: (fn(id : String, at : u64, w : _LiveWalk) -> unit)(
+  match(
+    w.vars.get(id),
+    .Some(lv) => {
+      if(at > lv.last, {
+        lv.last = at;
+      });
+      (li : usize) = usize(0);
+      while(li < w.loop_starts.len(), li = (li + usize(1)), {
+        ls := match(w.loop_starts.get(li), .Some(x) => x, .None => u64(0));
+        le := match(w.loop_ends.get(li), .Some(x) => x, .None => u64(0));
+        if((lv.def_end < ls) && (le > lv.last), {
+          lv.last = le;
+        });
+      });
+    },
+    .None => ()
+  )
+);
+/// The variable a place expression is rooted at: `x` for `x`, `x.a.b` and
+/// `x(i)`.
+_lv_place_root :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e.clone(),
+    .Atom(_, _) => e,
+    .FnCall(_, func_box, args, _, _) => cond(
+      ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(obj) => recur(obj), .None => e),
+      true => recur(func_box)
+    )
+  )
+);
+_lv_mark_scope :: (fn(e : AstExpr, w : _LiveWalk, context : FunctionGenerationContext) -> unit)(
+  match(
+    e.clone(),
+    .Atom(_, tok) => match(
+      _lv_resolve(e, tok.value.clone(), w, context),
+      .Some(v) => match(
+        w.vars.get(_lv_id(v, w)),
+        .Some(lv) => {
+          lv.to_scope_end = true;
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .FnCall(_, _, _, _, _) => ()
+  )
+);
+/// Declare the names a match arm's pattern binds (identifier atoms whose
+/// variable is declared at that very atom).
+_lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, context : FunctionGenerationContext) -> unit)(
+  match(
+    pat.clone(),
+    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+      match(
+        _lv_resolve(pat, tok.value.clone(), w, context),
+        .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
+          _lv_declare(_lv_id(v, w), tok.value.clone(), _lv_pos(tok, w), scope_end, w);
+          w.bindings.insert(_lv_id(v, w));
+        }),
+        .None => ()
+      );
+    }),
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, scope_end, w, context);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(a, scope_end, w, context), .None => ());
+      });
+    }
+  )
+);
+/// Walk `e`: `stmt_end` is where the statement being walked ends (a read is
+/// emitted no earlier than the awaits before it in the same statement), and
+/// `block_end` where the innermost block ends (its locals' scope).
+_lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+  match(
+    lookup_macro_expansion(ast_expr_id(e)),
+    .Some(expanded) => {
+      recur(expanded, stmt_end, block_end, w, context);
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    e.clone(),
+    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+      _pos := _lv_pos(tok, w);
+      match(
+        _lv_resolve(e, tok.value.clone(), w, context),
+        .Some(v) => {
+          _lv_use(_lv_id(v, w), stmt_end, w);
+          // A local sharing an owner's value is read through the owner's
+          // slot (`sm_storage_id`), so the owner is live wherever it is.
+          match(v.is_owning_the_same_rc_value_as, .Some(ob) => _lv_use(_lv_id(ob.*, w), stmt_end, w), .None => ());
+        },
+        // No environment to resolve it in: every local of this name is taken
+        // as read here, which can only lengthen a range.
+        .None => match(
+          w.names.get(tok.value.clone()),
+          .Some(ids) => {
+            (ni : usize) = usize(0);
+            while(ni < ids.len(), ni = (ni + usize(1)), {
+              match(ids.get(ni), .Some(nid) => _lv_use(nid, stmt_end, w), .None => ());
+            });
+          },
+          .None => ()
+        )
+      );
+    }),
+    .FnCall(_, func_box, args, _, _) => {
+      if(is_io_await_call(e.clone()), {
+        atok := ast_expr_token(e.clone());
+        w.await_sites.push(_site_of(atok));
+        w.await_pos.push(_lv_pos(atok, w));
+        w.await_stmt_end.push(stmt_end);
+      });
+      cond(
+        // `x := v` / `(x : T) = v`: the initializer first, then the binding.
+        (ast_expr_is_fn_call_of(e.clone(), ":=", Option(usize).Some(usize(2))) || (ast_expr_is_fn_call_of(e.clone(), "=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(l) => ast_expr_is_fn_call_of(l, ":", Option(usize).None), .None => false))) => {
+          rhs := match(args.get(usize(1)), .Some(r) => r, .None => return(()));
+          recur(rhs.clone(), stmt_end, block_end, w, context);
+          lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
+          name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
+          name := ast_expr_token(name_atom).value;
+          match(
+            _lv_resolve(e.clone(), name, w, context),
+            .Some(v) => _lv_declare(_lv_id(v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
+            .None => ()
+          );
+          // `inout(name) := place`: `name` points into the place's root, so the
+          // root keeps its storage to the end of its scope, and so does the
+          // hidden local that pins the place's object.
+          if(ast_expr_is_fn_call_of(lhs.clone(), BK_INOUT, Option(usize).Some(usize(1))), {
+            _lv_mark_scope(_lv_place_root(rhs.clone()), w, context);
+            match(
+              context.base.get_expr_info(lhs),
+              .Some(linfo) => match(
+                linfo.source_variable,
+                .Some(pin) => {
+                  pin_id := _lv_id(pin, w);
+                  _lv_declare(pin_id.clone(), pin.name.clone(), _lv_span_end(rhs, w), block_end, w);
+                  match(
+                    w.vars.get(pin_id),
+                    .Some(plv) => {
+                      plv.to_scope_end = true;
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_WHILE, Option(usize).None) => {
+          w.loop_starts.push(_lv_pos(ast_expr_token(e.clone()), w));
+          w.loop_ends.push(_lv_span_end(e.clone(), w));
+          loop_end := _lv_span_end(e.clone(), w);
+          recur(func_box, loop_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            // The condition and the step run again every iteration.
+            match(args.get(i), .Some(a) => recur(a, loop_end, block_end, w, context), .None => ());
+          });
+          _ls := w.loop_starts.pop();
+          _le := w.loop_ends.pop();
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_BEGIN, Option(usize).None) => {
+          blk_end := _lv_span_end(e.clone(), w);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(args.get(i), .Some(a) => recur(a.clone(), _lv_span_end(a, w), blk_end, w, context), .None => ());
+          });
+        },
+        ast_expr_is_fn_call_of(e.clone(), BK_MATCH, Option(usize).None) => {
+          recur(func_box, stmt_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(
+              args.get(i),
+              .Some(a) => if(ast_expr_is_fn_call_of(a.clone(), "=>", Option(usize).Some(usize(2))), {
+                arm_end := _lv_span_end(a.clone(), w);
+                match(
+                  a.clone(),
+                  .FnCall(_, _, arm_args, _, _) => {
+                    match(arm_args.get(usize(0)), .Some(pat) => _lv_pattern_bindings(pat, arm_end, w, context), .None => ());
+                    match(arm_args.get(usize(1)), .Some(body) => recur(body, stmt_end, arm_end, w, context), .None => ());
+                  },
+                  .Atom(_, _) => ()
+                );
+              }, {
+                recur(a, stmt_end, block_end, w, context);
+              }),
+              .None => ()
+            );
+          });
+        },
+        // `&x` / `inout(y) := x`: a pointer to the local can outlive any use
+        // of its name, so it lives to the end of its scope.
+        ast_expr_is_fn_call_of(e.clone(), "&", Option(usize).Some(usize(1))) => {
+          match(
+            args.get(usize(0)),
+            .Some(a) => {
+              _lv_mark_scope(a.clone(), w, context);
+              recur(a, stmt_end, block_end, w, context);
+            },
+            .None => ()
+          );
+        },
+        true => {
+          recur(func_box, stmt_end, block_end, w, context);
+          (i : usize) = usize(0);
+          while(i < args.len(), i = (i + usize(1)), {
+            match(args.get(i), .Some(a) => recur(a, stmt_end, block_end, w, context), .None => ());
+          });
+        }
+      );
+    }
+  );
+});
+/// The locals of an `io.async` body that need a state-machine field: those
+/// live across some suspension. Anything else stays a C local — the resume
+/// function jumps past its declaration, which C allows, and nothing reads it
+/// after the jump (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 6, layout
+/// from liveness). A future temp consumed into the await slot never crosses
+/// its own await. Unit locals have no storage at all.
+///
+/// The ranges are linear, in source order, which the single-pass lowering
+/// emits in: sound because a read counts at the end of its statement (a later
+/// await in the same statement is hoisted before it), a local used inside a
+/// loop it was defined before is live through the loop, and a local that is
+/// dropped at scope end, or whose address is taken, lives to the end of its
+/// scope. A node from another module (a macro expansion) makes positions
+/// incomparable, and then every local crosses, as before.
 compute_cross_boundary_variables :: (
   fn(body_expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> CrossBoundaryResult
 )({
   captured_variables := analysis.captured_variables;
+  body_tok := ast_expr_token(body_expr.clone());
+  w := _LiveWalk(
+    module_path : body_tok.module_path.clone(),
+    foreign : false,
+    vars : HashMap(String, _LiveVar).new(),
+    remap : analysis.variable_id_remapping,
+    loop_starts : ArrayList(u64).new(),
+    loop_ends : ArrayList(u64).new(),
+    span_ends : HashMap(usize, u64).new(),
+    await_sites : ArrayList(String).new(),
+    await_pos : ArrayList(u64).new(),
+    await_stmt_end : ArrayList(u64).new(),
+    bindings : HashSet(String).new(),
+    names : HashMap(String, ArrayList(String)).new()
+  );
+  body_end := _lv_span_end(body_expr.clone(), w);
+  _lv_walk(body_expr.clone(), body_end, body_end, w, context);
+  // Suspension positions, and the future temps each await consumes.
+  sus := ArrayList(u64).new();
+  consumed_temps := HashSet(String).new();
+  note_await := (fn(ae : AstExpr, sus : ArrayList(u64), consumed : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+    sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
+    match(
+      ae,
+      .FnCall(_, _, aargs, _, _) => match(
+        aargs.get(usize(0)),
+        .Some(fut) => if(!(ast_expr_is_atom(fut)), {
+          match(
+            context.base.get_expr_info(fut),
+            .Some(fi) => match(
+              fi.variable_name,
+              .Some(vn) => {
+                consumed.insert(vn);
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        }),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    );
+  });
+  (pi : usize) = usize(0);
+  while(pi < analysis.await_points.len(), pi = (pi + usize(1)), {
+    match(
+      analysis.await_points.get(pi),
+      .Some(ap) => match(
+        ap.base.cond_branch_suspension_exprs,
+        .Some(bes) => {
+          (bj : usize) = usize(0);
+          while(bj < bes.len(), bj = (bj + usize(1)), {
+            match(bes.get(bj), .Some(be) => note_await(be, sus, consumed_temps, w, context), .None => ());
+          });
+          note_await(ap.base.expr, sus, consumed_temps, w, context);
+        },
+        .None => note_await(ap.base.expr, sus, consumed_temps, w, context)
+      ),
+      .None => ()
+    );
+  });
+  // An await's result is a C local unless a later await in its statement can
+  // suspend before the statement consumes it (`f(await a, await b)`).
+  if(!(w.foreign), {
+    (wi : usize) = usize(0);
+    while(wi < w.await_sites.len(), wi = (wi + usize(1)), {
+      p := match(w.await_pos.get(wi), .Some(x) => x, .None => u64(0));
+      se := match(w.await_stmt_end.get(wi), .Some(x) => x, .None => u64(0));
+      (later : bool) = false;
+      (qi : usize) = usize(0);
+      while((qi < w.await_pos.len()) && !(later), qi = (qi + usize(1)), {
+        q := match(w.await_pos.get(qi), .Some(x) => x, .None => u64(0));
+        if((q > p) && (q <= se), {
+          later = true;
+        });
+      });
+      if(!(later), {
+        match(
+          w.await_sites.get(wi),
+          .Some(site) => {
+            g_local_await_results.insert(site);
+          },
+          .None => ()
+        );
+      });
+    });
+  });
   all_ids := HashSet(String).new();
+  segments := HashMap(String, HashSet(usize)).new();
   (ai : usize) = usize(0);
   while(ai < captured_variables.len(), ai = (ai + usize(1)), {
     match(
@@ -58,7 +491,45 @@ compute_cross_boundary_variables :: (
       .Some(cv) => match(
         cv.kind,
         .Local => if(!(is_unit_type(cv.base.ty)), {
-          all_ids.insert(cv.base.id.to_string());
+          id := cv.base.id.to_string();
+          crosses := cond(
+            w.foreign => true,
+            consumed_temps.contains(cv.base.name.clone()) => false,
+            true => match(
+              w.vars.get(id.clone()),
+              // Not declared in this body as the walk sees it (a minted temp,
+              // a binding it cannot place): keep its field.
+              .None => true,
+              .Some(lv) => {
+                end := if((lv.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv.scope_end > lv.last), lv.scope_end, lv.last);
+                (hit : bool) = false;
+                (si : usize) = usize(0);
+                while((si < sus.len()) && !(hit), si = (si + usize(1)), {
+                  sp := match(sus.get(si), .Some(x) => x, .None => u64(0));
+                  if((sp > lv.def_end) && (sp <= end), {
+                    hit = true;
+                  });
+                });
+                hit
+              }
+            )
+          );
+          if(crosses, {
+            // Its live range, for slot sharing (`compute_overlapping_slots`
+            // reads the min and max of the set).
+            match(
+              w.vars.get(id.clone()),
+              .Some(lv2) => if(!(w.foreign), {
+                end2 := if((lv2.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv2.scope_end > lv2.last), lv2.scope_end, lv2.last);
+                seg := HashSet(usize).new();
+                seg.insert(usize(lv2.def_end));
+                seg.insert(usize(end2));
+                segments.insert(id.clone(), seg);
+              }),
+              .None => ()
+            );
+            all_ids.insert(id);
+          });
         }),
         .Outer => ()
       ),
@@ -68,7 +539,8 @@ compute_cross_boundary_variables :: (
   CrossBoundaryResult(
     cross_boundary_ids : all_ids,
     await_future_temp_var_aliases : HashMap(String, String).new(),
-    variable_segments : HashMap(String, HashSet(usize)).new()
+    variable_segments : segments,
+    pattern_binding_ids : w.bindings
   )
 });
 _SlotRange :: ref(struct(min : usize, max : usize));
@@ -80,6 +552,9 @@ OverlappingSlot :: ref(
     field_name : String,
     /// The C type string for this slot.
     c_type : String,
+    /// The members' type (they share one C type): the dispose drops an RC
+    /// slot once, through it.
+    ty : TypeValue,
     /// Variable names sharing this slot (for comments).
     variable_names : ArrayList(String)
   )
@@ -124,6 +599,7 @@ compute_overlapping_slots :: (
     variable_segments : HashMap(String, HashSet(usize)),
     captured_variables : ArrayList(CapturedVariable),
     await_future_temp_var_aliases : HashMap(String, String),
+    pattern_binding_ids : HashSet(String),
     context : FunctionGenerationContext
   ) -> OverlappingStorageResult
 )({
@@ -131,7 +607,28 @@ compute_overlapping_slots :: (
     slot_aliases : HashMap(String, String).new(),
     slots : ArrayList(OverlappingSlot).new()
   );
-  // Eligible = cross-boundary local vars of non-RC value type, not future-aliased.
+  // Eligible = cross-boundary locals, not future-aliased. An RC local shares
+  // too: every drop and every move of a slot zeroes it, so a slot is non-zero
+  // exactly while it owns its current member's value, and the dispose drops
+  // it once. Two kinds of RC local stay out, because their slot is not the
+  // one owner of its value: a pattern binding (it borrows the scrutinee's
+  // payload), and a local whose value another local also owns (either side
+  // of `is_owning_the_same_rc_value_as`).
+  rc_owners := HashSet(String).new();
+  (o0 : usize) = usize(0);
+  while(o0 < captured_variables.len(), o0 = (o0 + usize(1)), {
+    match(
+      captured_variables.get(o0),
+      .Some(ov) => match(
+        ov.is_owning_the_same_rc_value_as,
+        .Some(ob) => {
+          rc_owners.insert(ob.*.base.id.to_string());
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   eligible := ArrayList(CapturedVariable).new();
   (e0 : usize) = usize(0);
   while(e0 < captured_variables.len(), {
@@ -139,7 +636,9 @@ compute_overlapping_slots :: (
       captured_variables.get(e0),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(type_contains_rc_type(v.base.ty)), {
+        vid0 := v.base.id.to_string();
+        rc_shareable := (!(pattern_binding_ids.contains(vid0.clone())) && (v.is_owning_the_same_rc_value_as.is_none() && !(rc_owners.contains(vid0.clone()))));
+        if(((is_local && cross_boundary_ids.contains(vid0.clone())) && !(await_future_temp_var_aliases.contains_key(vid0.clone()))) && (!(type_contains_rc_type(v.base.ty)) || rc_shareable), {
           eligible.push(v);
         });
       },
@@ -308,12 +807,16 @@ compute_overlapping_slots :: (
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
           var_names := ArrayList(String).new();
+          (slot_ty : TypeValue) = TypeValue.Unit;
           (vni : usize) = usize(0);
           while(vni < group_var_ids.len(), {
             gid := match(group_var_ids.get(vni), .Some(x) => x, .None => String.new());
             nm := match(
               _find_captured_by_id(eligible, gid.clone()),
-              .Some(fv) => fv.base.name.clone(),
+              .Some(fv) => {
+                slot_ty = fv.base.ty;
+                fv.base.name.clone()
+              },
               .None => gid.clone()
             );
             var_names.push(nm);
@@ -321,7 +824,7 @@ compute_overlapping_slots :: (
             vni = (vni + usize(1));
           });
           slots.push(
-            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), variable_names : var_names)
+            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), ty : slot_ty, variable_names : var_names)
           );
           next_slot_index = (next_slot_index + usize(1));
         });
@@ -341,7 +844,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
     return(false);
   });
   match(
-    lookup_some_resolved_concrete(fid),
+    some_resolution(future_type),
     .Some(rc) => {
       if(is_some_type(rc), {
         rcid := match(rc, .SomeT({ id }) => id, _ => String.from(""));
@@ -359,9 +862,8 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
             .Some(bucket) => {
               ety := bucket.value.ty;
               if(is_some_type(ety) && type_implements_future(ety), {
-                esid := match(ety, .SomeT({ id }) => id, _ => String.from(""));
                 match(
-                  lookup_some_resolved_concrete(esid),
+                  some_resolution(ety),
                   .Some(erc) => if(is_struct_type(erc), {
                     ercid := match(erc, .Struct({ id }) => id, _ => String.from(""));
                     if(ercid == capture_id, {
@@ -384,7 +886,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
   extract_future_trait_from_type(future_type).is_some()
 });
 /// Emit the effect-injection line for one captured effect member of a Future:
-/// the generic vtable `__yo_set_effect_fn` call for generic-interface Futures, or
+/// the generic `vt->set_effect` call for generic-interface Futures, or
 /// a direct `__capture.<label>` store for concrete Futures.
 emit_future_effect_injection_line :: (
   fn(
@@ -399,7 +901,7 @@ emit_future_effect_injection_line :: (
   em := context.base.emitter;
   if(uses_generic_future_interface(future_type, context), {
     lbl := _c_string_literal(field_label.clone());
-    em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, ${lbl}, (void*)${member_code});`);
+    em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, ${lbl}, (void*)${member_code});`);
     return();
   });
   em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
@@ -509,7 +1011,7 @@ _build_combined_sm_variables :: (
   combined
 });
 /// The SM struct field holding the outer effect-bundle to forward into an inner
-/// future via `set_effect("__bundle", ...)` — the captured local (`var_<id>`, or
+/// future via `__yo_future_set_bundle` — the captured local (`var_<id>`, or
 /// its field alias) whose type matches the future's struct effect. Lives here
 /// (not in exprs/async.yo) to break the
 /// async.yo<->state_machine.yo cycle — it is a future-trait/SM-var helper.
@@ -798,12 +1300,12 @@ emit_effect_injection_for_sm :: (
                       bundle_type := get_type_string(bundle_cast_ty, context.base);
                       tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
                       em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
+                      em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&${tmp_name});`);
                     },
                     .None => match(
                       find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
                       .Some(obf) => {
-                        em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                        em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&sm->${obf});`);
                       },
                       .None => {
                         emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
@@ -870,7 +1372,7 @@ _emit_await_suspension_core :: (
     inner.push_str("  ");
     emit_effect_injection_for_sm(effect_expr, acc.clone(), inner, context);
     em.emit_string_line(`${ind}  // Cold future — start it via stored resume function pointer`);
-    em.emit_string_line(`${ind}  ${acc}->__yo_resume_fn((void*)${acc});`);
+    em.emit_string_line(`${ind}  ${acc}->vt->resume((void*)${acc});`);
     em.emit_string_line(``);
     em.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
     em.emit_string_line(`${ind}  future_state = ${acc}->state;`);
@@ -968,7 +1470,7 @@ _inline_await_result_type :: (fn(expr : AstExpr, analysis : Option(AwaitAnalysis
 /// Whether `t` is a unit result (or an unresolved Future SomeType): no field.
 _inline_result_is_unit :: (fn(t : TypeValue) -> bool)(
   is_unit_type(t) || (
-    is_some_type(t) && match(t, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+    is_some_type(t) && some_resolution(t).is_none()
   )
 );
 /// The single-pass lowering's result fields, one per non-unit await
@@ -982,7 +1484,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize), prefix : String) -> unit)({
-    if(!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t)), {
+    if((!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t))) && !(g_local_await_results.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
@@ -1153,8 +1655,18 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       out = field;
     },
     .None => {
-      if(!(_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context))), {
-        codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+      rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
+      if(!(_inline_result_is_unit(rty)), {
+        if(g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))), {
+          // No suspension between here and the statement's use of it.
+          local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
+          em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
+          context.base.declared_c_var_names.insert(local.clone());
+          _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
+          out = local;
+        }, {
+          codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+        });
       });
     }
   );
@@ -1188,7 +1700,7 @@ generate_async_block_resume_function_inline :: (
     .None => false
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
-  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`static void ${resume_function_name}__body(void* sm_ptr) {`);
   em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally aborted while suspended or queued: release the pending await's
@@ -1259,7 +1771,7 @@ generate_async_block_resume_function_inline :: (
   // completed already. Only the TAIL counts: a `return` nested in an arm
   // leaves the fall-through path to complete here
   // (issues/fixed/build-smoke-hangs-registry-perturbation.md).
-  tail_returns := match(body_exprs.get(n_body - usize(1)), .Some(le) => ast_expr_is_fn_call_of(le, "return", Option(usize).None), .None => false);
+  tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(le, "return", Option(usize).None), .None => false);
   if(!(tail_returns), {
     match(
       match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
@@ -1303,11 +1815,30 @@ generate_async_block_resume_function_inline :: (
   em.emit_string_line(`    default: return;`);
   em.emit_string_line(`  }`);
   em.emit_string_line(`}`);
+  em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
   g_inline_suspensions.insert(async_block_id.clone(), low.suspensions);
   local_var_drop_codes
 });
 
+/// The resume entry point every queue and waiter calls: it runs the body in
+/// the allocation scope the task was created in — the owner prefix of a
+/// task an explicit allocator placed, the global allocator otherwise — so a
+/// task keeps its scope across suspensions, wherever it is resumed from
+/// (plans/EXPLICIT_ALLOCATORS.md §3.5). The scope is read before the body
+/// runs, because the body may release the task.
+resume_scope_wrapper :: (fn(name : String) -> String)(
+  `void ${name.clone()}(void* sm_ptr) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    ${name.clone()}__body(sm_ptr);
+    return;
+  }
+  __yo_alloc_scope_t __yo_prev_scope = __yo_current_allocator;
+  __yo_current_allocator = __yo_scope_of_object(sm_ptr);
+  ${name.clone()}__body(sm_ptr);
+  __yo_current_allocator = __yo_prev_scope;
+}`
+);
 /// The abort hook of a single-pass state machine: cancel what the task is
 /// suspended on in `prev_state` (the one `__yo_await_slot`), then wake its
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
@@ -1358,6 +1889,7 @@ generate_async_block_cancel_pending_function_inline :: (
 });
 
 export(
+  resume_scope_wrapper,
   is_io_future_type,
   inline_await_result_fields,
   inline_await_result_field_of,

@@ -6,9 +6,14 @@
 //!   headers      — #include directives and forward declarations
 //!   declarations — struct/enum/typedef declarations
 //!   code         — function definitions and other body code
+// The code spill writes raw buffers (`write_sync`).
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash_set");
 { ArrayList } :: import("std/collections/array_list");
+{ open_sync, close_sync, write_sync } :: import("std/sys/file");
+{ panic } :: import("std/assert");
+{ O_WRONLY, O_CREAT, O_TRUNC, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
 /// True iff `b` is a C identifier byte: [A-Za-z0-9_].
 _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
@@ -231,9 +236,23 @@ Emitter :: ref(
     /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
     /// C brace and records named-local + temp decls — the escape gate's
     /// block-scope-aware liveness signal. See `_emitter_track_scope`.
-    scope_ref : Option(ArrayList(String))
+    scope_ref : Option(ArrayList(String)),
+    /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
+    /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
+    /// to that file between functions and the `code` buffer is cleared, so
+    /// the ~117 MB of C bodies never sit in memory at once.
+    /// `code_spilled_bytes` is how much of the code section is on disk,
+    /// ahead of `code`.
+    code_spill_fd : i32,
+    code_spill_path : String,
+    code_spilled_bytes : usize,
+    /// Spill once `code` holds this many bytes (`CODE_SPILL_BYTES`; tests
+    /// lower it to spill after every function).
+    code_spill_threshold : usize
   )
 );
+/// The code buffer is spilled once it holds this much (8 MiB).
+CODE_SPILL_BYTES :: usize(8388608);
 impl(
   Emitter,
   /// Create a new empty emitter.
@@ -243,8 +262,86 @@ impl(
       declarations : String.new(),
       code : String.new(),
       declared_ref : Option(HashSet(String)).None,
-      scope_ref : Option(ArrayList(String)).None
+      scope_ref : Option(ArrayList(String)).None,
+      code_spill_fd : i32(-1),
+      code_spill_path : String.new(),
+      code_spilled_bytes : usize(0),
+      code_spill_threshold : CODE_SPILL_BYTES
     )
+  ),
+  /// Spill finished code to `path` from now on. The file is created at the
+  /// first spill, so a program whose code never reaches the threshold (and a
+  /// compile that fails before it does) leaves no file behind.
+  start_code_spill : (fn(inout(self) : Self, path : String) -> unit)({
+    self.code_spill_path = path;
+    self.code_spilled_bytes = usize(0);
+  }),
+  _open_code_spill : (fn(inout(self) : Self) -> bool)({
+    cpath := self.code_spill_path.to_cstr();
+    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    if(fd < i32(0), {
+      // Unopenable: stop trying; the code stays in memory.
+      self.code_spill_path = String.new();
+      return(false);
+    });
+    self.code_spill_fd = fd;
+    true
+  }),
+  /// Between functions: write the code buffer to the spill file once it holds
+  /// `code_spill_threshold` bytes, then clear it (the capacity stays, bounded by the
+  /// threshold). Callers only spill at a function boundary — every in-buffer
+  /// offset a function takes (`before`, stub marks) is then still valid.
+  spill_code_if_large : (fn(inout(self) : Self) -> unit)(
+    if((self.code_spill_path.len() > usize(0)) && (self.code.len() >= self.code_spill_threshold), {
+      if((self.code_spill_fd < i32(0)) && !self._open_code_spill(), {
+        return(());
+      });
+      bytes := self.code.as_bytes();
+      n := bytes.len();
+      base_ptr := bytes.ptr().unwrap();
+      (done : usize) = usize(0);
+      while(done < n, {
+        w := write_sync(self.code_spill_fd, base_ptr.add(done), u32(n - done), u64(self.code_spilled_bytes + done));
+        if(w <= i32(0), {
+          panic(`yo: writing the C code spill file failed (${w.to_string()}); ${(self.code_spilled_bytes + done).to_string()} bytes written`);
+        });
+        done = (done + usize(w));
+      });
+      self.code_spilled_bytes = (self.code_spilled_bytes + n);
+      self.code.clear();
+    })
+  ),
+  /// Replace the spilled code with `bytes` (the FTT-stub attribute insert,
+  /// `_insert_attr_before_first_decl`, when the first declaration was
+  /// already spilled). Rare; it rewrites the whole file.
+  rewrite_code_spill : (fn(inout(self) : Self, bytes : ArrayList(u8)) -> unit)({
+    close_sync(self.code_spill_fd);
+    cpath := self.code_spill_path.to_cstr();
+    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    if(fd < i32(0), {
+      panic(`yo: reopening the C code spill file failed (${fd.to_string()})`);
+    });
+    self.code_spill_fd = fd;
+    n := bytes.len();
+    (done : usize) = usize(0);
+    if(n > usize(0), {
+      base_ptr := bytes.ptr().unwrap();
+      while(done < n, {
+        w := write_sync(fd, base_ptr.add(done), u32(n - done), u64(done));
+        if(w <= i32(0), {
+          panic(`yo: rewriting the C code spill file failed (${w.to_string()})`);
+        });
+        done = (done + usize(w));
+      });
+    });
+    self.code_spilled_bytes = n;
+  }),
+  /// Close the spill file (its contents stay for the caller to splice).
+  close_code_spill : (fn(inout(self) : Self) -> unit)(
+    if(self.code_spill_fd >= i32(0), {
+      close_sync(self.code_spill_fd);
+      self.code_spill_fd = i32(-1);
+    })
   ),
   /// Append text to the code section (no trailing newline).
   emit : (fn(inout(self) : Self, c : str) -> unit)(
@@ -310,6 +407,21 @@ impl(
   mark_declared_in_scope : (fn(inout(self) : Self, name : String) -> unit)(
     match(self.scope_ref, .Some(st) => st.push(name), .None => ())
   ),
+  /// The full C source as its parts in order — headers, "\n", declarations,
+  /// "\n", code: the bytes of `print()`, sharing the three buffers instead of
+  /// concatenating them. With a code spill, the spilled bytes come between
+  /// the second "\n" and the last part (`code_spilled_bytes` says how many). The compiler's own C is ~125 MB, and the
+  /// concatenated copy (grown by doubling) was the peak of `compile`
+  /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+  sections : (fn(inout(self) : Self) -> ArrayList(String))({
+    parts := ArrayList(String).with_capacity(usize(5));
+    parts.push(self.headers);
+    parts.push(String.from("\n"));
+    parts.push(self.declarations);
+    parts.push(String.from("\n"));
+    parts.push(self.code);
+    parts
+  }),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(inout(self) : Self) -> String)({
     result := String.new();

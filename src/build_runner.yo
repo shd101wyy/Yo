@@ -41,6 +41,7 @@ _(env : warm_dbg_env) :: import("std/env");
   BuildRunStep,
   BuildStep,
   BuildDocConfig,
+  BuildVerifyConfig,
   BuildModuleEntry,
   BuildRegistry,
   ResolvedDep,
@@ -105,7 +106,7 @@ BuildOptions :: ref(
 // ---------------------------------------------------------------------------
 // DAG types
 // ---------------------------------------------------------------------------
-DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc);
+DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc, Verify);
 DAGNode :: ref(
   struct(
     name : String,
@@ -980,6 +981,9 @@ _walk_dag :: (
       },
       .Doc(_d) => {
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
+      },
+      .Verify(_v) => {
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Verify, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
@@ -2319,6 +2323,49 @@ run_executable :: (
   })
 );
 // ---------------------------------------------------------------------------
+// Verify step
+// ---------------------------------------------------------------------------
+/// `build.verify(...)`: run `yo verify <root>` (this binary, like the test
+/// suite) in the configured mode. The project-level "every compile proves my
+/// contracts" policy lives here, as a build step, and never inside `yo check`
+/// (issues/fixed/verify-by-default-for-a-project.md).
+run_verify_step :: (
+  fn(
+    cfg : BuildVerifyConfig,
+    ctx : ExecutionContext,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Result(unit, String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    target := Path.new(ctx.project_dir).join(Path.new(cfg.root));
+    cmd := Command.new(_self_exe());
+    cmd.arg(String.from("verify"));
+    // `--std-path` is a global flag the child strips before dispatch (the
+    // compile_artifact forwarding above has the rationale).
+    match(
+      get_std_path_override(),
+      .Some(sp) => {
+        cmd.arg(String.from("--std-path"));
+        cmd.arg(sp);
+      },
+      .None => {}
+    );
+    cmd.arg(target.to_string());
+    cmd.arg(String.from("--verify-mode"));
+    cmd.arg(cfg.mode.clone());
+    if(cfg.strict, {
+      _arg_s := cmd.arg(String.from("--strict"));
+    });
+    // Streamed, not captured — the per-function report is the point.
+    st := e.io.await(cmd.status(e.io), e);
+    if(st.success(), Result(unit, String).Ok(()), {
+      code := st.code().unwrap_or(i32(-1));
+      Result(unit, String).Err(`Verification failed (exit ${code})`)
+    })
+  })
+);
+// ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
 run_test_suite :: (
@@ -2509,6 +2556,24 @@ execute_node :: (
         );
       },
       .Step => (),
+      .Verify => {
+        match(
+          ctx.registry.find_verify(node.name.clone()),
+          .None => (),
+          .Some(vcfg) => {
+            description = `verify ${vcfg.name}`;
+            result := e.io.await(run_verify_step(vcfg, ctx, e.io, e.exn), e);
+            match(
+              result,
+              .Ok(_) => (),
+              .Err(msg) => {
+                eprintln(`Error: ${msg}`);
+                success = false;
+              }
+            );
+          }
+        );
+      },
       .Doc => {
         match(
           ctx.registry.find_documentation(node.name.clone()),
@@ -2669,16 +2734,13 @@ _execute_batch :: (
       node := batch(i);
       result := match(
         outs.get(i),
-        .Some(o) => match(
-          o,
-          .Some(r) => r,
-          .None => StepResult(
-            name : node.name.clone(),
-            kind : node.kind,
-            success : false,
-            duration_ms : i64(0),
-            description : `failed ${node.name}`
-          )
+        .Some(.Some(r)) => r,
+        .Some(.None) => StepResult(
+          name : node.name.clone(),
+          kind : node.kind,
+          success : false,
+          duration_ms : i64(0),
+          description : `failed ${node.name}`
         ),
         .None => StepResult(
           name : node.name.clone(),
@@ -2956,6 +3018,7 @@ _print_plan :: (fn(step_name : String, dag : ArrayList(DAGNode)) -> unit)({
       .Test => "test",
       .Run => "run",
       .Doc => "doc",
+      .Verify => "verify",
       .Step => "step"
     );
     // The separator is bound first ON PURPOSE: a template nested inside an

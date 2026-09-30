@@ -49,7 +49,7 @@ IO_tcp :: import("../sys/tcp");
 IoTraits :: import("../io");
 { Stream } :: import("../async/stream");
 SockInfo :: import("../sys/sockinfo");
-{ AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR } :: import("../sys/socket");
+{ AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR, MSG_NOSIGNAL } :: import("../sys/socket");
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -442,7 +442,7 @@ impl(
   write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.send(fd, buf, size, i32(0)), e.io);
+      r := e.io.await(IO_tcp.send(fd, buf, size, MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -453,7 +453,7 @@ impl(
     s := String.from(data);
     s_bytes := s.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_tcp.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
+      r := e.io.await(IO_tcp.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -463,7 +463,7 @@ impl(
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_tcp.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
+      r := e.io.await(IO_tcp.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -472,7 +472,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
+      r := e.io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), MSG_NOSIGNAL), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),

@@ -106,7 +106,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 **Platform implementations:**
 
 - **Linux**: `io_uring` — per-thread event loop submits SQEs and processes CQEs; the epoll fallback runs where the ring cannot exist. Both follow one rule (`plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md`): an op that can finish now finishes inline (socket ops try `MSG_DONTWAIT` first; the metadata ops and creating/truncating opens that io_uring always punts to io-wq are plain syscalls); sleeps are a userspace timer heap whose earliest deadline bounds the wait; reserve SQEs through `__yo_io_get_sqe` (it flushes a full SQ) — never `__yo_uring_get_sqe` directly; an inline attempt must not run ahead of a queued op of the same direction on that fd (`__yo_io_fd_busy`). Any runtime path that closes a descriptor calls `__yo_io_close_hook` first (including `dup2` over an open fd).
-- **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications. kqueue keeps **one knote per (ident, filter)** — a second `EV_ADD` for the same pair UPDATES the knote (replacing its `udata`) instead of adding one — so the knote's `udata` is a per-(fd, filter) **registration** (`__yo_io_registration_t`) owning a FIFO waiter list of pending ops, never a single operation's context; delivery services waiters until one would-blocks, then re-arms the one-shot knote. Closes must purge an fd's registrations (`__yo_kq_drop_fd`, reached from the async close and from `__yo_file_close` through `__yo_kq_close_hook` — the sys runtime is emitted for every program, so it cannot name kqueue symbols directly) so waiters fail with `-EBADF` and a reused fd number cannot collide with a stale registration (`issues/fixed/macos-kqueue-concurrent-ops-on-one-fd-orphan-the-earlier-pending-op.md`).
+- **macOS**: `kqueue` — per-thread event loop; one rule with Linux (`plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md`). Regular file I/O is synchronous: `pread` first (`ESPIPE`/`ENXIO` → the readiness path), and `F_GETFL` before a write (macOS `pwrite` honors the offset on `O_APPEND`). Pipes and sockets try the op inline (`MSG_DONTWAIT`) and park on a per-(fd, filter) **registration** — a FIFO of waiters in the per-fd slot table `__yo_kq_slots` — only on would-block. kqueue keeps **one knote per (ident, filter)**, registered `EV_DISPATCH` and re-enabled per park with `EV_ADD|EV_ENABLE` (XNU's `EV_ADD` alone does NOT re-enable a dispatched knote). Events are matched to registrations by **(ident, filter), never udata**, so an event for a registration whose last waiter was cancelled finds an empty slot. Every parked op sets `cancel_fn`/`backend_link` and holds a future reference; an inline attempt must not run ahead of a parked op of the same direction (`__yo_kq_dir_busy`). Timers are a userspace heap bounding the wait. **A zero-timeout `kevent()` that finds nothing costs ~12 µs on macOS 26** (0.2 µs when an event is ready): non-blocking passes probe with `select()` on the kqueue fd first (`__yo_kq_has_events`), and `__yo_io_poll` skips the kernel when the next step will block anyway. Poll/fs-event handles live in one watch kqueue nested in the loop's. Any runtime path that closes a descriptor calls the per-thread `__yo_kq_close_hook` first, including `dup2` over an open fd (the sys runtime is emitted for every program, so it cannot name kqueue symbols directly).
 - **Windows**: IOCP — per-thread `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**
@@ -135,17 +135,84 @@ source order.
   `codegen_fatal`: an emitter must generate an expression that contains an
   await exactly once.
 - **Rule 1: nothing that lives across an await is a C local.** A jump out of
-  the function and back to a label leaves every C local garbage. Every
-  captured non-unit local lives in `sm->var_<id>` (`compute_cross_boundary_variables`),
-  including a compile-time-only variable whose read codegen does not fold (a
-  pattern binding of a scrutinee known at compile time is bound
-  compile-time-only). A pattern binding is declared in its arm, stored into
+  the function and back to a label leaves every C local garbage. A captured
+  non-unit local that is live across a suspension lives in `sm->var_<id>`
+  (`compute_cross_boundary_variables`, a linear live-range walk: a read counts
+  at the end of its statement, a local defined before a loop and used in it
+  is live through the loop, a local with a scope-end drop or whose address is
+  taken lives to the end of its scope). Every other local is an ordinary C
+  local — the resume function jumps past its declaration, which C allows, and
+  nothing reads it after the jump — so the escape path must release it:
+  `emit_effect_unwind_check` emits the pending drops in a state machine as
+  in a plain function (a field's drop zeroes the slot, so the abort dispose
+  does not release it twice). A node from another module (a macro
+  expansion) makes the positions incomparable, and then every local gets a
+  field. Pattern bindings are locals too, including one bound
+  compile-time-only because its scrutinee is known at compile time (captured
+  at its declaration atom, `_capture_pattern_bindings`; an extern constant
+  keeps its own C name). A pattern binding is declared in its arm, stored into
   its slot by `_bind_pattern_name`, found by declaration site
   (`_inline_binding_sm_field`: sibling arms share names), and read back
   through `shadow_slots`.
-- **Await results** live in `sm->__yo_await_result_<k>`, one per await
-  EXPRESSION: `f(await a, await b)` suspends a second time before the first
-  result is read.
+- **Await results** live in `sm->__yo_await_result_<k>` only when a later
+  await in the same statement can suspend before the result is consumed
+  (`f(await a, await b)`); any other result is a C local
+  (`g_local_await_results`, consulted by the struct emitter and by
+  `emit_inline_await`).
+- **The prefix points at a per-type vtable** (`__yo_future_vtable_t`:
+  `resume`, `set_effect`, `cancel_pending`, `bundle_offset`, `bundle_size`),
+  not three pointers per instance. A raw I/O future's `vt` is NULL; every
+  read site tests `X->vt && X->vt->op`. A whole effect bundle
+  (`io.await(f, bundle)`, `io.spawn`) is injected with
+  `__yo_future_set_bundle(f, &bundle)`, a `memcpy` to the vtable's bundle
+  slot. The per-type `set_effect` handles only per-field injections by name.
+  `generate_future_effect_setter` returns the vtable's bundle pair, so the
+  setter and the table cannot disagree.
+- **A closure parameter lives in its `__yo_param_<i>` slot** only; its own
+  local (matched by declaration site) is dropped from the field set. The
+  struct definition and the resume function must read ONE cross-boundary
+  result (`_block_cross_boundary`): a second `compute_cross_boundary_variables`
+  call that skips a filter declares a field nothing uses (the `Io` bundle,
+  32 B, was stored twice this way).
+- **A read the live-range walk cannot resolve is a use of every local with
+  that name** (`_LiveWalk.names`). Some atoms carry no environment (a
+  `return(x)` argument is one); skipping them silently made a local a C local
+  across the await that reads it.
+- **Slot sharing** (`compute_overlapping_slots`): locals of the same C type
+  whose ranges do not overlap share `sm->slot_<k>`, heap-owning ones
+  included. That is sound because a slot is non-zero exactly while it owns
+  its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
+  (`generate_drop`), every consuming read zeroes it (`_sm_consuming_read`),
+  and the dispose drops a shared RC slot once. Pattern bindings (they borrow
+  the scrutinee) and both sides of `is_owning_the_same_rc_value_as` never
+  share. Two RC locals of ONE scope always overlap (both live to its end);
+  sibling scopes are what share.
+- **A consuming read of a slot takes the value and zeroes the slot**
+  (`_sm_consuming_read`): the evaluator's `consumed_at_token` is that atom.
+  A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
+  set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
+  drop's operand as the consuming read, and the drop is emitted again on
+  every exit path.
+- **In an SM, a C local renders by its source token** (`_generate_sm_atom`
+  step 5 uses `_var_read_code`), for the reason in the next section.
+- **Nested blocks are ordinary C blocks.** A `goto` into one is legal; do not
+  splice a block into its parent (the segment lowering did, and a block's
+  locals then lived until the task ended).
+- **`YO_DEBUG_ASYNC_LAYOUT=1`** prints, per `io.async` block, each closure
+  parameter's declaration sites and each captured local's id, site and
+  whether it got a field.
+- **Released machines go back to a per-type pool** (phase 7). A
+  constructor allocates with `__yo_sm_take(<pool>, sizeof)`
+  (`_sm_alloc_call`), and `__yo_dispose_dispatch` returns 1 when it gave the
+  memory to `__yo_sm_give`. Every caller of the dispatch must then skip
+  `__yo_free`; both release paths in `gc_runtime.yo` do.
+  - Anything else that frees a future's memory must go through the dispatch
+    too.
+  - The pools are thread-local, capped at 32 blocks, drained by
+    `__yo_async_free_cont_pool` (the async thread-exit hook), and off under
+    ASan (`__YO_SM_POOLS`).
+  - Since the test runner builds with ASan, pool behavior is tested by the
+    CLI case `async-state-machine-pools`.
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
@@ -235,6 +302,16 @@ Every guard is a `static inline` C11 helper emitted by `src/codegen/c/collection
 - `__yo_sat_i64` / `__yo_sat_u64` for float→int casts.
 
 **No GNU builtins** (`__builtin_*_overflow`): the MSVC target makes C11 the ceiling. Derive width bounds from the type, never from hard-coded 61/63, because `usize` is 32 bits on wasm32. Validate new helper arithmetic with a standalone C probe before splicing it in. `--sanitize undefined` (with `-fno-sanitize-recover=all`) is the instrument for checking that the guards themselves are UB-free.
+
+### Every runtime trap is `fflush(stdout); fprintf(stderr, …); __yo_abort();`
+
+Never emit a bare `abort()`. stdio fully buffers a piped stdout and `abort()`
+discards the buffer, so a program's own output vanished from CI logs and
+`build run` whenever it panicked
+(`issues/fixed/panic-loses-buffered-stdout-when-piped.md`). `__yo_abort()`
+(emitted right after the includes, `src/codegen/c/collection.yo`) flushes and
+aborts; a site that prints a message flushes stdout BEFORE its `fprintf`, so a
+piped run keeps the terminal's order.
 
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 

@@ -1,0 +1,7 @@
+# Released state machines go back to a per-type pool and the next task of
+# that type takes the memory (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7).
+# The test runner builds with AddressSanitizer, which turns the pools off, so
+# this plain build is what exercises them: 1000 reuses of one machine type, a
+# sync future, aborted tasks, and a thread whose pools are drained when it ends.
+stdout_keep_match=^result: .*|error.*|panic.*
+timeout=300

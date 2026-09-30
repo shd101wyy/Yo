@@ -147,6 +147,30 @@ The guarantee is data-race freedom for every program that compiles without `prag
 - **D2, `Iso`.** `^v` is the only safe constructor; it proves the whole graph unique at runtime (`__yo_iso_unique`), through the traversal functions. `T` must be a non-atomic reference object.
 - **D5 / D7, runtime.** `std/sync` primitives record their owner and trap on misuse. A thread that touches ANOTHER thread's event loop registers in the loop's `visitors` count while the loop is provably alive, and loop teardown waits for it (`__yo_async_loop_quiesce`). The loop's live-waker count drops only in the owner's drain.
 
+## Explicit allocators: placement, not lifetime (`plans/EXPLICIT_ALLOCATORS.md`)
+
+- An `Allocator` (`std/allocator.yo`) is `{ctx, vtable}`: a two-word `Send`
+  value, never reference counted. Every block it hands out carries a 16-byte
+  owner prefix (`{ctx, vtable}`) in front of the returned pointer, and every
+  release routes through it, so a block always returns to its allocator, on
+  any thread. Codegen writes the same layout (`__yo_alloc_prefix_t`) for an RC
+  object placed by a scope and marks it with the top bit of `ref_count`
+  (`__YO_RC_TAG`): mask every count TEST with `__YO_RC_COUNT`, never a write.
+- `with_allocator(a, f)` makes `a` current on this thread while `f` runs; the
+  six user-visible RC constructor sites consult it (`__yo_rc_alloc_scoped`),
+  the runtime's own blocks never do (`__yo_rc_alloc`). A task keeps the scope
+  it was created in across suspensions (its resume wrapper reinstates it); a
+  spawned thread starts on the global allocator.
+- Containers record their allocator in the top bit of a word they already
+  have (ArrayList/Deque/imm capacity, HashMap's tombstone count, imm/map's
+  node lengths), never in a new field — the object size is measured and
+  tuned. Read such a word through its masked accessor (`_cap()`, `tombstones()`,
+  `_capn()`, `_clen()`).
+- `Arena` (`std/arena.yo`): its state is never freed (dead states are pooled),
+  so a stale `Allocator` copy panics instead of touching freed memory; the
+  `Arena` handle itself is not `Send` — share the arena through its
+  `Allocator` value.
+
 ## SomeType
 
 - `SomeType` automatically implements the `Runtime` trait by default.
@@ -296,11 +320,12 @@ Four rules to keep when extending it or implementing it on a new type:
   `Stream` and `Iterator` must give them the SAME `Item`. (`FromIterator` chose
   `Elem` to dodge this; here no std type implements both.)
 
-There is deliberately **no `for_await` macro**: an `io.await` reached only
-through a macro expansion is compiled as a BLOCKING await and deadlocks inside
-a task (`plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). The
-loop is `for_each`, or a hand-written `while` + `io.await(s.next(io), io)` +
-`match`.
+The loop is **`for_await(s, io, x => body)`**, a macro over the hand-written
+`while` + `io.await(s.next(io), io)` + `match`, so `break`, `continue` and
+`return` work in its body. Its await suspends the task: an await reached
+through a macro expansion is a real suspension point since the single-pass
+lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+`src/` and `std/` do not use it until `SEED_VERSION` carries that lowering.
 
 ## JoinHandle(T) — spawned task handle
 

@@ -36,12 +36,12 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
@@ -59,7 +59,7 @@ import("std/fmt");
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, substitute, Substitution } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
@@ -985,7 +985,7 @@ _eval_and_update_env :: (
   match(
     info_opt,
     .Some(info) => {
-      env_mut.frames = copy_frames(info.env.frames);
+      env_mut.frames = info.env.frames;
       env_mut.module_path = info.env.module_path;
       env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
       env_mut.input_string = info.env.input_string;
@@ -1582,7 +1582,7 @@ evaluate_function_parameter :: (
       match(
         info_opt,
         .Some(info) => {
-          env_mut.frames = copy_frames(info.env.frames);
+          env_mut.frames = info.env.frames;
           env_mut.module_path = info.env.module_path;
           env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env_mut.input_string = info.env.input_string;
@@ -2119,28 +2119,25 @@ validate_concrete_type_constraints :: (
         new_expr_info(env_mut, t_unit())
       }
     );
-    env_mut.frames = copy_frames(info.env.frames);
+    env_mut.frames = info.env.frames;
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
     if(is_type_value(info.value), {
       tv := match(
         info.value,
-        .Some(ev) => match(
-          ev,
-          .TypeVal(b) => b,
-          _ => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(t_expr),
-                  String.from("Expected trait type for right-hand side of where clause constraint.")
-                )
+        .Some(.TypeVal(b)) => b,
+        .Some(_) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(t_expr),
+                String.from("Expected trait type for right-hand side of where clause constraint.")
               )
-            );
-            return(());
-          }
-        ),
+            )
+          );
+          return(());
+        },
         .None => {
           exn.throw(
             dyn(
@@ -2212,7 +2209,7 @@ validate_concrete_type_constraints :: (
         );
       });
       implemented := tc_res.implemented;
-      env_mut.frames = copy_frames(tc_res.env.frames);
+      env_mut.frames = tc_res.env.frames;
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -2277,7 +2274,7 @@ apply_single_trait_constraint :: (
     if(existing_vars.len() == usize(0), {
       return(false);
     });
-    last_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(false));
+    last_var := match(existing_vars.last(), .Some(v) => v, .None => return(false));
     match(
       last_var.value.get(usize(0)),
       .Some(ev) => {
@@ -2318,7 +2315,7 @@ apply_single_trait_constraint :: (
     if(!is_type_value(info.value), {
       return(false);
     });
-    env_mut.frames = copy_frames(info.env.frames);
+    env_mut.frames = info.env.frames;
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
@@ -2352,7 +2349,7 @@ apply_single_trait_constraint :: (
   if(!is_type_value(info_rhs.value), {
     return(false);
   });
-  env_mut.frames = copy_frames(info_rhs.env.frames);
+  env_mut.frames = info_rhs.env.frames;
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
   env_mut.input_string = info_rhs.env.input_string;
@@ -2472,7 +2469,7 @@ parse_where_clause_constraints :: (
       var_name := ast_expr_token(lhs_expr).value;
       existing_vars := get_variables_from_env(env_mut, var_name);
       if(existing_vars.len() > usize(0), {
-        last_v := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => return(pending_traits));
+        last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
         match(
           last_v.value.get(usize(0)),
           .Some(ev) => {
@@ -2572,7 +2569,7 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_mut.frames = copy_frames(lhs_info.env.frames);
+      env_mut.frames = lhs_info.env.frames;
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
@@ -2685,7 +2682,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_mut.frames = copy_frames(trait_info.env.frames);
+      env_mut.frames = trait_info.env.frames;
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
       env_mut.input_string = trait_info.env.input_string;
@@ -3109,7 +3106,7 @@ evaluate_function_parameters :: (
             )
           );
         });
-        row_var_opt := row_vars.get(row_vars.len() - usize(1));
+        row_var_opt := row_vars.last();
         match(
           row_var_opt,
           .None => {
@@ -4392,14 +4389,11 @@ evaluate_function_type :: (
       ct_vars := get_variables_from_env(env_mut, wpp.label);
       if(ct_vars.len() > usize(0), {
         match(
-          ct_vars.get(ct_vars.len() - usize(1)),
+          ct_vars.last(),
           .Some(ct_var) => match(
             ct_var.value.get(usize(0)),
-            .Some(cv) => match(
-              cv,
-              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
-              _ => ()
-            ),
+            .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -4451,6 +4445,22 @@ evaluate_function_type :: (
         break;
       }
     );
+    // A COMPUTED array length (`Array(u8, N + usize(1))`) is legal in a
+    // result type and in a body, where the binders are bound before it is
+    // read, but not in a parameter: a parameter is a matching position, and
+    // a length is inferred only from a bare binder or a bare projection (I1
+    // of plans/backlog/ATS_STYLE_INDEXED_TYPES.md; the DML "index pattern"
+    // rule). Without this rejection the marker would match any length.
+    if(type_has_computed_array_len(pp.ty), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            match(pp.ty_expr, .Some(pte) => ast_expr_token(pte), .None => ast_expr_token(expr)),
+            `Parameter "${pp.label}" has a COMPUTED array length in its type. A parameter's length is a matching position: bind it to a generic(N : usize) parameter and write the bare name (or a single associated constant such as T.BYTES) there; compute the length in the result type or in the body instead.`
+          )
+        )
+      );
+    });
     param_labels.push(pp.label);
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);
@@ -4904,13 +4914,10 @@ _resolve_some_types_deep :: (
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get(rsd_i),
-              .Some(rsd_rt) => match(
-                rsd_rt,
-                .FutureTraitT(base_name : _) => {
-                  rsd_fut_poisoned = true;
-                },
-                _ => ()
-              ),
+              .Some(.FutureTraitT(base_name : _)) => {
+                rsd_fut_poisoned = true;
+              },
+              .Some(_) => (),
               .None => ()
             );
             rsd_i = (rsd_i + usize(1));
@@ -4945,30 +4952,19 @@ _resolve_some_types_deep :: (
     while(nti < nested.len(), {
       nst := match(nested.get(nti), .Some(t) => t, .None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
-      if(is_some_type(nres), {
-        // Only fall back to the global table when the env lookup
-        // returned a FRESH SomeType (from get_value_of_some_type_from_env's
-        // self-bound/def-frame gating). Skip the fallback for "E" (effect
-        // param) — the global table is poisoned by prior IoExn registrations
-        // and would resolve E to IoExn even for single-effect io.async calls.
-        _skip_fallback := match(
-          nst,
-          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == "E"),
-          _ => false
+      if(_env_rebound_to_another_some(nst, nres), {
+        // The env bound the slot to ANOTHER SomeType (a per-spec rebuild or
+        // a per-call output): read the resolution that VALUE carries. The
+        // old "skip E" guard existed only because the id-keyed registry was
+        // poisoned by prior IoExn registrations; a value's own resolution
+        // cannot be.
+        match(
+          some_resolution(nres),
+          .Some(c) => {
+            nres = c;
+          },
+          .None => ()
         );
-        if(!_skip_fallback, {
-          match(
-            nres,
-            .SomeT({ id : nrsid }) => match(
-              lookup_some_resolved_concrete(nrsid),
-              .Some(c) => {
-                nres = c;
-              },
-              .None => ()
-            ),
-            _ => ()
-          );
-        });
       });
       if(!is_some_type(nres), {
         match(
@@ -5001,17 +4997,13 @@ _resolve_some_types_deep :: (
     // return type concretize `T` to the spawned future's actual output so the
     // `handle.await` generic-impl match can bind it. See
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
-    if(is_some_type(resolved), {
+    if(_env_rebound_to_another_some(st, resolved), {
       match(
-        resolved,
-        .SomeT({ id : rsid }) => match(
-          lookup_some_resolved_concrete(rsid),
-          .Some(c) => {
-            resolved = c;
-          },
-          .None => ()
-        ),
-        _ => ()
+        some_resolution(resolved),
+        .Some(c) => {
+          resolved = c;
+        },
+        .None => ()
       );
     });
     // A closure identity is its capture struct: `*(T)` with
@@ -5037,6 +5029,23 @@ _resolve_some_types_deep :: (
     true => ty
   )
 });
+/// Did the env resolve the slot `st` to a DIFFERENT SomeType (`r`)? Only then
+/// is `r`'s own resolution a binding learned for this call or specialization:
+/// since Phase 3 step 7 part 2 those travel on the per-spec rebuild the env
+/// binds. A slot the env leaves as itself keeps its declared form; its own
+/// resolution is part of its definition, not a binding. Adopting it anyway
+/// rewrote `Impl(Concrete(__yo_io_future_t), Future(i32))` (std/sys/future.yo's
+/// `IoFuture`) to the extern type inside `Park`'s field, and the substitution
+/// is keyed by (name, level), so the rewrite reached every `Impl` wrapper at
+/// that level. `Park` then had two C structs, one per field spelling
+/// (issues/fixed/p37-registry-retirement-blocked-by-codegen-readers.md).
+_env_rebound_to_another_some :: (fn(st : TypeValue, r : TypeValue) -> bool)(
+  match(
+    r,
+    .SomeT({ id : r_id }) => match(st, .SomeT({ id : st_id }) => (r_id != st_id), _ => true),
+    _ => false
+  )
+);
 /// Re-evaluate (resolve) a function parameter's type at call site.
 ///
 /// Resolves any generic type variables that have been bound since the function
@@ -5160,13 +5169,11 @@ _collect_type_arg_somes :: (
     _ => ()
   )
 );
-/// Resolve those type-argument SomeTs through the SAME three channels
-/// `_resolve_some_types_deep` already uses at this very site (env by name →
-/// the SomeT's own `resolution` → the id-keyed
-/// `lookup_some_resolved_concrete` registry). The registry channel is REQUIRED:
-/// the measured record for this call (issues/retired/yo-self-hollow-root-cause-map.md
-/// "A resolved via the registry, B needed the env fallback") says `A` is
-/// reachable only there. It is a RESOLUTION channel, exactly as
+/// Resolve those type-argument SomeTs through the SAME two channels
+/// `_resolve_some_types_deep` uses at this very site (env by name → the
+/// SomeT's own `resolution`; the retired id-keyed registry's channel is now
+/// the value's resolution, since Phase 3 step 7 part 2 moved every writer
+/// onto the value). It is a RESOLUTION channel, exactly as
 /// `_resolve_some_types_deep` uses it — NOT a memo-COMPARISON channel, which is
 /// what F-era attempt 4 did inside `_ctfe_args_equal` and what the recorded
 /// verdict forbids.
@@ -5185,6 +5192,13 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
       targ_somes.get(tas_i),
       .Some(tas_st) => {
         (tas_r : TypeValue) = get_value_of_some_type_from_env(env, tas_st);
+        // The env binds by NAME, so what it answers substitutes by name. A
+        // resolution read off the slot's OWN value belongs to that SomeT
+        // alone and substitutes by id: `map`'s `F` and `filter`'s `F` share
+        // one (name, level), and a name-keyed entry for the inner one (nested
+        // in `Self`'s type arguments) rewrote the outer one too, so
+        // `ch.map(f).filter(g)` returned `StreamFilter(_, <f's capture>)`.
+        (tas_own : bool) = false;
         if(is_some_type(tas_r), {
           match(
             tas_st,
@@ -5192,6 +5206,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
               tas_cell,
               .Some(tas_c) => {
                 tas_r = tas_c;
+                tas_own = true;
               },
               .None => ()
             ),
@@ -5200,22 +5215,26 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
         });
         if(is_some_type(tas_r), {
           match(
-            tas_r,
-            .SomeT({ id : tas_rid }) => match(
-              lookup_some_resolved_concrete(tas_rid),
-              .Some(tas_g) => {
-                tas_r = tas_g;
-              },
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(tas_r),
+            .Some(tas_g) => {
+              // The env left the slot as itself: this is its own resolution.
+              if(!(_env_rebound_to_another_some(tas_st, tas_r)), {
+                tas_own = true;
+              });
+              tas_r = tas_g;
+            },
+            .None => ()
           );
         });
         if(!is_some_type(tas_r), {
           match(
             tas_st,
-            .SomeT(_, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
-              subst_add(tas_s, tas_name, tas_lvl, tas_r);
+            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
+              if(tas_own && (tas_id.len() > usize(0)), {
+                subst_adopt_own_resolution(tas_s, tas_id);
+              }, {
+                subst_add(tas_s, tas_name, tas_lvl, tas_r);
+              });
               tas_bound_any = true;
             },
             _ => ()

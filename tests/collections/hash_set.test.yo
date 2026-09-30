@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ Arena } :: import("std/arena");
 { HashSet } :: import("std/collections/hash_set");
 // ===== Construction Tests =====
 test("HashSet.new creates empty set", {
@@ -631,4 +632,20 @@ test("HashSet Default is the empty set", {
   assert(s.len() == usize(0), "default set is empty");
   s.insert(i32(4));
   assert(s.contains(i32(4)), "the default set is a usable set");
+});
+// ===== Explicit allocators (plans/EXPLICIT_ALLOCATORS.md P1) =====
+test("HashSet.new_in keeps its table in the arena", {
+  arena := Arena.new(usize(1) << usize(18));
+  a := arena.allocator();
+  {
+    s := HashSet(i32).new_in(a);
+    i := i32(0);
+    while(runtime(i < i32(200)), {
+      s.insert(i);
+      i = (i + i32(1));
+    });
+    assert(s.contains(i32(150)), "contains");
+    assert(s.allocator().unwrap().same(a), "the table is the arena's");
+  };
+  assert(arena.live_blocks() == usize(0), "dispose released the table");
 });

@@ -66,6 +66,6 @@ and the call site — the same as any other argument type mismatch.
 ## Related
 
 - `issues/fixed/struct-literal-missing-field-silently-accepted.md`
-- `issues/yo-self-async-await-argcount-overpermissive.md`
+- `issues/fixed/yo-self-async-await-argcount-overpermissive.md`
 - the "~220 type-level swallow classes" recorded as still OPEN in
   `issues/fixed/self-hosted-compile-swallows-undefined-call.md`

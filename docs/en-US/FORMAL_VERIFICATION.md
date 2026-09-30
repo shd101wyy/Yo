@@ -378,6 +378,28 @@ refuted  fn@src/math.yo:8 [verify]
     fn@src/math.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
 ```
 
+### Guards a proof removes
+
+Safe mode puts a runtime guard on every fixed-array subscript, integer
+division and shift. When `yo compile` builds a `verify` or `verify+` entry
+file, a guard whose obligation is proved is emitted as the bare operation
+instead, and the compile reports `verify: N guard(s) elided (proved safe)`.
+A guard is removed only when all of these hold:
+
+- the function's outcome is `ok` (every obligation proved);
+- no assumption on the proof's path goes unchecked at run time: a
+  `requires` without an entry check (one that calls a `ghost_fn`, or any
+  `requires` inside a `ghost_fn`), a `refine` parameter, or a callee's
+  `ensures`;
+- the target is 64-bit.
+
+Today that covers subscripts, unsigned `/` and `%`, and shifts, in the
+entry file only; a signed `/` keeps its guard until the `MIN / -1` case is
+proved too. Without a solver nothing is proved, so nothing is removed.
+`--no-guard-elision` keeps every guard, and
+`scripts/check-guard-elision.py` checks that each removed guard has a proof
+naming its site (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+
 ## The verifiable subset (current state)
 
 Verification is defined over a subset of Yo that grows per phase; a
@@ -401,6 +423,7 @@ runtime assert).
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
+| `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove` relate `len()` to `old(len())`): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `for` over a list, `get` (returns `Option`) and nested lists stay outside | ✅ verified (R1 slices 1–2) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
 | Contracted GENERIC functions at call sites — `requires` discharged and `ensures` assumed per monomorphized call site (the generic body itself stays unwalked) | ✅ verified (V6 task 2) |
@@ -486,3 +509,8 @@ bugged twin that must refute:
 ```bash
 yo verify ./tests/spec/verify_straight_line.test.yo
 ```
+
+To make proofs part of a project's build rather than a command someone
+remembers to run, declare a verification step in `build.yo` — see
+[BUILD_SYSTEM.md § Verification steps](BUILD_SYSTEM.md#verification-steps).
+`yo check` never runs the solver; the build step is the project-level switch.

@@ -14,12 +14,17 @@
 >
 > **Parked, with reasons measured rather than guessed:**
 >
+> - **`for_await` (item 4) landed 2026-09-29** (`std/async/stream.yo`, tests in
+>   `tests/async/combinators.test.yo` S8), after the single-pass async lowering
+>   made an await inside a macro expansion a real suspension point
+>   (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The record of why it
+>   was parked follows.
 > - **`for_await` (item 4) was written and then REMOVED.** An `io.await` reached
 >   only through a MACRO EXPANSION is not counted as a suspension point, so the
 >   enclosing `io.async` body is emitted as a plain closure with a BLOCKING
 >   await — correct from `main`, a deadlock inside a task. See
 >   `issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
->   and `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`.
+>   and `plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`.
 >   `for_each` + `take` and the hand-written `while` loop cover the ground
 >   meanwhile.
 > - **`BufReader.lines` (item 5, second half) needs a non-throwing read.** A
@@ -47,7 +52,7 @@
 > `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.6, and a blanket combinator can now be
 > called on a generic stream parameter), and a chain built
 > INSIDE an `io.async` body loses the future's result type
-> (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)
+> (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)
 > — build the chain outside, await it inside.
 
 **Status:** LANDED 2026-09-11 (was: BACKLOG, written 2026-09-10 because

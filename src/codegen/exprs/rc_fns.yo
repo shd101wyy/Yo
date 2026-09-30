@@ -140,8 +140,9 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
       // Options and Strings, and once #989's escape sweep dropped those too, a
       // `fetch` task unwound on a malformed response freed its connection
       // twice (issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md).
-      // `sm->var_…` names a state-machine local and nothing else.
-      in_sm_field := value_code.starts_with("sm->var_");
+      // `sm->var_…` names a state-machine local and nothing else; `sm->slot_…`
+      // is a slot locals with disjoint live ranges share (phase 6).
+      in_sm_field := (value_code.starts_with("sm->var_") || value_code.starts_with("sm->slot_"));
       clear_stmt := `memset(&(${value_code}), 0, sizeof(${value_code}))`;
       cond(
         !in_sm_field => drop_code,
@@ -455,14 +456,16 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
       // Linux (libatomic is not linked) — the tier-1 `imm_string` failure. On macOS
       // it linked and merely read garbage in the high bits, so every
       // `rc(self) == 1` copy-on-write check in `std/imm/*` silently went false.
-      out := String.from("atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)(");
+      // Masked: the top bit is the explicit-allocator tag, not a count
+      // (plans/EXPLICIT_ALLOCATORS.md §3.4).
+      out := String.from("(atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)(");
       out.push_string(arg_code);
-      out.push_str("))->ref_count, memory_order_acquire)");
+      out.push_str("))->ref_count, memory_order_acquire) & __YO_RC_COUNT)");
       out
     }, {
-      out := String.from("((__yo_rc_prefix_t*)(");
+      out := String.from("(((__yo_rc_prefix_t*)(");
       out.push_string(arg_code);
-      out.push_str("))->ref_count");
+      out.push_str("))->ref_count & __YO_RC_COUNT)");
       out
     }),
     String.from("1")

@@ -38,7 +38,6 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
-{ set_compat_lookup_some_resolved_fn } :: import("./types/compatibility.yo");
 { EvalValue } :: import("./value.yo");
 {
   AstExpr,
@@ -60,6 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 { debug_knob } :: import("./utils.yo");
+{ Diagnostic } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Path and PathCollection
 // ---------------------------------------------------------------------------
@@ -428,7 +428,9 @@ ExprInfo :: ref(
 /// shallow copy, point THIS ExprInfo at it, and hand it out. Other sharers
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
+(g_adopt_env_calls : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
+  g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(info.env);
   info.env = fresh;
   fresh
@@ -956,11 +958,63 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 /// call this first. Detects the shared instance by POINTER identity and swaps in
 /// a private list. Reads can use the field directly.
 expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
-  if(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)), {
-    info.path_collection = path_collection_new();
-  });
+  cond(
+    unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)) => {
+      info.path_collection = path_collection_new();
+    },
+    // Shared (`path_collection_of_name`, or aliased by another ExprInfo):
+    // write into a private deep copy.
+    (rc(info.path_collection) > usize(1)) => {
+      fresh := path_collection_new();
+      (i : usize) = usize(0);
+      while(i < info.path_collection.len(), {
+        match(info.path_collection.get(i), .Some(p) => fresh.push(p.clone()), .None => ());
+        i = (i + usize(1));
+      });
+      info.path_collection = fresh;
+    },
+    true => ()
+  );
   info.path_collection
 });
+/// The one-path collection `[[name]]`, shared by every ExprInfo that names
+/// `name` (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
+/// lhs of bindings and assignments each built a fresh one, and ~3 of every 4
+/// recorded collections were duplicates. Nothing writes a stored collection
+/// in place; `expr_info_paths_for_write` copies a shared one.
+/// Sharing is on only while one table holds the whole program (`compile`'s
+/// shared table): `check` gives each module a table that dies with it, and a
+/// process-wide map would outlive those (+20 MB on `check src/main.yo`).
+(g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
+(g_share_name_paths : bool) = false;
+set_name_path_sharing :: (fn(on : bool) -> unit)({
+  g_share_name_paths = on;
+  if(!on, {
+    g_name_path_collections.clear();
+  });
+});
+_fresh_name_path_collection :: (fn(name : String) -> PathCollection)({
+  p := ArrayList(String).new();
+  p.push(name);
+  pc := path_collection_new();
+  pc.push(p);
+  pc
+});
+path_collection_of_name :: (fn(name : String) -> PathCollection)(
+  if(
+    !g_share_name_paths,
+    _fresh_name_path_collection(name),
+    match(
+      g_name_path_collections.get(name),
+      .Some(pc) => pc,
+      .None => {
+        pc := _fresh_name_path_collection(name);
+        _prev := g_name_path_collections.insert(name, pc);
+        pc
+      }
+    )
+  )
+);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
@@ -978,10 +1032,35 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
   table.data.insert(id, info);
   ()
 });
-/// Retrieve the ExprInfo for the given expression id, or None.
-expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+/// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
+/// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
+/// (`codegen_c.yo` switches it on for collect + emit only).
+(g_codegen_read_log_on : bool) = false;
+(g_codegen_read_keys : HashSet(usize)) = HashSet(usize).new();
+codegen_read_log_set :: (fn(on : bool) -> unit)({
+  g_codegen_read_log_on = on;
+});
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
+_logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
+  _i := g_codegen_read_keys.insert(id);
   table.data.get(id)
+});
+/// Retrieve the ExprInfo for the given expression id, or None. Stays
+/// expression-bodied: a block body on this hot accessor's shape is what
+/// made `new_expr_info` 8x slower (see `expr_info_table_set`).
+expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+  cond(
+    g_codegen_read_log_on => _logged_table_get(table, id),
+    true => table.data.get(id)
+  )
 );
+/// Drop every entry whose key `keep` does not hold; returns how many went.
+/// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
+expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
+  before := table.data.len();
+  table.data.retain((k, _v) => keep.contains(k));
+  (before - table.data.len())
+});
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //
@@ -1231,7 +1310,7 @@ module_global_recording_mark :: (fn() -> usize)({
 rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
   while(g_mg_recorded_keys.len() > mark, {
     match(
-      g_mg_recorded_keys.get(g_mg_recorded_keys.len() - usize(1)),
+      g_mg_recorded_keys.last(),
       .Some(k) => {
         g_module_level_globals.remove(k.clone());
         // The thread-local registry is keyed identically and is a SUBSET, so
@@ -1281,42 +1360,21 @@ register_thread_local :: (fn(module_path : String, name : String) -> unit)({
 is_thread_local :: (fn(module_path : String, name : String) -> bool)(
   g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
 );
-// Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
-// SomeT's unique `id`. `SomeT` carries no such field of its own (codegen
-// otherwise lowers an unresolved SomeT to `void*`), so this
-// side-table is the idiomatic eval→codegen bridge (same pattern as
-// `g_method_callee_values` / `g_extern_c_globals`). The async-Future codegen needs
-// it — e.g. `is_io_future_type` distinguishes an extern `__yo_io_future_t` from a
-// state-machine Future by inspecting the resolved concrete type. Keyed by `id`
-// (SomeT's first field, unique — copies carry it, so id-keying is sound). Read by
-// the FSM emitters. (See plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3.)
-(g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
-/// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
-register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
-  g_some_resolved_concrete.insert(some_id, ty);
-  ()
-});
-/// The resolved concrete type for the `SomeT` with id `some_id`, if recorded.
-lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
-  g_some_resolved_concrete.get(some_id)
+/// A SomeT's resolution: the one it carries on the value (`SomeT.resolution`,
+/// immutable since #940). Every reader goes through here. The id-keyed
+/// registry this once fell back to (`g_some_resolved_concrete`) is RETIRED
+/// (Phase 3 step 7 part 2): ids are shared by every copy and specialization of
+/// a declaration, so every registry write was last-write-wins across
+/// specializations; each writer now builds the resolution onto the value
+/// (`t_with_resolution`) or records it on the binding that resolves the binder
+/// (`variable_bound_some_id`).
+some_resolution :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .SomeT({ resolution : sr_r }) => sr_r,
+    _ => Option(TypeValue).None
+  )
 );
-/// Drop any recorded resolution for `some_id`.
-///
-/// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
-/// binder is NOT durable — the ONE signature instance is reused across calls,
-/// so one call's `B := i32` must not be seen by the next: the entry is dropped
-/// when a call installs its own placeholder for that binder — see the Step-6 marker
-/// loop in `evaluator/calls/helper.yo`.
-unregister_some_resolved_concrete :: (fn(some_id : String) -> unit)({
-  g_some_resolved_concrete.remove(some_id);
-  ()
-});
-// Install the durable-registry lookup into compatibility.yo's given-SomeT
-// resolution unwrap (cycle breaker: types/ cannot import THIS file).
-_compat_some_resolved_init := (fn() -> bool)({
-  set_compat_lookup_some_resolved_fn(lookup_some_resolved_concrete);
-  true
-})();
 // Constructor-funcId stamp side-table, keyed by STRUCT ID. When a comptime
 // type-constructor returns, the constructor funcId must be observable from
 // every reference — including the pre-stamp SHELL copies a self-recursive
@@ -1329,7 +1387,7 @@ _compat_some_resolved_init := (fn() -> bool)({
 // id is the object-identity surrogate: keying the stamp by id lets any
 // holder — the synthesizer's same-constructor unification in particular —
 // recover the constructor fid.
-// (Same durable-global pattern as g_some_resolved_concrete above.)
+// (A durable-global side-table, like g_method_callee_values below.)
 (g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the constructor funcId stamped onto the struct with `struct_id`.
 // ---------------------------------------------------------------------------
@@ -1521,7 +1579,7 @@ pop_active_where_trait_ids :: (fn() -> unit)({
 });
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
-    g_active_where_trait_ids.get(g_active_where_trait_ids.len() - usize(1)),
+    g_active_where_trait_ids.last(),
     .Some(top) => top,
     .None => ArrayList(String).new()
   )
@@ -1588,7 +1646,7 @@ branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_br
 sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
   out := ArrayList(BranchInitRecord).new();
   match(
-    g_branch_group_stack.get(g_branch_group_stack.len() - usize(1)),
+    g_branch_group_stack.last(),
     .Some(g) => {
       gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
       ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -1763,13 +1821,9 @@ adopt_receiver_struct_instance :: (
       if(is_some_type(rta), {
         match(
           rta,
-          .SomeT({ resolution : ai_cell }) => match(
-            ai_cell,
-            .Some(ai_conc) => {
-              rta = ai_conc;
-            },
-            .None => ()
-          ),
+          .SomeT({ resolution : .Some(ai_conc) }) => {
+            rta = ai_conc;
+          },
           _ => ()
         );
       });
@@ -1827,7 +1881,27 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
 // read by codegen as a FALLBACK when the per-pass ExprInfo lost it. A macro
 // call's expansion is a stable syntactic property of its id, so the record stays
 // correct regardless of which pass last touched the ExprInfo. (Same pattern as
-// g_method_callee_values / g_some_resolved_concrete above.)
+// g_method_callee_values above.)
+/// The error a forced `io.async` closure body's definition-time trial
+/// swallowed, keyed by the body's source position (`module:row:col`).
+/// Nothing evaluates such a body again, so codegen finds it hollow; it reports
+/// this error (its code, span and help) instead of the generic E0905
+/// (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
+HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
+(g_hollow_body_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
+record_hollow_body_error :: (fn(site : String, message : String, diagnostics : ArrayList(Diagnostic)) -> unit)({
+  g_hollow_body_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  ()
+});
+/// A body's definition succeeded after all (a later trial of the same body):
+/// forget what an earlier trial recorded.
+clear_hollow_body_error :: (fn(site : String) -> unit)({
+  if(g_hollow_body_errors.len() > usize(0), {
+    _removed := g_hollow_body_errors.remove(site);
+  });
+  ()
+});
+lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
@@ -1864,7 +1938,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
@@ -1922,7 +1996,7 @@ export(
 export(expr_info_await_analysis, expr_info_set_await_analysis);
 export(expr_info_effect_analysis, expr_info_set_effect_analysis);
 export(expr_info_closure_function_value, expr_info_set_closure_function_value);
-export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
+export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
@@ -1931,7 +2005,7 @@ export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
 export(register_thread_local, is_thread_local);
 export(module_global_recording_mark, rollback_module_level_globals_to);
-export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
+export(some_resolution);
 export(
   register_struct_ctor_fid,
   record_branch_init,
@@ -2048,7 +2122,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()}`);
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);
@@ -2118,6 +2192,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
 export(record_macro_expansion, lookup_macro_expansion);
+export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
 /// Drop the given expression ids from this module's ExprId-keyed side tables.
 /// `mm_invalidate_document` passes each removed module's ids
 /// (`take_owned_expr_ids`): the nodes they key died with the module

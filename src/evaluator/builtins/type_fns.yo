@@ -22,7 +22,6 @@ pragma(Pragma.AllowUnsafe);
   Environment,
   add_variable_to_env,
   synthetic_token,
-  copy_frames,
   snapshot_env
 } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -711,7 +710,7 @@ _ti_eval_code :: (
     .Some(i) => i,
     .None => new_expr_info(env_ptr, t_unit())
   );
-  env_ptr.frames = copy_frames(result_info.env.frames);
+  env_ptr.frames = result_info.env.frames;
   env_ptr.module_path = result_info.env.module_path;
   env_ptr.function_declaration_frame_level = result_info.env.function_declaration_frame_level;
   env_ptr.input_string = result_info.env.input_string;
@@ -749,7 +748,7 @@ _ti_bind_comptime_list :: (
       .Some(i) => i,
       .None => new_expr_info(env_ptr, t_unit())
     );
-    env_ptr.frames = copy_frames(type_info.env.frames);
+    env_ptr.frames = type_info.env.frames;
     env_ptr.module_path = type_info.env.module_path;
     env_ptr.function_declaration_frame_level = type_info.env.function_declaration_frame_level;
     env_ptr.input_string = type_info.env.input_string;
@@ -1734,21 +1733,18 @@ evaluate_type_join_fields :: (
   local_env = expr_info_adopt_env(info2);
   combiner_expr := match(
     info2.value,
-    .Some(v) => match(
-      v,
-      .ExprVal(e_box) => e_box,
-      _ => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(arg2),
-              String.from("__yo_type_join_fields: third argument must be a quoted expression")
-            )
+    .Some(.ExprVal(e_box)) => e_box,
+    .Some(_) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg2),
+            String.from("__yo_type_join_fields: third argument must be a quoted expression")
           )
-        );
-        make_err_expr()
-      }
-    ),
+        )
+      );
+      make_err_expr()
+    },
     .None => {
       exn.throw(
         dyn(
@@ -1851,21 +1847,18 @@ evaluate_type_join_fields :: (
     local_env = expr_info_adopt_env(call_info);
     result_expr := match(
       call_info.value,
-      .Some(v) => match(
-        v,
-        .ExprVal(e_box) => e_box,
-        _ => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(arg1),
-                String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
-              )
+      .Some(.ExprVal(e_box)) => e_box,
+      .Some(_) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg1),
+              String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
             )
-          );
-          make_err_expr()
-        }
-      ),
+          )
+        );
+        make_err_expr()
+      },
       .None => {
         exn.throw(
           dyn(

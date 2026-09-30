@@ -38,6 +38,7 @@
 { type_key } :: import("../../types/type_key.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
+{ guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 { TargetInfo } :: import("../../target.yo");
 // Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
 // main.yo builds the C-compiler command AFTER compile_module returns only the
@@ -66,7 +67,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -222,6 +223,10 @@ CodeGenContext :: ref(
     /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
     /// the typeid/downcast expression emitters and the Dyn vtable pass.
     type_id_static_names : HashSet(String),
+    /// `&(K)` of a compile-time constant in emitted code: the static that
+    /// holds the constant, keyed by `<C type>=<initializer>` so every site
+    /// addressing the same value shares one object → its C name.
+    comptime_pointer_statics : HashMap(String, String),
     /// C names of type BODIES the on-demand declare hook already emitted
     /// (_on_demand_collect_and_declare, codegen_c.yo). The declaration passes
     /// (types/generation.yo) SKIP these — one C name must have exactly one
@@ -278,6 +283,11 @@ CodeGenContext :: ref(
     /// dispatch switch (deferred) reads the same map.
     dispose_type_ids : HashMap(String, usize),
     next_dispose_type_id : usize,
+    /// State-machine types whose released memory goes back to a per-type pool
+    /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
+    /// name → pool index (0-based). The dispose dispatch hands those types'
+    /// memory to `__yo_sm_give` instead of freeing it.
+    sm_pool_ids : HashMap(String, usize),
     /// Cycle-GC `void*` dispose thunks already emitted, by thunk C name
     /// (`dispose_fn_thunk`, functions/constructors.yo).
     dispose_thunks : HashSet(String),
@@ -375,6 +385,7 @@ impl(
       inside_match : false,
       type_id_statics : HashMap(String, String).new(),
       type_id_static_names : HashSet(String).new(),
+      comptime_pointer_statics : HashMap(String, String).new(),
       on_demand_body_cnames : HashSet(String).new(),
       type_declaration_passes_done : false,
       on_demand_fwd_only : HashMap(String, TypeValue).new(),
@@ -385,6 +396,7 @@ impl(
       exported_function_labels : HashMap(String, String).new(),
       dispose_type_ids : HashMap(String, usize).new(),
       next_dispose_type_id : usize(1),
+      sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
@@ -421,6 +433,30 @@ impl(
       self.emitter.emit_declaration_string_line(decl);
     });
   }),
+  /// The C name of a static holding a compile-time constant `init` of C type
+  /// `c_type`, emitted on first use (`&(K)` in emitted code: a pointer to
+  /// static storage that lives for the whole program). Chunked emission
+  /// splits it the way `emit_typeid_static` does — `extern` in the header,
+  /// one definition in chunk 0 — so every translation unit sees one object.
+  comptime_pointer_static : (fn(self : Self, c_type : String, init : String) -> String)({
+    key := `${c_type.clone()}=${init.clone()}`;
+    match(
+      self.comptime_pointer_statics.get(key.clone()),
+      .Some(name) => name,
+      .None => {
+        name := `__yo_cptr_${self.comptime_pointer_statics.len()}`;
+        self.comptime_pointer_statics.insert(key, name.clone());
+        cond(
+          self.chunk_mode => {
+            self.emitter.emit_declaration_string_line(`extern ${c_type.clone()} ${name.clone()};`);
+            self.chunk_globals.push_string(`${c_type} ${name.clone()} = ${init};\n`);
+          },
+          true => self.emitter.emit_declaration_string_line(`static ${c_type} ${name.clone()} = ${init};`)
+        );
+        name
+      }
+    )
+  }),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
   dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
     match(
@@ -430,6 +466,19 @@ impl(
         id := self.next_dispose_type_id;
         self.next_dispose_type_id = (id + usize(1));
         self.dispose_type_ids.insert(dispose_c_name.clone(), id);
+        id
+      }
+    )
+  ),
+  /// Allocate (or reuse) the pool index of a state-machine type, keyed by its
+  /// dispose function's C name.
+  sm_pool_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+    match(
+      self.sm_pool_ids.get(dispose_c_name.clone()),
+      .Some(id) => id,
+      .None => {
+        id := self.sm_pool_ids.len();
+        self.sm_pool_ids.insert(dispose_c_name.clone(), id);
         id
       }
     )
@@ -1335,13 +1384,10 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           rtts.get(i),
-          .Some(rt) => match(
-            rt,
-            .FutureTraitT(_, _, _, _, _) => {
-              found = true;
-            },
-            _ => ()
-          ),
+          .Some(.FutureTraitT(_, _, _, _, _)) => {
+            found = true;
+          },
+          .Some(_) => (),
           .None => ()
         );
         i = (i + usize(1));
@@ -1531,7 +1577,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // future's SM / sync-future struct under the future SomeType — return that.
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({ id : sid, name : snm, resolution : src }) => match(
+    .SomeT({ id : sid, name : snm }) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
       // intern — the id-keyed global misses when ids re-mint, e.g. the Box
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
@@ -1539,7 +1585,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // to the unresolved fallback instead of recursing forever.
       cond(
         _gts_stack_contains(sid) => Option(TypeValue).None,
-        true => match(src, .Some(rc0) => Option(TypeValue).Some(rc0), .None => lookup_some_resolved_concrete(sid))
+        true => some_resolution(t)
       ),
       .Some(rct) => {
         // An extern-resolved FUTURE — `IoFuture :: Impl(Concrete(
@@ -2028,6 +2074,10 @@ _idx_c_string_literal :: (fn(s : String) -> String)({
 /// The guarded index sub-expression for a runtime-length receiver (`str`:
 /// the caller spells the length as `(<recv>).len`).
 _checked_index_expr :: (fn(index_code : String, length_code : String, expr : AstExpr) -> String)({
+  // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+  if(guard_site_is_proved(expr, "index-in-bounds"), {
+    return(index_code);
+  });
   tok := ast_expr_token(expr);
   if(_is_decimal_literal(index_code.clone()) && _is_decimal_literal(length_code.clone()), {
     if(_parse_decimal(index_code.clone()) < _parse_decimal(length_code.clone()), {

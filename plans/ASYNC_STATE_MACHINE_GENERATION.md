@@ -1,8 +1,12 @@
 # Async state-machine generation: the 2026-09-28 audit and the improvement plan
 
 **Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
-Phases 0–3 are merged (#989, #991), and phase 5 (the single-pass lowering)
-is landing; phases 6 and 7 are next. The owning `JoinHandle` of phase 2
+Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
+the rest of phase 1 (#1008), phase 6 (layout from liveness, #1016) and
+phase 7 (the state-machine pools, `for_await`, E0904 retired, #1018) are open
+as stacked PRs, and phase 4 is subsumed by them. What remains waits for a seed that carries phase 5: the seed-safe
+spellings in `src/`/`std/` (which also keep `for_await` and `inout` in async
+bodies out of them), and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
 waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
 The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
@@ -139,7 +143,7 @@ in codegen.
    blocking await inside a task: a silent deadlock
    (`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`).
    This is what blocks `for_await`
-   (`plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+   (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 5. **Store sites that must remember a rule.** The borrowed-future `incr_rc`
    (the `Park.wait` fix) and the named-future "no slot" rule are enforced by
    convention at each store site. Two sites got one of them wrong:
@@ -534,6 +538,17 @@ These are independent of the rewrite, and phase 5 keeps them.
 5. `set_effect` as a direct typed store when the awaited future's concrete
    type is known, and one shared setter body per layout (§3.4.7).
 
+   **Item 5 landed later, on `async-sm-p7` (2026-09-29), in a more general
+   form than written.**
+   - The vtable carries `bundle_offset`/`bundle_size`, where the type's
+     bundle goes, and one shared inline helper, `__yo_future_set_bundle`,
+     copies it. That covers typed and type-erased futures alike, with no
+     `strcmp` and no indirect call.
+   - The per-type setter keeps only the per-field effect injections.
+   - The §3.4 programs are unchanged by it (176/193/362/869 instructions):
+     their bundle matched the setter's first `strcmp`, so what goes is the
+     indirect call and the `__bundle` case of every setter.
+
 Exit: the §3.4 table re-measured and recorded here. Targets: cold sync
 child ≤ 25 ns, depth 4 ≤ 120 ns, the same with parked I/O ≤ 150 ns.
 
@@ -552,6 +567,16 @@ child ≤ 25 ns, depth 4 ≤ 120 ns, the same with parked I/O ≤ 150 ns.
 
 Exit: IR construction succeeds for every async block in the three trees,
 and the shadow diff is empty or fully explained.
+
+**Status: subsumed by phase 5 and phase 6, not built (2026-09-29).** Phase 5
+emits the body in one pass through the ordinary expression generators, so
+nothing needs a normalized tree to emit from: an await suspends where the
+generator reaches it, laziness is the C the generators already emit, and
+evaluation order is the source order. Its one remaining consumer, liveness
+(item 2), runs directly over the macro-expanded AST in phase 6
+(`_lv_walk` in `src/codegen/async/state_machine.yo`), with positions in
+source order. The shadow mode (item 3) compared the IR's slot set with the
+old segment analysis, which phase 5 deleted.
 
 ### Phase 5: the single-pass resumable emitter
 
@@ -668,6 +693,71 @@ liveness, not for phase 5.
 4. Statement temps are dropped at their last use when that precedes a
    suspension, so they do not pin heap memory across the await.
 
+**Status: implemented on `async-sm-p6` (2026-09-29), with two items
+declined for the reasons below.** Measured sizes (x86_64, the §3.4 layout
+probe): a one-await machine is 88 B, down from 152 B at the audit and
+after phase 5. Sixteen sequential awaits whose results are all read at the
+end take 152 B, down from 272 B at the audit and 408 B after phase 5 (one
+result field per await). 60 B of the 152 are the fifteen results still to
+be added.
+
+1. **Liveness decides storage.** A local gets a field only when it is live
+   across a suspension. The live ranges come from a linear walk over the
+   macro-expanded AST in source order (`_lv_walk`, `state_machine.yo`):
+   - a read counts at the end of its statement;
+   - a local defined before a loop and read in it is live through the loop;
+   - a local with a scope-end drop, or whose address is taken, lives to the
+     end of its scope;
+   - a read the walk cannot resolve counts for every local of that name.
+
+   Every other local is a C local of the resume function. An await result
+   is a C local unless a later await in the same statement can suspend
+   before the statement consumes it. Locals of one C type whose ranges do
+   not overlap share a slot, RC ones included; the soundness argument is
+   item 2's. Two RC locals of one scope always overlap, so the sharing is
+   between sibling scopes.
+
+   **Not done: sharing across C types** (a union of members). The dispose
+   would have to know which member currently owns the slot, which is the
+   per-state table item 2 declines, and the gain is small: a type change
+   between sibling scopes is what it would save.
+2. **Declined: the per-state live-set table. The zero invariant is used
+   instead.** A slot is non-zero exactly while it owns its value:
+   - the constructor zeroes the machine;
+   - every scope-end drop of a slot zeroes it;
+   - every consuming read takes the value and zeroes the slot
+     (`_sm_consuming_read`).
+
+   So the abort dispose, which drops every non-zero slot, drops exactly the
+   live set. A table could not replace the zeroing: a local moved on one
+   path and kept on another has no static state. The table would be a
+   second mechanism on top of it.
+3. **The header.**
+   - The per-type function pointers are one static vtable
+     (`__yo_future_vtable_t`), 16 B less per machine.
+   - `result` follows the 40-byte prefix directly.
+   - **Rejected: `Io` zero-sized in fields.** A program can construct an
+     `Io` with its own handlers (it is an ordinary effect bundle), so
+     dropping the 32 B needs a language rule that only the runtime makes
+     one. That is not a codegen change.
+
+   The 72 B / 96 B targets assumed that rule; without the `Io` the two
+   machines above would be 56 B and 120 B.
+4. **Declined: dropping statement temps at their last use.** A borrowed
+   view (a `str` slice, an iterator) can outlive the last read of the temp
+   it points into. Yo has no borrow tracking to prove otherwise, and the
+   sync lowering keeps temps to scope end for the same reason. A temp whose
+   scope has no later await is a C local now anyway.
+
+Also in this phase:
+- a closure parameter's local no longer duplicates its `__yo_param_<i>`
+  slot. The struct emitter ran a second cross-boundary analysis that
+  skipped the filter, so the 32 B `Io` was stored twice;
+- nested blocks are no longer spliced into their parent (a leftover of the
+  segment lowering): a block's locals are released at its end, not at the
+  task's (`issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md`);
+- `YO_DEBUG_ASYNC_LAYOUT=1` prints each block's field decisions.
+
 ### Phase 7: allocation per await
 
 After phase 3, malloc/free is about half of a cold await. Options,
@@ -677,11 +767,63 @@ measured before choosing:
 - embedding an immediately awaited child's machine in the parent's slot
   (Rust-style: the child's lifetime is exactly the await), falling back to
   the heap when the future escapes;
+  designed in `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md` for the
+  single-await wrappers that make up half of std's `io.async` blocks
+  (measured: ~180 ns a round trip of std's `TcpStream` ping-pong);
 - **the spawn handle without a box.** `JoinHandle(T)` is a `ref` struct
   around the future pointer: one extra allocation per spawn
   (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, +79% on
   the leaf-spawn benchmark). The future is already counted, so the handle can
   be that counted reference itself.
+
+**Status: the free list is implemented on `async-sm-p7` (2026-09-29); the
+other two options are declined or seed-gated.**
+
+- **Per-type pools of released state machines.**
+  - A machine's constructor takes a block from its type's pool
+    (`__yo_sm_take`), and the dispose dispatch gives a released machine's
+    memory back (`__yo_sm_give`) instead of freeing it. `__yo_dispose_dispatch`
+    now returns whether it kept the memory, and both RC release paths honor
+    that.
+  - A pool is thread-local, holds at most 32 blocks, and is drained with the
+    continuation pool when the thread's async runtime is torn down, including
+    at thread exit.
+  - It is off under AddressSanitizer, so a use after free of a task is still
+    caught, and off in cycle-GC mode, whose collector frees through its own
+    path.
+  - The test runner builds with ASan, so the CLI case
+    `async-state-machine-pools` is what exercises the pools: 1000 reuses of
+    one type, a sync future, aborted tasks, and a thread's pools drained at
+    its exit. Valgrind reports no leak.
+
+  Callgrind instructions per op (§3.4 programs; the phase 6 branch before,
+  this branch after):
+
+  | Path | before | after |
+  |---|---|---|
+  | cold `sync_fut_t` leaf | 311 | 176 (−43%) |
+  | cold state machine that completes synchronously | 328 | 193 (−41%) |
+  | one-await chain (`d1`) | 632 | 362 (−43%) |
+  | chain depth 4 | 1544 | 869 (−44%) |
+  | spawn 100k no-await leaves, then await each | 666 | 697 (+5%) |
+  | spawn 100k one-await machines, then await each | 987 | 883 (−11%) |
+
+  The spawn rows hold 100k machines at once, more than a pool keeps, so
+  they pay the pool's check and gain little. After this, a cold await's
+  largest cost is the release: `__yo_decr_rc` with the dispatch and the
+  dispose, 61 of the 193 instructions.
+- **Declined: embedding an immediately awaited child in the parent.** The
+  child's memory would have to outlive every reference to it: waiters, a
+  handle, a field it was stored in. That needs an escape proof per await,
+  plus a header state that tells the release not to free. The pool already
+  removed the malloc and free this would have saved; what is left is the
+  release path, which embedding keeps.
+- **Seed-gated: the spawn handle without a box.** The design is a value
+  struct whose one field is the counted future (possible since #1008's
+  `Impl(Future)` fields); see
+  `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
+  2 of `issues/join-handle-ownership-waits-for-the-seed.md`, since the seed
+  lowers `io.spawn` itself, and it lands with that seed bump.
 
 ### Docs and instructions, per phase
 
@@ -877,3 +1019,56 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
     cheatsheets say so. Lesson (from #996): build stage 1 with
     `yo build --std-path ./std`, as CI does, or the seed never compiles the
     tree's std and a seed-incompatible std change passes every local gate.
+- 2026-09-29: the rest of phase 1, on `async-sm-p1rest` (stacked on phase 5):
+  - item 5: the capture tracker takes the innermost binding, so an
+    `io.async` parameter shadowing an outer name does not capture it;
+  - item 7: `Impl(Future(T, E))` struct fields are supported (option 2 of
+    the design question): the value is upcast to the future interface at the
+    constructor, in a value-struct literal and at an assignment;
+  - item 9:
+    - non-ASCII effect-setter paths are sanitized;
+    - the no-await block's `Impl(Fn)` capture reads `closure_context`;
+    - the unit local has no slot (the single-pass lowering).
+  - Also: a hollow `io.async` body reports the error its trial swallowed
+    instead of E0905, and the async emitters' `/* Error: … */` markers are
+    `codegen_fatal`.
+  - §3.3's "fixed but not closed" issues are closed with a pinning test, or
+    retired where their subject is gone.
+- 2026-09-29: phase 6 on `async-sm-p6` (stacked on `async-sm-p1rest`); see
+  the phase's status block for what landed and what was declined.
+  - Found by probing it, and fixed in the phase 5 PR because phase 5 caused
+    it: a local moved out before an await stayed in its slot, and aborting
+    the task released it again
+    (`issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md`).
+  - Found while testing slot sharing: nested blocks were still spliced into
+    their parent, so their locals lived until the task ended
+    (`issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md`).
+  - Regressions of the branch itself, each caught by an existing test:
+    - a drop's operand was hoisted as a move;
+    - a capture of a C local read the `io.async` call's own temp;
+    - a C local in an arm-value position rendered its spurious temp
+      `variable_name`;
+    - a `return(x)` read the walk could not resolve left `x` a C local
+      across the await before it.
+- 2026-09-29: phase 4 is recorded as subsumed by phases 5 and 6.
+- 2026-09-29: phase 7 on `async-sm-p7` (stacked on phase 6): per-type
+  pools of released state machines, 41–44% fewer instructions per cold
+  await. Embedding is declined, and the unboxed handle is seed-gated.
+- 2026-09-29: E0904 retired on `async-sm-p7`, as phase 5 step 3 planned.
+  Its last rule rejected `inout` bindings (and so the borrowed `for`) in a
+  body that awaits, because the segment lowering kept a per-state C copy of
+  each local. Now:
+  - the reference and its pin are captured, with the reference typed as the
+    pointer its slot holds;
+  - the place's root keeps its slot to its scope's end;
+  - reads and writes through a slot dereference it.
+
+  The five CLI cases that pinned the rejection became running tests.
+- 2026-09-29: `for_await` is back in `std/async/stream.yo`, the last item of
+  phase 5's exit. The seed never lowers it, since `src/` does not use it.
+  The in-task test checks that `main` runs between items. Restoring it found
+  `issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md`
+  (the seed has it too): a local sharing a captured value's RC was sent to
+  the owner's slot, which a capture does not have (`sm_storage_id`).
+- 2026-09-29: phase 3 item 5, left undone by #991, lands on `async-sm-p7`:
+  a whole effect bundle is copied through the vtable's bundle slot.

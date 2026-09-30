@@ -1,0 +1,13 @@
+// expect-elided: 1
+// 5b twin: a shift count proved below the width drops its guard.
+pragma(Pragma.VerifyOrAssert);
+{ println } :: import("std/fmt");
+
+shl :: (fn(x : u32, s : u32, requires(s < u32(32))) -> u32)(
+  x << s
+);
+
+main :: (fn() -> unit)({
+  println(shl(u32(1), u32(4)));
+});
+export(main);

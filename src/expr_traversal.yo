@@ -512,13 +512,10 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
               apw_has_arm = true;
               match(
                 apw_arm_args.get(usize(0)),
-                .Some(apw_c) => match(
-                  apw_c,
-                  .Atom(_, apw_ctok) => if((apw_ctok.value == "true") || (apw_ctok.value == "_"), {
-                    apw_has_default = true;
-                  }),
-                  _ => ()
-                ),
+                .Some(.Atom(_, apw_ctok)) => if((apw_ctok.value == "true") || (apw_ctok.value == "_"), {
+                  apw_has_default = true;
+                }),
+                .Some(_) => (),
                 .None => ()
               );
               match(

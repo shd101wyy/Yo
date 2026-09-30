@@ -858,12 +858,21 @@ This is **not** static dispatch (where the concrete type is known and stack-allo
 
 ### State Machine Memory
 
-State machines are small (~32-500 bytes):
+A task is one heap allocation:
 
-- State ID: 4 bytes
-- Captured parameters: varies
-- Captured locals: varies
-- Pending Futures: 8 bytes each
+- a 40-byte header: the reference count, the state, a pointer to the type's
+  operations (resume, effect binding, abort hook), and the first waiter;
+- the result;
+- the captured values, and the closure's parameters (an `Io` is 32 bytes);
+- one pointer for the future it is suspended on;
+- one field per local that is live across an `await`.
+
+A local that is used only between two awaits stays a local of the C resume
+function and costs the task nothing. Locals whose live ranges do not overlap
+share one field when their C type is the same, heap-owning values included.
+Measured on x86_64, a task with one await and a small capture is 88 bytes.
+Sixteen sequential awaits whose results are all used at the end take 152
+bytes, of which 60 are the fifteen results still waiting to be added.
 
 ## Performance Characteristics
 
@@ -871,14 +880,14 @@ State machines are small (~32-500 bytes):
 
 **10,000 concurrent async operations:**
 
-- State machines: 10,000 × ~200 bytes = 2MB
+- State machines: 10,000 × ~100 bytes = 1MB
 - No thread stacks needed!
 
 **Comparison:**
 
 - 10,000 OS threads × 1MB stack = 10GB ❌
 - 10,000 Go goroutines × 2KB = 20MB
-- 10,000 Yo async tasks × 200 bytes = 2MB ✅
+- 10,000 Yo async tasks × ~100 bytes = 1MB ✅
 
 ### Throughput
 
@@ -948,11 +957,20 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 | --- | --- |
 | `for_each(f, io)` | drive the stream to its end, calling `f` on each item |
 | `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
+| `for_await(s, io, x => body)` | the loop form (a macro): `body` runs per item, and `break`, `continue` and `return` work in it |
 
 ```rust
 // Every third event's name, at most five of them.
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
+
+// Or as a loop, which can stop early: here at the first empty name.
+for_await(names, io, n => {
+  if(n.len() == usize(0), {
+    break;
+  });
+  println(n);
+});
 ```
 
 ### Implementing one
@@ -1004,10 +1022,9 @@ consumer needs no `Exception` handler.
    task := io.async((io : Io) => io.await(chain.collect(io), io));   // awaited in there
    ```
 
-2. **There is no `for_await`.** An async loop written as a MACRO compiles its
-   `io.await` to the BLOCKING form (a macro's expansion is not scanned for
-   suspension points), which deadlocks inside a spawned task. Use `for_each`,
-   or the hand-written loop, which works everywhere:
+2. **`for_await` is the hand-written loop.** Its expansion is this, and its
+   await suspends the enclosing task like any other, so it works inside a
+   spawned task as well as from `main`:
 
    ```rust
    (done : bool) = false;
@@ -1442,13 +1459,52 @@ kernel, reap, resume) costs far more than the syscall itself:
   descriptor ends a blocked wait, so a callback fires while unrelated I/O is
   in flight, and `Watcher.next` parks rather than polling.
 
+### What runs where on macOS
+
+The kqueue backend follows the same "finish it without the loop" rule, and adds
+two macOS-specific ones: the loop never pays for a kernel scan that can find
+nothing, and it never wakes without a reason.
+
+- **Sockets:** `send`/`recv`/`sendto`/`recvfrom`/`accept` are attempted
+  inline (with `MSG_DONTWAIT`) first; only a would-block result parks the
+  task on the descriptor's `EVFILT_READ`/`EVFILT_WRITE` knote. An inline
+  attempt never runs ahead of an earlier operation of the same direction still
+  parked on that descriptor. A socket whose last inline `recv` would have
+  blocked parks its next one directly, until a receive turns out to have had
+  its data already. A delivered `recv` without flags is a plain `read`: the
+  event reports the byte count, so it cannot block.
+- **Regular files:** `pread`/`pwrite` complete at start (the unified buffer
+  cache makes them fast). A `pread` that answers `ESPIPE` (pipe, socket, FIFO)
+  or `ENXIO` (tty) falls back to the readiness path. A descriptor opened
+  `O_APPEND` writes at end-of-file.
+- **Timers:** a sleep is a node in a per-thread timer heap, and the loop's
+  `kevent()` wait is bounded by the earliest deadline. Arming and cancelling
+  one costs no syscall. The OS still coalesces timer wakeups: a 1 ms deadline
+  wakes after ~1.25 ms, the same as libuv and any other `kevent()` timeout.
+- **The loop's kernel entries:** a turn with nothing in the kernel (only
+  timers, or operations that all completed at start) makes no syscall. A turn
+  that leaves no task runnable makes no poll of its own, because the next
+  step's blocking `kevent()` reaps the same events in the same call. On macOS
+  26 a zero-timeout `kevent()` that finds nothing costs ~12 µs, so a
+  non-blocking poll first asks the kqueue descriptor with a zero-timeout
+  `select()` (~0.2 µs). With tasks still queued, the kernel is polled every
+  61 turns (tokio's interval). While traffic is flowing (the last wait was
+  answered within 50 µs), a wait is bounded by 50 µs rather than unbounded:
+  on macOS a wait with a near deadline wakes sooner, which is worth ~7% on a
+  loopback-TCP round trip. The first such wait that times out empty ends it.
+- **Watches** (`std/sys/events` poll handles, `std/fs/watch`): they share one
+  watch kqueue per thread, nested in the loop's. A watched descriptor ends a
+  blocked wait, and a directory watch rescans on the directory's vnode events,
+  plus at most every 50 ms for writes into existing entries, which only a
+  rescan sees.
+
 ### Operation lifetimes are the same on every backend
 
 - **Closing a descriptor ends the operations still pending on it**: they
   complete with `-EBADF` (kqueue, epoll and io_uring alike — the ring cancels
   its requests, because an io_uring request holds its own file reference and
-  would otherwise outlive the descriptor). On Linux that includes `dup2` over
-  an open descriptor, which closes it. Close descriptors the runtime has
+  would otherwise outlive the descriptor). That includes `dup2` over an open
+  descriptor, which closes it. Close descriptors the runtime has
   waited on through std (`file.close`, `tcp.close`, `pipe.dup2`), not a raw
   `libc` `close`: the backend cannot see a close it is not told about.
 - **Concurrent receives on one stream socket:** kqueue and epoll complete
@@ -1457,6 +1513,11 @@ kernel, reap, resume) costs far more than the syscall itself:
   `recv`.
 - **Aborting a task cancels the operation it is suspended in**, so an aborted
   `recv` never consumes data a later `recv` should see.
+- **A `std/net` stream write to a peer that has closed throws**
+  (`IoError.BrokenPipe`, or a reset) instead of raising `SIGPIPE`, whose
+  default action kills the process: `TcpStream`/`UnixStream` writes pass
+  `std/sys/socket`'s `MSG_NOSIGNAL`. The raw `std/sys` `send` passes its
+  flags through unchanged.
 - **Sockets may be blocking or nonblocking** for `send`/`recv`/`sendto`/
   `recvfrom`: the readiness backends attempt them with `MSG_DONTWAIT`.
   `accept`, `connect` and `read`/`write` on a pipe or tty need a nonblocking

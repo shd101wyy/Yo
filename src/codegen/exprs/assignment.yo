@@ -14,6 +14,7 @@
 //! (Phase 5). The state-machine branches are gated on `in_async_state_machine`
 //! being `.Some` — dead for the corpus.
 { String } :: import("std/string");
+{ type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME } :: import("../../expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -105,6 +106,12 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   context.consume_assignment_saves_by_bytes = false;
   lhs_code := _call_generate_expr(lhs, indent.clone(), context);
   em := context.base.emitter;
+  // In a state machine the save is written AFTER the RHS, right before the
+  // store: the RHS may suspend, and an abort there disposes every non-null
+  // slot — a save written first held the pointer the LHS still owns, and
+  // both were released (the `fetch` UnsupportedScheme escape). A RHS that
+  // moves the old value out zeroes its slot, so the late save reads NULL.
+  (sm_save_line : Option(String)) = Option(String).None;
   // Save the old value into the result temp (for a deferred drop of it).
   match(
     ei.variable_name,
@@ -199,7 +206,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
               save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
             }
           );
-          em.emit_string_line(save_sm);
+          sm_save_line = Option(String).Some(save_sm);
         })
       );
     },
@@ -230,6 +237,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
+    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
       line := indent.clone();
@@ -260,6 +268,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
+    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
     if(!is_unit_type(lhs_type), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
@@ -270,7 +279,11 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       });
       line.push_string(lhs_code.clone());
       line.push_str(" = ");
-      line.push_string(rhs_code);
+      // An `Impl(Future(T, E))` place is the type-erased future interface:
+      // a concrete future stored into it is upcast, as at a constructor
+      // (`_future_field_upcast`, other_fn_call.yo).
+      is_future_iface := (type_implements_future(lhs_type) && c_type_string.ends_with("*"));
+      line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");
       em.emit_string_line(line);
     });

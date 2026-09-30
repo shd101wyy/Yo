@@ -76,21 +76,18 @@ evaluate_the :: (
   // First argument must be a TypeVal.
   expected_type := match(
     type_info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(tv) => tv,
-      _ => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(type_arg),
-              String.from("the: first argument must be a type")
-            )
+    .Some(.TypeVal(tv)) => tv,
+    .Some(_) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_arg),
+            String.from("the: first argument must be a type")
           )
-        );
-        TypeValue.Unit
-      }
-    ),
+        )
+      );
+      TypeValue.Unit
+    },
     .None => {
       exn.throw(
         dyn(

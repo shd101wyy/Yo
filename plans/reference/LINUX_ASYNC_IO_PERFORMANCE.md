@@ -140,6 +140,16 @@ removes the attempt for a socket whose peer answers after the loop has
 blocked (a real server). In the synthetic parked ping-pong the reply arrives
 before the loop ever waits, so the hint clears every round.
 
+**Update 2026-09-29:** that rule also cleared the hint on every hop of a
+two-task echo. A ping-pong's loop never blocks (a task runs every step), so
+counting blocking waits called every delivery "inline". The hint is now kept
+per kernel harvest (`__yo_io_harvest`): it is cleared only by a recv delivered
+by the first `epoll_wait` / `io_uring_enter` after it parked. The two-task echo
+went from one `EAGAIN` recv a hop to none (G3 budget E: 3 for 500 rounds), and
+io_bench's `uecho_1`, `echo_1` and `echo_conc` got ~20 % faster on both
+backends
+(`issues/fixed/linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md`).
+
 ## 5. Records
 
 - `issues/fixed/io-uring-full-submission-queue-fails-operations-with-eagain.md`

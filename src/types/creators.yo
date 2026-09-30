@@ -130,6 +130,86 @@ t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
 t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
   .Array(element, usize(0), length_var)
 );
+/// Marker prefix of a COMPUTED array length recorded at definition time
+/// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
+/// variable slot carries the expression's text behind this prefix. It never
+/// survives specialization — the call site re-evaluates the return-type
+/// expression once the binders are bound (`_type_has_array_len_var` in
+/// calls/helper.yo selects that path) — and a PARAMETER type may not carry one
+/// at all: a parameter is a matching position, and matching lengths is bare
+/// binders only (evaluator/types/function.yo rejects it; I1 of
+/// plans/backlog/ATS_STYLE_INDEXED_TYPES.md).
+COMPUTED_ARRAY_LEN_PREFIX :: "__yo_len_expr:";
+is_computed_array_len_var :: (fn(length_var : String) -> bool)(length_var.starts_with(COMPUTED_ARRAY_LEN_PREFIX));
+/// Does `t` carry a computed array length anywhere a signature can reach
+/// (arrays, pointers, tuples, struct fields, enum payloads; depth-bounded the
+/// way `_type_has_array_len_var` is, because struct graphs can be recursive)?
+_type_has_computed_array_len_d :: (fn(t : TypeValue, d : usize) -> bool)(
+  cond(
+    (d > usize(6)) => false,
+    true => match(
+      t,
+      .Array(cal_elem, _, cal_var) => cond(
+        is_computed_array_len_var(cal_var) => true,
+        true => recur(cal_elem, d + usize(1))
+      ),
+      .Pointer(cal_p) => recur(cal_p, d + usize(1)),
+      .IsoT(cal_i) => recur(cal_i, d + usize(1)),
+      .Tuple(_, cal_tts) => {
+        (cal_found0 : bool) = false;
+        (cal_ti : usize) = usize(0);
+        while((cal_ti < cal_tts.len()) && !cal_found0, {
+          match(
+            cal_tts.get(cal_ti),
+            .Some(cal_tt) => if(recur(cal_tt, d + usize(1)), {
+              cal_found0 = true;
+            }),
+            .None => ()
+          );
+          cal_ti = (cal_ti + usize(1));
+        });
+        cal_found0
+      },
+      .Struct({ field_types : cal_fts }) => {
+        (cal_found : bool) = false;
+        (cal_i2 : usize) = usize(0);
+        while((cal_i2 < cal_fts.len()) && !cal_found, {
+          match(
+            cal_fts.get(cal_i2),
+            .Some(cal_ft) => if(recur(cal_ft, d + usize(1)), {
+              cal_found = true;
+            }),
+            .None => ()
+          );
+          cal_i2 = (cal_i2 + usize(1));
+        });
+        cal_found
+      },
+      .EnumT({ variant_fields : cal_vfs }) => {
+        (cal_found2 : bool) = false;
+        (cal_vi : usize) = usize(0);
+        while((cal_vi < cal_vfs.len()) && !cal_found2, {
+          cal_vf := match(cal_vfs.get(cal_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          (cal_vj : usize) = usize(0);
+          while((cal_vj < cal_vf.len()) && !cal_found2, {
+            match(
+              cal_vf.get(cal_vj),
+              .Some(cal_vt) => if(recur(cal_vt, d + usize(1)), {
+                cal_found2 = true;
+              }),
+              .None => ()
+            );
+            cal_vj = (cal_vj + usize(1));
+          });
+          cal_vi = (cal_vi + usize(1));
+        });
+        cal_found2
+      },
+      _ => false
+    )
+  )
+);
+type_has_computed_array_len :: (fn(t : TypeValue) -> bool)(_type_has_computed_array_len_d(t, usize(0)));
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
 // ---------------------------------------------------------------------------
@@ -381,8 +461,8 @@ t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
 /// field. A call binds THESE clones into its callee env — the shared
 /// signature's SomeT objects stay pristine forever, so stored values
 /// (registry entries, captured types, memoized instances) can never observe
-/// another call's resolutions, and the global g_some_resolved_concrete
-/// table (keyed by id) is never contended between calls. Same name and
+/// another call's resolutions, and no id-keyed global is contended between
+/// calls (the retired `g_some_resolved_concrete` hazard). Same name and
 /// frame_level, so the callee body's (name, level) resolution is
 /// unchanged. Non-SomeT input returns unchanged.
 clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
@@ -893,6 +973,9 @@ export(
   t_ptr,
   t_array,
   t_array_var,
+  COMPUTED_ARRAY_LEN_PREFIX,
+  is_computed_array_len_var,
+  type_has_computed_array_len,
   t_func_simple,
   t_trait,
   t_trait_simple,

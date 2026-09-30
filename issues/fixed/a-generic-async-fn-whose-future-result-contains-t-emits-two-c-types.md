@@ -271,7 +271,7 @@ with_deadline :: (
   io.async(e => {
     // Same reasoning as `timeout`: the deadline is a spawned TASK, never a bare
     // io-timer local, so the armed timer is owned on every path
-    // (issues/pending-io-future-local-drop-uaf.md).
+    // (issues/fixed/pending-io-future-local-drop-uaf.md).
     ms := Box(u64)(u64(limit.as_millis()));
     dh := e.io.spawn(
       io.async((io2 : Io) => {

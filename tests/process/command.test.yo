@@ -10,6 +10,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { platform, Platform } :: import("std/process");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
 { Thread } :: import("std/thread");
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
@@ -619,4 +620,52 @@ test("concurrent spawn and wait on two threads", {
   t2 := Thread(unit).spawn(io => _spawn_wait_rounds(io));
   t1.join();
   t2.join();
+});
+// A write into a child's stdin that is larger than the pipe buffer, while the
+// child is not reading yet, must not park the event loop: an unrelated 100 ms
+// timer has to fire while the write waits. On Windows the write was a blocking
+// `_write` on the loop thread, so the loop froze until the child drained the
+// pipe (issues/fixed/command-stdin-windows-pipe-write-blocks-the-event-loop.md);
+// POSIX ends are non-blocking and always passed.
+test("a child-stdin write larger than the pipe buffer does not park the event loop", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      // ~1 s of ping, then drain stdin to nul.
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`).arg(`ping`).arg(`-n`).arg(`2`).arg(`127.0.0.1`).arg(`>nul`).arg(`&`).arg(`findstr`).arg(`x`).arg(`>nul`);
+      c
+    },
+    true => {
+      c := Command.new(`/bin/sh`);
+      c.arg(`-c`).arg(`sleep 1; cat >/dev/null`);
+      c
+    }
+  );
+  cmd.stdin(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  ticker := io.spawn(sleep(Duration.from_millis(i64(100)), io), io);
+  total := usize(262144);
+  (sent : usize) = usize(0);
+  while(runtime(sent < total), {
+    rest := ArrayList(u8).new();
+    (k : usize) = sent;
+    while(runtime(k < total), {
+      rest.push(u8(121));
+      k = (k + usize(1));
+    });
+    n := io.await(child.write_stdin(rest, io), e);
+    sent = (sent + n);
+  });
+  assert(ticker.is_finished(), "a 100 ms timer fired while the write waited on the child");
+  io.await(child.close_stdin(io), e);
+  io.await(child.wait(io), e);
 });

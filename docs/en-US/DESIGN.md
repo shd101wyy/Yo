@@ -5,8 +5,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/backlog/IN_DESIGN.md).
-
 Our goal is to be a practical language that is easy to use and easy to learn.
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
@@ -33,18 +31,23 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Discarding a call result](#discarding-a-call-result)
   - [Type inference](#type-inference)
     - [Uninitialized variable](#uninitialized-variable)
+    - [Integer literals and compile-time integers](#integer-literals-and-compile-time-integers)
 - [Function Declaration](#function-declaration)
+  - [Parameter modes are part of the function type](#parameter-modes-are-part-of-the-function-type)
   - [Named arguments](#named-arguments)
+  - [The `never` type](#the-never-type)
   - [Default parameter values](#default-parameter-values)
   - [Generic function](#generic-function)
   - [Type constraints](#type-constraints)
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+  - [Private members](#private-members)
   - [recur](#recur)
   - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
     - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Explicit Allocators](#explicit-allocators)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
@@ -52,6 +55,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [`Option` of a handle is one pointer](#option-of-a-handle-is-one-pointer)
+  - [Memory Safety](#memory-safety)
+  - [`inout` Parameters](#inout-parameters)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Ranges](#array--ranges)
@@ -61,6 +66,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Array.len](#arraylen)
   - [Array Length Inference](#array-length-inference)
   - [Array Assignment and Copying](#array-assignment-and-copying)
+- [Arithmetic and Failure Semantics](#arithmetic-and-failure-semantics)
 - [Control Flow](#control-flow)
   - [cond](#cond)
   - [if/else](#ifelse)
@@ -75,6 +81,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
     - [GADT match type refinement](#gadt-match-type-refinement)
     - [GADT exhaustiveness](#gadt-exhaustiveness)
+    - [GADT indices are part of the type](#gadt-indices-are-part-of-the-type)
     - [Multi-parameter GADTs](#multi-parameter-gadts)
     - [GADTs with custom discriminants](#gadts-with-custom-discriminants)
     - [Mixed GADT and regular variants](#mixed-gadt-and-regular-variants)
@@ -83,11 +90,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [Coherence: one impl per type and trait](#coherence-one-impl-per-type-and-trait)
 - [Pattern Matching](#pattern-matching)
+  - [Pattern forms](#pattern-forms)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
+      - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
@@ -111,6 +121,10 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Dynamic Dispatch](#dynamic-dispatch)
   - [`Dyn` and `dyn`](#dyn-and-dyn)
   - [Examples](#examples)
+- [Existential Types](#existential-types)
+  - [Packed: `Dyn(Trait)`](#packed-dyntrait)
+  - [Opaque: `Impl(Trait)` and closures](#opaque-impltrait-and-closures)
+  - [Not supported: existential enum constructors](#not-supported-existential-enum-constructors)
 - [Impl vs Dyn](#impl-vs-dyn)
 - [Algebraic Effects and Handlers](#algebraic-effects-and-handlers)
 - [Error Handling](#error-handling)
@@ -123,6 +137,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
+    - [Trait impls are visible through your imports](#trait-impls-are-visible-through-your-imports)
   - [Anonymous module](#anonymous-module)
   - [Module-level mutable variables](#module-level-mutable-variables)
 - [Naming Convention](#naming-convention)
@@ -1007,6 +1022,21 @@ s3 := s2; // RC = 3
 The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
 
 See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+
+#### Explicit Allocators
+
+RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, and containers take one directly with `new_in`:
+
+```rust
+{ Arena } :: import("std/arena");
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(4096));
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
+p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
+```
+
+No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas).
 
 ## Pointers
 
@@ -2988,6 +3018,66 @@ main :: (fn() -> unit)({
 
 **Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
 
+## Existential Types
+
+"Existential type" names a value whose concrete type is hidden behind an
+interface: `∃T. (T, operations on T)`. Yo has this in the two forms a
+monomorphizing C backend can pay for, and deliberately not in the third.
+Which one to reach for:
+
+| You want to... | Use | What is hidden, and how |
+| --- | --- | --- |
+| store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Dyn(Trait)` + `dyn(v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(d, T)`. |
+| return **one** concrete type without naming it (a closure, an iterator, a future) | `Impl(Trait)` in result position, `Impl(Fn(...))`, `Impl(Future(T, E))` | the type is **opaque, not erased**: every return path must produce the same concrete type, the compiler monomorphizes the callers, nothing is boxed. |
+| hide a **length** or other value the type depends on (`[n:nat] list(a, n)` in ATS / DML) | an ordinary runtime value plus a contract: `ensures(r.len() == ...)`, `requires(i < xs.len())`, `refine(T, p)` | the witness is a **ghost** the verifier reasons about ([FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)); nothing exists at runtime. |
+
+### Packed: `Dyn(Trait)`
+
+```rust
+Shape :: trait(area : (fn(self : Self) -> f64));
+
+// A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
+shapes := ArrayList(Dyn(Shape)).new();
+shapes.push(dyn(Circle(r : f64(1.0))));
+shapes.push(dyn(Square(side : f64(2.0))));
+for(shapes, s => println(s.area()));
+```
+
+The trait must be object-safe (`self` first, no other `Self` in the signature,
+no `generic(...)` parameters), the payload is reference counted, and an
+upcast to a smaller trait set is explicit: `upcast(d, Dyn(Sub))`. Details:
+[DYN_DESIGN.md](./DYN_DESIGN.md).
+
+### Opaque: `Impl(Trait)` and closures
+
+```rust
+// The caller cannot spell the closure's type; the compiler knows it exactly.
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+Each closure is its own type, so one `Impl(Fn(...))` slot holds one closure
+and a container of them is `ArrayList(typeof(k))` — two different closures in
+one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](#closure-type-restrictions)).
+`Impl(Future(T, E))` is the same shape for `async` results.
+
+### Not supported: existential enum constructors
+
+```rust
+// NOT supported: `T` is bound by the constructor, not by the enum.
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+This is the ML-style `pack`. Its lowering in a compiler that monomorphizes
+everything is exactly a `Dyn`: a hidden `T` with no vtable cannot be operated
+on, and with one it is a trait object. It stays a non-goal (see
+[GADTS.md](./GADTS.md#limitations)); write `Dyn(Show)` instead.
+
+Yo therefore has no `exists` at the type level. The identifier `exists` is the
+verifier's ghost quantifier over values, as in
+`ensures(exists(k : i32, xs(k) == target))`.
+
 ## Impl vs Dyn
 
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
@@ -3024,7 +3114,8 @@ ret` bodies cannot contain `unwind`.
 
 Effects compose with `async`/`await`: handlers inside `io.async`
 tasks work correctly. If `unwind` is called inside an async task, the
-Future is marked as escaped and awaiting it causes a panic.
+Future enters the `Aborted` state: `io.await` on it panics, while a
+spawned task's `JoinHandle.await` returns `.None`.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
 documentation.

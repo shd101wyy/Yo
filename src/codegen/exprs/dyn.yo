@@ -9,6 +9,7 @@
 //! Box-type unwrap is limited (is_boxed_type ≡ false — Box not modeled);
 //! state-machine `sm->var_N` field routing is Phase 5, gated on
 //! in_async_state_machine = .Some.
+{ _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -217,6 +218,11 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   l4 := indent.clone();
   l4.push_str("};");
   em.emit_string_line(l4);
+  // Inside a state machine the temp's scope-end release reads its slot, and
+  // so does the abort dispose when a call escapes: a `dyn(msg)` thrown from
+  // an `io.async` body leaked its box
+  // (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
+  _store_temp_var_to_state_machine_if_needed(temp_var_name.clone(), indent.clone(), context);
   temp_var_name
 });
 export(generate_dyn_call);

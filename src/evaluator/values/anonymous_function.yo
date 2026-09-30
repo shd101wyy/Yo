@@ -42,7 +42,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_set_deferred_dup_expressions,
-  expr_info_set_is_anonymous_function_definition
+  expr_info_set_is_anonymous_function_definition,
+  record_hollow_body_error,
+  clear_hollow_body_error
 } :: import("../../expr_info.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 {
@@ -58,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ analyze_await_points, register_closure_await_analysis, first_inout_binding_in_async_body } :: import("../async/await_analysis.yo");
+{ analyze_await_points, register_closure_await_analysis } :: import("../async/await_analysis.yo");
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
   Environment,
@@ -101,6 +103,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../function_value.yo");
 {
   enrich_captured_variables,
+  propagate_captures_to_enclosing,
   generate_captured_variable_dup_expressions,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
@@ -113,7 +116,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type } :: import("../../types/utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -160,13 +163,10 @@ _collect_anon_param_names :: (
                     a,
                     .FnCall(_, _, ca, _, _) => match(
                       ca.get(usize(0)),
-                      .Some(name_e) => match(
-                        name_e,
-                        .Atom(_, nt) => {
-                          out.push(nt.value.clone());
-                        },
-                        .FnCall(_, _, _, _, _) => ()
-                      ),
+                      .Some(.Atom(_, nt)) => {
+                        out.push(nt.value.clone());
+                      },
+                      .Some(.FnCall(_, _, _, _, _)) => (),
                       .None => ()
                     ),
                     .Atom(_, _) => ()
@@ -247,11 +247,8 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
-          .Some(name_expr) => match(
-            name_expr,
-            .Atom(_, ntok) => ntok.value,
-            .FnCall(_, _, _, _, _) => fallback.clone()
-          ),
+          .Some(.Atom(_, ntok)) => ntok.value,
+          .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -331,7 +328,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
       // `Output` matched std/process/command.yo's `Output` STRUCT through the
       // import chain, concretizing the closure's expected result with a
       // process struct ("Expected type \"Output\"" def-eval swallows, ekey
-      // probe in issues/yo-self-async-emission-cluster.md item 7).
+      // probe in issues/retired/yo-self-async-emission-cluster.md item 7).
       if(!allow.contains(ssn.clone()), {
         return(ty);
       });
@@ -344,14 +341,11 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
           ss_found.get(ss_bi),
           .Some(sv) => match(
             sv.value.get(usize(0)),
-            .Some(sval) => match(
-              sval,
-              .TypeVal(stv) => if(!is_some_type(stv), {
-                ss_bound = Option(TypeValue).Some(stv);
-                ss_bi = usize(0);
-              }),
-              _ => ()
-            ),
+            .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+              ss_bound = Option(TypeValue).Some(stv);
+              ss_bi = usize(0);
+            }),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -522,13 +516,10 @@ _trial_eval_annotation_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(ann_ei) => match(
       ann_ei.value,
-      .Some(ann_v) => match(
-        ann_v,
-        .TypeVal(ann_tv) => if(!is_some_type(ann_tv), {
-          out.push(ann_tv);
-        }),
-        _ => ()
-      ),
+      .Some(.TypeVal(ann_tv)) => if(!is_some_type(ann_tv), {
+        out.push(ann_tv);
+      }),
+      .Some(_) => (),
       .None => ()
     ),
     .None => ()
@@ -980,7 +971,7 @@ evaluate_anonymous_function_implementation :: (
               // annotated param (top-frame duplicate-name check —
               // multi-param closures reusing one generic name).
               ann_already := match(
-                env.frames.get(env.frames.len() - usize(1)),
+                env.frames.last(),
                 .Some(ann_top) => {
                   (ann_found : bool) = false;
                   (ann_vi : usize) = usize(0);
@@ -1174,14 +1165,11 @@ evaluate_anonymous_function_implementation :: (
             _st_bind_vars.get(_st_bi),
             .Some(sv) => match(
               sv.value.get(usize(0)),
-              .Some(sval) => match(
-                sval,
-                .TypeVal(stv) => if(!is_some_type(stv), {
-                  _st_bound = Option(TypeValue).Some(stv);
-                  _st_bi = usize(0);
-                }),
-                _ => ()
-              ),
+              .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+                _st_bound = Option(TypeValue).Some(stv);
+                _st_bi = usize(0);
+              }),
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()
@@ -1257,14 +1245,11 @@ evaluate_anonymous_function_implementation :: (
               rpr_vars.get(rpr_vi),
               .Some(rv) => match(
                 rv.value.get(usize(0)),
-                .Some(rvv) => match(
-                  rvv,
-                  .TypeVal(rvt) => if(!is_some_type(rvt), {
-                    rpr_conc = true;
-                    rpr_vi = usize(0);
-                  }),
-                  _ => ()
-                ),
+                .Some(.TypeVal(rvt)) => if(!is_some_type(rvt), {
+                  rpr_conc = true;
+                  rpr_vi = usize(0);
+                }),
+                .Some(_) => (),
                 .None => ()
               ),
               .None => ()
@@ -1616,6 +1601,16 @@ Result type: ${type_to_string(decl_result_ty)}`
     _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
     truncate_forcing_depths(anon_depths);
     anon_d1_body = anon_body_out.get(usize(0));
+    // A closure body nothing evaluates again (a forced `io.async` block):
+    // keep what its trial swallowed, for codegen to report if the body turns
+    // out hollow (`lookup_hollow_body_error`).
+    hb_tok := ast_expr_token(body_for_def_eval);
+    hb_site := `${hb_tok.module_path}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
+    if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
+      record_hollow_body_error(hb_site, _anon_swallow_message(), g_anon_swallow_diags.clone());
+    }, {
+      clear_hollow_body_error(hb_site);
+    });
     // Channel 0 (P0, plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
     // unbound-name that is bound LATER in this module is a forward
     // reference — error now instead of hollowing the closure body silently
@@ -1772,7 +1767,13 @@ Result type: ${type_to_string(decl_result_ty)}`
             // literal left `o.map((x) -> ...)`'s `R` unresolved
             // (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55).
             nrs_ret_bare := (is_some_type(nrs_ret_ty) && (is_creating_closure || !ctl_force) && !ctx.is_inside_io_async_call);
-            nrs_body_concrete := (!is_some_type(nrs_body_ty) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
+            // "Concrete" the way codegen means it: a type variable carrying a
+            // closure's `Fn` or an `io.async` body's `Future` lowers to its
+            // capture struct / state machine, so a closure RETURNING one binds
+            // the caller's result binder too. With the strict "no SomeT at
+            // all" test, `call_it(() => io.async(...))` left `T` unbound (E0613,
+            // issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+            nrs_body_concrete := !(type_contains_some_type_deep(nrs_body_ty));
             if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
               // REPLACING the declared return with the body type on the
@@ -1812,20 +1813,6 @@ Result type: ${type_to_string(decl_result_ty)}`
           info_tbl := ctx.expr_info_table;
           await_res := analyze_await_points(anon_eb, (e : AstExpr) => expr_info_table_get(info_tbl, ast_expr_id(e)));
           if(await_res.has_awaits, {
-            match(
-              first_inout_binding_in_async_body(anon_eb),
-              .Some(inout_lhs) => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(inout_lhs),
-                      String.from("'inout(name) := ...' is not supported inside an 'io.async' body that awaits yet: the body becomes a state machine that keeps a per-state copy of each local, so a reference could read a stale copy. Read the value into a local, or call a function that takes 'inout(name) : T'.")
-                    )
-                  )
-                );
-              },
-              .None => ()
-            );
             // Side-table by func_id (codegen reads it there — the analysis lands on
             // an inaccessible body clone, but func_id is stable for the codegen-read
             // closure). See register_closure_await_analysis.
@@ -1874,7 +1861,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                 // label (`e` from io.async's `Fn(e : E)`) for every closure it
                 // touched: the C prototype then declared `e` while the body
                 // referenced the source name (`io`) — "use of undeclared
-                // identifier 'io'" (issues/yo-self-async-emission-cluster.md
+                // identifier 'io'" (issues/retired/yo-self-async-emission-cluster.md
                 // item 2).
                 //
                 // REBUILD from `corrected_func_type`'s meta, do NOT use
@@ -1951,6 +1938,9 @@ Result type: ${type_to_string(decl_result_ty)}`
     // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
+    if(is_creating_closure, {
+      match(closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
+    });
   });
   // Deferred generic body: trial-evaluate a CLONE to catch a concrete
   // return against the declared generic return type (`(value -> i32(0))`
@@ -2183,9 +2173,9 @@ Result type: ${type_to_string(decl_result_ty)}`
   // capture struct as its resolved concrete — so an Impl(Fn(...))-ANNOTATED
   // BINDING's compat check sees the SomeT, not the plain Func (the c01/c06
   // closure-battery hollow). Recorded as the resolution of the VALUE COPY
-  // (a new SomeT built here) — NOT the global register_some_resolved_concrete
-  // registry (that stamp measured hollow regressions in fs/file + fs/temp;
-  // the copy's resolution is value-scoped).
+  // (a new SomeT built here) — value-scoped: stamping the SHARED declared
+  // id's registry entry (the retired channel) measured hollow regressions in
+  // fs/file + fs/temp.
   // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
   // async pipeline registers the sync-future struct and io.await
   // refinement against the UNRESOLVED wrapper SomeT, and its closures'

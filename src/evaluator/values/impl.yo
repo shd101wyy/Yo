@@ -37,17 +37,7 @@ pragma(Pragma.AllowUnsafe);
   BK_WHERE,
   BK_TUPLE
 } :: import("../../expr.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_get,
-  expr_info_table_set,
-  lookup_some_resolved_concrete,
-  lookup_trait_ctor_fid,
-  take_active_where_trait_ids,
-  restore_active_where_trait_ids,
-  expr_info_adopt_env
-} :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -959,20 +949,17 @@ _bind_forall_from_type_args :: (
           // Channel 2 — the codegen registry. For an async future's output
           // type, the output is KEPT unresolved through eval (the
           // FSM/future machinery keys on that SomeType identity), and the
-          // concrete type lands in the `g_some_resolved_concrete` registry
-          // (set at the io.async call site). Resolve via that registry — the
-          // same resolvedConcreteType bridge the io.await refinement uses —
+          // concrete type is carried as the output SomeT's own `resolution`
+          // (built at the io.async call site, Phase 3 step 7 part 2). Resolve
+          // through `some_resolution` — the same value-resolution bridge the
+          // io.await refinement uses —
           // so e.g. `JoinHandle(T)`'s generic-impl `await` match binds `T`
           // to the concrete spawned output instead of skipping the SomeType
           // arg. See issues/fixed/yo-self-async-await-struct-result-eval.md.
           match(
-            ct,
-            .SomeT({ id : ctid }) => match(
-              lookup_some_resolved_concrete(ctid),
-              .Some(c) => return(Option(TypeValue).Some(c)),
-              .None => ()
-            ),
-            _ => ()
+            some_resolution(ct),
+            .Some(c) => return(Option(TypeValue).Some(c)),
+            .None => ()
           );
         }),
         .None => ());
@@ -1290,16 +1277,13 @@ try_match_generic_impl :: (
       fv_vars := get_variables_from_env(match_env, fa_name2);
       if(fv_vars.len() > usize(0), {
         match(
-          fv_vars.get(fv_vars.len() - usize(1)),
+          fv_vars.last(),
           .Some(fv_var) => match(
             fv_var.value.get(usize(0)),
-            .Some(fv_v) => match(
-              fv_v,
-              .IntLit(fv_raw) => {
-                fa_val2 = EvalValue.IntLit(fv_raw.clone());
-              },
-              _ => ()
-            ),
+            .Some(.IntLit(fv_raw)) => {
+              fa_val2 = EvalValue.IntLit(fv_raw.clone());
+            },
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -1375,13 +1359,10 @@ try_match_generic_impl :: (
                                     wcr_regs.get(wcr_ri),
                                     .Some(wcr_re) => match(
                                       wcr_re.value,
-                                      .Some(wcr_rev) => match(
-                                        wcr_rev,
-                                        .TypeVal(wcr_ret) => if(!is_some_type(wcr_ret), {
-                                          wcr_bound = Option(TypeValue).Some(wcr_ret);
-                                        }),
-                                        _ => ()
-                                      ),
+                                      .Some(.TypeVal(wcr_ret)) => if(!is_some_type(wcr_ret), {
+                                        wcr_bound = Option(TypeValue).Some(wcr_ret);
+                                      }),
+                                      .Some(_) => (),
                                       .None => ()
                                     ),
                                     .None => ()
@@ -1906,14 +1887,11 @@ _inject_forall_captures :: (
           while(mk_v < binding_vals.len(), {
             match(
               binding_vals.get(mk_v),
-              .Some(bv) => match(
-                bv,
-                .IntLit(bv_r) => {
-                  memo_key.push_str("#");
-                  memo_key.push_string(bv_r.clone());
-                },
-                _ => ()
-              ),
+              .Some(.IntLit(bv_r)) => {
+                memo_key.push_str("#");
+                memo_key.push_string(bv_r.clone());
+              },
+              .Some(_) => (),
               .None => ()
             );
             mk_v = (mk_v + usize(1));
@@ -1997,20 +1975,17 @@ _inject_forall_captures :: (
               (fa_is_val : bool) = false;
               match(
                 binding_vals.get(fi2),
-                .Some(bv) => match(
-                  bv,
-                  .IntLit(bv_raw) => {
-                    fa_is_val = true;
-                    if(!(ifc_aligned), {
-                      new_cts.push(t_usize());
-                      new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
-                    });
-                    if(ifc_have_vars, {
-                      new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
-                    });
-                  },
-                  _ => ()
-                ),
+                .Some(.IntLit(bv_raw)) => {
+                  fa_is_val = true;
+                  if(!(ifc_aligned), {
+                    new_cts.push(t_usize());
+                    new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
+                  });
+                  if(ifc_have_vars, {
+                    new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
+                  });
+                },
+                .Some(_) => (),
                 .None => ()
               );
               if(!fa_is_val, {
@@ -2185,15 +2160,12 @@ find_methods_from_generic_impls :: (
             while(mbv_i < g_last_match_binding_vals.len(), {
               match(
                 g_last_match_binding_vals.get(mbv_i),
-                .Some(mbv) => match(
-                  mbv,
-                  .IntLit(mbv_raw) => {
-                    match_binding_vals.push(EvalValue.IntLit(mbv_raw.clone()));
-                  },
-                  _ => {
-                    match_binding_vals.push(EvalValue.UnitVal);
-                  }
-                ),
+                .Some(.IntLit(mbv_raw)) => {
+                  match_binding_vals.push(EvalValue.IntLit(mbv_raw.clone()));
+                },
+                .Some(_) => {
+                  match_binding_vals.push(EvalValue.UnitVal);
+                },
                 .None => {
                   match_binding_vals.push(EvalValue.UnitVal);
                 }
@@ -2765,7 +2737,7 @@ _try_lookup_trait_type :: (
     vars := get_variables_from_env(env, name);
     if(vars.len() > usize(0), {
       match(
-        vars.get(vars.len() - usize(1)),
+        vars.last(),
         .Some(last_v) => match(
           last_v.value.get(usize(0)),
           .Some(ev) => match(
@@ -2996,13 +2968,10 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
               while(cj < c_somes.len(), {
                 match(
                   c_somes.get(cj),
-                  .Some(cst) => match(
-                    cst,
-                    .SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _) => {
-                      keep.push(`${c_nm}@${c_lvl.to_string()}`);
-                    },
-                    _ => ()
-                  ),
+                  .Some(.SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _)) => {
+                    keep.push(`${c_nm}@${c_lvl.to_string()}`);
+                  },
+                  .Some(_) => (),
                   .None => ()
                 );
                 cj = (cj + usize(1));
@@ -3098,14 +3067,11 @@ _substitute_self_in_method_ty :: (
   while(ssi < self_somes.len(), {
     match(
       self_somes.get(ssi),
-      .Some(sst) => match(
-        sst,
-        .SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _, _) => if(ss_n == "Self", {
-          subst_add(s, String.from("Self"), ss_lvl, self_concrete.clone());
-          any_self = true;
-        }),
-        _ => ()
-      ),
+      .Some(.SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _, _)) => if(ss_n == "Self", {
+        subst_add(s, String.from("Self"), ss_lvl, self_concrete.clone());
+        any_self = true;
+      }),
+      .Some(_) => (),
       .None => ()
     );
     ssi = (ssi + usize(1));
@@ -4173,13 +4139,10 @@ evaluate_module_value :: (
         match(
           ri2.value,
           .None => (),
-          .Some(rv) => match(
-            rv,
-            .TypeVal(tv2) => {
-              receiver_type_pattern = tv2;
-            },
-            _ => ()
-          )
+          .Some(.TypeVal(tv2)) => {
+            receiver_type_pattern = tv2;
+          },
+          .Some(_) => ()
         );
       }
     );
@@ -4580,13 +4543,10 @@ evaluate_module_value :: (
       match(
         ri.value,
         .None => (),
-        .Some(rv) => match(
-          rv,
-          .TypeVal(tv) => {
-            receiver_ty = tv;
-          },
-          _ => ()
-        )
+        .Some(.TypeVal(tv)) => {
+          receiver_ty = tv;
+        },
+        .Some(_) => ()
       );
     },
     .None => ()

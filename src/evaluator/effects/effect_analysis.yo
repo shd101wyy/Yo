@@ -620,11 +620,8 @@ detect_effect_expr_ :: (
       result_type_opt = match(
         effect_param_fn_type.clone(),
         .None => Option(TypeValue).None,
-        .Some(fn_type) => match(
-          fn_type,
-          .Func({ result }) => Option(TypeValue).Some(result),
-          _ => Option(TypeValue).None
-        )
+        .Some(.Func({ result })) => Option(TypeValue).Some(result),
+        _ => Option(TypeValue).None
       );
     });
     if(operation_arg_types.len() > usize(0), {

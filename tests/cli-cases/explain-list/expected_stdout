@@ -22,7 +22,6 @@ E0606  value is not callable
 E0901  use of moved value
 E0902  cannot reassign
 E0903  variable may be uninitialized
-E0904  inout binding in an io.async body that awaits
 E0905  body was never fully evaluated
 E0906  forward reference
 E0907  value moved on some paths only
@@ -63,42 +62,6 @@ Example — write this instead:
 Run 'yo explain --list' for all codes.
 rc=0
 $ yo explain E0904
-E0904 — inout binding in an io.async body that awaits
-
-An `io.async` body that awaits is lowered to a state machine, and an `inout(name) := ...` binding cannot be placed in one.
-
-An `inout(name) := ...` binding cannot live in a body that awaits; read the value into a local instead. (An `io.await` itself may appear anywhere inside `io.async`.)
-
-Example — this fails:
-  inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
-  outer :: (fn(io : Io) -> Impl(Future(i32)))(
-    io.async((e : Io) => {
-      x := i32(1);
-      inout(y) := x;
-      z := e.await(inner(e, y), e);
-      y = z;
-      x
-    })
-  );
-  main :: (fn(io : Io) -> unit)({
-    _v := io.await(outer(io), io);
-  });
-  export(main);
-  
-Example — write this instead:
-  inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
-  outer :: (fn(io : Io) -> Impl(Future(i32)))(
-    io.async((e : Io) => {
-      x := i32(1);
-      z := e.await(inner(e, x), e);
-      (x + z)
-    })
-  );
-  main :: (fn(io : Io) -> unit)({
-    _v := io.await(outer(io), io);
-  });
-  export(main);
-  
-  `yo check` reports it: the rule is decided from the body's await analysis.
-Run 'yo explain --list' for all codes.
-rc=0
+yo: error: explain: unknown error code 'E0904'
+help: did you mean 'E0004'? Run 'yo explain --list' for all codes.
+rc=1

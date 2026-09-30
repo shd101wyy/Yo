@@ -62,7 +62,8 @@ get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
 make_noop_detector :: (fn() -> SuspensionPointDetector)(
   SuspensionPointDetector(
     detect : dyn((expr, parent_expr, points) => ()),
-    should_skip_body : dyn(expr => false)
+    should_skip_body : dyn(expr => false),
+    follow_macro_expansions : false
   )
 );
 // A detector that pushes a SuspensionPoint for every FnCall it is shown.
@@ -86,7 +87,8 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
       );
       points.push(sp);
     }),
-    should_skip_body : dyn(expr => false)
+    should_skip_body : dyn(expr => false),
+    follow_macro_expansions : false
   )
 );
 // ---------------------------------------------------------------------------

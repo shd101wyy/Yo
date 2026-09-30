@@ -31,7 +31,7 @@ import("std/fmt");
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment, copy_frames } :: import("../../env.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -177,7 +177,7 @@ evaluate_tuple_element_value :: (
       new_expr_info(env, TypeValue.Unit) // unreachable
     }
   );
-  env.frames = copy_frames(rhs_info.env.frames);
+  env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
@@ -237,7 +237,7 @@ evaluate_tuple_elements_value :: (
     field_labels.push(i.to_string());
     field_types.push(result.ty);
     values.push(result.value);
-    env.frames = copy_frames(result.env.frames);
+    env.frames = result.env.frames;
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;
@@ -313,14 +313,11 @@ evaluate_tuple_value :: (
     while(m < result.values.len(), {
       match(
         result.values.get(m),
-        .Some(opt) => match(
-          opt,
-          .Some(v) => {
-            val_list.push(v);
-            ();
-          },
-          .None => ()
-        ),
+        .Some(.Some(v)) => {
+          val_list.push(v);
+          ();
+        },
+        .Some(.None) => (),
         .None => ()
       );
       m = (m + usize(1));

@@ -31,20 +31,19 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  register_some_resolved_concrete,
   expr_info_set_closure_function_value,
   expr_info_capture_type,
-  expr_info_set_capture_type
+  expr_info_set_capture_type,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { Token } :: import("../../token.yo");
 {
   Environment,
   add_variable_to_env,
-  synthetic_token,
-  copy_frames
+  synthetic_token
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_with_resolution } :: import("../../types/creators.yo");
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
 {
@@ -69,11 +68,13 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../exprs/begin.yo");
 {
   enrich_captured_variables,
+  propagate_captures_to_enclosing,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
   validate_send_closure_global_reach,
   FuncCapturedVarInfo,
-  record_closure_capture_verdicts
+  record_closure_capture_verdicts,
+  generate_captured_variable_dup_expressions
 } :: import("../utils/closure.yo");
 /// Convert a closure body expression into a typed closure value against
 /// `fn_module_type` (an FnTrait type) wrapped in `wrapper_type` (Some or Dyn).
@@ -271,7 +272,7 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env.frames = copy_frames(bi.env.frames);
+      env.frames = bi.env.frames;
       env.module_path = bi.env.module_path;
       env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
       env.input_string = bi.env.input_string;
@@ -298,6 +299,7 @@ try_to_implement_closure_by_fn_module_type :: (
   env.pop_frame();
   // Capture variable enrichment.
   captured_vars_opt := eval_ctx.captured_variables;
+  match(captured_vars_opt, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
   captured_vars_with_values_opt := match(
     captured_vars_opt,
     .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
@@ -307,6 +309,14 @@ try_to_implement_closure_by_fn_module_type :: (
         Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
       }, Option(HashMap(String, FuncCapturedVarInfo)).None)
   );
+  // The capture struct holds its OWN reference to each RC-typed capture: the
+  // evaluated `___dup(name)` exprs are the capture-field initializers codegen
+  // emits (the same as an `=>` closure, anonymous_function.yo). The closure
+  // value types as its capture struct, so its copies are dup'd and its scope
+  // end drops each capture; without the dup at construction that drop is one
+  // too many (a heap use-after-free of the captured `MyBox`, caught by ASan on
+  // Linux in tests/closure.test.yo).
+  capture_dups := generate_captured_variable_dup_expressions(captured_vars_with_values_opt, caller_env, ctx, exn);
   // Create the capture struct type.
   cap_result := create_capture_type_and_value(
     Option(TypeValue).None,
@@ -332,26 +342,22 @@ try_to_implement_closure_by_fn_module_type :: (
     capture_ty.clone(),
     .Some(ct) => {
       register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct.clone(), frame_level : n_cap_fr));
-      // Lower the `Impl(Fn)` wrapper SomeT to the capture struct for codegen: the
-      // closure VALUE then types as the capture struct (get_type_string resolves
-      // the SomeT via lookup_some_resolved_concrete) and a direct value-call
-      // `add(x)` resolves cc_id to the capture-struct id so it dispatches through
-      // impl_closure_call_map (`closure_fn(&add, x)`) instead of a bad fn-ptr
-      // cast, by resolving the closure wrapper SomeT to its concrete capture
-      // struct.
-      match(
-        wrapper_type.clone(),
-        .SomeT({ id : wid }) => register_some_resolved_concrete(wid, ct),
-        _ => ()
-      );
     },
     .None => ()
   );
-  // Determine the final type (use wrapper_type).
-  final_ty := wrapper_type;
+  // The closure VALUE types as its `Impl(Fn)` wrapper resolved to THIS
+  // closure's capture struct (a closure identity, `is_bound_closure_identity`):
+  // get_type_string lowers it to the capture struct, and a direct value-call
+  // `add(x)` dispatches through impl_closure_call_map (`closure_fn(&add, x)`)
+  // instead of a bad fn-ptr cast. The resolution is this value's own: the
+  // wrapper's id is shared by every closure checked against the same
+  // annotation, so an entry keyed by it named the last closure's struct for
+  // all of them (Phase 3 step 7 part 2).
+  final_ty := match(capture_ty.clone(), .Some(fct) => t_with_resolution(wrapper_type.clone(), fct), .None => wrapper_type);
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(env, final_ty);
   expr_info_set_capture_type(info, capture_ty);
+  expr_info_set_deferred_dup_expressions(info, capture_dups.dup_exprs);
   expr_info_set_closure_function_value(info, Option(EvalValue).Some(func_val_pre));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   Option(AstExpr).Some(expr)

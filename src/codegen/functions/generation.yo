@@ -12,6 +12,9 @@
 //! functions.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ read_file_sync } :: import("../../manifest.yo");
+{ panic } :: import("std/assert");
+{ Exception } :: import("std/error");
 { Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
@@ -45,8 +48,9 @@
 // Insert `attr_line` on its own line immediately before the FIRST declaration
 // of `c_name` (clang requires the GNU error attribute on the first
 // declaration, not just the definition). Searches headers, then declarations,
-// then the code buffer up to `code_limit_b` (the definition site already
-// carries the attribute inline). The needle is ` <name>(` — every prototype
+// then the code section: its spilled part (`Emitter.code_spilled_bytes`, read
+// back and rewritten on a hit — rare) and the in-memory buffer up to
+// `code_limit_b` (the definition site already carries the attribute inline). The needle is ` <name>(` — every prototype
 // and definition spells the name after a space, and prototypes precede any
 // call. No hit is fine: the definition was the first declaration.
 _insert_attr_before_first_decl :: (
@@ -56,14 +60,20 @@ _insert_attr_before_first_decl :: (
   nb := needle.as_bytes();
   nlen := nb.len();
   (bi : usize) = usize(0);
-  while(bi < usize(3), {
-    hay_s := cond(
-      (bi == usize(0)) => em.headers.clone(),
-      (bi == usize(1)) => em.declarations.clone(),
-      true => em.code.clone()
+  while(bi < usize(4), {
+    // Read-only search: share the buffers (a `.clone()` copied the whole
+    // ~110 MB code buffer per stub). Stage 2 is the spilled code, if any.
+    hay := cond(
+      (bi == usize(0)) => em.headers.as_bytes(),
+      (bi == usize(1)) => em.declarations.as_bytes(),
+      (bi == usize(2)) => if(
+        em.code_spilled_bytes > usize(0),
+        read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`)))),
+        ArrayList(u8).new()
+      ),
+      true => em.code.as_bytes()
     );
-    hay := hay_s.as_bytes();
-    limit := cond((bi == usize(2)) => code_limit_b, true => hay.len());
+    limit := cond((bi == usize(3)) => code_limit_b, true => hay.len());
     if(limit >= nlen, {
       last_start := (limit - nlen);
       (si : usize) = usize(0);
@@ -103,16 +113,16 @@ _insert_attr_before_first_decl :: (
             out.push(match(hay.get(ci2), .Some(cb) => cb, .None => u8(0)));
             ci2 = (ci2 + usize(1));
           });
-          new_s := String.from_bytes(out);
           cond(
             (bi == usize(0)) => {
-              em.headers = new_s;
+              em.headers = String.from_bytes(out);
             },
             (bi == usize(1)) => {
-              em.declarations = new_s;
+              em.declarations = String.from_bytes(out);
             },
+            (bi == usize(2)) => em.rewrite_code_spill(out),
             true => {
-              em.code = new_s;
+              em.code = String.from_bytes(out);
             }
           );
           return(());
@@ -253,7 +263,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             // expression value is the OLD lhs value) emitted `return <temp>;`
             // inside a `void` C function — clang "void function should not
             // return a value" (the async_await/worker void-closure class,
-            // issues/yo-self-async-emission-cluster.md item 3).
+            // issues/retired/yo-self-async-emission-cluster.md item 3).
             if(result_is_unit, {
               u_code := _call_generate_expr(last_expr, indent.clone(), context);
               u_skip_temp := match(context.base.get_expr_info(last_expr), .Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()), .None => false);
@@ -395,7 +405,16 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
               mat_ty,
               .Some(ret_ty) => {
                 decl := indent.clone();
-                decl.push_string(get_type_string(ret_ty, context.base));
+                // The signature's own return type when it was overridden (an
+                // `Impl(Future)` / type-variable result lowered to the body's
+                // state machine, `_return_type_override`) — the same choice
+                // return.yo makes. `get_type_string` of the declared type
+                // variable reads the shared resolved-concrete registry, which
+                // holds whichever specialization wrote it last: a `_call_it`
+                // specialized at a future then declared its temp as the OTHER
+                // specialization's `_P*`
+                // (issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md).
+                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(ret_ty, context.base)));
                 decl.push_str(" __yo_scope_ret = ");
                 decl.push_string(expr_code);
                 decl.push_str(";");
@@ -883,9 +902,9 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // now says its own name and aborts instead of quietly doing less than
       // the source said.
       if(stub_found_ftt, {
-        // Rebuild the prefix from bytes once. Byte-exact equivalent of the
-        // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
-        // at the same buffer position.
+        // Truncate at the marker, in place. stub_mark_b is a byte offset taken
+        // at an emission point (a char boundary), so this is byte-exact with
+        // the former `substring(0, stub_mark)` and copies nothing.
         pb := em.code.as_bytes();
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
           // The rewrite below TRUNCATES the body at the marker, destroying the
@@ -904,13 +923,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           });
           eprintln(`[fttstub] fn=${c_function_name.clone()} at=${stub_mark_b.to_string()} marker=${String.from_bytes(mk_win)}`);
         });
-        prefix_bytes := ArrayList(u8).new();
-        (pi : usize) = usize(0);
-        while(pi < stub_mark_b, {
-          prefix_bytes.push(match(pb.get(pi), .Some(b2) => b2, .None => u8(0)));
-          pi = (pi + usize(1));
-        });
-        em.code = String.from_bytes(prefix_bytes);
+        em.code.truncate(stub_mark_b);
         // The error attribute makes the C COMPILER the deadness oracle: the
         // build fails IFF a call to the stub survives — a dead generic
         // original (no callers) compiles clean, while a LIVE stub (a body
@@ -956,13 +969,13 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         em.emit_string_line(stub_attr);
         em.emit_string_line(open.clone());
         em.emit_string_line(
-          `  fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
+          `  fflush(stdout); fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
         );
         em.emit_string_line(
           cond(
-            stub_is_superseded => String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
-            !stub_ret_unit => String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */"),
-            true => String.from("  abort(); /* untranspilable body in a unit fn: aborting beats silently running without the statement */")
+            stub_is_superseded => String.from("  __yo_abort(); /* superseded generic original: all call sites dispatch a specialization */"),
+            !stub_ret_unit => String.from("  __yo_abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */"),
+            true => String.from("  __yo_abort(); /* untranspilable body in a unit fn: aborting beats silently running without the statement */")
           )
         );
         em.emit_string_line(String.from("}"));
@@ -1036,6 +1049,9 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
             // final only then. Ranges are non-overlapping and ascending.
             fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
+            // A function boundary: spill finished code (a no-op without a
+            // spill file, which chunk mode never opens).
+            context.base.emitter.spill_code_if_large();
             if(context.base.chunk_mode, {
               context.base.chunk_fn_ranges.push(
                 ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len(), module : entry.def_module.clone())
@@ -1430,8 +1446,8 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
   // silent.md, issues/effect-install-frame-exit-leaves-the-escaped-flag-
   // dirty.md).
   if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
+    __yo_abort();
   }
 `
   );

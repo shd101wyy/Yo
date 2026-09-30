@@ -259,6 +259,7 @@ BF_YO_BUILD_MODULE_LINK :: "__yo_build_module_link";
 BF_YO_BUILD_ADD_CFLAGS :: "__yo_build_add_cflags";
 BF_YO_BUILD_DEP_MODULE :: "__yo_build_dep_module";
 BF_YO_BUILD_DOC :: "__yo_build_doc";
+BF_YO_BUILD_VERIFY :: "__yo_build_verify";
 /// `__yo_build_env(name, default)` — an environment variable, or `default` when
 /// unset; `__yo_build_env_is_set(name)` — whether it is set at all. Both answer
 /// only under `yo build` (§5.4).
@@ -764,21 +765,15 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, _, _, _) => match(
-      func_box,
-      .Atom(_, tok) => {
-        v := tok.value.clone();
-        (v == "->") || ((v == "=>") || (v == "=>>"))
-      },
-      .FnCall(_, inner_func_box, _, _, _) => match(
-        inner_func_box,
-        .Atom(_, inner_tok) => {
-          iv := inner_tok.value.clone();
-          (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
-        },
-        .FnCall(_, _, _, _, _) => false
-      )
-    )
+    .FnCall(_, .Atom(_, tok), _, _, _) => {
+      v := tok.value.clone();
+      (v == "->") || ((v == "=>") || (v == "=>>"))
+    },
+    .FnCall(_, .FnCall(_, .Atom(_, inner_tok), _, _, _), _, _, _) => {
+      iv := inner_tok.value.clone();
+      (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
+    },
+    .FnCall(_, _, _, _, _) => false
   )
 );
 /// Traverse an evaluated expression tree checking for an `unwind` keyword usage.
@@ -833,7 +828,7 @@ export(BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK);
 export(BF_YO_BUILD_LINK_SYSTEM_LIBRARY, BF_YO_BUILD_OPTION, BF_YO_BUILD_DEP_ARTIFACT);
 export(BF_YO_BUILD_ENV, BF_YO_BUILD_ENV_IS_SET);
 export(BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK);
-export(BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC);
+export(BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC, BF_YO_BUILD_VERIFY);
 export(BF_YO_BUILD_MANIFEST_FIELD);
 export(BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR, BF_COMPTIME_BOOL_EQ, BF_COMPTIME_BOOL_NEQ);
 export(BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING);
@@ -992,12 +987,8 @@ _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
   );
   label_matches := match(
     pair_args.get(usize(0)),
-    .Some(label_expr) => match(
-      label_expr,
-      .Atom(_, ltok) => (ltok.value == label),
-      .FnCall(_, _, _, _, _) => false
-    ),
-    .None => false
+    .Some(.Atom(_, ltok)) => (ltok.value == label),
+    _ => false
   );
   cond(
     label_matches => match(
@@ -1080,19 +1071,16 @@ _is_await_method_call :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, callee, _, _, _) => match(
-      callee,
-      .Atom(_, _) => false,
-      .FnCall(_, dot, dargs, is_infix, _) => (
-        is_infix && (dargs.len() == usize(2)) && (
-          match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
-            dargs.get(usize(1)),
-            .Some(m) => ast_expr_is_atom_of(m, "await"),
-            .None => false
-          )
+    .FnCall(_, .FnCall(_, dot, dargs, is_infix, _), _, _, _) => (
+      is_infix && (dargs.len() == usize(2)) && (
+        match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
+          dargs.get(usize(1)),
+          .Some(m) => ast_expr_is_atom_of(m, "await"),
+          .None => false
         )
       )
-    )
+    ),
+    .FnCall(_, _, _, _, _) => false
   )
 );
 /// `return(<recv>.await(...))`.
@@ -1224,12 +1212,11 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
         });
       });
       // `return(x.await(...))` → `begin(t := x.await(...), return(t))`. The two
-      // mean the same thing everywhere, and the second is the form an
-      // `io.async` state machine can split at: its await is the value of a
-      // `:=` binding, a state boundary in every position, while an await
-      // nested inside `return(...)` has no state to resume into (E0904,
-      // issues/fixed/return-of-an-await-is-rejected-inside-io-async.md). The
-      // temp is a compiler-minted `__yo_` name, unique per node.
+      // mean the same thing everywhere. The segment lowering could only split
+      // at the second form (issues/fixed/return-of-an-await-is-rejected-inside-io-async.md);
+      // the single-pass lowering suspends in either, and the rewrite is kept
+      // as an equivalence. The temp is a compiler-minted `__yo_` name, unique
+      // per node.
       if(_is_return_of_await(e), {
         awaited := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
         tmp_name := String.from("__yo_return_await_");

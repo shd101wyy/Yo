@@ -80,11 +80,20 @@
 //! frozen before the decision. The related `imm` question — the shape of
 //! `remove` across these containers — is open in the same section.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { memcpy } :: import("../libc/string.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { assert } :: import("../assert");
 { malloc, free } :: GlobalAllocator;
+// The top bit of `_capw` (the capacity word): set when the buffer came from
+// the allocator `with_allocator` made current, and so carries its owner
+// prefix (`std/allocator.yo`); its release routes through it. Every version a
+// mutation creates is placed by the scope current at that moment
+// (plans/EXPLICIT_ALLOCATORS.md P3). Read the capacity with `_capn()`.
+_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_MASK :: (_CAP_TAG - usize(1));
+// The tag for a buffer `_raw_alloc` just placed.
+_scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, true => usize(0)));
 /// Immutable vector: a flat copy-on-write array behind an atomic refcount.
 ///
 /// `get` is a pointer offset. A mutation on an UNSHARED vector (refcount 1)
@@ -100,7 +109,7 @@ Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
       struct(
         _ptr : *T,
         _len : usize,
-        _cap : usize
+        _capw : usize
       )
     )
   )
@@ -118,7 +127,7 @@ impl(
       while(i < self._len, i = (i + usize(1)), {
         unsafe.drop((self._ptr.add(i)).*);
       });
-      free(.Some((*void)(self._ptr)));
+      Self._free_buf(self._ptr, self._capw);
     })
   )
 );
@@ -143,11 +152,21 @@ impl(
     });
     sz := (sizeof(T) * alloc_cap);
     match(
-      malloc(sz),
+      match(current_allocator(), .Some(a) => a.alloc(sz), .None => malloc(sz)),
       .Some(p) => (*T)(p),
       .None => __yo_panic("imm.Vec: allocation failed")
     )
   }),
+  // Release a buffer the way `_raw_alloc` placed it (`capw` is its tagged
+  // capacity word).
+  _free_buf : (fn(p : *T, capw : usize) -> unit)(
+    cond(
+      ((capw & _CAP_TAG) != usize(0)) => Allocator.free(.Some((*void)(p))),
+      true => free(.Some((*void)(p)))
+    )
+  ),
+  // The capacity, without the allocator tag.
+  _capn : (fn(self : Self) -> usize)(self._capw & _CAP_MASK),
   /// Copy elements element-by-element so RC-backed values duplicate correctly.
   _copy_elems : (
     fn(
@@ -177,11 +196,11 @@ impl(
   }),
   /// Create a new empty vector.
   new : (fn() -> Self)(
-    Self(_ptr : Self._raw_alloc(usize(4)), _len : usize(0), _cap : usize(4))
+    Self(_ptr : Self._raw_alloc(usize(4)), _len : usize(0), _capw : (usize(4) | _scope_tag()))
   ),
   /// Create a new empty vector with the given initial capacity.
   with_capacity : (fn(cap : usize) -> Self)(
-    Self(_ptr : Self._raw_alloc(cap), _len : usize(0), _cap : cap)
+    Self(_ptr : Self._raw_alloc(cap), _len : usize(0), _capw : (cap | _scope_tag()))
   ),
   /// Number of elements in the vector.
   len : (fn(self : Self) -> usize)(self._len),
@@ -213,7 +232,7 @@ impl(
     });
     unsafe.drop((new_ptr.add(idx)).*);
     consume((new_ptr.add(idx)).* = val);
-    result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
+    result := Self(_ptr : new_ptr, _len : self._len, _capw : (self._len | _scope_tag()));
     unsafe.drop(self);
     result
   }),
@@ -227,29 +246,29 @@ impl(
   /// while holding every intermediate is quadratic.
   push : (fn(own(self) : Self, val : T) -> Self)({
     if(rc(self) == usize(1), {
-      if(self._len >= self._cap, {
-        new_cap := (self._cap * usize(2));
+      if(self._len >= self._capn(), {
+        new_cap := (self._capn() * usize(2));
         new_ptr := Self._raw_alloc(new_cap);
         Self._move_elems(new_ptr, self._ptr, self._len);
-        free(.Some((*void)(self._ptr)));
+        Self._free_buf(self._ptr, self._capw);
         self._ptr = new_ptr;
-        self._cap = new_cap;
+        self._capw = (new_cap | _scope_tag());
       });
       consume((self._ptr.add(self._len)).* = val);
       self._len = (self._len + usize(1));
       return(self);
     });
     new_cap := cond(
-      (self._len < self._cap) => self._cap,
-      (self._cap == usize(0)) => usize(4),
-      true => (self._cap * usize(2))
+      (self._len < self._capn()) => self._capn(),
+      (self._capn() == usize(0)) => usize(4),
+      true => (self._capn() * usize(2))
     );
     new_ptr := Self._raw_alloc(new_cap);
     if(self._len > usize(0), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
     consume((new_ptr.add(self._len)).* = val);
-    result := Self(_ptr : new_ptr, _len : (self._len + usize(1)), _cap : new_cap);
+    result := Self(_ptr : new_ptr, _len : (self._len + usize(1)), _capw : (new_cap | _scope_tag()));
     unsafe.drop(self);
     result
   }),
@@ -286,11 +305,11 @@ impl(
       self._len = new_len;
       return(PopResult(T)(vec : self, value : .Some(val)));
     });
-    new_ptr := Self._raw_alloc(self._cap);
+    new_ptr := Self._raw_alloc(self._capn());
     if(new_len > usize(0), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), new_len);
     });
-    new_vec := Self(_ptr : new_ptr, _len : new_len, _cap : self._cap);
+    new_vec := Self(_ptr : new_ptr, _len : new_len, _capw : (self._capn() | _scope_tag()));
     unsafe.drop(self);
     PopResult(T)(vec : new_vec, value : .Some(val))
   }),
@@ -310,7 +329,7 @@ impl(
     new_len := (actual_end - actual_start);
     new_ptr := Self._raw_alloc(new_len);
     Self._copy_elems(new_ptr, self._ptr, usize(0), actual_start, new_len);
-    Self(_ptr : new_ptr, _len : new_len, _cap : new_len)
+    Self(_ptr : new_ptr, _len : new_len, _capw : (new_len | _scope_tag()))
   }),
   /// New vector holding `self`'s elements followed by `other`'s — O(n + m),
   /// always: there is no shared spine to splice, so the result is a fresh
@@ -318,7 +337,7 @@ impl(
   concat : (fn(own(self) : Self, other : Self) -> Self)({
     total := (self._len + other._len);
     if(rc(self) == usize(1), {
-      if(total <= self._cap, {
+      if(total <= self._capn(), {
         if(other._len > usize(0), {
           Self._copy_elems(self._ptr, other._ptr, self._len, usize(0), other._len);
         });
@@ -326,18 +345,18 @@ impl(
         return(self);
       });
       new_cap := cond(
-        (total > (self._cap * usize(2))) => total,
-        true => (self._cap * usize(2))
+        (total > (self._capn() * usize(2))) => total,
+        true => (self._capn() * usize(2))
       );
       new_ptr := Self._raw_alloc(new_cap);
       Self._move_elems(new_ptr, self._ptr, self._len);
       if(other._len > usize(0), {
         Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
       });
-      free(.Some((*void)(self._ptr)));
+      Self._free_buf(self._ptr, self._capw);
       self._ptr = new_ptr;
       self._len = total;
-      self._cap = new_cap;
+      self._capw = (new_cap | _scope_tag());
       return(self);
     });
     new_ptr := Self._raw_alloc(total);
@@ -347,7 +366,7 @@ impl(
     if(other._len > usize(0), {
       Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
     });
-    result := Self(_ptr : new_ptr, _len : total, _cap : total);
+    result := Self(_ptr : new_ptr, _len : total, _capw : (total | _scope_tag()));
     unsafe.drop(self);
     result
   }),
@@ -379,7 +398,7 @@ impl(
     while(i < self._len, i = (i + usize(1)), {
       consume((new_ptr.add(i)).* = (self._ptr.add(self._len - usize(1) - i)).*);
     });
-    result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
+    result := Self(_ptr : new_ptr, _len : self._len, _capw : (self._len | _scope_tag()));
     unsafe.drop(self);
     result
   }),
@@ -390,7 +409,7 @@ impl(
     while(i < self._len, i = (i + usize(1)), {
       consume((new_ptr.add(i)).* = f((self._ptr.add(i)).*));
     });
-    Vec(U)(_ptr : new_ptr, _len : self._len, _cap : self._len)
+    Vec(U)(_ptr : new_ptr, _len : self._len, _capw : (self._len | _scope_tag()))
   }),
   /// Filter elements by a predicate, returning a new vector.
   filter : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Self)({
@@ -404,7 +423,7 @@ impl(
         count = (count + usize(1));
       });
     });
-    Self(_ptr : new_ptr, _len : count, _cap : self._len)
+    Self(_ptr : new_ptr, _len : count, _capw : (self._len | _scope_tag()))
   }),
   /// Left fold over elements.
   fold : (fn(generic(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, elem : T) -> U)) -> U)({
@@ -512,7 +531,7 @@ impl(
         count = (count + usize(1));
       });
     });
-    result := Self(_ptr : new_ptr, _len : count, _cap : self._len);
+    result := Self(_ptr : new_ptr, _len : count, _capw : (self._len | _scope_tag()));
     unsafe.drop(self);
     result
   }),
@@ -527,7 +546,7 @@ impl(
     while(i < min_len, i = (i + usize(1)), {
       consume((new_ptr.add(i)).* = f((self._ptr.add(i)).*, other(i)));
     });
-    Vec(V)(_ptr : new_ptr, _len : min_len, _cap : min_len)
+    Vec(V)(_ptr : new_ptr, _len : min_len, _capw : (min_len | _scope_tag()))
   }),
   /// Create a vector from a slice, copying all elements.
   from_list : (fn(l : ArrayList(T)) -> Self)({
@@ -544,7 +563,7 @@ impl(
         .None => ()
       );
     });
-    Self(_ptr : new_ptr, _len : slen, _cap : cap)
+    Self(_ptr : new_ptr, _len : slen, _capw : (cap | _scope_tag()))
   })
 );
 /// Eq trait for Vec(T) — element-wise equality.

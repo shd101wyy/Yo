@@ -1,0 +1,34 @@
+// R1 slice 2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: the DML `append`
+// with its BODY verified. `ArrayList(i32).new()` carries
+// `ensures(r.len() == 0)`, `push` carries `ensures(self.len() == (old(self.len()) + 1))`
+// (both std `assumed()` specs); a call to `push` rebinds `out` to a fresh
+// list term related to the old one by that ensures, and the loop's havoc
+// set includes `out` because the callee's contract mentions `old(self...)`.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+concat :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == (a.len() + b.len()))) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    invariant(i <= a.len(), out.len() == i);
+    out.push(a(i));
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), {
+    invariant(j <= b.len(), out.len() == (a.len() + j));
+    out.push(b(j));
+    j = (j + usize(1));
+  });
+  out
+});
+
+// A read after a mutation sees the NEW length: the second push's ensures
+// relates it to the first's.
+push_two :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(2)))) -> unit)({
+  xs.push(v);
+  xs.push(v);
+});

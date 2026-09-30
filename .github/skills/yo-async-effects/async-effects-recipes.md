@@ -207,7 +207,8 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   keep the old safe spellings there until `SEED_VERSION` carries the
   single-pass lowering. Bind an await to a local before a scrutinee, a
   compound condition or a later branch uses it; keep an await out of macro
-  expansions (which is why `std/async/stream.yo` ships no `for_await` yet).
+  expansions (so `src/` and `std/` do not call `for_await` yet; the macro
+  itself is in `std/async/stream.yo`).
   Tests and user programs are compiled by the tree and may use any shape.
 - **`join_all` / `race` / `any` / `timeout` are TOP-LEVEL combinators — never
   call one from inside an `io.async` body.** They wait by looping
@@ -238,7 +239,7 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   the SPAWN site (`No matching call found with arguments: (h.await)(io)`), not
   on the closure. A `(fn(x : T) -> R)(...)` literal in the same position works,
   and so does the same call outside the body
-  (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
+  (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
 - **Do not bind a captured value to a local and then call a SUSPENDING method
   on the local** inside an async body: `local := captured_stream;` followed by
   `io.await(local.next(io), io)` emits invalid C (a state-machine field

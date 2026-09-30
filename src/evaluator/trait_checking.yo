@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
-{ Environment, get_where_clause_constraints_for_some_type, copy_frames } :: import("../env.yo");
+{ Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
 { YoError, format_error_message } :: import("../error.yo");
@@ -470,13 +470,10 @@ resolve_assoc_type_for_target :: (
           rat_entries.get(rat_i),
           .Some(re) => match(
             re.value,
-            .Some(rev) => match(
-              rev,
-              .TypeVal(re_t) => {
-                resolved_opt = Option(TypeValue).Some(re_t);
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(re_t)) => {
+              resolved_opt = Option(TypeValue).Some(re_t);
+            },
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -547,13 +544,10 @@ _check_associated_type_constraints :: (
             atc_entries.get(ae_i),
             .Some(ae) => match(
               ae.value,
-              .Some(aev) => match(
-                aev,
-                .TypeVal(ae_t) => {
-                  resolved_opt = Option(TypeValue).Some(ae_t);
-                },
-                _ => ()
-              ),
+              .Some(.TypeVal(ae_t)) => {
+                resolved_opt = Option(TypeValue).Some(ae_t);
+              },
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()
@@ -1908,8 +1902,13 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    // Struct: skip Fn-typed fields.
-    .Struct({ field_types : field_types }) => {
+    // Struct: skip Fn-typed fields. The instantiation's type arguments count
+    // too: a PHANTOM parameter (`Br(K)` = `ref(struct(n : u8))`) appears in
+    // no field, and without them a `comptime(K) : Type` helper taking
+    // `b : Br(K)` was not deferred, so its body was checked against the
+    // abstract `Br(K)` and a generic impl's method on it was never found
+    // (issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md).
+    .Struct({ field_types : field_types, type_arguments : st_targs }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !(found), {
@@ -1918,6 +1917,17 @@ type_contains_some_type_for_codegen_param :: (
           found = true;
         });
         i = (i + usize(1));
+      });
+      (ti : usize) = usize(0);
+      while((ti < st_targs.len()) && !(found), {
+        match(
+          st_targs.get(ti),
+          .Some(ta) => if(recur(ta, checked_ids), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ti = (ti + usize(1));
       });
       found
     },
@@ -2217,7 +2227,7 @@ _type_implements_trait_full_adapter :: (
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);
-  env.frames = copy_frames(r.env.frames);
+  env.frames = r.env.frames;
   r.implemented
 });
 _trait_checking_init := (fn() -> bool)({

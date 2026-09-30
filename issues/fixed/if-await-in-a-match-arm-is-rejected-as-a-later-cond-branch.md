@@ -4,7 +4,7 @@
 
 **Status: FIXED (2026-09-29).** Found 2026-09-28 by the async state-machine audit
 (`plans/ASYNC_STATE_MACHINE_GENERATION.md`), while re-checking
-`issues/questions/yoself-accepts-await-in-cond-that-ts-rejects.md`. Tree build of
+`issues/retired/yoself-accepts-await-in-cond-that-ts-rejects.md`. Tree build of
 develop `af62bdb28`.
 
 ## Symptom

@@ -6,8 +6,8 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ join_all, race, race_first, any, any_first, timeout, TimeoutError } :: import("std/async");
-{ Stream } :: import("std/async/stream");
+{ join_all, race, race_first, any, any_first, timeout, TimeoutError, yield } :: import("std/async");
+{ Stream, for_await } :: import("std/async/stream");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 
@@ -446,7 +446,7 @@ test("Test Stream for_each inside a spawned task", {
   seen := ArrayList(i32).new();
   // The chain is built OUTSIDE the task body on purpose: a closure argument
   // written inside an `io.async` body loses the future's result type
-  // (issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).
+  // (issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md).
   drain := Countdown(_n : i32(4)).for_each(x => {
     seen.push(x);
   }, io);
@@ -456,8 +456,7 @@ test("Test Stream for_each inside a spawned task", {
   assert(seen.len() == usize(4), "every item reached the body");
 });
 // ---------------------------------------------------------------------------
-// S7. The hand-written consumer loop — what a `for_await` macro would expand
-// to, and the shape to use inside a task until one exists
+// S7. The hand-written consumer loop — what `for_await` (S8) expands to
 // (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md)
 // ---------------------------------------------------------------------------
 test("Test a hand-written consumer loop inside a spawned task", {
@@ -501,4 +500,95 @@ test("Test a hand-written consumer loop over an empty stream", {
     );
   });
   assert(seen.len() == usize(0), "no items, no body");
+});
+// ---------------------------------------------------------------------------
+// S8. `for_await`: the loop of async iteration. Its await comes from a macro
+// expansion, which is a real suspension point since the single-pass lowering
+// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+// ---------------------------------------------------------------------------
+test("Test for_await from main", {
+  seen := ArrayList(i32).new();
+  for_await(Countdown(_n : i32(3)), io, x => {
+    seen.push(x);
+  });
+  assert(seen.len() == usize(3), "the body ran once per item");
+  assert(seen(usize(0)) == i32(3), "in order");
+});
+test("Test for_await inside a spawned task, with continue and break", {
+  seen := ArrayList(i32).new();
+  c := Countdown(_n : i32(6));
+  task := io.async((io : Io) => {
+    for_await(c, io, x => {
+      if(x == i32(5), {
+        continue;
+      });
+      if(x == i32(2), {
+        break;
+      });
+      seen.push(x);
+    });
+  });
+  h := io.spawn(task, io);
+  r := timeout(h, Duration.from_millis(i64(5000)), io);
+  assert(r.is_ok(), "for_await finished inside the deadline");
+  assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
+  assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
+});
+_first_even :: (fn(c : Countdown, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    for_await(c, io, x => {
+      if((x % i32(2)) == i32(0), {
+        return(x);
+      });
+    });
+    i32(-1)
+  })
+);
+test("Test for_await with a return from the enclosing task", {
+  assert(io.await(_first_even(Countdown(_n : i32(5)), io), io) == i32(4), "the first even item is returned");
+  assert(io.await(_first_even(Countdown(_n : i32(1)), io), io) == i32(-1), "no even item: the loop ends");
+});
+/// A stream whose `next` yields to the loop before answering.
+Ticker :: ref(struct(_n : i32));
+impl(
+  Ticker,
+  Stream(
+    Item : i32,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async((io : Io) => {
+        io.await(yield(io), io);
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      })
+    )
+  )
+);
+test("Test for_await suspends its task between items", {
+  ticks := Box(i32)(0);
+  seen := ArrayList(i32).new();
+  t := Ticker(_n : i32(3));
+  task := io.async((io : Io) => {
+    for_await(t, io, x => {
+      seen.push(ticks.*);
+    });
+  });
+  h := io.spawn(task, io);
+  (i : i32) = i32(0);
+  while(i < i32(20), {
+    ticks.* = (ticks.* + i32(1));
+    io.await(yield(io), io);
+    i = (i + i32(1));
+  });
+  r := timeout(h, Duration.from_millis(i64(5000)), io);
+  assert(r.is_ok(), "the task finished");
+  assert(seen.len() == usize(3), "one entry per item");
+  // A blocking await would run the whole loop inside the spawn, before main
+  // ticks once, and record 0 0 0.
+  assert(seen(usize(2)) > seen(usize(0)), "main ran between the task's items");
 });

@@ -25,7 +25,6 @@ pragma(Pragma.AllowUnsafe);
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  copy_frames,
   variable_set_bound_some_id,
   variable_bound_some_id
 } :: import("../../env.yo");
@@ -36,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
+{ lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 {
   is_some_type,
@@ -891,11 +890,11 @@ _synthesize_implicit_params :: (
         );
         if(exp_id == synthesis_type_id(giv.ty), {
           res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-          expected_env.frames = copy_frames(res.expected_env.frames);
+          expected_env.frames = res.expected_env.frames;
           expected_env.module_path = res.expected_env.module_path;
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
           expected_env.input_string = res.expected_env.input_string;
-          given_env.frames = copy_frames(res.given_env.frames);
+          given_env.frames = res.given_env.frames;
           given_env.module_path = res.given_env.module_path;
           given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
           given_env.input_string = res.given_env.input_string;
@@ -975,11 +974,11 @@ _synthesize_implicit_params :: (
           );
           if(exp_id == synthesis_type_id(giv.ty), {
             res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-            expected_env.frames = copy_frames(res.expected_env.frames);
+            expected_env.frames = res.expected_env.frames;
             expected_env.module_path = res.expected_env.module_path;
             expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
             expected_env.input_string = res.expected_env.input_string;
-            given_env.frames = copy_frames(res.given_env.frames);
+            given_env.frames = res.given_env.frames;
             given_env.module_path = res.given_env.module_path;
             given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
             given_env.input_string = res.given_env.input_string;
@@ -1914,7 +1913,7 @@ _synthesize_types_impl :: (
       lvar_vars := get_variables_from_env(ee, exp_lvar);
       if(lvar_vars.len() > usize(0), {
         match(
-          lvar_vars.get(lvar_vars.len() - usize(1)),
+          lvar_vars.last(),
           .Some(lvar_var) => {
             lvar_var.value = value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())));
           },
@@ -2227,15 +2226,7 @@ _synthesize_types_impl :: (
       // (bool, Impl-SomeT). Resolve the given side BEFORE declaring a
       // mismatch (the synthesizer's SomeType arms assume
       // unresolved vars). Retry the synthesis with the resolution.
-      giv_resolution := match(
-        given_ty,
-        .SomeT({ id : sg_id, resolution : sg_cell }) => match(
-          sg_cell,
-          .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
-          .None => lookup_some_resolved_concrete(sg_id)
-        ),
-        _ => Option(TypeValue).None
-      );
+      giv_resolution := some_resolution(given_ty);
       match(
         giv_resolution,
         .Some(sg_rt2) => {
@@ -2243,15 +2234,7 @@ _synthesize_types_impl :: (
         },
         .None => ()
       );
-      exp_resolution := match(
-        expected_ty,
-        .SomeT({ id : se_id, resolution : se_cell }) => match(
-          se_cell,
-          .Some(se_rt) => Option(TypeValue).Some(se_rt),
-          .None => lookup_some_resolved_concrete(se_id)
-        ),
-        _ => Option(TypeValue).None
-      );
+      exp_resolution := some_resolution(expected_ty);
       match(
         exp_resolution,
         .Some(se_rt2) => {
