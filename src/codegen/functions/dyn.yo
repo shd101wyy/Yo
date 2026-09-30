@@ -139,8 +139,9 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
             em.emit_declaration_line("");
           });
           em.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
-          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
-          em.emit_line("  box->header.ref_count = 1;");
+          em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
+          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc_scoped(__yo_sc, sizeof(${box_name}));`);
+          em.emit_line("  box->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);");
           em.emit_line("  box->header.borrow_count = 0;");
           if(context.base.needs_cycle_gc, {
             em.emit_line("  box->header.gc_flags = 0;");

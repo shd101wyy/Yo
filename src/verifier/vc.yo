@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr
 } :: import("../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
+{ type_display_name } :: import("../types/string.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
@@ -294,6 +295,128 @@ _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
   )
 );
 (g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
+// ---------------------------------------------------------------------------
+// ArrayList(T) as a ghost pair — R1 slice 1 of
+// plans/backlog/ATS_STYLE_INDEXED_TYPES.md. An `ArrayList(T)` whose `T` is in
+// the integer/bool subset is the SMT datatype `List_<elem>` with one
+// constructor `List_<elem>_mk (contents : Array BV64 elem) (len : BV64)`.
+// `xs.len()` is the `len` accessor, `xs(i)` is `select(contents(xs), i)` under
+// the `index-in-bounds` obligation `i < len(xs)`, and a list-typed parameter
+// or callee result is one datatype-sorted variable — so a callee's
+// `ensures(r.len() == (a.len() + b.len()))` is a plain equation over
+// accessors. Reads only: `push`/`insert`/`remove`/`pop`/`new` stay outside the
+// subset until the mutation model (slice 2) — a mutating method on a by-value
+// RC handle is a heap effect the two-state rule does not cover yet.
+// The datatype rides the same side channel as the uninterpreted sorts
+// because `_type_sort` has no ctx; the query build appends every entry.
+// ---------------------------------------------------------------------------
+(g_list_datatypes : ArrayList(String)) = ArrayList(String).new();
+(g_list_elem_sorts : ArrayList(VcSort)) = ArrayList(VcSort).new();
+/// The element type of an `ArrayList(T)` (the prelude's ref struct named
+/// `ArrayList` with one type argument), or `.None`.
+_list_elem_type :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t_refine_inner(t),
+    .Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs }) => cond(
+      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(ls_id, ls_name, ls_fls)) => ls_targs.get(usize(0)),
+      true => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  )
+);
+/// The prelude's `ArrayList(T)`: a CTFE instantiation carries no `name`
+/// (its display name, registered by the comptime-fn memo, is
+/// `ArrayList(<T>)`) and exactly the fields `_ptr`, `_length`, `_capacity`.
+_is_array_list_shape :: (fn(id : String, name : String, labels : ArrayList(String)) -> bool)({
+  display := cond(
+    (name.len() > usize(0)) => name.clone(),
+    true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
+  );
+  head_ok := ((display == "ArrayList") || display.starts_with("ArrayList("));
+  fields_ok := ((labels.len() == usize(3)) && (match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && (match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false))));
+  head_ok && fields_ok
+});
+/// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
+/// `bool` (nested lists, structs and enums stay outside the subset).
+_list_elem_sort :: (fn(t : TypeValue) -> Option(VcSort))(
+  match(
+    _list_elem_type(t),
+    .Some(let_t) => match(
+      _int_width(t_refine_inner(let_t)),
+      .Some(lw) => Option(VcSort).Some(VcSort.BvS(width : lw)),
+      .None => cond(
+        _is_bool_type(t_refine_inner(let_t)) => Option(VcSort).Some(VcSort.BoolS),
+        true => Option(VcSort).None
+      )
+    ),
+    .None => Option(VcSort).None
+  )
+);
+_list_dt_name :: (fn(elem : VcSort) -> String)(`List_${_msof_key(elem)}`);
+_list_ctor_name :: (fn(elem : VcSort) -> String)(`${_list_dt_name(elem)}_mk`);
+_list_contents_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_contents`);
+_list_len_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_len`);
+/// The element sort of a list-sorted TERM (a `Var` of a `List_<elem>`
+/// datatype sort), read back from the datatype name.
+_list_sort_elem :: (fn(s : VcSort) -> Option(VcSort))(
+  match(
+    s,
+    .DataS(ds_name) => {
+      (found : Option(VcSort)) = Option(VcSort).None;
+      (li : usize) = usize(0);
+      while((li < g_list_elem_sorts.len()) && found.is_none(), {
+        match(
+          g_list_elem_sorts.get(li),
+          .Some(es) => if(_list_dt_name(es) == ds_name, {
+            found = Option(VcSort).Some(es);
+          }),
+          .None => ()
+        );
+        li = (li + usize(1));
+      });
+      found
+    },
+    _ => Option(VcSort).None
+  )
+);
+/// Register `List_<elem>` once per process (the entry format is
+/// `_note_enum_datatype`'s: `<dt>|<ctor> (<acc> <sort>) ...`).
+_register_list_datatype :: (fn(elem : VcSort) -> unit)({
+  dt := _list_dt_name(elem);
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_list_datatypes.len()) && !found, {
+    match(
+      g_list_datatypes.get(i),
+      .Some(entry) => {
+        bar := entry.index_of(String.from("|"));
+        nm := match(
+          bar,
+          .Some(b) => entry.substring(usize(0), b),
+          .None => entry.clone()
+        );
+        if(nm == dt, {
+          found = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!found, {
+    ctor := _list_ctor_name(elem);
+    // One balanced FIELD group after the ctor, as `_note_enum_datatype`
+    // writes it: the encoder's segment scanner consumes exactly one group.
+    g_list_datatypes.push(
+      `${dt}|${ctor} ((${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64)))`
+    );
+    g_list_elem_sorts.push(elem);
+  });
+  ()
+});
+/// `len(xs)` and `contents(xs)` of a list term.
+_list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
+_list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
   cond(
     // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
@@ -315,6 +438,13 @@ _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
       .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
       .None => cond(
         _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
+        // ArrayList(T) over a subset element type: the `List_<elem>` pair
+        // datatype (R1 slice 1, above).
+        _list_elem_sort(t).is_some() => {
+          les := _list_elem_sort(t).unwrap();
+          _register_list_datatype(les);
+          Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(les)))
+        },
         // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
         // the length rides the sort for bounds/ms_of. A `length_var`
         // (generic-length) array is outside the subset.
@@ -538,6 +668,16 @@ VcCtx :: ref(
     /// body start, taken before the walk): `old(e)` walks e against it
     /// (V5 two-state). Body-locals have no entry binding.
     entry_vars : HashMap(String, VcTerm),
+    /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
+    /// 2): callee param label → its PRE-call term for every argument the
+    /// call mutates, so the callee's `old(self.len())` reads the state
+    /// before the call and not the caller's function entry.
+    call_pre : Option(HashMap(String, VcTerm)),
+    /// Every NAME a call in this body rebound through the mutation model
+    /// (R1 slice 2) — a parameter here whose own contract never says
+    /// `old(<param>)` is the loud gap of
+    /// issues/questions/modifies-clause-for-callee-side-effects.md.
+    mutated_names : ArrayList(String),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -588,6 +728,8 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     path_dead : false,
     loop_depth : usize(0),
     entry_vars : HashMap(String, VcTerm).new(),
+    call_pre : Option(HashMap(String, VcTerm)).None,
+    mutated_names : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -1121,6 +1263,17 @@ _emit :: (
     );
     dti = (dti + usize(1));
   });
+  (ldi : usize) = usize(0);
+  while(ldi < g_list_datatypes.len(), {
+    match(
+      g_list_datatypes.get(ldi),
+      .Some(entry) => {
+        q.datatypes.push(entry.clone());
+      },
+      .None => ()
+    );
+    ldi = (ldi + usize(1));
+  });
   (usi : usize) = usize(0);
   while(usi < g_uninterpreted_sorts.len(), {
     match(
@@ -1512,6 +1665,16 @@ _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
 _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+  // `xs.len()` / `xs.is_empty()` on a NAME bound to a list term needs no
+  // ExprInfo (a contract clause's nodes may carry none): answer from the
+  // term before the typed-expression gate (R1 slice 1).
+  match(
+    _list_len_read_by_var(ctx, e),
+    .Some(lt) => {
+      return(Option(VcTerm).Some(lt));
+    },
+    .None => ()
+  );
   info := match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(i) => i,
@@ -2256,6 +2419,18 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
         .Some(xp) => _scan_assigned(table, xp, out),
         .None => {
           head := ast_expr_token(f).value;
+          // A mutating METHOD call on a named receiver (`out.push(v)`: the
+          // callee's contract mentions `old(self...)`) rebinds the receiver
+          // name at the call (R1 slice 2), so it joins the havoc set.
+          match(
+            _mutated_receiver_name(table, e),
+            .Some(rn) => {
+              if(!out.contains(rn.clone()), {
+                out.push(rn.clone());
+              });
+            },
+            .None => ()
+          );
           if(((head == ":=") || (head == "=")) && (fargs.len() == usize(2)), {
             match(
               _binding_name_of(fargs.get(usize(0)).unwrap()),
@@ -2295,6 +2470,67 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
     }
   )
 );
+/// The receiver NAME of a method call whose callee's contract mentions
+/// `old(self...)` — a call that mutates its receiver (R1 slice 2).
+_mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(String))({
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      (ast_expr_token(cf).value == ".") => da,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(Option(String).None);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  if(!ast_expr_is_atom(recv), {
+    return(Option(String).None);
+  });
+  (fid : String) = match(
+    expr_info_table_get(table, ast_expr_id(callee)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+        _ => String.new()
+      ),
+      .None => String.new()
+    ),
+    .None => String.new()
+  );
+  if(fid.len() == usize(0), {
+    fid = match(
+      lookup_method_callee_value(ast_expr_id(e)),
+      .Some(mv) => match(
+        mv,
+        .FuncVal(mfvd, _) => mfvd.*.func_id.clone(),
+        _ => String.new()
+      ),
+      .None => String.new()
+    );
+  });
+  if(fid.len() == usize(0), {
+    return(Option(String).None);
+  });
+  if(_contracts_mention_old_of(get_func_requires_exprs(fid.clone()), get_func_ensures_exprs(fid.clone()), String.from("self")), {
+    return(Option(String).Some(ast_expr_token(recv).value));
+  });
+  Option(String).None
+});
 /// Extract the loop body's leading `invariant(...)` predicates and the
 /// optional trailing `decreases(...)` measure; every other statement is
 /// the executable body. Returns `.None` when no invariant leads the body.
@@ -3083,6 +3319,58 @@ _call_term :: (
   // could not rebind — V4 legalized `=` on locals, and identity then read
   // the CURRENT binding, a false PROOF (`y := x; y = (y + 1);
   // assert(y == old(y))` "proved" though it is false for every x).
+  if((head == "old") && (n == usize(1)) && ctx.call_pre.is_some(), {
+    // Inside a callee's ensures at a CALL SITE (R1 slice 2): `old(e)` is
+    // e over the pre-call bindings of the mutated arguments (every other
+    // name is unchanged by the call, so its current binding IS its pre
+    // state).
+    oa_pre := args.get(usize(0)).unwrap();
+    pre_map := ctx.call_pre.unwrap();
+    saved_pre_vars := ctx.vars;
+    overlay := HashMap(String, VcTerm).new();
+    ovi := ctx.vars.keys();
+    (ovgo : bool) = true;
+    while(ovgo, {
+      match(
+        ovi.next(),
+        .Some(ovk) => {
+          match(
+            ctx.vars.get(ovk.clone()),
+            .Some(ovv) => {
+              overlay.insert(ovk.clone(), ovv);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          ovgo = false;
+        }
+      );
+    });
+    pmi := pre_map.keys();
+    (pmgo : bool) = true;
+    while(pmgo, {
+      match(
+        pmi.next(),
+        .Some(pmk) => {
+          match(
+            pre_map.get(pmk.clone()),
+            .Some(pmv) => {
+              overlay.insert(pmk.clone(), pmv);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          pmgo = false;
+        }
+      );
+    });
+    ctx.vars = overlay;
+    t_pre := _expr_term(ctx, oa_pre);
+    ctx.vars = saved_pre_vars;
+    return(t_pre);
+  });
   if((head == "old") && (n == usize(1)), {
     oa := args.get(usize(0)).unwrap();
     // A bare name must be bound AT ENTRY — a body-local name has no entry
@@ -3308,6 +3596,43 @@ _call_term :: (
       ),
       .None => Option(VcSort).None
     );
+    // An `ArrayList(T)` value bound to `head` (R1 slice 1): the read is
+    // `select(contents(xs), i)` under `i < len(xs)`.
+    list_elem := match(
+      ctx.vars.get(head.clone()),
+      .Some(lv) => match(
+        lv,
+        .Var(_, lv_sort) => _list_sort_elem(lv_sort),
+        _ => Option(VcSort).None
+      ),
+      .None => Option(VcSort).None
+    );
+    match(
+      list_elem,
+      .Some(les) => {
+        xs_t := ctx.vars.get(head.clone()).unwrap();
+        idx := _expr_term(ctx, args.get(usize(0)).unwrap());
+        return(
+          match(
+            idx,
+            .Some(it) => {
+              if(ctx.quant_depth == usize(0), {
+                _emit(
+                  ctx,
+                  String.from("index-in-bounds"),
+                  ArrayList(VcTerm).new(),
+                  _lt_unsigned_term(_idx64(it), _list_len_term(les, xs_t)),
+                  _guard_site(e, String.from("index-in-bounds"))
+                );
+              });
+              Option(VcTerm).Some(_app2(VcOp.SelectOp, _list_contents_term(les, xs_t), _idx64(it)))
+            },
+            .None => Option(VcTerm).None
+          )
+        );
+      },
+      .None => ()
+    );
     match(
       bound_arr,
       .Some(srt) => {
@@ -3408,8 +3733,155 @@ _call_term :: (
       )
     );
   });
+  // --- ArrayList reads: `xs.len()`, `xs.is_empty()` (R1 slice 1) ------------
+  // A method call parses as a call whose CALLEE is the dot-call
+  // `.(xs, len)`; the receiver's type, not the call's, says it is a list.
+  if(head == ".", {
+    match(
+      _list_receiver(ctx, e),
+      .Some(lr) => {
+        recv_t := _expr_term(ctx, lr.recv);
+        if(recv_t.is_none(), {
+          return(Option(VcTerm).None);
+        });
+        len_t := _list_len_term(lr.elem, recv_t.unwrap());
+        // Every other method (`push`, `pop`, `insert`, …) is a contracted
+        // std callee: the receiver is its `self` argument, and the call
+        // rebinds the receiver to a fresh list term whose relation to the
+        // old one is the callee's `ensures` (R1 slice 2, `_callee_call_term`).
+        if((lr.method == "len") && (n == usize(0)), {
+          return(Option(VcTerm).Some(len_t));
+        });
+        if((lr.method == "is_empty") && (n == usize(0)), {
+          return(Option(VcTerm).Some(_app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))));
+        });
+      },
+      .None => ()
+    );
+  });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));
+});
+/// `name.len()` / `name.is_empty()` where `name` is bound to a list term:
+/// the accessor term, else `.None` (any other shape falls through to the
+/// typed walk).
+_list_len_read_by_var :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+  callee := match(
+    e,
+    .FnCall(_, f, cargs, _, _) => cond(
+      (cargs.len() == usize(0)) => f,
+      true => {
+        return(Option(VcTerm).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(VcTerm).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      (ast_expr_token(cf).value == ".") => da,
+      true => {
+        return(Option(VcTerm).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(VcTerm).None);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(Option(VcTerm).None);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  m := dot_args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(recv) || !ast_expr_is_atom(m), {
+    return(Option(VcTerm).None);
+  });
+  mname := ast_expr_token(m).value;
+  if(!((mname == "len") || (mname == "is_empty")), {
+    return(Option(VcTerm).None);
+  });
+  match(
+    ctx.vars.get(ast_expr_token(recv).value),
+    .Some(rv) => match(
+      rv,
+      .Var(_, rv_sort) => match(
+        _list_sort_elem(rv_sort),
+        .Some(les) => {
+          len_t := _list_len_term(les, rv);
+          Option(VcTerm).Some(
+            cond(
+              (mname == "len") => len_t,
+              true => _app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))
+            )
+          )
+        },
+        .None => Option(VcTerm).None
+      ),
+      _ => Option(VcTerm).None
+    ),
+    .None => Option(VcTerm).None
+  )
+});
+/// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
+/// is the dot-call `.(recv, method)` and `recv`'s ExprInfo type is a list.
+ListReceiver :: struct(recv : AstExpr, method : String, elem : VcSort);
+_list_receiver :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(ListReceiver))({
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(Option(ListReceiver).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, _, da, _, _) => da,
+    .Atom(_, _) => {
+      return(Option(ListReceiver).None);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(Option(ListReceiver).None);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  m := dot_args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(m), {
+    return(Option(ListReceiver).None);
+  });
+  // A bare-name receiver bound to a list-sorted term answers from the TERM
+  // (contract clauses are walked with their params bound but their nodes
+  // may carry no ExprInfo); any other receiver answers from its type.
+  if(ast_expr_is_atom(recv), {
+    match(
+      ctx.vars.get(ast_expr_token(recv).value),
+      .Some(rv) => match(
+        rv,
+        .Var(_, rv_sort) => match(
+          _list_sort_elem(rv_sort),
+          .Some(les0) => {
+            return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(m).value, elem : les0)));
+          },
+          .None => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(recv)),
+    .Some(ri) => match(
+      _list_elem_sort(ri.ty),
+      .Some(les) => {
+        _register_list_datatype(les);
+        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(m).value, elem : les))
+      },
+      .None => Option(ListReceiver).None
+    ),
+    .None => Option(ListReceiver).None
+  )
 });
 /// Cast head → target width (i8..i64/u8..u64/isize/usize).
 _cast_width :: (fn(head : String) -> Option(usize))(
@@ -4258,7 +4730,7 @@ _callee_call_term :: (
     .FnCall(_, f, _, _, _) => f,
     .Atom(_, _) => e
   );
-  callee_id := match(
+  (callee_id : Option(String)) = match(
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci) => match(
       ci.value,
@@ -4267,6 +4739,23 @@ _callee_call_term :: (
       .None => Option(String).None
     ),
     .None => Option(String).None
+  );
+  // An INSTANCE method call (`xs.push(v)`) resolves its callee through the
+  // receiver at call time and records the specialized FuncVal in the
+  // method-callee side table keyed by the CALL node, not on the dot node
+  // (R1 slice 2).
+  callee_id = match(
+    callee_id,
+    .Some(cid) => Option(String).Some(cid),
+    .None => match(
+      lookup_method_callee_value(ast_expr_id(e)),
+      .Some(mv) => match(
+        mv,
+        .FuncVal(mfvd, _) => Option(String).Some(mfvd.*.func_id.clone()),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    )
   );
   if(callee_id.is_none(), {
     _fail_subset(ctx, String.from("call to an uncontracted, untyped callee"), e);
@@ -4370,7 +4859,7 @@ _callee_call_term :: (
   // keyed by the callee's param labels (FuncValData.params order). The
   // rebindings (plus the callee's return-label binding, below) are SAVED
   // and restored after the call — the caller's own bindings must survive.
-  callee_params := match(
+  (callee_params : ArrayList(String)) = match(
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci2) => match(
       ci2.value,
@@ -4380,6 +4869,21 @@ _callee_call_term :: (
     ),
     .None => ArrayList(String).new()
   );
+  if(callee_params.len() == usize(0), {
+    callee_params = match(
+      lookup_method_callee_value(ast_expr_id(e)),
+      .Some(mv2) => match(
+        mv2,
+        .FuncVal(mfvd2, _) => mfvd2.*.params,
+        _ => ArrayList(String).new()
+      ),
+      .None => ArrayList(String).new()
+    );
+  });
+  // A METHOD call (`xs.push(v)`) parses with the receiver inside the
+  // dot-callee, not among the args; the callee's first param is `self`.
+  // Align: the effective argument list is [receiver] ++ args (R1 slice 2).
+  eff_args := _method_effective_args(ctx, e, args, callee_params);
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   arg_terms := ArrayList(VcTerm).new();
@@ -4396,9 +4900,9 @@ _callee_call_term :: (
     ).clone()
   );
   (i : usize) = usize(0);
-  while(i < args.len(), {
+  while(i < eff_args.len(), {
     match(
-      args.get(i),
+      eff_args.get(i),
       .Some(a) => {
         v := _expr_term(ctx, a);
         match(
@@ -4480,7 +4984,7 @@ _callee_call_term :: (
       .Some(pred_fid) => {
         if(pred_fid.len() > usize(0), {
           at2 := match(
-            args.get(ri2),
+            eff_args.get(ri2),
             .Some(a2) => a2,
             .None => e
           );
@@ -4502,6 +5006,53 @@ _callee_call_term :: (
       .None => ()
     );
     ri2 = (ri2 + usize(1));
+  });
+  // R1 slice 2 — the MUTATION model. A list-typed argument that is a bare
+  // NAME and whose callee contract mentions `old(<param>...)` is one the
+  // callee mutates (an RC handle: `push` writes through `self`): its name
+  // is rebound to a fresh term, the callee's param is bound to that term
+  // for the ensures, and `old(<param>)` reads the pre-call term
+  // (`ctx.call_pre`). A contract that never says `old(p)` promises no
+  // change to `p` and leaves it bound (the "old mentions modifies" rule;
+  // the standing gap is issues/questions/modifies-clause-for-callee-side-effects.md).
+  havoc_names := ArrayList(String).new();
+  havoc_terms := ArrayList(VcTerm).new();
+  pre_map := HashMap(String, VcTerm).new();
+  (hvi : usize) = usize(0);
+  while(hvi < eff_args.len(), {
+    match(
+      eff_args.get(hvi),
+      .Some(ha) => if(ast_expr_is_atom(ha), {
+        hnm := ast_expr_token(ha).value;
+        hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
+        if((hcp.len() > usize(0)) && _contracts_mention_old_of(reqs, enss, hcp.clone()), {
+          match(
+            arg_terms.get(hvi),
+            .Some(hpre) => match(
+              hpre,
+              .Var(_, hsort) => if(_list_sort_elem(hsort).is_some(), {
+                fresh_h := _next_fresh(ctx);
+                hnew := VcTerm.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort);
+                pre_map.insert(hcp.clone(), hpre);
+                ctx.vars.insert(hcp.clone(), hnew);
+                havoc_names.push(hnm.clone());
+                havoc_terms.push(hnew);
+                if(!ctx.mutated_names.contains(hnm.clone()), {
+                  ctx.mutated_names.push(hnm.clone());
+                });
+              }),
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+    hvi = (hvi + usize(1));
+  });
+  if(havoc_names.len() > usize(0), {
+    ctx.call_pre = Option(HashMap(String, VcTerm)).Some(pre_map);
   });
   // Assume ensures with a fresh result bound. The callee's ensures name
   // the return value through ITS return label (V1 decision D3) — bind that
@@ -4548,6 +5099,7 @@ _callee_call_term :: (
     );
     ei = (ei + usize(1));
   });
+  ctx.call_pre = Option(HashMap(String, VcTerm)).None;
   // Restore the caller's bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
   while(si > usize(0), {
@@ -4575,8 +5127,133 @@ _callee_call_term :: (
       .None => ()
     );
   });
+  // The mutated arguments' NAMES now stand for the post-call terms (after
+  // the restore, which only touched the callee's labels).
+  (hri3 : usize) = usize(0);
+  while(hri3 < havoc_names.len(), {
+    match(
+      havoc_names.get(hri3),
+      .Some(hn) => match(
+        havoc_terms.get(hri3),
+        .Some(ht) => {
+          ctx.vars.insert(hn.clone(), ht);
+          ()
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    hri3 = (hri3 + usize(1));
+  });
   Option(VcTerm).Some(ret_var)
 });
+/// The argument list a callee's params bind to: for a method call
+/// (`recv.m(args)`, the callee is the dot-call `.(recv, m)` and the callee's
+/// first param is `self`) the receiver goes first; a static dot-call
+/// (`ArrayList(i32).new()`, receiver is a TYPE, no `self` param) and a plain
+/// call bind `args` as written.
+_method_effective_args :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), callee_params : ArrayList(String)) -> ArrayList(AstExpr)
+)({
+  first_is_self := match(callee_params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
+  if(!first_is_self, {
+    return(args);
+  });
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(args);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      (ast_expr_token(cf).value == ".") => da,
+      true => {
+        return(args);
+      }
+    ),
+    .Atom(_, _) => {
+      return(args);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(args);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  // A receiver that is a TYPE value (`Self.new()`, `ArrayList(i32).new()`)
+  // is not an argument.
+  recv_is_type := match(
+    expr_info_table_get(ctx.table, ast_expr_id(recv)),
+    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .None => false
+  );
+  if(recv_is_type, {
+    return(args);
+  });
+  out := ArrayList(AstExpr).new();
+  out.push(recv);
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    match(args.get(ai), .Some(a) => out.push(a), .None => ());
+    ai = (ai + usize(1));
+  });
+  out
+});
+/// Does any contract clause mention `old(...)` over the param `label`?
+_contracts_mention_old_of :: (fn(reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), label : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    if(_old_mentions(reqs.get(i).unwrap(), label.clone()), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < enss.len(), {
+    if(_old_mentions(enss.get(j).unwrap(), label.clone()), {
+      return(true);
+    });
+    j = (j + usize(1));
+  });
+  false
+});
+_old_mentions :: (fn(e : AstExpr, label : String) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, f, fargs, _, _) => {
+      here := ((ast_expr_token(f).value == "old") && (fargs.len() == usize(1)) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone()));
+      (found : bool) = here;
+      (i : usize) = usize(0);
+      while((i < fargs.len()) && !found, {
+        if(_old_mentions(fargs.get(i).unwrap(), label.clone()), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+_expr_mentions_atom :: (fn(e : AstExpr, name : String) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => (ast_expr_token(e).value == name),
+    .FnCall(_, f, fargs, _, _) => {
+      (found : bool) = _expr_mentions_atom(f, name.clone());
+      (i : usize) = usize(0);
+      while((i < fargs.len()) && !found, {
+        if(_expr_mentions_atom(fargs.get(i).unwrap(), name.clone()), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
 // ============================================================================
 // Small term helpers
 // ============================================================================
@@ -4805,6 +5482,26 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     Option(VcTerm).None,
     _expr_term(ctx, input.body)
   );
+  // R1 slice 2: a list-typed PARAMETER this body mutated (a `push` on it
+  // rebound the name) must be related to `old(<param>)` by the contract —
+  // a caller keeps its pre-call knowledge of any argument the contract
+  // never mentions with `old`, so a silent mutation would be unsound at
+  // every call site (issues/questions/modifies-clause-for-callee-side-effects.md).
+  (mpi : usize) = usize(0);
+  while(mpi < input.param_names.len(), {
+    match(
+      input.param_names.get(mpi),
+      .Some(mpn) => if(ctx.mutated_names.contains(mpn.clone()) && !_contracts_mention_old_of(input.requires_exprs, input.ensures_exprs, mpn.clone()), {
+        _fail_subset(
+          ctx,
+          `the body mutates parameter '${mpn}' (a call rebinds it) but no contract clause relates it to old(${mpn}) — write ensures(${mpn}.len() == ...old(${mpn}.len())...) so callers learn the change`,
+          input.body
+        );
+      }),
+      .None => ()
+    );
+    mpi = (mpi + usize(1));
+  });
   match(
     body_val,
     .Some(bv) => {

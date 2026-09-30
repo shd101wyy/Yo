@@ -129,6 +129,31 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
+## Explicit Allocators and Arenas
+
+An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed in an arena is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it. A block cannot outlive its bookkeeping, and there is no way to free it into the wrong allocator.
+
+```rust
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
+{ ArrayList } :: import("std/collections/array_list");
+
+Point :: ref(struct(x : i32, y : i32));
+
+arena := Arena.new(usize(1) << usize(20)); // one 1 MiB region
+p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
+xs := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
+```
+
+- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `box`, `arc`, `dyn` boxes, `Iso` values, the state machines of tasks created there, and the buffers of the `imm` collections. The runtime's own bookkeeping stays on the global allocator. Mutable containers take their allocator explicitly: `ArrayList`, `HashMap`, `HashSet`, `Deque` and `StringBuilder` have `new_in` / `with_capacity_in`.
+- **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass `arena.allocator()` into the spawn body and call `with_allocator` there.
+- **An arena cannot die under a live block.** `Arena.deinit()` (also run when the last `Arena` handle goes away) **panics** while any block is still live: `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`. In Zig this is a use-after-free; in Yo it is a defined, loud failure. An allocation from a deinit arena through a stale `Allocator` copy panics too. The arena's bookkeeping is never freed, so the stale copy reaches a flagged state, not freed memory.
+- **Process-lifetime arenas call `abandon()`.** It stops tracking and never releases the region, and `deinit` becomes a no-op. Use it for startup tables and interners.
+- **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`; every arena operation takes the arena's own lock, so one arena may serve several threads. The `Arena` handle itself is reference counted and not `Send`.
+- **The leak oracle sees arenas.** Under `--allocator fixed --debug-heap`, the exit report lists every arena that was never deinit and every abandoned one, with its live blocks and bytes in use.
+
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. Design: `plans/EXPLICIT_ALLOCATORS.md`.
+
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
 When you genuinely need raw pointers — binding a C library, writing a custom allocator, implementing a new collection — opt into unsafe-capable mode with a one-line declaration at the top of the file:

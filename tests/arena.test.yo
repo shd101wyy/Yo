@@ -157,3 +157,15 @@ test("An arena allocator crosses threads and stays consistent", {
   t2.join();
   assert(arena.live_blocks() == usize(0), `live after both workers: ${arena.live_blocks()}`);
 });
+test("An Arena handle cannot cross into a spawn body; its Allocator can", {
+  arena := Arena.new(usize(1024));
+  // The handle is a non-atomic reference-counted object holding a raw
+  // pointer, so it is not `Send`; share the arena through its `Allocator`
+  // value instead (the previous test).
+  comptime_expect_error(
+    Thread(unit).spawn(io => {
+      _n := arena.live_blocks();
+    }),
+    "Send"
+  );
+});

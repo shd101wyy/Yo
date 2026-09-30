@@ -1,0 +1,11 @@
+{ Arena } :: import("std/arena");
+{ assert } :: import("std/assert");
+// Lives for the whole run and is never deinit: the exit report lists it.
+_forever := Arena.new(usize(4096));
+test("an abandoned arena and a deinit one", {
+  a := Arena.new(usize(1024));
+  a.abandon();
+  b := Arena.new(usize(2048));
+  b.deinit();
+  assert(_forever.capacity() == usize(4096), "the module-level arena is live");
+});

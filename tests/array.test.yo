@@ -356,18 +356,56 @@ test("Test an associated constant resolves as an array length, at two widths", {
   assert(u8(1)._zeros().len() == usize(1), "u8 -> Array(u8, 1)");
   assert(u32(1)._zeros().len() == usize(4), "u32 -> Array(u8, 4)");
 });
-test("Test a COMPUTED array length is still an error, not zero", {
+// A COMPUTED length in a RESULT type is legal since I1 of
+// plans/backlog/ATS_STYLE_INDEXED_TYPES.md: the definition records it behind
+// a marker and the call site re-evaluates the return-type expression once the
+// binders are bound. It is still never a silent zero — a marker that reached
+// codegen would be the loud unknown-type fallback — and it is still REJECTED
+// in a PARAMETER type, which is a matching position (below).
+impl(
+  generic(T : Type),
+  where(T <: _Widthy),
+  T,
+  _twice : (fn(self : T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
+);
+_grow :: (fn(generic(N : usize), a : Array(u8, N)) -> Array(u8, N + usize(1)))({
+  (r : Array(u8, N + usize(1))) = Array(u8, N + usize(1)).fill(u8(0));
+  (i : usize) = usize(0);
+  while(i < N, i = (i + usize(1)), {
+    r(i) = a(i);
+  });
+  r
+});
+_concat2 :: (fn(generic(N : usize, M : usize), a : Array(u8, N), b : Array(u8, M)) -> Array(u8, N + M))({
+  (r : Array(u8, N + M)) = Array(u8, N + M).fill(u8(0));
+  (i : usize) = usize(0);
+  while(i < N, i = (i + usize(1)), {
+    r(i) = a(i);
+  });
+  (j : usize) = usize(0);
+  while(j < M, j = (j + usize(1)), {
+    r(N + j) = b(j);
+  });
+  r
+});
+test("Test a COMPUTED array length in a result type resolves per instantiation", {
+  assert(u8(1)._twice().len() == usize(2), "u8 -> Array(u8, 2)");
+  assert(u32(1)._twice().len() == usize(8), "u32 -> Array(u8, 8)");
+  g := _grow([u8(7), u8(8)]);
+  assert(g.len() == usize(3), "N + 1 from a 2-array");
+  assert((g(0) == u8(7)) && (g(2) == u8(0)), "contents copied, tail zeroed");
+  c := _concat2([u8(1), u8(2)], [u8(3), u8(4), u8(5)]);
+  assert(c.len() == usize(5), "N + M with two binders bound by two arguments");
+  assert((c(1) == u8(2)) && (c(4) == u8(5)), "both halves in place");
+});
+test("Test a COMPUTED array length in a PARAMETER type is rejected", {
   comptime_expect_error(
-    // `T.BYTES * 2` in a LENGTH position: arithmetic over an associated
-    // constant, which substitution still has no channel to rewrite. It must
-    // stay an error rather than degrade to a concrete zero.
-    impl(
-      generic(T : Type),
-      where(T <: _Widthy),
-      T,
-      _twice : (fn(self : T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
-    )
+    // A parameter is a matching position: a length is inferred only from a
+    // bare binder, never solved from an equation.
+    (fn(generic(N : usize), a : Array(u8, N + usize(1))) -> usize)(N),
+    "COMPUTED array length"
   );
+  assert(true, "rejected");
 });
 test("Test an UNRESOLVABLE projection is an error, not a silent zero", {
   comptime_expect_error(

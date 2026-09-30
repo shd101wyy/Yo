@@ -66,7 +66,7 @@ The two facts that matter for the comparison:
 | `generic(N : usize)` as a length binder in parameters and result, `-> Array(u8, N)` | works (`tests/array.test.yo`) |
 | `-> Array(u8, T.BYTES)` (a bare associated-constant projection) | works since 2026-09-16 (`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2) |
 | a COMPUTED length mentioning a binder, `-> Array(u8, N + usize(1))` | **rejected**: "Array length is not a compile-time constant, a bare generic parameter, or an associated constant" (`src/evaluator/types/array.yo`) |
-| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
+| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
 | `where(N > usize(0))` | rejected: `where` takes only `T <: Trait` forms |
 | the index language | none: a length is a literal, a bare binder, or a bare projection; there is no symbolic arithmetic and no normalization, and none is needed because every length is concrete by the time a body is evaluated (Zig model) |
 
@@ -184,6 +184,26 @@ seed gate for `std/` and `src/` adoption.
 
 ### R1 — a `len` measure for runtime collections (the substance)
 
+> **Slice 1 (branch `feat/verifier-list-len`, 2026-09-30):** `ArrayList(T)`
+> with an integer/bool `T` is the verifier datatype `List_<elem>` — a
+> (contents : Array BV64 elem, len : BV64) pair; `xs.len()`, `xs.is_empty()`
+> and `xs(i)` reads (under `index-in-bounds`) are modeled; list-typed
+> parameters and callee results are one datatype-sorted term, so the
+> length contracts below discharge modularly (`tests/spec/fixtures/valid/dml_list_get.yo`,
+> `negative/dml_list_get_false.yo`, `tests/internal/verifier_list_len.test.yo`).
+> **Slice 2 (branch `feat/verifier-list-mutation`, stacked, 2026-09-30):**
+> the mutation model. std already carried `assumed()` contracts on
+> `push`/`insert`/`remove`/`swap`/`set_len` (V6 task 5); `new` and
+> `with_capacity` gained `ensures(r.len() == usize(0))`. At a call site a
+> method call's receiver is its `self` argument; a list-typed named
+> argument whose callee contract mentions `old(<param>)` is rebound to a
+> fresh term and the ensures is assumed with `old(...)` reading the
+> pre-call term (`ctx.call_pre`); a loop body's havoc set includes such
+> receivers. `concat`'s body proves (`valid/dml_list_concat.yo`). The
+> "old mentions modifies" convention is filed as
+> `issues/questions/modifies-clause-for-callee-side-effects.md`. Left: task 4
+> (generic bodies), `pop`/`get` (Option results), `for` over a list.
+
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
 
@@ -289,7 +309,7 @@ and it is what keeps unification free of arithmetic (§4 reason 3).
    parameter-position rejection, `N + M` with the two binders bound by two
    arguments.
 
-Depends on: `issues/a-usize-generic-binder-rebinds-per-argument.md` being
+Depends on: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` being
 fixed first (the "second concrete binding disagrees" check for value
 binders — a computed result length built on a rebinding binder would
 silently size a buffer by the wrong argument), and on the soundness
@@ -306,9 +326,9 @@ return one hidden type without a vtable, contracts for hidden lengths), and
 the non-goal for constructor existentials with its reason. Cross-link from
 `GADTS.md`'s "No existential types" line. Half a day.
 
-### Q1 — a policy question, filed, not decided here
+### Q1 — a policy question (DECIDED 2026-09-30: a build step, never a `check` switch — `__yo_build_verify` landed, `build.verify` wrapper seed-gated)
 
-`issues/questions/verify-by-default-for-a-project.md`: should a `yo.toml`
+`issues/fixed/verify-by-default-for-a-project.md`: should a `yo.toml`
 or `build.yo` switch arm every file of a project as a verify target (the
 ATS "type checking proves indices" experience), rather than the per-entry
 pragma? Today only the entry file is verified under `check` / `compile`,
@@ -326,7 +346,7 @@ project's roots, already available; wire it as a build step like `test`).
 | R2 | R1 | 3 | ATS's `dataprop` / `prfun` layer over collections |
 | I1 | usize-binder fix; `tss/impl-self-operator` | 1–2 | computed comptime lengths in result/body positions |
 | E1 | — | 0.5 | the existential story written down |
-| Q1 | — | 0 | filed |
+| Q1 | — | 0 | decided; the verify build step landed (Generation A) |
 
 ## 6. How this interacts with the Z3-backed verifier
 
