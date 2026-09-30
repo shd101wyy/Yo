@@ -1902,8 +1902,13 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    // Struct: skip Fn-typed fields.
-    .Struct({ field_types : field_types }) => {
+    // Struct: skip Fn-typed fields. The instantiation's type arguments count
+    // too: a PHANTOM parameter (`Br(K)` = `ref(struct(n : u8))`) appears in
+    // no field, and without them a `comptime(K) : Type` helper taking
+    // `b : Br(K)` was not deferred, so its body was checked against the
+    // abstract `Br(K)` and a generic impl's method on it was never found
+    // (issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md).
+    .Struct({ field_types : field_types, type_arguments : st_targs }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !(found), {
@@ -1912,6 +1917,17 @@ type_contains_some_type_for_codegen_param :: (
           found = true;
         });
         i = (i + usize(1));
+      });
+      (ti : usize) = usize(0);
+      while((ti < st_targs.len()) && !(found), {
+        match(
+          st_targs.get(ti),
+          .Some(ta) => if(recur(ta, checked_ids), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ti = (ti + usize(1));
       });
       found
     },
