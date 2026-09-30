@@ -400,3 +400,27 @@ test("a loop havocs a cond-bound integer and a comparison-bound bool at their ow
     `count_up and any_less must verify, got: [${_reports_dump(reports)}]`
   );
 });
+
+test("a contracted generic fn is verified abstractly: identity, pick and tenth prove; the false twins refute", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/generic_body_abstract.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(3),
+    `identity, pick and tenth must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/generic_body_abstract_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `wrong_id and tenth_wrong must refute, got: [${_reports_dump(bad_reports)}]`
+  );
+});
