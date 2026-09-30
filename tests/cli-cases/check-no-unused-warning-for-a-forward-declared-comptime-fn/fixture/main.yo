@@ -1,0 +1,15 @@
+// `is_odd` is used only from `is_even`'s body, which was evaluated while
+// `is_odd` was still valueless (the forward-declared comptime fn re-run path).
+// It must not warn; `never_used` must.
+// issues/retired/unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  comptime(is_even) : (fn(n : i32) -> bool);
+  comptime(is_odd) : (fn(n : i32) -> bool);
+  comptime(never_used) : (fn(n : i32) -> bool);
+  is_even = _(cond((n == 0) => true, true => is_odd(n - 1)));
+  is_odd = _(cond((n == 0) => false, true => is_even(n - 1)));
+  never_used = _(n == 0);
+  println(`${is_even(10)}`);
+});
+export(main);

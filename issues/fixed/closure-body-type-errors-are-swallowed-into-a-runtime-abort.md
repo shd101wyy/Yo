@@ -68,7 +68,7 @@ named-fn path does. Separately, make any reachable FTT stub a compile error, not
 
 ## Related
 
-`issues/anonymous-module-trial-swallows-a-top-level-derive.md`,
+`issues/retired/anonymous-module-trial-swallows-a-top-level-derive.md`,
 `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`,
 `issues/swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md` (same swallow policy,
 other entry points).

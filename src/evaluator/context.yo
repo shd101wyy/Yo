@@ -2384,6 +2384,24 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue
     .None => ()
   )
 );
+/// Phase A for an anonymous `->`/`=>` literal that IS an impl member's value
+/// (`impl(T, Eq(T)((==) : ((lhs, rhs) -> ...)))`, the form the derive rules
+/// write). Its type is the member's expected type (the trait signature), known
+/// before the body trial, so a recursive call from the body — `l == r` on a
+/// `Self` payload — binds the member itself, exactly as a `(fn(...) -> R)(body)`
+/// member does through `publish_pending_phase_a`. A TOP-LEVEL `f :: (x) -> ...`
+/// stays unpublished: its type is inferred from the body, which is why a
+/// recursive top-level function must be written `(fn(...) -> R)(body)`
+/// (the cycle diagnostic above).
+publish_pending_member_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue) -> unit)(
+  match(
+    current_forcing_def(),
+    .Some(def) => if(ast_expr_is_fn_call_of(def.expr, BK_COLON, .Some(usize(2))), {
+      publish_pending_phase_a(rhs_id, value, ty);
+    }),
+    .None => ()
+  )
+);
 /// The Variable pre-bound for `name` from phase A while ITS definition is being
 /// evaluated — `evaluate_initialization_assignment` fills it in place instead
 /// of adding a second binding (and skips the no-shadowing check against it).
@@ -3245,6 +3263,7 @@ export(
   push_forcing_def,
   pop_forcing_def,
   publish_pending_phase_a,
+  publish_pending_member_phase_a,
   pending_prebound_variable,
   record_pending_def_variable,
   module_walk_force_env,

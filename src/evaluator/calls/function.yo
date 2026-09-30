@@ -4708,7 +4708,25 @@ _evaluate_function_call_unanchored :: (
     receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => ri.ty, .None => t_unit()));
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
-    op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    (op_methods : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4), exactly as a
+    // dot call does: a miss on a NAMED receiver may be answered by an `impl`
+    // placed later in its module, so force those impls and look up once more
+    // before the hard error below. Without it, a helper defined ABOVE the
+    // type's `Eq` impl, whose definition-time trial runs first, failed E0610
+    // on `a(i) != b(i)` (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
+    if(op_methods.len() == usize(0), {
+      match(
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty)),
+        .Forced => {
+          op_methods = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+        },
+        .Error({ msg : op_force_msg }) => {
+          flag_pending_impl_force_error(op_force_msg);
+        },
+        .NoneForced => ()
+      );
+    });
     // A PRIMITIVE receiver with no operator impl is a hard error:
     // `true < false` / `(1 < 2) < 3` must report "No matching call found
     // with arguments: …" because `bool` has no `Ord`/`(<)` impl in the prelude

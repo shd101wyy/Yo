@@ -46,6 +46,7 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val
 } :: import("../../value.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
+{ parse_raw_float } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -141,6 +142,31 @@ _make_comptime_info :: (
   );
   out.value = .Some(val);
   out
+});
+/// The integer a comptime float `raw` converts to in `target_type`: truncated
+/// toward zero. A value the C conversion cannot represent — NaN, an infinity,
+/// or outside the target's range, all undefined behaviour in C — is an error
+/// (the range check is `check_comptime_int_value_fits`'s E1102).
+_float_raw_to_int_raw :: (fn(raw : String, target_type : TypeValue, tok : Token, exn : Exception) -> String)({
+  v := match(
+    parse_raw_float(raw.clone()),
+    .Some(x) => x,
+    .None => {
+      exn.throw(dyn(format_error_message(tok, `Cannot read the float value ${raw} to convert it to ${type_to_string(target_type)}`)));
+      return(String.from("0"));
+    }
+  );
+  // NaN compares unequal to itself; an infinity is beyond every bound below.
+  if(!(v == v) || (v >= f64(18446744073709551616.0)) || (v <= f64(-9223372036854775809.0)), {
+    exn.throw(dyn(format_error_message(tok, `The value ${raw} is outside the range of ${type_to_string(target_type)}: converting it is undefined`)));
+    return(String.from("0"));
+  });
+  truncated := cond(
+    (v >= f64(9223372036854775808.0)) => u64(v).to_string(),
+    true => i64(v).to_string()
+  );
+  check_comptime_int_value_fits(truncated.clone(), target_type, tok, exn);
+  truncated
 });
 /// Build a synthetic `__yo_as(arg, TargetType)` FnCall node.
 /// Reuses the original expression's `ExprId` so ExprInfo lookups remain consistent.
@@ -337,7 +363,17 @@ try_to_convert_to_numeric_type :: (
         if(is_comptime_int_type(arg_type), {
           check_comptime_int_value_fits(raw.clone(), target_type, ast_expr_token(arg_expr), exn);
         });
-        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), exn);
+        // A comptime FLOAT to an integer type truncates toward zero, as the
+        // runtime C cast does. Its raw text used to become the integer's
+        // (`i32(f32(100.5))` held `IntLit("100.5")`), a value no comparison
+        // could read, so `comptime_assert(i32(a) == i32(100))` passed
+        // vacuously as `<unknown>`.
+        int_raw := cond(
+          (!is_float_type(target_type) && !is_comptime_float_type(target_type) && match(arg_val, .Some(av) => is_float_lit(av), .None => false)) =>
+            _float_raw_to_int_raw(raw.clone(), target_type, ast_expr_token(arg_expr), exn),
+          true => raw
+        );
+        out_info := _make_comptime_info(int_raw, target_type, env, ast_expr_token(expr), exn);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
         return(.Some(expr));
       });

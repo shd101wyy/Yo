@@ -151,7 +151,7 @@ evaluation throws can still be eaten by the anonymous-module begin-expr trial
 whole purpose is to REGISTER an impl has no meaningful "trial" interpretation.
 The right fix is to evaluate a top-level `derive` outside that trial, or to
 re-raise on the real pass when the trial swallowed. Tracked separately in
-`issues/anonymous-module-trial-swallows-a-top-level-derive.md`.
+`issues/retired/anonymous-module-trial-swallows-a-top-level-derive.md`.
 
 ## Note for rule authors
 

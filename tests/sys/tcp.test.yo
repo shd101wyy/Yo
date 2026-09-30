@@ -8,8 +8,9 @@ pragma(Pragma.AllowUnsafe);
 import("std/string");
 { platform, Platform } :: import("std/process");
 tcp :: import("std/sys/tcp");
-{ AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, SHUT_RDWR } :: import("std/sys/socket");
+{ AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, SHUT_RDWR, SO_NOSIGPIPE } :: import("std/sys/socket");
 { sleep } :: import("std/sys/timer");
+{ IoFuture } :: import("std/sys/future");
 test("TCP socket creation and close", {
   server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
   unsafe(printf("  socket fd = %d\n", server_fd));
@@ -191,4 +192,102 @@ test("a recv future dropped while pending does not complete into freed memory", 
   io.await(tcp.close(accepted_fd), io);
   io.await(tcp.close(server_fd), io);
   tcp.free_sockaddr(addr);
+});
+// The stream-write op std/net will use for its own sockets (stage 2 waits for
+// the seed): write(2) on macOS once SO_NOSIGPIPE is set, send(MSG_NOSIGNAL) on
+// Linux, the ordinary send on Windows. Declared here, not in std/sys/externs,
+// because std cannot name a runtime symbol the seed does not emit yet.
+extern(
+  "Yo",
+  __yo_async_stream_write_start : (fn(fd : i32, buf : *u8, len : usize) -> IoFuture)
+);
+_StreamPair :: struct(server : i32, client : i32, accepted : i32);
+_stream_pair :: (fn(port : u16, io : Io) -> _StreamPair)({
+  server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  optval := (*u8)(malloc(usize(4)).unwrap());
+  (optval.add(usize(0))).* = u8(1);
+  (optval.add(usize(1))).* = u8(0);
+  (optval.add(usize(2))).* = u8(0);
+  (optval.add(usize(3))).* = u8(0);
+  io.await(tcp.setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
+  addr := tcp.make_sockaddr_in_loopback(port);
+  assert(io.await(tcp.bind(server_fd, addr.buf, addr.len), io) == i32(0));
+  assert(io.await(tcp.listen(server_fd, i32(16)), io) == i32(0));
+  client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+  assert(io.await(tcp.connect(client_fd, addr.buf, addr.len), io) == i32(0));
+  peer := (*u8)(malloc(usize(128)).unwrap());
+  peer_len := (*u32)(malloc(usize(4)).unwrap());
+  peer_len.* = u32(128);
+  accepted_fd := io.await(tcp.accept(server_fd, peer, peer_len), io);
+  assert(accepted_fd >= i32(0));
+  free(.Some((*void)(peer)));
+  free(.Some((*void)(peer_len)));
+  if(platform == Platform.Macos, {
+    io.await(tcp.setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, optval, u32(4)), io);
+  });
+  free(.Some((*void)(optval)));
+  tcp.free_sockaddr(addr);
+  _StreamPair(server : server_fd, client : client_fd, accepted : accepted_fd)
+});
+_drain :: (fn(fd : i32, want : i64, io : Io) -> Impl(Future(i64, Io)))(
+  io.async((io : Io) => {
+    buf := (*u8)(malloc(usize(65536)).unwrap());
+    (got : i64) = i64(0);
+    while(runtime(got < want), {
+      n := io.await(tcp.recv(fd, buf, usize(65536), i32(0)), io);
+      if(n <= i32(0), {
+        return(got);
+      });
+      got = (got + i64(n));
+    });
+    free(.Some((*void)(buf)));
+    got
+  })
+);
+test("the stream-write op delivers every byte, parking when the send buffer is full", {
+  fds := _stream_pair(u16(19886), io);
+  client_fd := fds.client;
+  accepted_fd := fds.accepted;
+  total := i64(4194304);
+  chunk := (*u8)(malloc(usize(65536)).unwrap());
+  // The reader starts late, so the 4 MiB cannot all fit in the socket buffers
+  // and some writes must park.
+  reader := io.spawn(_drain(accepted_fd, total, io), io);
+  (sent : i64) = i64(0);
+  while(runtime(sent < total), {
+    rest := (total - sent);
+    want := cond((rest < i64(65536)) => usize(rest), true => usize(65536));
+    n := io.await(__yo_async_stream_write_start(client_fd, chunk, want), io);
+    assert(n > i32(0), "a stream write to a live peer makes progress");
+    sent = (sent + i64(n));
+  });
+  got := match(reader.await(io), .Some(g) => g, .None => i64(-1));
+  assert(got == total, "the reader received every byte, in order of writing");
+  free(.Some((*void)(chunk)));
+  io.await(tcp.close(client_fd), io);
+  io.await(tcp.close(accepted_fd), io);
+  io.await(tcp.close(fds.server), io);
+});
+test("the stream-write op to a closed peer fails with an error instead of SIGPIPE", {
+  fds := _stream_pair(u16(19887), io);
+  client_fd := fds.client;
+  accepted_fd := fds.accepted;
+  io.await(tcp.close(accepted_fd), io);
+  buf := (*u8)(malloc(usize(1024)).unwrap());
+  // The first writes after the peer closes can still be accepted (the RST has
+  // not arrived yet): retry a bounded number of times, 2 ms apart.
+  (err : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(runtime((i < i32(50)) && (err == i32(0))), {
+    r := io.await(__yo_async_stream_write_start(client_fd, buf, usize(1024)), io);
+    if(r < i32(0), {
+      err = r;
+    });
+    io.await(sleep(u64(2)), io);
+    i = (i + i32(1));
+  });
+  assert(err < i32(0), "writing to a closed peer eventually reports an error, and the process is still here");
+  free(.Some((*void)(buf)));
+  io.await(tcp.close(client_fd), io);
+  io.await(tcp.close(fds.server), io);
 });

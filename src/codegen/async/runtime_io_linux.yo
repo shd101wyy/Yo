@@ -3696,6 +3696,14 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
 }
 
 // Async send - send data on socket (using io_uring)
+// Stream write on a socket std/net owns (see the macOS runtime). Linux has no
+// SO_NOSIGPIPE, so the SIGPIPE guard stays a per-call MSG_NOSIGNAL: this is
+// send(MSG_NOSIGNAL) through the ordinary send path.
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags);
+static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {
+  return __yo_async_send_start(sockfd, buf, len, MSG_NOSIGNAL);
+}
+
 static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   if (__yo_backend == __YO_BACKEND_EPOLL) {

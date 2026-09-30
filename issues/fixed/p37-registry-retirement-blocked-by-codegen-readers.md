@@ -96,4 +96,4 @@ closure" (new). `tests/async/combinators.test.yo`, `tests/imm_map.test.yo` and
 `tests/impl_fn_field_rejection.test.yo` failed on the branch before these fixes and pass after.
 
 Still open, and on develop too: a combinator used twice in one chain
-(`issues/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`).
+(`issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`).

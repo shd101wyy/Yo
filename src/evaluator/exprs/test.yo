@@ -285,11 +285,24 @@ evaluate_test :: (
       eval_env : snapshot_env(env)
     )
   );
+  // A test body runs at RUN time — the runner compiles it as the body of a
+  // synthesized `main` — so its trial validates it the way a function body's
+  // is validated, never executing its calls at compile time. The module
+  // context it inherited has `is_executing` set, which made a call to a
+  // recursive local fn with an `Impl(Fn)` parameter run its `recur` chain at
+  // compile time on an unknown depth and grow without bound
+  // (issues/fixed/check-of-a-test-body-with-a-recursive-soft-generic-local-fn-grows-without-bound.md).
+  old_is_executing := ctx.is_executing;
+  old_is_validating := ctx.is_validating_function_definition;
+  ctx.is_executing = false;
+  ctx.is_validating_function_definition = true;
   // Trial-evaluate the body (best effort; errors are swallowed — see the
   // helper). This surfaces obvious mistakes early; the authoritative check
   // is the test runner's compile step.
   _trial_eval_test_body(test_body_expr, original_test_body_expr, env, ctx, exn);
   // Restore context.
+  ctx.is_executing = old_is_executing;
+  ctx.is_validating_function_definition = old_is_validating;
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Restore env to its pre-test frame state: pops the implicit-io frame and
   // any frames left behind by a trial evaluation that unwound on error.
