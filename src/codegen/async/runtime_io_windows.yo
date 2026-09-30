@@ -2437,6 +2437,11 @@ static void __yo_io_cleanup(void) {
   while (__yo_win_timer_head) {
     __yo_win_timer_entry_t* node = __yo_win_timer_head;
     __yo_win_timer_head = node->next;
+    // Nothing fires for it now: mark it done and release the list's
+    // reference.
+    node->future->cancel_fn = NULL;
+    atomic_store(&node->future->state, -1);
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
   }
   if (__yo_win_assoc_handles) {
@@ -2526,6 +2531,10 @@ static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) 
 
   uint64_t now_ms = __yo_win_now_ms();
   node->due_ms = now_ms + milliseconds;
+  // The list holds a reference until the timer fires, is cancelled or is torn
+  // down: a dropped sleep future must not be written after it is freed
+  // (issues/fixed/pending-io-future-local-drop-uaf.md).
+  future->header.ref_count++;
   node->future = future;
   node->next = NULL;
 
@@ -2554,6 +2563,7 @@ static bool __yo_win_timer_cancel(__yo_io_future_t* future) {
       *link = node->next;
       __yo_free(node);
       __yo_pending_io_count--;
+      __yo_decr_rc((void*)future);
       return true;
     }
     link = &(*link)->next;
@@ -2568,6 +2578,7 @@ static int __yo_win_timer_process_due(uint64_t now_ms) {
     __yo_win_timer_head = node->next;
     node->future->result = (int32_t)sizeof(uint64_t);
     __yo_io_wake_continuation(node->future);
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
     fired++;
   }
@@ -2816,6 +2827,14 @@ static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future
     if (!ov) return NULL;
   }
   memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  // The overlapped owns a reference to its future for as long as it lives:
+  // the kernel writes the completion through it, so a caller that drops its
+  // own reference while the operation is pending (a scope-end drop of a
+  // local) must not free the future under it. Released by
+  // __yo_win_free_overlapped, which every completion path (the IOCP packet,
+  // a synchronous completion, an error) goes through
+  // (issues/fixed/pending-io-future-local-drop-uaf.md).
+  if (future) future->header.ref_count++;
   ov->future = future;
   ov->handle = handle;
   ov->is_socket = false;
@@ -2833,6 +2852,7 @@ static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future
 // the entire struct so this is safe.
 static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov) {
   if (!ov) return;
+  if (ov->future) __yo_decr_rc((void*)ov->future);
   *(__yo_win_overlapped_t**)ov = __yo_win_ov_free_list;
   __yo_win_ov_free_list = ov;
 }
@@ -2894,6 +2914,9 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     pr->handle = handle;
     pr->buffer = buffer;
     pr->size = size;
+    // The parked read holds a reference until the tick completes it
+    // (issues/fixed/pending-io-future-local-drop-uaf.md).
+    future->header.ref_count++;
     pr->future = future;
     pr->next = __yo_win_pipe_reads;
     __yo_win_pipe_reads = pr;
@@ -5121,6 +5144,7 @@ static int __yo_poll_and_fs_event_tick(void) {
       if (__yo_win_try_pipe_read(pr->handle, pr->fd, pr->buffer, pr->size, pr->future)) {
         *pp = pr->next;
         __yo_io_wake_continuation(pr->future);
+        __yo_decr_rc((void*)pr->future);
         __yo_free(pr);
         count++;
       } else {

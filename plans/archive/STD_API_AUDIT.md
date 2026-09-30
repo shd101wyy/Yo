@@ -763,7 +763,7 @@ declarations at runtime.
    the blocking-poll combinators `join_all`/`race`/`any`/`timeout` (they
    drive the loop via `__yo_async_poll_step`, exact deadlines — `timeout`'s
    deadline is a spawned TASK, not a bare `IoFuture` local, see
-   issues/pending-io-future-local-drop-uaf.md); **`std/async/channel`**
+   issues/fixed/pending-io-future-local-drop-uaf.md); **`std/async/channel`**
    (bounded FIFO `Channel(T)`: suspending `send`/`recv` + `try_*`/`close`,
    1ms-tick waits, same-thread by design); **`std/async/mutex`** (`Mutex(T)`:
    suspending `lock`, `try_lock`/`unlock`/`get`/`set`; `with_lock` PARKED on

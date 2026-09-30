@@ -155,7 +155,7 @@ waiting on.
 
 Rejected alternative: making `timeout` await a bare `IoFuture` local instead
 of spawning a task. That is the shape in
-`issues/pending-io-future-local-drop-uaf.md` — the scope-end auto-drop frees a
+`issues/fixed/pending-io-future-local-drop-uaf.md` — the scope-end auto-drop frees a
 future the backend still holds — and the comment at `std/async/index.yo:129-132`
 records that `timeout` was deliberately redesigned away from it.
 
