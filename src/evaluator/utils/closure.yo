@@ -52,7 +52,8 @@
   CapturedVarInfo,
   CaptureUsage,
   EvalContext,
-  set_function_value_marker_fn
+  set_function_value_marker_fn,
+  track_variable_usage_resolved
 } :: import("../context.yo");
 {
   TypeField
@@ -815,6 +816,34 @@ enrich_captured_variables :: (
   });
   result
 });
+/// Record a nested closure's captures on the ENCLOSING closure or async body
+/// being evaluated in `ctx`: a variable the inner closure captures from
+/// outside the enclosing one must be in the enclosing capture struct too,
+/// since the inner capture struct is built from it there.
+/// `track_variable_usage_resolved` keeps only names from outside the
+/// enclosing body (and drops its own parameters), exactly as for an
+/// identifier read. This used to happen only as a side effect of evaluating
+/// the RC capture's `___dup(name)` in the enclosing context, so a non-RC
+/// capture (a closure-typed `Impl(Fn)` parameter bound to a zero-size capture
+/// struct) was missing from the enclosing capture struct
+/// (issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md).
+propagate_captures_to_enclosing :: (fn(caps : HashMap(String, CapturedVarInfo), ctx : EvalContext) -> unit)({
+  key_iter := caps.keys();
+  (more : bool) = true;
+  while(more, {
+    match(
+      key_iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(name) => match(
+        caps.get(name.clone()),
+        .Some(info) => track_variable_usage_resolved(name, info.frame_level, info.usage, info.token, ctx, Option(bool).None),
+        .None => ()
+      )
+    );
+  });
+});
 // ---------------------------------------------------------------------------
 // create_capture_type_and_value
 // ---------------------------------------------------------------------------
@@ -1116,6 +1145,6 @@ export(build_path_collection_from_captured_variables);
 export(validate_capture_trait_requirements);
 export(validate_send_closure_global_reach);
 export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, record_closure_capture_verdicts);
-export(enrich_captured_variables);
+export(enrich_captured_variables, propagate_captures_to_enclosing);
 export(create_capture_type_and_value);
 export(generate_captured_variable_dup_expressions);
