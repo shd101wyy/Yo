@@ -73,7 +73,7 @@ as one tree (§4); the PRs merge in order.
 #991 made `JoinHandle` an owning `ref` struct, which the v0.2.45 seed cannot lower, so develop's
 stage 1 failed from `c52ce152c` on. #996 (`fix/seed-safe-join-handle`) puts std back on the value
 struct and lowers by the handle's type. It also carries #992 (read_dir). The flip back to the
-owning handle waits for a release: `issues/join-handle-ownership-waits-for-the-seed.md`.
+owning handle waits for a release: `issues/fixed/join-handle-ownership-waits-for-the-seed.md`.
 
 ### 3.1 Stream combinator used twice in one chain
 

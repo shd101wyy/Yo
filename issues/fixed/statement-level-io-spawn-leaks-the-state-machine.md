@@ -2,12 +2,11 @@
 
 **Severity:** S1 — every discarded statement-level io.spawn leaks its 152-byte state machine (304 KB per 2000 spawns) — fire-and-forget programs grow without bound
 
-**Status: REOPENED 2026-09-29 — waits for the seed.** #991 fixed it with an OWNING JoinHandle
-(a `ref` struct whose Dispose releases the future). The v0.2.45 seed cannot lower that form, and
-it compiles the compiler's own `io.spawn` sites, so develop could not be built; std went back to
-the value JoinHandle, which reintroduces this leak. The owning form stays in the codegen and
-comes back once SEED_VERSION carries it: `issues/join-handle-ownership-waits-for-the-seed.md`.
-The regression test is parked as `issues/repros/statement-level-spawn-detaches-the-task.yo`.
+**Status:** FIXED again 2026-10-01 (the owning JoinHandle is std's, now that `SEED_VERSION` is
+v0.2.47): `issues/fixed/join-handle-ownership-waits-for-the-seed.md`. It was reopened on
+2026-09-29 while std used the value JoinHandle the v0.2.45 seed could lower. The regression test
+is back in `tests/async/sm_protocol.test.yo`, "a statement-level spawn detaches the task, which
+frees itself".
 
 **Previously: FIXED (2026-09-29, #991).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 

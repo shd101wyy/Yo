@@ -2,7 +2,7 @@
 
 **Severity:** S1 — until the flip, a statement-level (fire-and-forget) `io.spawn` leaks its state machine again, and a JoinHandle must be awaited at most once
 
-**Status:** OPEN — tracker for a two-step landing forced by the seed gate.
+**Status:** FIXED 2026-10-01 — both steps landed. Step 1 in #996 (released in v0.2.46); step 2 once `SEED_VERSION` reached v0.2.47.
 **Found:** 2026-09-29. develop `c52ce152c` (#991) and `34c51c895` could not be built by the
 v0.2.45 seed: every CI battery failed at "Build stage 1 once (seed `yo build`)" (runs
 36480349988, 36486077485), and so did every PR based on develop, #992 included.
@@ -35,7 +35,7 @@ cannot build (the release workflow builds with the seed too).
   reference, `JoinHandle.await` releases it after reading the result).
 - `__yo_join_handle_release_raw` stays in the runtime (`runtime_core.yo`) for step 2.
 
-Consequence until step 2: the leak in `issues/statement-level-io-spawn-leaks-the-state-machine.md`
+Consequence until step 2: the leak in `issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md`
 is back (the evaluator names every value, so a discarded spawn still takes a reference nothing
 releases), a handle awaited twice reads freed memory, and a dropped un-awaited bound handle leaks
 its task. The detach test is parked as `issues/repros/statement-level-spawn-detaches-the-task.yo`.
@@ -48,3 +48,13 @@ its task. The detach test is parked as `issues/repros/statement-level-spawn-deta
 3. Delete the value branch of both lowerings.
 4. Move the parked repro back into `tests/async/sm_protocol.test.yo` ("a statement-level spawn
    detaches the task, which frees itself") and close this doc and the leak doc.
+
+
+## Step 2 (landed 2026-10-01)
+
+`SEED_VERSION` is v0.2.47, whose codegen lowers both forms. std's `JoinHandle` is the `ref`
+struct again, with #991's `Dispose` calling `__yo_join_handle_release_raw`. The value branches of
+`_generate_io_spawn` (`src/codegen/exprs/generation.yo`) and `generate_join_handle_await`
+(`src/codegen/exprs/await.yo`) are deleted, along with the imports only they used. The detach test
+is back in `tests/async/sm_protocol.test.yo`, and its parked repro is removed.
+

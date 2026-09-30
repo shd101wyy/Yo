@@ -7,7 +7,7 @@ phase 7 (the state-machine pools, `for_await`, E0904 retired, #1018) are open
 as stacked PRs, and phase 4 is subsumed by them. What remains waits for a seed that carries phase 5: the seed-safe
 spellings in `src/`/`std/` (which also keep `for_await` and `inout` in async
 bodies out of them), and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
-waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
+waits for the seed (#996, `issues/fixed/join-handle-ownership-waits-for-the-seed.md`).
 The per-phase progress log is §9. Written
 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
 
@@ -822,7 +822,7 @@ other two options are declined or seed-gated.**
   struct whose one field is the counted future (possible since #1008's
   `Impl(Future)` fields); see
   `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
-  2 of `issues/join-handle-ownership-waits-for-the-seed.md`, since the seed
+  2 of `issues/fixed/join-handle-ownership-waits-for-the-seed.md`, since the seed
   lowers `io.spawn` itself, and it lands with that seed bump.
 
 ### Docs and instructions, per phase
