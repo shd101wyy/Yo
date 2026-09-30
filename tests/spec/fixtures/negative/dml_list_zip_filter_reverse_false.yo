@@ -1,0 +1,42 @@
+// The bugged twins of dml_list_zip_filter_reverse.yo: each claims a length
+// the body does not produce, and each must refute.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// zip without the equal-length requires: b(i) can read past b's end.
+zip_unchecked :: (fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    invariant(i <= a.len(), out.len() == i);
+    out.push(b(i));
+    i = (i + usize(1));
+  });
+  out
+});
+
+// filter claimed to keep every element.
+filter_all :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), out.len() <= i);
+    if(xs(i) > i32(0), {
+      out.push(xs(i));
+    });
+    i = (i + usize(1));
+  });
+  out
+});
+
+// reverse claimed one shorter.
+reverse_short :: (fn(xs : ArrayList(i32), ensures(r.len() < xs.len())) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  (i : usize) = xs.len();
+  while(i > usize(0), {
+    invariant(i <= xs.len(), out.len() == (xs.len() - i));
+    i = (i - usize(1));
+    out.push(xs(i));
+  });
+  out
+});
