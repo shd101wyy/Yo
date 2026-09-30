@@ -293,6 +293,15 @@ MSG_NOSIGNAL :: cond(
   (platform == Platform.Windows) => i32(0),
   true => i32(0x4000)
 );
+/// Socket option (level `SOL_SOCKET`): writes to this socket return `EPIPE`
+/// instead of raising `SIGPIPE`, whatever the call's flags. macOS only
+/// (`0x1022`); `0` elsewhere, where it does not exist (Linux guards per call
+/// with `MSG_NOSIGNAL`, Windows has no `SIGPIPE`). Setting it once is what lets
+/// a stream socket be written with plain `write(2)`.
+SO_NOSIGPIPE :: cond(
+  (platform == Platform.Macos) => i32(0x1022),
+  true => i32(0)
+);
 export(
   AF_UNSPEC,
   AF_UNIX,
@@ -338,5 +347,6 @@ export(
   NI_NOFQDN,
   NI_NAMEREQD,
   NI_DGRAM,
-  MSG_NOSIGNAL
+  MSG_NOSIGNAL,
+  SO_NOSIGPIPE
 );

@@ -225,6 +225,16 @@ test("every backend arms the thread-exit hook at init; the macOS cleanup frees i
   assert(m.contains(String.from("__yo_io_registration_free_list = r->next_free;\n    __yo_free(r);")), String.from("the macOS cleanup keeps its registration pool"));
   assert(m.contains(String.from("__yo_kq_close_hook = NULL;")), String.from("the macOS cleanup leaves its close hook installed"));
 });
+test("the stream-write op: write(2) on macOS, send(MSG_NOSIGNAL) on Linux", {
+  // std/net's own sockets (non-blocking, SO_NOSIGPIPE on Apple) take the
+  // cheaper write(2) entry point; plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md.
+  m := emit_macos_runtime();
+  assert(m.contains(String.from("static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {")), String.from("the macOS stream-write op is missing"));
+  assert(m.contains(String.from("    ssize_t r = write(sockfd, buf, (size_t)size);")), String.from("the macOS stream write does not use write(2)"));
+  assert(m.contains(String.from("__yo_kq_park_or_fail(__YO_IO_OP_WRITE, future, sockfd, EVFILT_WRITE);")), String.from("a would-block stream write does not park as a WRITE"));
+  l := emit_linux_runtime();
+  assert(l.contains(String.from("  return __yo_async_send_start(sockfd, buf, len, MSG_NOSIGNAL);")), String.from("the Linux stream write lost its MSG_NOSIGNAL"));
+});
 test("the read_dir stream list is per-thread on wasm and on macOS", {
   // issues/fixed/emscripten-concurrent-directory-iteration-intermittently-faults.md
   decl := String.from("static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;");
