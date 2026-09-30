@@ -1011,6 +1011,21 @@ sequence:
    corpus.
 3. Release.
 
+**The side tables, measured (same branch, `YO_PROTO_SCOPE_SIDE`).**
+Releasing to frameless husks at the outermost function body, while keeping:
+- an ExprId → Variable table for every released temp's `variable_name`
+  (1,392,997 entries);
+- the atom exception table (12,962 entries: `source_variable` is not the
+  sole match);
+
+gives `compile` **2,357 MB** max RSS (−343 vs 2,700; the release alone was
+−595). The temp table is the cost: it keeps 1.39 M temp Variables and their
+values alive. Codegen needs little from a temp. Temp names are unique, so
+the C name is the name, and the flags it reads are `is_ref`, owning and
+compile-time-only. A flags-only temp record (ExprId → byte, ~20–40 MB)
+brings the design to an estimated **~2,150 MB**. That is the design to
+implement, with the shadow mode first.
+
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
   collect runs, and table entries grow 2.887 M → 2.953 M. Their envs are
