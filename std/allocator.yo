@@ -209,9 +209,11 @@ _AllocPrefix :: struct(
 _global_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)(__yo_malloc(size));
 _global_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(__yo_realloc(ptr, new_size));
 _global_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(__yo_free(ptr));
-// A runtime global, not a `::` constant: the vtable needs an address that
-// lives for the whole program
-// (issues/address-of-a-module-level-constant-emits-a-placeholder.md).
+// A module-level `:=` global: the vtable is ONE object with one address for
+// the whole program, which is what the owner prefix stores. (`&(K)` of a `::`
+// constant also gets static storage since
+// issues/fixed/address-of-a-module-level-constant-emits-a-placeholder.md, but
+// this module is compiled into the compiler by the seed, which predates it.)
 _GLOBAL_VTABLE := AllocatorVTable(
   alloc : _global_alloc,
   realloc : _global_realloc,

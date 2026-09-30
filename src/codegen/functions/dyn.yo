@@ -571,7 +571,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   // visible runtime trap instead — every other test in the
                                   // batch compiles; only dispatching THIS method aborts.
                                   if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), entry.value, context.base), {
-                                    em.emit_declaration_string_line(`  abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
+                                    em.emit_declaration_string_line(`  __yo_abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
                                   }, {
                                     _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result), arg_casts, ret_cast);
                                   });

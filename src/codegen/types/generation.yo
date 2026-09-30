@@ -1722,8 +1722,8 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           em.emit_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  bool was_extracted = atomic_exchange(&iso->extracted, true);"));
           em.emit_string_line(String.from("  if (was_extracted) {"));
-          em.emit_string_line(`    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
-          em.emit_string_line(String.from("    abort();"));
+          em.emit_string_line(`    fflush(stdout); fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
+          em.emit_string_line(String.from("    __yo_abort();"));
           em.emit_string_line(String.from("  }"));
           em.emit_string_line(String.from("  return iso->value;"));
           em.emit_string_line(String.from("}"));

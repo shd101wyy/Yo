@@ -956,13 +956,13 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         em.emit_string_line(stub_attr);
         em.emit_string_line(open.clone());
         em.emit_string_line(
-          `  fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
+          `  fflush(stdout); fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
         );
         em.emit_string_line(
           cond(
-            stub_is_superseded => String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
-            !stub_ret_unit => String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */"),
-            true => String.from("  abort(); /* untranspilable body in a unit fn: aborting beats silently running without the statement */")
+            stub_is_superseded => String.from("  __yo_abort(); /* superseded generic original: all call sites dispatch a specialization */"),
+            !stub_ret_unit => String.from("  __yo_abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */"),
+            true => String.from("  __yo_abort(); /* untranspilable body in a unit fn: aborting beats silently running without the statement */")
           )
         );
         em.emit_string_line(String.from("}"));
@@ -1430,8 +1430,8 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
   // silent.md, issues/effect-install-frame-exit-leaves-the-escaped-flag-
   // dirty.md).
   if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
+    __yo_abort();
   }
 `
   );
