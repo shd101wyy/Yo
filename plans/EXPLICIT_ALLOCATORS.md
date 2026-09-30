@@ -1,7 +1,7 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: ACTIVE — implementation started 2026-09-29 (P0 in progress, as
-> stacked PRs on #1015).** Design audited 2026-09-29 (two passes). Verdict:
+> **Status: ACTIVE — implementation started 2026-09-29 (stacked PRs on
+> #1015; P0 implemented).** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation
 > falls back to the global allocator when no
@@ -607,7 +607,9 @@ arena.deinit();                            // traps if any block is still live
   check**, so an arena handle that dies with live blocks traps even when
   nobody called `deinit()` explicitly, and an arena stays alive as long as
   anything holds it. `deinit()` is the explicit early release (idempotent,
-  marks the arena dead so a later `alloc` traps too).
+  marks the arena dead so a later `alloc` traps too). The arena's state
+  block is never freed: dead states are pooled for reuse, so a stale
+  `Allocator` copy reaches a flagged state rather than freed memory (P0).
 - **The emptiness trap.** Live blocks → tier-3 trap
   `arena deinit: 3 blocks still live (arena.yo:…)`, then abort. Under
   `--debug-heap` the message lists per-allocator live counts (P4). This is
@@ -688,33 +690,57 @@ Nothing below starts until the release freeze lifts (match adoption waves
 
 ### P0 — `Allocator`, the prefix, `Arena`, the counting allocator (std-only)
 
-Files: `std/allocator.yo`, new `std/arena.yo`, `tests/allocator.test.yo`,
-new `tests/arena.test.yo`, `std/README.md` (module table).
+**Status: implemented 2026-09-29** (branch `explicit-allocators-p0`).
 
-1. `AllocatorVTable`, `Allocator`, `impl(Allocator, Send())`, the private
-   prefix struct and the methods `alloc`/`realloc`/`free`/`free_routed`;
-   `global` (vtable over `__yo_malloc`/`__yo_realloc`/`__yo_free`). D9
-   resolved here: how std obtains an immortal `*(AllocatorVTable)` (address
-   of a module-level value, or one heap block per implementor allocated on
-   first use and never freed).
-2. `std/arena.yo`: `Arena.new(bytes)`, `allocator()`, `deinit()`,
-   `abandon()`, `live_blocks()`, `Dispose` = deinit check, `AtomicBool`
-   spinlock, bump `alloc`/`realloc`/`free` as in §3.6. No placement of RC
-   objects yet: `with_allocator` arrives in P3.
-3. The counting allocator in `tests/arena.test.yo` (wraps `global`, asserts
-   alloc/free balance and byte totals).
-4. Gates:
-   - `tests/allocator.test.yo`: prefix `sizeof` = 16 and offsets; `global`
-     round-trip; `free_routed` on a `global`-prefixed block reaches
-     `__yo_free`.
-   - `tests/arena.test.yo`: alloc/free balance, live counter, deinit trap
-     fires (subprocess, expected `rc != 0` + message), `abandon` path,
-     realloc of the top block in place, counting-allocator asserts, cross-
-     thread free of an arena block (a `spawn` that drops it).
-   - `yo test ./std --bail`; ASan (`--sanitize address --allocator system`)
-     on both test files; `yo fmt --check`; fixpoint untouched (no compiler
-     change, no emitted-C change for programs that do not import the new
-     modules).
+Files: `std/allocator.yo`, new `std/arena.yo`, new `tests/arena.test.yo`,
+two new CLI cases.
+
+1. `std/allocator.yo`: `AllocatorVTable` (`alloc`/`realloc`/`free`),
+   `Allocator {ctx, vtable}`, `impl(Allocator, Send())`,
+   `ALLOC_PREFIX_SIZE = 16`, the private `_AllocPrefix`, and the methods
+   `Allocator.global()`, `a.alloc(size)` (writes the prefix),
+   `Allocator.realloc(ptr, size)` and `Allocator.free(ptr)` (both route
+   through the prefix, so they are static — the owner is in the block),
+   `Allocator.owner_of(ptr)`, `a.same(b)`. The first draft's
+   `free(self, ptr)` / `free_routed(ptr)` split is gone: every release routes.
+   **D9 resolved**: the vtables are module-level `:=` runtime globals
+   (`_GLOBAL_VTABLE`, `_ARENA_VTABLE`), addressed with `&(...)`. A `::`
+   constant cannot be addressed today
+   (`issues/address-of-a-module-level-constant-emits-a-placeholder.md`).
+   The pragma'd module is the audited base for the D1 reach walk, so a spawn
+   body may reach them.
+2. `std/arena.yo`: `Arena.new(capacity)`, `allocator()`, `live_blocks()`,
+   `used_bytes()`, `capacity()`, `is_released()`, `deinit()`, `abandon()`,
+   `Dispose` = `deinit()`. The state is a plain block (`_ArenaState`) so the
+   `Allocator` value can point at it; a per-arena `atomic_bool` spinlock
+   guards it. Bump `alloc`, top-block reclaim on `free`, in-place growth of
+   the top block on `realloc` (a moved block copies up to the bump offset,
+   because a bump arena records no block sizes). Two lifecycle rules the
+   design did not spell out:
+   - **A state is never freed.** A dead arena's state goes to a
+     mutex-guarded global pool reused by the next `Arena.new`, because a
+     stale `Allocator` copy may still reach it; its `dead` flag turns that
+     into a panic ("allocation from an arena after deinit") instead of a
+     use-after-free. A pooled state stays reachable, so LeakSanitizer does
+     not report it; the pool is bounded by the peak number of live arenas.
+   - **`abandon()` keeps the state reachable** on a second global list, so
+     a process-lifetime arena is not a leak report either.
+3. The counting allocator lives in `tests/arena.test.yo` (a third
+   implementor, forwarding to the global allocator).
+4. Gates (all green 2026-09-29):
+   - `tests/arena.test.yo` (9 cases, run under the test runner's default
+     ASan): the counting allocator's totals include the prefix; the prefix
+     ABI (word 0 = `ctx`, word 1 = `vtable`, 16 bytes before the block);
+     `global` round-trip; live counter and top reclaim; in-place and moving
+     realloc; exhaustion returns `.None`; `abandon`; 200 arenas through the
+     state pool; two threads churning one arena.
+   - `tests/cli-cases/arena-deinit-with-live-blocks-panics` and
+     `tests/cli-cases/arena-allocation-after-deinit-panics` (rc 1 + the
+     diagnostic).
+   - `tests/allocator.test.yo` unchanged-green; `yo check ./std`
+     (177/177); `yo test ./std --bail`; `yo fmt --check`; a stage-1 built
+     with `--std-path ./std` (the compiler imports `std/allocator.yo` through
+     `ArrayList`, so the seed must lower the new code).
 
 ### P1 — containers take allocators (std-only)
 
@@ -864,7 +890,7 @@ live), new `tests/explicit_allocators.test.yo`.
 | D6 | `Allocator` name collision with `std/build.yo` | keep both names; rename the runtime type to `Mem.Allocator` only if review finds real confusion |
 | D7 | allocator-aware `Dispose` | not introduced — dispose stays allocator-blind; the buffer routes through its prefix, the object through its prefix |
 | D8 | nested arenas (arena backed by arena) | out of scope; explicit backing-allocator parameter on `Arena.new` as a later addition |
-| D9 | how std obtains an immortal `*(AllocatorVTable)` | address of a module-level `::` value if the address-of path (`src/codegen/exprs/ptr_fns.yo`) supports globals; otherwise one heap block per implementor, allocated on first use and never freed (still immortal, still two words in the prefix). Decide in P0 |
+| D9 | how std obtains an immortal `*(AllocatorVTable)` | **resolved in P0**: a module-level `:=` runtime global addressed with `&(...)`. Addressing a `::` constant emits invalid C today (`issues/address-of-a-module-level-constant-emits-a-placeholder.md`) |
 | D10 | over-aligned buffers (`alignof(T) > max_align_t`) | out of scope, as today (containers use the plain family); if added, it is an `aligned_alloc`/`aligned_free` **pair** on the vtable, never a single `free` |
 
 ## 7. References
