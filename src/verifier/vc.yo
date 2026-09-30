@@ -1909,13 +1909,60 @@ _callee_is_atom :: (fn(e : AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// The variant atom of `Enum.Variant` spelled as `.(Enum, Variant)`: two
+/// atom dot arguments where the first names no variant of the enum and the
+/// second does.
+_qualified_nullary_variant :: (fn(info : ExprInfo, dot_args : ArrayList(AstExpr)) -> Option(AstExpr))(
+  match(
+    info.ty,
+    .EnumT({ variant_names : q_names }) => cond(
+      (dot_args.len() != usize(2)) => Option(AstExpr).None,
+      !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
+      _variant_named(q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      true => Option(AstExpr).None
+    ),
+    _ => Option(AstExpr).None
+  )
+);
+/// The variant atom of a payload construction `(.Variant)(...)` or
+/// `(Enum.Variant)(...)`, else `.None`. An instance method call
+/// (`xs.get(i)`) has the same shape; its callee is recorded in the
+/// method-callee table, which rules it out.
+_payload_ctor_variant :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => match(
+      f,
+      .FnCall(_, dot, dargs, _, _) => cond(
+        !(ast_expr_is_atom(dot) && (ast_expr_token(dot).value == ".")) => Option(AstExpr).None,
+        lookup_method_callee_value(ast_expr_id(e)).is_some() => Option(AstExpr).None,
+        ((dargs.len() == usize(1)) && ast_expr_is_atom(dargs.get(usize(0)).unwrap())) => dargs.get(usize(0)),
+        ((dargs.len() == usize(2)) && ast_expr_is_atom(dargs.get(usize(1)).unwrap())) => dargs.get(usize(1)),
+        true => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
 /// `.(Variant, args...)` construction as a datatype Ctor term.
 _enum_ctor_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, dot_args : ArrayList(AstExpr), info : ExprInfo) -> Option(VcTerm)
 )(
   match(
     dot_args.get(usize(0)),
-    .Some(v_atom) => _enum_ctor_first(ctx, e, info, v_atom, dot_args),
+    .Some(v_atom) => match(
+      _qualified_nullary_variant(info, dot_args),
+      // `Enum.Variant` (no payload) is `.(Enum, Variant)`: the variant is
+      // the SECOND dot argument.
+      .Some(qv) => {
+        only := ArrayList(AstExpr).new();
+        only.push(qv);
+        _enum_ctor_first(ctx, e, info, qv, only)
+      },
+      .None => _enum_ctor_first(ctx, e, info, v_atom, dot_args)
+    ),
     .None => {
       _fail_subset(ctx, String.from("malformed enum construction"), e);
       Option(VcTerm).None
@@ -1938,7 +1985,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, e_id.clone(), e_names, e_fields, variant, dot_args),
+    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, info.ty, e_id.clone(), e_names, e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -1949,6 +1996,7 @@ _build_enum_ctor :: (
   fn(
     inout(ctx) : VcCtx,
     e : AstExpr,
+    ety : TypeValue,
     e_id : String,
     e_names : ArrayList(String),
     e_fields : ArrayList(ArrayList(TypeValue)),
@@ -1987,20 +2035,10 @@ _build_enum_ctor :: (
         );
         return(Option(VcTerm).None);
       });
-      _note_enum_datatype(
-        ctx,
-        .EnumT(
-          e_id.clone(),
-          String.new(),
-          e_names,
-          e_fields,
-          Option(String).None,
-          ArrayList(ArrayList(String)).new(),
-          ArrayList(i64).new(),
-          false,
-          false
-        )
-      );
+      // Register the construction's OWN enum type: a synthetic copy without
+      // the variant field labels declared accessors a later `match` on the
+      // same value could not name.
+      _note_enum_datatype(ctx, ety);
       Option(VcTerm).Some(VcTerm.Ctor(name : _enum_ctor_name(e_id, vname), args : cargs))
     },
     true => {
@@ -2104,12 +2142,14 @@ _match_last_arm_ir :: (
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   test_opt := _arm_ir_bind(arm.pattern, scrut, e_ty, ctx, saved_names, saved_vals);
-  _restore_vars(ctx, saved_names, saved_vals);
-  match(
+  // The body reads the pattern's bindings: restore only AFTER walking it.
+  body_t := match(
     test_opt,
     .Some(_) => _expr_term(ctx, arm.body),
     .None => Option(VcTerm).None
-  )
+  );
+  _restore_vars(ctx, saved_names, saved_vals);
+  body_t
 });
 /// One non-final arm over its COMPILED pattern: bind the pattern's names
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
@@ -3347,6 +3387,23 @@ _call_term :: (
     if(_callee_is_atom(e), {
       return(_enum_ctor_term(ctx, e, args, info));
     });
+    // A variant WITH a payload parses as `(.Variant)(payload...)` or
+    // `(Enum.Variant)(payload...)`: the variant is the callee's last dot
+    // argument and the payload is this call's arguments.
+    match(
+      _payload_ctor_variant(e),
+      .Some(vatom) => {
+        ctor_args := ArrayList(AstExpr).new();
+        ctor_args.push(vatom);
+        (pai : usize) = usize(0);
+        while(pai < args.len(), {
+          ctor_args.push(args.get(pai).unwrap());
+          pai = (pai + usize(1));
+        });
+        return(_enum_ctor_named(ctx, e, info, ast_expr_token(vatom).value, ctor_args));
+      },
+      .None => ()
+    );
   });
   // --- match(scrutinee, arms...) ---------------------------------------------
   if(head == "match", {
