@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a `dyn(...)` value built after an await in an `io.async` body leaks; the common case is every error a task throws to an unwinding handler
 
-**Status:** FIXED 2026-09-29 (branch `fix/sm-dup-temp-leak`, after the release).
+**Status:** FIXED on develop by #1018, which added the same field store in `generate_dyn_call` independently (found and fixed on `fix/sm-dup-temp-leak` in parallel; that branch contributes the regression test below).
 **Found:** 2026-09-29, verifying
 `issues/fixed/a-dup-result-temp-in-a-state-machine-is-released-through-an-empty-field.md`: with that
 fix, `leaks --atExit` on its reproducer still showed 96 B (the thrown `dyn(\`stop\`)`, its String
@@ -50,7 +50,8 @@ field through `_store_temp_var_to_state_machine_if_needed`; this one never did.
 
 `generate_dyn_call` stores the temp into its state-machine field after declaring it, through
 `_store_temp_var_to_state_machine_if_needed` (a no-op outside a state machine and for a temp that is
-not hoisted).
+not hoisted). #1018 landed this on develop; its comment there cites
+`issues/async-abort-dispose-double-drops-moved-enum-payload.md` (still open, in the root).
 
 ## Test
 
