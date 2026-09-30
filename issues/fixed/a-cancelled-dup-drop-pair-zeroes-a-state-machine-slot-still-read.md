@@ -72,8 +72,17 @@ equal its live handles.
 
 A compiler built by an unfixed seed still carries the bug in its own machine
 code. So the compiler's source avoids the shape at each site the seed
-miscompiles, reading the length before the store (see the sites listed in the
-PR), until `SEED_VERSION` carries this fix.
+miscompiles, until `SEED_VERSION` carries this fix. The sites were found by
+scanning the seed-emitted C of `src/main.yo` for a zeroed slot read before it
+is reassigned (3 hits on develop, 0 after):
+
+- `generate_unsafe_report` (`unsafe_report.yo`): the totals are built before
+  `UnsafeReport(privileged_files : privileged_files, …)`;
+- `generate_public_safe_report` (`public_safe_report.yo`): the same, for
+  `findings`;
+- `run_install` (`install_command.yo`): `--latest` reads the manifest through
+  the alias `current` instead of the aliased local; the alias-binding elision
+  is the same optimizer.
 
 Tests: `tests/async/sm_ownership.test.yo`, "a local stored in a field stays
 readable across the next await", and "aborting a task after it stored a local

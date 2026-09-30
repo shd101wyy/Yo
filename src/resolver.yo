@@ -1454,13 +1454,10 @@ resolve_and_fetch :: (
       branch_urls : ArrayList(String).new(),
       branch_names : ArrayList(String).new()
     );
-    // The root's requirements (its dev-dependencies included). Read through
-    // `state`, which holds the manifest now: a v0.2.47 build read the stored
-    // capture as NULL
-    // (issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
+    // The root's requirements (its dev-dependencies included).
     (di : usize) = usize(0);
-    while(di < state.manifest.dependencies.len(), {
-      _add_requirement(state, String.from("<root>"), state.manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
+    while(di < manifest.dependencies.len(), {
+      _add_requirement(state, String.from("<root>"), manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
       di = (di + usize(1));
     });
     // Rounds until a fixpoint: a later requirer may move an earlier choice,
