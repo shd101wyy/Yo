@@ -547,7 +547,14 @@ before and after. If the job grows more than 25%, generate elision-only
 obligations only inside `yo compile`, and have `yo verify` generate them
 only under `--explain` or strict mode.
 
-**Phase 3: imported verified modules.**
+**Phase 3: imported verified modules.** *Status 2026-10-01: not started, and
+measured as having nothing to elide yet. After #1048/#1057 (ArrayList as a
+ghost (contents, len) pair), `yo verify ./std/collections` gives 9 `assumed`,
+3 outside-subset and 1 vacuous `ok`, with 0 sited obligations. The list-length
+proofs live in the test fixtures; std's own bodies are still `assumed()`. Two
+things must land first: std bodies that are walked, not assumed, and an
+elision hook for ArrayList's own bounds check. `xs(i)` on an ArrayList traps
+inside std, not through `__yo_idx_chk`, so today's emitters never see it.*
 
 - In `yo compile`, every module in the import closure that carries
   `Pragma.Verify` / `Pragma.VerifyOrAssert` becomes an *elision target*. Its
