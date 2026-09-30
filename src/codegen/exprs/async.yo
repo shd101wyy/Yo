@@ -84,6 +84,7 @@
   compute_overlapping_slots,
   inline_await_result_fields,
   inline_await_result_field_of,
+  inline_await_local_result_type,
   generate_async_block_resume_function_inline,
   generate_async_block_cancel_pending_function_inline,
   resume_scope_wrapper
@@ -1946,6 +1947,22 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
     .None => ()
   );
   em.emit_string_line(`${indent}// fused await (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  // Or a C local, declared outside the site's block, when no suspension
+  // separates the await from its statement's use of the value.
+  (outer_local : String) = String.from("");
+  match(
+    outer_field,
+    .Some(_) => (),
+    .None => match(
+      inline_await_local_result_type(await_expr, low.analysis, context),
+      .Some(rty) => {
+        outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
+        em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${outer_local};`);
+        context.base.declared_c_var_names.insert(outer_local.clone());
+      },
+      .None => ()
+    )
+  );
   // 1. The call's arguments, evaluated in the caller as the call would.
   rargs := match(context.base.get_expr_info(site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
@@ -2049,7 +2066,10 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
       em.emit_string_line(`${inner}sm->${rf.name} = ${tail};`);
       out = `sm->${rf.name}`;
     }),
-    .None => ()
+    .None => if((outer_local.len() > usize(0)) && (tail.len() > usize(0)), {
+      em.emit_string_line(`${inner}${outer_local} = ${tail};`);
+      out = outer_local;
+    })
   );
   generate_deferred_drop_expressions(site.block.body_expr, inner.clone(), context);
   _emit_fused_site_releases(site, inner.clone(), true, context);
