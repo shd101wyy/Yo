@@ -120,7 +120,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 // Plain SM field: outer → __capture.<name>; local → var_<id>.
                 field_name := match(
                   cv.kind,
-                  .Outer => `__capture.${var_name.clone()}`,
+                  .Outer => `${context.sm_capture_slot}.${var_name.clone()}`,
                   _ => sm_local_field_name(cv.base.id.to_string())
                 );
                 return(Option(String).Some(`sm->${field_name.clone()}`));
@@ -201,7 +201,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         .Some(cv2) => {
           field_name2 := match(
             cv2.kind,
-            .Outer => `__capture.${var_name.clone()}`,
+            .Outer => `${context.sm_capture_slot}.${var_name.clone()}`,
             _ => sm_local_field_name(fallback_key.clone())
           );
           return(Option(String).Some(`sm->${field_name2.clone()}`));
@@ -235,7 +235,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                     if(((e3.value.base.name == owner_name) || (e3.key == owner_id)) && !is_outer_owner, {
                       field_name3 := match(
                         e3.value.kind,
-                        .Outer => `__capture.${owner_name.clone()}`,
+                        .Outer => `${context.sm_capture_slot}.${owner_name.clone()}`,
                         _ => sm_local_field_name(e3.key.clone())
                       );
                       return(Option(String).Some(`sm->${field_name3.clone()}`));

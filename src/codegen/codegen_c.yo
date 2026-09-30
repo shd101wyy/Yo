@@ -33,8 +33,8 @@
 { register_generate_expr } :: import("./exprs/generation.yo");
 { register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
 { _generate_sm_atom } :: import("./exprs/atom.yo");
-{ preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
-{ register_inline_await_emitter } :: import("./async/_fsm.yo");
+{ preregister_async_block_types, generate_deferred_async_blocks, emit_fused_await } :: import("./exprs/async.yo");
+{ register_inline_await_emitter, register_fused_await_emitter } :: import("./async/_fsm.yo");
 { emit_inline_await } :: import("./async/state_machine.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
 { registered_func_type_count } :: import("../function_value.yo");
@@ -389,6 +389,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_sm_atom_resolver(_generate_sm_atom);
   // Register the FSM await/cond/match/while emitter indirections.
   register_inline_await_emitter(emit_inline_await);
+  register_fused_await_emitter(emit_fused_await);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
   // The entry module's path decides which top-level exports get plain,

@@ -24,13 +24,15 @@
 { Variable, Environment, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
-{ expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
+{ expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
+{ _call_emit_fused_await } :: import("./_fsm.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 CLEANUP_SEGMENT :: usize.MAX;
@@ -942,7 +944,7 @@ resolve_effect_field_from_sm_scope :: (
             cv := b.value;
             is_outer := match(cv.kind, .Outer => true, .Local => false);
             if((cv.base.name == field_label) && is_outer, {
-              s := String.from("sm->__capture.");
+              s := `sm->${context.sm_capture_slot}.`;
               s.push_string(field_label.clone());
               return(Option(String).Some(s));
             });
@@ -1109,7 +1111,7 @@ emit_effect_record_injection_for_sm :: (
                 cv := b.value;
                 is_outer := match(cv.kind, .Outer => true, .Local => false);
                 if((cv.base.name == flabel) && is_outer, {
-                  s := String.from("sm->__capture.");
+                  s := `sm->${context.sm_capture_slot}.`;
                   s.push_string(flabel.clone());
                   member_code = Option(String).Some(s);
                 });
@@ -1478,12 +1480,13 @@ _inline_result_is_unit :: (fn(t : TypeValue) -> bool)(
 /// The struct declares exactly these fields and the emitter stores into them,
 /// so both walk this one list.
 inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(InlineAwaitResultField))({
+  prefix := context.fusion_field_prefix.clone();
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
-  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize)) -> unit)({
+  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize), prefix : String) -> unit)({
     if((!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t))) && !(g_local_await_results.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
-      out.push(InlineAwaitResultField(name : `__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
+      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
   });
   (i : usize) = usize(0);
@@ -1495,10 +1498,10 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
-            match(branch_exprs.get(j), .Some(be) => add(be, _inline_await_result_type(be, Option(AwaitAnalysisResult).None, context), out, seen), .None => ());
+            match(branch_exprs.get(j), .Some(be) => add(be, _inline_await_result_type(be, Option(AwaitAnalysisResult).None, context), out, seen, prefix.clone()), .None => ());
           });
         },
-        .None => add(ap.base.expr, ap.result_type, out, seen)
+        .None => add(ap.base.expr, ap.result_type, out, seen, prefix.clone())
       ),
       .None => ()
     );
@@ -1508,7 +1511,18 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
 /// The result field of the await expression `expr`: by node id, else by
 /// source position (an arm body can be generated from an evaluated copy whose
 /// await node is not the one the analysis walked; its position is the same).
-_inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
+/// The type of `expr`'s result when the lowering keeps it in a C local (no
+/// suspension between the await and its statement's use of it); `.None` when
+/// it is unit or lives in the task.
+inline_await_local_result_type :: (fn(expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> Option(TypeValue))({
+  rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis), context);
+  cond(
+    _inline_result_is_unit(rty) => Option(TypeValue).None,
+    g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))) => Option(TypeValue).Some(rty),
+    true => Option(TypeValue).None
+  )
+});
+inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
   eid := ast_expr_id(expr);
   tok := ast_expr_token(expr);
   (by_pos : Option(InlineAwaitResultField)) = Option(InlineAwaitResultField).None;
@@ -1529,6 +1543,18 @@ _inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAw
     );
   });
   by_pos
+});
+/// `YO_DEBUG_FUSION`: print one line per await of the single-pass lowering
+/// with the fusion verdict the evaluator recorded for its future
+/// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F1).
+_report_await_fusion :: (fn(await_expr : AstExpr, future_arg : AstExpr) -> unit)({
+  tok := ast_expr_token(await_expr);
+  (verdict : String) = match(
+    await_fusion_candidate(future_arg),
+    .Some(c) => if(c.verdict.len() == usize(0), `fusable (callee ${c.callee_at})`, `rejected (callee ${c.callee_at}): ${c.verdict}`),
+    .None => if(ast_expr_is_atom(future_arg), String.from("not a call"), String.from("no io.async wrapper callee"))
+  );
+  eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} ${verdict}`);
 });
 /// Emit one suspension point of the single-pass lowering, where the
 /// expression generator reached `io.await(future, effects)`, and return the C
@@ -1555,6 +1581,8 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     return(String.from(""));
   });
   low.emitted.insert(eid);
+  // An await of a fusable wrapper call runs the wrapper here instead.
+  match(_call_emit_fused_await(expr, indent.clone(), context), .Some(fused_code) => return(fused_code), .None => ());
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   future_arg := match(
     args.get(usize(0)),
@@ -1572,6 +1600,9 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       return(String.from(""));
     }
   );
+  if(debug_knob(`YO_DEBUG_FUSION`).is_some(), {
+    _report_await_fusion(expr, future_arg);
+  });
   is_io := is_io_future_type(future_ty);
   k := low.next_state;
   low.next_state = (k + usize(1));
@@ -1628,27 +1659,26 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // read (`f(await a, await b)`), and a C local does not survive the jump.
   (out : String) = String.from("");
   match(
-    _inline_await_result_field_of(expr, inline_await_result_fields(low.analysis, context)),
+    inline_await_result_field_of(expr, inline_await_result_fields(low.analysis, context)),
     .Some(rf) => {
       field := `sm->${rf.name}`;
       _emit_await_result_store(field.clone(), `${acc}->result`, rf.ty, false, indent.clone(), context);
       out = field;
     },
-    .None => {
-      rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
-      if(!(_inline_result_is_unit(rty)), {
-        if(g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))), {
-          // No suspension between here and the statement's use of it.
-          local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
-          em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
-          context.base.declared_c_var_names.insert(local.clone());
-          _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
-          out = local;
-        }, {
-          codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
-        });
-      });
-    }
+    .None => match(
+      inline_await_local_result_type(expr, low.analysis, context),
+      // No suspension between here and the statement's use of it.
+      .Some(rty) => {
+        local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
+        em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
+        context.base.declared_c_var_names.insert(local.clone());
+        _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
+        out = local;
+      },
+      .None => if(!(_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context))), {
+        codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
+      })
+    )
   );
   if(!(is_named), {
     em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
@@ -1872,6 +1902,8 @@ export(
   resume_scope_wrapper,
   is_io_future_type,
   inline_await_result_fields,
+  inline_await_result_field_of,
+  inline_await_local_result_type,
   get_state_machine_field_name,
   CrossBoundaryResult,
   compute_cross_boundary_variables,

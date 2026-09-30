@@ -12,11 +12,13 @@
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_atom,
-  ast_expr_is_fn_call_of
+  ast_expr_is_fn_call_of,
+  BK_BEGIN
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ stable_position_id, stable_label_id, debug_knob } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id, debug_knob, is_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
+{ await_fusion_candidate } :: import("../../expr_traversal.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
   is_function_type,
@@ -50,7 +52,7 @@
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -81,6 +83,8 @@
   compute_cross_boundary_variables,
   compute_overlapping_slots,
   inline_await_result_fields,
+  inline_await_result_field_of,
+  inline_await_local_result_type,
   generate_async_block_resume_function_inline,
   generate_async_block_cancel_pending_function_inline,
   resume_scope_wrapper
@@ -675,6 +679,7 @@ emit_async_block_struct_definition :: (
   while(iai < irfs.len(), iai = (iai + usize(1)), {
     match(irfs.get(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(rf.ty, context.base)} ${rf.name};  // an await's result`), .None => ());
   });
+  _emit_fused_site_fields(fused_await_sites(info.analysis, context), context);
   em.emit_declaration_line("};");
   em.emit_declaration_line("");
 });
@@ -1211,6 +1216,13 @@ generate_async_block_state_dispose_function :: (
     em.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
     em.emit_line("  }");
   });
+  // A fused site's fields (await-site fusion): zeroed unless the task died
+  // while the site was live.
+  fsites := fused_await_sites(analysis, context);
+  (fsi : usize) = usize(0);
+  while(fsi < fsites.len(), fsi = (fsi + usize(1)), {
+    match(fsites.get(fsi), .Some(fs) => _emit_fused_site_releases(fs, String.from("  "), false, context), .None => ());
+  });
   em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
   em.emit_line("}");
   // The locals' drops on their own: the abort dispose above, and a block that
@@ -1523,6 +1535,586 @@ _build_async_capture_struct_literal :: (
     );
   });
   literal
+});
+// ---- Await-site fusion, F2 (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md) ------
+// An await whose future is a call to a fusable `io.async` wrapper runs the
+// wrapper inside its caller: the wrapper's parameters, prologue and capture
+// construction at the await, then its block in the caller's resume function,
+// in fields of its own in the caller's state machine. The wrapper's future is
+// never built, started, woken or released.
+/// Is F2's lowering on? `YO_ASYNC_FUSION=1` while the lowering is new.
+_async_fusion_enabled :: (fn() -> bool)(
+  match(debug_knob(String.from("YO_ASYNC_FUSION")), .Some(v) => (v == "1"), .None => false)
+);
+/// One fused await. `block` is the state machine the wrapper's `io.async`
+/// lowers to, registered when the wrapper itself was emitted. `prefix` names
+/// the block's fields in the caller; it is per wrapper block, so two awaits of
+/// one wrapper in one caller share those fields, which is sound because they
+/// run one after the other in one task.
+FusedAwaitSite :: struct(
+  prefix : String,
+  call : AstExpr,
+  wrapper_fid : String,
+  wrapper_body : AstExpr,
+  prologue : ArrayList(AstExpr),
+  io_async_call : AstExpr,
+  block : DeferredAsyncBlock
+);
+/// Report why a fusable site is not lowered (`YO_DEBUG_FUSION`), and give up.
+_fusion_not_lowered :: (fn(await_expr : AstExpr, why : String, report : bool) -> Option(FusedAwaitSite))({
+  if(report && debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
+    tok := ast_expr_token(await_expr);
+    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} not lowered: ${why}`);
+  });
+  Option(FusedAwaitSite).None
+});
+/// The fused site `await_expr` is, when F2 is on and the evaluator's verdict on
+/// its future's callee was fusable (F1), and every piece F2 needs is in hand.
+fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionGenerationContext) -> Option(FusedAwaitSite))({
+  if(!(_async_fusion_enabled()), {
+    return(Option(FusedAwaitSite).None);
+  });
+  // An await inside a fused block is not fused again: nested fusion is F3,
+  // and the caller's struct holds fields for its own sites only.
+  if(context.fusion_field_prefix.len() > usize(0), {
+    return(_fusion_not_lowered(await_expr, String.from("nested fusion (F3)"), report));
+  });
+  await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => return(Option(FusedAwaitSite).None));
+  future_arg := match(await_args.get(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
+  cand := match(await_fusion_candidate(future_arg), .Some(c) => c, .None => return(Option(FusedAwaitSite).None));
+  if(cand.verdict.len() > usize(0), {
+    return(Option(FusedAwaitSite).None);
+  });
+  wrapper_body := match(
+    context.base.functions.get(cand.func_id.clone()),
+    .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => wfvd.*.body, _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
+    .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
+  );
+  stmts := if(ast_expr_is_fn_call_of(wrapper_body, BK_BEGIN, Option(usize).None), match(wrapper_body, .FnCall(_, _, sa, _, _) => sa, _ => ArrayList(AstExpr).new()), {
+    one := ArrayList(AstExpr).new();
+    one.push(wrapper_body);
+    one
+  });
+  if(stmts.len() == usize(0), {
+    return(_fusion_not_lowered(await_expr, String.from("the wrapper body is empty"), report));
+  });
+  io_call := match(stmts.get(stmts.len() - usize(1)), .Some(l) => l, .None => return(Option(FusedAwaitSite).None));
+  if(!(is_io_async_call(io_call)), {
+    return(_fusion_not_lowered(await_expr, String.from("the wrapper does not end in io.async"), report));
+  });
+  prologue := ArrayList(AstExpr).new();
+  (pi : usize) = usize(0);
+  while(pi < (stmts.len() - usize(1)), pi = (pi + usize(1)), {
+    match(stmts.get(pi), .Some(st) => prologue.push(st), .None => ());
+  });
+  // The wrapper's own state machine, registered when the wrapper was emitted.
+  (found : Option(DeferredAsyncBlock)) = Option(DeferredAsyncBlock).None;
+  match(
+    context.deferred_async_blocks,
+    .Some(blocks) => {
+      (bi : usize) = usize(0);
+      while((bi < blocks.len()) && found.is_none(), bi = (bi + usize(1)), {
+        match(
+          blocks.get(bi),
+          .Some(b) => if(b.source_call_id == ast_expr_id(io_call), {
+            found = Option(DeferredAsyncBlock).Some(b);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  block := match(found, .Some(b) => b, .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
+  // v1 limits: by-value parameters, the call's arguments in parameter order,
+  // one bundle parameter of exactly the await's effect type.
+  (n_params : usize) = usize(0);
+  match(
+    get_func_type(cand.func_id.clone()),
+    .Func({ param_types : wpts, meta : wmeta }) => {
+      n_params = wpts.len();
+      (ri : usize) = usize(0);
+      while(ri < wmeta.*.param_is_ref.len(), ri = (ri + usize(1)), {
+        if(match(wmeta.*.param_is_ref.get(ri), .Some(r) => r, .None => false), {
+          return(_fusion_not_lowered(await_expr, String.from("a wrapper parameter is inout"), report));
+        });
+      });
+    },
+    _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no function type"), report))
+  );
+  n_args := match(
+    context.base.get_expr_info(future_arg),
+    .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra.len(), .None => usize(0)),
+    .None => usize(0)
+  );
+  if(n_args != n_params, {
+    return(_fusion_not_lowered(await_expr, `the call passes ${n_args.to_string()} arguments to ${n_params.to_string()} parameters`, report));
+  });
+  slots := match(block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
+  if(slots.len() != usize(1), {
+    return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
+  });
+  bundle_ty := match(slots.get(usize(0)), .Some(sl) => sl.param_type, .None => TypeValue.Unit);
+  effects_ty := match(
+    await_args.get(usize(1)),
+    .Some(ea) => match(context.base.get_expr_info(ea), .Some(eei) => Option(TypeValue).Some(eei.ty), .None => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  if(match(effects_ty, .Some(et) => (type_key(et) != type_key(bundle_ty)), .None => true), {
+    return(_fusion_not_lowered(await_expr, String.from("the await's effect bundle is not the block's parameter type"), report));
+  });
+  Option(FusedAwaitSite).Some(
+    FusedAwaitSite(
+      prefix : `__fz${ast_expr_id(io_call).to_string()}_`,
+      call : future_arg,
+      wrapper_fid : cand.func_id,
+      wrapper_body : wrapper_body,
+      prologue : prologue,
+      io_async_call : io_call,
+      block : block
+    )
+  )
+});
+/// The fused sites of a state machine whose await analysis is `analysis`, one
+/// per wrapper block (the sites of one wrapper share its fields).
+fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
+  out := ArrayList(FusedAwaitSite).new();
+  if(!(_async_fusion_enabled()), {
+    return(out);
+  });
+  seen := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < analysis.await_points.len(), i = (i + usize(1)), {
+    match(
+      analysis.await_points.get(i),
+      .Some(ap) => {
+        exprs := match(
+          ap.base.cond_branch_suspension_exprs,
+          .Some(be) => be,
+          .None => {
+            one := ArrayList(AstExpr).new();
+            one.push(ap.base.expr);
+            one
+          }
+        );
+        (j : usize) = usize(0);
+        while(j < exprs.len(), j = (j + usize(1)), {
+          match(
+            exprs.get(j),
+            .Some(e) => match(
+              fused_await_site(e, false, context),
+              .Some(s) => if(!(seen.contains(s.prefix.clone())), {
+                seen.insert(s.prefix.clone());
+                out.push(s);
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  out
+});
+/// A fused block's local variables: every `Local` of its analysis gets a
+/// field in the caller (no cross-boundary filtering: a field is always
+/// correct), under the stable name the naming registry gives the binding
+/// (`var_<name>_<decl-site hash>`, unique in the program, so it cannot clash
+/// with the caller's own). Every emitter that reads `sm_local_field_name`
+/// then finds it. Returns (variable id, field name, type).
+FusedLocalField :: struct(id : String, field_name : String, ty : TypeValue);
+_fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))({
+  out := ArrayList(FusedLocalField).new();
+  cvs := site.block.analysis.captured_variables;
+  register_sm_captured_names(cvs);
+  (i : usize) = usize(0);
+  while(i < cvs.len(), i = (i + usize(1)), {
+    match(
+      cvs.get(i),
+      .Some(v) => if(match(v.kind, .Local => true, _ => false), {
+        out.push(FusedLocalField(id : v.base.id.to_string(), field_name : sm_local_field_name(v.base.id.to_string()), ty : v.base.ty));
+      }),
+      .None => ()
+    );
+  });
+  out
+});
+/// The fields the fused sites of a state machine add to its struct: each
+/// wrapper block's capture struct, bundle parameter, locals and await results.
+_emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  (si : usize) = usize(0);
+  while(si < sites.len(), si = (si + usize(1)), {
+    match(
+      sites.get(si),
+      .Some(site) => {
+        em.emit_declaration_string_line(`  // fused wrapper block ${site.block.async_block_id.clone()} (await-site fusion)`);
+        match(
+          site.block.capture_type,
+          .Some(ct) => em.emit_declaration_string_line(`  ${_find_capture_type_c_name(ct, context)} ${site.prefix}capture;`),
+          .None => ()
+        );
+        slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
+        (pi : usize) = usize(0);
+        while(pi < slots.len(), pi = (pi + usize(1)), {
+          match(slots.get(pi), .Some(sl) => em.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
+        });
+        lfs := _fused_local_fields(site);
+        (li : usize) = usize(0);
+        while(li < lfs.len(), li = (li + usize(1)), {
+          match(lfs.get(li), .Some(lf) => em.emit_declaration_string_line(`  ${get_type_string(lf.ty, context.base)} ${lf.field_name.clone()};`), .None => ());
+        });
+        saved_prefix := context.fusion_field_prefix;
+        context.fusion_field_prefix = site.prefix.clone();
+        rfs := inline_await_result_fields(site.block.analysis, context);
+        context.fusion_field_prefix = saved_prefix;
+        (ri : usize) = usize(0);
+        while(ri < rfs.len(), ri = (ri + usize(1)), {
+          match(rfs.get(ri), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(rf.ty, context.base)} ${rf.name};  // a fused await's result`), .None => ());
+        });
+      },
+      .None => ()
+    );
+  });
+});
+/// Release what a fused site's fields hold, then zero them: at the site's end,
+/// and in the caller's dispose (a site that is not live has zeroed fields, so
+/// this releases nothing there).
+_emit_fused_site_releases :: (fn(site : FusedAwaitSite, indent : String, zero : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  match(
+    site.block.capture_type,
+    .Some(ct) => {
+      cap_id := match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
+      fields := match(get_struct_fields(cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+      (fi : usize) = usize(0);
+      while(fi < fields.len(), fi = (fi + usize(1)), {
+        match(
+          fields.get(fi),
+          .Some(f) => if(!(f.is_effect_param), {
+            match(_rc_field_drop_line(`sm->${site.prefix}capture.${f.label.clone()}`, f.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
+          }),
+          .None => ()
+        );
+      });
+      // Only a field the dispose would release needs zeroing.
+      if(zero && type_contains_rc_type(ct), {
+        em.emit_string_line(`${indent}memset(&sm->${site.prefix}capture, 0, sizeof(sm->${site.prefix}capture));`);
+      });
+    },
+    .None => ()
+  );
+  lfs := _fused_local_fields(site);
+  (li : usize) = usize(0);
+  while(li < lfs.len(), li = (li + usize(1)), {
+    match(
+      lfs.get(li),
+      .Some(lf) => if(zero, {
+        // The block's own scope-end drops released these; zero the ones the
+        // dispose would release, so it finds nothing left.
+        if(type_contains_rc_type(lf.ty), {
+          em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
+        });
+      }, {
+        match(_rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
+      }),
+      .None => ()
+    );
+  });
+});
+/// The state-machine variables a fused block is emitted with: its locals, its
+/// bundle parameter (the `__closure_param_<i>` convention of the wrapper's own
+/// state machine) and its capture fields, all aliased into the site's fields.
+_fused_sm_variables :: (fn(site : FusedAwaitSite) -> HashMap(String, CapturedVariable))({
+  vars := HashMap(String, CapturedVariable).new();
+  cvs := site.block.analysis.captured_variables;
+  (i : usize) = usize(0);
+  while(i < cvs.len(), i = (i + usize(1)), {
+    match(
+      cvs.get(i),
+      .Some(v) => if(match(v.kind, .Local => true, _ => false), {
+        vars.insert(v.base.id.to_string(), v);
+      }),
+      .None => ()
+    );
+  });
+  slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
+  (pi : usize) = usize(0);
+  while(pi < slots.len(), pi = (pi + usize(1)), {
+    match(
+      slots.get(pi),
+      .Some(sl) => {
+        pid := `__closure_param_${pi.to_string()}`;
+        vars.insert(pid.clone(), _make_sm_captured_variable(pid, sl.param_name.clone(), sl.param_type, CapturedVariableKind.Local));
+      },
+      .None => ()
+    );
+  });
+  match(
+    site.block.capture_type,
+    .Some(ct) => {
+      cap_id := match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
+      fields := match(get_struct_fields(cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+      (fi : usize) = usize(0);
+      while(fi < fields.len(), fi = (fi + usize(1)), {
+        match(
+          fields.get(fi),
+          .Some(f) => {
+            vars.insert(f.label.clone(), _make_sm_captured_variable(f.label.clone(), f.label.clone(), f.ty, CapturedVariableKind.Outer));
+          },
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  vars
+});
+/// The field aliases a fused block is emitted with: only its bundle
+/// parameter's `__closure_param_<i>` onto the site's slot. Its locals need
+/// none (their registry names are the fields), and must have none: an alias
+/// on a local shadows the closure-param preference in the atom emitter, so the
+/// block's `e` (a local AND the parameter in the wrapper's analysis) read an
+/// uninitialized local field instead of the bundle.
+_fused_sm_aliases :: (fn(site : FusedAwaitSite) -> HashMap(String, String))({
+  aliases := HashMap(String, String).new();
+  slots := match(site.block.closure_param_slots, .Some(s) => s, .None => ArrayList(ClosureParamSlot).new());
+  (pi : usize) = usize(0);
+  while(pi < slots.len(), pi = (pi + usize(1)), {
+    aliases.insert(`__closure_param_${pi.to_string()}`, `${site.prefix}param_${pi.to_string()}`);
+  });
+  aliases
+});
+/// The statements of a block expression.
+_fused_statements :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), match(e, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    one := ArrayList(AstExpr).new();
+    one.push(e);
+    one
+  })
+);
+/// Emit the statements of a body at `indent`, returning the tail's value code.
+_emit_fused_statements :: (fn(stmts : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> String)({
+  em := context.base.emitter;
+  (tail : String) = String.from("");
+  (i : usize) = usize(0);
+  while(i < stmts.len(), i = (i + usize(1)), {
+    match(
+      stmts.get(i),
+      .Some(st) => {
+        code := _call_generate_expr(st, indent.clone(), context);
+        if(i == (stmts.len() - usize(1)), {
+          tail = code;
+        }, {
+          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(st), .Some(sei) => is_temp_variable_name(sei.env.module_path, code.clone()), .None => true));
+          if(!(skip), {
+            em.emit_string_line(`${indent}${code};`);
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  tail
+});
+/// Lower `await_expr` as a fused site, or return `.None` to leave it to the
+/// ordinary suspension. Returns the C code of the await's value.
+emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
+  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(Option(String).None));
+  em := context.base.emitter;
+  await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
+  if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
+    tok := ast_expr_token(await_expr);
+    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} fused (block ${site.block.async_block_id})`);
+  });
+  // The await's own result field, under the caller's names.
+  outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(low.analysis, context));
+  // No future is built: the temp the evaluator minted for one holds nothing,
+  // so its scope-end drop is not emitted.
+  match(
+    context.base.get_expr_info(site.call),
+    .Some(fei) => match(
+      fei.variable_name,
+      .Some(fvn) => {
+        low.moved_into_slot.insert(get_variable_name_for_codegen(fvn, Option(Environment).Some(fei.env)));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  em.emit_string_line(`${indent}// fused await (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  // Or a C local, declared outside the site's block, when no suspension
+  // separates the await from its statement's use of the value.
+  (outer_local : String) = String.from("");
+  match(
+    outer_field,
+    .Some(_) => (),
+    .None => match(
+      inline_await_local_result_type(await_expr, low.analysis, context),
+      .Some(rty) => {
+        outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
+        em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${outer_local};`);
+        context.base.declared_c_var_names.insert(outer_local.clone());
+      },
+      .None => ()
+    )
+  );
+  // 1. The call's arguments, evaluated in the caller as the call would.
+  rargs := match(context.base.get_expr_info(site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
+  arg_codes := ArrayList(String).new();
+  (ai : usize) = usize(0);
+  while(ai < rargs.len(), ai = (ai + usize(1)), {
+    match(rargs.get(ai), .Some(a) => arg_codes.push(_call_generate_expr(a, indent.clone(), context)), .None => ());
+  });
+  // 2. The wrapper's parameters, prologue and capture construction, in a C
+  // block of their own (their names are the wrapper's), with no
+  // state-machine variables in scope: they are the wrapper function's locals,
+  // read by their C names as in the wrapper's own function. (An EMPTY map is
+  // not the same: the atom resolver then falls back to the expression's own
+  // temp name, which for the capture literal is the io.async call's.)
+  em.emit_string_line(`${indent}{`);
+  inner := indent.clone();
+  inner.push_str("  ");
+  // The fused nodes are also emitted in the wrapper's own function and state
+  // machine: the per-program sets that stop a temp from being declared, or a
+  // drop from being emitted, twice must not carry over between the two.
+  saved_temps := context.declared_temp_vars;
+  saved_drop_ids := context.emitted_deferred_drop_ids;
+  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
+  context.emitted_deferred_drop_ids = HashSet(usize).new();
+  saved_smv := context.state_machine_variables;
+  saved_aliases := context.state_machine_field_aliases;
+  saved_remap := context.variable_id_remapping;
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
+  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
+  context.variable_id_remapping = Option(HashMap(String, String)).None;
+  match(
+    get_func_type(site.wrapper_fid.clone()),
+    .Func({ param_types : wpts, meta : wmeta }) => {
+      (pi : usize) = usize(0);
+      while(pi < wpts.len(), pi = (pi + usize(1)), {
+        pt := match(wpts.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+        label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
+        cname := sanitize_for_c_identifier(label, false);
+        code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
+        em.emit_string_line(`${inner}${get_variable_type_string(pt, cname.clone(), context.base)} = ${code};`);
+        em.emit_string_line(`${inner}(void)${cname.clone()};`);
+        context.base.declared_c_var_names.insert(cname);
+      });
+    },
+    _ => ()
+  );
+  _emit_fused_statements_no_tail(site.prologue, inner.clone(), context);
+  match(
+    site.block.capture_type,
+    .Some(ct) => {
+      lit := _build_async_capture_struct_literal(site.io_async_call, ArrayList(AstExpr).new(), ct, _find_capture_type_c_name(ct, context), inner.clone(), context);
+      em.emit_string_line(`${inner}sm->${site.prefix}capture = ${lit};`);
+    },
+    .None => ()
+  );
+  // The wrapper returns here: its scope-end drops, through the ordinary
+  // emitter and its gates (a drop of a temp the fused site never declared,
+  // such as the future it does not build, is skipped there).
+  generate_deferred_drop_expressions(site.wrapper_body, inner.clone(), context);
+  context.state_machine_variables = saved_smv;
+  context.state_machine_field_aliases = saved_aliases;
+  context.variable_id_remapping = saved_remap;
+  context.declared_temp_vars = saved_temps;
+  context.emitted_deferred_drop_ids = saved_drop_ids;
+  em.emit_string_line(`${indent}}`);
+  // The call's own drops (its argument temps), as after the call.
+  generate_deferred_drop_expressions(site.call, indent.clone(), context);
+  // 3. The block's bundle is the await's effects, as set_effect would copy it.
+  eff_code := _call_generate_expr(effects_arg, indent.clone(), context);
+  em.emit_string_line(`${indent}sm->${site.prefix}param_0 = ${eff_code};`);
+  // 4. The block, with the wrapper block's names over the site's fields, in a
+  // C block of its own (two sites of one wrapper would declare the same
+  // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
+  // site.
+  em.emit_string_line(`${indent}{`);
+  saved_temps2 := context.declared_temp_vars;
+  saved_drop_ids2 := context.emitted_deferred_drop_ids;
+  context.declared_temp_vars = Option(HashSet(String)).Some(HashSet(String).new());
+  context.emitted_deferred_drop_ids = HashSet(usize).new();
+  saved_slot := context.sm_capture_slot;
+  saved_prefix := context.fusion_field_prefix;
+  saved_analysis := low.analysis;
+  saved_emitted := low.emitted;
+  saved_moved_reads := low.moved_reads;
+  saved_pdd := context.pending_deferred_drops;
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(site));
+  context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(site));
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping);
+  context.sm_capture_slot = `${site.prefix}capture`;
+  context.fusion_field_prefix = site.prefix.clone();
+  low.analysis = site.block.analysis;
+  low.emitted = HashSet(usize).new();
+  low.moved_reads = HashMap(usize, String).new();
+  pdd := match(saved_pdd, .Some(p) => _copy_expr_list(p), .None => ArrayList(AstExpr).new());
+  match(context.base.get_expr_info(site.block.body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => _append_expr_list(pdd, d), .None => ()), .None => ());
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+  tail := _emit_fused_statements(_fused_statements(site.block.body_expr), inner.clone(), context);
+  (out : String) = String.from("");
+  match(
+    outer_field,
+    .Some(rf) => if(tail.len() > usize(0), {
+      em.emit_string_line(`${inner}sm->${rf.name} = ${tail};`);
+      out = `sm->${rf.name}`;
+    }),
+    .None => if((outer_local.len() > usize(0)) && (tail.len() > usize(0)), {
+      em.emit_string_line(`${inner}${outer_local} = ${tail};`);
+      out = outer_local;
+    })
+  );
+  generate_deferred_drop_expressions(site.block.body_expr, inner.clone(), context);
+  _emit_fused_site_releases(site, inner.clone(), true, context);
+  em.emit_string_line(`${indent}}`);
+  context.declared_temp_vars = saved_temps2;
+  context.emitted_deferred_drop_ids = saved_drop_ids2;
+  context.state_machine_variables = saved_smv;
+  context.state_machine_field_aliases = saved_aliases;
+  context.variable_id_remapping = saved_remap;
+  context.sm_capture_slot = saved_slot;
+  context.fusion_field_prefix = saved_prefix;
+  low.analysis = saved_analysis;
+  low.emitted = saved_emitted;
+  low.moved_reads = saved_moved_reads;
+  context.pending_deferred_drops = saved_pdd;
+  Option(String).Some(out)
+});
+/// Emit a statement list whose values are all discarded (a wrapper prologue).
+_emit_fused_statements_no_tail :: (fn(stmts : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  (i : usize) = usize(0);
+  while(i < stmts.len(), i = (i + usize(1)), {
+    match(
+      stmts.get(i),
+      .Some(st) => {
+        code := _call_generate_expr(st, indent.clone(), context);
+        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(st), .Some(sei) => is_temp_variable_name(sei.env.module_path, code.clone()), .None => true));
+        if(!(skip), {
+          em.emit_string_line(`${indent}${code};`);
+        });
+      },
+      .None => ()
+    );
+  });
+});
+_copy_expr_list :: (fn(src : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  _append_expr_list(out, src);
+  out
+});
+_append_expr_list :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < src.len(), i = (i + usize(1)), {
+    match(src.get(i), .Some(e) => dst.push(e), .None => ());
+  });
 });
 /// The await analysis for an io.async call's closure, looked up via the closure's
 /// func_id in the `g_closure_await_analysis` side-table (the evaluator records it
@@ -1977,7 +2569,8 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     result_type_c_name : result_type_c_name.clone(),
     capture_type : fsm_capture_type,
     analysis : analysis_kinded,
-    closure_param_slots : closure_param_slots_opt
+    closure_param_slots : closure_param_slots_opt,
+    source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
   );
   match(
     context.deferred_async_blocks,
@@ -3095,5 +3688,9 @@ export(
   preregister_async_blocks_in_expr,
   preregister_async_block_types,
   generate_io_async_sync_call,
-  io_async_await_analysis
+  io_async_await_analysis,
+  FusedAwaitSite,
+  fused_await_site,
+  fused_await_sites,
+  emit_fused_await
 );

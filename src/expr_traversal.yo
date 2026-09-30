@@ -18,11 +18,15 @@
 //! (macro expansions, io-builtin markers) is not reachable from a raw
 //! `AstExpr` and is not consulted.
 pragma(Pragma.AllowUnsafe);
-import("std/string");
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
   ast_expr_id,
+  ast_expr_token,
+  ast_expr_is_atom,
+  ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   is_function_boundary_arrow,
   make_err_expr,
@@ -35,6 +39,7 @@ import("std/string");
   BK_WHILE
 } :: import("./expr.yo");
 { lookup_macro_expansion } :: import("./expr_info.yo");
+{ codegen_tables_enabled } :: import("./utils.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
@@ -535,11 +540,247 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
     }
   )
 );
+// ---- Await-site fusion, F1 (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md) ----------
+// An immediately awaited call whose callee is a single-await `io.async`
+// wrapper (`TcpStream.read`, `File.write`, ...) can run in its caller's frame
+// instead of as a state machine of its own. F1 only decides and records it:
+// the evaluator sees the callee's body at the call (`_evaluate_funcval_runtime_call`),
+// and codegen reports the verdict at each await under `YO_DEBUG_FUSION`.
+/// The statements of a block (`begin(...)`), or the expression itself.
+_fusion_statements :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), {
+    return(match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new()));
+  });
+  one := ArrayList(AstExpr).new();
+  one.push(e);
+  one
+});
+/// Is `aw` an await whose own arguments do not await?
+_fusion_is_flat_await :: (fn(aw : AstExpr) -> bool)(
+  if(
+    is_io_await_call(aw),
+    match(
+      aw,
+      .FnCall(_, _, args, _, _) => {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          if(match(args.get(i), .Some(a) => expr_contains_await(a), .None => false), {
+            return(false);
+          });
+          i = (i + usize(1));
+        });
+        true
+      },
+      _ => false
+    ),
+    false
+  )
+);
+/// Is `stmt` an await in statement position: the await itself, or a binding
+/// whose whole right-hand side is the await (`r := e.io.await(...)`,
+/// `(r : T) = e.io.await(...)`), with no other await inside it?
+_fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)(
+  match(
+    stmt,
+    .FnCall(_, f, args, _, _) => if(
+      (ast_expr_is_atom_of(f, ":=") || ast_expr_is_atom_of(f, "=")) && (args.len() == usize(2)),
+      match(args.get(usize(1)), .Some(rhs) => _fusion_is_flat_await(rhs), .None => false),
+      _fusion_is_flat_await(stmt)
+    ),
+    _ => false
+  )
+);
+/// Does `e` contain a function or closure literal whose body names `name`?
+/// A `cond`/`match` arm's `=>` is not a closure: its parts are walked at the
+/// current depth, as `expr_contains_await` does.
+_fusion_closure_mentions :: (fn(e : AstExpr, name : String, inside_closure : bool) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (inside_closure && (tok.value == name)),
+    .FnCall(_, f, args, _, _) => {
+      is_cond_or_match := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
+      nested := (inside_closure || (!is_cond_or_match && is_function_boundary_arrow(e)));
+      if(recur(f, name, nested), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        // An arm `pattern => body`: walk its parts, not the arrow itself.
+        found := if(
+          is_cond_or_match && ast_expr_is_fn_call_of(arg, "=>", .None),
+          match(
+            arg,
+            .FnCall(_, _, arm_parts, _, _) => {
+              (j : usize) = usize(0);
+              (hit : bool) = false;
+              while((j < arm_parts.len()) && !hit, {
+                hit = match(arm_parts.get(j), .Some(ap) => recur(ap, name, nested), .None => false);
+                j = (j + usize(1));
+              });
+              hit
+            },
+            _ => false
+          ),
+          recur(arg, name, nested)
+        );
+        if(found, {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+/// The name a closure's single parameter binds: `e` for `e => ...` and for
+/// `(e : T) => ...`; empty for any other shape.
+_fusion_param_name :: (fn(pa : AstExpr) -> String)(
+  cond(
+    ast_expr_is_atom(pa) => ast_expr_token(pa).value.clone(),
+    ast_expr_is_fn_call_of(pa, ":", .None) => match(
+      pa,
+      .FnCall(_, _, pargs, _, _) => match(
+        pargs.get(usize(0)),
+        .Some(pn) => if(ast_expr_is_atom(pn), ast_expr_token(pn).value.clone(), String.from("")),
+        .None => String.from("")
+      ),
+      _ => String.from("")
+    ),
+    true => String.from("")
+  )
+);
+/// Why a function body is or is not a fusable single-await `io.async`
+/// wrapper (the plan's §3.1 rules that can be read off the AST). `.None`:
+/// the body does not end in `io.async` at all, so it is no wrapper and gets
+/// no record. `.Some("")`: fusable. Otherwise `.Some(the rule that rejects it)`.
+async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
+  stmts := _fusion_statements(body);
+  if(stmts.len() == usize(0), {
+    return(Option(String).None);
+  });
+  last := match(stmts.get(stmts.len() - usize(1)), .Some(l) => l, .None => return(Option(String).None));
+  if(!is_io_async_call(last), {
+    return(Option(String).None);
+  });
+  (i : usize) = usize(0);
+  while(i < (stmts.len() - usize(1)), {
+    if(match(stmts.get(i), .Some(st) => expr_contains_await(st), .None => false), {
+      return(Option(String).Some(String.from("the prologue before io.async awaits")));
+    });
+    // A prologue `return` leaves the wrapper before its future exists; fused,
+    // it would leave the caller.
+    if(match(stmts.get(i), .Some(st) => expr_tree_contains_return(st), .None => false), {
+      return(Option(String).Some(String.from("the prologue returns or unwinds")));
+    });
+    i = (i + usize(1));
+  });
+  closure := match(last, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(c) => c, .None => return(Option(String).Some(String.from("io.async has no argument")))), _ => return(Option(String).None));
+  (param_name : String) = String.from("");
+  block := match(
+    closure,
+    .FnCall(_, f, cargs, _, _) => if(ast_expr_is_atom_of(f, "=>") && (cargs.len() == usize(2)), {
+      match(
+        cargs.get(usize(0)),
+        .Some(pa) => {
+          param_name = _fusion_param_name(pa);
+        },
+        .None => ()
+      );
+      match(cargs.get(usize(1)), .Some(b) => b, .None => return(Option(String).Some(String.from("the io.async closure has no body"))))
+    }, return(Option(String).Some(String.from("the io.async argument is not an `e => { ... }` literal")))),
+    _ => return(Option(String).Some(String.from("the io.async argument is not a closure literal")))
+  );
+  bstmts := _fusion_statements(block);
+  (awaits : usize) = usize(0);
+  (top_level : bool) = true;
+  (j : usize) = usize(0);
+  while(j < bstmts.len(), {
+    match(
+      bstmts.get(j),
+      .Some(st) => if(expr_contains_await(st), {
+        awaits = (awaits + usize(1));
+        if(!_fusion_is_top_level_await(st), {
+          top_level = false;
+        });
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  if(awaits == usize(0), {
+    return(Option(String).Some(String.from("the io.async block does not await")));
+  });
+  if(awaits > usize(1), {
+    return(Option(String).Some(`the io.async block has ${awaits.to_string()} awaiting statements`));
+  });
+  if(!top_level, {
+    return(Option(String).Some(String.from("the await is not a top-level statement of the block")));
+  });
+  // F2 v1: a `return` / `unwind` in the block would leave the CALLER once
+  // the block runs in its frame (§3.1 rule 6's exit label is a follow-up).
+  if(expr_tree_contains_return(block), {
+    return(Option(String).Some(String.from("the block returns or unwinds early")));
+  });
+  if(param_name.len() == usize(0), {
+    return(Option(String).Some(String.from("the io.async closure's parameter is not a plain name")));
+  });
+  if(_fusion_closure_mentions(block, param_name.clone(), false), {
+    return(Option(String).Some(String.from("the block captures its effect bundle in a closure")));
+  });
+  Option(String).Some(String.from(""))
+});
+/// A recorded fusion candidate: the callee's func_id, where its body is (for
+/// reports: a func_id hashes the module path), and its verdict (empty:
+/// fusable).
+FusionCandidate :: struct(func_id : String, callee_at : String, verdict : String);
+// Call expression id -> callee func_id, and func_id -> candidate (`.None`:
+// the callee is no `io.async` wrapper), computed once per function.
+(g_fusion_callee_of_call : HashMap(String, String)) = HashMap(String, String).new();
+(g_fusion_candidate_of_fn : HashMap(String, Option(FusionCandidate))) = HashMap(String, Option(FusionCandidate)).new();
+/// Record that `call` invokes the function `func_id` with body `body`, when
+/// that body is an `io.async` wrapper. Called by the evaluator at the call.
+record_await_fusion_candidate :: (fn(call : AstExpr, func_id : String, body : AstExpr) -> unit)({
+  if(!codegen_tables_enabled(), {
+    return(());
+  });
+  if(!g_fusion_candidate_of_fn.contains_key(func_id.clone()), {
+    tok := ast_expr_token(body);
+    g_fusion_candidate_of_fn.insert(
+      func_id.clone(),
+      match(
+        async_wrapper_fusion_verdict(body),
+        .Some(v) => Option(FusionCandidate).Some(
+          FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v)
+        ),
+        .None => Option(FusionCandidate).None
+      )
+    );
+  });
+  // Only a wrapper's calls are recorded: every other call would grow the
+  // table for nothing.
+  if(match(g_fusion_candidate_of_fn.get(func_id.clone()), .Some(c) => c.is_some(), .None => false), {
+    g_fusion_callee_of_call.insert(ast_expr_id(call).to_string(), func_id);
+  });
+});
+/// The recorded candidate for `call`, if its callee is an `io.async` wrapper.
+await_fusion_candidate :: (fn(call : AstExpr) -> Option(FusionCandidate))(
+  match(
+    g_fusion_callee_of_call.get(ast_expr_id(call).to_string()),
+    .Some(fid) => match(g_fusion_candidate_of_fn.get(fid), .Some(c) => c, .None => Option(FusionCandidate).None),
+    .None => Option(FusionCandidate).None
+  )
+);
 export(
   evaluated_body_contains_unwind,
   expr_tree_contains_return,
   expr_contains_loop_terminator,
   expr_contains_await,
   expr_contains_while_with_await,
-  all_paths_unwind
+  all_paths_unwind,
+  // Await-site fusion, F1
+  FusionCandidate,
+  async_wrapper_fusion_verdict,
+  record_await_fusion_candidate,
+  await_fusion_candidate
 );
