@@ -367,6 +367,77 @@ is emitted by the same function, keyed by (node id, site) (§2.1). Exit:
 - `yo.c` size and the compiler's own `check ./src` time recorded, since fusion
   duplicates tails per site. Both must not grow by more than 2%.
 
+**Status (2026-09-30): implemented behind `YO_ASYNC_FUSION=1`, differential
+run pending.** `emit_fused_await` and its helpers are in
+`src/codegen/exprs/async.yo`, reached from `emit_inline_await` through a
+registered hook (`src/codegen/async/_fsm.yo`).
+
+How a fused site lowers, as built:
+
+- **Wrapper prologue, in a C block of its own.** The wrapper's parameters are
+  declared from the call's arguments (evaluated in the caller) and its
+  prologue runs as C locals, with no state-machine map. The capture struct is
+  built by the ordinary literal, including its retains, into
+  `sm-><prefix>capture`. The wrapper's scope-end drops then go through
+  `generate_deferred_drop_expressions`.
+- **The block.** The bundle is stored into `<prefix>param_0`. The block runs
+  in a second C block with the wrapper block's variable map swapped in:
+  - locals keep the naming registry's per-binding names, which are unique in
+    the program, so they cannot clash with the caller's;
+  - only `__closure_param_0` is aliased;
+  - `sm_capture_slot` is the site's capture;
+  - `fusion_field_prefix` names its await results;
+  - `low.emitted` and `low.moved_reads` are fresh for the site.
+- **Per-program sets.** The sets that stop a temp from being declared, or a
+  drop from being emitted, twice (`declared_temp_vars`,
+  `emitted_deferred_drop_ids`) are fresh while fused nodes are emitted. The
+  same nodes are emitted again in the wrapper's own state machine.
+- **End of the site.** The tail is stored into the outer await's result
+  field. The block's drops follow, then the site's capture is released and
+  zeroed. The caller's dispose releases the fields of a site that was live
+  when the task died.
+- **Scope.** Fields are per wrapper block, shared by that wrapper's sites in
+  one caller. Nested fusion is off (F3).
+
+Bugs found and fixed on the way, each with the emitted C that showed it:
+
+- The prologue's empty-but-present map resolved every capture field to the
+  `io.async` call's temp.
+- A temp was declared once for two emissions (the per-program set).
+- The wrapper's future temp drop was left undeclared.
+- Temp stores went through `sm_local_field_name` past the alias map. That is
+  why locals take registry names.
+- An alias on the local `e` shadowed the closure-param preference, and a throw
+  from a fused tail read an unset field (SIGSEGV).
+- A nested site used fields its caller's struct lacked.
+
+Measured so far, with the lowering on:
+
+- `tests/async/fusion.test.yo` 8/8 (off 8/8). It covers the value, a throw to
+  the caller and two frames up, effect order, repeated and looped sites, a
+  `cond` arm, a bound future, and abort at a fused await.
+- Every file under `tests/fs` (99 tests) and `tests/process` (17).
+- `tests/net` except one udp test that fails the same way with the lowering
+  off on this base (phase 5 without #988), and passes on develop.
+- `tests/sys/tcp`.
+
+The std-vs-raw benchmark on the #1002 base, five-run means (the base's
+runtime predates #988, so the wrapper share is smaller than §1.1's):
+
+| Row | raw | std, off | std, on |
+| --- | ---: | ---: | ---: |
+| 8-connection ping-pong (ns per round trip) | 4,314 | 4,368 | 4,294 |
+| inline send (ns per op) | 1,378 | 1,419 | 1,391 |
+
+Ping-pong is at raw, inside the 2% exit. Inline send is 13 ns an op over raw
+against the 5 ns exit; the remaining cost is not yet accounted for. Still to
+do:
+
+- the full differential (fast suite and `gates_fast.sh` with the lowering on,
+  the fixpoint included);
+- the `yo.c` size and `check ./src` numbers;
+- then the default flips on, with `YO_ASYNC_FUSION=0` as the switch.
+
 ### F3: nested fusion
 
 Rule 3.1's depth-4 recursion (`TlsStream` over `TcpStream`, `BufReader`
