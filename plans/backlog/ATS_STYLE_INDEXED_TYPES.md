@@ -66,7 +66,7 @@ The two facts that matter for the comparison:
 | `generic(N : usize)` as a length binder in parameters and result, `-> Array(u8, N)` | works (`tests/array.test.yo`) |
 | `-> Array(u8, T.BYTES)` (a bare associated-constant projection) | works since 2026-09-16 (`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2) |
 | a COMPUTED length mentioning a binder, `-> Array(u8, N + usize(1))` | **rejected**: "Array length is not a compile-time constant, a bare generic parameter, or an associated constant" (`src/evaluator/types/array.yo`) |
-| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
+| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
 | `where(N > usize(0))` | rejected: `where` takes only `T <: Trait` forms |
 | the index language | none: a length is a literal, a bare binder, or a bare projection; there is no symbolic arithmetic and no normalization, and none is needed because every length is concrete by the time a body is evaluated (Zig model) |
 
@@ -289,7 +289,7 @@ and it is what keeps unification free of arithmetic (§4 reason 3).
    parameter-position rejection, `N + M` with the two binders bound by two
    arguments.
 
-Depends on: `issues/a-usize-generic-binder-rebinds-per-argument.md` being
+Depends on: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` being
 fixed first (the "second concrete binding disagrees" check for value
 binders — a computed result length built on a rebinding binder would
 silently size a buffer by the wrong argument), and on the soundness

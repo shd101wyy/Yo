@@ -4,9 +4,9 @@
 
 **Found:** 2026-09-30, while auditing comptime-indexed types for
 `plans/INDEXED_TYPES_ATS_LESSONS.md` (develop `df3798c4a`, seed v0.2.46).
-**Status:** open. The fix belongs next to the Phase-2.4 type-variable check
-(`issues/fixed/generic-type-var-rebinds-per-argument.md`), extended to value
-binders; the soundness campaign (`plans/TYPE_SYSTEM_SOUNDNESS.md`) owns it.
+**Status:** FIXED 2026-09-30 (branch `fix/usize-binder-rebinds`), next to the
+Phase-2.4 type-variable check (`issues/fixed/generic-type-var-rebinds-per-argument.md`),
+extended to value binders.
 
 ## Repro
 
@@ -52,9 +52,30 @@ trips the safe-mode array guard at run time (`plans/SAFE_MODE.md`) rather
 than reading out of bounds. A body that only reads `N` (`n_of`) returns a
 value that is not the length of one of its arguments.
 
+## Fix (2026-09-30)
+
+Both per-call binding checks read a value binder's `IntLit` binding next to
+the type binding and reject a second, different length with the same E0601
+family as the type-variable twin:
+
+- `src/evaluator/calls/helper.yo`: `_check_forall_bindings_after_arg` (the
+  named-fn / fn-value call path) via `_forall_len_binding_now`;
+  `ForallBindingSeen` carries `len_value`.
+- `src/evaluator/calls/function.yo`: the structural-inference scratch loop
+  (the inline FuncVal path) via `_scratch_len_binding` and
+  `_forall_len_conflict_message`, with `se_seen_lens` beside the seen types.
+
+Measured with a tree build: the repro's `n_of(x, y)` is now
+
+```
+error[E0601]: Incompatible types for generic parameter "N": it is length 2 from argument 1 but length 3 from argument 2. Every mention of a generic parameter in one call stands for one value.
+```
+
+and the fn-value spelling (`f := n_of; f(x, y)`) reports the same through the
+other path, naming the parameters `(a)` / `(b)`. Equal lengths still bind.
+
 ## Regression test
 
-Per `tests/type_soundness.test.yo`'s convention the `comptime_expect_error`
-case is added in the PR that fixes the issue (the ratchet file stays green);
-the case to add is the two `n_of` calls above expecting
-`Incompatible types for generic parameter`.
+`tests/type_soundness.test.yo`: "soundness: two arguments cannot bind one
+length parameter to two lengths" (both orders) plus an equal-lengths canary
+in the agreeing-arguments test.
