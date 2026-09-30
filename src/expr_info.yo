@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, get_variables_from_env, HUSK_MARK, husk_read, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, new_frame, get_variables_from_env, HUSK_MARK, husk_read, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1018,6 +1018,10 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
 );
 // ── scratch prototype (plans/CODEGEN_MEMORY_REDUCTION.md §6, "what would work") ──
 (g_scope_husk_on : bool) = debug_knob(`YO_PROTO_SCOPE_HUSK`).is_some();
+(g_renv_on : bool) = debug_knob(`YO_PROTO_SCOPE_RENV`).is_some();
+(g_renv_intern : HashMap(String, Environment)) = HashMap(String, Environment).new();
+(g_renv_built : usize) = usize(0);
+(g_renv_kept : usize) = usize(0);
 (g_sv_same : usize) = usize(0);
 (g_sv_diff : usize) = usize(0);
 (g_sv_multi : usize) = usize(0);
@@ -1038,6 +1042,129 @@ scope_husk_set_depth :: (fn(d : usize) -> unit)({
 scope_husk_on :: (fn() -> bool)(g_scope_husk_on);
 scope_husk_mark :: (fn() -> usize)(g_scope_infos.len());
 /// Point every ExprInfo recorded since `mark` at a frameless per-module env.
+// Record envs (plans/CODEGEN_MEMORY_REDUCTION.md §6): a released ExprInfo's
+// env becomes its OUTER frames (alive regardless) plus one frame holding the
+// local Variables its group of ExprInfos asks for, shared by content.
+_renv_names_of :: (fn(info : ExprInfo, names : ArrayList(String)) -> unit)({
+  match(info.source_variable, .Some(sv) => names.push(sv.name.clone()), .None => ());
+  match(info.variable_name, .Some(vn) => names.push(vn.clone()), .None => ());
+  _renv_list_names(info.deferred_drop_expressions, names);
+  _renv_list_names(expr_info_deferred_dup_expressions(info), names);
+});
+_renv_list_names :: (fn(lst : Option(ArrayList(AstExpr)), names : ArrayList(String)) -> unit)(
+  match(
+    lst,
+    .Some(l) => {
+      (k : usize) = usize(0);
+      while(k < l.len(), {
+        match(l.get(k), .Some(d) => match(d, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a0) => match(a0, .Atom(_, tok) => names.push(tok.value.clone()), _ => ()), .None => ()), _ => ()), .None => ());
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+/// The record env for `env` and the names its ExprInfos ask for, or `env`
+/// itself when it has no local frames.
+_renv_for :: (fn(env : Environment, names : ArrayList(String), k : usize, boundary_frame_id : usize) -> Environment)({
+  if((k == usize(0)) || (k >= env.frames.len()), {
+    return(env);
+  });
+  // Only an env that extends the body's entry env (same frame at the
+  // boundary) has its local frames past `k`.
+  if(env.frames.get(k - usize(1)).unwrap().id != boundary_frame_id, {
+    return(env);
+  });
+  local := Environment(frames : ArrayList(Frame).new(), module_path : env.module_path.clone(), function_declaration_frame_level : Option(usize).None, input_string : env.input_string.clone(), frozen : false);
+  (fi : usize) = k;
+  while(fi < env.frames.len(), {
+    local.frames.push(env.frames.get(fi).unwrap());
+    fi = (fi + usize(1));
+  });
+  keep := ArrayList(Variable).new();
+  seen := HashMap(usize, bool).new();
+  key := env.module_path.clone();
+  (oi : usize) = usize(0);
+  while(oi < k, {
+    key.push_str("/");
+    key.push_string(env.frames.get(oi).unwrap().id.to_string());
+    oi = (oi + usize(1));
+  });
+  key.push_str("|");
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    vs := get_variables_from_env(local, names.get(ni).unwrap());
+    (vi : usize) = usize(0);
+    while(vi < vs.len(), {
+      v := vs.get(vi).unwrap();
+      if(!(seen.contains_key(v.id)), {
+        seen.insert(v.id, true);
+        keep.push(v);
+        key.push_str(",");
+        key.push_string(v.id.to_string());
+      });
+      vi = (vi + usize(1));
+    });
+    ni = (ni + usize(1));
+  });
+  match(
+    g_renv_intern.get(key.clone()),
+    .Some(r) => r,
+    .None => {
+      fr := ArrayList(Frame).with_capacity(k + usize(1));
+      (ci : usize) = usize(0);
+      while(ci < k, {
+        fr.push(env.frames.get(ci).unwrap());
+        ci = (ci + usize(1));
+      });
+      rec := new_frame(false);
+      (ki : usize) = usize(0);
+      while(ki < keep.len(), {
+        rec.variables.push(keep.get(ki).unwrap());
+        ki = (ki + usize(1));
+      });
+      fr.push(rec);
+      r := Environment(frames : fr, module_path : env.module_path.clone(), function_declaration_frame_level : env.function_declaration_frame_level, input_string : env.input_string.clone(), frozen : true);
+      g_renv_intern.insert(key, r);
+      g_renv_built = (g_renv_built + usize(1));
+      r
+    }
+  )
+});
+/// Replace the envs of `infos[mark..]` by record envs, one per run of
+/// ExprInfos that share an env.
+_renv_release :: (fn(mark : usize, k : usize, boundary_frame_id : usize) -> unit)({
+  (i : usize) = mark;
+  n := g_scope_infos.len();
+  while(i < n, {
+    first := g_scope_infos.get(i).unwrap();
+    genv := first.env;
+    (j : usize) = i;
+    names := ArrayList(String).new();
+    while((j < n) && unsafe(__yo_ptr_eq(g_scope_infos.get(j).unwrap().env, genv)), {
+      _renv_names_of(g_scope_infos.get(j).unwrap(), names);
+      j = (j + usize(1));
+    });
+    r := _renv_for(genv, names, k, boundary_frame_id);
+    if(unsafe(__yo_ptr_eq(r, genv)), {
+      g_renv_kept = (g_renv_kept + (j - i));
+    });
+    (m : usize) = i;
+    while(m < j, {
+      g_scope_infos.get(m).unwrap().env = r;
+      m = (m + usize(1));
+    });
+    g_scope_husked = (g_scope_husked + (j - i));
+    i = j;
+  });
+  g_scope_infos.truncate(mark);
+});
+scope_renv_stats :: (fn() -> String)(`renv_built=${g_renv_built.to_string()} renv_interned=${g_renv_intern.len().to_string()} renv_kept=${g_renv_kept.to_string()}`);
+export(scope_renv_stats);
+scope_husk_release_at :: (fn(mark : usize, k : usize, boundary_frame_id : usize) -> unit)(
+  if(g_renv_on, _renv_release(mark, k, boundary_frame_id), scope_husk_release(mark))
+);
+export(scope_husk_release_at);
 scope_husk_release :: (fn(mark : usize) -> unit)({
   (i : usize) = mark;
   while(i < g_scope_infos.len(), {
