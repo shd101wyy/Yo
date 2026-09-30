@@ -2,7 +2,9 @@
 
 **Severity:** S1 — until the flip, a statement-level (fire-and-forget) `io.spawn` leaks its state machine again, and a JoinHandle must be awaited at most once
 
-**Status:** OPEN — tracker for a two-step landing forced by the seed gate.
+**Status:** FIXED (2026-09-30) — step 2 landed. The v0.2.46 seed carries step 1 (#996 is an
+ancestor of `v0.2.46`, and `SEED_VERSION` in the workflows is `v0.2.46`), so it lowers the owning
+form; a seed-built compiler against the owning std builds and runs the detach test.
 **Found:** 2026-09-29. develop `c52ce152c` (#991) and `34c51c895` could not be built by the
 v0.2.45 seed: every CI battery failed at "Build stage 1 once (seed `yo build`)" (runs
 36480349988, 36486077485), and so did every PR based on develop, #992 included.
@@ -35,10 +37,10 @@ cannot build (the release workflow builds with the seed too).
   reference, `JoinHandle.await` releases it after reading the result).
 - `__yo_join_handle_release_raw` stays in the runtime (`runtime_core.yo`) for step 2.
 
-Consequence until step 2: the leak in `issues/statement-level-io-spawn-leaks-the-state-machine.md`
+Consequence until step 2: the leak in `issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md`
 is back (the evaluator names every value, so a discarded spawn still takes a reference nothing
 releases), a handle awaited twice reads freed memory, and a dropped un-awaited bound handle leaks
-its task. The detach test is parked as `issues/repros/statement-level-spawn-detaches-the-task.yo`.
+its task. The detach test was parked under `issues/repros/` until step 2 restored it to the suite.
 
 ## Step 2 (after a release carries step 1)
 
@@ -48,3 +50,15 @@ its task. The detach test is parked as `issues/repros/statement-level-spawn-deta
 3. Delete the value branch of both lowerings.
 4. Move the parked repro back into `tests/async/sm_protocol.test.yo` ("a statement-level spawn
    detaches the task, which frees itself") and close this doc and the leak doc.
+
+## Step 2 (landed 2026-09-30)
+
+1. `SEED_VERSION` was already `v0.2.46`, which carries step 1.
+2. std's `JoinHandle` is the `ref` struct with #991's `Dispose` (`std/prelude.yo`).
+3. The value branches of `_generate_io_spawn` (`src/codegen/exprs/generation.yo`) and
+   `generate_join_handle_await` (`src/codegen/exprs/await.yo`) are deleted.
+4. `tests/async/sm_protocol.test.yo` has the detach test back, and a new one: "a JoinHandle
+   awaited twice reads the same result". The leak doc is closed.
+
+The handle's extra allocation per spawn is tracked in
+`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`.

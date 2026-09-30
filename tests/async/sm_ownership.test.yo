@@ -500,3 +500,274 @@ test("an arm that moves its payload into a thrown dyn: the aborted task releases
   assert(rc(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
   assert(g_disposed == i32(0), "keep is still alive");
 });
+
+// issues/fixed/a-break-or-continue-in-an-io-async-loop-never-releases-its-slot-locals.md
+_break_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (k : i32) = i32(0);
+    while(runtime(true), {
+      t := Thing(n : k);
+      e.await(yield(e), e);
+      k = (t.n + i32(1));
+      cond(
+        (k >= i32(3)) => {
+          break;
+        },
+        true => ()
+      );
+    });
+    k
+  })
+);
+test("a break out of an awaiting while releases the iteration's slot local", {
+  before := g_disposed;
+  r := io.await(_break_slot_local(io), io);
+  assert(r == i32(3), "the loop's value");
+  assert((g_disposed - before) == i32(3), `each iteration's Thing was released once, released ${g_disposed - before}`);
+});
+_continue_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (k : i32) = i32(0);
+    (sum : i32) = i32(0);
+    while(runtime(k < i32(6)), {
+      k = (k + i32(1));
+      t := Thing(n : k);
+      e.await(yield(e), e);
+      cond(
+        ((t.n % i32(2)) == i32(0)) => {
+          continue;
+        },
+        true => ()
+      );
+      sum = (sum + t.n);
+    });
+    sum
+  })
+);
+test("a continue in an awaiting while releases the iteration's slot local", {
+  before := g_disposed;
+  r := io.await(_continue_slot_local(io), io);
+  assert(r == i32(9), "the sum of the odd iterations");
+  assert((g_disposed - before) == i32(6), `each iteration's Thing was released once, released ${g_disposed - before}`);
+});
+// issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md
+_take_n :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    t.n
+  })
+);
+_arg_dup_in_task :: (fn(keep : ArrayList(Thing), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    x := e.await(_take_n(keep(usize(0)), e), e);
+    x
+  })
+);
+test("an argument read out of a container inside a task is released", {
+  before := g_disposed;
+  {
+    keep := ArrayList(Thing).new();
+    keep.push(Thing(n : i32(7)));
+    r := io.await(_arg_dup_in_task(keep, io), io);
+    assert(r == i32(7), "the task's value");
+  };
+  assert((g_disposed - before) == i32(1), `the Thing was released with its list, released ${g_disposed - before}`);
+});
+// issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md
+_early_return_slot_local :: (fn(early : bool, io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(1));
+    e.await(yield(e), e);
+    if(early, {
+      return(Thing(n : i32(2)));
+    });
+    t
+  })
+);
+test("an early return releases the slot local the tail would have moved", {
+  before := g_disposed;
+  {
+    a := io.await(_early_return_slot_local(true, io), io);
+    assert(a.n == i32(2), "the early value");
+    b := io.await(_early_return_slot_local(false, io), io);
+    assert(b.n == i32(1), "the tail value");
+  };
+  assert((g_disposed - before) == i32(3), `every Thing was released once, released ${g_disposed - before}`);
+});
+// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md
+_bound_then_moved :: (fn(bad : bool, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => {
+    r := cond(
+      bad => Result(String, String).Err(String.from("bad input")),
+      true => Result(String, String).Ok(String.from("fine"))
+    );
+    match(
+      r,
+      .Err(msg) => {
+        e.io.await(yield(e.io), e.io);
+        e.exn.throw(dyn(msg))
+      },
+      .Ok(v) => .Some(v)
+    )
+  })
+);
+_catch_bound_then_moved :: (fn(io : Io) -> String)({
+  exn := Exception(throw : (err -> unwind(err.to_string())));
+  _r := io.await(_bound_then_moved(true, io), IoExn(io : io, exn : exn));
+  String.from("not reached")
+});
+test("a pattern binding moved after an await in its arm is released once", {
+  assert(_catch_bound_then_moved(io) == `bad input`, "the thrown binding reached the handler");
+});
+// issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md
+_run_now :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
+_closure_arg_in_sync_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(4));
+    _run_now(() => t.n)
+  })
+);
+_closure_arg_in_awaiting_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(6));
+    e.await(yield(e), e);
+    _run_now(() => t.n)
+  })
+);
+test("a closure literal passed as an argument inside a task releases its captures", {
+  before := g_disposed;
+  a := io.await(_closure_arg_in_sync_task(io), io);
+  b := io.await(_closure_arg_in_awaiting_task(io), io);
+  assert((a + b) == i32(10), "both closures read their capture");
+  assert((g_disposed - before) == i32(2), `each captured Thing was released once, released ${g_disposed - before}`);
+});
+// issues/fixed/a-spawned-futures-temp-across-an-await-never-releases-its-creation-reference.md
+_spawn_leaf :: (fn(io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    Thing(n : i32(1))
+  })
+);
+_spawn_across_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    h := e.spawn(_spawn_leaf(e), e);
+    e.await(yield(e), e);
+    match(h.await(e), .Some(t) => t.n, .None => i32(-1))
+  })
+);
+test("a spawned future's temp that crosses an await is released", {
+  before := g_disposed;
+  r := io.await(_spawn_across_await(io), io);
+  assert(r == i32(1), "the spawned task's value");
+  assert((g_disposed - before) == i32(1), `the spawned task's result was released once, released ${g_disposed - before}`);
+});
+// issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md
+_MvReport :: struct(items : ArrayList(Thing), n : usize, extra : i32);
+_count_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    i32(3)
+  })
+);
+_move_then_read :: (fn(io : Io) -> Impl(Future(_MvReport, Io)))(
+  io.async((e : Io) => {
+    xs := ArrayList(Thing).new();
+    xs.push(Thing(n : i32(1)));
+    xs.push(Thing(n : i32(2)));
+    e.await(yield(e), e);
+    _MvReport(items : xs, n : xs.len(), extra : e.await(_count_later(e), e))
+  })
+);
+test("a later argument of the consuming call still reads a moved slot local", {
+  before := g_disposed;
+  {
+    r := io.await(_move_then_read(io), io);
+    assert((r.n == usize(2)) && (r.items.len() == usize(2)), "the length read after the move");
+    assert(r.extra == i32(3), "an await in a later argument");
+  };
+  assert((g_disposed - before) == i32(2), `each item was released once, released ${g_disposed - before}`);
+});
+// issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md
+_bumped :: (fn(t : Thing, io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    Thing(n : (t.n + i32(1)))
+  })
+);
+_rebind_then_read :: (fn(bump : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(1));
+    e.await(yield(e), e);
+    (cur : Thing) = t;
+    if(bump, {
+      b := e.await(_bumped(t, e), e);
+      cur = b;
+    });
+    cur.n
+  })
+);
+test("a local moved to another name inside a task is still readable", {
+  before := g_disposed;
+  {
+    r := io.await(_rebind_then_read(true, io), io);
+    assert(r == i32(2), "the moved-from name read its value");
+  };
+  assert((g_disposed - before) == i32(2), `both Things released once, released ${g_disposed - before}`);
+  before2 := g_disposed;
+  {
+    r2 := io.await(_rebind_then_read(false, io), io);
+    assert(r2 == i32(1), "the new owner holds the value");
+  };
+  assert((g_disposed - before2) == i32(1), `the Thing released once, released ${g_disposed - before2}`);
+});
+_rebind_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(5));
+    e.await(yield(e), e);
+    (cur : Thing) = t;
+    e.await(sleep(u64(200)), e);
+    cur.n + t.n
+  })
+);
+_abort_rebind_then_sleep :: (fn(io : Io) -> unit)({
+  h := io.spawn(_rebind_then_sleep(io), io);
+  io.await(sleep(u64(20)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("an aborted task releases a value moved to another name once", {
+  g_disposed = i32(0);
+  _abort_rebind_then_sleep(io);
+  assert(g_disposed == i32(1), `the new owner releases it, released ${g_disposed}`);
+});
+_move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (s : i32) = i32(0);
+    while(i < i32(2), {
+      t := Thing(n : i);
+      if(i == i32(0), {
+        e.await(yield(e), e);
+      }, {
+        e.await(sleep(u64(200)), e);
+      });
+      _keep_thing(t);
+      s = (s + t.n);
+      i = (i + i32(1));
+    });
+    s
+  })
+);
+_abort_move_each_iteration :: (fn(io : Io) -> unit)({
+  h := io.spawn(_move_each_iteration(io), io);
+  io.await(sleep(u64(20)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("an aborted task releases a local re-bound after its previous value moved", {
+  g_disposed = i32(0);
+  _abort_move_each_iteration(io);
+  assert(g_disposed == i32(1), `the second iteration's Thing, released ${g_disposed}`);
+  g_kept_things.clear();
+  assert(g_disposed == i32(2), "the first iteration's Thing, by its new owner");
+});

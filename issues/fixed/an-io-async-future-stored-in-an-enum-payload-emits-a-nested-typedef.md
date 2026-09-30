@@ -54,4 +54,4 @@ the payload type first" in `tests/async_generic_future_return.test.yo`. The
 reproducer failed on a stage-1 without this change and prints 8 with it.
 
 Still open, and a different defect: storing the future AND reading it back
-through the struct, `issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.
+through the struct, `issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.

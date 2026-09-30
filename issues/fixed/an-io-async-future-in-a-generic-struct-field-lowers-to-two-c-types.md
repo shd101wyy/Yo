@@ -1,5 +1,7 @@
 # An `io.async` future in a generic struct's field lowers to two C types
 
+**Status: FIXED (2026-10-01).** Re-verified on develop `29bf728b4`: the pointer and value shapes failed the C compile. So did the non-generic `o := Option(typeof(f)).Some(f)` and `_Holder(typeof(f))`.
+
 **Severity:** S2 — a valid program fails in the C compiler, and `yo check` passes. It blocks any generic container or guard that holds its `T` when `T` is an `io.async` future.
 **Found:** 2026-09-30, writing `with_allocator` (`plans/EXPLICIT_ALLOCATORS.md` P3). It reproduces on develop at `f7f1331fb`, where the nested-typedef defect hid it (`issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`).
 
@@ -73,3 +75,11 @@ rewriting (#1001–#1018), so it should land after that series.
 
 `with_allocator` no longer depends on it. Its guard never needed to hold `T`,
 and it is now a plain `ref` struct, `std/allocator.yo`.
+
+## Fix (2026-10-01)
+
+**Cause.** The key was not the problem. The C name that one key maps to changed partway through emission. An unresolved `io.async` future SomeT lowers through `context.get_type_c_name(type_key(t))`. The only thing that maps that key to the block's `…_sync_fut_t*` (or `_state_t*`) is `preregister_async_blocks_in_expr`. That ran from `preregister_async_block_types`, which was called after `generate_type_declarations` in `compile_module` (`src/codegen/codegen_c.yo`). So an aggregate body emitted during type declarations, such as `Option(Impl(Future(…)))`'s payload, fell back to the erased Future interface, while the constructor and readers emitted later used the sync-future pointer.
+
+**Fix.** The async-block types are pre-registered before the type declarations. Pre-registration only forward-declares incomplete structs and registers SomeT-keyed names, and aggregates hold futures by pointer, so the move makes the type declarations agree with the mapping that the prototypes and bodies already used. A self-compile's struct and typedef counts are unchanged.
+
+Test in `tests/async_await.test.yo`: "an io.async future in a generic struct field and in an Option".

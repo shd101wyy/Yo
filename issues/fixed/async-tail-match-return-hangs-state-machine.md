@@ -1,5 +1,9 @@
 # A `match` arm with a mid-body `return(...)` at an async body's TAIL hangs the state machine
 
+**Status: RETIRED** (2026-09-30), because the hang cannot be reproduced. Re-verified 2026-09-30 against develop `29bf728b4` and the v0.2.46 seed: an awaiting while, then a tail `match` whose `.Some` arm does `return(kept)`, covering `.None`, `.Some` and zero iterations, runs to completion on both.
+
+The re-verification found a leak on the early-return path instead, on both compilers. It is fixed in `issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md`.
+
 **Severity:** S1 — a mid-body `return` in a tail match makes the state machine hang forever at runtime, even off the arm
 
 **Found**: 2026-08-28 adding the walk-pattern filter to `std/fs/walker.yo`

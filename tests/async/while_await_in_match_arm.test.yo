@@ -51,6 +51,8 @@ race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
           h.is_finished() => (i32(100) + cond((spins > i32(0)) => i32(1), true => i32(0))),
           true => i32(200)
         );
+        h.abort();
+        dh.abort();
       }
     );
     result
@@ -70,6 +72,8 @@ race_rev :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
           e.io.await(yield(e.io), e.io);
         });
         result = cond(h.is_finished() => i32(100), true => i32(200));
+        h.abort();
+        dh.abort();
       },
       .None => {
         result = e.io.await(work(e.io), e);

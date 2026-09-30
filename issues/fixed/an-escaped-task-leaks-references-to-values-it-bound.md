@@ -2,7 +2,11 @@
 
 **Severity:** S2 — every unwound (escaped) task leaks the RC values its locals and awaits held, and the `dyn` error its handler received
 
-**Status:** OPEN (measured; not yet diagnosed).
+**Status:** FIXED (2026-09-30). Re-measured on develop `29bf728b4`: the thrown `dyn` no longer
+leaks, but the two `Thing`s still did, with or without an escape. That remaining leak was not
+escape-related. An argument's dup temp was dropped through a task slot nothing wrote:
+`issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md`.
+After that fix the repro prints `rc0=2 rc1=2` and valgrind reports 0 errors.
 **Found:** 2026-09-29, while fixing
 `issues/fixed/an-escape-after-a-closed-branch-re-drops-its-value-enum-locals.md` (#996).
 

@@ -1,5 +1,7 @@
 # The `ref` JoinHandle (#991) left value-shape emitters: Linux stage-1 C errors, develop battery red
 
+**Status: FIXED** (closed 2026-09-30). #996 resolved it as this doc prescribed, and the v0.2.46 runtime carries `__yo_join_handle_release_raw`. With the owning handle back in std (`issues/fixed/join-handle-ownership-waits-for-the-seed.md`), the seed builds stage 1 against it: "Build stage 1 once (seed `yo build`)" is green.
+
 **Severity:** S1 — every develop PR battery is red at stage-1 since #991 (the seed cannot emit the new `extern("Yo", __yo_join_handle_release_raw)`)
 
 **Status: OPEN** — resolution in flight as #996 (JoinHandle back to the seed-lowerable value struct), matching the path this doc prescribes.

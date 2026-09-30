@@ -1,5 +1,7 @@
 # A closure parameter forwarded into a spawn primitive from a `self`-receiver method is specialized only once
 
+**Status: FIXED** (closed 2026-09-30). Re-verified 2026-09-30 against develop `29bf728b4` and the v0.2.46 seed: `issues/repros/spawn-closure-param-through-self-method.yo`, its `atomic(ref(struct))` receiver variant, and a variant that delegates to a module-level function each emit 0 `Failed to transpile` sites and print `out=15` at `--optimize 2`, on both compilers. The `std/thread.yo` workaround can become a method again.
+
 **Severity:** S1 — forwarded task closures emit FTT comments for all but the first — the program silently does nothing for N−1 tasks
 
 **Status:** OPEN — worked around in `std/thread.yo` (its `spawn` is a

@@ -69,7 +69,7 @@ Now:
 
 After: the sleep program leaks nothing. The socketpair program's backend blocks
 are gone. Its one remaining block is an unrelated leak of a raw extern future
-(`issues/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`).
+(`issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`).
 The first measurement was on the emitted C with the change applied by hand;
 the same run was repeated with the built compiler in the PR's gate.
 

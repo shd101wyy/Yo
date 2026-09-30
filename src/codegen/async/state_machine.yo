@@ -25,10 +25,10 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
-{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
@@ -424,6 +424,7 @@ compute_cross_boundary_variables :: (
             .Some(fi) => match(
               fi.variable_name,
               .Some(vn) => {
+                note_await_consumed_temp(vn.clone());
                 consumed.insert(vn);
               },
               .None => ()
@@ -605,13 +606,14 @@ compute_overlapping_slots :: (
     slot_aliases : HashMap(String, String).new(),
     slots : ArrayList(OverlappingSlot).new()
   );
-  // Eligible = cross-boundary locals, not future-aliased. An RC local shares
-  // too: every drop and every move of a slot zeroes it, so a slot is non-zero
-  // exactly while it owns its current member's value, and the dispose drops
-  // it once. Two kinds of RC local stay out, because their slot is not the
-  // one owner of its value: a pattern binding (it borrows the scrutinee's
-  // payload), and a local whose value another local also owns (either side
-  // of `is_owning_the_same_rc_value_as`).
+  // Eligible = cross-boundary locals, not future-aliased. An RC temporary
+  // shares too: every drop and every move of a temp's slot zeroes it, so a
+  // shared slot is non-zero exactly while it owns its current member's value,
+  // and the dispose drops it once. Three kinds of RC local stay out: a pattern
+  // binding (it borrows the scrutinee's payload), a local whose value another
+  // local also owns (either side of `is_owning_the_same_rc_value_as`), and a
+  // NAMED local, whose move keeps the value in its own slot under a move flag
+  // (`sm_move_flag_of`), which a shared slot's next member would inherit.
   rc_owners := HashSet(String).new();
   (o0 : usize) = usize(0);
   while(o0 < captured_variables.len(), o0 = (o0 + usize(1)), {
@@ -635,7 +637,7 @@ compute_overlapping_slots :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
         vid0 := v.base.id.to_string();
-        rc_shareable := (!pattern_binding_ids.contains(vid0.clone()) && (v.is_owning_the_same_rc_value_as.is_none() && !rc_owners.contains(vid0.clone())));
+        rc_shareable := (!pattern_binding_ids.contains(vid0.clone()) && is_any_temp_variable_name(v.base.name.clone()) && (v.is_owning_the_same_rc_value_as.is_none() && !rc_owners.contains(vid0.clone())));
         if(is_local && cross_boundary_ids.contains(vid0.clone()) && !await_future_temp_var_aliases.contains_key(vid0.clone()) && (!type_contains_rc_type(v.base.ty) || rc_shareable), {
           eligible.push(v);
         });
@@ -1702,6 +1704,7 @@ generate_async_block_resume_function_inline :: (
     emitted : HashSet(usize).new(),
     moved_into_slot : HashSet(String).new(),
     moved_reads : HashMap(usize, String).new(),
+    binding_sources : HashMap(String, String).new(),
     rc_operand : false
   );
   p_low := context.sm_inline_lowering;

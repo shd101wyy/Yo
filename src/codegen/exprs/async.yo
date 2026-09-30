@@ -15,7 +15,7 @@
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ stable_position_id, stable_label_id, debug_knob } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id, debug_knob, is_any_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -85,7 +85,7 @@
   generate_async_block_cancel_pending_function_inline,
   resume_scope_wrapper
 } :: import("../async/state_machine.yo");
-{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_sm_move_flag_field, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_report_error } :: import("../constants.yo");
 { yo_error_from_diagnostics } :: import("../../error.yo");
@@ -640,6 +640,12 @@ emit_async_block_struct_definition :: (
           var_type_c_name := get_type_string(variable.base.ty, context.base);
           field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
+          // A named local's move flag (`note_sm_move_flag_field`): set by a
+          // move out of the slot, which keeps the value readable.
+          if(!is_any_temp_variable_name(variable.base.name.clone()), {
+            note_sm_move_flag_field(field_name.clone());
+            em.emit_declaration_string_line(`  uint8_t __yo_mv_${field_name};  // ${variable.base.name.clone()} was moved out`);
+          });
         },
         .None => ()
       );
@@ -1175,8 +1181,15 @@ generate_async_block_state_dispose_function :: (
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
-            _rc_field_drop_line(field_ref, v.base.ty, String.from("    "), context),
+            _rc_field_drop_line(field_ref.clone(), v.base.ty, String.from("    "), context),
             .Some(line) => {
+              // A slot whose value was moved out still holds it for the
+              // moved-from name's reads; its new owner releases it.
+              match(
+                sm_move_flag_of(field_ref.clone()),
+                .Some(flag) => local_drop_lines.push(`    if (${flag}) { memset(&(${field_ref}), 0, sizeof(${field_ref})); }`),
+                .None => ()
+              );
               local_drop_lines.push(line);
             },
             .None => ()
@@ -1375,7 +1388,11 @@ _build_async_capture_struct_literal :: (
       fields.get(i),
       .Some(field) => {
         label := field.label.clone();
-        if(field.is_effect_param, {
+        // A unit field is erased from the capture struct, so it takes no
+        // initializer (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
+        if(is_unit_type(field.ty), {
+          ();
+        }, if(field.is_effect_param, {
           parts.push(`.${label} = NULL`);
         }, {
           // Find a matching deferred ___dup expression by variable name.
@@ -1459,7 +1476,7 @@ _build_async_capture_struct_literal :: (
               );
             }
           );
-        });
+        }));
       },
       .None => ()
     );
@@ -3005,14 +3022,22 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     // variable in scope at the io.async call site. (The closure `value` is a
     // function reference, not a capture struct, so it cannot be used here.)
     cap_labels := match(eff_capture_type, .Some(ct) => match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new()), .None => ArrayList(String).new());
+    cap_types := match(eff_capture_type, .Some(ct) => match(ct, .Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
     lit := String.from("(");
     lit.push_string(ccn.clone());
     lit.push_str("){ ");
     (cli : usize) = usize(0);
+    (lit_first : bool) = true;
     while(cli < cap_labels.len(), {
-      if(cli > usize(0), {
+      // A unit field is erased from the capture struct: no initializer.
+      if(match(cap_types.get(cli), .Some(ft) => is_unit_type(ft), .None => false), {
+        cli = (cli + usize(1));
+        continue;
+      });
+      if(!lit_first, {
         lit.push_str(", ");
       });
+      lit_first = false;
       lbl := match(cap_labels.get(cli), .Some(l) => l, .None => String.from(""));
       lit.push_str(".");
       lit.push_string(lbl.clone());

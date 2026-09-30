@@ -19,7 +19,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name, get_state_machine_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
+{ get_state_machine_field_name, sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
@@ -89,19 +89,21 @@ _sm_binding_slot :: (fn(env : Environment, name : String, context : FunctionGene
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  vs := get_variables_from_env(env, name);
-  v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
-  id := sm_storage_id(v, smv, context.variable_id_remapping);
-  if(!smv.get(id.clone()).is_some(), {
-    return(Option(String).None);
-  });
-  field := match(
-    context.state_machine_field_aliases,
-    .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
-    .None => sm_local_field_name(id.clone())
-  );
-  Option(String).Some(`sm->${field}`)
+  sm_slot_of(env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases)
 });
+/// A store into a named local's task slot gives the slot a value it owns: it
+/// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
+/// a loop re-binds the name every iteration).
+_clear_sm_move_flag :: (fn(slot : String, indent : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    sm_move_flag_of(slot),
+    .Some(flag) => {
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}${flag} = 0;`);
+    },
+    .None => ()
+  )
+);
 /// Emit destructuring binds for `{x, y} := rhs`. In a state machine a name
 /// with a task slot is written there: its reads render the slot, and a C local
 /// would be read by nothing (the `(n, from) := got` after an await in
@@ -164,6 +166,7 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
           line.push_string(rd.label.clone());
           em.emit_string_line(line);
         });
+        _clear_sm_move_flag(var_type_and_name, indent.clone(), context);
       }),
       .None => ()
     );
@@ -386,7 +389,8 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
           // still emitted, so `element := list(i)` inside an async loop
           // freed the element out from under the live list.
           sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
-          em.emit_string_line(`${indent.clone()}${sm_slot} = ${sm_rhs.clone()};`);
+          em.emit_string_line(`${indent.clone()}${sm_slot.clone()} = ${sm_rhs.clone()};`);
+          _clear_sm_move_flag(sm_slot, indent.clone(), context);
           return(Option(String).Some(String.from("")));
         },
         .None => ()

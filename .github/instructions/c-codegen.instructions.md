@@ -247,6 +247,14 @@ source order.
     ASan (`__YO_SM_POOLS`).
   - Since the test runner builds with ASan, pool behavior is tested by the
     CLI case `async-state-machine-pools`.
+  - **A pooled block is always untagged and belongs to the global allocator.**
+    `_sm_alloc_call` takes from the pool only when no explicit allocator is
+    current (`sc.vtable == NULL`, the same test as `__yo_rc_tag_of`), and
+    `__yo_sm_give` refuses a block with `ref_count & __YO_RC_TAG`, which
+    `__yo_rc_free` returns to its owner. `__yo_sm_pools_drain` can then free
+    with `__yo_free`. Keep this invariant if a pool ever accepts a give from
+    another thread (`tests/explicit_allocators.test.yo`, "never to the task
+    pool" and "never takes a pooled global block").
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),

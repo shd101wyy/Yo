@@ -1,15 +1,20 @@
 # Async state-machine generation: the 2026-09-28 audit and the improvement plan
 
 **Status:** ACTIVE (since 2026-09-29). The audit is complete (#985).
-Phases 0–3 are merged (#989, #991). Phase 5 (the single-pass lowering, #1002),
-the rest of phase 1 (#1008), phase 6 (layout from liveness, #1016) and
-phase 7 (the state-machine pools, `for_await`, E0904 retired, #1018) are open
-as stacked PRs, and phase 4 is subsumed by them. What remains waits for a seed that carries phase 5: the seed-safe
-spellings in `src/`/`std/` (which also keep `for_await` and `inout` in async
-bodies out of them), and the owning, unboxed `JoinHandle`. The owning `JoinHandle` of phase 2
-waits for the seed (#996, `issues/join-handle-ownership-waits-for-the-seed.md`).
-The per-phase progress log is §9. Written
-2026-09-28 against develop `af62bdb28` (seed v0.2.45).
+Every phase has landed: phases 0–3 in #989 and #991, and phases 5, 6 and 7
+plus the rest of phase 1 in #1018 (2026-09-30), which folded the stacked
+#1002, #1008 and #1016. Phase 4 is subsumed by 5 and 6. Phase 2's owning
+`JoinHandle` is std's again (2026-09-30,
+`issues/fixed/join-handle-ownership-waits-for-the-seed.md`): the v0.2.46 seed
+already lowers it. What remains waits for a seed that carries #1018:
+- the seed-safe spellings in `src/` and `std/`, which also keep `for_await`
+  and `inout` in async bodies out of them;
+- the unboxed handle
+  (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`), whose
+  counted-field lowering the v0.2.46 seed does not know.
+
+The plan moves to `plans/archive/` once those land. The per-phase progress
+log is §9. Written 2026-09-28 against develop `af62bdb28` (seed v0.2.45).
 
 **Scope.** How the compiler turns an `io.async` body into a C state machine,
 and the runtime protocol the generated code relies on: the future header,
@@ -822,7 +827,7 @@ other two options are declined or seed-gated.**
   struct whose one field is the counted future (possible since #1008's
   `Impl(Future)` fields); see
   `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
-  2 of `issues/join-handle-ownership-waits-for-the-seed.md`, since the seed
+  2 of `issues/fixed/join-handle-ownership-waits-for-the-seed.md`, since the seed
   lowers `io.spawn` itself, and it lands with that seed bump.
 
 ### Docs and instructions, per phase
@@ -1072,3 +1077,11 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   the owner's slot, which a capture does not have (`sm_storage_id`).
 - 2026-09-29: phase 3 item 5, left undone by #991, lands on `async-sm-p7`:
   a whole effect bundle is copied through the vtable's bundle slot.
+- 2026-09-30: #1018 merges phases 1 (rest), 5, 6 and 7 into develop
+  (`29bf728b4`). Folding in that day's develop brought three reconciliations:
+  - the pools against #1032's allocation scopes: a task is pooled only on
+    the global allocator, and a tagged block is never given back to a pool;
+  - `resume_scope_wrapper` around the single-pass resume function;
+  - a #975 regression: a nested closure's capture reached its enclosing
+    closure only through an RC dup
+    (`issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md`).

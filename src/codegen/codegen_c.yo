@@ -535,6 +535,14 @@ typedef enum {
   profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
+  // Pre-register the async-block state-machine types (forward-declared struct
+  // typedefs + the uses_async flag) BEFORE the type declarations: a key they
+  // map (an io.async future's SomeT) must lower the same in an aggregate's body
+  // as in the prototypes and bodies emitted after it. Registered after them,
+  // `Option(Impl(Future(…)))`'s payload fell back to the erased interface while
+  // its constructor took the sync-future pointer
+  // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
+  preregister_async_block_types(ctx);
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
@@ -570,10 +578,6 @@ static Slice_uint8_t_u42_ __yo_args;
 `
     );
   });
-  // Pre-register async-block state-machine types (forward-declared struct
-  // typedefs + uses_async flag) before function declarations, so prototypes use
-  // the right SM struct names.
-  preregister_async_block_types(ctx);
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
   raise_codegen_error(exn);

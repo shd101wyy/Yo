@@ -794,13 +794,25 @@ _inline_binding_sm_field :: (fn(tok : Token, context : FunctionGenerationContext
 /// to the arm: the name shadows any same-named state-machine variable, and
 /// under the single-pass lowering it is also stored into, and read from, its
 /// own slot (a C local does not survive an await in the arm).
-_bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token) -> unit)({
+/// `source` is the place the binding was initialized from; when it lies in
+/// another slot, the lowering records it (`binding_sources`) so a move of the
+/// binding empties it too.
+_bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, cname : String, tok : Token, source : String) -> unit)({
   match(
     _inline_binding_sm_field(tok, context),
     .Some(field) => {
       em := context.base.emitter;
       em.emit_string_line(`${indent}sm->${field} = ${cname};`);
-      _shadow_slot_set(context, cname.clone(), field);
+      _shadow_slot_set(context, cname.clone(), field.clone());
+      if(source.starts_with("sm->") || source.starts_with("(sm->"), {
+        match(
+          context.sm_inline_lowering,
+          .Some(low) => {
+            low.binding_sources.insert(`sm->${field}`, source);
+          },
+          .None => ()
+        );
+      });
     },
     .None => ()
   );
@@ -1343,7 +1355,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                           ftype,
                           init
                         );
-                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
+                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr), init.clone());
                       });
                     });
                   }),
@@ -1378,7 +1390,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                     ftype,
                     init
                   );
-                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
+                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr), init.clone());
                 });
               }),
               .None => ()
@@ -1892,7 +1904,7 @@ _emit_pattern_chain :: (
         }, {
           _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
         });
-        _bind_pattern_name(context, indent.clone(), cname.clone(), btok);
+        _bind_pattern_name(context, indent.clone(), cname.clone(), btok, path.clone());
         shadows.push(cname);
       });
     },
@@ -2048,7 +2060,7 @@ _emit_pattern_chain :: (
         }, {
           _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
         });
-        _bind_pattern_name(context, indent.clone(), cname.clone(), atok);
+        _bind_pattern_name(context, indent.clone(), cname.clone(), atok, path.clone());
         shadows.push(cname);
       });
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);

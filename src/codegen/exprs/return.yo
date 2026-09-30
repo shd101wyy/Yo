@@ -16,6 +16,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ sm_slot_of } :: import("../async/state_machine_naming.yo");
 { emit_async_future_escape, emit_async_future_completion, emit_sm_unwind_catch } :: import("./async_completion.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_future_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -567,11 +568,20 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
               // `temp_var_name`). A target absent from the stack holds no C
               // value here, so skipping cannot double-free or leak. Subsumes
               // the former minted-TEMP declared_c_var_names check.
+              // A local with a task slot is never declared as a C variable,
+              // so the stack cannot vouch for it; the slot always exists and
+              // is zero while it owns nothing
+              // (issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md).
               skip_undeclared := match(
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(vn) => {
-                  cn := sanitize_for_c_identifier(vn, false);
-                  !scope_stack_contains(context.base.declared_scopes, cn)
+                  cn := sanitize_for_c_identifier(vn.clone(), false);
+                  in_slot := match(
+                    context.state_machine_variables,
+                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some()),
+                    .None => false
+                  );
+                  !in_slot && !scope_stack_contains(context.base.declared_scopes, cn)
                 },
                 .None => false
               );
