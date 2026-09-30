@@ -979,6 +979,38 @@ So the record design is:
   frame binds then resolves exactly as today, and records hold local
   resolutions only.
 
+**Pruned "record envs" measured and rejected (2026-10-01).** One variant kept
+the ~112 query sites unchanged. Each run of ExprInfos sharing an env got a
+replacement env: its outer frames (the entry env's) plus one synthetic frame
+holding the local Variables the run's ExprInfos ask for (their
+`source_variable` names, `variable_name`s, deferred targets), interned by a
+content key. It is too heavy:
+- `compile` rose to **3,118 MB**;
+- 558,334 record envs were built, with no sharing at all (the intern key
+  names every Variable);
+- 1,008,030 ExprInfos kept their original env, because it does not extend
+  the body's entry env (closure capture envs, specialization envs), so their
+  frames stay alive.
+
+A frameless release plus per-kind side tables is what fits the measured
+numbers:
+- **atoms** answer from `source_variable`, plus an exception table for the
+  ~18 K different / none / several matches;
+- **temps** answer from an ExprId → Variable table for their `variable_name`
+  (one entry, not a list);
+- **names bound outside the function** resolve through the module env, as
+  today;
+- **the frame-structure and whole-env rows** (handler installation, `given`
+  scans) are answered at evaluation time and stored on the node.
+
+That needs the ~112 codegen sites to query by node rather than by env. The
+sequence:
+1. A shadow mode, envs still intact: every codegen query computes both
+   answers and reports mismatches.
+2. Drive the mismatches to zero on the self-compile and `gates_fast`'s
+   corpus.
+3. Release.
+
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
   collect runs, and table entries grow 2.887 M → 2.953 M. Their envs are
