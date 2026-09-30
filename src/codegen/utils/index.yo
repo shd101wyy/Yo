@@ -1336,13 +1336,10 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           rtts.get(i),
-          .Some(rt) => match(
-            rt,
-            .FutureTraitT(_, _, _, _, _) => {
-              found = true;
-            },
-            _ => ()
-          ),
+          .Some(.FutureTraitT(_, _, _, _, _)) => {
+            found = true;
+          },
+          .Some(_) => (),
           .None => ()
         );
         i = (i + usize(1));

@@ -2126,21 +2126,18 @@ validate_concrete_type_constraints :: (
     if(is_type_value(info.value), {
       tv := match(
         info.value,
-        .Some(ev) => match(
-          ev,
-          .TypeVal(b) => b,
-          _ => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(t_expr),
-                  String.from("Expected trait type for right-hand side of where clause constraint.")
-                )
+        .Some(.TypeVal(b)) => b,
+        .Some(_) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(t_expr),
+                String.from("Expected trait type for right-hand side of where clause constraint.")
               )
-            );
-            return(());
-          }
-        ),
+            )
+          );
+          return(());
+        },
         .None => {
           exn.throw(
             dyn(
@@ -4395,11 +4392,8 @@ evaluate_function_type :: (
           ct_vars.get(ct_vars.len() - usize(1)),
           .Some(ct_var) => match(
             ct_var.value.get(usize(0)),
-            .Some(cv) => match(
-              cv,
-              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
-              _ => ()
-            ),
+            .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -4904,13 +4898,10 @@ _resolve_some_types_deep :: (
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get(rsd_i),
-              .Some(rsd_rt) => match(
-                rsd_rt,
-                .FutureTraitT(base_name : _) => {
-                  rsd_fut_poisoned = true;
-                },
-                _ => ()
-              ),
+              .Some(.FutureTraitT(base_name : _)) => {
+                rsd_fut_poisoned = true;
+              },
+              .Some(_) => (),
               .None => ()
             );
             rsd_i = (rsd_i + usize(1));

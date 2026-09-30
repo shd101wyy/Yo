@@ -295,12 +295,9 @@ impl(
     );
     is_fv := match(
       from_info,
-      .Some(v) => match(
-        v,
-        .FuncVal(_, _) => true,
-        .TypeVal(_) => true,
-        _ => false
-      ),
+      .Some(.FuncVal(_, _)) => true,
+      .Some(.TypeVal(_)) => true,
+      .Some(_) => false,
       .None => false
     );
     if(is_fv, {
