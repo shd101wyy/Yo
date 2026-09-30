@@ -281,3 +281,27 @@ test("a Some at the end and an off-by-one pop length both REFUTE", {
     `both must refute, got: [${_reports_dump(reports)}]`
   );
 });
+
+test("a list mutation next to a possible alias (a local copy, a second same-typed parameter) is a subset error", {
+  if(!_have_z3(), {
+    return(());
+  });
+  local_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_local.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(local_reports, String.from("subset-error")) == usize(1),
+    `alias_push must be a subset error, got: [${_reports_dump(local_reports)}]`
+  );
+  param_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/dml_list_alias_params.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(param_reports, String.from("subset-error")) == usize(1),
+    `two must be a subset error, got: [${_reports_dump(param_reports)}]`
+  );
+});

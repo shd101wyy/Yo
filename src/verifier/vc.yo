@@ -678,6 +678,11 @@ VcCtx :: ref(
     /// `old(<param>)` is the loud gap of
     /// issues/questions/modifies-clause-for-callee-side-effects.md.
     mutated_names : ArrayList(String),
+    /// Every list-typed LOCAL bound from an existing list rather than a
+    /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
+    /// reference type, so such a local may be the same list as another
+    /// name, and the model (one value per name) cannot follow the alias.
+    list_alias_locals : ArrayList(String),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -730,6 +735,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     entry_vars : HashMap(String, VcTerm).new(),
     call_pre : Option(HashMap(String, VcTerm)).None,
     mutated_names : ArrayList(String).new(),
+    list_alias_locals : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -1844,6 +1850,15 @@ _is_value_enum_type :: (fn(t : TypeValue) -> bool)(
     t,
     .EnumT({ id : e_id, is_reference_semantics : e_ref }) => (!e_ref && (e_id.len() > usize(0))),
     _ => false
+  )
+);
+/// Whether call `e`'s callee is a bare atom (`.(Variant, ...)`, `f(x)`),
+/// not itself a call (`(xs.get)(i)`).
+_callee_is_atom :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => ast_expr_is_atom(f),
+    .Atom(_, _) => false
   )
 );
 /// `.(Variant, args...)` construction as a datatype Ctor term.
@@ -3265,9 +3280,13 @@ _call_term :: (
   // Parses as `.(Variant, args...)` — a dot-call whose FIRST argument
   // names the variant. Only reached when the call's own type is a VALUE
   // enum (the guard below); other dot-calls fall through to the subset
-  // error at the callee-call tail.
+  // error at the callee-call tail. The callee must be the bare `.` atom:
+  // a method call `(xs.get)(i)` also reports head `.` (its callee is the
+  // `.`-call `xs.get`) and can be Option-typed, but it is no construction.
   if((head == ".") && _is_value_enum_type(info.ty), {
-    return(_enum_ctor_term(ctx, e, args, info));
+    if(_callee_is_atom(e), {
+      return(_enum_ctor_term(ctx, e, args, info));
+    });
   });
   // --- match(scrutinee, arms...) ---------------------------------------------
   if(head == "match", {
@@ -4455,6 +4474,60 @@ _note_ms_of :: (
 /// fixed-length Array type records its ArrS sort; any other type clears
 /// a stale entry, so a name re-shadowed as a non-array never reads as
 /// indexable. A missing ExprInfo leaves the table alone.
+/// Records `name` in `ctx.list_alias_locals` when `rhs` is a list that is
+/// not freshly constructed (see the field).
+_note_list_alias :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(rhs)),
+    .Some(ri) => if(_list_elem_type(ri.ty).is_some() && !_is_fresh_list_ctor(rhs), {
+      if(!ctx.list_alias_locals.contains(name.clone()), {
+        ctx.list_alias_locals.push(name);
+      });
+    }),
+    .None => ()
+  )
+);
+/// `ArrayList(T).new()` / `ArrayList(T).with_capacity(n)`: a list no other
+/// name can refer to yet.
+_is_fresh_list_ctor :: (fn(rhs : AstExpr) -> bool)(
+  match(
+    rhs,
+    .FnCall(_, f, _, _, _) => match(
+      f,
+      .FnCall(_, dot, dargs, _, _) => {
+        is_dot := (ast_expr_is_atom(dot) && (ast_expr_token(dot).value == "."));
+        recv_ok := match(
+          dargs.get(usize(0)),
+          .Some(recv) => match(
+            recv,
+            .FnCall(_, g, _, _, _) => (ast_expr_is_atom(g) && (ast_expr_token(g).value == "ArrayList")),
+            .Atom(_, _) => false
+          ),
+          .None => false
+        );
+        method_ok := match(
+          dargs.get(usize(1)),
+          .Some(m) => (ast_expr_is_atom(m) && ((ast_expr_token(m).value == "new") || (ast_expr_token(m).value == "with_capacity"))),
+          .None => false
+        );
+        is_dot && recv_ok && method_ok
+      },
+      .Atom(_, _) => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The SMT datatype name of a modeled list type, else `.None`.
+_list_dt_of_type :: (fn(t : TypeValue) -> Option(String))(
+  cond(
+    _list_elem_type(t).is_some() => match(
+      _type_sort(t),
+      .Some(.DataS(dn)) => Option(String).Some(dn),
+      _ => Option(String).None
+    ),
+    true => Option(String).None
+  )
+);
 _note_array_binding :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(rhs)),
@@ -4549,6 +4622,7 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
             .Some(vt) => {
               ctx.vars.insert(name.clone(), vt);
               _note_array_binding(ctx, name.clone(), ba.get(usize(1)).unwrap());
+              _note_list_alias(ctx, name.clone(), ba.get(usize(1)).unwrap());
               result = Option(VcTerm).Some(vt);
             },
             .None => {
@@ -5613,6 +5687,43 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
       .None => ()
     );
     mpi = (mpi + usize(1));
+  });
+  // ArrayList is a reference type but the model gives each NAME its own
+  // list value, so a mutation is sound only while no two live names can be
+  // the same list: no local bound from an existing list, and no second
+  // parameter of the mutated parameter's list type (a caller may pass one
+  // list twice). Anything else would verify a claim the aliased name breaks
+  // at runtime (issues/fixed/verifier-list-model-ignores-aliasing.md).
+  if(ctx.mutated_names.len() > usize(0), {
+    match(
+      ctx.list_alias_locals.get(usize(0)),
+      .Some(al) => _fail_subset(
+        ctx,
+        `the body mutates a list and binds '${al}' from an existing list — ArrayList is a reference type, so '${al}' may be the same list as another name, and the list model cannot follow aliases (bind it from ArrayList(T).new() instead)`,
+        input.body
+      ),
+      .None => ()
+    );
+    (api : usize) = usize(0);
+    while(api < input.param_names.len(), {
+      apn := input.param_names.get(api).unwrap();
+      adt := match(input.param_types.get(api), .Some(apt) => _list_dt_of_type(apt), .None => Option(String).None);
+      if(ctx.mutated_names.contains(apn.clone()) && adt.is_some(), {
+        (apj : usize) = usize(0);
+        while(apj < input.param_names.len(), {
+          bdt := match(input.param_types.get(apj), .Some(bpt) => _list_dt_of_type(bpt), .None => Option(String).None);
+          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())), {
+            _fail_subset(
+              ctx,
+              `the body mutates list parameter '${apn}' and '${input.param_names.get(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases`,
+              input.body
+            );
+          });
+          apj = (apj + usize(1));
+        });
+      });
+      api = (api + usize(1));
+    });
   });
   match(
     body_val,
