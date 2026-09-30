@@ -1556,6 +1556,11 @@ fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionG
   if(!(_async_fusion_enabled()), {
     return(Option(FusedAwaitSite).None);
   });
+  // An await inside a fused block is not fused again: nested fusion is F3,
+  // and the caller's struct holds fields for its own sites only.
+  if(context.fusion_field_prefix.len() > usize(0), {
+    return(_fusion_not_lowered(await_expr, String.from("nested fusion (F3)"), report));
+  });
   await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => return(Option(FusedAwaitSite).None));
   future_arg := match(await_args.get(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
   cand := match(await_fusion_candidate(future_arg), .Some(c) => c, .None => return(Option(FusedAwaitSite).None));
