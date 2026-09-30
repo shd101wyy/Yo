@@ -496,7 +496,7 @@ split_into_state_segments :: (
   // transition into after the await completes / the non-await branch is taken.
   if(segments.len() > usize(0), {
     last_has_await := match(
-      segments.get(segments.len() - usize(1)),
+      segments.last(),
       .Some(last) => match(last.await_point, .Some(_) => true, .None => false),
       .None => false
     );
@@ -539,7 +539,7 @@ split_into_state_segments :: (
                   tap.base.is_body_result = Option(bool).Some(true);
                 });
                 match(
-                  segments.get(segments.len() - usize(1)),
+                  segments.last(),
                   .Some(completion) => {
                     // The completion segment was just created EMPTY, so
                     // append to it.
@@ -981,7 +981,7 @@ _extract_target_var_id :: (
         if(vars.len() > usize(0), {
           return(
             match(
-              vars.get(vars.len() - usize(1)),
+              vars.last(),
               .Some(v) => Option(String).Some(v.id.to_string()),
               .None => Option(String).None
             )
@@ -3462,7 +3462,7 @@ _resolve_pattern_binding_sm_field :: (
           // side (atom.yo) and init_assignment.yo:206 apply — without them
           // an env hit resolved a different id spelling than the map key.
           (env_id : String) = match(
-            vars.get(vars.len() - usize(1)),
+            vars.last(),
             .Some(v) => match(
               v.is_owning_the_same_rc_value_as,
               .Some(ob) => ob.*.id.to_string(),

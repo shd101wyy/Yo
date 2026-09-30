@@ -1,0 +1,29 @@
+// The bugged twin of valid/dml_list_concat.yo: `concat_wrong` claims the
+// result has `a`'s length — refuted after the second loop; `push_once`
+// claims two pushes' worth of growth from one push — refuted by push's
+// ensures.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+concat_wrong :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    invariant(i <= a.len(), out.len() == i);
+    out.push(a(i));
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), {
+    invariant(j <= b.len(), out.len() == (a.len() + j));
+    out.push(b(j));
+    j = (j + usize(1));
+  });
+  out
+});
+
+push_once :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(2)))) -> unit)({
+  xs.push(v);
+});

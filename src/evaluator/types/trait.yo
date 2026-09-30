@@ -118,7 +118,7 @@ _get_or_create_some_ty_for_trait :: (
     existing_vars := get_variables_from_env(env_mut, var_name);
     if(existing_vars.len() > usize(0), {
       last_v := match(
-        existing_vars.get(existing_vars.len() - usize(1)),
+        existing_vars.last(),
         .Some(v) => v,
         .None => {
           exn.throw(
@@ -1003,7 +1003,7 @@ _evaluate_trait_field :: (
     (found_existing : bool) = false;
     if(existing_vars.len() > usize(0), {
       match(
-        existing_vars.get(existing_vars.len() - usize(1)),
+        existing_vars.last(),
         .Some(last_v) => {
           match(
             last_v.value.get(usize(0)),
@@ -1103,7 +1103,7 @@ evaluate_trait_type :: (
   // Find where clause exprs (last arg, if it's a where(...) call)
   (where_clause_exprs_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
   if(args.len() > usize(0), {
-    last_arg := match(args.get(args.len() - usize(1)), .Some(a) => a, .None => make_err_expr());
+    last_arg := match(args.last(), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call_of(last_arg, BK_WHERE, .None), {
       w_args := _fn_call_args(last_arg);
       if(w_args.len() == usize(0), {
@@ -1227,7 +1227,7 @@ evaluate_trait_type :: (
         (already_bound : bool) = false;
         if(existing_vars.len() > usize(0), {
           match(
-            existing_vars.get(existing_vars.len() - usize(1)),
+            existing_vars.last(),
             .Some(last_v) => {
               match(
                 last_v.value.get(usize(0)),

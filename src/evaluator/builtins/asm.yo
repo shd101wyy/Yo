@@ -327,7 +327,7 @@ _parse_operand :: (
         (var_type : TypeValue) = t_unit();
         (var_initialized : bool) = false;
         match(
-          variables.get(variables.len() - usize(1)),
+          variables.last(),
           .Some(variable) => {
             is_type_var = match(
               variable.value.get(usize(0)),
@@ -853,7 +853,7 @@ evaluate_asm :: (
             variables := get_variables_from_env(env, tvn.clone());
             if(variables.len() > usize(0), {
               match(
-                variables.get(variables.len() - usize(1)),
+                variables.last(),
                 .Some(variable) => match(
                   variable.initialized_at_token,
                   .None => {
