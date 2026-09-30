@@ -29,7 +29,7 @@
 //! unstable — the second `Allocator` implementor
 //! (`plans/EXPLICIT_ALLOCATORS.md`); the surface freezes with the vtable.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, Allocator, AllocatorVTable } :: import("./allocator");
+{ GlobalAllocator, Allocator, AllocatorVTable, with_allocator } :: import("./allocator");
 { panic } :: import("./assert");
 { memcpy } :: import("./libc/string");
 {
@@ -237,6 +237,11 @@ impl(
   /// back here, wherever and whenever its last reference dies.
   allocator : (fn(self : Self) -> Allocator)(
     Allocator(ctx : .Some((*void)(self._state)), vtable : &_ARENA_VTABLE)
+  ),
+  /// `with_allocator(self.allocator(), f)`: evaluate `f()` with this arena as
+  /// the current allocator.
+  scoped : (fn(generic(T : Type), self : Self, f : Impl(Fn() -> T)) -> T)(
+    with_allocator(self.allocator(), f)
   ),
   /// Blocks allocated here and not yet freed.
   live_blocks : (fn(self : Self) -> usize)({

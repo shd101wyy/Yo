@@ -175,16 +175,18 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   sig.push_string(params);
   sig.push_str(") {");
   em.emit_string_line(sig);
+  // Placed by the current allocation scope (plans/EXPLICIT_ALLOCATORS.md §3.5).
+  em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
   alloc := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
   alloc.push_string(c_name.clone());
-  alloc.push_str("*)__yo_rc_alloc(sizeof(");
+  alloc.push_str("*)__yo_rc_alloc_scoped(__yo_sc, sizeof(");
   alloc.push_string(c_name.clone());
   alloc.push_str("));");
   em.emit_string_line(alloc);
   // RC header.
-  em.emit_string_line(String.from("  obj->header.ref_count = 1;  // Start with one reference"));
+  em.emit_string_line(String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"));
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
   is_atomic := is_atomic_reference_struct_type(type);
   small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
@@ -667,8 +669,9 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         });
         // Signature + malloc.
         em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
-        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
-        em.emit_string_line(`  obj->header.ref_count = 1;  // Start with one reference`);
+        em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
+        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc_scoped(__yo_sc, sizeof(${c_name}));`);
+        em.emit_string_line(`  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         if(context.base.needs_cycle_gc && !is_atomic, {
           // Shared packed word always initialized; GC list pointers exist

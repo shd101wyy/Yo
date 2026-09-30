@@ -445,6 +445,13 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
             pfields.get(pfi),
             .Some(ft) => if(!is_unit_type(ft), {
               union_has_members = true;
+              // Resolve the payload's type string BEFORE the union opens: the
+              // resolution may fire an on-demand declaration into the same
+              // buffer, and inside the open union it is a nested `typedef`
+              // ("type name does not allow storage class to be specified").
+              // The enum twin of `_prewarm_runtime_field_types`
+              // (issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md).
+              get_type_string(ft, context);
             }),
             .None => ()
           );
@@ -1080,6 +1087,67 @@ static inline void __yo_rc_free(void* ptr) {
   }
 }`
   );
+  // The allocation scope (plans/EXPLICIT_ALLOCATORS.md §3.5): the allocator
+  // `with_allocator` made current on this thread, `{ctx, NULL}` for the
+  // global one. Only the six user-visible constructor sites consult it
+  // (`__yo_rc_alloc_scoped`); the runtime's own blocks keep `__yo_rc_alloc`.
+  // `__yo_scopes_ever_entered` keeps the thread-local read (a
+  // `_tlv_get_addr` call on Darwin) off every allocation of a program that
+  // never enters a scope.
+  em.emit_declaration_line("typedef __yo_alloc_prefix_t __yo_alloc_scope_t;");
+  if(context.chunk_mode, {
+    em.emit_declaration_line("extern _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
+    em.emit_declaration_line("extern atomic_int __yo_scopes_ever_entered;");
+    context.chunk_globals.push_string(String.from("_Thread_local __yo_alloc_scope_t __yo_current_allocator;\natomic_int __yo_scopes_ever_entered;\n"));
+  }, {
+    em.emit_declaration_line("static _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
+    em.emit_declaration_line("static atomic_int __yo_scopes_ever_entered;");
+  });
+  em.emit_declaration_string_line(
+    `static inline __yo_alloc_scope_t __yo_scope_current(void) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    __yo_alloc_scope_t none = { 0, 0 };
+    return none;
+  }
+  return __yo_current_allocator;
+}
+// 0, or the tag bit for a block \`__yo_rc_alloc_scoped\` placed in \`s\`.
+static inline uint32_t __yo_rc_tag_of(__yo_alloc_scope_t s) { return s.vtable ? __YO_RC_TAG : 0u; }
+// The scope an RC object was allocated in: its owner prefix, or the global one.
+static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
+  if (((__yo_rc_prefix_t*)p)->ref_count & __YO_RC_TAG) {
+    return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);
+  }
+  __yo_alloc_scope_t none = { 0, 0 };
+  return none;
+}
+// A user-visible RC block: from the scope's allocator (with the owner prefix
+// in front, the layout std/allocator.yo's Allocator.alloc writes), or from
+// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
+  if (s.vtable == NULL) return __yo_rc_alloc(size);
+  if (size > SIZE_MAX - __YO_ALLOC_PREFIX_SIZE) __yo_alloc_fail(size);
+  char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, size + __YO_ALLOC_PREFIX_SIZE);
+  if (raw == NULL) __yo_alloc_fail(size);
+  ((__yo_alloc_prefix_t*)raw)->ctx = s.ctx;
+  ((__yo_alloc_prefix_t*)raw)->vtable = s.vtable;
+  void* p = raw + __YO_ALLOC_PREFIX_SIZE;
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__wasm__)
+  __asm__ volatile("" : "+r"(p));  // same tcache barrier as __yo_rc_alloc
+#endif
+  return p;
+}
+// std/allocator.yo's hooks (extern "Yo"): with_allocator saves and restores
+// the scope through them, and the default container constructors ask
+// __yo_scope_vtable whether one is current (NULL: the global allocator).
+static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
+static inline void* __yo_scope_vtable(void) { return (void*)__yo_scope_current().vtable; }
+static inline void __yo_scope_set(void* ctx, void* vtable) {
+  if (vtable) atomic_store_explicit(&__yo_scopes_ever_entered, 1, memory_order_relaxed);
+  __yo_current_allocator.ctx = ctx;
+  __yo_current_allocator.vtable = vtable;
+}`
+  );
   // Generic Future + I/O Future struct types.
   em.emit_declaration_string_line(
     `
@@ -1691,8 +1759,9 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(info) => if(!info.create_generated, {
           child := info.child_type_c_name.clone();
           em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
-          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_rc_alloc(sizeof(${iso_name.clone()}_struct));`);
-          em.emit_string_line(String.from("  iso->header.ref_count = 1;"));
+          em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
+          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_rc_alloc_scoped(__yo_sc, sizeof(${iso_name.clone()}_struct));`);
+          em.emit_string_line(String.from("  iso->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);"));
           em.emit_string_line(String.from("  iso->header.borrow_count = 0;"));
           if(context.needs_cycle_gc, {
             em.emit_string_line(String.from("  iso->header.gc_mark = __YO_GC_UNMARKED;"));

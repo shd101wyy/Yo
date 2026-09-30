@@ -66,7 +66,15 @@ extern(
       fn(alignment : usize, size : usize) -> ?*void
     ),
   __yo_aligned_free :
-    (fn(ptr : ?*void) -> unit)
+    (fn(ptr : ?*void) -> unit),
+  // The thread's allocation scope (codegen's `__yo_current_allocator`); read
+  // and written only by `with_allocator` below.
+  __yo_scope_ctx :
+    (fn() -> ?*void),
+  __yo_scope_vtable :
+    (fn() -> ?*void),
+  __yo_scope_set :
+    (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
 ///
@@ -293,6 +301,42 @@ impl(
     (self.ctx == other.ctx) && (self.vtable == other.vtable)
   )
 );
+// Restores the allocation scope it saved when it is released. `with_allocator`
+// holds one for the length of its body: `Dispose` runs on every exit, a
+// normal return and an `unwind` alike, which is what keeps an unwinding body
+// from leaving the thread on a dead allocator (the `Mutex.with_lock` guard
+// pattern).
+_ScopeGuard :: ref(struct(_ctx : ?*void, _vtable : ?*void));
+impl(
+  _ScopeGuard,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
+  )
+);
+/// Evaluate `f()` with `alloc` as the thread's current allocator.
+///
+/// Every reference-counted object created while `f` runs — `ref` struct and
+/// enum constructors, `box`/`arc`, `dyn` boxes, `Iso` values and `io.async`
+/// tasks, including the ones std creates on the caller's behalf — comes from
+/// `alloc`, and its release is routed back to `alloc` wherever and whenever its
+/// last reference dies. A task created in the scope keeps it across
+/// suspensions: work it does after `with_allocator` has returned still lands
+/// in `alloc`. The previous allocator is restored when `f` returns or unwinds.
+///
+/// The scope is per thread: a `spawn` body starts on the global allocator
+/// (pass the `Allocator` value in and call `with_allocator` there). Container
+/// buffers follow their own constructor — `new_in(alloc)` puts one in `alloc`.
+/// Runtime only: a compile-time call is an extern call.
+///
+/// ```rust
+/// arena := Arena.new(usize(1) << usize(20));
+/// p := with_allocator(arena.allocator(), () => Point(x : i32(3), y : i32(4)));
+/// ```
+with_allocator :: (fn(generic(T : Type), alloc : Allocator, f : Impl(Fn() -> T)) -> T)({
+  _guard := _ScopeGuard(_ctx : __yo_scope_ctx(), _vtable : __yo_scope_vtable());
+  __yo_scope_set(alloc.ctx, .Some((*void)(alloc.vtable)));
+  f()
+});
 export(
   size_would_overflow,
   Layout,
@@ -301,5 +345,6 @@ export(
   GlobalAllocator,
   AllocatorVTable,
   Allocator,
-  ALLOC_PREFIX_SIZE
+  ALLOC_PREFIX_SIZE,
+  with_allocator
 );
