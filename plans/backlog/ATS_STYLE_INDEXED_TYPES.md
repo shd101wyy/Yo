@@ -456,6 +456,34 @@ All on macOS arm64, develop `df3798c4a`, `yo 0.2.46` (installed seed), 2026-09-3
 | same under `pragma(Pragma.Verify)`, `yo verify` | **subset error** | "parameter outside the integer/bool/array subset" |
 | `requires(i < usize(4))` over `Array(i32, 4)`, `yo verify` | ok | 2 obligations proved |
 
+### 7.1 The runtime cost of an `assumed()` contract's splice (2026-09-30, after R1 slice 2)
+
+`assumed()` skips the PROOF of a body, not its runtime contract. The R1 std
+contracts therefore splice a check into every call: `push`'s
+`ensures(self.len() == (old(self.len()) + usize(1)))` loads the length at
+entry, compares after the body and keeps a cold `ensures failed` branch. The
+question was whether `assumed()` should also suppress that splice on hot std
+paths.
+
+A/B on develop `5101639ad`, macOS arm64 (Mac Mini M4). Both compilers were
+built with `YO_STD` pinned, so the only difference is the compiled-in `push`
+(`strings` differs by exactly that one `ensures failed` message). Both were
+timed on the same std:
+
+| Workload | A: push has the contract | B: contract removed | Δ |
+| --- | --- | --- | --- |
+| compiler binary | 10,248,256 B | 10,231,744 B | +16.5 KB |
+| `check ./src/lexer.yo`, warm, 2 runs | 3.73 / 3.74 s | 3.71 / 3.69 s | ≈ +1% (noise) |
+| `check ./src`, A-B-B-A | 137.06 / 136.92 s | 136.36 / 136.40 s | +0.45% (0.6 s) |
+| `check ./src` peak RSS | 1128 / 1131 MB | 1137 / 1139 MB | none |
+
+**Decision: keep the splice.** 0.45% on the compiler's own push-heavy
+workload does not pay for a second meaning of `assumed()`. A trusted
+contract that is also checked at runtime in the default mode is the safer
+reading. A std function whose splice ever measures hot can drop its
+`ensures` (its callers' proofs then lose that fact) rather than changing
+what `assumed()` means.
+
 ## 8. Sources
 
 - Xi, Pfenning — *Dependent Types in Practical Programming* (POPL 1999); the DML index-language design ATS inherits.
