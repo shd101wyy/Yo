@@ -220,20 +220,32 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
   });
   assert(found, "verify node present");
 });
-test("register_verify: the one build namespace rejects a reused name", {
-  (thrown : bool) = false;
+/// Returns true iff registering a verify step named `name` on `reg` throws
+/// (handlers are capture-free, so the outcome rides on `unwind`).
+_register_verify_throws :: (fn(reg : BuildRegistry, name : String) -> bool)({
   exn := Exception(
     throw : (
       _err -> {
-        thrown = true;
+        unwind(true);
+      }
+    )
+  );
+  reg.register_verify(BuildVerifyConfig(name : name, root : String.from("./src"), mode : String.from("verify"), strict : false), exn);
+  false
+});
+test("register_verify: the one build namespace rejects a reused name", {
+  quiet := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected registry error");
         unwind(());
       }
     )
   );
   reg := BuildRegistry.new();
-  reg.register_step(String.from("verify"), String.from("A custom step"), exn);
-  reg.register_verify(BuildVerifyConfig(name : String.from("verify"), root : String.from("./src"), mode : String.from("verify"), strict : false), exn);
-  assert(thrown, "a verify step cannot reuse a step's name");
+  reg.register_step(String.from("verify"), String.from("A custom step"), quiet);
+  assert(_register_verify_throws(reg, String.from("verify")), "a verify step cannot reuse a step's name");
+  assert(!_register_verify_throws(reg, String.from("proofs")), "a fresh name registers");
 });
 test("build_dag: nested steps are walked transitively", {
   exn := Exception(
