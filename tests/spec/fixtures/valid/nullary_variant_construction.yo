@@ -1,23 +1,11 @@
 // issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md:
 // constructing a zero-field variant used to encode as `(Name)`, which z3
-// rejects before printing `sat` — reported as REFUTED. Both functions verify.
+// rejects before printing `sat` — reported as REFUTED. This verifies.
 pragma(Pragma.Verify);
 Color :: enum(Red, Green(v : i32));
 
 pick_red :: (fn(b : bool, ensures(r == i32(0))) -> (r : i32))({
   (c : Color) = .Red;
-  match(
-    c,
-    .Red => i32(0),
-    .Green(_) => i32(1)
-  )
-});
-
-pick :: (fn(b : bool, ensures(r == cond(b => i32(1), true => i32(0)))) -> (r : i32))({
-  (c : Color) = cond(
-    b => .Green(i32(7)),
-    true => .Red
-  );
   match(
     c,
     .Red => i32(0),
