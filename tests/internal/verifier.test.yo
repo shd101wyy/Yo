@@ -76,6 +76,19 @@ test("encode_term: indexed operators (casts)", {
     "sign_extend shape (arity is the builder's concern in V2)"
   );
 });
+test("encode_term: a zero-field constructor is the bare symbol, not (Name)", {
+  // issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md
+  assert(
+    encode_term(VcTerm.Ctor(name : String.from("Opt_None"), args : ArrayList(VcTerm).new())) == "Opt_None",
+    "nullary constructor"
+  );
+  one := ArrayList(VcTerm).new();
+  one.push(_bv32_var(String.from("x")));
+  assert(
+    encode_term(VcTerm.Ctor(name : String.from("Opt_Some"), args : one)) == "(Opt_Some x)",
+    "constructor with a field"
+  );
+});
 test("encode_term: quantifier shape", {
   names := ArrayList(String).new();
   names.push(String.from("i"));
@@ -278,6 +291,40 @@ test("verdict_of_response: unknown ⇒ Unproven; garbage ⇒ SolverError", {
     .SolverError(_) => (),
     _ => {
       assert(false, "expected SolverError on empty output");
+    }
+  );
+});
+test("verdict_of_response: an error BEFORE the verdict is a SolverError, one after it is tolerated", {
+  // The R1 datatype bug's transcript: z3 rejects the declaration, the
+  // unknown accessor, then answers `sat` for the assertion set that
+  // survived — an empty model, not a counter-example.
+  match(
+    verdict_of_response(
+      String.from("(error \"line 7 column 51: invalid datatype declaration, '(' or ')' expected got List_bv32_mk_contents\")\n(error \"line 9 column 162: unknown constant List_bv32_mk_len (List_bv32) \")\nsat\n(error \"line 11 column 15: unsat core is not available\")\n")
+    ),
+    .SolverError(msg) => {
+      assert(msg.contains(String.from("invalid datatype declaration")), "the report names z3's first error");
+    },
+    _ => {
+      assert(false, "expected SolverError for a script z3 rejected");
+    }
+  );
+  // The post-check-sat evidence error stays tolerated: a proof with a
+  // trailing `unsat core is not available` is still a proof.
+  match(
+    verdict_of_response(String.from("unsat\n(error \"line 11 column 15: unsat core is not available\")\n")),
+    .Proved(_) => (),
+    _ => {
+      assert(false, "expected Proved with a tolerated post-verdict error");
+    }
+  );
+  match(
+    verdict_of_response(String.from("sat\n(error \"line 11 column 15: unsat core is not available\")\n((x #x00000002))\n")),
+    .Refuted(ce) => {
+      assert(ce.len() == usize(1), "the counter-example after a tolerated error is kept");
+    },
+    _ => {
+      assert(false, "expected Refuted with a tolerated post-verdict error");
     }
   );
 });

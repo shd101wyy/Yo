@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { Regex } :: import("std/regex");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
-{ read, write_string, exists } :: import("std/fs/file");
+{ File, read, write_string, exists } :: import("std/fs/file");
 { sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
@@ -47,6 +47,11 @@ pragma(Pragma.AllowUnsafe);
   profile_phase_count,
   profile_phase_name_at,
   profile_phase_nanos_at,
+  profile_phase_rss_mb_at,
+  profile_phase_table_entries_at,
+  profile_set_memory_probes,
+  profile_mark_count,
+  profile_mark_line_at,
   profile_module_count,
   profile_module_path_at,
   profile_module_parse_ns_at,
@@ -2834,6 +2839,21 @@ _print_compile_profile :: (
     );
     i = (i + usize(1));
   });
+  // Memory at each phase's end: resident set and the shared codegen table's
+  // entries (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 1). Their own lines,
+  // so the `profile: phase` rows keep one shape.
+  (pmi : usize) = usize(0);
+  while(pmi < profile_phase_count(), {
+    eprintln(
+      `profile: memory ${profile_phase_name_at(pmi)} rss=${profile_phase_rss_mb_at(pmi).to_string()}MB table=${profile_phase_table_entries_at(pmi).to_string()}`
+    );
+    pmi = (pmi + usize(1));
+  });
+  (pki : usize) = usize(0);
+  while(pki < profile_mark_count(), {
+    eprintln(profile_mark_line_at(pki));
+    pki = (pki + usize(1));
+  });
   n := profile_module_count();
   k := cond((n < usize(20)) => n, true => usize(20));
   eprintln(
@@ -4129,6 +4149,7 @@ run_compile :: (
   profile_reset();
   if(profile, {
     profile_set_enabled(true);
+    profile_set_memory_probes(_current_rss_mb, _shared_table_entries, _peak_rss_mb);
   });
   {
     // EMISSION names (temps, labels) are per-artifact: reset on EVERY
@@ -4294,7 +4315,18 @@ run_compile :: (
     // threaded through to the code generator.
     is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module);
+    // Finished function bodies stream to this file during emission
+    // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
+    // before the last C part.
+    code_spill_path := `${output}.yo-code-spill`;
+    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone());
+    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
+    // `--emit-c` (a debug path) reads the spill whole to print it; the file
+    // write below copies it in pieces.
+    (c_spilled : ArrayList(u8)) = ArrayList(u8).new();
+    if(emit_c && c_spill_exists, {
+      c_spilled = io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+    });
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -4312,7 +4344,15 @@ run_compile :: (
     // --emit-c prints the generated C to stdout —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
-      println(c_src);
+      (pi0 : usize) = usize(0);
+      while(pi0 < c_parts.len(), {
+        if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
+          print(String.from_bytes(c_spilled));
+        });
+        match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
+        pi0 = (pi0 + usize(1));
+      });
+      println("");
     });
     // Strip a target-format extension so `app.html` gets `app.c`, not
     // `app.html.c`.
@@ -4380,13 +4420,34 @@ run_compile :: (
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
       },
       true => {
-        io.await(write_string(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+        // One file, the parts written in order (the spilled code before the
+        // last one): no concatenated copy of the whole C text
+        // (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+        c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
+        (pw : usize) = usize(0);
+        while(pw < c_parts.len(), {
+          if((pw == usize(4)) && c_spill_exists, {
+            _copy_file_into(code_spill_path.clone(), c_file, io, exn);
+          });
+          match(
+            c_parts.get(pw),
+            .Some(part) => {
+              _pw_n := io.await(c_file.write_string(part, io), IoExn(io : io, exn : exn));
+            },
+            .None => ()
+          );
+          pw = (pw + usize(1));
+        });
+        io.await(c_file.close(io), IoExn(io : io, exn : exn));
       }
     );
+    if(c_spill_exists, {
+      io.await(remove_file(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+    });
     profile_record_phase(String.from("write C"), prof_write_t0.elapsed().as_nanos());
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
-  // eval context and the 140 MB C string. The module-manager GLOBALS still
+  // eval context and the ~125 MB of C text. The module-manager GLOBALS still
   // pin the rest of the universe, though, and no scope can reach them: the
   // module cache (every evaluated module's values, for the whole import
   // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
@@ -5056,6 +5117,11 @@ TEST_BATCH_SIZE :: usize(100);
 /// ./tests/internal` accumulated 10.2 GB in one process while `--watch`'s
 /// `--max-rss-mb` was inert too
 /// (issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md).
+/// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
+/// `--profile`'s per-phase memory lines.
+_shared_table_entries :: (fn() -> usize)(
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.len(), .None => usize(0))
+);
 _current_rss_mb :: (fn() -> usize)(
   cond(
     (platform == Platform.Macos) => _current_rss_mb_darwin(),
@@ -5063,6 +5129,55 @@ _current_rss_mb :: (fn() -> usize)(
     true => _current_rss_mb_linux()
   )
 );
+/// Append the file at `src_path` to `dst` in 4 MiB pieces (the code spill,
+/// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
+/// the ~110 MB of function bodies back in memory at the end).
+_copy_file_into :: (fn(src_path : String, dst : File, io : Io, exn : Exception) -> unit)({
+  chunk := usize(4194304);
+  src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
+  buf := (*u8)(valve_malloc(chunk).unwrap());
+  (going : bool) = true;
+  while(going, {
+    n := io.await(src.read(buf, chunk, io), IoExn(io : io, exn : exn));
+    if(n == usize(0), {
+      going = false;
+    }, {
+      (done : usize) = usize(0);
+      while(done < n, {
+        w := io.await(dst.write(buf.add(done), (n - done), io), IoExn(io : io, exn : exn));
+        done = (done + w);
+      });
+    });
+  });
+  valve_free(.Some((*void)(buf)));
+  io.await(src.close(io), IoExn(io : io, exn : exn));
+});
+/// The process's peak resident set so far (`--profile` marks). Linux reads
+/// `VmHWM` from `/proc/self/status`; elsewhere 0 (the marks' rss still reads).
+_peak_rss_mb :: (fn() -> usize)(
+  cond(
+    (platform == Platform.Linux) => _peak_rss_mb_linux(),
+    true => usize(0)
+  )
+);
+_peak_rss_mb_linux :: (fn() -> usize)({
+  swallow := Exception(throw : ((_err) -> unwind(usize(0))));
+  status := String.from_bytes(read_file_sync(String.from("/proc/self/status"), swallow));
+  lines := status.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => if(line.starts_with(String.from("VmHWM:")), {
+        kb := line.substring(usize(6), line.len()).trim().trim_end_matches(String.from("kB")).trim();
+        return(match(kb.parse_u64(), .Some(k) => usize(k / u64(1024)), .None => usize(0)));
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  usize(0)
+});
 /// Linux: field 2 of `/proc/self/statm` is the resident page count.
 _current_rss_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : ((_err) -> unwind(usize(0))));

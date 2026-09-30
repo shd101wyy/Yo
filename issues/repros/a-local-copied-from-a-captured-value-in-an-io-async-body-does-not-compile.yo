@@ -1,0 +1,45 @@
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ Stream } :: import("std/async/stream");
+Countdown :: ref(struct(_n : i32));
+impl(
+  Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async(
+        (io : Io) => cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      )
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  seen := ArrayList(i32).new();
+  c := Countdown(_n : i32(3));
+  task := io.async((io : Io) => {
+    s := c;
+    (done : bool) = false;
+    while(!done, {
+      nx := io.await(s.next(io), io);
+      match(
+        nx,
+        .Some(x) => {
+          seen.push(x);
+        },
+        .None => {
+          done = true;
+        }
+      );
+    });
+  });
+  io.await(task, io);
+  println(`result: ${seen.len()}`);
+});
+export(main);

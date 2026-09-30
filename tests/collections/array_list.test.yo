@@ -1480,3 +1480,21 @@ test("clone inside a borrowed for does not trip the flag, for an arena-backed li
   };
   assert(arena.live_blocks() == usize(0), "every clone released into the arena");
 });
+// The std mutators' length contracts (`ensures(... old(self.len()) ...)`) are
+// runtime asserts in this build, so these edge calls check them
+// (issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md).
+test("the mutators' length contracts hold at the edges: set_len, a one-element swap_remove, insert into empty", {
+  xs := ArrayList(i32).with_capacity(usize(4));
+  xs.insert(usize(0), i32(3));
+  assert(xs.len() == usize(1), "insert into an empty list");
+  assert(xs.swap_remove(usize(0)) == i32(3), "swap_remove of the only element");
+  assert(xs.is_empty(), "swap_remove leaves it empty");
+  xs.push(i32(1));
+  xs.push(i32(2));
+  cap := xs.capacity();
+  xs.set_len(usize(1));
+  assert(xs.len() == usize(1), "set_len shrinks");
+  assert(xs.capacity() == cap, "set_len never reallocates");
+  xs.set_len(usize(2));
+  assert(xs(usize(1)) == i32(2), "growing back within capacity keeps the bytes");
+});

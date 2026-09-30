@@ -388,7 +388,8 @@ analyze_await_points :: (
       detect : dyn((expr, parent_expr, points) => {
         detect_await_expr_(expr, parent_expr, points, await_extras, get_info);
       }),
-      should_skip_body : dyn(expr => is_io_async_call(expr))
+      should_skip_body : dyn(expr => is_io_async_call(expr)),
+      follow_macro_expansions : true
     )
   );
   // Mark the await whose value IS the async body's own result: a standalone
@@ -482,10 +483,16 @@ analyze_await_points :: (
       },
       .Some(v) => v
     );
+    // A variable that shares its owner's RC value does not own a reference
+    // of its own (the dispose and slot sharing skip it).
     cv := CapturedVariable(
       base : sv,
       kind : CapturedVariableKind.Local,
-      is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+      is_owning_the_same_rc_value_as : match(
+        sv.is_owning_the_same_rc_value_as,
+        .Some(owner_sv) => Option(Box(CapturedVariable)).Some(box(CapturedVariable(base : owner_sv.*, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None))),
+        .None => Option(Box(CapturedVariable)).None
+      )
     );
     captured_variables.push(cv);
     ci = (ci + usize(1));
@@ -659,81 +666,6 @@ get_local_variables_from_body :: (
 /// `generate_async_block` + `preregister_async_blocks_in_expr`.
 (g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
 /// Register a closure's await analysis by func_id (only when it has awaits).
-/// The first `inout(name) := ...` binding in an `io.async` body, outside the
-/// nested closures and fn literals that are functions of their own. A body
-/// that awaits is lowered to a state machine, which addresses a local both as
-/// `sm->var_x` and as a per-state C copy, so a reference binding could read a
-/// stale copy after a write through it; codegen refuses one
-/// (`_generate_inout_local_binding`). The evaluator decides the same thing
-/// from the await analysis, so `yo check` reports it
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.1).
-first_inout_binding_in_async_body :: (fn(e : AstExpr) -> Option(AstExpr))(
-  match(
-    e,
-    .Atom(_, _) => Option(AstExpr).None,
-    // A macro call is judged by what it expands to: the borrowed
-    // `for(xs, inout(x) => ...)` binds each element with `inout(x) := ...`.
-    .FnCall(_, callee, args, _, _) => match(
-      lookup_macro_expansion(ast_expr_id(e)),
-      .Some(expanded) => recur(expanded),
-      .None => cond(
-        // A `cond`/`match` arm is `pattern => body`, not a closure: its body
-        // runs in this frame, so judge it (the borrowed `for` binds its element
-        // in a `match` arm).
-        (ast_expr_is_fn_call_of(e, "cond", Option(usize).None) || ast_expr_is_fn_call_of(e, "match", Option(usize).None)) => {
-          (mi : usize) = usize(0);
-          while(mi < args.len(), {
-            match(
-              args.get(mi),
-              .Some(a) => {
-                judged := cond(
-                  ast_expr_is_fn_call_of(a, "=>", Option(usize).Some(usize(2))) => match(
-                    a,
-                    .FnCall(_, _, arm_args, _, _) => match(arm_args.get(usize(1)), .Some(arm_body) => recur(arm_body), .None => Option(AstExpr).None),
-                    _ => Option(AstExpr).None
-                  ),
-                  true => recur(a)
-                );
-                match(
-                  judged,
-                  .Some(found) => {
-                    return(Option(AstExpr).Some(found));
-                  },
-                  .None => ()
-                );
-              },
-              .None => ()
-            );
-            mi = (mi + usize(1));
-          });
-          Option(AstExpr).None
-        },
-        (ast_expr_is_fn_call_of(e, "=>", Option(usize).None) || ast_expr_is_fn_call_of(e, "->", Option(usize).None)) => Option(AstExpr).None,
-        ast_expr_is_fn_call_of(callee, "fn", Option(usize).None) => Option(AstExpr).None,
-        (ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(lhs) => ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), .None => false)) =>
-          args.get(usize(0)),
-        true => {
-          (ai : usize) = usize(0);
-          while(ai < args.len(), {
-            match(
-              args.get(ai),
-              .Some(a) => match(
-                recur(a),
-                .Some(found) => {
-                  return(Option(AstExpr).Some(found));
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
-            ai = (ai + usize(1));
-          });
-          Option(AstExpr).None
-        }
-      )
-    )
-  )
-);
 /// Record `result` for codegen; a command that never generates code records
 /// nothing (`codegen_tables_enabled`).
 register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
@@ -751,7 +683,6 @@ export(
   AwaitPointExtra,
   register_closure_await_analysis,
   get_closure_await_analysis,
-  first_inout_binding_in_async_body,
   // Future-trait helpers
   extract_future_trait_from_type,
   type_implements_future,

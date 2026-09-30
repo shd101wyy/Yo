@@ -1,0 +1,1620 @@
+//! The async state-machine shape corpus
+//! (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 0.4 / §8): await placement
+//! crossed with every control-flow construct, generated from the audit's
+//! shape sweep. Each test is DIFFERENTIAL — the async body, with its inner
+//! future either suspending (a yield) or completing synchronously, must
+//! return exactly what the same body returns written synchronously.
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
+pragma(Pragma.SkipWasm32Wasi);
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ yield } :: import("std/async");
+_sv :: (fn(x : i32) -> i32)(x);
+_svb :: (fn(x : bool) -> bool)(x);
+_svs :: (fn(x : i32) -> String)(x.to_string());
+_v :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vb :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x
+  })
+);
+_vs :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    x.to_string()
+  })
+);
+_vsync :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => x));
+_vbs :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => x));
+_vss :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
+// cases6/h07_loop_if_one_await_nottaken.yo
+_r_cases6_h07_loop_if_one_await_nottaken :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    if(i > i32(0), {
+      a := _sv(i);
+      acc = (acc + a);
+    });
+    acc = (acc + i32(1000));
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases6_h07_loop_if_one_await_nottaken :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      if(i > i32(0), {
+        a := e.await(_v(i, e), e);
+        acc = (acc + a);
+      });
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases6_h07_loop_if_one_await_nottaken :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      if(i > i32(0), {
+        a := e.await(_vsync(i, e), e);
+        acc = (acc + a);
+      });
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape h07_loop_if_one_await_nottaken", {
+  assert(io.await(_y_cases6_h07_loop_if_one_await_nottaken(i32(0), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases6_h07_loop_if_one_await_nottaken(i32(0), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases6_h07_loop_if_one_await_nottaken(i32(1), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases6_h07_loop_if_one_await_nottaken(i32(1), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases6_h07_loop_if_one_await_nottaken(i32(3), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases6_h07_loop_if_one_await_nottaken(i32(3), io), io) == _r_cases6_h07_loop_if_one_await_nottaken(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases6/h08_matchstmt_two_awaits_loop.yo
+_r_cases6_h08_matchstmt_two_awaits_loop :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    match(
+      i,
+      i32(1) => {
+        a := _sv(i32(10));
+        b := _sv(a + i32(10));
+        acc = (acc + b);
+      },
+      _ => {
+        acc = (acc + i32(1));
+      }
+    );
+    acc = (acc + i32(1000));
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases6_h08_matchstmt_two_awaits_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      match(
+        i,
+        i32(1) => {
+          a := e.await(_v(i32(10), e), e);
+          b := e.await(_v(a + i32(10), e), e);
+          acc = (acc + b);
+        },
+        _ => {
+          acc = (acc + i32(1));
+        }
+      );
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases6_h08_matchstmt_two_awaits_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      match(
+        i,
+        i32(1) => {
+          a := e.await(_vsync(i32(10), e), e);
+          b := e.await(_vsync(a + i32(10), e), e);
+          acc = (acc + b);
+        },
+        _ => {
+          acc = (acc + i32(1));
+        }
+      );
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape h08_matchstmt_two_awaits_loop", {
+  assert(io.await(_y_cases6_h08_matchstmt_two_awaits_loop(i32(0), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases6_h08_matchstmt_two_awaits_loop(i32(0), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases6_h08_matchstmt_two_awaits_loop(i32(1), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases6_h08_matchstmt_two_awaits_loop(i32(1), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases6_h08_matchstmt_two_awaits_loop(i32(3), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases6_h08_matchstmt_two_awaits_loop(i32(3), io), io) == _r_cases6_h08_matchstmt_two_awaits_loop(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases6/h09_await_tail_in_loop_arm_value.yo
+_r_cases6_h09_await_tail_in_loop_arm_value :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    (v : i32) = i32(0);
+    if(i > i32(0), {
+      v = _sv(i);
+    }, {
+      v = i32(50);
+    });
+    acc = (acc + v);
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases6_h09_await_tail_in_loop_arm_value :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      (v : i32) = i32(0);
+      if(i > i32(0), {
+        v = e.await(_v(i, e), e);
+      }, {
+        v = i32(50);
+      });
+      acc = (acc + v);
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases6_h09_await_tail_in_loop_arm_value :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      (v : i32) = i32(0);
+      if(i > i32(0), {
+        v = e.await(_vsync(i, e), e);
+      }, {
+        v = i32(50);
+      });
+      acc = (acc + v);
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape h09_await_tail_in_loop_arm_value", {
+  assert(io.await(_y_cases6_h09_await_tail_in_loop_arm_value(i32(0), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases6_h09_await_tail_in_loop_arm_value(i32(0), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases6_h09_await_tail_in_loop_arm_value(i32(1), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases6_h09_await_tail_in_loop_arm_value(i32(1), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases6_h09_await_tail_in_loop_arm_value(i32(3), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases6_h09_await_tail_in_loop_arm_value(i32(3), io), io) == _r_cases6_h09_await_tail_in_loop_arm_value(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases6/h10_nested_if_loop_two_levels.yo
+_r_cases6_h10_nested_if_loop_two_levels :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    if(i > i32(0), {
+      if(i > i32(1), {
+        a := _sv(i);
+        acc = (acc + a);
+      });
+      acc = (acc + i32(100));
+    });
+    acc = (acc + i32(1000));
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases6_h10_nested_if_loop_two_levels :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      if(i > i32(0), {
+        if(i > i32(1), {
+          a := e.await(_v(i, e), e);
+          acc = (acc + a);
+        });
+        acc = (acc + i32(100));
+      });
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases6_h10_nested_if_loop_two_levels :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      if(i > i32(0), {
+        if(i > i32(1), {
+          a := e.await(_vsync(i, e), e);
+          acc = (acc + a);
+        });
+        acc = (acc + i32(100));
+      });
+      acc = (acc + i32(1000));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape h10_nested_if_loop_two_levels", {
+  assert(io.await(_y_cases6_h10_nested_if_loop_two_levels(i32(0), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases6_h10_nested_if_loop_two_levels(i32(0), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases6_h10_nested_if_loop_two_levels(i32(1), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases6_h10_nested_if_loop_two_levels(i32(1), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases6_h10_nested_if_loop_two_levels(i32(3), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases6_h10_nested_if_loop_two_levels(i32(3), io), io) == _r_cases6_h10_nested_if_loop_two_levels(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases7/k03_list_in_loop_body.yo
+{ ArrayList } :: import("std/collections/array_list");
+
+_r_cases7_k03_list_in_loop_body :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    xs := ArrayList(i32).new();
+    xs.push(i);
+    t := _sv(i);
+    xs.push(t);
+    acc = (acc + i32(xs.len()));
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases7_k03_list_in_loop_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      xs := ArrayList(i32).new();
+      xs.push(i);
+      t := e.await(_v(i, e), e);
+      xs.push(t);
+      acc = (acc + i32(xs.len()));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases7_k03_list_in_loop_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      xs := ArrayList(i32).new();
+      xs.push(i);
+      t := e.await(_vsync(i, e), e);
+      xs.push(t);
+      acc = (acc + i32(xs.len()));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape k03_list_in_loop_body", {
+  assert(io.await(_y_cases7_k03_list_in_loop_body(i32(0), io), io) == _r_cases7_k03_list_in_loop_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases7_k03_list_in_loop_body(i32(0), io), io) == _r_cases7_k03_list_in_loop_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases7_k03_list_in_loop_body(i32(1), io), io) == _r_cases7_k03_list_in_loop_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases7_k03_list_in_loop_body(i32(1), io), io) == _r_cases7_k03_list_in_loop_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases7_k03_list_in_loop_body(i32(3), io), io) == _r_cases7_k03_list_in_loop_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases7_k03_list_in_loop_body(i32(3), io), io) == _r_cases7_k03_list_in_loop_body(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases7/k09_str_nested_while.yo
+_r_cases7_k09_str_nested_while :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(i < n, {
+    (j : i32) = i32(0);
+    while(j < n, {
+      t := _svs((i * i32(10)) + j);
+      total = (total + i32(t.len()));
+      j = (j + i32(1));
+    });
+    i = (i + i32(1));
+  });
+  total
+});
+_y_cases7_k09_str_nested_while :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(i < n, {
+      (j : i32) = i32(0);
+      while(j < n, {
+        t := e.await(_vs((i * i32(10)) + j, e), e);
+        total = (total + i32(t.len()));
+        j = (j + i32(1));
+      });
+      i = (i + i32(1));
+    });
+    total
+  })
+);
+_s_cases7_k09_str_nested_while :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(i < n, {
+      (j : i32) = i32(0);
+      while(j < n, {
+        t := e.await(_vss((i * i32(10)) + j, e), e);
+        total = (total + i32(t.len()));
+        j = (j + i32(1));
+      });
+      i = (i + i32(1));
+    });
+    total
+  })
+);
+test("shape k09_str_nested_while", {
+  assert(io.await(_y_cases7_k09_str_nested_while(i32(0), io), io) == _r_cases7_k09_str_nested_while(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases7_k09_str_nested_while(i32(0), io), io) == _r_cases7_k09_str_nested_while(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases7_k09_str_nested_while(i32(1), io), io) == _r_cases7_k09_str_nested_while(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases7_k09_str_nested_while(i32(1), io), io) == _r_cases7_k09_str_nested_while(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases7_k09_str_nested_while(i32(3), io), io) == _r_cases7_k09_str_nested_while(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases7_k09_str_nested_while(i32(3), io), io) == _r_cases7_k09_str_nested_while(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases7/k10_str_continue_heap.yo
+_r_cases7_k10_str_continue_heap :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(i < (n * i32(2)), {
+    i = (i + i32(1));
+    t := _svs(i * i32(100));
+    if((i % i32(2)) == i32(0), {
+      continue;
+    });
+    total = (total + i32(t.len()));
+  });
+  total
+});
+_y_cases7_k10_str_continue_heap :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(i < (n * i32(2)), {
+      i = (i + i32(1));
+      t := e.await(_vs(i * i32(100), e), e);
+      if((i % i32(2)) == i32(0), {
+        continue;
+      });
+      total = (total + i32(t.len()));
+    });
+    total
+  })
+);
+_s_cases7_k10_str_continue_heap :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (total : i32) = i32(0);
+    while(i < (n * i32(2)), {
+      i = (i + i32(1));
+      t := e.await(_vss(i * i32(100), e), e);
+      if((i % i32(2)) == i32(0), {
+        continue;
+      });
+      total = (total + i32(t.len()));
+    });
+    total
+  })
+);
+test("shape k10_str_continue_heap", {
+  assert(io.await(_y_cases7_k10_str_continue_heap(i32(0), io), io) == _r_cases7_k10_str_continue_heap(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases7_k10_str_continue_heap(i32(0), io), io) == _r_cases7_k10_str_continue_heap(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases7_k10_str_continue_heap(i32(1), io), io) == _r_cases7_k10_str_continue_heap(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases7_k10_str_continue_heap(i32(1), io), io) == _r_cases7_k10_str_continue_heap(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases7_k10_str_continue_heap(i32(3), io), io) == _r_cases7_k10_str_continue_heap(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases7_k10_str_continue_heap(i32(3), io), io) == _r_cases7_k10_str_continue_heap(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m01_while_in_match_arm.yo
+_r_cases8_m01_while_in_match_arm :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  match(
+    n,
+    i32(0) => {
+      acc = i32(-1);
+    },
+    _ => {
+      (i : i32) = i32(0);
+      while(i < n, {
+        t := _sv(i);
+        acc = (acc + t);
+        i = (i + i32(1));
+      });
+      acc = (acc + i32(100));
+    }
+  );
+  acc
+});
+_y_cases8_m01_while_in_match_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    match(
+      n,
+      i32(0) => {
+        acc = i32(-1);
+      },
+      _ => {
+        (i : i32) = i32(0);
+        while(i < n, {
+          t := e.await(_v(i, e), e);
+          acc = (acc + t);
+          i = (i + i32(1));
+        });
+        acc = (acc + i32(100));
+      }
+    );
+    acc
+  })
+);
+_s_cases8_m01_while_in_match_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    match(
+      n,
+      i32(0) => {
+        acc = i32(-1);
+      },
+      _ => {
+        (i : i32) = i32(0);
+        while(i < n, {
+          t := e.await(_vsync(i, e), e);
+          acc = (acc + t);
+          i = (i + i32(1));
+        });
+        acc = (acc + i32(100));
+      }
+    );
+    acc
+  })
+);
+test("shape m01_while_in_match_arm", {
+  assert(io.await(_y_cases8_m01_while_in_match_arm(i32(0), io), io) == _r_cases8_m01_while_in_match_arm(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m01_while_in_match_arm(i32(0), io), io) == _r_cases8_m01_while_in_match_arm(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m01_while_in_match_arm(i32(1), io), io) == _r_cases8_m01_while_in_match_arm(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m01_while_in_match_arm(i32(1), io), io) == _r_cases8_m01_while_in_match_arm(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m01_while_in_match_arm(i32(3), io), io) == _r_cases8_m01_while_in_match_arm(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m01_while_in_match_arm(i32(3), io), io) == _r_cases8_m01_while_in_match_arm(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m02_await_then_while_in_arm.yo
+_r_cases8_m02_await_then_while_in_arm :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  if(n > i32(0), {
+    a := _sv(n);
+    (i : i32) = i32(0);
+    while(i < a, {
+      t := _sv(i);
+      acc = (acc + t);
+      i = (i + i32(1));
+    });
+    acc = (acc + i32(100));
+  });
+  acc
+});
+_y_cases8_m02_await_then_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    if(n > i32(0), {
+      a := e.await(_v(n, e), e);
+      (i : i32) = i32(0);
+      while(i < a, {
+        t := e.await(_v(i, e), e);
+        acc = (acc + t);
+        i = (i + i32(1));
+      });
+      acc = (acc + i32(100));
+    });
+    acc
+  })
+);
+_s_cases8_m02_await_then_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    if(n > i32(0), {
+      a := e.await(_vsync(n, e), e);
+      (i : i32) = i32(0);
+      while(i < a, {
+        t := e.await(_vsync(i, e), e);
+        acc = (acc + t);
+        i = (i + i32(1));
+      });
+      acc = (acc + i32(100));
+    });
+    acc
+  })
+);
+test("shape m02_await_then_while_in_arm", {
+  assert(io.await(_y_cases8_m02_await_then_while_in_arm(i32(0), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m02_await_then_while_in_arm(i32(0), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m02_await_then_while_in_arm(i32(1), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m02_await_then_while_in_arm(i32(1), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m02_await_then_while_in_arm(i32(3), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m02_await_then_while_in_arm(i32(3), io), io) == _r_cases8_m02_await_then_while_in_arm(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m03_await_last_in_body.yo
+_r_cases8_m03_await_last_in_body :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < n, {
+    i = (i + i32(1));
+    acc = (acc + i);
+    _sv(i);
+  });
+  acc + (i * i32(100))
+});
+_y_cases8_m03_await_last_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      i = (i + i32(1));
+      acc = (acc + i);
+      e.await(_v(i, e), e);
+    });
+    acc + (i * i32(100))
+  })
+);
+_s_cases8_m03_await_last_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      i = (i + i32(1));
+      acc = (acc + i);
+      e.await(_vsync(i, e), e);
+    });
+    acc + (i * i32(100))
+  })
+);
+test("shape m03_await_last_in_body", {
+  assert(io.await(_y_cases8_m03_await_last_in_body(i32(0), io), io) == _r_cases8_m03_await_last_in_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m03_await_last_in_body(i32(0), io), io) == _r_cases8_m03_await_last_in_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m03_await_last_in_body(i32(1), io), io) == _r_cases8_m03_await_last_in_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m03_await_last_in_body(i32(1), io), io) == _r_cases8_m03_await_last_in_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m03_await_last_in_body(i32(3), io), io) == _r_cases8_m03_await_last_in_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m03_await_last_in_body(i32(3), io), io) == _r_cases8_m03_await_last_in_body(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m04_if_last_in_body.yo
+_r_cases8_m04_if_last_in_body :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < n, {
+    i = (i + i32(1));
+    if((i % i32(2)) == i32(1), {
+      t := _sv(i);
+      acc = (acc + t);
+    });
+  });
+  acc + (i * i32(100))
+});
+_y_cases8_m04_if_last_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      i = (i + i32(1));
+      if((i % i32(2)) == i32(1), {
+        t := e.await(_v(i, e), e);
+        acc = (acc + t);
+      });
+    });
+    acc + (i * i32(100))
+  })
+);
+_s_cases8_m04_if_last_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      i = (i + i32(1));
+      if((i % i32(2)) == i32(1), {
+        t := e.await(_vsync(i, e), e);
+        acc = (acc + t);
+      });
+    });
+    acc + (i * i32(100))
+  })
+);
+test("shape m04_if_last_in_body", {
+  assert(io.await(_y_cases8_m04_if_last_in_body(i32(0), io), io) == _r_cases8_m04_if_last_in_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m04_if_last_in_body(i32(0), io), io) == _r_cases8_m04_if_last_in_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m04_if_last_in_body(i32(1), io), io) == _r_cases8_m04_if_last_in_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m04_if_last_in_body(i32(1), io), io) == _r_cases8_m04_if_last_in_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m04_if_last_in_body(i32(3), io), io) == _r_cases8_m04_if_last_in_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m04_if_last_in_body(i32(3), io), io) == _r_cases8_m04_if_last_in_body(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m06_return_from_nested_while_in_arm.yo
+_r_cases8_m06_return_from_nested_while_in_arm :: (fn(n : i32) -> i32)({
+  if(n > i32(0), {
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      t := _sv(i);
+      if(t == n, {
+        return(t + i32(700));
+      });
+      i = (i + i32(1));
+    });
+  });
+  i32(-7)
+});
+_y_cases8_m06_return_from_nested_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    if(n > i32(0), {
+      (i : i32) = i32(0);
+      while(i < i32(10), {
+        t := e.await(_v(i, e), e);
+        if(t == n, {
+          return(t + i32(700));
+        });
+        i = (i + i32(1));
+      });
+    });
+    i32(-7)
+  })
+);
+_s_cases8_m06_return_from_nested_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    if(n > i32(0), {
+      (i : i32) = i32(0);
+      while(i < i32(10), {
+        t := e.await(_vsync(i, e), e);
+        if(t == n, {
+          return(t + i32(700));
+        });
+        i = (i + i32(1));
+      });
+    });
+    i32(-7)
+  })
+);
+test("shape m06_return_from_nested_while_in_arm", {
+  assert(io.await(_y_cases8_m06_return_from_nested_while_in_arm(i32(0), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m06_return_from_nested_while_in_arm(i32(0), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m06_return_from_nested_while_in_arm(i32(1), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m06_return_from_nested_while_in_arm(i32(1), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m06_return_from_nested_while_in_arm(i32(3), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m06_return_from_nested_while_in_arm(i32(3), io), io) == _r_cases8_m06_return_from_nested_while_in_arm(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m07_step_begin_await.yo
+_r_cases8_m07_step_begin_await :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < n, {
+    t := _sv(i + i32(1));
+    i = t;
+  }, {
+    acc = ((acc * i32(10)) + i);
+  });
+  acc + (i * i32(1000))
+});
+_y_cases8_m07_step_begin_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      t := e.await(_v(i + i32(1), e), e);
+      i = t;
+    }, {
+      acc = ((acc * i32(10)) + i);
+    });
+    acc + (i * i32(1000))
+  })
+);
+_s_cases8_m07_step_begin_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < n, {
+      t := e.await(_vsync(i + i32(1), e), e);
+      i = t;
+    }, {
+      acc = ((acc * i32(10)) + i);
+    });
+    acc + (i * i32(1000))
+  })
+);
+test("shape m07_step_begin_await", {
+  assert(io.await(_y_cases8_m07_step_begin_await(i32(0), io), io) == _r_cases8_m07_step_begin_await(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m07_step_begin_await(i32(0), io), io) == _r_cases8_m07_step_begin_await(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m07_step_begin_await(i32(1), io), io) == _r_cases8_m07_step_begin_await(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m07_step_begin_await(i32(1), io), io) == _r_cases8_m07_step_begin_await(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m07_step_begin_await(i32(3), io), io) == _r_cases8_m07_step_begin_await(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m07_step_begin_await(i32(3), io), io) == _r_cases8_m07_step_begin_await(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m08_while_in_while_in_arm.yo
+_r_cases8_m08_while_in_while_in_arm :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  if(n > i32(0), {
+    (i : i32) = i32(0);
+    while(i < n, {
+      (j : i32) = i32(0);
+      while(j < n, {
+        t := _sv(i32(1));
+        acc = (acc + t);
+        j = (j + i32(1));
+      });
+      acc = (acc + i32(100));
+      i = (i + i32(1));
+    });
+  });
+  acc
+});
+_y_cases8_m08_while_in_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    if(n > i32(0), {
+      (i : i32) = i32(0);
+      while(i < n, {
+        (j : i32) = i32(0);
+        while(j < n, {
+          t := e.await(_v(i32(1), e), e);
+          acc = (acc + t);
+          j = (j + i32(1));
+        });
+        acc = (acc + i32(100));
+        i = (i + i32(1));
+      });
+    });
+    acc
+  })
+);
+_s_cases8_m08_while_in_while_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    if(n > i32(0), {
+      (i : i32) = i32(0);
+      while(i < n, {
+        (j : i32) = i32(0);
+        while(j < n, {
+          t := e.await(_vsync(i32(1), e), e);
+          acc = (acc + t);
+          j = (j + i32(1));
+        });
+        acc = (acc + i32(100));
+        i = (i + i32(1));
+      });
+    });
+    acc
+  })
+);
+test("shape m08_while_in_while_in_arm", {
+  assert(io.await(_y_cases8_m08_while_in_while_in_arm(i32(0), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m08_while_in_while_in_arm(i32(0), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m08_while_in_while_in_arm(i32(1), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m08_while_in_while_in_arm(i32(1), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m08_while_in_while_in_arm(i32(3), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m08_while_in_while_in_arm(i32(3), io), io) == _r_cases8_m08_while_in_while_in_arm(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m09_outer_body_local_after_inner.yo
+_r_cases8_m09_outer_body_local_after_inner :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < n, {
+    (mark : i32) = (i * i32(1000));
+    (j : i32) = i32(0);
+    while(j < i32(2), {
+      t := _sv(j);
+      mark = (mark + t);
+      j = (j + i32(1));
+    });
+    acc = (acc + mark);
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases8_m09_outer_body_local_after_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      (mark : i32) = (i * i32(1000));
+      (j : i32) = i32(0);
+      while(j < i32(2), {
+        t := e.await(_v(j, e), e);
+        mark = (mark + t);
+        j = (j + i32(1));
+      });
+      acc = (acc + mark);
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases8_m09_outer_body_local_after_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < n, {
+      (mark : i32) = (i * i32(1000));
+      (j : i32) = i32(0);
+      while(j < i32(2), {
+        t := e.await(_vsync(j, e), e);
+        mark = (mark + t);
+        j = (j + i32(1));
+      });
+      acc = (acc + mark);
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape m09_outer_body_local_after_inner", {
+  assert(io.await(_y_cases8_m09_outer_body_local_after_inner(i32(0), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m09_outer_body_local_after_inner(i32(0), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m09_outer_body_local_after_inner(i32(1), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m09_outer_body_local_after_inner(i32(1), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m09_outer_body_local_after_inner(i32(3), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m09_outer_body_local_after_inner(i32(3), io), io) == _r_cases8_m09_outer_body_local_after_inner(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m10_cond_in_while_nested_arm_await_and_break.yo
+_r_cases8_m10_cond_in_while_nested_arm_await_and_break :: (fn(n : i32) -> i32)({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < i32(10), {
+    t := _sv(i);
+    cond(
+      (t == n) => {
+        break;
+      },
+      ((t % i32(2)) == i32(0)) => {
+        acc = (acc + t);
+      },
+      true => {
+        acc = (acc + i32(100));
+      }
+    );
+    i = (i + i32(1));
+  });
+  acc + (i * i32(10000))
+});
+_y_cases8_m10_cond_in_while_nested_arm_await_and_break :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      t := e.await(_v(i, e), e);
+      cond(
+        (t == n) => {
+          break;
+        },
+        ((t % i32(2)) == i32(0)) => {
+          acc = (acc + t);
+        },
+        true => {
+          acc = (acc + i32(100));
+        }
+      );
+      i = (i + i32(1));
+    });
+    acc + (i * i32(10000))
+  })
+);
+_s_cases8_m10_cond_in_while_nested_arm_await_and_break :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (acc : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      t := e.await(_vsync(i, e), e);
+      cond(
+        (t == n) => {
+          break;
+        },
+        ((t % i32(2)) == i32(0)) => {
+          acc = (acc + t);
+        },
+        true => {
+          acc = (acc + i32(100));
+        }
+      );
+      i = (i + i32(1));
+    });
+    acc + (i * i32(10000))
+  })
+);
+test("shape m10_cond_in_while_nested_arm_await_and_break", {
+  assert(io.await(_y_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(0), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(0), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(1), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(1), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(3), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(3), io), io) == _r_cases8_m10_cond_in_while_nested_arm_await_and_break(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m11_bool_await_value_in_arm.yo
+_r_cases8_m11_bool_await_value_in_arm :: (fn(n : i32) -> i32)({
+  (x : i32) = i32(0);
+  if(n > i32(0), {
+    ok := _svb(n > i32(2));
+    if(ok, {
+      x = i32(1);
+    }, {
+      x = i32(2);
+    });
+  });
+  x
+});
+_y_cases8_m11_bool_await_value_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (x : i32) = i32(0);
+    if(n > i32(0), {
+      ok := e.await(_vb(n > i32(2), e), e);
+      if(ok, {
+        x = i32(1);
+      }, {
+        x = i32(2);
+      });
+    });
+    x
+  })
+);
+_s_cases8_m11_bool_await_value_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (x : i32) = i32(0);
+    if(n > i32(0), {
+      ok := e.await(_vbs(n > i32(2), e), e);
+      if(ok, {
+        x = i32(1);
+      }, {
+        x = i32(2);
+      });
+    });
+    x
+  })
+);
+test("shape m11_bool_await_value_in_arm", {
+  assert(io.await(_y_cases8_m11_bool_await_value_in_arm(i32(0), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m11_bool_await_value_in_arm(i32(0), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m11_bool_await_value_in_arm(i32(1), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m11_bool_await_value_in_arm(i32(1), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m11_bool_await_value_in_arm(i32(3), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m11_bool_await_value_in_arm(i32(3), io), io) == _r_cases8_m11_bool_await_value_in_arm(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases8/m12_seq_while_then_if_await_tail.yo
+_r_cases8_m12_seq_while_then_if_await_tail :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  while(i < n, {
+    _sv(i);
+    i = (i + i32(1));
+  });
+  cond((i > i32(2)) => _sv(i * i32(10)), true => i)
+});
+_y_cases8_m12_seq_while_then_if_await_tail :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    while(i < n, {
+      e.await(_v(i, e), e);
+      i = (i + i32(1));
+    });
+    cond((i > i32(2)) => e.await(_v(i * i32(10), e), e), true => i)
+  })
+);
+_s_cases8_m12_seq_while_then_if_await_tail :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    while(i < n, {
+      e.await(_vsync(i, e), e);
+      i = (i + i32(1));
+    });
+    cond((i > i32(2)) => e.await(_vsync(i * i32(10), e), e), true => i)
+  })
+);
+test("shape m12_seq_while_then_if_await_tail", {
+  assert(io.await(_y_cases8_m12_seq_while_then_if_await_tail(i32(0), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases8_m12_seq_while_then_if_await_tail(i32(0), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases8_m12_seq_while_then_if_await_tail(i32(1), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases8_m12_seq_while_then_if_await_tail(i32(1), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases8_m12_seq_while_then_if_await_tail(i32(3), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases8_m12_seq_while_then_if_await_tail(i32(3), io), io) == _r_cases8_m12_seq_while_then_if_await_tail(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l01_str_reassign_await_top.yo
+_r_cases9_l01_str_reassign_await_top :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  s = _svs(n);
+  i32(s.len())
+});
+_y_cases9_l01_str_reassign_await_top :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    s = e.await(_vs(n, e), e);
+    i32(s.len())
+  })
+);
+_s_cases9_l01_str_reassign_await_top :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    s = e.await(_vss(n, e), e);
+    i32(s.len())
+  })
+);
+test("shape l01_str_reassign_await_top", {
+  assert(io.await(_y_cases9_l01_str_reassign_await_top(i32(0), io), io) == _r_cases9_l01_str_reassign_await_top(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l01_str_reassign_await_top(i32(0), io), io) == _r_cases9_l01_str_reassign_await_top(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l01_str_reassign_await_top(i32(1), io), io) == _r_cases9_l01_str_reassign_await_top(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l01_str_reassign_await_top(i32(1), io), io) == _r_cases9_l01_str_reassign_await_top(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l01_str_reassign_await_top(i32(3), io), io) == _r_cases9_l01_str_reassign_await_top(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l01_str_reassign_await_top(i32(3), io), io) == _r_cases9_l01_str_reassign_await_top(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l02_str_reassign_await_loop.yo
+_r_cases9_l02_str_reassign_await_loop :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  (i : i32) = i32(0);
+  while(i < n, {
+    s = _svs(i);
+    i = (i + i32(1));
+  });
+  i32(s.len())
+});
+_y_cases9_l02_str_reassign_await_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    (i : i32) = i32(0);
+    while(i < n, {
+      s = e.await(_vs(i, e), e);
+      i = (i + i32(1));
+    });
+    i32(s.len())
+  })
+);
+_s_cases9_l02_str_reassign_await_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    (i : i32) = i32(0);
+    while(i < n, {
+      s = e.await(_vss(i, e), e);
+      i = (i + i32(1));
+    });
+    i32(s.len())
+  })
+);
+test("shape l02_str_reassign_await_loop", {
+  assert(io.await(_y_cases9_l02_str_reassign_await_loop(i32(0), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l02_str_reassign_await_loop(i32(0), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l02_str_reassign_await_loop(i32(1), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l02_str_reassign_await_loop(i32(1), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l02_str_reassign_await_loop(i32(3), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l02_str_reassign_await_loop(i32(3), io), io) == _r_cases9_l02_str_reassign_await_loop(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l03_str_reassign_plain_in_arm_after_await.yo
+_r_cases9_l03_str_reassign_plain_in_arm_after_await :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  if(n > i32(0), {
+    t := _svs(n);
+    s = t;
+  });
+  i32(s.len())
+});
+_y_cases9_l03_str_reassign_plain_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    if(n > i32(0), {
+      t := e.await(_vs(n, e), e);
+      s = t;
+    });
+    i32(s.len())
+  })
+);
+_s_cases9_l03_str_reassign_plain_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    if(n > i32(0), {
+      t := e.await(_vss(n, e), e);
+      s = t;
+    });
+    i32(s.len())
+  })
+);
+test("shape l03_str_reassign_plain_in_arm_after_await", {
+  assert(io.await(_y_cases9_l03_str_reassign_plain_in_arm_after_await(i32(0), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l03_str_reassign_plain_in_arm_after_await(i32(0), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l03_str_reassign_plain_in_arm_after_await(i32(1), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l03_str_reassign_plain_in_arm_after_await(i32(1), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l03_str_reassign_plain_in_arm_after_await(i32(3), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l03_str_reassign_plain_in_arm_after_await(i32(3), io), io) == _r_cases9_l03_str_reassign_plain_in_arm_after_await(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l04_str_reassign_plain_in_loop_after_await.yo
+_r_cases9_l04_str_reassign_plain_in_loop_after_await :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  (i : i32) = i32(0);
+  while(i < n, {
+    t := _svs(i);
+    s = t;
+    i = (i + i32(1));
+  });
+  i32(s.len())
+});
+_y_cases9_l04_str_reassign_plain_in_loop_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    (i : i32) = i32(0);
+    while(i < n, {
+      t := e.await(_vs(i, e), e);
+      s = t;
+      i = (i + i32(1));
+    });
+    i32(s.len())
+  })
+);
+_s_cases9_l04_str_reassign_plain_in_loop_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    (i : i32) = i32(0);
+    while(i < n, {
+      t := e.await(_vss(i, e), e);
+      s = t;
+      i = (i + i32(1));
+    });
+    i32(s.len())
+  })
+);
+test("shape l04_str_reassign_plain_in_loop_after_await", {
+  assert(io.await(_y_cases9_l04_str_reassign_plain_in_loop_after_await(i32(0), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l04_str_reassign_plain_in_loop_after_await(i32(0), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l04_str_reassign_plain_in_loop_after_await(i32(1), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l04_str_reassign_plain_in_loop_after_await(i32(1), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l04_str_reassign_plain_in_loop_after_await(i32(3), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l04_str_reassign_plain_in_loop_after_await(i32(3), io), io) == _r_cases9_l04_str_reassign_plain_in_loop_after_await(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l05_str_reassign_literal_in_arm_after_await.yo
+_r_cases9_l05_str_reassign_literal_in_arm_after_await :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  if(n > i32(0), {
+    _sv(n);
+    s = String.from("other");
+  });
+  i32(s.len())
+});
+_y_cases9_l05_str_reassign_literal_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    if(n > i32(0), {
+      e.await(_v(n, e), e);
+      s = String.from("other");
+    });
+    i32(s.len())
+  })
+);
+_s_cases9_l05_str_reassign_literal_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    if(n > i32(0), {
+      e.await(_vsync(n, e), e);
+      s = String.from("other");
+    });
+    i32(s.len())
+  })
+);
+test("shape l05_str_reassign_literal_in_arm_after_await", {
+  assert(io.await(_y_cases9_l05_str_reassign_literal_in_arm_after_await(i32(0), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l05_str_reassign_literal_in_arm_after_await(i32(0), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l05_str_reassign_literal_in_arm_after_await(i32(1), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l05_str_reassign_literal_in_arm_after_await(i32(1), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l05_str_reassign_literal_in_arm_after_await(i32(3), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l05_str_reassign_literal_in_arm_after_await(i32(3), io), io) == _r_cases9_l05_str_reassign_literal_in_arm_after_await(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l06_str_reassign_await_in_arm_cond3.yo
+_r_cases9_l06_str_reassign_await_in_arm_cond3 :: (fn(n : i32) -> i32)({
+  (s : String) = String.from("init");
+  cond(
+    (n == i32(0)) => {
+      s = String.from("z");
+    },
+    (n == i32(1)) => {
+      s = _svs(n);
+    },
+    true => ()
+  );
+  i32(s.len())
+});
+_y_cases9_l06_str_reassign_await_in_arm_cond3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    cond(
+      (n == i32(0)) => {
+        s = String.from("z");
+      },
+      (n == i32(1)) => {
+        s = e.await(_vs(n, e), e);
+      },
+      true => ()
+    );
+    i32(s.len())
+  })
+);
+_s_cases9_l06_str_reassign_await_in_arm_cond3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (s : String) = String.from("init");
+    cond(
+      (n == i32(0)) => {
+        s = String.from("z");
+      },
+      (n == i32(1)) => {
+        s = e.await(_vss(n, e), e);
+      },
+      true => ()
+    );
+    i32(s.len())
+  })
+);
+test("shape l06_str_reassign_await_in_arm_cond3", {
+  assert(io.await(_y_cases9_l06_str_reassign_await_in_arm_cond3(i32(0), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l06_str_reassign_await_in_arm_cond3(i32(0), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l06_str_reassign_await_in_arm_cond3(i32(1), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l06_str_reassign_await_in_arm_cond3(i32(1), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l06_str_reassign_await_in_arm_cond3(i32(3), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l06_str_reassign_await_in_arm_cond3(i32(3), io), io) == _r_cases9_l06_str_reassign_await_in_arm_cond3(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l07_break_reassign.yo
+_r_cases9_l07_break_reassign :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (last : String) = String.from("none");
+  while(i < i32(10), {
+    _sv(i);
+    if(i == n, {
+      last = String.from("hit");
+      break;
+    });
+    i = (i + i32(1));
+  });
+  i32(last.len())
+});
+_y_cases9_l07_break_reassign :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : String) = String.from("none");
+    while(i < i32(10), {
+      e.await(_v(i, e), e);
+      if(i == n, {
+        last = String.from("hit");
+        break;
+      });
+      i = (i + i32(1));
+    });
+    i32(last.len())
+  })
+);
+_s_cases9_l07_break_reassign :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : String) = String.from("none");
+    while(i < i32(10), {
+      e.await(_vsync(i, e), e);
+      if(i == n, {
+        last = String.from("hit");
+        break;
+      });
+      i = (i + i32(1));
+    });
+    i32(last.len())
+  })
+);
+test("shape l07_break_reassign", {
+  assert(io.await(_y_cases9_l07_break_reassign(i32(0), io), io) == _r_cases9_l07_break_reassign(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l07_break_reassign(i32(0), io), io) == _r_cases9_l07_break_reassign(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l07_break_reassign(i32(1), io), io) == _r_cases9_l07_break_reassign(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l07_break_reassign(i32(1), io), io) == _r_cases9_l07_break_reassign(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l07_break_reassign(i32(3), io), io) == _r_cases9_l07_break_reassign(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l07_break_reassign(i32(3), io), io) == _r_cases9_l07_break_reassign(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l08_reassign_no_break.yo
+_r_cases9_l08_reassign_no_break :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (last : String) = String.from("none");
+  while(i < i32(10), {
+    _sv(i);
+    if(i == n, {
+      last = String.from("hit");
+      i = i32(100);
+    }, {
+      i = (i + i32(1));
+    });
+  });
+  i32(last.len())
+});
+_y_cases9_l08_reassign_no_break :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : String) = String.from("none");
+    while(i < i32(10), {
+      e.await(_v(i, e), e);
+      if(i == n, {
+        last = String.from("hit");
+        i = i32(100);
+      }, {
+        i = (i + i32(1));
+      });
+    });
+    i32(last.len())
+  })
+);
+_s_cases9_l08_reassign_no_break :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : String) = String.from("none");
+    while(i < i32(10), {
+      e.await(_vsync(i, e), e);
+      if(i == n, {
+        last = String.from("hit");
+        i = i32(100);
+      }, {
+        i = (i + i32(1));
+      });
+    });
+    i32(last.len())
+  })
+);
+test("shape l08_reassign_no_break", {
+  assert(io.await(_y_cases9_l08_reassign_no_break(i32(0), io), io) == _r_cases9_l08_reassign_no_break(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l08_reassign_no_break(i32(0), io), io) == _r_cases9_l08_reassign_no_break(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l08_reassign_no_break(i32(1), io), io) == _r_cases9_l08_reassign_no_break(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l08_reassign_no_break(i32(1), io), io) == _r_cases9_l08_reassign_no_break(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l08_reassign_no_break(i32(3), io), io) == _r_cases9_l08_reassign_no_break(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l08_reassign_no_break(i32(3), io), io) == _r_cases9_l08_reassign_no_break(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l09_break_no_reassign_heap_live.yo
+_r_cases9_l09_break_no_reassign_heap_live :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  last := String.from("none");
+  while(i < i32(10), {
+    _sv(i);
+    if(i == n, {
+      break;
+    });
+    i = (i + i32(1));
+  });
+  i32(last.len())
+});
+_y_cases9_l09_break_no_reassign_heap_live :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    last := String.from("none");
+    while(i < i32(10), {
+      e.await(_v(i, e), e);
+      if(i == n, {
+        break;
+      });
+      i = (i + i32(1));
+    });
+    i32(last.len())
+  })
+);
+_s_cases9_l09_break_no_reassign_heap_live :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    last := String.from("none");
+    while(i < i32(10), {
+      e.await(_vsync(i, e), e);
+      if(i == n, {
+        break;
+      });
+      i = (i + i32(1));
+    });
+    i32(last.len())
+  })
+);
+test("shape l09_break_no_reassign_heap_live", {
+  assert(io.await(_y_cases9_l09_break_no_reassign_heap_live(i32(0), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l09_break_no_reassign_heap_live(i32(0), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l09_break_no_reassign_heap_live(i32(1), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l09_break_no_reassign_heap_live(i32(1), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l09_break_no_reassign_heap_live(i32(3), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l09_break_no_reassign_heap_live(i32(3), io), io) == _r_cases9_l09_break_no_reassign_heap_live(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l10_break_heap_local_in_body.yo
+_r_cases9_l10_break_heap_local_in_body :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < i32(10), {
+    tmp := String.from("abc");
+    _sv(i);
+    if(i == n, {
+      break;
+    });
+    acc = (acc + i32(tmp.len()));
+    i = (i + i32(1));
+  });
+  acc
+});
+_y_cases9_l10_break_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < i32(10), {
+      tmp := String.from("abc");
+      e.await(_v(i, e), e);
+      if(i == n, {
+        break;
+      });
+      acc = (acc + i32(tmp.len()));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+_s_cases9_l10_break_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < i32(10), {
+      tmp := String.from("abc");
+      e.await(_vsync(i, e), e);
+      if(i == n, {
+        break;
+      });
+      acc = (acc + i32(tmp.len()));
+      i = (i + i32(1));
+    });
+    acc
+  })
+);
+test("shape l10_break_heap_local_in_body", {
+  assert(io.await(_y_cases9_l10_break_heap_local_in_body(i32(0), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l10_break_heap_local_in_body(i32(0), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l10_break_heap_local_in_body(i32(1), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l10_break_heap_local_in_body(i32(1), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l10_break_heap_local_in_body(i32(3), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l10_break_heap_local_in_body(i32(3), io), io) == _r_cases9_l10_break_heap_local_in_body(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l11_continue_heap_local_in_body.yo
+_r_cases9_l11_continue_heap_local_in_body :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  (acc : i32) = i32(0);
+  while(i < (n * i32(2)), {
+    i = (i + i32(1));
+    tmp := String.from("abc");
+    _sv(i);
+    if((i % i32(2)) == i32(0), {
+      continue;
+    });
+    acc = (acc + i32(tmp.len()));
+  });
+  acc
+});
+_y_cases9_l11_continue_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < (n * i32(2)), {
+      i = (i + i32(1));
+      tmp := String.from("abc");
+      e.await(_v(i, e), e);
+      if((i % i32(2)) == i32(0), {
+        continue;
+      });
+      acc = (acc + i32(tmp.len()));
+    });
+    acc
+  })
+);
+_s_cases9_l11_continue_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (acc : i32) = i32(0);
+    while(i < (n * i32(2)), {
+      i = (i + i32(1));
+      tmp := String.from("abc");
+      e.await(_vsync(i, e), e);
+      if((i % i32(2)) == i32(0), {
+        continue;
+      });
+      acc = (acc + i32(tmp.len()));
+    });
+    acc
+  })
+);
+test("shape l11_continue_heap_local_in_body", {
+  assert(io.await(_y_cases9_l11_continue_heap_local_in_body(i32(0), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l11_continue_heap_local_in_body(i32(0), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l11_continue_heap_local_in_body(i32(1), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l11_continue_heap_local_in_body(i32(1), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l11_continue_heap_local_in_body(i32(3), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l11_continue_heap_local_in_body(i32(3), io), io) == _r_cases9_l11_continue_heap_local_in_body(i32(3)), "synchronous inner future, n=3");
+});
+
+// cases9/l12_return_heap_local_in_body.yo
+_r_cases9_l12_return_heap_local_in_body :: (fn(n : i32) -> i32)({
+  (i : i32) = i32(0);
+  while(i < i32(10), {
+    tmp := String.from("abc");
+    _sv(i);
+    if(i == n, {
+      return(i32(tmp.len()));
+    });
+    i = (i + i32(1));
+  });
+  i32(0)
+});
+_y_cases9_l12_return_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      tmp := String.from("abc");
+      e.await(_v(i, e), e);
+      if(i == n, {
+        return(i32(tmp.len()));
+      });
+      i = (i + i32(1));
+    });
+    i32(0)
+  })
+);
+_s_cases9_l12_return_heap_local_in_body :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    while(i < i32(10), {
+      tmp := String.from("abc");
+      e.await(_vsync(i, e), e);
+      if(i == n, {
+        return(i32(tmp.len()));
+      });
+      i = (i + i32(1));
+    });
+    i32(0)
+  })
+);
+test("shape l12_return_heap_local_in_body", {
+  assert(io.await(_y_cases9_l12_return_heap_local_in_body(i32(0), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(0)), "yielding inner future, n=0");
+  assert(io.await(_s_cases9_l12_return_heap_local_in_body(i32(0), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(0)), "synchronous inner future, n=0");
+  assert(io.await(_y_cases9_l12_return_heap_local_in_body(i32(1), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(1)), "yielding inner future, n=1");
+  assert(io.await(_s_cases9_l12_return_heap_local_in_body(i32(1), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(1)), "synchronous inner future, n=1");
+  assert(io.await(_y_cases9_l12_return_heap_local_in_body(i32(3), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(3)), "yielding inner future, n=3");
+  assert(io.await(_s_cases9_l12_return_heap_local_in_body(i32(3), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(3)), "synchronous inner future, n=3");
+});

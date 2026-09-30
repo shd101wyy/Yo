@@ -1,10 +1,19 @@
 // The loud gap of issues/questions/modifies-clause-for-callee-side-effects.md:
-// `grow` pushes onto its parameter but its contract never mentions
-// `old(xs)`, so a caller would keep its pre-call knowledge of `xs` — the
-// verifier reports a precise subset error instead of verifying it.
+// `grow` pushes onto its parameter and `shrink` pops it, but neither
+// contract mentions `old(xs)`, so a caller would keep its pre-call knowledge
+// of `xs` — the verifier reports a precise subset error instead of verifying
+// either.
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 grow :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() >= usize(1))) -> unit)({
   xs.push(v);
 });
+
+shrink :: (fn(xs : ArrayList(i32), ensures(xs.len() >= usize(0))) -> (r : bool))(
+  match(
+    xs.pop(),
+    .Some(_) => true,
+    .None => false
+  )
+);

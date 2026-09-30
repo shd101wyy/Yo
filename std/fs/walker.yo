@@ -130,7 +130,7 @@ _join_path :: (fn(base : String, name : String) -> String)(
 // target is a directory, or "" otherwise (dangling links included). Its own
 // async fn so the walker's loops keep a SINGLE top-level await per body —
 // awaits nested in cond arms inside its while-in-while trip
-// issues/async-nested-cond-await-duplicate-while-labels.md.
+// issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
 _canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
@@ -191,7 +191,7 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : String, patte
 /// over that same directory, because the `stat` + `canonicalize` the follow
 /// decision needs are awaits, and an await that deep inside the scan loop
 /// trips the async state machine
-/// (issues/async-nested-cond-await-duplicate-while-labels.md).
+/// (issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
 walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
   io.async(e => {
@@ -247,7 +247,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
                 // (plans/archive/STD_API_AUDIT.md C9). Record the entry; the follow
                 // decision needs awaits, which are deferred to the
                 // pending-links pass below (awaits nested this deep trip
-                // issues/async-nested-cond-await-duplicate-while-labels.md).
+                // issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
                 results.push(
                   WalkEntry(
                     path : Path.new(entry_path),

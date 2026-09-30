@@ -40,8 +40,7 @@ pragma(Pragma.AllowUnsafe);
 {
   Environment,
   add_variable_to_env,
-  synthetic_token,
-  copy_frames
+  synthetic_token
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_with_resolution } :: import("../../types/creators.yo");
@@ -69,6 +68,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../exprs/begin.yo");
 {
   enrich_captured_variables,
+  propagate_captures_to_enclosing,
   create_capture_type_and_value,
   validate_capture_trait_requirements,
   validate_send_closure_global_reach,
@@ -272,7 +272,7 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env.frames = copy_frames(bi.env.frames);
+      env.frames = bi.env.frames;
       env.module_path = bi.env.module_path;
       env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
       env.input_string = bi.env.input_string;
@@ -299,6 +299,7 @@ try_to_implement_closure_by_fn_module_type :: (
   env.pop_frame();
   // Capture variable enrichment.
   captured_vars_opt := eval_ctx.captured_variables;
+  match(captured_vars_opt, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
   captured_vars_with_values_opt := match(
     captured_vars_opt,
     .None => Option(HashMap(String, FuncCapturedVarInfo)).None,

@@ -27,6 +27,7 @@ json :: import("std/encoding/json");
   run_z3_script,
   parse_z3_sexprs,
   z3_check_sat_of,
+  z3_error_before_verdict,
   z3_unsat_core_of,
   z3_value_pairs_of,
   _z3_exists_sync,
@@ -273,6 +274,16 @@ verify_cache_key :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> String)({
 /// unit-testable seam between the harness and the protocol).
 verdict_of_response :: (fn(response : String) -> VerifyVerdict)({
   forms := parse_z3_sexprs(response);
+  // A script z3 rejected before answering is a solver error whatever the
+  // verdict token after the errors says (the `sat` of an empty assertion
+  // set read as a refutation with an empty model — the R1 datatype bug).
+  match(
+    z3_error_before_verdict(forms),
+    .Some(err) => {
+      return(VerifyVerdict.SolverError(`z3 rejected the script: ${err}`));
+    },
+    .None => ()
+  );
   match(
     z3_check_sat_of(forms),
     .Some(v) => cond(

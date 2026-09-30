@@ -23,7 +23,7 @@
   get_type_call_result
 } :: import("../../src/evaluator/context.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
-{ t_unit, t_func_simple } :: import("../../src/types/creators.yo");
+{ t_unit, t_i32, t_func_simple } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { Environment, Frame, new_frame } :: import("../../src/env.yo");
 { AstExpr } :: import("../../src/expr.yo");
@@ -133,6 +133,31 @@ test("track_variable_usage: with function body context but var not in env → no
       // correct: variable not tracked
       .Some(_) => assert(false, "should not have tracked variable")
     )
+  );
+});
+test("track_variable_usage: a parameter shadowing an outer name is not a capture", {
+  // io.async((io : Io) => … io …) inside a fn with its own `io`: the read
+  // resolves to the closure's parameter (the top frame of the body env), so
+  // nothing is captured. The search used to go outermost-first and captured
+  // the outer `io`
+  // (issues/fixed/io-async-param-shadowing-an-outer-name-still-captures-it.md).
+  ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
+  env := Environment.new(`mod`);
+  _outer := env.define(`io`, t_i32(), false);
+  _pf := env.push_frame(true);
+  _param := env.define(`io`, t_i32(), false);
+  sub_ctx := FuncOrAsyncBlockCtx(
+    kind : FuncOrAsyncBlockKind.FunctionBody,
+    func_type : Option(TypeValue).None,
+    func_value : Option(EvalValue).None,
+    eval_env : env
+  );
+  ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(sub_ctx);
+  track_variable_usage(String.from("io"), usize(1), CaptureUsage.Read, make_token("io"), ctx);
+  match(
+    ctx.captured_variables,
+    .None => (),
+    .Some(map) => assert(map.get(String.from("io")).is_none(), "the parameter is not a capture")
   );
 });
 test("CallResultKind variants can be constructed", {

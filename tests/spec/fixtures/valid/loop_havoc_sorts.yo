@@ -1,0 +1,31 @@
+// issues/fixed/verifier-loop-havoc-takes-the-sort-of-an-ite-condition.md: a
+// loop havocs each name it assigns with a constant of that name's sort, read
+// from the pre-loop term. That term was sized by its FIRST operand, so an
+// integer bound to a `cond` value came out Bool and a bool bound to a
+// comparison came out a bit-vector. z3 rejected the script.
+pragma(Pragma.Verify);
+
+count_up :: (fn(b : bool, n : i32, requires((n >= i32(0)) && (n < i32(100))), ensures(r >= i32(1))) -> (r : i32))({
+  (x : i32) = cond(
+    b => i32(1),
+    true => i32(2)
+  );
+  (i : i32) = i32(0);
+  while(i < n, {
+    invariant((i >= i32(0)) && (i <= n), (x >= i32(1)) && (x <= (i32(2) + i)));
+    x = (x + i32(1));
+    i = (i + i32(1));
+  });
+  x
+});
+
+any_less :: (fn(a : i32, c : i32, n : i32, requires((n >= i32(0)) && (n < i32(100))), ensures(r || !r)) -> (r : bool))({
+  (f : bool) = (a < c);
+  (i : i32) = i32(0);
+  while(i < n, {
+    invariant((i >= i32(0)) && (i <= n));
+    f = (f || (a < (c + i)));
+    i = (i + i32(1));
+  });
+  f
+});
