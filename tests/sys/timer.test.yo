@@ -136,20 +136,18 @@ test("timers fire in deadline order around an aborted one (epoll fallback)", {
 // a bare pointer to the future in its EVFILT_TIMER context, so the timer fired
 // into freed memory and the process crashed (SIGSEGV, every run). The timer
 // heap now holds its own reference until the timer fires or is cancelled, as
-// Linux's backends do (issues/pending-io-future-local-drop-uaf.md; Windows'
-// timer list still borrows the future, hence the skip).
+// Linux's backends and Windows' timer list do
+// (issues/fixed/pending-io-future-local-drop-uaf.md).
 _drop_an_armed_sleep :: (fn(io : Io) -> bool)({
   deadline := sleep(u64(5));
   s := io.state(deadline);
   s == FutureState.Completed
 });
 test("a sleep future dropped before it fires does not fire into freed memory", {
-  if(platform != Platform.Windows, {
-    (i : i32) = i32(0);
-    while(i < i32(50), i = (i + i32(1)), {
-      _b := _drop_an_armed_sleep(io);
-    });
-    io.await(sleep(u64(30)), io);
-    assert(true, "all 50 dropped sleeps fired without touching freed memory");
+  (i : i32) = i32(0);
+  while(i < i32(50), i = (i + i32(1)), {
+    _b := _drop_an_armed_sleep(io);
   });
+  io.await(sleep(u64(30)), io);
+  assert(true, "all 50 dropped sleeps fired without touching freed memory");
 });

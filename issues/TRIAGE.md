@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 179 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 178 open bug
 docs in `issues/` root and the 13 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -29,15 +29,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
-| Async / effects | 13 | 2 |
+| Async / effects | 11 | 2 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 23 | 5 |
 | Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 12 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 35 | 8 |
-| **Total** | **179** | **34** |
+| Other | 36 | 8 |
+| **Total** | **178** | **34** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 37 |
-| S2 | 89 |
-| S3 | 52 |
+| S1 | 36 |
+| S2 | 88 |
+| S3 | 53 |
 | (missing) | 1 |
 
 - MISSING SEVERITY: `a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`
@@ -171,7 +171,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (13)
+### Async / effects (11)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -181,9 +181,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`async-await-nested-if-lost-continuation.md`](./async-await-nested-if-lost-continuation.md) | S1 | — | — |
 | [`async-capture-mode-argument-rendering-cluster.md`](./async-capture-mode-argument-rendering-cluster.md) | S2 | — | — |
 | [`async-tail-match-return-hangs-state-machine.md`](./async-tail-match-return-hangs-state-machine.md) | S1 | OPEN — std avoids the shape (the | — |
-| [`command-stdin-windows-pipe-write-blocks-the-event-loop.md`](./command-stdin-windows-pipe-write-blocks-the-event-loop.md) | S1 | — | — |
 | [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | S1 | OPEN — worked around in `std/thread | yes |
-| [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | S1 | OPEN on | — |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
@@ -338,7 +336,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (35)
+### Other (36)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -346,6 +344,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md`](./a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md) | S3 | — | — |
 | [`a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md`](./a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md) | S1 | open | yes |
+| [`a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`](./a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md) | S3 | — | — |
 | [`a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md`](./a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md) | — | OPEN | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
@@ -354,6 +353,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
+| [`emscripten-concurrent-directory-iteration-intermittently-faults.md`](./emscripten-concurrent-directory-iteration-intermittently-faults.md) | S1 | open | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
 | [`linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md`](./linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md) | S3 | — | — |
@@ -369,7 +369,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |
 | [`unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md`](./unused-variable-warning-for-a-forward-declared-comptime-fn-used-only-in-a-body.md) | S3 | OPEN | — |
-| [`verifier-a-malformed-smt-script-reports-refuted-with-an-empty-model.md`](./verifier-a-malformed-smt-script-reports-refuted-with-an-empty-model.md) | S2 | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | S2 | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
