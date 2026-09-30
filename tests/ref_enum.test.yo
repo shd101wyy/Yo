@@ -321,11 +321,13 @@ test("derive(Eq) on a ref(enum) with a Self payload compares structurally", {
 });
 
 test("a ref(enum) whose only payload is a ref handle keeps its own identity", {
-  p := Payload(n : i32(7));
-  s := Slot.Held(p : p);
+  // The payload is built inline, so only the variant field holds it. Laid out
+  // as its payload's pointer, the enum would share the payload's count.
+  s := Slot.Held(p : Payload(n : i32(7)));
   alias := s;
-  assert(rc(s) == 2, "the enum handle is shared, not the payload's");
-  assert(rc(p) == 2, "the payload has its own count (p + the variant field)");
+  assert(rc(s) == 2, "the enum handle is shared by s and alias");
+  payload_rc := match(alias, .Held(q) => rc(q), .Vacant => usize(0));
+  assert(payload_rc == 1, "the payload has its own count: only the variant field holds it");
   n := match(alias, .Held(q) => q.n, .Vacant => i32(0));
   assert(n == i32(7), "payload read through the alias");
   assert(match(Slot.Vacant, .Vacant => true, .Held(_) => false), "payload-free variant");
