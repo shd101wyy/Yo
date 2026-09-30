@@ -293,6 +293,114 @@ _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
   )
 );
 (g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
+// ---------------------------------------------------------------------------
+// ArrayList(T) as a ghost pair — R1 slice 1 of
+// plans/backlog/ATS_STYLE_INDEXED_TYPES.md. An `ArrayList(T)` whose `T` is in
+// the integer/bool subset is the SMT datatype `List_<elem>` with one
+// constructor `List_<elem>_mk (contents : Array BV64 elem) (len : BV64)`.
+// `xs.len()` is the `len` accessor, `xs(i)` is `select(contents(xs), i)` under
+// the `index-in-bounds` obligation `i < len(xs)`, and a list-typed parameter
+// or callee result is one datatype-sorted variable — so a callee's
+// `ensures(r.len() == (a.len() + b.len()))` is a plain equation over
+// accessors. Reads only: `push`/`insert`/`remove`/`pop`/`new` stay outside the
+// subset until the mutation model (slice 2) — a mutating method on a by-value
+// RC handle is a heap effect the two-state rule does not cover yet.
+// The datatype rides the same side channel as the uninterpreted sorts
+// because `_type_sort` has no ctx; the query build appends every entry.
+// ---------------------------------------------------------------------------
+(g_list_datatypes : ArrayList(String)) = ArrayList(String).new();
+(g_list_elem_sorts : ArrayList(VcSort)) = ArrayList(VcSort).new();
+/// The element type of an `ArrayList(T)` (the prelude's ref struct named
+/// `ArrayList` with one type argument), or `.None`.
+_list_elem_type :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t_refine_inner(t),
+    .Struct({ name : ls_name, is_reference_semantics : ls_ref, type_arguments : ls_targs }) => cond(
+      (ls_ref && (ls_name == "ArrayList") && (ls_targs.len() == usize(1))) => ls_targs.get(usize(0)),
+      true => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  )
+);
+/// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
+/// `bool` (nested lists, structs and enums stay outside the subset).
+_list_elem_sort :: (fn(t : TypeValue) -> Option(VcSort))(
+  match(
+    _list_elem_type(t),
+    .Some(let_t) => match(
+      _int_width(t_refine_inner(let_t)),
+      .Some(lw) => Option(VcSort).Some(VcSort.BvS(width : lw)),
+      .None => cond(
+        _is_bool_type(t_refine_inner(let_t)) => Option(VcSort).Some(VcSort.BoolS),
+        true => Option(VcSort).None
+      )
+    ),
+    .None => Option(VcSort).None
+  )
+);
+_list_dt_name :: (fn(elem : VcSort) -> String)(`List_${_msof_key(elem)}`);
+_list_ctor_name :: (fn(elem : VcSort) -> String)(`${_list_dt_name(elem)}_mk`);
+_list_contents_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_contents`);
+_list_len_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_len`);
+/// The element sort of a list-sorted TERM (a `Var` of a `List_<elem>`
+/// datatype sort), read back from the datatype name.
+_list_sort_elem :: (fn(s : VcSort) -> Option(VcSort))(
+  match(
+    s,
+    .DataS(ds_name) => {
+      (found : Option(VcSort)) = Option(VcSort).None;
+      (li : usize) = usize(0);
+      while((li < g_list_elem_sorts.len()) && found.is_none(), {
+        match(
+          g_list_elem_sorts.get(li),
+          .Some(es) => if(_list_dt_name(es) == ds_name, {
+            found = Option(VcSort).Some(es);
+          }),
+          .None => ()
+        );
+        li = (li + usize(1));
+      });
+      found
+    },
+    _ => Option(VcSort).None
+  )
+);
+/// Register `List_<elem>` once per process (the entry format is
+/// `_note_enum_datatype`'s: `<dt>|<ctor> (<acc> <sort>) ...`).
+_register_list_datatype :: (fn(elem : VcSort) -> unit)({
+  dt := _list_dt_name(elem);
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_list_datatypes.len()) && !found, {
+    match(
+      g_list_datatypes.get(i),
+      .Some(entry) => {
+        bar := entry.index_of(String.from("|"));
+        nm := match(
+          bar,
+          .Some(b) => entry.substring(usize(0), b),
+          .None => entry.clone()
+        );
+        if(nm == dt, {
+          found = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!found, {
+    ctor := _list_ctor_name(elem);
+    g_list_datatypes.push(
+      `${dt}|${ctor} (${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64))`
+    );
+    g_list_elem_sorts.push(elem);
+  });
+  ()
+});
+/// `len(xs)` and `contents(xs)` of a list term.
+_list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
+_list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
   cond(
     // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
@@ -314,6 +422,13 @@ _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
       .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
       .None => cond(
         _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
+        // ArrayList(T) over a subset element type: the `List_<elem>` pair
+        // datatype (R1 slice 1, above).
+        _list_elem_sort(t).is_some() => {
+          les := _list_elem_sort(t).unwrap();
+          _register_list_datatype(les);
+          Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(les)))
+        },
         // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
         // the length rides the sort for bounds/ms_of. A `length_var`
         // (generic-length) array is outside the subset.
@@ -1119,6 +1234,17 @@ _emit :: (
       .None => ()
     );
     dti = (dti + usize(1));
+  });
+  (ldi : usize) = usize(0);
+  while(ldi < g_list_datatypes.len(), {
+    match(
+      g_list_datatypes.get(ldi),
+      .Some(entry) => {
+        q.datatypes.push(entry.clone());
+      },
+      .None => ()
+    );
+    ldi = (ldi + usize(1));
   });
   (usi : usize) = usize(0);
   while(usi < g_uninterpreted_sorts.len(), {
@@ -3245,6 +3371,43 @@ _call_term :: (
       ),
       .None => Option(VcSort).None
     );
+    // An `ArrayList(T)` value bound to `head` (R1 slice 1): the read is
+    // `select(contents(xs), i)` under `i < len(xs)`.
+    list_elem := match(
+      ctx.vars.get(head.clone()),
+      .Some(lv) => match(
+        lv,
+        .Var(_, lv_sort) => _list_sort_elem(lv_sort),
+        _ => Option(VcSort).None
+      ),
+      .None => Option(VcSort).None
+    );
+    match(
+      list_elem,
+      .Some(les) => {
+        xs_t := ctx.vars.get(head.clone()).unwrap();
+        idx := _expr_term(ctx, args.get(usize(0)).unwrap());
+        return(
+          match(
+            idx,
+            .Some(it) => {
+              if(ctx.quant_depth == usize(0), {
+                _emit(
+                  ctx,
+                  String.from("index-in-bounds"),
+                  ArrayList(VcTerm).new(),
+                  _lt_unsigned_term(_idx64(it), _list_len_term(les, xs_t)),
+                  _guard_site(e, String.from("index-in-bounds"))
+                );
+              });
+              Option(VcTerm).Some(_app2(VcOp.SelectOp, _list_contents_term(les, xs_t), _idx64(it)))
+            },
+            .None => Option(VcTerm).None
+          )
+        );
+      },
+      .None => ()
+    );
     match(
       bound_arr,
       .Some(srt) => {
@@ -3345,8 +3508,79 @@ _call_term :: (
       )
     );
   });
+  // --- ArrayList reads: `xs.len()`, `xs.is_empty()` (R1 slice 1) ------------
+  // A method call parses as a call whose CALLEE is the dot-call
+  // `.(xs, len)`; the receiver's type, not the call's, says it is a list.
+  if(head == ".", {
+    match(
+      _list_receiver(ctx, e),
+      .Some(lr) => {
+        recv_t := _expr_term(ctx, lr.recv);
+        if(recv_t.is_none(), {
+          return(Option(VcTerm).None);
+        });
+        len_t := _list_len_term(lr.elem, recv_t.unwrap());
+        return(
+          cond(
+            ((lr.method == "len") && (n == usize(0))) => Option(VcTerm).Some(len_t),
+            ((lr.method == "is_empty") && (n == usize(0))) => Option(VcTerm).Some(
+              _app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))
+            ),
+            true => {
+              _fail_subset(
+                ctx,
+                `ArrayList method '${lr.method}' (the list model covers len(), is_empty() and index reads; mutation is the next slice)`,
+                e
+              );
+              Option(VcTerm).None
+            }
+          )
+        );
+      },
+      .None => ()
+    );
+  });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));
+});
+/// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
+/// is the dot-call `.(recv, method)` and `recv`'s ExprInfo type is a list.
+ListReceiver :: struct(recv : AstExpr, method : String, elem : VcSort);
+_list_receiver :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(ListReceiver))({
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => {
+      return(Option(ListReceiver).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, _, da, _, _) => da,
+    .Atom(_, _) => {
+      return(Option(ListReceiver).None);
+    }
+  );
+  if(dot_args.len() != usize(2), {
+    return(Option(ListReceiver).None);
+  });
+  recv := dot_args.get(usize(0)).unwrap();
+  m := dot_args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(m), {
+    return(Option(ListReceiver).None);
+  });
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(recv)),
+    .Some(ri) => match(
+      _list_elem_sort(ri.ty),
+      .Some(les) => {
+        _register_list_datatype(les);
+        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(m).value, elem : les))
+      },
+      .None => Option(ListReceiver).None
+    ),
+    .None => Option(ListReceiver).None
+  )
 });
 /// Cast head → target width (i8..i64/u8..u64/isize/usize).
 _cast_width :: (fn(head : String) -> Option(usize))(

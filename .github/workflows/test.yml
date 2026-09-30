@@ -544,6 +544,14 @@ jobs:
           YO_TEST_LEAK_VERDICT: "0"
         run: yo test ./tests/internal/verifier_refine.test.yo --bail -v
 
+      # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
+      # len/is_empty/index reads over a runtime collection, modular length
+      # contracts.
+      - name: Verifier list-model tests
+        env:
+          YO_TEST_LEAK_VERDICT: "0"
+        run: yo test ./tests/internal/verifier_list_len.test.yo --bail -v
+
       - name: yo verify harness report (JSON)
         run: |
           yo verify ./std/spec --format json | tee verify-report.json
