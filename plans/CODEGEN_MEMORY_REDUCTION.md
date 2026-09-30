@@ -484,8 +484,51 @@ are not shared yet; they are the rest of the 185 K distinct of ~710 K.
 **Trial-born specializations (§3 lever 4), sized:** 74,728 outermost
 overload trials leave **313,432 of 2,888,577** shared-table entries (10.9 %;
 scratch id-range instrument on `_trial_call_overload_candidate`'s two call
-sites). The lever is real. Its code is in `evaluator/calls/function.yo` and
-`helper.yo`, next to the async PRs, so it is scheduled after them.
+sites). Landed in §0.12.
+
+### 0.12 Landed lever: purge each overload trial's clones (§3 lever 4, 2026-09-30)
+
+An overload trial (`_trial_call_overload_candidate`, one per candidate of a
+multi-candidate `Call`, i.e. the prelude's `!`, `~` and unary `-` pairs)
+evaluates fresh-id clones of the call and its arguments, and keeps only the
+verdict. Their ExprInfos stayed in the table for the rest of the run.
+
+Now the helper records the clone id range (`next_global_expr_id()` before and
+after cloning), runs the trial in `_run_overload_trial` (which owns the
+swallowing handler, so a failed trial unwinds only out of it), and then
+calls `purge_executed_clone_metadata` on the cloned call and each cloned
+argument, on both outcomes. That is the CTFE-clone purge of the 8 GB plan:
+it walks only the clone trees, keeps a subtree that evaluated to a function,
+and stops at ids outside the range, so specializations the trial created
+(ids past the range) stay.
+
+Mimalloc stage-2s, same tree (#1041's head), C byte-identical:
+
+| | #1041 | trial purge |
+| --- | --- | --- |
+| `compile` max RSS | 2,807 MB | **2,707 MB (−101, −3.6 %)** |
+| end of evaluation | 2,459 MB | 2,359 MB |
+| shared-table entries at emit | 3,002,352 | 2,712,204 (−290,148) |
+| `check src/main.yo` (2 runs each) | 966 MB | **909 MB (−57)** |
+| instructions (`check src/types/intern.yo`) | 108,628,132,407 | 108,668,655,011 (+0.04 %) |
+
+What the purge leaves of the 313 K: per trial, the candidate's trait-typed
+signature evaluations (`LogicalNot` / `ComptimeLogicalNot` for `!`), which
+are minted during the trial outside the clone range, plus the specializations
+trials create. ~23 K entries in all, ~8 MB at the measured ~350 B per entry;
+not pursued. `tests/internal/module_invalidation.test.yo` ("overload
+trials: a trial's clones leave no metadata behind") pins it: 12 retained
+entries per `!(flag)` before, 10 after.
+
+**Two env-sharing ideas measured and dropped (2026-09-30).** Both from
+§0.3's note that only ~0.46 M of the live `Environment`s are ring snapshots.
+- A bigger snapshot ring: on `check src/main.yo` the 4-slot ring already
+  hits 2,955,049 of 3,379,917 lookups (87 %). Against §0.7's 264 K
+  distinct envs, perfect sharing saves at most ~160 K objects, ~15 MB.
+- `expr_info_adopt_env` reusing an unshared env (`rc(info.env) == 1`)
+  instead of copying: 8,949 of 1,689,510 adopts qualify. The rest adopt an
+  env another ExprInfo or the ring still holds, and the caller may push
+  frames into it, so the private copy stays.
 
 ## 1. Rules carried over from the evaluator campaign
 
@@ -575,7 +618,8 @@ Phase 0 measures it.
    The 8 GB plan measured the text as written once. Under `--emit-chunks`,
    finished units could be streamed to disk.
 4. **Stop retaining trial-born specializations in the specialization
-   cache** (the 8 GB plan's residual).
+   cache** (the 8 GB plan's residual). **Landed as the trial-clone purge
+   (§0.12)**: the clones were 290 K of the 313 K trial-born entries.
 5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
    1.43 M cloned nodes are all retained there. It is parked on
    `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
