@@ -80,11 +80,8 @@ evaluate_size_of :: (
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
     info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(ty_box) => ty_box,
-      _ => info.ty
-    ),
+    .Some(.TypeVal(ty_box)) => ty_box,
+    .Some(_) => info.ty,
     .None => info.ty
   );
   // Convert size in bits to bytes (divide by 8). Unknown size → no value.

@@ -18,8 +18,8 @@ doc.
 
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) — the `match` redesign (pattern IR, exhaustiveness, general lowering).
-- [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) — cutting the evaluator's retained memory, measured per phase.
-- [`EVALUATOR_MEMORY_REDUCTION_HANDOVER.md`](EVALUATOR_MEMORY_REDUCTION_HANDOVER.md) — the 2026-09-26 handover: in-flight work (Phase 3 niche, the #932 slowdown fix) and every remaining item with recipes.
+- [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) — cutting the evaluator's retained memory, measured per phase. PAUSED 2026-09-29 at its < 1 GB goal; §8 is where to resume.
+- [`EVALUATOR_MEMORY_REDUCTION_HANDOVER.md`](EVALUATOR_MEMORY_REDUCTION_HANDOVER.md) — the handover: recipes and per-item detail for the remaining work (entry point: the plan's §8).
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
 - [`ASYNC_STATE_MACHINE_GENERATION.md`](ASYNC_STATE_MACHINE_GENERATION.md) — the async state-machine audit and its phased rewrite: loud failures, ownership/protocol fixes, fast paths, then a single-pass resumable lowering.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
@@ -44,7 +44,9 @@ doc.
 on most: [`FORMAL_VERIFICATION`](backlog/FORMAL_VERIFICATION.md) (the
 verifier's design, V1–V7 landed),
 [`SEED_VERSION_AUTOMATION`](backlog/SEED_VERSION_AUTOMATION.md),
-[`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md),
+[`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md) and its
+2026-09-30 ATS audit [`ATS_STYLE_INDEXED_TYPES`](backlog/ATS_STYLE_INDEXED_TYPES.md)
+(indexed types and existentials: what Yo has, what the verifier still needs),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 Safe mode's next step is [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)

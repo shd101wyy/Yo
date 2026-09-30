@@ -1,0 +1,118 @@
+// P6 of plans/MATCH_PATTERN_MATCHING.md — the verifier's match subset over
+// the Pattern IR: literal arms, nested variant patterns, binding-free
+// or-patterns, ranges and guards are direct in SMT (accessor equalities,
+// disjunctions, conjuncts); strings remain outside the subset (they fail
+// loudly). Under `yo test` this file runs its bodies as ordinary asserts;
+// the CI verify job proves every contract under `yo verify`.
+pragma(Pragma.Verify);
+
+{ assert } :: import("std/assert");
+
+Shape :: enum(Circle(r : i32), Square(w : i32), Point(x : i32, y : i32));
+
+/// Literal payload arms: the constant tests are equalities on the
+/// projections.
+pick_lit :: (fn(s : Shape, ensures(r >= i32(0))) -> (r : i32))(
+  match(
+    s,
+    .Circle(1) => i32(10),
+    .Circle(2) => i32(20),
+    .Circle(_) => i32(30),
+    .Square(_) => i32(40),
+    .Point(_, _) => i32(50)
+  )
+);
+
+/// Nested variant patterns through a payload enum.
+Inner :: enum(Val(v : i32), Empty);
+Wrap :: enum(W(i : Inner), Z);
+pick_nested :: (fn(w : Wrap, ensures(r >= i32(0))) -> (r : i32))(
+  match(
+    w,
+    .W(.Val(v)) => ((v - v) + i32(1)),
+    .W(.Empty) => i32(0),
+    .Z => i32(0)
+  )
+);
+
+/// Binding-free or-pattern over variants.
+pick_or :: (fn(s : Shape, ensures(r >= i32(0))) -> (r : i32))(
+  match(
+    s,
+    (.Circle(_) | .Square(_)) => i32(1),
+    .Point(_, _) => i32(2)
+  )
+);
+
+/// Guard: the pattern's binding scopes the guard expression.
+pick_guard :: (fn(s : Shape, ensures(r >= i32(5))) -> (r : i32))(
+  match(
+    s,
+    (.Circle(r) && (r > i32(5))) => r,
+    .Circle(_) => i32(5),
+    .Square(_) => i32(6),
+    .Point(_, _) => i32(7)
+  )
+);
+
+/// Integer range arms: two inequalities per range.
+pick_range :: (fn(n : i32, requires((n >= i32(0)) && (n < i32(100))), ensures(r > i32(0))) -> (r : i32))(
+  match(
+    n,
+    (0 ..= 9) => i32(1),
+    (10 ..= 99) => i32(2),
+    _ => i32(3)
+  )
+);
+
+/// Option-of-Option with literal and nesting together.
+deep :: (fn(o : Option(Option(i32)), ensures(r >= i32(0))) -> (r : i32))(
+  match(
+    o,
+    .Some(.Some(0)) => i32(1),
+    .Some(.Some(v)) => ((v - v) + i32(1)),
+    .Some(.None) => i32(0),
+    .None => i32(0)
+  )
+);
+
+test("literal arms select at runtime", {
+  assert(pick_lit(Shape.Circle(1)) == i32(10));
+  assert(pick_lit(Shape.Circle(2)) == i32(20));
+  assert(pick_lit(Shape.Circle(9)) == i32(30));
+  assert(pick_lit(Shape.Square(4)) == i32(40));
+  assert(pick_lit(Shape.Point(1, 2)) == i32(50));
+});
+
+test("nested variant patterns select at runtime", {
+  assert(pick_nested(Wrap.W(Inner.Val(7))) == i32(1));
+  assert(pick_nested(Wrap.W(Inner.Empty)) == i32(0));
+  assert(pick_nested(Wrap.Z) == i32(0));
+});
+
+test("binding-free or-patterns select at runtime", {
+  assert(pick_or(Shape.Circle(1)) == i32(1));
+  assert(pick_or(Shape.Square(1)) == i32(1));
+  assert(pick_or(Shape.Point(0, 0)) == i32(2));
+});
+
+test("guards see the pattern bindings at runtime", {
+  assert(pick_guard(Shape.Circle(9)) == i32(9));
+  assert(pick_guard(Shape.Circle(2)) == i32(5));
+  assert(pick_guard(Shape.Square(1)) == i32(6));
+});
+
+test("range arms select at runtime", {
+  n := args_len_i32();
+  assert(pick_range(n - n) == i32(1));
+  assert(pick_range(i32(42)) == i32(2));
+});
+
+test("Option-of-Option nesting at runtime", {
+  assert(deep(Option(Option(i32)).Some(Option(i32).Some(0))) == i32(1));
+  assert(deep(Option(Option(i32)).Some(Option(i32).Some(5))) == i32(1));
+  assert(deep(Option(Option(i32)).Some(Option(i32).None)) == i32(0));
+  assert(deep(Option(Option(i32)).None) == i32(0));
+});
+
+args_len_i32 :: (fn() -> i32)(i32(1));

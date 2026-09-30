@@ -223,13 +223,10 @@ _client_offers_utf32 :: (fn(params : JsonValue) -> bool)({
         while(i < items.len(), {
           match(
             items.get(i),
-            .Some(item) => match(
-              item,
-              .Str(s) => if(s == String.from("utf-32"), {
-                return(true);
-              }),
-              _ => ()
-            ),
+            .Some(.Str(s)) => if(s == String.from("utf-32"), {
+              return(true);
+            }),
+            .Some(_) => (),
             .None => ()
           );
           i = (i + usize(1));

@@ -160,13 +160,10 @@ _collect_anon_param_names :: (
                     a,
                     .FnCall(_, _, ca, _, _) => match(
                       ca.get(usize(0)),
-                      .Some(name_e) => match(
-                        name_e,
-                        .Atom(_, nt) => {
-                          out.push(nt.value.clone());
-                        },
-                        .FnCall(_, _, _, _, _) => ()
-                      ),
+                      .Some(.Atom(_, nt)) => {
+                        out.push(nt.value.clone());
+                      },
+                      .Some(.FnCall(_, _, _, _, _)) => (),
                       .None => ()
                     ),
                     .Atom(_, _) => ()
@@ -247,11 +244,8 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
-          .Some(name_expr) => match(
-            name_expr,
-            .Atom(_, ntok) => ntok.value,
-            .FnCall(_, _, _, _, _) => fallback.clone()
-          ),
+          .Some(.Atom(_, ntok)) => ntok.value,
+          .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -344,14 +338,11 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
           ss_found.get(ss_bi),
           .Some(sv) => match(
             sv.value.get(usize(0)),
-            .Some(sval) => match(
-              sval,
-              .TypeVal(stv) => if(!is_some_type(stv), {
-                ss_bound = Option(TypeValue).Some(stv);
-                ss_bi = usize(0);
-              }),
-              _ => ()
-            ),
+            .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+              ss_bound = Option(TypeValue).Some(stv);
+              ss_bi = usize(0);
+            }),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -522,13 +513,10 @@ _trial_eval_annotation_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(ann_ei) => match(
       ann_ei.value,
-      .Some(ann_v) => match(
-        ann_v,
-        .TypeVal(ann_tv) => if(!is_some_type(ann_tv), {
-          out.push(ann_tv);
-        }),
-        _ => ()
-      ),
+      .Some(.TypeVal(ann_tv)) => if(!is_some_type(ann_tv), {
+        out.push(ann_tv);
+      }),
+      .Some(_) => (),
       .None => ()
     ),
     .None => ()
@@ -1174,14 +1162,11 @@ evaluate_anonymous_function_implementation :: (
             _st_bind_vars.get(_st_bi),
             .Some(sv) => match(
               sv.value.get(usize(0)),
-              .Some(sval) => match(
-                sval,
-                .TypeVal(stv) => if(!is_some_type(stv), {
-                  _st_bound = Option(TypeValue).Some(stv);
-                  _st_bi = usize(0);
-                }),
-                _ => ()
-              ),
+              .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+                _st_bound = Option(TypeValue).Some(stv);
+                _st_bi = usize(0);
+              }),
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()
@@ -1257,14 +1242,11 @@ evaluate_anonymous_function_implementation :: (
               rpr_vars.get(rpr_vi),
               .Some(rv) => match(
                 rv.value.get(usize(0)),
-                .Some(rvv) => match(
-                  rvv,
-                  .TypeVal(rvt) => if(!is_some_type(rvt), {
-                    rpr_conc = true;
-                    rpr_vi = usize(0);
-                  }),
-                  _ => ()
-                ),
+                .Some(.TypeVal(rvt)) => if(!is_some_type(rvt), {
+                  rpr_conc = true;
+                  rpr_vi = usize(0);
+                }),
+                .Some(_) => (),
                 .None => ()
               ),
               .None => ()

@@ -764,21 +764,15 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, func_box, _, _, _) => match(
-      func_box,
-      .Atom(_, tok) => {
-        v := tok.value.clone();
-        (v == "->") || ((v == "=>") || (v == "=>>"))
-      },
-      .FnCall(_, inner_func_box, _, _, _) => match(
-        inner_func_box,
-        .Atom(_, inner_tok) => {
-          iv := inner_tok.value.clone();
-          (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
-        },
-        .FnCall(_, _, _, _, _) => false
-      )
-    )
+    .FnCall(_, .Atom(_, tok), _, _, _) => {
+      v := tok.value.clone();
+      (v == "->") || ((v == "=>") || (v == "=>>"))
+    },
+    .FnCall(_, .FnCall(_, .Atom(_, inner_tok), _, _, _), _, _, _) => {
+      iv := inner_tok.value.clone();
+      (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
+    },
+    .FnCall(_, _, _, _, _) => false
   )
 );
 /// Traverse an evaluated expression tree checking for an `unwind` keyword usage.
@@ -992,12 +986,8 @@ _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
   );
   label_matches := match(
     pair_args.get(usize(0)),
-    .Some(label_expr) => match(
-      label_expr,
-      .Atom(_, ltok) => (ltok.value == label),
-      .FnCall(_, _, _, _, _) => false
-    ),
-    .None => false
+    .Some(.Atom(_, ltok)) => (ltok.value == label),
+    _ => false
   );
   cond(
     label_matches => match(
@@ -1080,19 +1070,16 @@ _is_await_method_call :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
-    .FnCall(_, callee, _, _, _) => match(
-      callee,
-      .Atom(_, _) => false,
-      .FnCall(_, dot, dargs, is_infix, _) => (
-        is_infix && (dargs.len() == usize(2)) && (
-          match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
-            dargs.get(usize(1)),
-            .Some(m) => ast_expr_is_atom_of(m, "await"),
-            .None => false
-          )
+    .FnCall(_, .FnCall(_, dot, dargs, is_infix, _), _, _, _) => (
+      is_infix && (dargs.len() == usize(2)) && (
+        match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
+          dargs.get(usize(1)),
+          .Some(m) => ast_expr_is_atom_of(m, "await"),
+          .None => false
         )
       )
-    )
+    ),
+    .FnCall(_, _, _, _, _) => false
   )
 );
 /// `return(<recv>.await(...))`.

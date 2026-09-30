@@ -1794,13 +1794,10 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           if(n_cases == usize(1), {
             match(
               initialized_at_tokens.get(usize(0)),
-              .Some(first_init) => match(
-                first_init,
-                .Some(t1) => if(base_var.initialized_at_token.is_none(), {
-                  base_var.initialized_at_token = Option(Token).Some(t1);
-                }),
-                .None => ()
-              ),
+              .Some(.Some(t1)) => if(base_var.initialized_at_token.is_none(), {
+                base_var.initialized_at_token = Option(Token).Some(t1);
+              }),
+              .Some(.None) => (),
               .None => ()
             );
           });

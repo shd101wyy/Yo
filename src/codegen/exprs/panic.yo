@@ -68,11 +68,8 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           msg_is_str := match(msg_ei, .Some(mei) => is_str_type(mei.ty), .None => false);
           msg_is_ptr_u8 := match(
             msg_ei_ty,
-            .Some(t) => match(
-              t,
-              .Pointer(pointee) => is_u8_type(pointee),
-              _ => false
-            ),
+            .Some(.Pointer(pointee)) => is_u8_type(pointee),
+            .Some(_) => false,
             .None => false
           );
           em := context.base.emitter;

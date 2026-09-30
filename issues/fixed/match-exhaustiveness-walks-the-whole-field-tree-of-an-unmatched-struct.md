@@ -31,7 +31,7 @@ Reproducer: a two-variant enum whose payload is a wide struct, `S(i)` with `w` f
 
 After the fix the timings match the pre-#993 binary. (A deep binary DAG, `S(i) :: struct(a : S(i-1),
 b : S(i-1))`, was the first reproducer, but defining such a type is slow by itself, match or no
-match: `issues/defining-a-deep-struct-dag-is-exponential.md`.)
+match: `issues/fixed/defining-a-deep-struct-dag-is-exponential.md`.)
 
 ## Root cause
 

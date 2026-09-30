@@ -38,6 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
+{ lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
@@ -1480,11 +1481,8 @@ _term_sort_of :: (fn(t : VcTerm) -> VcSort)(
 _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
   quoted := match(
     info.value,
-    .Some(v) => match(
-      v,
-      .StrLit(r) => r.clone(),
-      _ => String.new()
-    ),
+    .Some(.StrLit(r)) => r.clone(),
+    .Some(_) => String.new(),
     .None => String.new()
   );
   // StrLit.raw carries the surrounding quotes (exprs/import.yo) — strip
@@ -1830,134 +1828,341 @@ _match_term :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) 
         .Some(si) => _note_enum_datatype(ctx, si.ty),
         .None => ()
       );
-      _match_arms(ctx, at, s, args, usize(1), e_ty)
+      match(
+        lookup_match_arms(ast_expr_id(at)),
+        .Some(arms) => _match_arms_ir(ctx, at, s, arms, usize(0), e_ty),
+        .None => {
+          _fail_subset(ctx, String.from("match arms not registered (the pattern table is off)"), at);
+          Option(VcTerm).None
+        }
+      )
     },
     .None => Option(VcTerm).None
   )
 });
-/// Fold arms [from, len) into the ite tree.
-_match_arms :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, scrut : VcTerm, args : ArrayList(AstExpr), from : usize, e_ty : TypeValue) -> Option(VcTerm)
+/// Fold arms [from, len) into the ite tree over the COMPILED arms
+/// (`lookup_match_arms` — the same Pattern IR the C emitter reads). Every
+/// arm contributes `ite(test_and_guard, body[binds], tail)`; the final arm
+/// must be unguarded (an exhaustive match's last arm holds when reached).
+_match_arms_ir :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, scrut : VcTerm, arms : ArrayList(Arm), from : usize, e_ty : TypeValue) -> Option(VcTerm)
 )(
   cond(
-    (from >= args.len()) => {
+    (from >= arms.len()) => {
       _fail_subset(ctx, String.from("match without a final arm"), at);
       Option(VcTerm).None
     },
-    true => _match_one_arm(ctx, at, scrut, args, from, e_ty)
+    ((from + usize(1)) == arms.len()) => _match_last_arm_ir(ctx, scrut, arms, from, e_ty),
+    true => {
+      tail := _match_arms_ir(ctx, at, scrut, arms, from + usize(1), e_ty);
+      match(
+        tail,
+        .Some(tail_t) => _match_arm_conditioned_ir(ctx, arms.get(from).unwrap(), scrut, tail_t, e_ty),
+        .None => Option(VcTerm).None
+      )
+    }
   )
 );
-_match_one_arm :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, scrut : VcTerm, args : ArrayList(AstExpr), idx : usize, e_ty : TypeValue) -> Option(VcTerm)
-)(
-  cond(
-    ((idx + usize(1)) >= args.len()) => _match_last_arm(ctx, scrut, args, idx, e_ty),
-    true => _match_folded_arm(ctx, at, scrut, args, idx, e_ty)
-  )
-);
-_match_last_arm :: (
-  fn(inout(ctx) : VcCtx, scrut : VcTerm, args : ArrayList(AstExpr), idx : usize, e_ty : TypeValue) -> Option(VcTerm)
-)(_match_arm_value(ctx, scrut, args.get(idx).unwrap(), e_ty));
-_match_folded_arm :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, scrut : VcTerm, args : ArrayList(AstExpr), idx : usize, e_ty : TypeValue) -> Option(VcTerm)
+/// The final arm: its bindings still scope the body, but no test — Yo
+/// matches are exhaustive, so control reaching the last arm means it
+/// matched. A GUARDED final arm can fail, which the ite tree cannot
+/// express without a bottom value: outside the subset, loudly.
+_match_last_arm_ir :: (
+  fn(inout(ctx) : VcCtx, scrut : VcTerm, arms : ArrayList(Arm), idx : usize, e_ty : TypeValue) -> Option(VcTerm)
 )({
-  tail := _match_arms(ctx, at, scrut, args, idx + usize(1), e_ty);
+  arm := arms.get(idx).unwrap();
+  if(arm.guard.is_some(), {
+    _fail_subset(ctx, String.from("guarded final match arm (outside the subset)"), arm.arm_expr);
+    return(Option(VcTerm).None);
+  });
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  test_opt := _arm_ir_bind(arm.pattern, scrut, e_ty, ctx, saved_names, saved_vals);
+  _restore_vars(ctx, saved_names, saved_vals);
   match(
-    tail,
-    .Some(tail_t) => _match_arm_conditioned(ctx, scrut, args.get(idx).unwrap(), tail_t, e_ty),
+    test_opt,
+    .Some(_) => _expr_term(ctx, arm.body),
     .None => Option(VcTerm).None
   )
 });
-_match_arm_value :: (fn(inout(ctx) : VcCtx, scrut : VcTerm, arm : AstExpr, e_ty : TypeValue) -> Option(VcTerm))({
-  aa := _arm_parts(arm);
-  body := match(
-    aa.get(usize(1)),
-    .Some(b) => b,
-    .None => {
-      _fail_subset(ctx, String.from("match arm outside => shape"), arm);
-      return(Option(VcTerm).None);
-    }
-  );
-  pat := match(
-    aa.get(usize(0)),
-    .Some(p) => p,
-    .None => {
-      _fail_subset(ctx, String.from("match arm outside => shape"), arm);
-      return(Option(VcTerm).None);
-    }
-  );
-  _arm_under_pattern(ctx, scrut, pat, body, e_ty)
-});
-_match_arm_conditioned :: (
-  fn(inout(ctx) : VcCtx, scrut : VcTerm, arm : AstExpr, tail : VcTerm, e_ty : TypeValue) -> Option(VcTerm)
+/// One non-final arm over its COMPILED pattern: bind the pattern's names
+/// to projections of `scrut`, build the conjunctive pattern test, conjoin
+/// the guard, and wrap the body in `ite(test, body, tail)`.
+_match_arm_conditioned_ir :: (
+  fn(inout(ctx) : VcCtx, arm : Arm, scrut : VcTerm, tail : VcTerm, e_ty : TypeValue) -> Option(VcTerm)
 )({
-  aa := _arm_parts(arm);
-  pat := match(
-    aa.get(usize(0)),
-    .Some(p) => p,
-    .None => {
-      _fail_subset(ctx, String.from("match arm outside => shape"), arm);
-      return(Option(VcTerm).None);
-    }
-  );
-  body := match(
-    aa.get(usize(1)),
-    .Some(b) => b,
-    .None => {
-      _fail_subset(ctx, String.from("match arm outside => shape"), arm);
-      return(Option(VcTerm).None);
-    }
-  );
-  cond(
-    _is_wildcard_pattern(pat) => Option(VcTerm).Some(_arm_body_value(ctx, body, tail)),
-    true => _arm_conditioned_variant(ctx, scrut, pat, body, tail, e_ty)
-  )
-});
-/// The arm's two parts (pattern, body) — `"=>"(p, b)`.
-_arm_parts :: (fn(arm : AstExpr) -> ArrayList(AstExpr))(
-  match(
-    arm,
-    .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _) => ArrayList(AstExpr).new()
-  )
-);
-_is_wildcard_pattern :: (fn(pat : AstExpr) -> bool)(
-  match(
-    pat,
-    .Atom(_, pt) => (pt.value == "_"),
-    .FnCall(_, _, _, _, _) => false
-  )
-);
-/// Evaluate the body and pair it with the else-value (wildcard arm).
-_arm_body_value :: (fn(inout(ctx) : VcCtx, body : AstExpr, tail : VcTerm) -> VcTerm)({
-  v := _expr_term(ctx, body);
-  match(
-    v,
-    .Some(vt) => vt,
-    .None => tail
-  )
-});
-/// A conditioned `.Variant(b...)` arm: ite(Test) with the body under the
-/// projected bindings; falls back to the tail on a walk failure.
-_arm_conditioned_variant :: (
-  fn(inout(ctx) : VcCtx, scrut : VcTerm, pat : AstExpr, body : AstExpr, tail : VcTerm, e_ty : TypeValue) -> Option(VcTerm)
-)(
-  match(
-    _pattern_variant(pat),
-    .Some(variant) => {
-      v := _arm_under_pattern(ctx, scrut, pat, body, e_ty);
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  test_opt := _arm_ir_bind(arm.pattern, scrut, e_ty, ctx, saved_names, saved_vals);
+  result := match(
+    test_opt,
+    .Some(test) => {
+      full_test := match(
+        arm.guard,
+        .Some(g) => match(
+          _expr_term(ctx, g),
+          .Some(g_t) => {
+            conj := ArrayList(VcTerm).new();
+            conj.push(test);
+            conj.push(g_t);
+            Option(VcTerm).Some(vc_and(conj))
+          },
+          .None => Option(VcTerm).None
+        ),
+        .None => Option(VcTerm).Some(test)
+      );
       match(
-        v,
-        .Some(vt) => Option(VcTerm).Some(_mk_test_ite(scrut, _variant_ctor_name(e_ty, variant), vt, tail)),
+        full_test,
+        .Some(ft) => match(
+          _expr_term(ctx, arm.body),
+          .Some(body_t) => {
+            ite_args := ArrayList(VcTerm).new();
+            ite_args.push(ft);
+            ite_args.push(body_t);
+            ite_args.push(tail);
+            Option(VcTerm).Some(VcTerm.App(VcOp.IteOp, ite_args))
+          },
+          .None => Option(VcTerm).None
+        ),
         .None => Option(VcTerm).None
       )
     },
-    .None => {
-      _fail_subset(ctx, String.from("non-variant match pattern (outside the V3 subset)"), pat);
-      Option(VcTerm).None
+    .None => Option(VcTerm).None
+  );
+  _restore_vars(ctx, saved_names, saved_vals);
+  result
+});
+/// Restore ctx.vars to the pre-arm scope (bindings pop in reverse).
+_restore_vars :: (
+  fn(inout(ctx) : VcCtx, saved_names : ArrayList(String), saved_vals : ArrayList(Option(VcTerm))) -> unit
+)({
+  (si : usize) = saved_names.len();
+  while(si > usize(0), {
+    si = (si - usize(1));
+    sn := saved_names.get(si).unwrap();
+    match(
+      saved_vals.get(si),
+      .Some(sv) => {
+        match(
+          sv,
+          .Some(old) => {
+            ctx.vars.insert(sn.clone(), old);
+          },
+          .None => {
+            ctx.vars.remove(sn.clone());
+            ()
+          }
+        );
+      },
+      .None => ()
+    );
+  });
+});
+/// Walk the compiled pattern at scrutinee term `scrut` (of enum type
+/// `e_ty`): push every binding onto the save lists and into `ctx.vars`,
+/// and return the arm's CONJUNCTIVE test term (`BoolLit(true)` when the
+/// pattern is irrefutable). `.None` (after `_fail_subset`) when the
+/// pattern uses something outside the verifier's subset: strings, tuple/
+/// struct/Box patterns, or-patterns that bind, or an expression the term
+/// walk cannot encode.
+_arm_ir_bind :: (
+  fn(
+    p : Pattern,
+    scrut : VcTerm,
+    e_ty : TypeValue,
+    inout(ctx) : VcCtx,
+    saved_names : ArrayList(String),
+    saved_vals : ArrayList(Option(VcTerm))
+  ) -> Option(VcTerm)
+)({
+  parts := ArrayList(VcTerm).new();
+  ok := _arm_ir_bind_into(p, scrut, e_ty, ctx, saved_names, saved_vals, parts);
+  cond(
+    ok => Option(VcTerm).Some(vc_and(parts)),
+    true => Option(VcTerm).None
+  )
+});
+_bind_one :: (
+  fn(
+    name : String,
+    term : VcTerm,
+    inout(ctx) : VcCtx,
+    saved_names : ArrayList(String),
+    saved_vals : ArrayList(Option(VcTerm))
+  ) -> unit
+)({
+  saved_names.push(name.clone());
+  saved_vals.push(ctx.vars.get(name.clone()));
+  ctx.vars.insert(name.clone(), term);
+});
+_arm_ir_bind_into :: (
+  fn(
+    p : Pattern,
+    scrut : VcTerm,
+    e_ty : TypeValue,
+    inout(ctx) : VcCtx,
+    saved_names : ArrayList(String),
+    saved_vals : ArrayList(Option(VcTerm)),
+    parts : ArrayList(VcTerm)
+  ) -> bool
+)(
+  match(
+    p,
+    .Wildcard => true,
+    .Bind(name, _, _) => {
+      _bind_one(name.clone(), scrut, ctx, saved_names, saved_vals);
+      true
+    },
+    .At(name, _, _, sub) => {
+      _bind_one(name.clone(), scrut, ctx, saved_names, saved_vals);
+      recur(sub, scrut, e_ty, ctx, saved_names, saved_vals, parts)
+    },
+    .Const(_, _, _, _, _) => _subject_test(p, scrut, ctx, saved_names, saved_vals, parts),
+    .Range(_, _, _, _, _, _, _) => _subject_test(p, scrut, ctx, saved_names, saved_vals, parts),
+    .Or(alts) => {
+      // A binding-free or-pattern is a disjunction of its alternatives'
+      // tests; one that binds has no single term per name (an ite chain
+      // per name is possible but not worth the subset's complexity yet).
+      (all_free : bool) = true;
+      (ai : usize) = usize(0);
+      while((ai < alts.len()) && all_free, {
+        match(
+          alts.get(ai),
+          .Some(alt) => {
+            all_free = (pattern_bindings(alt).len() == usize(0));
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      if(!all_free, {
+        _fail_subset(ctx, String.from("or-pattern with bindings (outside the subset)"), arm_expr_of(p));
+        return(false);
+      });
+      alts_terms := ArrayList(VcTerm).new();
+      (aj : usize) = usize(0);
+      (ok : bool) = true;
+      while((aj < alts.len()) && ok, {
+        match(
+          alts.get(aj),
+          .Some(alt) => {
+            sub_parts := ArrayList(VcTerm).new();
+            ok = _arm_ir_bind_into(alt, scrut, e_ty, ctx, saved_names, saved_vals, sub_parts);
+            if(ok, {
+              alts_terms.push(vc_and(sub_parts));
+            });
+          },
+          .None => ()
+        );
+        aj = (aj + usize(1));
+      });
+      if(ok, {
+        parts.push(vc_or(alts_terms));
+      });
+      ok
+    },
+    .Variant(vname, _, field_idx, subs, enum_ty, _, arity) => {
+      // One level: the constructor test, then each sub-pattern against
+      // its field projection (nested variants recurse with the INNER
+      // enum's ctor/accessor names).
+      inner_ty := resolve_verifier_enum(e_ty, enum_ty);
+      // A nested pattern digs into a SECOND datatype: declare it too, or
+      // its constructor tests/projections resolve against nothing.
+      _note_enum_datatype(ctx, inner_ty);
+      parts.push(VcTerm.Test(ctor : _variant_ctor_name(inner_ty, vname.clone()), t : scrut));
+      accessors := _variant_accessors(inner_ty, vname.clone(), arity);
+      (i : usize) = usize(0);
+      (ok2 : bool) = true;
+      while((i < subs.len()) && ok2, {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        accessor := match(
+          accessors.get(fi),
+          .Some(a) => a.clone(),
+          .None => _variant_ctor_name(inner_ty, vname.clone())
+        );
+        field_term := VcTerm.Proj(ctor : accessor, idx : fi, t : scrut);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            ok2 = recur(sub, field_term, inner_ty, ctx, saved_names, saved_vals, parts);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      ok2
+    },
+    .ThroughBox(_, _, _) => {
+      _fail_subset(ctx, String.from("Box payload pattern (outside the subset)"), arm_expr_of(p));
+      false
+    },
+    .Tuple(_, _) => {
+      _fail_subset(ctx, String.from("tuple pattern (outside the subset)"), arm_expr_of(p));
+      false
+    },
+    .Struct(_, _, _, _) => {
+      _fail_subset(ctx, String.from("struct pattern (outside the subset)"), arm_expr_of(p));
+      false
     }
   )
 );
+/// Const/Range: the evaluator already synthesized the test AST
+/// (`subject == lit`, `(lo <= subject) && (subject < hi)`) against a HIDDEN
+/// subject variable — bind that name to the position's term and walk the
+/// test through the ordinary expression walk. Strings fail the walk by
+/// construction (no str theory), which is exactly the plan's rule.
+_subject_test :: (
+  fn(
+    p : Pattern,
+    scrut : VcTerm,
+    inout(ctx) : VcCtx,
+    saved_names : ArrayList(String),
+    saved_vals : ArrayList(Option(VcTerm)),
+    parts : ArrayList(VcTerm)
+  ) -> bool
+)({
+  subject := _pattern_subject_name(p);
+  test_ast := _pattern_test_ast(p);
+  _bind_one(subject.clone(), scrut, ctx, saved_names, saved_vals);
+  match(
+    _expr_term(ctx, test_ast),
+    .Some(t) => {
+      parts.push(t);
+      true
+    },
+    .None => false
+  )
+});
+_pattern_subject_name :: (fn(p : Pattern) -> String)(
+  match(
+    p,
+    .Const(_, _, _, subject, _) => subject.clone(),
+    .Range(_, subject, _, _, _, _, _) => subject.clone(),
+    _ => String.new()
+  )
+);
+_pattern_test_ast :: (fn(p : Pattern) -> AstExpr)(
+  match(
+    p,
+    .Const(_, _, _, _, test) => test,
+    .Range(_, _, test, _, _, _, _) => test,
+    _ => make_err_expr()
+  )
+);
+/// The IR's enum type is the one the EVALUATOR finalised; when it is not
+/// an EnumT (a defensive default — every Variant node carries one), fall
+/// back to the scrutinee position's type.
+resolve_verifier_enum :: (fn(outer : TypeValue, inner : TypeValue) -> TypeValue)(
+  match(
+    inner,
+    .EnumT(_, _, _, _, _, _, _, _, _) => inner,
+    _ => outer
+  )
+);
+/// A source-anchored expression for diagnostics when only the IR node is
+/// at hand (the Pattern IR carries no source; the walk's caller reports at
+/// the match node anyway — this only keeps `_fail_subset`'s signature).
+arm_expr_of :: (fn(p : Pattern) -> AstExpr)(make_err_expr());
 /// The MANGLED constructor name for `variant` of enum type `e_ty`
 /// (Unit/non-enum → the bare name; the walk on those is outside the
 /// subset anyway).
@@ -2003,145 +2208,6 @@ _variant_accessors :: (fn(e_ty : TypeValue, variant : String, count : usize) -> 
     i = (i + usize(1));
   });
   out
-});
-/// The pattern's BINDING argument list: the pattern call's OWN args
-/// (`.(Some)(v)` → [v]); empty for the bare `.(Off)` form.
-_pattern_binding_args :: (fn(pat : AstExpr) -> ArrayList(AstExpr))(
-  match(
-    pat,
-    // `.(On)(v)` — callee is the NESTED dot-call (a FnCall): the pattern
-    // call's own args are the bindings. `.(Off)` — callee is the "."
-    // ATOM: no bindings.
-    .FnCall(_, pf, pargs, _, _) => cond(
-      ast_expr_is_atom(pf) => ArrayList(AstExpr).new(),
-      true => pargs
-    ),
-    .Atom(_, _) => ArrayList(AstExpr).new()
-  )
-);
-/// The first argument of a `.`-call as a variant name when it is a plain
-/// atom.
-_dot_first_atom :: (fn(pargs : ArrayList(AstExpr)) -> Option(String))(
-  match(
-    pargs.get(usize(0)),
-    .Some(first) => cond(
-      ast_expr_is_atom(first) => Option(String).Some(ast_expr_token(first).value),
-      true => Option(String).None
-    ),
-    .None => Option(String).None
-  )
-);
-/// A pattern's VARIANT name: `.On` parses as `.(On)` and `.Some(v)` as
-/// `.(Some, v)` — a dot-call whose FIRST argument is the variant atom.
-/// `.Some(v)`'s bindings are the remaining arguments. `.None` for
-/// non-variant patterns (an wildcard atom handled separately, a literal,
-/// anything else).
-_pattern_variant :: (fn(pat : AstExpr) -> Option(String))(
-  match(
-    pat,
-    .FnCall(_, pf, pargs, _, _) => cond(
-      // `.(Off)` — the callee IS the dot atom; the variant is the single
-      // argument. Distinguish by SHAPE, not by token: the nested
-      // `.(On)(v)` callee is a FnCall whose token is ALSO ".".
-      ast_expr_is_atom(pf) => cond(
-        (ast_expr_token(pf).value == ".") => _dot_first_atom(pargs),
-        true => Option(String).None
-      ),
-      true => _pattern_variant_of_callee(pf)
-    ),
-    .Atom(_, _) => Option(String).None
-  )
-);
-/// The variant name from a pattern's CALLEE: `.Off` is `.(Off)` (a bare
-/// dot-call); `.Some(v)` is `.(Some)` APPLIED to `(v)` — the parser gives
-/// the method-call shape (callee = the nested dot-call, args = bindings).
-_pattern_variant_of_callee :: (fn(pf : AstExpr) -> Option(String))(
-  match(
-    pf,
-    .Atom(_, _) => Option(String).None,
-    .FnCall(_, pf2, pf_args, _, _) => cond(
-      (ast_expr_token(pf2).value == ".") => _dot_first_atom(pf_args),
-      true => Option(String).None
-    )
-  )
-);
-/// `(ite (is-<ctor> S) v tail)` — `variant` is the MANGLED constructor
-/// name (the same spelling the declare-datatypes block declares).
-_mk_test_ite :: (fn(scrut : VcTerm, variant : String, v : VcTerm, tail : VcTerm) -> VcTerm)({
-  ite_args := ArrayList(VcTerm).new();
-  ite_args.push(VcTerm.Test(ctor : variant.clone(), t : scrut));
-  ite_args.push(v);
-  ite_args.push(tail);
-  VcTerm.App(VcOp.IteOp, ite_args)
-});
-/// Evaluate `body` with the pattern's bindings bound to the scrutinee's
-/// projections (bindings saved and restored). Projections carry the
-/// MANGLED accessor names (`<ctor>_<label>`) the declare-datatypes block
-/// declares — z3 resolves field access by accessor symbol, not position.
-_arm_under_pattern :: (
-  fn(inout(ctx) : VcCtx, scrut : VcTerm, pat : AstExpr, body : AstExpr, e_ty : TypeValue) -> Option(VcTerm)
-)({
-  saved_names := ArrayList(String).new();
-  saved_vals := ArrayList(Option(VcTerm)).new();
-  match(
-    _pattern_variant(pat),
-    .Some(variant) => {
-      pargs := _pattern_binding_args(pat);
-      accessors := _variant_accessors(e_ty, variant.clone(), pargs.len());
-      // Bindings: `.Some(v)` = `.(Some)(v)` — the pattern call's OWN args.
-      (bi : usize) = usize(0);
-      while(bi < pargs.len(), {
-        b := match(pargs.get(bi), .Some(x) => x, .None => make_err_expr());
-        if(ast_expr_is_atom(b), {
-          bname := ast_expr_token(b).value;
-          if(!(bname == "_"), {
-            saved_names.push(bname.clone());
-            saved_vals.push(ctx.vars.get(bname.clone()));
-            ctx.vars.insert(
-              bname.clone(),
-              VcTerm.Proj(
-                ctor : match(
-                  accessors.get(bi),
-                  .Some(a) => a.clone(),
-                  .None => _variant_ctor_name(e_ty, variant.clone())
-                ),
-                idx : bi,
-                t : scrut
-              )
-            );
-          });
-        }, {
-          _fail_subset(ctx, String.from("nested match pattern (outside the V3 subset)"), pat);
-          return(Option(VcTerm).None);
-        });
-        bi = (bi + usize(1));
-      });
-    },
-    .None => ()
-  );
-  v := _expr_term(ctx, body);
-  (si : usize) = saved_names.len();
-  while(si > usize(0), {
-    si = (si - usize(1));
-    sn := saved_names.get(si).unwrap();
-    match(
-      saved_vals.get(si),
-      .Some(sv) => {
-        match(
-          sv,
-          .Some(old) => {
-            ctx.vars.insert(sn.clone(), old);
-          },
-          .None => {
-            ctx.vars.remove(sn.clone());
-            ()
-          }
-        );
-      },
-      .None => ()
-    );
-  });
-  v
 });
 // ============================================================================
 // Loops (V4): the havoc-invariant rule
@@ -2707,11 +2773,8 @@ _quant_term :: (
       expr_info_table_get(ctx.table, ast_expr_id(ty_arg)),
       .Some(bi2) => match(
         bi2.value,
-        .Some(vb) => match(
-          vb,
-          .TypeVal(tv) => _type_sort(tv),
-          _ => _type_sort(bi2.ty)
-        ),
+        .Some(.TypeVal(tv)) => _type_sort(tv),
+        .Some(_) => _type_sort(bi2.ty),
         .None => _type_sort(bi2.ty)
       ),
       .None => Option(VcSort).None
@@ -3621,11 +3684,8 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .Some(v) => v,
         .None => match(
           pre_opt,
-          .Some(pv) => match(
-            pv,
-            .Some(pv2) => pv2,
-            .None => VcTerm.BoolLit(true)
-          ),
+          .Some(.Some(pv2)) => pv2,
+          .Some(.None) => VcTerm.BoolLit(true),
           .None => VcTerm.BoolLit(true)
         )
       ),
@@ -3654,11 +3714,8 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
           .Some(v) => v,
           .None => match(
             pre_opt,
-            .Some(pv) => match(
-              pv,
-              .Some(pv2) => pv2,
-              .None => phi_cell.*
-            ),
+            .Some(.Some(pv2)) => pv2,
+            .Some(.None) => phi_cell.*,
             .None => phi_cell.*
           )
         ),
@@ -3945,11 +4002,8 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
                   );
                   alen := match(
                     ctx.array_sorts.get(aname.clone()),
-                    .Some(asrt) => match(
-                      asrt,
-                      .ArrS(_, l2) => l2,
-                      _ => usize(0)
-                    ),
+                    .Some(.ArrS(_, l2)) => l2,
+                    .Some(_) => usize(0),
                     .None => usize(0)
                   );
                   _emit(
@@ -4208,11 +4262,8 @@ _callee_call_term :: (
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci) => match(
       ci.value,
-      .Some(v) => match(
-        v,
-        .FuncVal(fvd, _) => Option(String).Some(fvd.*.func_id.clone()),
-        _ => Option(String).None
-      ),
+      .Some(.FuncVal(fvd, _)) => Option(String).Some(fvd.*.func_id.clone()),
+      .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -4323,11 +4374,8 @@ _callee_call_term :: (
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci2) => match(
       ci2.value,
-      .Some(v2) => match(
-        v2,
-        .FuncVal(fvd2, _) => fvd2.*.params,
-        _ => ArrayList(String).new()
-      ),
+      .Some(.FuncVal(fvd2, _)) => fvd2.*.params,
+      .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
@@ -4558,11 +4606,8 @@ _term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
 _term_width :: (fn(t : VcTerm) -> usize)(
   match(
     t,
-    .Var(_, sort) => match(
-      sort,
-      .BvS(w) => w,
-      _ => usize(1)
-    ),
+    .Var(_, .BvS(w)) => w,
+    .Var(_, _) => usize(1),
     .BvLit(_, w) => w,
     .BoolLit(_) => usize(1),
     .App(op, args) => match(
