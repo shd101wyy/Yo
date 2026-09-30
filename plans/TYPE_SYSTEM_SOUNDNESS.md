@@ -485,16 +485,39 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    - #939 already removed one shared-id registry write, `_resolve_some_types_deep`'s carrier
      registrations, which a second specialization read back.
 
-   **Remaining (part 2):** `g_some_resolved_concrete` itself. Its live writers are:
-   - the opaque-return hidden type, keyed by declaration;
-   - io.async's future output, keyed by a per-call id;
-   - the forwarded Future-wrapper param;
-   - the closure-capture channels: `closure_type.yo`, the struct-field `Impl(Fn)` and the
-     capbind entries;
-   - the shared-id Fn-bound result binder, with its unregister reset;
-   - codegen's two composite-key channels (`<output>@@<block>`).
+   **Part 2 landed 2026-09-28** (branch `tss/p37-registry-v2`). `g_some_resolved_concrete` is
+   gone and `some_resolution` reads only the value. The first build of the retirement broke
+   compiled programs five ways (`check` stayed green). Each was measured and fixed at its cause
+   (`issues/fixed/p37-registry-retirement-blocked-by-codegen-readers.md`):
+   - `_resolve_some_types_deep` adopted a `Concrete(...)` wrapper's own resolution and split
+     `Park` into two C structs. It now adopts a value's resolution only when the env rebound the
+     slot to another SomeT.
+   - A `(name, level)` substitution crossed binders that share a spelling (`map`'s and
+     `filter`'s `F`). A SomeT's own resolution is now adopted by identity
+     (`subst_adopt_own_resolution`), and a SomeT that carries a resolution is never rewritten by a
+     name-keyed entry.
+   - `stable_type_identity` rendered a SomeT by its binder spelling, which aliased two closures'
+     capture structs.
+   - The Fn-result pre-binding declared its variable with the result type instead of `Type`.
+   - The deleted struct-field capture write was the only C type an `Impl(Fn)`-typed field got. A
+     construction now instantiates the struct over the closure identity the field received.
 
-   The shared-id entries are last-write-wins and go first.
+   The writers, as landed:
+   - io.async's future output carries the closure's concrete result
+     (`_with_future_output_resolution`);
+   - a closure value carries its capture struct as its wrapper's resolution
+     (`closure_type.yo`);
+   - the forwarded Future-wrapper param is a per-specialization REBUILD of the
+     declared wrapper carrying the argument's wrapper, bound as the parameter's
+     type (the capbind analog);
+   - the shared-id Fn-bound result binder is a TYPE BINDING of the enclosing
+     generic in the specialization's env, recording the binder it resolves
+     (`_record_prebound_binder`, #939's mechanism) instead of a global write;
+   - codegen's per-block result memo is its own map
+     (`g_async_block_result_types`);
+   - the Step-6 unregister loop, the await/Step-8 registry fallbacks and the
+     "skip E" guard in `_resolve_some_types_deep` (it existed only because the
+     registry was poisoned by prior IoExn registrations) are deleted.
 8. **Unblocks** `plans/backlog/TYPEVALUE_HASH_CONSING.md`. Its measured blocker is "the intern key
    must equal codegen's `_type_key_at`". Once steps 1–4 make the evaluator's identity equal to
    the codegen key, hash-consing is a memory project, not a soundness risk. It is also where the

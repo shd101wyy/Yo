@@ -10,7 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { watch, WatchOptions, FsEvent, FsEventKind, Watcher } :: import("std/fs/watch");
 { Exception } :: import("std/error");
 { Stream } :: import("std/async/stream");
-{ timeout } :: import("std/async");
+{ timeout, yield } :: import("std/async");
 { Duration } :: import("std/time/duration");
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { clock_gettime } :: import("std/sys/clock");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
-{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
+{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC, AT_REMOVEDIR } :: import("std/sys/constants");
 _touch :: (fn(path : String, content : String, io : Io) -> unit)({
   c := path.to_cstr();
   p := c.ptr().unwrap();
@@ -349,4 +349,41 @@ test("a task waiting in next(io) does not spin the CPU", {
     w.close();
     _unlink(target, io);
   });
+});
+// A directory watch must not rescan the directory on every loop pass. The
+// macOS backend used to diff a full snapshot (an opendir, a readdir and a stat
+// per entry) on EVERY pass, so a busy loop under a watch of a few hundred
+// entries spent almost all its time re-reading the directory: 20000 yields
+// here took seconds. It now rescans on the directory's vnode events and, in
+// between, at most every 50 ms (issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md).
+test("a directory watch does not rescan the directory on every loop pass", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  d := path_join(temp_dir(), `yo_watch_busy_dir`);
+  _mk := io.await(dir.mkdir(AT_FDCWD, d.to_cstr().ptr().unwrap(), i32(0o755)), io);
+  (i : i32) = i32(0);
+  while(i < i32(300), i = (i + i32(1)), {
+    _touch(path_join(d, `f${i}`), String.from("x"), io);
+  });
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  t0 := _cpu_ms();
+  (k : i32) = i32(0);
+  while(k < i32(20000), k = (k + i32(1)), {
+    io.await(yield(io), io);
+  });
+  spent := (_cpu_ms() - t0);
+  println(`  CPU for 20000 loop passes under a 300-entry directory watch: ${spent} ms`);
+  assert(spent < i64(1500), "the watch did not rescan the directory on every pass");
+  w.close();
+  (j : i32) = i32(0);
+  while(j < i32(300), j = (j + i32(1)), {
+    _unlink(path_join(d, `f${j}`), io);
+  });
+  _rm := io.await(dir.unlink(AT_FDCWD, d.to_cstr().ptr().unwrap(), AT_REMOVEDIR), io);
 });

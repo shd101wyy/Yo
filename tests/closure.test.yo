@@ -159,6 +159,24 @@ test("Test closure with Impl that captures Rc object", {
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
+// A `ClosureType({...})` closure owns its RC captures, like an `=>` one: the
+// box outlives the function that built the closure. It used to capture
+// without a reference, so the box was freed when `_make_counter` returned and
+// the closure read freed memory (issues/fixed/a-closuretype-closure-does-not-own-its-rc-captures.md).
+_CounterFn :: Impl(Fn(y : i32) -> i32);
+_make_counter :: (fn() -> _CounterFn)({
+  x := MyBox(40);
+  c := _CounterFn({
+    x.* = (x.* + y);
+    return(x.*);
+  });
+  c
+});
+test("Test ClosureType closure keeps its Rc capture alive after its builder returns", {
+  c := _make_counter();
+  assert(c(i32(2)) == i32(42), "the captured box survives the builder's return");
+  assert(c(i32(3)) == i32(45), "and keeps its state between calls");
+});
 test("Test closure captured Rc survives nested early return", {
   x := MyBox(1);
   take_return := true;

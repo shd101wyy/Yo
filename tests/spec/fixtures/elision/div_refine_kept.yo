@@ -1,0 +1,16 @@
+// expect-elided: 0
+// 5b twin: a `refine` parameter erases at runtime, so a proof resting on it
+// must not remove the guard (§5.1 rule 3).
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+nonzero :: ghost_fn((fn(x : u32) -> bool)(x != u32(0)));
+
+udiv :: (fn(a : u32, b : refine(u32, nonzero)) -> u32)(
+  a / b
+);
+
+main :: (fn() -> unit)({
+  println(udiv(u32(10), u32(2)));
+});
+export(main);
