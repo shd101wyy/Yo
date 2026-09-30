@@ -194,6 +194,19 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - **The main checkout `$HOME/Workspace/Yo` is shared with other sessions: never `checkout -b`, `pull`, `stash` or edit there.**
 - **Worktrees live under `$HOME/Workspace/Yo-wt/<name>` (or another durable path), never under `/tmp` or `/private/tmp`** (macOS clears them on reboot; one reboot deleted 27 agents' uncommitted worktrees). Create with `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>` (the `vendor/` submodules make plain `remove` refuse).
 - **Commit and push before every heavy step.** WIP commits are fine (PRs are squash-merged); `git push -u origin <branch>` right after the first commit. A worktree is not a backup; only a pushed commit is.
+- **Merging to `develop` requires a green CI battery on the PR's final head commit. Never `gh pr merge --admin`.** Local gates stay mandatory before a PR is opened, but they are not the merge gate: on 2026-09-28 four admin-merged PRs whose local gates passed broke `develop` for every session (#970's TSan race, #973's stage-2 `yo install` segfault, #989/#991's seed-gate breaks), because one Linux box covers no macOS, Windows, arm64, TSan, wasm or seed-with-tree-std build. The ruleset carries no admin bypass; if one reappears, the rule still stands. The only exception is a fix for a red `develop`, and only with the user's explicit OK for that PR, once its own previously red jobs are green.
+- **A flaky failure gets one rerun**: `gh run rerun <run-id> --failed`. A second failure of the same job is real: investigate it and file an `issues/` doc, even if the job looks unrelated.
+- **Keep working while a PR waits for CI: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
+
+  ```bash
+  git fetch origin
+  git rebase --onto origin/develop <old-parent-tip-sha> <branch>   # the parent's head BEFORE its squash-merge
+  git push -f origin <branch>
+  gh pr edit <n> --base develop && gh pr ready <n>                 # the retarget fires the full battery
+  ```
+
+- **One battery for a whole stack** when the pieces only make sense together: merge each stacked PR into its parent on local gates, then retarget the TOP one to `develop`. Its battery covers the combined diff and it squash-merges once. That is one ~1–2 h battery instead of one per PR.
+- **The ruleset requires the branch to be up to date**, so every merge to `develop` makes other open PRs stale. Rebase right before the battery you intend to merge on, not earlier.
 - **Squash-merge and delete the branch**: `gh pr merge <n> --squash --delete-branch`. If `--delete-branch` errors (`used by worktree at ...` / `'<base>' is already used by worktree`), the REMOTE branch usually survives too: check with `git ls-remote --heads origin <name>` (empty = gone) and finish by hand with `git push origin --delete <name>`, `git worktree remove <path>`, `git branch -D <name>`.
 - Set `GIT_TERMINAL_PROMPT=0` when running `git ls-remote` against possibly non-existent repos.
 
@@ -226,7 +239,8 @@ Three views of one rule: the only question is "does the battery I am about to tr
 
   Send `tag_name` on every draft PATCH — a body-only PATCH resets it to `untagged-…`. The publish job finds the draft by `tag_name == "v<version>" and .draft`, so keeping both fields intact is what keeps the handoff working. Re-read the draft afterwards and confirm `draft: true` before the publish job reaches it.
 
-- **A push to `develop` always runs the full battery (28 jobs)**; `test.yml`'s docs-only fast path (`code=false`: 18 jobs with 15 skipped, reporting `success` having compiled nothing) is **PR-only**. A stacked PR (base not `develop`) runs a deliberately REDUCED battery (`full=false`). A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`, `battery: FULL|REDUCED`).
+- **A push to `develop` always runs the full battery (28 jobs)**; `test.yml`'s docs-only fast path (`code=false`: 18 jobs with 15 skipped, reporting `success` having compiled nothing) is **PR-only**. **PRs run only when their BASE is `develop`** (reversed 2026-09-22; until then a stacked PR ran a deliberately REDUCED battery) — a stacked PR gets **no** run at all; the retarget to `develop`, or the rebase after its base merges, fires the full battery. A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`, `battery: FULL|REDUCED` — REDUCED is now an unreachable guard branch).
+- **Open a stacked PR (base is not `develop`) as a DRAFT**: `gh pr create --draft --base <parent-branch>`. It runs no CI, so a non-draft stacked PR looks mergeable while carrying no signal; draft says "not reviewable against `develop` yet". Once its base merges, retarget it (`gh pr edit <n> --base develop`), which fires the full battery, then `gh pr ready <n>`. Merging a stacked PR into its parent branch still needs its own local gates to pass: nothing else checks it.
 - **Never merge a docs-only PR to `develop` while a battery you are waiting on is in flight.** The push supersedes the pending run (one pending run per concurrency group), so the verdict you wanted never arrives. Back-to-back merges have the same effect: the gate becomes "whatever the LAST merge triggered". Park work under a freeze by pushing the branch without opening the PR (a bare branch push runs nothing; an open PR runs on every push, draft or not).
 - **Before cutting a release, diff the code directories against the battery's head; do not reason from run ordering:**
 
