@@ -24,7 +24,7 @@
 { tokenize } :: import("../lexer.yo");
 { parse } :: import("../parser.yo");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_fn_call_of } :: import("../expr.yo");
-{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../env.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_display_name } :: import("../types/string.yo");
@@ -837,4 +837,128 @@ handle_definition :: (
   );
   Option(JsonValue).Some(_location_of(def_tok, doc_abs, lines))
 });
-export(handle_definition);
+/// `textDocument/typeDefinition` (plans/LSP_AUDIT_2026-09-29.md §3): jump
+/// to the declaration of the TYPE of the expression under the cursor. A
+/// type-VALUED expression (`Point` in `Point(x : …)`) resolves through the
+/// binding that introduced it; everything else takes its ExprInfo type
+/// (for a member, the enclosing `.` access's type, like hover), reads the
+/// type's written head name and resolves THAT binding through the env.
+/// Labels answer nothing (a label names a field, not a value); types with
+/// no written head (primitives, fn types) answer nothing — there is no
+/// declaration site to jump to.
+handle_type_definition :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    lines : ArrayList(String),
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> Option(JsonValue)
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(Option(JsonValue).None)
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  cands := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_candidates(e, target, cands),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  expr := match(
+    _best_candidate(cands, info_table),
+    .Some(x) => x,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  roles := classify_atom_roles(exprs);
+  if(roles.labels.contains(ast_expr_id(expr)), {
+    return(Option(JsonValue).None);
+  });
+  is_member := roles.members.contains(ast_expr_id(expr));
+  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(expr));
+  if(is_member, {
+    // A member's type is the type of the ACCESS (`p.x` → x's field type),
+    // recorded on the enclosing `.` call — the same refinement hover does.
+    accesses := ArrayList(AstExpr).new();
+    (ai : usize) = usize(0);
+    while(ai < exprs.len(), {
+      match(
+        exprs.get(ai),
+        .Some(e) => _find_member_access(e, target, accesses),
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    (mi : usize) = usize(0);
+    while(mi < accesses.len(), {
+      match(
+        accesses.get(mi),
+        .Some(acc) => match(
+          expr_info_table_get(info_table, ast_expr_id(acc)),
+          .Some(acc_info) => {
+            info_opt = Option(ExprInfo).Some(acc_info);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+  });
+  info := match(
+    info_opt,
+    .Some(i) => i,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  // A type-valued expression names a TYPE: go to the binding that
+  // declared it (the `Point :: struct(...)` name atom).
+  named_type := match(
+    info.value,
+    .Some(v) => match(
+      v,
+      .TypeVal(t) => Option(TypeValue).Some(t),
+      _ => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+  def_tok := match(
+    named_type,
+    .Some(_) => match(
+      _select_best_variable(get_variables_from_env(info.env, target.value.clone()), target),
+      .Some(sv) => sv.initialized_at_token,
+      .None => Option(Token).None
+    ),
+    .None => {
+      head := _type_head_name(info.ty);
+      if(head.len() == usize(0), {
+        return(Option(JsonValue).None);
+      });
+      _type_decl_token(info.env, head)
+    }
+  );
+  match(
+    def_tok,
+    .Some(t) => Option(JsonValue).Some(_location_of(t, doc_abs, lines)),
+    .None => Option(JsonValue).None
+  )
+});
+export(handle_definition, handle_type_definition);

@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_ptr, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
@@ -5625,9 +5625,28 @@ _forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String
     .None => false
   )
 });
-/// One call's binding of a `generic(...)` binder: the concrete type and the
-/// 0-based argument that first fixed it.
-ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize);
+/// The concrete VALUE a call's `generic(N : usize)` binder `label` is bound
+/// to in `env` right now (the synthesizer's Array-length arm binds it to an
+/// `IntLit`), or `.None` while it is unbound or a type binder.
+_forall_len_binding_now :: (fn(env : Environment, label : String) -> Option(String))({
+  vars := get_variables_from_env(env, label);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// One call's binding of a `generic(...)` binder: the concrete type (or
+/// `usize` for a value binder, whose value is `len_value`) and the 0-based
+/// argument that first fixed it.
+ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize, len_value : Option(String));
 /// Per-call binder consistency (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
 /// issues/fixed/generic-type-var-rebinds-per-argument.md). Each argument is
 /// matched on its own and a later argument's synthesis REBINDS the binder in
@@ -5636,7 +5655,10 @@ ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize);
 /// nothing compared the two. After argument `arg_index` is matched, every
 /// binder that is now concrete is compared with the binding an earlier
 /// argument fixed; two bindings neither of which is compatible with the other
-/// are an E0601 naming both arguments.
+/// are an E0601 naming both arguments. A VALUE binder (`generic(N : usize)`,
+/// bound through an `Array(T, N)` parameter) is held to the same rule: two
+/// arguments of different lengths are the same E0601
+/// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
 _check_forall_bindings_after_arg :: (
   fn(
     forall_labels : ArrayList(String),
@@ -5652,14 +5674,12 @@ _check_forall_bindings_after_arg :: (
   while(fi < forall_labels.len(), {
     label := match(forall_labels.get(fi), .Some(l) => l, .None => String.new());
     fi = (fi + usize(1));
-    now_opt := _forall_binding_now(env, label.clone());
-    now := match(
-      now_opt,
-      .Some(t) => t,
-      .None => {
-        continue;
-      }
-    );
+    now_ty := _forall_binding_now(env, label.clone());
+    now_len := match(now_ty, .Some(_) => Option(String).None, .None => _forall_len_binding_now(env, label.clone()));
+    if(now_ty.is_none() && now_len.is_none(), {
+      continue;
+    });
+    now := match(now_ty, .Some(t) => t, .None => t_usize());
     (si : usize) = usize(0);
     (found : bool) = false;
     while((si < seen.len()) && !(found), {
@@ -5667,25 +5687,42 @@ _check_forall_bindings_after_arg :: (
         seen.get(si),
         .Some(prev) => if(prev.label == label, {
           found = true;
-          if(!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty)), {
-            prev_name := match(param_labels.get(prev.arg_index), .Some(n) => n, .None => String.new());
-            now_name := match(param_labels.get(arg_index), .Some(n) => n, .None => String.new());
-            exn.throw(
-              dyn(
-                format_error_message(
-                  tok,
-                  `Incompatible types for generic parameter "${label}": it is ${type_to_string(prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+          prev_name := match(param_labels.get(prev.arg_index), .Some(n) => n, .None => String.new());
+          now_name := match(param_labels.get(arg_index), .Some(n) => n, .None => String.new());
+          match(
+            now_len,
+            .Some(nl) => match(
+              prev.len_value,
+              .Some(pl) => if(pl != nl, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      tok,
+                      `Incompatible types for generic parameter "${label}": it is length ${pl} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but length ${nl} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a generic parameter in one call stands for one value.`
+                    )
+                  )
+                );
+              }),
+              .None => ()
+            ),
+            .None => if(prev.len_value.is_none() && (!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty))), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Incompatible types for generic parameter "${label}": it is ${type_to_string(prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+                  )
                 )
-              )
-            );
-          });
+              );
+            })
+          );
         }),
         .None => ()
       );
       si = (si + usize(1));
     });
     if(!(found), {
-      seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index));
+      seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index, len_value : now_len));
     });
   });
 });

@@ -1,0 +1,14 @@
+build :: import("std/build");
+
+// Generation A of `build.verify` (plans/backlog/SEED_VERSION_AUTOMATION.md):
+// a build file calls the builtin directly and wraps the Step itself. The
+// friendly `build.verify({ name : "proofs", root : "./src" })` wrapper lands
+// in std/build.yo once SEED_VERSION carries a compiler that knows the builtin.
+__yo_build_verify("proofs", "./src", "verify+", true);
+proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+
+install :: build.step("install", "Build and prove");
+install.depend_on(exe);
+install.depend_on(proofs);

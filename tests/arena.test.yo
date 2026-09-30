@@ -162,7 +162,10 @@ test("An Arena handle cannot cross into a spawn body; its Allocator can", {
   // The handle is a non-atomic reference-counted object holding a raw
   // pointer, so it is not `Send`; share the arena through its `Allocator`
   // value instead (the previous test).
-  comptime_expect_error(Thread(unit).spawn(io => {
-    _n := arena.live_blocks();
-  }), "Send");
+  comptime_expect_error(
+    Thread(unit).spawn(io => {
+      _n := arena.live_blocks();
+    }),
+    "Send"
+  );
 });
