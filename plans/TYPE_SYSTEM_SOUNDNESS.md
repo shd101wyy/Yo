@@ -620,7 +620,7 @@ byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
 5. **Match usefulness as warnings.** Per-arm usefulness through the landed warnings channel
    (#846), interval reasoning for ranges, precise witnesses
    (`match-redundancy-and-range-exhaustiveness-gaps`). Coordinate with the P4 step of
-   `plans/MATCH_PATTERN_MATCHING.md`.
+   `plans/reference/MATCH_PATTERN_MATCHING.md`.
 
    **Landed 2026-09-26.** `src/pattern.yo`, reported from `evaluator/exprs/match.yo`:
    - **Integer intervals.** At a fixed-width integer position, constants and ranges are intervals

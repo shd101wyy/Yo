@@ -1286,8 +1286,8 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
     _ => ()
   )
 );
-/// Emit ONE variant arm's contents (destructure binds, `=> rename` binding,
-/// body, break) inside an already-open `case TAG: {` block, guarded by the
+/// Emit ONE variant arm's contents (destructure binds, body, break) inside
+/// an already-open `case TAG: {` block, guarded by the
 /// arm's literal-payload comparisons when it has any (an unguarded arm is
 /// the variant's catch-all and takes everything left, in source order).
 _emit_variant_arm_body :: (
@@ -1540,7 +1540,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 // ---------------------------------------------------------------------------
-// General lowering — an ordered test chain (plans/MATCH_PATTERN_MATCHING.md
+// General lowering — an ordered test chain (plans/reference/MATCH_PATTERN_MATCHING.md
 // §4.8). Taken whenever an arm is not one of the classic switch shapes: a
 // nested variant, a literal in a labeled/curly slot, a string or typed
 // constant, an or-pattern on variants, an identifier catch-all, a range, a
@@ -2275,6 +2275,6 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
 });
 export(generate_case_body, generate_primitive_match_expression, generate_match_expression, _emit_pattern_binding_decl);
 // Shared with the async state-machine emitter's general pattern dispatch
-// (plans/MATCH_PATTERN_MATCHING.md §4.9): the access-path renderers and the
+// (plans/reference/MATCH_PATTERN_MATCHING.md §4.9): the access-path renderers and the
 // test/decl helpers are the same code on both sides.
 export(_variant_test_code, _variant_field_code, _position_is_ptrish, _struct_pattern_labels, _struct_pattern_field_tys, _collect_bind_decls);
