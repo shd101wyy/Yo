@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND, enter_spec, leave_spec } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { get_type_string, ChunkRange } :: import("../utils/index.yo");
@@ -106,7 +106,9 @@ collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)
       .Some(entry) => match(
         entry.value,
         .FuncVal(__fvd1, _) => {
+          uv_prev_spec := enter_spec(__fvd1.*.spec_id);
           found := _collect_unwind_value_ctypes_from_expr(__fvd1.*.body, context);
+          leave_spec(uv_prev_spec);
           fnlen := found.len();
           (fj : usize) = usize(0);
           while(fj < fnlen, {

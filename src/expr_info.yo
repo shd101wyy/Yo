@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ cloned_expr_node_count, spec_key } :: import("./expr.yo");
+{ cloned_expr_node_count, spec_key, spec_key_in } :: import("./expr.yo");
 { Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
@@ -1054,6 +1054,11 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
     true => table.data.get(spec_key(id))
   )
 );
+/// `expr_info_table_get` in an explicit spec: a callee FuncVal's body facts
+/// are keyed under ITS spec (`FuncValData.spec_id`), not the current one.
+expr_info_table_get_in :: (fn(table : ExprInfoTable, spec : usize, id : ExprId) -> Option(ExprInfo))(
+  table.data.get(spec_key_in(spec, id))
+);
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
 expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
@@ -2000,7 +2005,7 @@ export(
 export(expr_info_await_analysis, expr_info_set_await_analysis);
 export(expr_info_effect_analysis, expr_info_set_effect_analysis);
 export(expr_info_closure_function_value, expr_info_set_closure_function_value);
-export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
+export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys, expr_info_table_get_in);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);

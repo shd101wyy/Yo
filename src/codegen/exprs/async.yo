@@ -13,7 +13,10 @@
   ast_expr_token,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
-  spec_key
+  spec_key,
+  current_spec,
+  enter_spec,
+  leave_spec
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob } :: import("../../utils.yo");
@@ -731,9 +734,14 @@ _add_deferred_dep :: (
 /// Build the dependency edges for one deferred block `b`: a local-variable field
 /// or an `await_future_X` field whose type C-string matches another block's
 /// struct name introduces an edge.
-_build_deferred_deps :: (
-  fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit
-)({
+/// Entered in the block's spec (a specialization keys its body facts under its
+/// own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
+_build_deferred_deps :: (fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit)({
+  prev := enter_spec(b.spec);
+  __build_deferred_deps_in_spec(b, by_struct_name, dependents, indegree, context);
+  leave_spec(prev);
+});
+__build_deferred_deps_in_spec :: (fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit)({
   // Local variable fields.
   cvs := b.analysis.captured_variables;
   (i : usize) = usize(0);
@@ -918,6 +926,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       ordered_blocks.get(ei),
       .Some(b) => {
+        sd_prev_spec := enter_spec(b.spec);
         cbr := _block_cross_boundary(b, context);
         osr := compute_overlapping_slots(cbr.cross_boundary_ids, cbr.variable_segments, b.analysis.captured_variables, cbr.await_future_temp_var_aliases, cbr.pattern_binding_ids, context);
         emit_async_block_struct_definition(
@@ -936,6 +945,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
           ),
           context
         );
+        leave_spec(sd_prev_spec);
       },
       .None => ()
     );
@@ -1978,7 +1988,8 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     result_type_c_name : result_type_c_name.clone(),
     capture_type : fsm_capture_type,
     analysis : analysis_kinded,
-    closure_param_slots : closure_param_slots_opt
+    closure_param_slots : closure_param_slots_opt,
+    spec : current_spec()
   );
   match(
     context.deferred_async_blocks,
@@ -2060,7 +2071,15 @@ _sm_unwind_catch_for :: (fn(block : DeferredAsyncBlock, context : FunctionGenera
 /// gets no field: that would be a second, never-used copy (the bundle
 /// stored twice, plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4). The struct
 /// definition and the resume function both read this one result.
+/// Entered in the block's spec (a specialization keys its body facts under its
+/// own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 _block_cross_boundary :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> CrossBoundaryResult)({
+  prev := enter_spec(block.spec);
+  r := _block_cross_boundary_in_spec(block, context);
+  leave_spec(prev);
+  r
+});
+_block_cross_boundary_in_spec :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> CrossBoundaryResult)({
   cbr := compute_cross_boundary_variables(block.body_expr, block.analysis, context);
   param_sites := HashSet(String).new();
   match(
@@ -2153,7 +2172,14 @@ _block_cross_boundary :: (fn(block : DeferredAsyncBlock, context : FunctionGener
   });
   cbr
 });
+/// Entered in the block's spec (a specialization keys its body facts under its
+/// own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
+  prev := enter_spec(block.spec);
+  __emit_one_deferred_async_block_in_spec(block, context);
+  leave_spec(prev);
+});
+__emit_one_deferred_async_block_in_spec :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   saved_sm_vars := context.state_machine_variables;
   saved_evidence_params := context.current_evidence_params;
@@ -2337,6 +2363,7 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
         match(
           blocks.get(ni),
           .Some(nb) => {
+            nsd_prev_spec := enter_spec(nb.spec);
             ncbr := _block_cross_boundary(nb, context);
             nosr := compute_overlapping_slots(ncbr.cross_boundary_ids, ncbr.variable_segments, nb.analysis.captured_variables, ncbr.await_future_temp_var_aliases, ncbr.pattern_binding_ids, context);
             emit_async_block_struct_definition(
@@ -2355,6 +2382,7 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
               ),
               context
             );
+            leave_spec(nsd_prev_spec);
           },
           .None => ()
         );
@@ -2539,7 +2567,11 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
       vals.next(),
       .Some(entry) => match(
         entry.value,
-        .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(__fvd3.*.body, context),
+        .FuncVal(__fvd3, _) => {
+          pr_prev_spec := enter_spec(__fvd3.*.spec_id);
+          preregister_async_blocks_in_expr(__fvd3.*.body, context);
+          leave_spec(pr_prev_spec);
+        },
         _ => ()
       ),
       .None => {
@@ -2617,7 +2649,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         .Some(fv) => match(
           fv,
           .FuncVal(__fvd4, _) => match(
-            context.base.get_expr_info(__fvd4.*.body),
+            context.base.get_expr_info_in(__fvd4.*.spec_id, __fvd4.*.body),
             .Some(bei) => {
               bt := bei.ty;
               if(is_some_type(bt), {
@@ -2700,7 +2732,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .Some(fv) => match(
       fv,
       .FuncVal(__fvdh, _) => match(
-        context.base.get_expr_info(__fvdh.*.body),
+        context.base.get_expr_info_in(__fvdh.*.spec_id, __fvdh.*.body),
         .None => _report_hollow_async_body(__fvdh.*.body, false),
         .Some(_) => ()
       ),

@@ -63,7 +63,7 @@
 { is_thread_local } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { TokenAndError } :: import("../../error.yo");
-{ ast_expr_to_string } :: import("../../expr.yo");
+{ ast_expr_to_string, enter_spec, leave_spec, fid_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 {
   is_io_async_call,
@@ -545,7 +545,7 @@ impl(
               });
             },
             .None => {
-              if(_MsW.summary_for(fid.clone(), fvd.*.body, table, touched), {
+              if(_summary_for_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, table, touched), {
                 return(true);
               });
             }
@@ -613,7 +613,17 @@ impl(
 /// Public entry: may the function `fid` (with evaluated `body`)
 /// transitively mutate RC container storage reachable from its parameters,
 /// captures, or globals?
+/// Entered in the spec of `fid`'s body (a specialization keys its body facts
+/// under its own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 function_may_mutate_rc_storage :: (
+  fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
+)({
+  prev := enter_spec(fid_spec(fid.clone()));
+  r := _function_may_mutate_rc_storage_in_spec(fid, body, ctx);
+  leave_spec(prev);
+  r
+});
+_function_may_mutate_rc_storage_in_spec :: (
   fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
 )({
   touched := ArrayList(String).new();
@@ -1726,7 +1736,7 @@ impl(
           if(is_control_fn(fid.clone()), {
             return(_msp_root(MSP_ROOTED));
           });
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _analyze_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, ctx.table, ctx.touched);
           if(an.ret.kind == MSP_PARAM, {
             // Storage reachable from the callee's j-th argument.
             labels := _msp_labels(fid.clone());
@@ -1930,7 +1940,7 @@ impl(
                 _ => ()
               );
               if((!is_extern) && !is_control_fn(fid.clone()), {
-                an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+                an := _analyze_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, ctx.table, ctx.touched);
                 if((an.ret.kind == MSP_FRESH) || (an.ret.kind == MSP_NONE), {
                   return(());
                 });
@@ -2416,7 +2426,7 @@ impl(
             _MsP.taint_all_args(func_expr, args, ctx);
             return(());
           });
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _analyze_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, ctx.table, ctx.touched);
           labels := _msp_labels(fid.clone());
           match(
             _MsP.argv(e, func_expr, args, labels.len(), ctx.table),
@@ -2724,7 +2734,7 @@ impl(
             return(());
           });
           touched := ArrayList(String).new();
-          an := _MsP.analyze(fid.clone(), fvd.*.body, table, touched);
+          an := _analyze_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, table, touched);
           if(an.mask.all, {
             if(_MsP.call_involves_closure(fid.clone(), func_expr, args, table), {
               out.push(TokenAndError(token : tok, error_message : `Strict borrow: the compiler cannot prove that '${callee_name}' leaves the element borrowed by this loop valid (a closure is involved, whose effects cannot be mapped to the arguments). ${_msp_strict_hint}`));
@@ -3091,7 +3101,7 @@ impl(
             },
             .None => ()
           );
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _analyze_in_spec(fvd.*.spec_id, fid.clone(), fvd.*.body, ctx.table, ctx.touched);
           labels := _msp_labels(fid.clone());
           match(
             _MsP.argv(e, func_expr, args, labels.len(), ctx.table),
@@ -3335,7 +3345,17 @@ strict_borrow_violations :: (
 /// panics on ANY invalidating method — with no annotation from the library
 /// author (Yo has no `mut`; the body is the signature). Takes the ExprInfo
 /// table directly because codegen has no EvalContext.
+/// Entered in the spec of `fid`'s body (a specialization keys its body facts
+/// under its own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 function_param_mutation_mask :: (
+  fn(fid : String, body : AstExpr, table : ExprInfoTable) -> ParamMutationMask
+)({
+  prev := enter_spec(fid_spec(fid.clone()));
+  r := _function_param_mutation_mask_in_spec(fid, body, table);
+  leave_spec(prev);
+  r
+});
+_function_param_mutation_mask_in_spec :: (
   fn(fid : String, body : AstExpr, table : ExprInfoTable) -> ParamMutationMask
 )({
   touched := ArrayList(String).new();
@@ -3540,7 +3560,7 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
         vv,
         .FuncVal(fvd, _) => match({
           _gr_note_callee(ctx, fvd.*.func_id.clone());
-          function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.table, env)
+          _reaches_non_send_in_spec(fvd.*.spec_id, fvd.*.func_id.clone(), fvd.*.body, ctx.table, env)
         }, .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`), .None => Option(String).None),
         _ => Option(String).None
       ),
@@ -3583,7 +3603,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
         });
         _gr_note_callee(ctx, fid.clone());
         match(
-          function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+          _reaches_non_send_in_spec(fvd.*.spec_id, fid, fvd.*.body, ctx.table, ctx.env),
           .Some(m) => Option(String).Some(`uses the function '${ast_expr_to_string(e)}' as a value (whatever receives it may call it), which ${m}`),
           .None => Option(String).None
         )
@@ -3668,7 +3688,7 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
               if(!is_extern, {
                 _gr_note_callee(ctx, fid.clone());
                 match(
-                  function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+                  _reaches_non_send_in_spec(fvd.*.spec_id, fid, fvd.*.body, ctx.table, ctx.env),
                   .Some(m) => {
                     return(Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`));
                   },
@@ -3730,7 +3750,38 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
 });
 /// Does function `fid` (body `body`), or anything it can call, reach a
 /// non-Send module-level global? `.Some(reason)` names the first one.
+/// The analyses below read a callee's body facts, which a specialization keys
+/// under its own spec (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1):
+/// run each inside the callee FuncVal's spec.
+_summary_for_in_spec :: (fn(spec : usize, fid : String, body : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> bool)({
+  prev := enter_spec(spec);
+  r := _MsW.summary_for(fid, body, table, touched);
+  leave_spec(prev);
+  r
+});
+_analyze_in_spec :: (fn(spec : usize, fid : String, body : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> _MspAnalysis)({
+  prev := enter_spec(spec);
+  an := _MsP.analyze(fid, body, table, touched);
+  leave_spec(prev);
+  an
+});
+_reaches_non_send_in_spec :: (fn(spec : usize, fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String))({
+  prev := enter_spec(spec);
+  r := function_reaches_non_send_global(fid, body, table, env);
+  leave_spec(prev);
+  r
+});
+/// Entered in the spec of `fid`'s body (a specialization keys its body facts
+/// under its own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 function_reaches_non_send_global :: (
+  fn(fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String)
+)({
+  prev := enter_spec(fid_spec(fid.clone()));
+  r := _function_reaches_non_send_global_in_spec(fid, body, table, env);
+  leave_spec(prev);
+  r
+});
+_function_reaches_non_send_global_in_spec :: (
   fn(fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String)
 )({
   match(

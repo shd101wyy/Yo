@@ -427,7 +427,7 @@ spec_key_in :: (fn(spec : usize, id : ExprId) -> ExprId)(
     (spec == usize(0)) => id,
     true => match(
       g_spec_body_ids.get(spec),
-      .Some(ids) => if(ids.contains(id), ((spec * SPEC_KEY_STRIDE) + id), id),
+      .Some(ids) => if(ids.contains(id), (spec * SPEC_KEY_STRIDE) + id, id),
       .None => id
     )
   )
@@ -466,6 +466,15 @@ _collect_node_ids :: (fn(e : AstExpr, ids : HashSet(ExprId)) -> unit)(
     }
   )
 );
+/// The spec of each specialized function, by its (unique) func_id, for
+/// analyses that reach a body through its func_id.
+(g_fid_spec : HashMap(String, usize)) = HashMap(String, usize).new();
+register_fid_spec :: (fn(fid : String, spec : usize) -> unit)({
+  g_fid_spec.insert(fid, spec);
+});
+/// The spec a func_id's body facts are keyed under; 0 unless it names a
+/// specialization.
+fid_spec :: (fn(fid : String) -> usize)(match(g_fid_spec.get(fid), .Some(s) => s, .None => usize(0)));
 /// A fresh specialization id (never 0) owning the nodes in `ids`.
 mint_spec_id :: (fn(ids : HashSet(ExprId)) -> usize)({
   s := g_next_spec_id;
@@ -1371,7 +1380,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, spec_key, spec_key_in, current_spec, enter_spec, leave_spec, mint_spec_id, body_node_ids);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, spec_key, spec_key_in, current_spec, enter_spec, leave_spec, mint_spec_id, body_node_ids, register_fid_spec, fid_spec);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a

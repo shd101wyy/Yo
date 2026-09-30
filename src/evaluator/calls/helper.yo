@@ -19,7 +19,7 @@
 //! stub that used to live here has been retired.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ current_spec, enter_spec, leave_spec, mint_spec_id, body_node_ids } :: import("../../expr.yo");
+{ current_spec, enter_spec, leave_spec, mint_spec_id, body_node_ids, register_fid_spec } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -1966,7 +1966,8 @@ _build_forward_ref_funcval :: (
             body : make_err_expr(),
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
-            func_id : specialized_func_id, spec_id : current_spec()
+            func_id : specialized_func_id,
+            spec_id : current_spec()
           )
         ),
         ArrayList(EvalValue).new()
@@ -3878,7 +3879,8 @@ _create_specialized_function_inline_in_spec :: (
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
                 func_id : specialized_func_id,
-                env_key : new_env_key, spec_id : body_spec
+                env_key : new_env_key,
+                spec_id : body_spec
               )
             ),
             new_cap_vals
@@ -3899,6 +3901,7 @@ _create_specialized_function_inline_in_spec :: (
           // the id the specialized FuncVal already holds.
           copy_func_contract_exprs(func_id, specialized_func_id);
           register_specialized_base(specialized_func_id, func_id);
+          register_fid_spec(specialized_func_id.clone(), body_spec);
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic
@@ -4188,7 +4191,9 @@ _create_specialized_function_inline_in_spec :: (
                                     );
                                     cw_pvi = (cw_pvi + usize(1));
                                   });
+                                  cw_prev_spec := enter_spec(cc_fvd.*.spec_id);
                                   _reeval_closure_body_swallow(cc_fvd.*.body, cw_benv, ctx);
+                                  leave_spec(cw_prev_spec);
                                   // Phase 6 step 2 (census site #15): the
                                   // parameters are this specialization's
                                   // concrete types now, so a mismatch
@@ -4738,6 +4743,9 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   // Evaluate the body.
   // -------------------------------------------------------------------------
+  // In the parent's spec: the instance re-evaluates the parent's body nodes,
+  // and its FuncVal (below) keeps the parent's spec.
+  ctl_prev_spec := enter_spec(match(original_func_val, .FuncVal(__ctl_bs, _) => __ctl_bs.*.spec_id, _ => usize(0)));
   ctl_body := evaluate_begin_expression(
     orig_body,
     specialized_env,
@@ -4746,6 +4754,7 @@ evaluate_ctl_function_body_inline :: (
     true,
     exn
   );
+  leave_spec(ctl_prev_spec);
   // Restore context fields.
   ctx.expected_type = prev_expected_type;
   ctx.is_evaluating_function_body_or_async_block = prev_is_eval_fb;
@@ -4844,7 +4853,8 @@ evaluate_ctl_function_body_inline :: (
         cap_names : ctl_cap_names,
         cap_tys : ctl_cap_tys,
         func_id : ctl_func_id.clone(),
-        env_key : ctl_env_key, spec_id : match(original_func_val, .FuncVal(__ctl_sp, _) => __ctl_sp.*.spec_id, _ => usize(0))
+        env_key : ctl_env_key,
+        spec_id : match(original_func_val, .FuncVal(__ctl_sp, _) => __ctl_sp.*.spec_id, _ => usize(0))
       )
     ),
     ctl_cap_vals

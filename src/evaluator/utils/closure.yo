@@ -17,6 +17,7 @@
 {
   AstExpr
 } :: import("../../expr.yo");
+{ enter_spec, leave_spec, fid_spec } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 {
   Variable,
@@ -388,7 +389,17 @@ _declares_marker :: (fn(ty : TypeValue, marker : TypeValue) -> bool)(
 /// captured state first (D4), then — for `Send` — what its code reaches (D1).
 /// `body` is walked only when no verdict was memoized: a closure's own is
 /// taken where it is created, with its defining env.
+/// Entered in the spec of the function's body (a specialization keys its body
+/// facts under its own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 _function_value_offense :: (
+  fn(fid : String, body : Option(AstExpr), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
+)({
+  prev := enter_spec(fid_spec(fid.clone()));
+  r := __function_value_offense_in_spec(fid, body, marker, env, ctx);
+  leave_spec(prev);
+  r
+});
+__function_value_offense_in_spec :: (
   fn(fid : String, body : Option(AstExpr), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
