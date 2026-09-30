@@ -9,7 +9,7 @@ codegen's own working set.
 Status as of 2026-09-30:
 - **Phase 0's instruments are in** (§0.1–§0.3, §0.6): `--profile` phase
   memory and `profile: mark` lines.
-- **Landed levers** (on `mem/codegen-plan`):
+- **Landed levers** (#1041, merged 2026-09-30):
   - lazy `HashMap` (§0.4);
   - copy-on-write frame lists (§0.5);
   - emit's C sections with in-place truncation (§0.6);
@@ -22,12 +22,13 @@ Status as of 2026-09-30:
   landed in between; same input tree, stage-2, mimalloc): `compile`
   3,417 → **2,808 MB** (−17.8 %), `check` 1,011 → 966 MB, instructions
   109.45 G → 108.63 G (−0.75 %, `check src/types/intern.yo`), C identical.
-- **Measured and rejected:** env interning (§0.7) and per-function env
-  release (§0.8).
-- **Next:**
-  - after #1002 and #1016 land: trial-born specializations (§0.11: 313 K
-    entries), Phase 4 Design 1 (the specialization clones) and env-free
-    codegen (§6).
+- **Lever 4, the overload-trial clone purge (§0.12):** `compile`
+  2,807 → **2,707 MB**, `check` 966 → 909 MB, C identical.
+- **Measured and rejected:** env interning (§0.7), per-function env
+  release (§0.8), a bigger snapshot ring and adopt-time env reuse (§0.12).
+- **Next**, after #1002 and #1016 land (they rewrite most of the code these
+  touch): Phase 4 Design 1 (the specialization clones) and env-free codegen
+  (§6).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
