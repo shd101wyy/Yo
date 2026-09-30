@@ -1148,6 +1148,14 @@ static inline void __yo_scope_set(void* ctx, void* vtable) {
   __yo_current_allocator.vtable = vtable;
 }`
   );
+  // std/arena.yo's hook: under --debug-heap every live or abandoned arena is
+  // listed in the exit report (plans/EXPLICIT_ALLOCATORS.md P4).
+  em.emit_declaration_line(
+    cond(
+      context.debug_heap => "static inline bool __yo_debug_heap_on(void) { return true; }",
+      true => "static inline bool __yo_debug_heap_on(void) { return false; }"
+    )
+  );
   // Generic Future + I/O Future struct types.
   em.emit_declaration_string_line(
     `
