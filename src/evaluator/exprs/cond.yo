@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env,
   expr_info_capture_type
 } :: import("../../expr_info.yo");
-{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -378,7 +378,7 @@ evaluate_cond :: (
         );
         bodies.push(evaluated_body);
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
-        env.frames = copy_frames(body_info.env.frames);
+        env.frames = body_info.env.frames;
         env.module_path = body_info.env.module_path;
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;

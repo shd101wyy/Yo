@@ -34,6 +34,8 @@ untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hi
 (one binary, several runs). HOLDER_MIN=<n> lowers the
 1,000,000-tracked-object threshold for small runs; HOLDER_COLLECT=1 runs the full
 cycle collector first (what then stays unreached is a refcount leak, not cycle garbage).
+HOLDER_AT_PHASE=<phase> dumps at that phase's `profile_record_phase` call (e.g. `codegen: emit`,
+with or without `--profile`) instead of at teardown. Locals' objects then count as unreached.
 """
 import re, sys
 from pathlib import Path
@@ -758,7 +760,39 @@ __attribute__((destructor)) static void __ho_census_atexit(void) {
 cl = "static void __yo_cleanup_thread_gc() {"
 pos = src.find("\n" + cl)
 assert pos >= 0
-src = src[:pos + 1] + "static void __ho_census(void* st);\n" + cl + "\n  __ho_census((void*)__yo_current_thread_gc);" + src[pos + 1 + len(cl):]
+src = src[:pos + 1] + "static void __ho_census(void* st);\nstatic void __ho_at_phase(const char* name);\n" + cl + "\n  __ho_census((void*)__yo_current_thread_gc);" + src[pos + 1 + len(cl):]
+# HOLDER_AT_PHASE=<phase>: census when that `--profile` phase is recorded, not
+# at teardown (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 2). `compile`
+# releases the shared ExprInfoTable before teardown, so only a phase-time dump
+# sees its peak. Each statement that carries a phase-name literal (the
+# `profile_record_phase` call sites) is followed by the hook; objects held only
+# by locals at that moment count as unreached (`U` rows).
+PHASES = ["prelude evaluation", "read+parse entry", "entry module evaluation", "contract verification",
+          "codegen: collect", "codegen: emit", "write C"]
+lines = src.split("\n")
+out_lines = []
+pending = None
+hooked = 0
+for ln in lines:
+    out_lines.append(ln)
+    if pending is None:
+        for ph in PHASES:
+            if ('"%s"' % ph) in ln and "(const uint8_t*)" in ln:
+                pending = ph
+                break
+    if pending is not None and ln.rstrip().endswith(";"):
+        out_lines.append('  __ho_at_phase("%s");' % pending)
+        hooked += 1
+        pending = None
+src = "\n".join(out_lines)
+print("phase hooks:", hooked)
+code = code + """
+static void __ho_at_phase(const char* name) {
+  const char* want = getenv("HOLDER_AT_PHASE");
+  if (want == NULL || strcmp(want, name) != 0) return;
+  __ho_census((void*)__yo_current_thread_gc);
+}
+"""
 src = src + code
 Path(out_path).write_text(src)
 print("types:", nb, "roots:", nr)
