@@ -83,8 +83,7 @@
   mark_uses_parallelism,
   mark_uses_tls,
   fresh_local_name,
-  sanitize_for_c_identifier,
-  get_deferred_drop_target_atom_name
+  sanitize_for_c_identifier
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -1899,33 +1898,6 @@ _emit_fused_statements :: (fn(stmts : ArrayList(AstExpr), indent : String, conte
   });
   tail
 });
-/// Emit the deferred drops recorded on `e` at `indent`, except one of the
-/// variable `skip` (the wrapper's future, which a fused site never builds).
-_emit_fused_drops :: (fn(e : AstExpr, skip : Option(String), indent : String, context : FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  match(
-    match(context.base.get_expr_info(e), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
-    .Some(drops) => {
-      (di : usize) = usize(0);
-      while(di < drops.len(), di = (di + usize(1)), {
-        match(
-          drops.get(di),
-          .Some(d) => {
-            skipped := match(skip, .Some(sn) => match(get_deferred_drop_target_atom_name(d), .Some(tn) => (tn == sn), .None => false), .None => false);
-            if(!(skipped), {
-              dc := _call_generate_expr(d, indent.clone(), context);
-              if(dc.len() > usize(0), {
-                em.emit_string_line(`${indent}${dc};`);
-              });
-            });
-          },
-          .None => ()
-        );
-      });
-    },
-    .None => ()
-  );
-});
 /// Lower `await_expr` as a fused site, or return `.None` to leave it to the
 /// ordinary suspension. Returns the C code of the await's value.
 emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
@@ -2008,9 +1980,10 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
     },
     .None => ()
   );
-  // The wrapper returns here: its scope-end drops.
-  future_temp := match(context.base.get_expr_info(site.io_async_call), .Some(iei) => iei.variable_name, .None => Option(String).None);
-  _emit_fused_drops(site.wrapper_body, future_temp, inner.clone(), context);
+  // The wrapper returns here: its scope-end drops, through the ordinary
+  // emitter and its gates (a drop of a temp the fused site never declared,
+  // such as the future it does not build, is skipped there).
+  generate_deferred_drop_expressions(site.wrapper_body, inner.clone(), context);
   context.state_machine_variables = saved_smv;
   context.state_machine_field_aliases = saved_aliases;
   context.variable_id_remapping = saved_remap;
@@ -2058,7 +2031,7 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
     }),
     .None => ()
   );
-  _emit_fused_drops(site.block.body_expr, Option(String).None, inner.clone(), context);
+  generate_deferred_drop_expressions(site.block.body_expr, inner.clone(), context);
   _emit_fused_site_releases(site, inner.clone(), true, context);
   em.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
