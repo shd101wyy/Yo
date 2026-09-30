@@ -310,6 +310,12 @@ literals and fixed arrays (`ms_of`).
    `append` `dataprop` — is one line.
 3. Fixtures: `dml_append_seq.yo`, `dml_sorted_insert.yo`, `dml_member.yo`,
    each with a negative twin.
+4. A verified `for` over a list: a ghost `produced()` (Creusot's name) for
+   the elements consumed so far, usable in the loop's invariant, which the
+   `for` expansion must also place first
+   (`issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`).
+5. An alias-aware frame condition (e.g. a `distinct(a, b)` requires) to
+   lift R1's conservative "no mutation beside a possible alias" rule.
 
 Depends on R1. Estimate: 3 weeks. This is the phase to cut if the budget is
 one phase: R1 alone covers length indexing, which is 90 % of what ATS
