@@ -2,7 +2,31 @@
 
 **Severity:** S2 — a failing derive_rule body is swallowed — impl permanently missing while check and compile both exit 0
 
-**Status: OPEN.** Split out of
+**Status: RETIRED 2026-09-29 — no longer reproduces; the swallow it describes is gone.**
+Re-verified on develop `c52ce152c`, with a tree-built compiler:
+
+- The reproducer's rule no longer FAILS: `to_comptime_string()` on the `.a => \`x\``
+  closure's LHS renders `.a` (a rule that embeds it in a derived method prints `.a`
+  at runtime). So `check` exiting 0 on it is correct, not a swallow. The
+  `[anon-swallow] … __yo_expr_to_string` line quoted below comes from the def-time
+  trial of the PRELUDE's own `to_comptime_string` lambda (`std/prelude.yo`, in the
+  log before the reproducer's module starts); it was never the derive's error.
+- A rule that DOES fail inside an unused `::` binding
+  (`s :: pair.get_args().car().no_such_method();`) fails `check` with rc=1 and the
+  rule's own message (`derive on "P3": the derive rule failed: No method
+  "no_such_method" on Expr …`), pointing at both the binding and the `derive`.
+- A derive whose GENERATED impl fails (`derive(P4, Eq(P4))` over a field with no
+  `Eq`) fails `check` with rc=1: `derive on "P4" failed: No matching call found for
+  operator "==" with receiver type "NoEq"`.
+
+The regression guard is the existing cli case
+`tests/cli-cases/check-derive-rule-error-reaches-the-user` (a rule failing inside a
+`::` binding must fail `check`). `issues/repros/derive-rule-error-vanishes-entirely.yo`
+was removed with this retirement: it no longer exercises a failure.
+
+---
+
+Original report (2026-09-09), kept as the record. Split out of
 `issues/fixed/derive-swallows-the-rule-error.md` on 2026-09-09, whose
 reproducer 2 is this defect. That issue's own half — `derive` losing the rule's
 message because it used the 3-argument `evaluate_expression` — is fixed; this

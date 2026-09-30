@@ -48,3 +48,34 @@ Find which fallback types `Array(u8, T.BYTES).fill(u8(0))` as `unit` in the tria
 (`YO_DEBUG_SWALLOW=1`, or instrument the `t_unit()` fallbacks in method-call resolution for a
 static call on an `Array` type with a value-dependent length) and make it an error or an
 `UnknownVal` of the right type. Then drop the `unit` exclusion.
+
+## A second degrading case: a method from a later impl of the same type (measured 2026-09-30)
+
+An attempt on `tss/impl-self-operator` bound a variable array length symbolically
+(`N := VarRef("T.BYTES")` in the synthesizer's var-var `Array` case, aliased into the
+`Substitution`), so `Array(u8, T.BYTES).fill(u8(0))` matched its impl in the trial. Built for the
+first time on 2026-09-30, it broke develop's own `tests/array.test.yo` (the `_Widthy` blanket
+impl): "Cannot unify incompatible types: usize and Type" at the prelude `fill`'s
+`while(i < U, …)`. It was reverted (`e8ac3c0f2`); the `Array` case stays open. Dropping the
+`unit` exclusion (commit `6308fed65`) also made `check ./std` fail
+at `std/string/string.yo:1605`, `(rest : String) = self.clone()` inside the generic
+`splitn`: "Expected String, Given unit". The commit was reverted.
+
+```rust
+S :: struct(x : i32);
+impl(S, dup_via : (fn(generic(P : Type), self : Self, p : P) -> S)({
+  (r : S) = self.clone();
+  r
+}));
+impl(S, Clone(clone : (fn(inout(self) : Self) -> Self)(S(x : self.x))));
+```
+
+The generic member's trial runs while the first `impl(S, …)` is being evaluated. `Clone` is
+in a later impl of the same type, which `force_pending_impls_for_type_name` refuses to force
+mid-registration, so the lookup misses and degrades to `unit`. A user trait behaves the same.
+With the `Clone` impl first, the program checks. The non-generic version of the same member
+fails outright on develop:
+`issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`.
+
+So the exclusion can go only after both fallbacks report or defer instead of producing `unit`.
+

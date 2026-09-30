@@ -48,3 +48,52 @@ then becomes unnecessary. This is a byte-identity event for the emitted C (fixpo
 A cli-case compiling a program whose local, parameter and struct field are named after a macro
 the runtime's headers define on every target (e.g. `EOF`, `BUFSIZ`, `assert`), plus
 `ub_name` behind a `c_include("openssl/asn1.h")` gated on pkg-config.
+
+## Implementation plan (survey 2026-09-29, every `sanitize_for_c_identifier` site read)
+
+A blanket prefix inside `sanitize_for_c_identifier` breaks the compiler. About 120 call sites
+pass it three kinds of name, and callers depend on its current behaviour:
+
+- **Compiler-generated names pass through it unchanged.** Temps (`_<12>_temp_<n>`,
+  `src/utils.yo`) are declared through `get_variable_type_string` (sanitized) and used raw
+  (e.g. `other_fn_call.yo` returns the raw temp after declaring the sanitized one).
+  `function_c_name` sanitizes `yo_id_…`/`fn_yo_id_…`, and `get_variable_name_for_codegen`
+  tests `starts_with("fn_yo_id_")` on its output. Temp-shape tests
+  (`is_temp_variable_name`, `.contains("_temp_")`) run on sanitized names.
+- **It is assumed idempotent**: names are sanitized twice at `init_assignment.yo`,
+  `assignment.yo`, `drop_dup.yo` and `exprs/generation.yo`.
+- **Declarations and uses do not always go through it together.**
+  - Capture-struct fields are declared sanitized but written raw:
+    - the closure capture literal (`closures.yo` `.label =`)
+    - the `io.async` capture literal (`async.yo`)
+    - every async `__capture.<name>` access (`atom.yo`, `state_machine.yo`, `functions/context.yo`, `async.yo`)
+    - effect-bundle access paths (`async.yo`)
+  - Closure bodies read a capture FIELD through the variable-name function
+    (`closure_context->${get_variable_name_for_codegen(name)}`).
+  - The shadow set compares a sanitized name against a raw one (`atom.yo`, `return.yo`).
+  - `other_fn_call.yo`'s `already_in_scope` compares a raw name with a sanitized declaration.
+  - A raw `ExprInfo.variable_name` is emitted as C text at several sites (`await.yo`, `async.yo`,
+    `dyn.yo`, `assignment.yo`).
+
+Rules for the prefix (`__yo_v_`, unused today):
+
+1. Idempotent, and a no-op on compiler shapes: names beginning with `_` (temps, `__yo_*`), and
+   `fn_yo_id_`, `yo_id_`, `closure_yo_id_`, `var_…` (state-machine locals, already
+   `var_<name>_<hash>`, immune).
+2. Applied to every Yo-derived LOCAL, PARAMETER and FIELD label, so a capture field and the
+   variable it captures keep one spelling. Module globals are already `<name>_m<hash>`.
+3. Not applied to extern C names (`is_extern_c`), library export names and extern "Yo" imports
+   (`functions/collection.yo`, an ABI).
+4. Variant NAMES (union members) are never sanitized today (consistent, but exposed: a variant
+   named `EOF` collides). Prefix them in the same change, together with the two hard-coded
+   `.Some` (`downcast.yo`, `await.yo`) and the hard-coded Option payload `.value`.
+5. The Fn-trait vtable member `call` is hard-coded on three sides
+   (`types/generation.yo`, `functions/dyn.yo`, `other_fn_call.yo`). It stays unprefixed and
+   exempt.
+
+Bonus: a struct field named `obj`, `box` or `ptr` collides today with the generated constructor's
+locals (`obj->f = f`, `functions/constructors.yo`); prefixing fields fixes that too.
+
+Gate: byte-identity is expected to break (every emitted name changes), so the gate is fixpoint
+(stage 2 == stage 3) + the full fast suite + cli goldens, plus the test below with macros from
+headers the runtime includes on every target.

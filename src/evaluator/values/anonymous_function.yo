@@ -114,7 +114,7 @@ pragma(Pragma.AllowUnsafe);
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -1310,6 +1310,9 @@ evaluate_anonymous_function_implementation :: (
     ),
     cap_vals
   );
+  // Phase A of an impl member written as a literal (context.yo
+  // `publish_pending_member_phase_a`), before the body trial below.
+  publish_pending_member_phase_a(ast_expr_id(expr), func_val, function_type);
   // Record this function's own resolved Func type by func_id so codegen can
   // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
   //

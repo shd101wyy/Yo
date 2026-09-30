@@ -712,6 +712,10 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
 /// Codegen lowers such an enum to the bare pointer (NULL = the empty variant),
 /// and the size/alignment model (`types/utils.yo`) must agree, so the rule
 /// lives here, where both can reach it.
+/// Only a VALUE enum folds. A `ref(enum)` is itself a heap object behind a
+/// handle; folding it into its payload's pointer made a `Self` payload
+/// (`ref(enum(Leaf, Node(elem : Self)))`) emit `typedef T* T` — an unknown C
+/// type (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
 /// A field type whose C value is a pointer that is never NULL: a raw pointer
 /// or a non-atomic reference handle. Atomic handles (`atomic(ref(...))`) and
 /// `Iso` keep the tagged layout.
@@ -728,8 +732,8 @@ _is_nullable_payload_type :: (fn(t : TypeValue) -> bool)(
 can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .EnumT({ variant_fields }) => {
-      if(variant_fields.len() != usize(2), {
+    .EnumT({ variant_fields, is_reference_semantics }) => {
+      if(is_reference_semantics || (variant_fields.len() != usize(2)), {
         return(.None);
       });
       (empty_found : bool) = false;
