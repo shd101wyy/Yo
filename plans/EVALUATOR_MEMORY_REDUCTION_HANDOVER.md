@@ -1,6 +1,10 @@
 # Evaluator memory reduction — handover (2026-09-28)
 
-**Status: ACTIVE handover.** Written for the agent who picks up
+**Status: PAUSED 2026-09-29.** The campaign stopped at its goal (stage-2
+`check src/main.yo` 970 MB on Linux/mimalloc). The plan's **§8 is the entry
+point** for resuming: state, measuring rules, ranked remaining work, rejected
+levers. This file keeps the recipes (§4) and the per-item detail §8 points to.
+Written for the agent who picks up
 `plans/EVALUATOR_MEMORY_REDUCTION.md`. The plan is authoritative for design
 and history (its §0.x sections). This file is the current state and the to-do
 list. Rewritten 2026-09-28: the 2026-09-26/27 version had grown contradictory
@@ -17,8 +21,11 @@ sections, and several of its claims did not survive review (see §1.1).
     (`valgrind --tool=callgrind`, about 50× slower; `check src/types/intern.yo`
     takes 5 s natively).
   - A correctness fix (a leak) whose instruction count is flat is not a trade.
-- **Admin-merge once local gates pass** (user directive), and never while a
-  release is being cut. The local battery:
+- **Merge only on a green CI battery; never `--admin`** (user decision
+  2026-09-29, superseding the earlier "admin-merge once local gates pass";
+  AGENTS.md "Git: worktrees, branches, merges" has the policy and the
+  stacking recipe). Never merge while a release is being cut. The local
+  battery below is still required before opening a PR:
   - `yo check ./src --std-path ./std` (score by rc);
   - `S1=<stage1> P=<tag> bash scripts/bootstrap/gates_fast.sh`;
   - `S1=<stage1> P=<tag> bash scripts/bootstrap/fixpoint_only.sh` (must print
@@ -217,9 +224,13 @@ lists, `g_match_arms`, `g_arm_init_ranges`, `g_method_callee_*`). Prototype on
 ### 3.4 Token diet (80 B × about 1.9 M)
 
 LANDED on branch `mem/token-u32` (plan §0.22): the four positions are `u32`,
-80 → 64 B a token, −30.1 MB max RSS. Still open on the same object:
-`module_path` + `input` could share one source-record handle (−8 B, a 56 B
-class on mimalloc). The edit is big but mechanical.
+80 → 64 B a token, −30.1 MB max RSS. Sharing `module_path` + `input` in
+one source record was built and REJECTED 2026-09-29 (plan §0.24). It saves
+17 MB under glibc, but costs about +4.5 MB under mimalloc and nothing is
+saved on macOS/Windows (16 B quanta). The per-lexing records (one per
+synthesized snippet) outweigh the 8 B a token. What remains open is a
+4-byte source index in place of both handles (no new object, but the table
+needs an owner purge).
 
 ### 3.5 Plan steps still open
 

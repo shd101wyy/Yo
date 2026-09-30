@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_float_type, is_numeric_type, is_some_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_float_type, is_numeric_type, is_some_type, is_unit_type, is_bool_type } :: import("../../types/guards.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -294,10 +294,17 @@ try_to_convert_to_numeric_type :: (
   // -----------------------------------------------------------------------
   // Validate source type — must be numeric, comptime-numeric, or enum
   // -----------------------------------------------------------------------
+  // A `bool` value-initializes an extern-opaque C type (`atomic_bool(false)`
+  // is C's `(atomic_bool)false`) — the same rule `are_types_compatible`
+  // applies to a slot of that type, so the explicit conversion and the
+  // implicit one agree (issues/fixed/atomic-bool-conversion-rejects-a-bool.md).
+  // A NUMERIC target still rejects a `bool` (`usize(flag)` stays an error).
+  bool_to_opaque := (is_bool_type(arg_type) && match(target_type, .ExternOpaqueT(_, _) => true, _ => false));
   if(!is_convertible_numeric_type(arg_type) &&
     !is_comptime_int_type(arg_type) &&
       !is_comptime_float_type(arg_type) &&
-        !is_enum_type(arg_type), {
+        !is_enum_type(arg_type) &&
+          !bool_to_opaque, {
     // A source the evaluator has not RESOLVED yet — the `t_unit()`
     // placeholder an unresolved operator-trait call leaves behind, or a type
     // variable still open in a definition-time trial — gets an `UnknownVal`

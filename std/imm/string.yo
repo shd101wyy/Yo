@@ -22,7 +22,7 @@
 //! method for method, which is what makes the two interchangeable at a call
 //! site. Freezing follows the alias removal.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, current_allocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
@@ -34,9 +34,24 @@ imm_list :: import("./list.yo");
 _min :: (fn(a : usize, b : usize) -> usize)(
   cond((a < b) => a, true => b)
 );
+// The top bit of `_capw` (the capacity word): set when the bytes came from
+// the allocator `with_allocator` made current, and so carry its owner prefix
+// (`std/allocator.yo`); their release routes through it
+// (plans/EXPLICIT_ALLOCATORS.md P3). Read the capacity with `_capn()`.
+_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_MASK :: (_CAP_TAG - usize(1));
+// The tag for bytes `_alloc_bytes` just placed.
+_scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, true => usize(0)));
+// Release bytes the way `_alloc_bytes` placed them.
+_free_bytes :: (fn(p : *(u8), capw : usize) -> unit)(
+  cond(
+    ((capw & _CAP_TAG) != usize(0)) => Allocator.free(.Some((*void)(p))),
+    true => free(.Some((*void)(p)))
+  )
+);
 _alloc_bytes :: (fn(n : usize) -> *(u8))(
   match(
-    malloc(n),
+    match(current_allocator(), .Some(a) => a.alloc(n), .None => malloc(n)),
     .Some(p) => (*u8)(p),
     .None => __yo_panic("ImmString: allocation failed")
   )
@@ -52,7 +67,7 @@ ImmString :: atomic(
     struct(
       _ptr : ?(*(u8)),
       _len : usize,
-      _capacity : usize
+      _capw : usize
     )
   )
 );
@@ -65,7 +80,7 @@ impl(
     dispose : (fn(self : Self) -> unit)({
       match(
         self._ptr,
-        .Some(p) => free(.Some((*void)(p))),
+        .Some(p) => _free_bytes(p, self._capw),
         .None => ()
       );
     })
@@ -73,30 +88,32 @@ impl(
 );
 impl(
   ImmString,
+  // The capacity, without the allocator tag.
+  _capn : (fn(self : Self) -> usize)((self._capw & _CAP_MASK)),
   /// Create a new empty string (zero allocation).
   new : (fn() -> Self)(
-    Self(_ptr : .None, _len : usize(0), _capacity : usize(0))
+    Self(_ptr : .None, _len : usize(0), _capw : usize(0))
   ),
   /// Create a string from a `str` slice (copies the bytes).
   from : (fn(s : str) -> Self)({
     slen := s.len();
     if(slen == usize(0), {
-      return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
+      return(Self(_ptr : .None, _len : usize(0), _capw : usize(0)));
     });
     ptr := _alloc_bytes(slen);
     unsafe(memcpy((*void)(ptr), (*void)(s.ptr()), slen));
-    return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
+    return(Self(_ptr : .Some(ptr), _len : slen, _capw : (slen | _scope_tag())));
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
   from_string : (fn(s : std_string.String) -> Self)({
     slen := s.len();
     if(slen == usize(0), {
-      return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
+      return(Self(_ptr : .None, _len : usize(0), _capw : usize(0)));
     });
     ptr := _alloc_bytes(slen);
     rb := s.raw_bytes();
     unsafe(memcpy((*void)(ptr), (*void)(rb.ptr), slen));
-    return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
+    return(Self(_ptr : .Some(ptr), _len : slen, _capw : (slen | _scope_tag())));
   }),
   /// Number of BYTES in this string's UTF-8 encoding — O(1).
   ///
@@ -149,7 +166,7 @@ impl(
     });
     new_len := (self._len + other._len);
     if(rc(self) == usize(1), {
-      if(new_len <= self._capacity, {
+      if(new_len <= self._capn(), {
         match(
           other._ptr,
           .Some(op) => match(
@@ -165,15 +182,15 @@ impl(
         return(self);
       });
       new_cap := cond(
-        (new_len > (self._capacity * usize(2))) => new_len,
-        true => (self._capacity * usize(2))
+        (new_len > (self._capn() * usize(2))) => new_len,
+        true => (self._capn() * usize(2))
       );
       ptr := _alloc_bytes(new_cap);
       match(
         self._ptr,
         .Some(sp) => {
           unsafe(memcpy((*void)(ptr), (*void)(sp), self._len));
-          free(.Some((*void)(sp)));
+          _free_bytes(sp, self._capw);
         },
         .None => ()
       );
@@ -186,7 +203,7 @@ impl(
       );
       self._ptr = .Some(ptr);
       self._len = new_len;
-      self._capacity = new_cap;
+      self._capw = (new_cap | _scope_tag());
       return(self);
     });
     ptr := _alloc_bytes(new_len);
@@ -205,7 +222,7 @@ impl(
       .None => ()
     );
     unsafe.drop(self);
-    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capw : (new_len | _scope_tag())));
   }),
   /// Extract a byte-range substring [start, end). Returns a new string.
   /// If indices are out of bounds, clamps to valid range.
@@ -224,7 +241,7 @@ impl(
       },
       .None => ()
     );
-    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capw : (new_len | _scope_tag())));
   }),
   /// Check if the string starts with a given prefix.
   starts_with : (fn(self : Self, prefix : Self) -> bool)({
@@ -437,7 +454,7 @@ impl(
         });
         saved_len := self._len;
         unsafe.drop(self);
-        return(Self(_ptr : .Some(ptr), _len : saved_len, _capacity : saved_len));
+        return(Self(_ptr : .Some(ptr), _len : saved_len, _capw : (saved_len | _scope_tag())));
       }
     )
   }),
@@ -474,7 +491,7 @@ impl(
         });
         saved_len := self._len;
         unsafe.drop(self);
-        return(Self(_ptr : .Some(ptr), _len : saved_len, _capacity : saved_len));
+        return(Self(_ptr : .Some(ptr), _len : saved_len, _capw : (saved_len | _scope_tag())));
       }
     )
   }),
@@ -566,7 +583,7 @@ impl(
       },
       .None => ()
     );
-    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capw : (new_len | _scope_tag())));
   }),
   /// Decode a single UTF-8 rune starting at byte index.
   _decode_rune_at : (fn(self : Self, byte_index : usize) -> Option(rune))({

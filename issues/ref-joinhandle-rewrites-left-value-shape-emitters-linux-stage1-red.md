@@ -1,5 +1,9 @@
 # The `ref` JoinHandle (#991) left value-shape emitters: Linux stage-1 C errors, develop battery red
 
+**Severity:** S1 — every develop PR battery is red at stage-1 since #991 (the seed cannot emit the new `extern("Yo", __yo_join_handle_release_raw)`)
+
+**Status: OPEN** — resolution in flight as #996 (JoinHandle back to the seed-lowerable value struct), matching the path this doc prescribes.
+
 **Opened:** 2026-09-29
 **Introduced by:** #991 (`c52ce152c`, "Async state machines, phases 2–3: … owning
 JoinHandle"), which changed `JoinHandle` from `struct(__future : *(T))` to

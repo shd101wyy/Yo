@@ -116,11 +116,8 @@ evaluate_yo_comptime_boolean_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(
-            av,
-            .BoolVal(b) => EvalValue.StrLit(if(b, String.from("\"true\""), String.from("\"false\""))),
-            _ => create_unknown_val(t_comptime_string())
-          ),
+          .Some(.BoolVal(b)) => EvalValue.StrLit(if(b, String.from("\"true\""), String.from("\"false\""))),
+          .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {
@@ -189,11 +186,8 @@ evaluate_yo_comptime_boolean_functions :: (
             lv,
             .BoolVal(lb) => match(
               rhs_val,
-              .Some(rv) => match(
-                rv,
-                .BoolVal(rb) => EvalValue.BoolVal(lb || rb),
-                _ => create_unknown_val(t_bool())
-              ),
+              .Some(.BoolVal(rb)) => EvalValue.BoolVal(lb || rb),
+              .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
             _ => create_unknown_val(t_bool())
@@ -207,11 +201,8 @@ evaluate_yo_comptime_boolean_functions :: (
             lv,
             .BoolVal(lb) => match(
               rhs_val,
-              .Some(rv) => match(
-                rv,
-                .BoolVal(rb) => EvalValue.BoolVal(lb == rb),
-                _ => create_unknown_val(t_bool())
-              ),
+              .Some(.BoolVal(rb)) => EvalValue.BoolVal(lb == rb),
+              .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
             _ => create_unknown_val(t_bool())
@@ -225,11 +216,8 @@ evaluate_yo_comptime_boolean_functions :: (
             lv,
             .BoolVal(lb) => match(
               rhs_val,
-              .Some(rv) => match(
-                rv,
-                .BoolVal(rb) => EvalValue.BoolVal(!(lb == rb)),
-                _ => create_unknown_val(t_bool())
-              ),
+              .Some(.BoolVal(rb)) => EvalValue.BoolVal(!(lb == rb)),
+              .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
             _ => create_unknown_val(t_bool())

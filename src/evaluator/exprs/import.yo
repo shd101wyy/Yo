@@ -402,21 +402,18 @@ evaluate_import :: (
   // Strip the leading and trailing quote character to get the raw path.
   raw_with_quotes := match(
     arg_info.value,
-    .Some(v) => match(
-      v,
-      .StrLit(s) => s,
-      _ => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(module_arg),
-              String.from("Expected comptime_str for module path.")
-            )
+    .Some(.StrLit(s)) => s,
+    .Some(_) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(module_arg),
+            String.from("Expected comptime_str for module path.")
           )
-        );
-        String.new()
-      }
-    ),
+        )
+      );
+      String.new()
+    },
     .None => {
       exn.throw(
         dyn(
