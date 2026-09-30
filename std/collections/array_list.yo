@@ -129,7 +129,19 @@ impl(
   /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
   /// Reach for it only after filling the buffer through `ptr()` or
   /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
-  set_len : (fn(self : Self, new_len : usize, requires(new_len <= self.capacity()), assumed()) -> unit)({
+  /// The capacity clause is a true fact, and it is also what tells the
+  /// verifier this call changes `self`: a contract that never mentions
+  /// `old(self)` promises `self` unchanged at every call site
+  /// (issues/questions/modifies-clause-for-callee-side-effects.md).
+  set_len : (
+    fn(
+      self : Self,
+      new_len : usize,
+      requires(new_len <= self.capacity()),
+      ensures(self.len() == new_len, self.capacity() == old(self.capacity())),
+      assumed()
+    ) -> unit
+  )({
     cond(
       (new_len <= self._cap()) => {
         self._length = new_len;
@@ -486,6 +498,7 @@ impl(
       self : Self,
       r : Range(usize),
       requires(r.start <= r.end, r.end <= self.len()),
+      ensures(self.len() == (old(self.len()) - (r.end - r.start))),
       assumed()
     ) -> Self
   )({
@@ -584,6 +597,7 @@ impl(
       idx : usize,
       value : T,
       requires(idx <= self.len()),
+      ensures(self.len() == (old(self.len()) + usize(1))),
       assumed()
     ) -> unit
   )({
@@ -638,6 +652,7 @@ impl(
       i : usize,
       j : usize,
       requires(i < self.len(), j < self.len()),
+      ensures(self.len() == old(self.len())),
       assumed()
     ) -> unit
   )({
@@ -665,6 +680,7 @@ impl(
       self : Self,
       idx : usize,
       requires(idx < self.len()),
+      ensures(self.len() == (old(self.len()) - usize(1))),
       assumed()
     ) -> (r : T)
   )({
@@ -731,6 +747,7 @@ impl(
       self : Self,
       idx : usize,
       requires(idx < self.len()),
+      ensures(self.len() == (old(self.len()) - usize(1))),
       assumed()
     ) -> (r : T)
   )({

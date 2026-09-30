@@ -431,6 +431,38 @@ _is_list_len_acc :: (fn(acc : String) -> bool)({
   });
   found
 });
+/// The element sort of the list datatype whose `contents` accessor is `acc`.
+_list_elem_of_contents_acc :: (fn(acc : String) -> Option(VcSort))({
+  (found : Option(VcSort)) = Option(VcSort).None;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_contents_acc(es) == acc, {
+        found = Option(VcSort).Some(es);
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
+/// The list datatype sort a `List_<elem>_mk(...)` constructor term builds.
+_list_sort_of_ctor :: (fn(name : String) -> Option(VcSort))({
+  (found : Option(VcSort)) = Option(VcSort).None;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_ctor_name(es) == name, {
+        found = Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(es)));
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
 _list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
 _list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
@@ -2739,11 +2771,23 @@ _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
   ok
 });
 /// The havoc constant's sort for an existing binding: a Var carries its
-/// own; anything else keeps the term's bit width (width 1 = bool).
+/// own, a list constructor (a popped list) or an `ite` over bindings (a
+/// branch that pushed) has the sort of what it builds, and anything else
+/// keeps the term's bit width (width 1 = bool).
 _havoc_binding_sort :: (fn(old : VcTerm) -> VcSort)(
   match(
     old,
     .Var(_, s) => s,
+    .Ctor(cn, _) => match(
+      _list_sort_of_ctor(cn),
+      .Some(ls) => ls,
+      .None => VcSort.BoolS
+    ),
+    .App(.IteOp, iargs) => match(
+      iargs.get(usize(1)),
+      .Some(then_t) => _havoc_binding_sort(then_t),
+      .None => VcSort.BoolS
+    ),
     _ => cond(
       (_term_width(old) > usize(1)) => VcSort.BvS(width : _term_width(old)),
       true => VcSort.BoolS
@@ -3320,7 +3364,7 @@ _call_term :: (
     return(_while_term(ctx, e, args));
   });
   if(head == "for", {
-    _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the iterator model is outside the subset for now)"), e);
+    _fail_subset(ctx, String.from("for loop (write it as a while over an explicit index with an invariant; a verified for waits for a ghost of the elements consumed so far — issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md)"), e);
     return(Option(VcTerm).None);
   });
   // break/continue are STATEMENT-level constructs (V4.2): `_begin_term`
@@ -5482,6 +5526,63 @@ _term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
     _ => Option(VcSort).None
   )
 );
+/// The bit width of an operator application (1 = Bool). Comparisons and
+/// connectives are Bool whatever their operands; an `ite` has its branches'
+/// width, not its condition's; the casts carry their own.
+_app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
+  match(
+    op,
+    (.BvUlt | .BvUle | .BvUgt | .BvUge | .BvSlt | .BvSle | .BvSgt | .BvSge) => usize(1),
+    (.EqOp | .DistinctOp | .NotOp | .AndOp | .OrOp | .ImpOp) => usize(1),
+    .IteOp => _arg_width(args, usize(1)),
+    .SignExtendOp(se) => (_arg_width(args, usize(0)) + se),
+    .ZeroExtendOp(ze) => (_arg_width(args, usize(0)) + ze),
+    .ExtractOp(eh, el) => ((eh - el) + usize(1)),
+    .IntToBvOp(iw) => iw,
+    .SelectOp => match(
+      args.get(usize(0)),
+      .Some(arr) => _array_elem_width(arr),
+      .None => usize(1)
+    ),
+    _ => _arg_width(args, usize(0))
+  )
+);
+_arg_width :: (fn(args : ArrayList(VcTerm), i : usize) -> usize)(
+  match(
+    args.get(i),
+    .Some(a) => _term_width(a),
+    .None => usize(1)
+  )
+);
+_sort_width :: (fn(s : VcSort) -> usize)(
+  match(
+    s,
+    .BvS(w) => w,
+    _ => usize(1)
+  )
+);
+/// The element width of an array-valued term: a declared array or set, a
+/// list's contents projection, or a store / ite over one of those.
+_array_elem_width :: (fn(t : VcTerm) -> usize)(
+  match(
+    t,
+    .Var(_, .ArrS(ael, _)) => _sort_width(ael),
+    .Var(_, .FunS(_, frg)) => _sort_width(frg),
+    .Proj(pacc, _, _) => match(
+      _list_elem_of_contents_acc(pacc),
+      .Some(pel) => _sort_width(pel),
+      .None => usize(1)
+    ),
+    .App(aop, aargs) => match(
+      aop,
+      .StoreOp => match(aargs.get(usize(0)), .Some(inner) => _array_elem_width(inner), .None => usize(1)),
+      .IteOp => match(aargs.get(usize(1)), .Some(inner) => _array_elem_width(inner), .None => usize(1)),
+      _ => usize(1)
+    ),
+    .ArrConst(_, alit) => _term_width(alit),
+    _ => usize(1)
+  )
+);
 _term_width :: (fn(t : VcTerm) -> usize)(
   match(
     t,
@@ -5489,11 +5590,7 @@ _term_width :: (fn(t : VcTerm) -> usize)(
     .Var(_, _) => usize(1),
     .BvLit(_, w) => w,
     .BoolLit(_) => usize(1),
-    .App(op, args) => match(
-      args.get(usize(0)),
-      .Some(a) => _term_width(a),
-      .None => usize(1)
-    ),
+    .App(op, args) => _app_width(op, args),
     .Ctor(_, _) => usize(1),
     .Test(_, _) => usize(1),
     // A Proj carries no sort; the list `len` accessor is the one whose

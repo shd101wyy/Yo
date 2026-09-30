@@ -144,7 +144,7 @@ compiles with 0 errors and prints `5`.
 
 The invalid-C half of Symptom 2 has a second, independent cause inside codegen; it
 is filed separately as
-`issues/io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`.
+`issues/fixed/io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`.
 Fixing the evaluator hole described here makes that codegen path unreachable from
 source, but it stays reachable from any other defect that loses the closure's
 `FuncVal`, so both want fixing.

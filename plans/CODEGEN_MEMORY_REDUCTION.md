@@ -9,7 +9,7 @@ codegen's own working set.
 Status as of 2026-09-30:
 - **Phase 0's instruments are in** (§0.1–§0.3, §0.6): `--profile` phase
   memory and `profile: mark` lines.
-- **Landed levers** (on `mem/codegen-plan`):
+- **Landed levers** (#1041, merged 2026-09-30):
   - lazy `HashMap` (§0.4);
   - copy-on-write frame lists (§0.5);
   - emit's C sections with in-place truncation (§0.6);
@@ -22,12 +22,16 @@ Status as of 2026-09-30:
   landed in between; same input tree, stage-2, mimalloc): `compile`
   3,417 → **2,808 MB** (−17.8 %), `check` 1,011 → 966 MB, instructions
   109.45 G → 108.63 G (−0.75 %, `check src/types/intern.yo`), C identical.
-- **Measured and rejected:** env interning (§0.7) and per-function env
-  release (§0.8).
-- **Next:**
-  - after #1002 and #1016 land: trial-born specializations (§0.11: 313 K
-    entries), Phase 4 Design 1 (the specialization clones) and env-free
-    codegen (§6).
+- **Lever 4, the overload-trial clone purge (§0.12, #1054):** `compile`
+  2,807 → **2,707 MB**, `check` 966 → 909 MB, C identical.
+- **Measured and rejected:** env interning (§0.7), per-function env
+  release (§0.8), a bigger snapshot ring and adopt-time env reuse (§0.12).
+- **Env-free codegen, step 1 measured (§6):** 3.56 M env queries during
+  `compile_module`. Nearly all are keyed by an ExprInfo whose own node
+  yields the name; collect's 82 K read live envs only.
+- **Next**, after #1018 (the async state-machine stack, which rewrites most
+  of the code these touch) lands: env-free codegen steps 2–4 (§6) and
+  Phase 4 Design 1 (the specialization clones).
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -484,8 +488,51 @@ are not shared yet; they are the rest of the 185 K distinct of ~710 K.
 **Trial-born specializations (§3 lever 4), sized:** 74,728 outermost
 overload trials leave **313,432 of 2,888,577** shared-table entries (10.9 %;
 scratch id-range instrument on `_trial_call_overload_candidate`'s two call
-sites). The lever is real. Its code is in `evaluator/calls/function.yo` and
-`helper.yo`, next to the async PRs, so it is scheduled after them.
+sites). Landed in §0.12.
+
+### 0.12 Landed lever: purge each overload trial's clones (§3 lever 4, 2026-09-30)
+
+An overload trial (`_trial_call_overload_candidate`, one per candidate of a
+multi-candidate `Call`, i.e. the prelude's `!`, `~` and unary `-` pairs)
+evaluates fresh-id clones of the call and its arguments, and keeps only the
+verdict. Their ExprInfos stayed in the table for the rest of the run.
+
+Now the helper records the clone id range (`next_global_expr_id()` before and
+after cloning), runs the trial in `_run_overload_trial` (which owns the
+swallowing handler, so a failed trial unwinds only out of it), and then
+calls `purge_executed_clone_metadata` on the cloned call and each cloned
+argument, on both outcomes. That is the CTFE-clone purge of the 8 GB plan:
+it walks only the clone trees, keeps a subtree that evaluated to a function,
+and stops at ids outside the range, so specializations the trial created
+(ids past the range) stay.
+
+Mimalloc stage-2s, same tree (#1041's head), C byte-identical:
+
+| | #1041 | trial purge |
+| --- | --- | --- |
+| `compile` max RSS | 2,807 MB | **2,707 MB (−101, −3.6 %)** |
+| end of evaluation | 2,459 MB | 2,359 MB |
+| shared-table entries at emit | 3,002,352 | 2,712,204 (−290,148) |
+| `check src/main.yo` (2 runs each) | 966 MB | **909 MB (−57)** |
+| instructions (`check src/types/intern.yo`) | 108,628,132,407 | 108,668,655,011 (+0.04 %) |
+
+What the purge leaves of the 313 K: per trial, the candidate's trait-typed
+signature evaluations (`LogicalNot` / `ComptimeLogicalNot` for `!`), which
+are minted during the trial outside the clone range, plus the specializations
+trials create. ~23 K entries in all, ~8 MB at the measured ~350 B per entry;
+not pursued. `tests/internal/module_invalidation.test.yo` ("overload
+trials: a trial's clones leave no metadata behind") pins it: 12 retained
+entries per `!(flag)` before, 10 after.
+
+**Two env-sharing ideas measured and dropped (2026-09-30).** Both from
+§0.3's note that only ~0.46 M of the live `Environment`s are ring snapshots.
+- A bigger snapshot ring: on `check src/main.yo` the 4-slot ring already
+  hits 2,955,049 of 3,379,917 lookups (87 %). Against §0.7's 264 K
+  distinct envs, perfect sharing saves at most ~160 K objects, ~15 MB.
+- `expr_info_adopt_env` reusing an unshared env (`rc(info.env) == 1`)
+  instead of copying: 8,949 of 1,689,510 adopts qualify. The rest adopt an
+  env another ExprInfo or the ring still holds, and the caller may push
+  frames into it, so the private copy stays.
 
 ## 1. Rules carried over from the evaluator campaign
 
@@ -575,7 +622,8 @@ Phase 0 measures it.
    The 8 GB plan measured the text as written once. Under `--emit-chunks`,
    finished units could be streamed to disk.
 4. **Stop retaining trial-born specializations in the specialization
-   cache** (the 8 GB plan's residual).
+   cache** (the 8 GB plan's residual). **Landed as the trial-clone purge
+   (§0.12)**: the clones were 290 K of the 313 K trial-born entries.
 5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
    1.43 M cloned nodes are all retained there. It is parked on
    `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
@@ -607,7 +655,7 @@ Proposed, to confirm after Phase 0:
   mimalloc (from 3.25 GB);
 - the CI cgroup peak (C compiler included) below **2.5 GB** (from 3.36 GiB).
 
-## 6. Design (not started): env-free codegen, for §0.6's 746 MB
+## 6. Design (step 1 measured): env-free codegen, for §0.6's 746 MB
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -697,6 +745,65 @@ after they land.
    - `gates_fast`'s corpus;
    - a knob that panics when an emptied env is queried;
    - `YO_DEBUG_FROZEN=1`.
+
+**Step 1 measured (2026-09-30).** A scratch instrument, not in the tree:
+`_generate_expr` pushes the node it generates, `get_variables_from_env` logs
+`(current node, name, env)` while `compile_module` runs, and a report
+classifies each query by where its name comes from and which env is passed
+(the node's own recorded env, a subtree node's, an ancestor's, or another).
+gdb backtraces (a hook at a chosen query index, `-O1 -g` build) name the
+sites of the unclassified rows. Self-compile, 3,563,490 queries:
+
+| rows | queries | what they are |
+| --- | --- | --- |
+| collect phase | 82,074 | all outside any generated expression: late evaluation (specializations, synthesized disposers) looking names up in LIVE envs, not recorded ones |
+| emit, the node's own token in its own env | 1,431,337 | the design's main case |
+| emit, the node's `variable_name`, a deferred dup/drop/consumed target, or an atom or temp of its subtree (depth ≤ 3), in its own or a subtree node's env | 443,561 | fits, if a node's record also covers its subtree's atoms and temps |
+| emit, a name from those sources in an unrelated env | 101,714 | unexplained, ~3 % |
+| emit, an unrelated name in its own env | 36,250 | unexplained, ~1 % |
+| emit, an unrelated name in an unrelated env | 807,077 | cleanup points: `_keep_pending_drop` → `_get_deferred_drop_target_variable` resolves each enclosing pending drop in its TARGET ATOM's own env by the atom's own name (4 of 4 samples) |
+| emit, no generated expression current | 661,477 | function epilogues checking parameter and local drops (the drop target atom's env again, 3 of 4 samples), and `evaluator/effects/mutation_summary.yo` (`_msp_atom_root`, `_msp_atom_local_name`), which `generate_function` runs at emit time and which reads atoms' recorded envs by their own token (1 of 4) |
+
+So the key for nearly every query is an ExprInfo whose own node yields the
+name: the node itself, one of its subtree's atoms, or a pending drop's target
+atom. What step 2 has to change:
+- **Record per atom, not per cleanup node.** A cleanup point asks each
+  pending drop's target atom, so the record is the atom's own resolution,
+  and the cleanup point's lookup becomes a read of that record.
+- **A node's record covers its subtree's atoms and temps**: the `:=` lhs,
+  field tokens, path bases and capture labels of the audit, down to the
+  depth the instrument saw.
+- **`mutation_summary.yo` is a reader too.** It is an evaluator module the
+  audit of `src/codegen` did not list, and it runs per emitted function.
+- **Collect can keep its envs.** Its 82 K queries read live envs. Dropping
+  recorded envs at the start of emit, not of collect, answers the first open
+  question below (collect adds 2.887 M → 2.953 M entries, which then need
+  records made at the end of collect).
+- **The ~4 % unexplained rows** (137,964) are the first thing step 2's
+  implementation classifies by site. A panicking empty-env knob finds them
+  directly.
+
+**Step 2 sized (2026-09-30).** The same instrument, counting the Variables
+emit-phase queries return: **240,356 distinct** (240,137 as the innermost
+match), against the ~888 K live `Variable`s of §0.6's census. Records keep
+at most ~27 % of the Variables. The frames, frame lists, `Environment`s, and
+the other ~650 K Variables with their values are what dropping the envs
+frees.
+
+The record's shape decides whether that survives:
+- **Not a slim env per ExprInfo.** An `Environment` + one `Frame` + a
+  variable list for each of ~2.7 M entries (~250 B each) costs more than it
+  frees. This rules out keeping the ~100 query sites unchanged by swapping
+  in pruned envs.
+- **A side table keyed by `ExprId`**, holding only resolved results:
+  - an atom's record is the result list for its own token, usually one
+    `Variable`;
+  - a non-atom's record lists `(name, result)` for its `variable_name`, its
+    deferred targets, and its subtree's names;
+  - equal result lists are shared (most atoms of one local resolve to the
+    same one-element list).
+
+  The query sites then ask by node, which is the step-3 change.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while

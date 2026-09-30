@@ -1,0 +1,10 @@
+# An error inside an `io.async` closure body (here a `String` passed to
+# `exn.throw`, which takes `dyn(ToString + Error)`) is swallowed by the body's
+# definition-time trial, and nothing evaluates that body again. Codegen then
+# found it hollow and reported only the generic E0905, which never names the
+# mistake
+# (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
+# The trial now records what it swallowed, and codegen reports that error
+# with its own code and span. A compiler with the bug scores a GOLDEN-DIFF
+# (the E0905 line).
+stdout_keep_match=(error\[E0601\]: Cannot unify incompatible types: "String" and "dyn\(ToString \+ Error\)"|error\[E0905\]|bad\.yo:[0-9]+:[0-9]+)

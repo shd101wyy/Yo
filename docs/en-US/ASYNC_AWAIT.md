@@ -553,38 +553,28 @@ task := io.async((io : Io) => {
 
 ### Where `await` may appear inside `io.async`
 
-Each `await` is a state transition, so it has to sit somewhere the body can be
-_split_. Branch bodies split naturally. Conditions and `match` scrutinees are
-evaluated before any branch is chosen, so they are **hoisted** across the state
-boundary instead; a `while` condition, which re-runs every iteration, makes the
-whole loop cycle through one state.
+Anywhere an expression may. The body is lowered in one pass: each `await`
+becomes a suspension point exactly where it is written, and the task resumes
+there. Every local, pattern binding and intermediate value lives in the task
+itself, so nothing is lost across the suspension.
 
 ```rust
-// ✓ supported
 cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
-if(io.await(exists(p, io), io), { ... });
-cond(io.await(ready(io), io) => ..., true => ...);
-match(io.await(num(io), io), 42 => ..., _ => ...);
+if(!(io.await(exists(p, io), io)), { ... });              // inside a condition
+cond(c1 => ..., io.await(f, io) => ..., true => ...);      // a later cond branch
+match(io.await(num(io), io), 42 => ..., _ => ...);          // a scrutinee
+x := add(io.await(a, io), io.await(b, io));                 // two in one expression
 while(io.await(more(io), io), { ... });
-while(c, { ... io.await(f, io) ... }, { ... });   // step, arg 2 of the 3-arg form
-
-// ✗ rejected: the await is NESTED inside a larger condition
-if(!(io.await(exists(p, io), io)), { ... });
-// ✓ bind it first
-found := io.await(exists(p, io), io);
-if(!(found), { ... });
-
-// ✗ rejected: a LATER cond branch. `cond` is lazy, so hoisting it would await
-//   even when an earlier branch matches — a change of meaning, not of timing.
-cond(c1 => ..., io.await(f, io) => ..., true => ...);
+while(c, { t := io.await(f, io); i = t; }, { ... });        // the step of a 3-arg while
 ```
+
+Evaluation order is the source order. In `add(g(), io.await(f, io))`, `g()`
+runs before the task suspends. Laziness is kept: an `await` in a later `cond`
+branch, or on the right of `&&`, runs only when that branch or operand is
+evaluated.
 
 These are real suspensions: a task spawned before an awaited condition runs
 while the awaiting task is suspended.
-
-The restriction applies **only inside `io.async`**. In a plain `fn` body,
-`io.await` drives the event loop synchronously and may appear anywhere an
-expression may.
 
 ## Event Loop
 
@@ -868,12 +858,21 @@ This is **not** static dispatch (where the concrete type is known and stack-allo
 
 ### State Machine Memory
 
-State machines are small (~32-500 bytes):
+A task is one heap allocation:
 
-- State ID: 4 bytes
-- Captured parameters: varies
-- Captured locals: varies
-- Pending Futures: 8 bytes each
+- a 40-byte header: the reference count, the state, a pointer to the type's
+  operations (resume, effect binding, abort hook), and the first waiter;
+- the result;
+- the captured values, and the closure's parameters (an `Io` is 32 bytes);
+- one pointer for the future it is suspended on;
+- one field per local that is live across an `await`.
+
+A local that is used only between two awaits stays a local of the C resume
+function and costs the task nothing. Locals whose live ranges do not overlap
+share one field when their C type is the same, heap-owning values included.
+Measured on x86_64, a task with one await and a small capture is 88 bytes.
+Sixteen sequential awaits whose results are all used at the end take 152
+bytes, of which 60 are the fifteen results still waiting to be added.
 
 ## Performance Characteristics
 
@@ -881,14 +880,14 @@ State machines are small (~32-500 bytes):
 
 **10,000 concurrent async operations:**
 
-- State machines: 10,000 × ~200 bytes = 2MB
+- State machines: 10,000 × ~100 bytes = 1MB
 - No thread stacks needed!
 
 **Comparison:**
 
 - 10,000 OS threads × 1MB stack = 10GB ❌
 - 10,000 Go goroutines × 2KB = 20MB
-- 10,000 Yo async tasks × 200 bytes = 2MB ✅
+- 10,000 Yo async tasks × ~100 bytes = 1MB ✅
 
 ### Throughput
 
@@ -958,11 +957,20 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 | --- | --- |
 | `for_each(f, io)` | drive the stream to its end, calling `f` on each item |
 | `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
+| `for_await(s, io, x => body)` | the loop form (a macro): `body` runs per item, and `break`, `continue` and `return` work in it |
 
 ```rust
 // Every third event's name, at most five of them.
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
+
+// Or as a loop, which can stop early: here at the first empty name.
+for_await(names, io, n => {
+  if(n.len() == usize(0), {
+    break;
+  });
+  println(n);
+});
 ```
 
 ### Implementing one
@@ -1014,10 +1022,9 @@ consumer needs no `Exception` handler.
    task := io.async((io : Io) => io.await(chain.collect(io), io));   // awaited in there
    ```
 
-2. **There is no `for_await`.** An async loop written as a MACRO compiles its
-   `io.await` to the BLOCKING form (a macro's expansion is not scanned for
-   suspension points), which deadlocks inside a spawned task. Use `for_each`,
-   or the hand-written loop, which works everywhere:
+2. **`for_await` is the hand-written loop.** Its expansion is this, and its
+   await suspends the enclosing task like any other, so it works inside a
+   spawned task as well as from `main`:
 
    ```rust
    (done : bool) = false;

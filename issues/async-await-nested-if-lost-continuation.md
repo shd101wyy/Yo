@@ -79,3 +79,13 @@ version is preserved in this branch's history —
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE.** The described shape was rebuilt: a recursive plain helper that awaits internally, an outer `if` assigning `stamp`, then a nested `if` with an await. It prints `inner branch ran … hits=1`, which is correct. Without the original code this cannot go further. Candidate for `retired/` if nothing turns up by the next audit.
+
+## Re-verified 2026-09-29 (async state-machine plan phase 5)
+
+The segment lowering this was observed under is deleted: an `io.async` body
+is now emitted once, through the ordinary expression generators
+(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). A reconstructed minimal
+shape passes both on the v0.2.45 seed and on the single-pass lowering, so
+there is still no reproducer. Left open until one is distilled from a real
+failure; if you meet it again, file the reproducer rather than rewriting
+around it.

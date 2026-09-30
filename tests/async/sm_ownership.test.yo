@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { yield } :: import("std/async");
 { sleep } :: import("std/sys/timer");
+{ ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { __yo_async_yield_start } :: import("std/sys/externs");
 { IoFuture } :: import("std/sys/future");
@@ -269,4 +270,162 @@ test("an aborted task drops a pattern binding's scrutinee once", {
   });
   io.await(yield(io), io);
   assert(g_disposed == (before + i32(1)), "the Thing is disposed exactly once");
+});
+
+// issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md
+_reassign_in_arm_after_loop_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (last : Thing) = Thing(n : i32(0));
+    while(i < i32(10), {
+      e.await(_leaf(i, e), e);
+      if(i == n, {
+        last = Thing(n : i32(1));
+        i = i32(100);
+      }, {
+        i = (i + i32(1));
+      });
+    });
+    last.n
+  })
+);
+test("a heap local reassigned in an arm after a loop await releases the old value", {
+  g_disposed = i32(0);
+  r := io.await(_reassign_in_arm_after_loop_await(i32(3), io), io);
+  assert(r == i32(1), "the arm's reassignment is the task's result");
+  assert(g_disposed == i32(2), "the replaced value and the final one are both disposed");
+});
+
+// issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md
+(g_kept_things : ArrayList(Thing)) = ArrayList(Thing).new();
+_keep_thing :: (fn(own(t) : Thing) -> unit)({
+  g_kept_things.push(t);
+});
+_move_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(7));
+    _keep_thing(t);
+    e.await(sleep(u64(50)), e);
+    i32(1)
+  })
+);
+test("an aborted task does not release a local it moved before its await", {
+  g_disposed = i32(0);
+  h := io.spawn(_move_then_sleep(io), io);
+  io.await(yield(io), io);
+  h.abort();
+  _r := h.await(io);
+  assert(g_disposed == i32(0), "the moved value belongs to its new owner");
+  g_kept_things.clear();
+  assert(g_disposed == i32(1), "the new owner releases it exactly once");
+});
+// issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md
+_bare_block_then_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (seen : i32) = i32(-1);
+    {
+      a := Thing(n : i32(1));
+      e.await(yield(e), e);
+      seen = a.n;
+    };
+    seen = g_disposed;
+    e.await(yield(e), e);
+    seen
+  })
+);
+test("a bare block's heap local is released at the block's end, not the task's", {
+  g_disposed = i32(0);
+  r := io.await(_bare_block_then_await(io), io);
+  assert(r == i32(1), "the block's value is disposed before the next statement runs");
+  assert(g_disposed == i32(1), "and exactly once");
+});
+// Phase 6 (plans/ASYNC_STATE_MACHINE_GENERATION.md): heap locals of sibling
+// scopes have disjoint live ranges, so they share one slot. Every drop of the
+// slot zeroes it, and the abort dispose drops the slot once.
+_sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (sum : i32) = i32(0);
+    {
+      a := Thing(n : i32(1));
+      e.await(yield(e), e);
+      sum = (sum + a.n);
+    };
+    {
+      b := Thing(n : i32(2));
+      e.await(sleep(nap), e);
+      sum = (sum + b.n);
+    };
+    sum
+  })
+);
+test("two heap locals of sibling scopes share a slot, each disposed once", {
+  g_disposed = i32(0);
+  r := io.await(_sibling_scope_things(u64(0), io), io);
+  assert(r == i32(3), "each block reads its own value after its await");
+  assert(g_disposed == i32(2), "each value is disposed once");
+});
+/// Spawn the two-block task, abort it while it sleeps in the second block,
+/// and drop the handle; the count seen before the abort is the result.
+_abort_in_the_second_block :: (fn(io : Io) -> i32)({
+  h := io.spawn(_sibling_scope_things(u64(50), io), io);
+  io.await(sleep(u64(10)), io);
+  seen := g_disposed;
+  h.abort();
+  _r := h.await(io);
+  seen
+});
+test("aborting a task in the second of two sibling scopes that share a slot", {
+  g_disposed = i32(0);
+  seen := _abort_in_the_second_block(io);
+  assert(seen == i32(1), "the first block's value is gone, the second is held");
+  assert(g_disposed == i32(2), "the abort disposes the second value once");
+});
+// An `inout` binding through an object pins it (a hidden owning local); in a
+// state machine the pin lives in a task slot, released once at the end of its
+// scope or by the abort dispose.
+_pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    o := Thing(n : i32(1));
+    inout(r) := o.n;
+    o = Thing(n : i32(5));
+    e.await(sleep(nap), e);
+    r = (r + i32(1));
+    r + o.n
+  })
+);
+test("a pinned object is released once when the task completes", {
+  g_disposed = i32(0);
+  r := io.await(_pin_across_await(u64(0), io), io);
+  assert(r == i32(7), "the binding writes the pinned object, o is the new one");
+  assert(g_disposed == i32(2), "the pinned object and the new one are each disposed once");
+});
+_abort_pinned :: (fn(io : Io) -> unit)({
+  h := io.spawn(_pin_across_await(u64(50), io), io);
+  io.await(sleep(u64(10)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("a pinned object is released once when the task is aborted", {
+  g_disposed = i32(0);
+  _abort_pinned(io);
+  assert(g_disposed == i32(2), "the abort disposes the pin and the handle's object once each");
+});
+// issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
+_alias_sleeper :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    s := t;
+    e.await(sleep(u64(50)), e);
+    s.n
+  })
+);
+_abort_alias :: (fn(io : Io) -> unit)({
+  h := io.spawn(_alias_sleeper(Thing(n : i32(1)), io), io);
+  io.await(sleep(u64(10)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("an aborted task does not release a local copied from its capture", {
+  g_disposed = i32(0);
+  _abort_alias(io);
+  assert(g_disposed == i32(1), "the capture releases it once; the copy owns nothing");
 });

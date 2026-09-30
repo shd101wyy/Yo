@@ -215,8 +215,27 @@ seed gate for `std/` and `src/` adoption.
 > belongs with R2. Two encoder bugs surfaced on the way: a zero-field
 > constructor encoded as `(Name)`
 > (`issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md`)
-> and a projection's bit width read as 1. Left: task 4 (generic bodies),
-> `for` over a list.
+> and a projection's bit width read as 1.
+> **Slice 4 (branch `feat/verifier-dml-fixtures`):** task 5's remaining
+> worked examples, `zip`, `filter` and `reverse`, prove and their twins
+> refute (`valid/dml_list_zip_filter_reverse.yo`), driven from
+> `tests/internal/verifier_list_len.test.yo` rather than a new
+> `verifier_dml.test.yo`. Two false-proof classes closed on the way:
+> - `insert`/`remove`/`swap_remove`/`swap`/`drain`/`set_len` never
+>   mentioned `old(self)`, so a call left the list unchanged
+>   (`issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md`);
+> - a loop havoc gave `filter`'s branch-pushed list, and any `cond`-bound
+>   integer, the wrong sort
+>   (`issues/fixed/verifier-loop-havoc-takes-the-sort-of-an-ite-condition.md`).
+>
+> The risk item below (a runtime fixture per contract) is met by the std
+> test suite: a canary with a deliberately wrong `insert` clause aborts
+> under both `yo compile` and `yo test`, and every contracted mutator has
+> edge-case calls in `tests/collections/array_list.test.yo`. **`for` over a
+> list is deferred to R2** (decided 2026-09-30,
+> `issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`):
+> its invariants need a ghost of the elements consumed so far, which is
+> R2's sequence layer. Left: task 4 (generic bodies).
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
@@ -291,6 +310,12 @@ literals and fixed arrays (`ms_of`).
    `append` `dataprop` — is one line.
 3. Fixtures: `dml_append_seq.yo`, `dml_sorted_insert.yo`, `dml_member.yo`,
    each with a negative twin.
+4. A verified `for` over a list: a ghost `produced()` (Creusot's name) for
+   the elements consumed so far, usable in the loop's invariant, which the
+   `for` expansion must also place first
+   (`issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`).
+5. An alias-aware frame condition (e.g. a `distinct(a, b)` requires) to
+   lift R1's conservative "no mutation beside a possible alias" rule.
 
 Depends on R1. Estimate: 3 weeks. This is the phase to cut if the budget is
 one phase: R1 alone covers length indexing, which is 90 % of what ATS
@@ -430,6 +455,34 @@ All on macOS arm64, develop `df3798c4a`, `yo 0.2.46` (installed seed), 2026-09-3
 | `requires(i < xs.len())` on an `ArrayList` param, runtime mode | ok | the assert form works |
 | same under `pragma(Pragma.Verify)`, `yo verify` | **subset error** | "parameter outside the integer/bool/array subset" |
 | `requires(i < usize(4))` over `Array(i32, 4)`, `yo verify` | ok | 2 obligations proved |
+
+### 7.1 The runtime cost of an `assumed()` contract's splice (2026-09-30, after R1 slice 2)
+
+`assumed()` skips the PROOF of a body, not its runtime contract. The R1 std
+contracts therefore splice a check into every call: `push`'s
+`ensures(self.len() == (old(self.len()) + usize(1)))` loads the length at
+entry, compares after the body and keeps a cold `ensures failed` branch. The
+question was whether `assumed()` should also suppress that splice on hot std
+paths.
+
+A/B on develop `5101639ad`, macOS arm64 (Mac Mini M4). Both compilers were
+built with `YO_STD` pinned, so the only difference is the compiled-in `push`
+(`strings` differs by exactly that one `ensures failed` message). Both were
+timed on the same std:
+
+| Workload | A: push has the contract | B: contract removed | Δ |
+| --- | --- | --- | --- |
+| compiler binary | 10,248,256 B | 10,231,744 B | +16.5 KB |
+| `check ./src/lexer.yo`, warm, 2 runs | 3.73 / 3.74 s | 3.71 / 3.69 s | ≈ +1% (noise) |
+| `check ./src`, A-B-B-A | 137.06 / 136.92 s | 136.36 / 136.40 s | +0.45% (0.6 s) |
+| `check ./src` peak RSS | 1128 / 1131 MB | 1137 / 1139 MB | none |
+
+**Decision: keep the splice.** 0.45% on the compiler's own push-heavy
+workload does not pay for a second meaning of `assumed()`. A trusted
+contract that is also checked at runtime in the default mode is the safer
+reading. A std function whose splice ever measures hot can drop its
+`ensures` (its callers' proofs then lose that fact) rather than changing
+what `assumed()` means.
 
 ## 8. Sources
 
