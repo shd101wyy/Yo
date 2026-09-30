@@ -2,6 +2,8 @@
 //! the full pipeline.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ type_to_string } :: import("../types/string.yo");
+{ HashMap } :: import("std/collections/hash_map");
 { Instant } :: import("std/time/instant");
 { ast_expr_token } :: import("../expr.yo");
 { profile_record_phase, profile_record_function_census, profile_memory_mark, debug_knob } :: import("../utils.yo");
@@ -11,7 +13,7 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ proto_drop_recorded_envs, ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
@@ -527,6 +529,10 @@ typedef enum {
   profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
+  if(debug_knob(`YO_PROTO_ENVFREE`).is_some(), {
+    proto_drop_recorded_envs(info);
+    profile_memory_mark("proto: envs dropped");
+  });
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
@@ -661,6 +667,28 @@ static Slice_uint8_t_u42_ __yo_args;
     codegen_read_log_set(false);
     ks := codegen_read_keys();
     eprintln(`[codegen-reads] table=${info.data.len().to_string()} read=${ks.len().to_string()}`);
+    // Scratch classification (plans/CODEGEN_MEMORY_REDUCTION.md): which kinds of
+    // entries codegen never reads.
+    cls_counts := HashMap(String, usize).new();
+    _cr := info.data.retain((ck, cinfo) => {
+      vk := match(
+        cinfo.value,
+        .None => "rt",
+        .Some(cv) => match(cv, .FuncVal(_, _) => "FuncVal", .TypeVal(_) => "TypeVal", .UnknownVal(_, _) => "Unknown", .StructVal(_, _, _) => "StructVal", .EnumVal(_, _) => "EnumVal", .UnitVal => "Unit", .IntLit(_) => "lit", .BoolVal(_) => "lit", .StrLit(_) => "lit", .FloatLit(_) => "lit", _ => "otherval")
+      );
+      ts := type_to_string(cinfo.ty);
+      cut := match(ts.index_of(String.from("(")), .Some(pi) => pi, .None => ts.len());
+      tk := ts.substring(usize(0), if((cut > usize(14)), usize(14), cut));
+      mk := if(cinfo.env.module_path.contains(String.from("/std/")), "std", "src");
+      ckey := `${if(ks.contains(ck), "R", "U")}:${mk}:${vk}:${tk}`;
+      prevc := match(cls_counts.get(ckey.clone()), .Some(c) => c, .None => usize(0));
+      cls_counts.insert(ckey, (prevc + usize(1)));
+      true
+    });
+    cit := cls_counts.into_iter();
+    while(runtime(true), {
+      match(cit.next(), .Some(kv) => if(kv.value >= usize(15000), eprintln(`[cg-class] ${kv.value.to_string()} ${kv.key}`)), .None => break);
+    });
     kit := ks.into_iter();
     (kgo : bool) = true;
     while(kgo, {

@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, get_variables_from_env, proto_name_fallback, proto_set_husk_on, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -2260,5 +2260,69 @@ purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo :
 expr_side_table_entry_count :: (fn() -> usize)(
   (((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_macro_expansions.len())
 );
+// ── scratch prototype (plans/CODEGEN_MEMORY_REDUCTION.md §6) ──
+(g_proto_atom_records : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
+(g_proto_name_records : HashMap(ExprId, ArrayList(ArrayList(Variable)))) = HashMap(ExprId, ArrayList(ArrayList(Variable))).new();
+(g_proto_husks : HashMap(String, Environment)) = HashMap(String, Environment).new();
+(g_proto_n_names : usize) = usize(0);
+_proto_record_list_names :: (fn(info : ExprInfo, lst : Option(ArrayList(AstExpr)), out : ArrayList(ArrayList(Variable))) -> unit)(
+  match(
+    lst,
+    .Some(l) => {
+      (k : usize) = usize(0);
+      while(k < l.len(), {
+        match(l.get(k), .Some(d) => match(d, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a0) => match(a0, .Atom(_, tok) => {
+          out.push(get_variables_from_env(info.env, tok.value.clone()));
+          g_proto_n_names = (g_proto_n_names + usize(1));
+        }, _ => ()), .None => ()), _ => ()), .None => ());
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+_proto_husk_for :: (fn(env : Environment) -> Environment)(
+  match(
+    g_proto_husks.get(env.module_path.clone()),
+    .Some(h) => h,
+    .None => {
+      h := Environment(frames : ArrayList(Frame).new(), module_path : env.module_path.clone(), function_declaration_frame_level : env.function_declaration_frame_level, input_string : env.input_string.clone(), frozen : true);
+      g_proto_husks.insert(env.module_path.clone(), h);
+      h
+    }
+  )
+);
+/// Build what records the table alone yields, then point every recorded env at
+/// a per-module frameless husk. Memory measurement only: the C it leads to is wrong.
+proto_drop_recorded_envs :: (fn(table : ExprInfoTable) -> unit)({
+  fb := proto_name_fallback();
+  no_rec := debug_knob(`YO_PROTO_NORECORDS`).is_some();
+  _r := table.data.retain((k, info) => {
+    if(no_rec, {
+      info.env = _proto_husk_for(info.env);
+      return(true);
+    });
+    match(info.source_variable, .Some(sv) => {
+      vars := get_variables_from_env(info.env, sv.name.clone());
+      g_proto_atom_records.insert(k, vars);
+      fb.insert(sv.name.clone(), vars);
+    }, .None => ());
+    extra := ArrayList(ArrayList(Variable)).new();
+    match(info.variable_name, .Some(vn) => {
+      extra.push(get_variables_from_env(info.env, vn.clone()));
+      g_proto_n_names = (g_proto_n_names + usize(1));
+    }, .None => ());
+    _proto_record_list_names(info, info.deferred_drop_expressions, extra);
+    _proto_record_list_names(info, expr_info_deferred_dup_expressions(info), extra);
+    if(extra.len() > usize(0), {
+      g_proto_name_records.insert(k, extra);
+    });
+    info.env = _proto_husk_for(info.env);
+    true
+  });
+  proto_set_husk_on(true);
+  eprintln(`[proto-envfree] atom_records=${g_proto_atom_records.len().to_string()} name_records=${g_proto_name_records.len().to_string()} names=${g_proto_n_names.to_string()} husks=${g_proto_husks.len().to_string()} fallback_names=${fb.len().to_string()}`);
+});
+export(proto_drop_recorded_envs);
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
