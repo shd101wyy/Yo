@@ -265,13 +265,15 @@ static void __yo_async_scheduler_init(void) {
 // a node still in it when the thread exits is unreachable: LeakSanitizer
 // reported one for every program that awaited synchronously (a test body, a
 // plain main(io)), where no event loop ends to free it. Installed as the
-// thread-exit hook by __yo_async_arm_thread_exit.
+// thread-exit hook by __yo_async_arm_thread_exit (a state machine given to its
+// pool arms it too).
 static void __yo_async_free_cont_pool(void) {
   while (__yo_cont_free_list) {
     __yo_continuation_t* node = __yo_cont_free_list;
     __yo_cont_free_list = node->next;
     __yo_free(node);
   }
+  __yo_sm_pools_drain();
   // The rest of the thread's async state, for the same reason: a program that
   // awaits synchronously (a test body, a plain main(io)) never ends an event
   // loop, so __yo_io_cleanup never ran for it and the backend's per-thread
@@ -1240,8 +1242,8 @@ static void __yo_future_abort(void* fut) {
     return;
   }
   f->state = -2;
-  if (f->cancel_pending_fn) {
-    f->cancel_pending_fn(fut, prev);
+  if (f->vt && f->vt->cancel_pending) {
+    f->vt->cancel_pending(fut, prev);
   } else {
     __yo_future_wake_waiters(fut);
   }

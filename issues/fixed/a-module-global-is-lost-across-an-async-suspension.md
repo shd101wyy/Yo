@@ -40,7 +40,7 @@ The workaround, used by `tests/http/http.test.yo`'s `_KaStats`, is to put the
 counters in a `ref(struct(...))` and pass it as a parameter — reference
 semantics are shared by construction. (That workaround costs a leaked
 reference per call, for
-`issues/a-ref-value-passed-to-an-async-future-is-never-released.md`.)
+`issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md`.)
 
 ## Where to look
 

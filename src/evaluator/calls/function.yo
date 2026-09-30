@@ -1672,7 +1672,7 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
 /// the first call's resolution then poisoned every sibling io.async call
 /// (def-eval re-runs saw a wrong CONCRETE expected result — "expected unit,
 /// got i32" — threw, and the trial swallow left stale registrations: the
-/// async_await void-closure class, issues/yo-self-async-emission-cluster.md
+/// async_await void-closure class, issues/retired/yo-self-async-emission-cluster.md
 /// item 7). With per-call fresh ids the SAME registry becomes per-call-
 /// correct: the await's `T` instance arrives via the future ARG's carried
 /// type, which shares the fresh id.
@@ -3752,7 +3752,7 @@ _evaluate_funcval_runtime_call :: (
   // returned wrapper to the callee's async block: the SM struct is
   // registered under the async-block future's identity, which only the
   // body's stamped ExprInfo carries (the async-future family root,
-  // issues/yo-self-async-emission-cluster.md 2026-07-20 convergence).
+  // issues/retired/yo-self-async-emission-cluster.md 2026-07-20 convergence).
   // One SomeT-with-resolution level of the body type is unwrapped first,
   // as the async delegation wrappers require.
   if(is_some_type(resolved_ret), {
@@ -8159,7 +8159,7 @@ Fix: wrap the call:
           // fresh OUTPUT id makes the closure-result registration below
           // and the io.await resolution PER-CALL (previously the preserved
           // shared id cross-poisoned sibling calls — item 7 of
-          // issues/yo-self-async-emission-cluster.md).
+          // issues/retired/yo-self-async-emission-cluster.md).
           ret_type_rt = _freshen_io_async_result(ret_type_rt);
           match(
             _future_output_some_id(ret_type_rt),

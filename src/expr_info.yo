@@ -59,6 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 { debug_knob } :: import("./utils.yo");
+{ Diagnostic } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Path and PathCollection
 // ---------------------------------------------------------------------------
@@ -1881,6 +1882,26 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
 // call's expansion is a stable syntactic property of its id, so the record stays
 // correct regardless of which pass last touched the ExprInfo. (Same pattern as
 // g_method_callee_values above.)
+/// The error a forced `io.async` closure body's definition-time trial
+/// swallowed, keyed by the body's source position (`module:row:col`).
+/// Nothing evaluates such a body again, so codegen finds it hollow; it reports
+/// this error (its code, span and help) instead of the generic E0905
+/// (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
+HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
+(g_hollow_body_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
+record_hollow_body_error :: (fn(site : String, message : String, diagnostics : ArrayList(Diagnostic)) -> unit)({
+  g_hollow_body_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  ()
+});
+/// A body's definition succeeded after all (a later trial of the same body):
+/// forget what an earlier trial recorded.
+clear_hollow_body_error :: (fn(site : String) -> unit)({
+  if(g_hollow_body_errors.len() > usize(0), {
+    _removed := g_hollow_body_errors.remove(site);
+  });
+  ()
+});
+lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
@@ -2171,6 +2192,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
 export(record_macro_expansion, lookup_macro_expansion);
+export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
 /// Drop the given expression ids from this module's ExprId-keyed side tables.
 /// `mm_invalidate_document` passes each removed module's ids
 /// (`take_owned_expr_ids`): the nodes they key died with the module

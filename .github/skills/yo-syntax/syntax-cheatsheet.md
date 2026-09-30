@@ -150,7 +150,7 @@ masked := ((A | B) | C);
 - **`extern("Yo", …)` runtime symbols come from DIFFERENT preambles, and not all are always emitted.** `__yo_get_thread_id` is defined in the ASYNC runtime core (`src/codegen/async/runtime_core.yo`), which a program without `io` never emits — std code that calls it makes every such program fail to link (`undefined symbol`, after an `implicit-function-declaration` warning). For thread identity in std use `__yo_thread_self()` (a macro in the always-present threading preamble, `src/codegen/types/generation.yo`), declared as `__yo_thread_self : (fn() -> usize)`. Before leaning on any `__yo_*` runtime function from std, `grep -rn "static .*NAME" src/codegen/` and check WHICH preamble defines it and when that preamble is emitted; then compile a probe whose `main` has NO `io` (`std/thread.yo`, 2026-09-06).
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
 - **A trait method carrying its own `generic(...)` with a PRIMITIVE `inout(self)` receiver reads the receiver as a VALUE correctly** (`u64(self)` → `42`, not the address). This was a silent miscompile until the `Variable.is_ref` repairs after #258 (re-measured fixed 2026-08-28 and pinned since by `tests/hash.test.yo`'s SipHash values through primitive receivers); `issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md` keeps the record — no workaround needed.
-- **`inout` is a PARAMETER modifier and a LOCAL BINDING (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md).** `inout(name) : T` params; `inout(y) := x;` local bindings (y names x's slot: `y = v` writes x, `copy := y` copies). Binding places: whole variables (any scope), value-struct field paths, field paths through a reference-semantics value (`h.n` — the object is PINNED for the binding's scope). Rejected: `-> inout(T)` / `-> (inout(name) : T)` / `-> (name : inout(T))` returns; element places `xs(i)` / `p.*` (borrow elements with `for(coll, inout(x) => …)` / `for(map, (k, inout(v)) => …)`: the collection is pinned and its runtime borrow flag held for the loop; growing/shrinking it inside the body PANICS); rvalues; `inout(r) :: …`; module-level bindings; `io.async` bodies; moving a borrowed root (`sink(own(x))` while `inout(y) := x` is live). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected for arguments (bind to a local first, or use a local `inout` binding). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo` (the binding matrix), `tests/ref_field_borrow.test.yo`.
+- **`inout` is a PARAMETER modifier and a LOCAL BINDING (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md).** `inout(name) : T` params; `inout(y) := x;` local bindings (y names x's slot: `y = v` writes x, `copy := y` copies). Binding places: whole variables (any scope), value-struct field paths, field paths through a reference-semantics value (`h.n` — the object is PINNED for the binding's scope). Rejected: `-> inout(T)` / `-> (inout(name) : T)` / `-> (name : inout(T))` returns; element places `xs(i)` / `p.*` (borrow elements with `for(coll, inout(x) => …)` / `for(map, (k, inout(v)) => …)`: the collection is pinned and its runtime borrow flag held for the loop; growing/shrinking it inside the body PANICS); rvalues; `inout(r) :: …`; module-level bindings; moving a borrowed root (`sink(own(x))` while `inout(y) := x` is live). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected for arguments (bind to a local first, or use a local `inout` binding). Bindings and the borrowed `for` work inside `io.async` bodies across awaits (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo` (the binding matrix), `tests/ref_field_borrow.test.yo`.
 - **Integer overflow TRAPS at runtime and is REJECTED at comptime; wrap only with `wrapping_*`.** `x + i32(1)` on a runtime `x = i32(MAX)` aborts with `integer addition overflow (at file:line:col)` (rc 134), at every `--optimize` level and for unsigned widths too. The same applies to `-`, `*`, unary negation of MIN, `/` or `%` by zero, `MIN / -1`, and a shift count ≥ the width. A folded constant like `(i32(2147483647) + i32(1))` is a compile error ("Integer overflow in compile-time evaluation"). Arithmetic that wraps BY DESIGN (hashing, PRNGs, checksums) must say so: `a.wrapping_add(b)` / `wrapping_sub` / `wrapping_mul`. Float→int casts saturate (NaN → 0) instead of trapping. A trap test cannot live in a `*.test.yo` batch, because the abort kills the batch; it belongs in a `tests/cli-cases/` case that asserts rc and message.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/reference/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
@@ -1977,11 +1977,14 @@ them — the state-machine emitter lives in codegen):
   await emitted nothing —
   issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md.
 
-Each shape now has a test in `tests/async_await.test.yo`. One older report of
-this family (issues/async-await-nested-if-lost-continuation.md, a nested
-awaiting `if` after a PLAIN helper that awaits internally, 2026-08-22) was
-never minimized; its reconstructed shape passes, so if you meet it again,
-distill it and file the reproducer rather than hoisting around it.
+Each shape now has a test in `tests/async_await.test.yo`. The emitter they
+lived in is gone: phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` lowers
+an `io.async` body in one pass through the ordinary expression generators, so
+an await may sit in any arm, condition or operand. One older report of this
+family (issues/async-await-nested-if-lost-continuation.md, a nested awaiting
+`if` after a PLAIN helper that awaits internally, 2026-08-22) was never
+minimized; its reconstructed shape passes, so if you meet it again, distill it
+and file the reproducer rather than hoisting around it.
 
 ## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
 
@@ -2089,14 +2092,15 @@ Worse, `yo fmt` will then "format" the accidental Yo fragment — inserting the
 spaces you see inside those backticks — so the file no longer matches what you
 typed. Inside any emitted-C template, write `struct stat`, not the quoted form.
 
-## Async value-position `cond` after an await: use the statement form
+## Async value-position `cond` after an await: seed-gated in `src/` and `std/`
 
-Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER an
-await, where one arm's value is a plain variable read, fails in clang with
-`use of undeclared identifier '_file____User_temp_N'` — `yo check` cannot see
-it, and no `throw` is needed to trigger it
-(issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
-The safe rewrite: predeclare, then assign from STATEMENT-form `cond`s:
+Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER
+an await, where one arm's value is a plain variable read, failed in clang with
+`use of undeclared identifier '_file____User_temp_N'`
+(issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+The single-pass lowering fixes it, but the seed still has the bug, so in
+`src/` and `std/` keep the statement form until `SEED_VERSION` carries the
+fix: predeclare, then assign from statement-form `cond`s:
 
 ```rust
 (q : i32) = r;                              // predeclared, mutable
@@ -2108,6 +2112,6 @@ cond(
 );
 ```
 
-A value-position `cond`/`match` with an AWAITING arm inside a `while` works
-since 2026-09-29 (it used to yield the zero value for every arm,
-issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).
+The same gating applies to `std/fs/dir.yo`'s `read_dir`, which keeps the
+statement form for the seed's cond-in-while bug
+(issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).

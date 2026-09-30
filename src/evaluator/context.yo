@@ -716,19 +716,22 @@ track_variable_usage_resolved :: (
       if(frame_level >= eval_env.frame_count(), {
         return(());
       });
-      // Find the variable in the evaluation environment. Per-frame, use the
-      // name index when available (see Frame.name_index / _frame_first_position —
-      // the same fast path get_variables_from_env uses) with the original
-      // linear scan as the small-frame fallback: this walk runs once per
-      // tracked identifier read under scope-end drop evaluation, and the
-      // blind per-candidate `v.name == variable_name` String compares (each
-      // paying an Rc incr/decr pair) dominated heavy `check` runs. Semantics
-      // identical: first match, outermost frame first.
+      // Find the variable in the evaluation environment: the INNERMOST
+      // binding at or below `frame_level` (the frame the read resolved in),
+      // as resolution does. Walking outermost-first found an OUTER binding a
+      // closure parameter shadows (`io.async((io : Io) => …)` inside a fn that
+      // has its own `io`), so the parameter-frame test below never fired and
+      // the outer name was captured as well
+      // (issues/fixed/io-async-param-shadowing-an-outer-name-still-captures-it.md).
+      // Per-frame, use the name index when available (see Frame.name_index /
+      // _frame_first_position — the same fast path get_variables_from_env
+      // uses) with the linear scan as the small-frame fallback: this walk runs
+      // once per tracked identifier read under scope-end drop evaluation.
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
-      fi := usize(0);
-      n_frames := eval_env.frame_count();
-      while(fi < n_frames, {
+      (fi : usize) = (frame_level + usize(1));
+      while(fi > usize(0), {
+        fi = (fi - usize(1));
         frame_opt := eval_env.frames.get(fi);
         match(
           frame_opt,
@@ -740,7 +743,7 @@ track_variable_usage_resolved :: (
                 .Some(v) => {
                   var_found = Option(Variable).Some(v);
                   actual_frame_level = fi;
-                  fi = n_frames; // break outer loop
+                  fi = usize(0); // break outer loop
                 },
                 .None => ()
               ),
@@ -756,7 +759,7 @@ track_variable_usage_resolved :: (
                         var_found = Option(Variable).Some(v);
                         actual_frame_level = fi;
                         vi = n_vars; // break inner loop
-                        fi = n_frames; // break outer loop
+                        fi = usize(0); // break outer loop
                       });
                     },
                     .None => ()
@@ -768,7 +771,6 @@ track_variable_usage_resolved :: (
           },
           .None => ()
         );
-        fi = (fi + usize(1));
       });
       match(
         var_found,

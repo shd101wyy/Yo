@@ -181,7 +181,7 @@ trait rather than extended.
 kernel's dirent buffers keeping `d_type` raw, pass 2 maps and stats — because
 the stat needs an `await` and an await inside the getdents scan (a `while` in
 a `while` in a `cond` arm) is the state-machine shape
-`issues/async-nested-cond-await-duplicate-while-labels.md` warns about.
+`issues/fixed/async-nested-cond-await-duplicate-while-labels.md` warns about.
 
 ### A compiler bug found on the way
 

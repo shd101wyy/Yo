@@ -35,8 +35,10 @@ the storage the binding names. Two things a binding forbids: **moving its
 root while it is live** (`sink(own(x))` with `inout(y) := x` in scope is a
 compile error — copy the value out, or end the binding's scope first), and
 **element places** (`xs(i)`, `p.*`): a pointer into a collection's storage
-has no owner a binding could pin. Bindings are local (not at module level),
-not available inside `io.async` bodies, and take `:=` only.
+has no owner a binding could pin. Bindings are local (not at module level)
+and take `:=` only. They work inside an `io.async` body too, across its
+awaits: the task keeps the binding, its pin and the place's root in its own
+memory.
 
 **Functions cannot return `inout`**, and refs cannot be stored in fields,
 captured by closures, or placed inside generic types. An `inout` is born
@@ -134,9 +136,8 @@ load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
 microbenchmark, unmeasurable elsewhere). Plain
 `inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
-or an index loop. Inside an `io.async` body that suspends (a real state
-machine) neither `inout` bindings nor the borrowed `for` are available yet;
-use the value form there.
+or an index loop. The borrowed `for` works inside an `io.async` body, with
+awaits in the loop body.
 
 Two opt-in tightenings close the remaining runtime cases at compile time.
 `pragma(Pragma.StrictBorrow);` makes every call inside a borrowed loop body
