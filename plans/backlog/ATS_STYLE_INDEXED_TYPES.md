@@ -184,6 +184,18 @@ seed gate for `std/` and `src/` adoption.
 
 ### R1 — a `len` measure for runtime collections (the substance)
 
+> **Slice 1 (branch `feat/verifier-list-len`, 2026-09-30):** `ArrayList(T)`
+> with an integer/bool `T` is the verifier datatype `List_<elem>` — a
+> (contents : Array BV64 elem, len : BV64) pair; `xs.len()`, `xs.is_empty()`
+> and `xs(i)` reads (under `index-in-bounds`) are modeled; list-typed
+> parameters and callee results are one datatype-sorted term, so the
+> length contracts below discharge modularly (`tests/spec/fixtures/valid/dml_list_get.yo`,
+> `negative/dml_list_get_false.yo`, `tests/internal/verifier_list_len.test.yo`).
+> Task 1 done for reads; tasks 2 and 3 (the std `assumed()` contracts and
+> the mutation model — a mutating method on a by-value RC handle is a heap
+> effect the two-state rule does not cover, so `push` needs "havoc the
+> receiver name, assume the ensures relating new to old") are slice 2.
+
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
 
