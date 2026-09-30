@@ -59,6 +59,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, snapshot_env, frame_is_isolating } :: import("../../env.yo");
 {
   EvalContext,
@@ -1639,6 +1640,36 @@ _variant_local_hint :: (
   )
 });
 evaluate_begin_expression :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : EvalContext,
+    variables_to_add : ArrayList(Variable),
+    is_evaluating_function_body_begin_block : bool,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
+  // function body releases the recorded envs of what it evaluated when it
+  // ends. Nested closures wait for their enclosing function (capture analysis
+  // re-reads them); CTFE bodies are never released (their caller adopts the
+  // body env right after, and the executed clone is purged anyway). The depth
+  // is restored, not decremented, so a throw past this frame cannot pin it.
+  if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
+    sr_saved_depth := scope_release_depth();
+    sr_mark := scope_release_mark();
+    sr_entry := snapshot_env(env_in);
+    scope_release_set_depth(sr_saved_depth + usize(1));
+    sr_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+    scope_release_set_depth(sr_saved_depth);
+    if(sr_saved_depth == usize(0), {
+      scope_release_body(sr_mark, sr_entry);
+    });
+    return(sr_r);
+  });
+  _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn)
+});
+_evaluate_begin_expression_impl :: (
   fn(
     expr : AstExpr,
     env_in : Environment,

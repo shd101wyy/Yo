@@ -42,7 +42,7 @@ env_mod :: import("std/env");
   BK_IMPORT
 } :: import("./expr.yo");
 { fnv1a64 } :: import("./utils.yo");
-{ ExprInfoTable, purge_expr_side_tables, set_name_path_sharing } :: import("./expr_info.yo");
+{ ExprInfoTable, purge_expr_side_tables, set_name_path_sharing, scope_release_set_table } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache, purge_funcval_cap_vars_owned_by } :: import("./env.yo");
 {
@@ -275,6 +275,7 @@ mm_clear_prelude_env :: (fn() -> unit)({
 mm_set_shared_expr_info_table :: (fn(t : ExprInfoTable) -> unit)({
   g_shared_expr_info_table = Option(ExprInfoTable).Some(t);
   set_name_path_sharing(true);
+  scope_release_set_table(Option(ExprInfoTable).Some(t));
 });
 mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
   g_shared_expr_info_table
@@ -1671,6 +1672,7 @@ mm_reset :: (fn() -> unit)({
   g_cached_prelude_frame_count = usize(0);
   g_shared_expr_info_table = Option(ExprInfoTable).None;
   set_name_path_sharing(false);
+  scope_release_set_table(Option(ExprInfoTable).None);
   g_loader_std_path = Option(String).None;
   g_load_module_error = Option(String).None;
 });
