@@ -597,17 +597,41 @@ test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is t
   outer := _trp_struct(String.from("Outer"), _trp_labels1(String.from("w")), _trp_types1(inner), false, false, false);
   assert(type_representation_contains_raw_ptr(outer), "struct(w : newtype(p : *(u8)))");
 });
-test("raw-ptr predicate: depth cap terminates deep nesting (cyclic-reference stand-in)", {
+// issues/fixed/defining-a-deep-struct-dag-is-exponential.md: the predicate
+// used to stop at depth 40 in place of a visited set, so a Ptr 45 levels down
+// was reported as absent. A cycle is now the same type object on the path.
+test("raw-ptr predicate: a Ptr 45 levels down is found", {
   (deep : TypeValue) = t_ptr(t_u8());
   (i : usize) = usize(0);
   while(i < usize(45), {
     deep = _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(deep.clone()), false, false, false);
     i = (i + usize(1));
   });
-  // 45 levels exceed the 40-deep cap: the Ptr leaf is unreachable, the
-  // predicate terminates and answers false. Termination is the property the
-  // TS cyclic test pins (TS uses a visited set; yo-self a depth cap).
-  assert(!type_representation_contains_raw_ptr(deep), "45-deep chain terminates false");
+  assert(type_representation_contains_raw_ptr(deep), "45-deep chain ending in *(u8)");
+});
+test("raw-ptr predicate: a type object that contains itself terminates", {
+  labels := ArrayList(String).new();
+  labels.push(String.from("a"));
+  labels.push(String.from("b"));
+  fields := ArrayList(TypeValue).new();
+  fields.push(t_i32());
+  looped := _trp_struct(String.from("Loop"), labels, fields, false, false, false);
+  fields.push(looped.clone());
+  assert(!type_representation_contains_raw_ptr(looped), "struct(a : i32, b : <itself>)");
+  ptr_labels := ArrayList(String).new();
+  ptr_labels.push(String.from("a"));
+  ptr_labels.push(String.from("b"));
+  ptr_fields := ArrayList(TypeValue).new();
+  looped_ptr := _trp_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, false, false, false);
+  ptr_fields.push(looped_ptr.clone());
+  ptr_fields.push(t_ptr(t_u8()));
+  assert(type_representation_contains_raw_ptr(looped_ptr), "struct(a : <itself>, b : *(u8))");
+});
+// Distinct types that share an id (here all empty) are not a cycle.
+test("raw-ptr predicate: nested structs with the same id are walked, not taken for a cycle", {
+  inner := _trp_struct(String.from("A"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, false);
+  outer := _trp_struct(String.from("B"), _trp_labels1(String.from("w")), _trp_types1(inner), false, false, false);
+  assert(type_representation_contains_raw_ptr(outer), "struct(w : struct(p : *(u8))), both id \"\"");
 });
 test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
   assert(!type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new())), "Dyn()");
