@@ -415,6 +415,22 @@ _register_list_datatype :: (fn(elem : VcSort) -> unit)({
   ()
 });
 /// `len(xs)` and `contents(xs)` of a list term.
+/// Whether `acc` is the `len` accessor of a registered list datatype.
+_is_list_len_acc :: (fn(acc : String) -> bool)({
+  (found : bool) = false;
+  (li : usize) = usize(0);
+  while((li < g_list_elem_sorts.len()) && !found, {
+    match(
+      g_list_elem_sorts.get(li),
+      .Some(es) => if(_list_len_acc(es) == acc, {
+        found = true;
+      }),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  found
+});
 _list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
 _list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
@@ -5480,7 +5496,12 @@ _term_width :: (fn(t : VcTerm) -> usize)(
     ),
     .Ctor(_, _) => usize(1),
     .Test(_, _) => usize(1),
-    .Proj(_, _, _) => usize(1),
+    // A Proj carries no sort; the list `len` accessor is the one whose
+    // width a caller consults (`xs.get(xs.len())`, `xs(xs.len() - 1)`).
+    .Proj(pacc, _, _) => cond(
+      _is_list_len_acc(pacc) => usize(64),
+      true => usize(1)
+    ),
     .Quant(_, _, _, _, _) => usize(1),
     .ArrConst(_, _) => usize(1)
   )
