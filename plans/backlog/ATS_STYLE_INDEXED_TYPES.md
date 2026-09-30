@@ -201,8 +201,11 @@ seed gate for `std/` and `src/` adoption.
 > pre-call term (`ctx.call_pre`); a loop body's havoc set includes such
 > receivers. `concat`'s body proves (`valid/dml_list_concat.yo`). The
 > "old mentions modifies" convention is filed as
-> `issues/questions/modifies-clause-for-callee-side-effects.md`. Left: task 4
-> (generic bodies), `pop`/`get` (Option results), `for` over a list.
+> `issues/questions/modifies-clause-for-callee-side-effects.md`.
+> **Slice 3 (branch `feat/verifier-list-get-pop`):** `get` (total: `Some`/`None`
+> by bounds, no obligation) and `pop` (`Some(last)` + receiver rebound to
+> len − 1 when non-empty) as the call's own `Option(T)` datatype
+> (`valid/dml_list_get_pop.yo`). Left: task 4 (generic bodies), `for` over a list.
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:

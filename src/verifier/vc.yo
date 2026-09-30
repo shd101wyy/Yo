@@ -2423,6 +2423,15 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
           // callee's contract mentions `old(self...)`) rebinds the receiver
           // name at the call (R1 slice 2), so it joins the havoc set.
           match(
+            _pop_receiver_name(e),
+            .Some(pn) => {
+              if(!out.contains(pn.clone()), {
+                out.push(pn.clone());
+              });
+            },
+            .None => ()
+          );
+          match(
             _mutated_receiver_name(table, e),
             .Some(rn) => {
               if(!out.contains(rn.clone()), {
@@ -2470,6 +2479,43 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
     }
   )
 );
+/// The receiver NAME of a bare `name.pop()` — the walk rebinds it (R1
+/// slice 3); shape-only, a false positive is a sound extra havoc.
+_pop_receiver_name :: (fn(e : AstExpr) -> Option(String))({
+  callee := match(
+    e,
+    .FnCall(_, f, cargs, _, _) => cond(
+      (cargs.len() == usize(0)) => f,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  dot_args := match(
+    callee,
+    .FnCall(_, cf, da, _, _) => cond(
+      ((ast_expr_token(cf).value == ".") && (da.len() == usize(2))) => da,
+      true => {
+        return(Option(String).None);
+      }
+    ),
+    .Atom(_, _) => {
+      return(Option(String).None);
+    }
+  );
+  recv := dot_args.get(usize(0)).unwrap();
+  m := dot_args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(recv) || !ast_expr_is_atom(m), {
+    return(Option(String).None);
+  });
+  if(ast_expr_token(m).value != "pop", {
+    return(Option(String).None);
+  });
+  Option(String).Some(ast_expr_token(recv).value)
+});
 /// The receiver NAME of a method call whose callee's contract mentions
 /// `old(self...)` — a call that mutates its receiver (R1 slice 2).
 _mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(String))({
@@ -3755,6 +3801,35 @@ _call_term :: (
         if((lr.method == "is_empty") && (n == usize(0)), {
           return(Option(VcTerm).Some(_app2(VcOp.EqOp, len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))));
         });
+        // `xs.get(i)` (R1 slice 3): the TOTAL read — `Some(select)` in
+        // bounds, `None` past the end; no obligation (that is the point of
+        // `get` over `xs(i)`). The result's `Option(T)` is a value enum
+        // datatype the walk already declares.
+        if((lr.method == "get") && (n == usize(1)), {
+          idx_t := _expr_term(ctx, args.get(usize(0)).unwrap());
+          if(idx_t.is_none(), {
+            return(Option(VcTerm).None);
+          });
+          return(_list_option_term(ctx, e, info.ty, lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), len_t));
+        });
+        // `xs.pop()` (R1 slice 3): `Some(last)` and the receiver rebound to
+        // (contents, len - 1) when non-empty; `None` and unchanged when
+        // empty. A bare-name receiver is rebound in place (the loop havoc
+        // scan lists `.pop()` receivers, `_scan_assigned`).
+        if((lr.method == "pop") && (n == usize(0)), {
+          xs_t := recv_t.unwrap();
+          one := VcTerm.BvLit(value : u64(1), width : usize(64));
+          zero := VcTerm.BvLit(value : u64(0), width : usize(64));
+          non_empty := _app2(VcOp.BvUgt, len_t, zero);
+          last_i := _app2(VcOp.BvSub, len_t, one);
+          result := _list_option_term(ctx, e, info.ty, lr.elem, xs_t, last_i, len_t);
+          if(ast_expr_is_atom(lr.recv), {
+            new_len := _app3(VcOp.IteOp, non_empty, last_i, len_t);
+            rebound := VcTerm.Ctor(name : _list_ctor_name(lr.elem), args : _two_terms(_list_contents_term(lr.elem, xs_t), new_len));
+            ctx.vars.insert(ast_expr_token(lr.recv).value, rebound);
+          });
+          return(result);
+        });
       },
       .None => ()
     );
@@ -3823,6 +3898,36 @@ _list_len_read_by_var :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))
     ),
     .None => Option(VcTerm).None
   )
+});
+/// `ite(i < len, Some(select(contents, i)), None)` as the call's own
+/// `Option(T)` datatype (`ty` is the call's ExprInfo type).
+_list_option_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, ty : TypeValue, elem : VcSort, xs : VcTerm, i64_t : VcTerm, len_t : VcTerm) -> Option(VcTerm)
+)({
+  e_id := match(
+    t_refine_inner(ty),
+    .EnumT({ id : oid, is_reference_semantics : oref }) => cond(
+      (oref || (oid.len() == usize(0))) => String.new(),
+      true => oid.clone()
+    ),
+    _ => String.new()
+  );
+  if(e_id.len() == usize(0), {
+    _fail_subset(ctx, String.from("ArrayList get/pop whose result is not a value Option(T) datatype"), e);
+    return(Option(VcTerm).None);
+  });
+  _note_enum_datatype(ctx, t_refine_inner(ty));
+  some_args := ArrayList(VcTerm).new();
+  some_args.push(_app2(VcOp.SelectOp, _list_contents_term(elem, xs), i64_t));
+  some_t := VcTerm.Ctor(name : _enum_ctor_name(e_id.clone(), String.from("Some")), args : some_args);
+  none_t := VcTerm.Ctor(name : _enum_ctor_name(e_id, String.from("None")), args : ArrayList(VcTerm).new());
+  Option(VcTerm).Some(_app3(VcOp.IteOp, _lt_unsigned_term(i64_t, len_t), some_t, none_t))
+});
+_two_terms :: (fn(a : VcTerm, b : VcTerm) -> ArrayList(VcTerm))({
+  out := ArrayList(VcTerm).new();
+  out.push(a);
+  out.push(b);
+  out
 });
 /// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
 /// is the dot-call `.(recv, method)` and `recv`'s ExprInfo type is a list.

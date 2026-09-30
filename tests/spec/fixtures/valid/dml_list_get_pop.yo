@@ -1,0 +1,44 @@
+// R1 slice 3 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: the Option-valued
+// reads. `xs.get(i)` is the TOTAL read — `Some(select)` in bounds, `None`
+// past the end, no obligation; `xs.pop()` is `Some(last)` with the receiver
+// rebound to length - 1 when non-empty, `None` and unchanged when empty.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// get past the end is None, whatever the contents.
+past_end :: (fn(xs : ArrayList(i32), ensures(r == i32(-1))) -> (r : i32))(
+  match(
+    xs.get(xs.len()),
+    .Some(_) => i32(0),
+    .None => i32(-1)
+  )
+);
+
+// get in bounds is the element `xs(i)` reads.
+agrees :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len()), ensures(r == xs(i))) -> (r : i32))(
+  match(
+    xs.get(i),
+    .Some(v) => v,
+    .None => i32(0)
+  )
+);
+
+// pop shrinks a non-empty list by one and returns its last element.
+pop_last :: (
+  fn(xs : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
+)(
+  match(
+    xs.pop(),
+    .Some(v) => v,
+    .None => i32(0)
+  )
+);
+
+// pop on an empty list leaves it empty.
+pop_empty :: (fn(xs : ArrayList(i32), requires(xs.is_empty()), ensures(xs.len() == usize(0))) -> (r : bool))(
+  match(
+    xs.pop(),
+    .Some(_) => true,
+    .None => false
+  )
+);
