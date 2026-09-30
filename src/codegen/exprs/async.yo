@@ -1781,7 +1781,8 @@ _emit_fused_site_releases :: (fn(site : FusedAwaitSite, indent : String, zero : 
           .None => ()
         );
       });
-      if(zero, {
+      // Only a field the dispose would release needs zeroing.
+      if(zero && type_contains_rc_type(ct), {
         em.emit_string_line(`${indent}memset(&sm->${site.prefix}capture, 0, sizeof(sm->${site.prefix}capture));`);
       });
     },
@@ -1793,9 +1794,11 @@ _emit_fused_site_releases :: (fn(site : FusedAwaitSite, indent : String, zero : 
     match(
       lfs.get(li),
       .Some(lf) => if(zero, {
-        // The block's own scope-end drops released these; zero them so the
-        // dispose finds nothing left to release.
-        em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
+        // The block's own scope-end drops released these; zero the ones the
+        // dispose would release, so it finds nothing left.
+        if(type_contains_rc_type(lf.ty), {
+          em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
+        });
       }, {
         match(_rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
       }),
