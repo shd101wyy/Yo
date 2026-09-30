@@ -783,6 +783,28 @@ atom. What step 2 has to change:
   implementation classifies by site. A panicking empty-env knob finds them
   directly.
 
+**Step 2 sized (2026-09-30).** The same instrument, counting the Variables
+emit-phase queries return: **240,356 distinct** (240,137 as the innermost
+match), against the ~888 K live `Variable`s of §0.6's census. Records keep
+at most ~27 % of the Variables. The frames, frame lists, `Environment`s, and
+the other ~650 K Variables with their values are what dropping the envs
+frees.
+
+The record's shape decides whether that survives:
+- **Not a slim env per ExprInfo.** An `Environment` + one `Frame` + a
+  variable list for each of ~2.7 M entries (~250 B each) costs more than it
+  frees. This rules out keeping the ~100 query sites unchanged by swapping
+  in pruned envs.
+- **A side table keyed by `ExprId`**, holding only resolved results:
+  - an atom's record is the result list for its own token, usually one
+    `Variable`;
+  - a non-atom's record lists `(name, result)` for its `variable_name`, its
+    deferred targets, and its subtree's names;
+  - equal result lists are shared (most atoms of one local resolve to the
+    same one-element list).
+
+  The query sites then ask by node, which is the step-3 change.
+
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
   collect runs, and table entries grow 2.887 M → 2.953 M. Their envs are
