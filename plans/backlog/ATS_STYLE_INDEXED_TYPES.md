@@ -205,7 +205,18 @@ seed gate for `std/` and `src/` adoption.
 > **Slice 3 (branch `feat/verifier-list-get-pop`):** `get` (total: `Some`/`None`
 > by bounds, no obligation) and `pop` (`Some(last)` + receiver rebound to
 > len − 1 when non-empty) as the call's own `Option(T)` datatype
-> (`valid/dml_list_get_pop.yo`). Left: task 4 (generic bodies), `for` over a list.
+> (`valid/dml_list_get_pop.yo`). A pop counts as a mutation for the
+> `old(<param>)` rule. The slice also closed a false proof in slice 2: the
+> model gives each NAME its own list value, but `ArrayList` is a reference
+> type, so a mutation beside a possible alias (a local bound from an
+> existing list, or a second parameter of the same list type) is now a
+> subset error (`issues/fixed/verifier-list-model-ignores-aliasing.md`). An
+> alias-aware heap model (a frame condition such as "a and b are distinct")
+> belongs with R2. Two encoder bugs surfaced on the way: a zero-field
+> constructor encoded as `(Name)`
+> (`issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md`)
+> and a projection's bit width read as 1. Left: task 4 (generic bodies),
+> `for` over a list.
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
