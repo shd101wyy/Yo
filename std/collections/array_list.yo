@@ -18,10 +18,19 @@ pragma(Pragma.AllowUnsafe);
 // the passing `outside-subset`/trivial walks. In runtime mode the
 // requires lower to the ordinary entry asserts (belt to the panics).
 pragma(Pragma.Verify);
-{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { SIZE_MAX } :: import("../libc/stdint.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
+// The top bit of `_capacity` says where the buffer came from: set, it was
+// allocated through an explicit `Allocator` and carries that allocator's owner
+// prefix (`std/allocator.yo`), so growth and release route through
+// `Allocator.realloc` / `Allocator.free`; clear, it is a plain global block.
+// Keeping the bit inside an existing word keeps `sizeof(ArrayList(T))`
+// unchanged: one more field would push the object across a malloc size class
+// (plans/EXPLICIT_ALLOCATORS.md §1.6). Every capacity READ masks it.
+_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_MASK :: (_CAP_TAG - usize(1));
 /// Error variants for ArrayList operations.
 ArrayListError :: enum(
   /// Memory allocation failed.
@@ -58,9 +67,51 @@ impl(
   /// `SIZE_MAX` for a zero-sized element type, which never grows — see
   /// `_zst_anchor`. Rust's `Vec::capacity` reports `usize::MAX` for the same
   /// reason.
-  capacity : (fn(self : Self) -> usize)({
-    return(self._capacity);
+  capacity : (fn(self : Self) -> usize)(
+    cond(
+      (sizeof(T) == usize(0)) => SIZE_MAX,
+      true => (self._capacity & _CAP_MASK)
+    )
+  ),
+  // The capacity without the allocator tag.
+  _cap : (fn(self : Self) -> usize)((self._capacity & _CAP_MASK)),
+  // True when the buffer came from an explicit `Allocator`.
+  _owned : (fn(self : Self) -> bool)(((self._capacity & _CAP_TAG) != usize(0))),
+  // Store a new capacity, keeping the allocator tag.
+  _set_cap : (fn(self : Self, cap : usize) -> unit)({
+    self._capacity = (cap | (self._capacity & _CAP_TAG));
   }),
+  // Grow (or shrink) the buffer to `bytes` through the allocator that owns it;
+  // a list with no buffer yet takes a global one.
+  _buf_resize : (fn(self : Self, bytes : usize) -> ?*void)(
+    match(
+      self._ptr,
+      .None => malloc(bytes),
+      .Some(old_ptr) => cond(
+        self._owned() => Allocator.realloc((*void)(old_ptr), bytes),
+        true => realloc(.Some((*void)(old_ptr)), bytes)
+      )
+    )
+  ),
+  // Release the buffer to the allocator that owns it.
+  _buf_free : (fn(self : Self, p : *(T)) -> unit)(
+    cond(
+      self._owned() => Allocator.free(.Some((*void)(p))),
+      true => free(.Some((*void)(p)))
+    )
+  ),
+  /// The allocator the buffer belongs to: the one given to `new_in` /
+  /// `with_capacity_in`, or `.None` for a list on the global allocator.
+  allocator : (fn(self : Self) -> Option(Allocator))(
+    match(
+      self._ptr,
+      .Some(p) => cond(
+        self._owned() => .Some(Allocator.owner_of((*void)(p))),
+        true => .None
+      ),
+      .None => .None
+    )
+  ),
   /// Raw pointer to the element buffer, or `.None` when nothing is allocated
   /// yet — Rust's `Vec::as_ptr`, minus the dangling-pointer guarantee.
   ///
@@ -80,7 +131,7 @@ impl(
   /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
   set_len : (fn(self : Self, new_len : usize, requires(new_len <= self.capacity()), assumed()) -> unit)({
     cond(
-      (new_len <= self._capacity) => {
+      (new_len <= self._cap()) => {
         self._length = new_len;
       },
       true => __yo_panic("set_len: new length exceeds capacity")
@@ -88,7 +139,7 @@ impl(
   }),
   /// Empty list. Allocates nothing — the first `push` buys the buffer (four
   /// elements), as Rust's `Vec::new` does.
-  new : (fn() -> Self)(
+  new : (fn(ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
     Self(
       _ptr : .None,
       _length : usize(0),
@@ -154,7 +205,7 @@ impl(
   /// panics with the same message), and on allocation failure. A zero-sized
   /// element type takes the one-byte anchor buffer instead of allocating
   /// `cap` of nothing.
-  with_capacity : (fn(cap : usize) -> Self)(
+  with_capacity : (fn(cap : usize, ensures(r.len() == usize(0)), assumed()) -> (r : Self))(
     cond(
       (cap == usize(0)) =>
         Self.new(),
@@ -164,7 +215,7 @@ impl(
       // the first pushes write outside the allocation: silent heap corruption
       // (issues/fixed/collection-capacity-overflow-unchecked.md). Rust's
       // `Vec::with_capacity` panics with "capacity overflow" here too.
-      size_would_overflow(T, cap) =>
+      (size_would_overflow(T, cap) || (cap > _CAP_MASK)) =>
         __yo_panic("ArrayList.with_capacity: capacity overflow"),
       // Zero-sized element (`unit`, an all-`unit` struct): the buffer holds no
       // bytes, so the list never grows — see `_zst_anchor`.
@@ -184,6 +235,38 @@ impl(
       }
     )
   ),
+  /// Empty list whose buffer lives in `alloc` — Rust's `Vec::new_in`.
+  ///
+  /// Every growth, shrink and the final release go through `alloc`, wherever
+  /// and on whichever thread the last reference dies. Unlike `new`, this takes
+  /// one allocation right away: a block holding only `alloc`'s 16-byte owner
+  /// prefix, which is how the list remembers its allocator (the list object
+  /// itself stays the size of a plain one). PANICS when that allocation fails.
+  new_in : (fn(alloc : Allocator) -> Self)(Self.with_capacity_in(alloc, usize(0))),
+  /// Empty list with room for `cap` elements, its buffer in `alloc` — Rust's
+  /// `Vec::with_capacity_in`. PANICS on capacity overflow and on allocation
+  /// failure, like `with_capacity`.
+  with_capacity_in : (fn(alloc : Allocator, cap : usize) -> Self)(
+    cond(
+      (size_would_overflow(T, cap) || (cap > _CAP_MASK)) =>
+        __yo_panic("ArrayList.with_capacity_in: capacity overflow"),
+      true => {
+        // A zero-sized element type takes a one-byte anchor, as `_zst_anchor`.
+        bytes := cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * cap));
+        tagged_cap := cond((sizeof(T) == usize(0)) => _CAP_MASK, true => cap);
+        match(
+          alloc.alloc(bytes),
+          .Some(p) =>
+            Self(
+              _ptr : .Some((*(T))(p)),
+              _length : usize(0),
+              _capacity : (tagged_cap | _CAP_TAG)
+            ),
+          .None => __yo_panic("ArrayList.with_capacity_in: allocation failed")
+        )
+      }
+    )
+  ),
   /// The one buffer an ArrayList of a ZERO-SIZED element type ever has.
   ///
   /// `sizeof(T) == 0` (`unit`, an all-`unit` aggregate, `Array(unit, N)`) means
@@ -191,7 +274,8 @@ impl(
   /// and the byte size of every buffer is 0. Rust's `Vec<()>` never allocates
   /// and reports `capacity() == usize::MAX`. Yo cannot conjure a non-null
   /// dangling pointer, so the stand-in is ONE one-byte block, allocated once and
-  /// never resized: the capacity is `SIZE_MAX`, so `push` never reaches the grow
+  /// never resized: the capacity is the largest untagged value (`capacity()`
+  /// reports `SIZE_MAX`), so `push` never reaches the grow
   /// path, and `shrink_to_fit` is a no-op. Going through the allocator with
   /// `sizeof(T) * cap == 0` instead would `malloc(0)` and then `realloc(p, 0)` —
   /// which frees `p` and returns NULL on glibc and the Windows CRT — and the
@@ -203,7 +287,7 @@ impl(
         Self(
           _ptr : .Some((*(T))(anchor)),
           _length : usize(0),
-          _capacity : SIZE_MAX
+          _capacity : _CAP_MASK
         ),
       .None => __yo_panic("malloc returned None")
     )
@@ -218,30 +302,24 @@ impl(
   try_push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
-      (self._length >= self._capacity) => {
+      (self._length >= self._cap()) => {
         // Need to grow - calculate new capacity. A zero-sized element type
-        // takes the anchor buffer and `SIZE_MAX` capacity instead (see
+        // takes the anchor buffer and the largest capacity instead (see
         // `_zst_anchor`), so this branch runs once for it and never again.
+        cap := self._cap();
         new_capacity := cond(
-          (sizeof(T) == usize(0)) => SIZE_MAX,
-          (self._capacity == usize(0)) => usize(4),
-          true => (self._capacity * usize(2))
+          (sizeof(T) == usize(0)) => _CAP_MASK,
+          (cap == usize(0)) => usize(4),
+          true => (cap * usize(2))
         );
-        // Allocate or reallocate
-        new_some_ptr := match(
-          self._ptr,
-          .None => GlobalAllocator.malloc(cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * new_capacity))),
-          .Some(old_ptr) => GlobalAllocator.realloc(
-            .Some((*(void))(old_ptr)),
-            sizeof(T) * new_capacity
-          )
-        );
+        // Allocate or reallocate, through the allocator that owns the buffer
+        new_some_ptr := self._buf_resize(cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * new_capacity)));
         match(
           new_some_ptr,
           .Some(new_ptr) => {
             typed_ptr := (*T)(new_ptr);
             self._ptr = .Some(typed_ptr);
-            self._capacity = new_capacity;
+            self._set_cap(new_capacity);
             // Now add the element at position length
             target_ptr := typed_ptr.add(self._length);
             consume(target_ptr.* = value);
@@ -341,16 +419,18 @@ impl(
     // element type has nothing to shrink either (its buffer is the one-byte
     // anchor; `realloc(p, 0)` would free it — see `_zst_anchor`).
     cond(
-      ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
+      ((self._length == self._cap()) || (self._cap() == usize(0))) => .Ok(()),
       (sizeof(T) == usize(0)) => .Ok(()),
       true =>
-        // If length is zero, free the buffer
+        // If length is zero, free the buffer. A buffer from an explicit
+        // allocator shrinks to its owner prefix instead, so the list keeps
+        // its allocator.
         cond(
-          (self._length == usize(0)) => {
+          ((self._length == usize(0)) && !(self._owned())) => {
             match(
               self._ptr,
               .Some(_ptr) => {
-                GlobalAllocator.free(.Some((*void)(_ptr)));
+                free(.Some((*void)(_ptr)));
                 self._ptr = .None;
                 self._capacity = usize(0);
               },
@@ -363,16 +443,13 @@ impl(
             match(
               self._ptr,
               .None => __yo_panic("ArrayList has capacity but no ptr"),
-              .Some(old_ptr) => {
-                new_some_ptr := GlobalAllocator.realloc(
-                  .Some((*void)(old_ptr)),
-                  sizeof(T) * self._length
-                );
+              .Some(_) => {
+                new_some_ptr := self._buf_resize(sizeof(T) * self._length);
                 match(
                   new_some_ptr,
                   .Some(new_ptr) => {
                     self._ptr = .Some((*T)(new_ptr));
-                    self._capacity = self._length;
+                    self._set_cap(self._length);
                     .Ok(())
                   },
                   .None => .Err(.AllocError(.OutOfMemory))
@@ -729,16 +806,18 @@ impl(
   /// pointers into the buffer do not survive it.
   ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
     cond(
-      (min_cap <= self._capacity) => (),
+      (min_cap <= self._cap()) => (),
+      // A zero-sized element type's anchor satisfies every capacity.
+      ((sizeof(T) == usize(0)) && self._ptr.is_some()) => (),
       // Same wrap as `with_capacity` — and the doubling loop below has a second
       // face: once `cap * 2` wraps to 0 the loop can never reach `min_cap`, so
       // an oversized request SPINS FOREVER instead of failing
       // (issues/fixed/collection-capacity-overflow-unchecked.md).
-      size_would_overflow(T, min_cap) =>
+      (size_would_overflow(T, min_cap) || (min_cap > _CAP_MASK)) =>
         __yo_panic("ArrayList.ensure_total_capacity: capacity overflow"),
       // Zero-sized element type: the anchor buffer satisfies every capacity
-      // (see `_zst_anchor`); `min_cap <= self._capacity` above catches it once
-      // the anchor is in place.
+      // (see `_zst_anchor`); the arm above catches it once the anchor is in
+      // place.
       (sizeof(T) == usize(0)) => {
         anchor := Self._zst_anchor();
         self._ptr = anchor._ptr;
@@ -746,34 +825,28 @@ impl(
       },
       true => {
         new_capacity := cond(
-          (self._capacity == usize(0)) => min_cap,
+          (self._cap() == usize(0)) => min_cap,
           true => {
-            cap := self._capacity;
+            cap := self._cap();
             // `min_cap` is known not to overflow `sizeof(T) * min_cap`, but the
-            // doubling itself can still wrap. Fall back to `min_cap` in that
-            // one case; every reachable growth keeps the usual doubling.
+            // doubling itself can still leave the untagged range. Fall back to
+            // `min_cap` in that one case; every reachable growth keeps the
+            // usual doubling.
             while(cap < min_cap, {
               cap = cond(
-                (cap > (SIZE_MAX / usize(2))) => min_cap,
+                (cap > (_CAP_MASK / usize(2))) => min_cap,
                 true => (cap * usize(2))
               );
             });
             cap
           }
         );
-        new_some_ptr := match(
-          self._ptr,
-          .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
-          .Some(old_ptr) => GlobalAllocator.realloc(
-            .Some((*(void))(old_ptr)),
-            sizeof(T) * new_capacity
-          )
-        );
+        new_some_ptr := self._buf_resize(sizeof(T) * new_capacity);
         match(
           new_some_ptr,
           .Some(new_ptr) => {
             self._ptr = .Some((*(T))(new_ptr));
-            self._capacity = new_capacity;
+            self._set_cap(new_capacity);
           },
           .None => __yo_panic("ArrayList.ensure_total_capacity: allocation failed")
         );
@@ -888,7 +961,7 @@ impl(
         .Some(_ptr) => {
           Self._free_elements(self);
           self._length = usize(0);
-          GlobalAllocator.free(.Some((*void)(_ptr)));
+          self._buf_free(_ptr);
           self._ptr = .None;
         },
         .None => ()
@@ -1490,7 +1563,12 @@ impl(
   Clone(
     clone : (fn(inout(self) : Self) -> Self)({
       n := self.len();
-      result := Self.with_capacity(n);
+      // A clone lives where its source lives (Rust's `Vec<T, A>: Clone`).
+      result := match(
+        self.allocator(),
+        .Some(a) => Self.with_capacity_in(a, n),
+        .None => Self.with_capacity(n)
+      );
       i := usize(0);
       while(i < n, {
         item_opt := self.get(i);

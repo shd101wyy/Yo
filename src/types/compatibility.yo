@@ -254,13 +254,10 @@ _binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usi
     while(j < somes.len(), {
       match(
         somes.get(j),
-        .Some(st) => match(
-          st,
-          .SomeT({ name : nm, frame_level : lv }) => if(nm == label, {
-            return(Option(usize).Some(lv));
-          }),
-          _ => ()
-        ),
+        .Some(.SomeT({ name : nm, frame_level : lv })) => if(nm == label, {
+          return(Option(usize).Some(lv));
+        }),
+        .Some(_) => (),
         .None => ()
       );
       j = (j + usize(1));

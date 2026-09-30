@@ -1,0 +1,29 @@
+// R1 slice 1 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: the DML/ATS
+// headline over a RUNTIME collection. `ArrayList(i32)` is the verifier's
+// `List_bv32` pair (contents, len): `xs.len()` is the len accessor, `xs(i)`
+// is a select under `index-in-bounds` (i < len). `get` states ATS's
+// `{n,i | i < n} (list(n), int(i)) -> a` as `requires(i < xs.len())`, and the
+// callers discharge it modularly. `concat_len` is an ASSUMED spec (its body
+// is not walked; slice 2 adds the mutation model that would prove it) whose
+// `ensures` over lengths a caller consumes — ATS's `list(m+n)`.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+
+first :: (fn(xs : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(get(xs, usize(0)));
+
+sum2 :: (fn(xs : ArrayList(i32), requires(xs.len() >= usize(2))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));
+
+concat_len :: (
+  fn(
+    a : ArrayList(i32),
+    b : ArrayList(i32),
+    ensures(r.len() == (a.len() + b.len())),
+    assumed()
+  ) -> (r : ArrayList(i32))
+)(a);
+
+total :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r == (a.len() + b.len()))) -> (r : usize)
+)(concat_len(a, b).len());

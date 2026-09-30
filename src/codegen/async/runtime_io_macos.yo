@@ -1191,8 +1191,8 @@ static void __yo_io_init(void) {
 
   __yo_io_kq = kqueue();
   if (__yo_io_kq < 0) {
-    fprintf(stderr, "panic: kqueue() failed: %s\\n", strerror(errno));
-    abort();
+    fflush(stdout); fprintf(stderr, "panic: kqueue() failed: %s\\n", strerror(errno));
+    __yo_abort();
   }
   __yo_io_initialized = true;
   // Route the always-emitted sync close through this backend's fd purge.

@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 // `outside-subset`), and the internals stay parked with the heap model
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
-{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
@@ -49,6 +49,9 @@ CTRL_EMPTY :: u8(255);
 CTRL_DELETED :: u8(254);
 /// Default initial capacity (must be power of 2).
 DEFAULT_CAPACITY :: usize(16);
+// `_tombstones`' allocator tag (see the field).
+_OWNED_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_COUNT_MASK :: (_OWNED_TAG - usize(1));
 /// Maximum load factor numerator (7/8 = 0.875). Resize when `size > capacity * 7 / 8`.
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 /// Maximum load factor denominator. `size + tombstones >= capacity * 7 / 8`
@@ -118,7 +121,13 @@ HashMap :: (
       /// a table that is mostly tombstones is rehashed IN PLACE instead of
       /// doubled (hashbrown's rule). Before this, insert/remove churn drove
       /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
-      tombstones : usize,
+      ///
+      /// The top bit is not a count: set, both buffers came from an explicit
+      /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
+      /// are resized and released through it. Keeping the bit in an existing
+      /// word keeps the map object's size (plans/EXPLICIT_ALLOCATORS.md §3.3).
+      /// Read the count with `tombstones()`.
+      _tombstones : usize,
       /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
       /// iteration order is reproducible; `with_keys` keys this map alone.
       k0 : u64,
@@ -132,7 +141,44 @@ impl(
   HashMap(K, V),
   /// Allocate memory for HashMap with given capacity
   /// Initializes all control bytes to EMPTY
-  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(.None, capacity)),
+  // Allocate both buffers from `alloc` (the global allocator when `.None`).
+  _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize) -> ?*void)(
+    match(
+      alloc,
+      .Some(a) => a.alloc(bytes),
+      .None => malloc(bytes)
+    )
+  ),
+  // Release a buffer the way it was allocated.
+  _free_buf : (fn(owned : bool, p : *void) -> unit)(
+    cond(
+      owned => Allocator.free(.Some(p)),
+      true => free(.Some(p))
+    )
+  ),
+  // The allocator both buffers belong to (`.None`: the global allocator).
+  _alloc_of : (fn(self : Self) -> Option(Allocator))(
+    cond(
+      self._owned() => match(
+        self.ctrl,
+        .Some(p) => .Some(Allocator.owner_of((*void)(p))),
+        .None => .None
+      ),
+      true => .None
+    )
+  ),
+  _owned : (fn(self : Self) -> bool)(((self._tombstones & _OWNED_TAG) != usize(0))),
+  /// Slots holding a tombstone (`CTRL_DELETED`) — a read-only diagnostic.
+  tombstones : (fn(self : Self) -> usize)((self._tombstones & _COUNT_MASK)),
+  // Store a tombstone count, keeping the allocator tag.
+  _set_tombstones : (fn(self : Self, n : usize) -> unit)({
+    self._tombstones = (n | (self._tombstones & _OWNED_TAG));
+  }),
+  /// The allocator the map's buffers live in: the one given to `new_in` /
+  /// `with_capacity_in`, or `.None` for a map on the global allocator.
+  allocator : (fn(self : Self) -> Option(Allocator))(self._alloc_of()),
+  _alloc_with_capacity_in : (fn(alloc : Option(Allocator), capacity : usize) -> Result(Self, HashMapError))({
     bucket_size :: sizeof(MapEntry(K, V));
     // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
     // malloc a tiny size while the map still believes it owns `capacity`
@@ -143,17 +189,18 @@ impl(
     });
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
-    ctrl_result := malloc(ctrl_size);
+    owned := alloc.is_some();
+    ctrl_result := Self._alloc_buf(alloc, ctrl_size);
     match(
       ctrl_result,
       .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
         ctrl_ptr := (*u8)(ctrl_void_ptr);
-        data_result := malloc(data_size);
+        data_result := Self._alloc_buf(alloc, data_size);
         match(
           data_result,
           .None => {
-            free(.Some((*void)(ctrl_ptr)));
+            Self._free_buf(owned, (*void)(ctrl_ptr));
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
@@ -168,7 +215,7 @@ impl(
                 data : .Some(data_ptr),
                 capacity : capacity,
                 size : usize(0),
-                tombstones : usize(0),
+                _tombstones : cond(owned => _OWNED_TAG, true => usize(0)),
                 k0 : DEFAULT_KEY_0,
                 k1 : DEFAULT_KEY_1
               )
@@ -220,7 +267,10 @@ impl(
   /// `with_capacity` promises: the 7/8 load factor means the map still
   /// resizes after about `capacity * 7 / 8` insertions. PANICS on allocation
   /// failure.
-  with_capacity : (fn(requested_capacity : usize) -> Self)({
+  // The bucket count for `requested_capacity`: rounded UP to a power of two
+  // (never below the 16-bucket default), because bucket selection masks the
+  // hash.
+  _bucket_count : (fn(requested_capacity : usize) -> usize)({
     capacity := cond(
       (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
       true => {
@@ -242,6 +292,10 @@ impl(
         c + usize(1)
       }
     );
+    capacity
+  }),
+  with_capacity : (fn(requested_capacity : usize) -> Self)({
+    capacity := Self._bucket_count(requested_capacity);
     result := Self._alloc_with_capacity(capacity);
     match(
       result,
@@ -249,6 +303,18 @@ impl(
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
+  /// Empty map whose two buffers live in `alloc` — Rust's `HashMap::new_in`.
+  /// Every resize and the final release go through `alloc`. Allocates eagerly
+  /// (16 buckets) and PANICS on failure, like `new`.
+  new_in : (fn(alloc : Allocator) -> Self)(Self.with_capacity_in(alloc, DEFAULT_CAPACITY)),
+  /// `with_capacity` with the buffers in `alloc`.
+  with_capacity_in : (fn(alloc : Allocator, requested_capacity : usize) -> Self)(
+    match(
+      Self._alloc_with_capacity_in(.Some(alloc), Self._bucket_count(requested_capacity)),
+      .Ok(map) => map,
+      .Err(_) => __yo_panic("Failed to allocate HashMap")
+    )
+  ),
   /// Get ctrl pointer (unwrapped for internal use)
   _ctrl_ptr : (fn(self : Self) -> *(u8))(
     match(
@@ -372,11 +438,12 @@ impl(
   /// Check if HashMap needs resizing based on load factor
   _needs_resize : (fn(self : Self) -> bool)({
     threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
-    (self.size + self.tombstones) >= threshold
+    (self.size + self.tombstones()) >= threshold
   }),
   /// Resize and rehash the HashMap to a new capacity
   _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, HashMapError))({
-    result := Self._alloc_with_capacity(new_capacity);
+    // The new table lives where the old one does.
+    result := Self._alloc_with_capacity_in(self._alloc_of(), new_capacity);
     match(
       result,
       .Err(err) => .Err(err),
@@ -428,20 +495,21 @@ impl(
           },
           true => ()
         );
+        owned := self._owned();
         match(
           self.ctrl,
-          .Some(ptr) => free(.Some((*void)(ptr))),
+          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
           .None => ()
         );
         match(
           self.data,
-          .Some(ptr) => free(.Some((*void)(ptr))),
+          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
           .None => ()
         );
         self.ctrl = new_map.ctrl;
         self.data = new_map.data;
         self.capacity = new_map.capacity;
-        self.tombstones = usize(0);
+        self._set_tombstones(usize(0));
         new_map.ctrl = .None;
         new_map.data = .None;
         .Ok(())
@@ -496,7 +564,7 @@ impl(
             data_ptr := Self._data_ptr(self);
             cond(
               ((ctrl_ptr.add(index)).* == CTRL_DELETED) => {
-                self.tombstones = (self.tombstones - usize(1));
+                self._tombstones = (self._tombstones - usize(1));
               },
               true => ()
             );
@@ -544,7 +612,7 @@ impl(
     data_ptr := Self._data_ptr(self);
     cond(
       ((ctrl_ptr.add(slot)).* == CTRL_DELETED) => {
-        self.tombstones = (self.tombstones - usize(1));
+        self._tombstones = (self._tombstones - usize(1));
       },
       true => ()
     );
@@ -675,7 +743,7 @@ impl(
           },
           true => {
             (ctrl_ptr.add(index)).* = CTRL_DELETED;
-            self.tombstones = (self.tombstones + usize(1));
+            self._tombstones = (self._tombstones + usize(1));
           }
         );
         self.size = (self.size - usize(1));
@@ -789,7 +857,7 @@ impl(
       (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
-    self.tombstones = usize(0);
+    self._set_tombstones(usize(0));
   })
 );
 /// The entry API. `entry(key)` resolves the key's slot in ONE probe and hands
@@ -870,14 +938,15 @@ impl(
         },
         true => ()
       );
+      owned := self._owned();
       match(
         self.ctrl,
-        .Some(ptr) => free(.Some((*void)(ptr))),
+        .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
         .None => ()
       );
       match(
         self.data,
-        .Some(ptr) => free(.Some((*void)(ptr))),
+        .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
         .None => ()
       );
     })
@@ -1203,7 +1272,14 @@ impl(
   HashMap(K, V),
   Clone(
     clone : (fn(inout(self) : Self) -> Self)({
-      result := Self.with_keys(self.k0, self.k1);
+      // A clone lives where its source lives (Rust's `HashMap<K, V, S, A>: Clone`).
+      result := match(
+        self.allocator(),
+        .Some(a) => Self.new_in(a),
+        .None => Self.new()
+      );
+      result.k0 = self.k0;
+      result.k1 = self.k1;
       it := self.iter();
       running := true;
       while(running, {

@@ -141,11 +141,8 @@ evaluate_module_field :: (
   });
   field_type := match(
     te_info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(inner) => inner,
-      _ => TypeValue.Unit
-    ),
+    .Some(.TypeVal(inner)) => inner,
+    .Some(_) => TypeValue.Unit,
     .None => TypeValue.Unit
   );
   // Set expr info on label_expr
