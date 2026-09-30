@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
-{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, expr_info_trial_report } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, debug_knob } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -4253,6 +4253,9 @@ run_compile :: (
     if(!(_run_contract_verification(io, exn, true)), {
       _compile_fail(watch_mode, int(1));
       return(());
+    });
+    if(debug_knob(`YO_SPEC_REPORT`).is_some(), {
+      match(mm_shared_expr_info_table(), .Some(t) => expr_info_trial_report(t), .None => ());
     });
     profile_record_phase(String.from("contract verification"), prof_verify_t0.elapsed().as_nanos());
     // --skip-codegen: evaluate only (type-check), emit no C.

@@ -397,6 +397,44 @@ alloc_global_expr_id :: (fn() -> ExprId)({
 /// mints one id per node, consecutively, so reading this before and after a
 /// clone brackets exactly the ids that clone made (`purge_expr_infos_in_id_range`).
 next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
+/// Scratch (lever 4 measurement): id ranges minted during OUTERMOST overload
+/// trials (disjoint, ascending).
+(g_trial_id_starts : ArrayList(usize)) = ArrayList(usize).new();
+(g_trial_id_ends : ArrayList(usize)) = ArrayList(usize).new();
+(g_trial_depth : usize) = usize(0);
+(g_trial_start : usize) = usize(0);
+trial_enter :: (fn() -> unit)({
+  if(g_trial_depth == usize(0), {
+    g_trial_start = g_next_global_expr_id;
+  });
+  g_trial_depth = (g_trial_depth + usize(1));
+});
+trial_exit :: (fn() -> unit)({
+  g_trial_depth = (g_trial_depth - usize(1));
+  if(g_trial_depth == usize(0), {
+    g_trial_id_starts.push(g_trial_start);
+    g_trial_id_ends.push(g_next_global_expr_id);
+  });
+});
+trial_id_contains :: (fn(id : usize) -> bool)({
+  (lo : usize) = usize(0);
+  (hi : usize) = g_trial_id_starts.len();
+  while(lo < hi, {
+    mid := ((lo + hi) / usize(2));
+    st := match(g_trial_id_starts.get(mid), .Some(v) => v, .None => usize(0));
+    if(st <= id, {
+      lo = (mid + usize(1));
+    }, {
+      hi = mid;
+    });
+  });
+  if(lo == usize(0), {
+    return(false);
+  });
+  en := match(g_trial_id_ends.get(lo - usize(1)), .Some(v) => v, .None => usize(0));
+  (id < en)
+});
+trial_range_count :: (fn() -> usize)(g_trial_id_starts.len());
 /// Deep-clone an expression giving every node a FRESH id. The derived
 /// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
@@ -1349,3 +1387,4 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), args, false, begin_tok)
 });
 export(wrap_body_in_begin);
+export(trial_enter, trial_exit, trial_id_contains, trial_range_count);

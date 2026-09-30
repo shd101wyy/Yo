@@ -24,7 +24,9 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   is_function_boundary_arrow,
   desugar_if_calls,
-  BF_YO_AS
+  BF_YO_AS,
+  trial_enter,
+  trial_exit
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
@@ -1072,7 +1074,9 @@ _select_matching_overload :: (
         .Some(cv) => {
           trial_args := _build_receiver_call_args(base.is_static, cand.needs_pointer_conversion, base.receiver_expr.clone(), args);
           ok := ArrayList(bool).new();
+          trial_enter();
           _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok);
+          trial_exit();
           if(ok.len() > usize(0), {
             matching.push(hi);
           });
@@ -1410,7 +1414,9 @@ _try_expand_call_overload :: (
     cv2 := match(cand_vals.get(cand_i), .Some(v) => v, .None => EvalValue.UnitVal);
     ct2 := match(cand_tys.get(cand_i), .Some(t) => t, .None => t_unit());
     ok_out := ArrayList(bool).new();
+    trial_enter();
     _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out);
+    trial_exit();
     if(ok_out.len() > usize(0), {
       successes.push(cand_i);
     });
