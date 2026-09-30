@@ -285,9 +285,9 @@ static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* n
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  // 64 KiB to match the POSIX default pipe capacity. Pipe WRITES are still a
-  // blocking _write on the event-loop thread, so the buffer size is the slack
-  // a writer has before it parks the loop.
+  // 64 KiB to match the POSIX default pipe capacity. An async write to a pipe
+  // runs on a thread-pool worker (__yo_win_pipe_write_start), so a full pipe
+  // parks only that write, never the event loop.
   int result = _pipe(pipefd, 65536, _O_BINARY);
   return (result < 0) ? -errno : 0;
 }
@@ -2140,7 +2140,34 @@ typedef struct {
   bool is_fs_event;
   bool stop_pending;
   struct __yo_fs_event_s* fse;
+  // Pipe-write bookkeeping (is_pipe_write). An anonymous pipe cannot be
+  // written overlapped, and a WriteFile into a full one blocks until the
+  // reader drains it. So the write runs on a thread-pool worker, which posts
+  // this OVERLAPPED to the loop's port when it returns
+  // (issues/fixed/command-stdin-windows-pipe-write-blocks-the-event-loop.md).
+  // next_write links the pipe's FIFO (void*: this struct is anonymous).
+  bool is_pipe_write;
+  const void* write_buf;
+  DWORD write_len;
+  int32_t write_result;
+  HANDLE write_port;
+  struct __yo_win_pipe_writer_s* writer;
+  void* next_write;
 } __yo_win_overlapped_t;
+
+// One FIFO of writes per pipe handle: the head is on a worker, the rest wait
+// for it. Two workers writing one pipe at once would interleave or reorder
+// the bytes. Per loop thread, like the port the completions come back on.
+typedef struct __yo_win_pipe_writer_s {
+  HANDLE handle;
+  __yo_win_overlapped_t* head;
+  __yo_win_overlapped_t* tail;
+  struct __yo_win_pipe_writer_s* next;
+} __yo_win_pipe_writer_t;
+static __declspec(thread) __yo_win_pipe_writer_t* __yo_win_pipe_writers = NULL;
+// Writes on a worker right now. While any is, the port must outlive the loop's
+// cleanup: the worker posts to it when its WriteFile returns.
+static __declspec(thread) size_t __yo_win_pipe_writes_inflight = 0;
 
 // AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
 // WSAIoctl at run time (no mswsock import library needed). Thread-local like
@@ -2369,6 +2396,7 @@ static void __yo_win_assoc_remove(HANDLE h) {
   }
 }
 
+static void __yo_win_pipe_writes_close(HANDLE h);
 static void __yo_win_unassociate_handle(int32_t fd) {
   HANDLE h;
   if (__yo_win_fd_is_socket(fd)) {
@@ -2377,6 +2405,7 @@ static void __yo_win_unassociate_handle(int32_t fd) {
     intptr_t osf = _get_osfhandle(fd);
     if (osf == (intptr_t)-1) return;
     h = (HANDLE)osf;
+    __yo_win_pipe_writes_close(h);
   }
   __yo_win_assoc_remove(h);
 }
@@ -2430,10 +2459,15 @@ static void __yo_io_cleanup(void) {
     loop->notify_ready = 0;
     loop->notify_handle = NULL;
   }
-  if (__yo_io_iocp) {
+  // A pipe write still on a worker (its reader never drained the pipe) will
+  // post to this port when its WriteFile returns. Closing the port would let
+  // that post land on whatever port later reuses the handle value, so the
+  // port is left open for the process: one handle, only while a write is
+  // stuck.
+  if (__yo_io_iocp && __yo_win_pipe_writes_inflight == 0) {
     CloseHandle(__yo_io_iocp);
-    __yo_io_iocp = NULL;
   }
+  __yo_io_iocp = NULL;
   while (__yo_win_timer_head) {
     __yo_win_timer_entry_t* node = __yo_win_timer_head;
     __yo_win_timer_head = node->next;
@@ -2622,8 +2656,14 @@ static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future
 static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov);
 static void __yo_win_finish_fs_event(__yo_win_overlapped_t* ov, DWORD bytes);
 
+static void __yo_win_pipe_write_done(__yo_win_overlapped_t* ov);
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
+  if (ov->is_pipe_write) {
+    (void)bytes;
+    __yo_win_pipe_write_done(ov);
+    return;
+  }
   if (ov->is_fs_event) {
     __yo_pending_io_count--;   // the arm this packet completes
     if (ov->stop_pending || !ov->fse) {
@@ -2965,6 +3005,128 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   return future;
 }
 
+// ---- Pipe writes on a worker ------------------------------------------------
+// The worker owns the OVERLAPPED from submit until its post; the loop owns it
+// again once GetQueuedCompletionStatusEx hands it back (the port is the
+// barrier between the two threads, so write_result needs no atomics).
+static VOID CALLBACK __yo_win_pipe_write_work(PTP_CALLBACK_INSTANCE inst, PVOID ctx) {
+  (void)inst;
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)ctx;
+  DWORD written = 0;
+  if (WriteFile(ov->handle, ov->write_buf, ov->write_len, &written, NULL)) {
+    ov->write_result = (int32_t)written;
+  } else {
+    // ERROR_BROKEN_PIPE / ERROR_NO_DATA (the reader is gone) map to EPIPE.
+    ov->write_result = -__yo_win_error_to_errno(GetLastError());
+  }
+  PostQueuedCompletionStatus(ov->write_port, written, 0, &ov->overlapped);
+}
+
+static void __yo_win_pipe_write_submit(__yo_win_overlapped_t* ov) {
+  __yo_win_pipe_writes_inflight++;
+  if (!TrySubmitThreadpoolCallback(__yo_win_pipe_write_work, ov, NULL)) {
+    // No worker to run it: fail the write through the same completion path,
+    // so the FIFO still advances on the loop thread.
+    ov->write_result = -__yo_win_error_to_errno(GetLastError());
+    PostQueuedCompletionStatus(ov->write_port, 0, 0, &ov->overlapped);
+  }
+}
+
+static __yo_io_future_t* __yo_win_pipe_write_start(__yo_io_future_t* future, HANDLE handle,
+                                                   const void* buffer, uint32_t size) {
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, 0);
+  if (!ov) {
+    future->result = -ENOMEM;
+    atomic_store(&future->state, -1);
+    return future;
+  }
+  __yo_win_pipe_writer_t* w = __yo_win_pipe_writers;
+  while (w && w->handle != handle) w = w->next;
+  if (!w) {
+    w = (__yo_win_pipe_writer_t*)__yo_malloc(sizeof(__yo_win_pipe_writer_t));
+    if (!w) {
+      __yo_win_free_overlapped(ov);
+      future->result = -ENOMEM;
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    w->handle = handle;
+    w->head = NULL;
+    w->tail = NULL;
+    w->next = __yo_win_pipe_writers;
+    __yo_win_pipe_writers = w;
+  }
+  ov->is_pipe_write = true;
+  ov->write_buf = buffer;
+  ov->write_len = (DWORD)size;
+  ov->write_port = __yo_io_iocp;
+  ov->writer = w;
+  ov->next_write = NULL;
+  atomic_store(&future->state, 0);
+  __yo_pending_io_count++;
+  if (w->tail) {
+    w->tail->next_write = ov;
+    w->tail = ov;
+  } else {
+    w->head = ov;
+    w->tail = ov;
+    __yo_win_pipe_write_submit(ov);
+  }
+  return future;
+}
+
+// Unlink an empty writer from the thread's list.
+static void __yo_win_pipe_writer_release(__yo_win_pipe_writer_t* w) {
+  __yo_win_pipe_writer_t** link = &__yo_win_pipe_writers;
+  while (*link && *link != w) link = &(*link)->next;
+  if (*link) *link = w->next;
+  __yo_free(w);
+}
+
+// The worker's post for the FIFO's head was dequeued: complete it and start
+// the next write on the same pipe.
+static void __yo_win_pipe_write_done(__yo_win_overlapped_t* ov) {
+  __yo_win_pipe_writes_inflight--;
+  __yo_win_pipe_writer_t* w = ov->writer;
+  ov->future->result = ov->write_result;
+  __yo_io_wake_continuation(ov->future);
+  __yo_win_overlapped_t* next = (__yo_win_overlapped_t*)ov->next_write;
+  __yo_win_free_overlapped(ov);
+  if (!w) return;  // the pipe was closed while this write ran
+  w->head = next;
+  if (next) {
+    __yo_win_pipe_write_submit(next);
+  } else {
+    w->tail = NULL;
+    __yo_win_pipe_writer_release(w);
+  }
+}
+
+// The pipe is being closed. Queued writes that never started fail with EBADF:
+// running them later would write to whatever reuses the handle. The one on a
+// worker cannot be recalled (a blocking WriteFile has no cancel short of
+// CancelSynchronousIo on a pool thread), so it completes on its own, and
+// __yo_win_pipe_write_done sees the writer gone.
+static void __yo_win_pipe_writes_close(HANDLE h) {
+  __yo_win_pipe_writer_t* w = __yo_win_pipe_writers;
+  while (w && w->handle != h) w = w->next;
+  if (!w) return;
+  __yo_win_overlapped_t* running = w->head;
+  __yo_win_overlapped_t* q = running ? (__yo_win_overlapped_t*)running->next_write : NULL;
+  while (q) {
+    __yo_win_overlapped_t* next = (__yo_win_overlapped_t*)q->next_write;
+    q->future->result = -EBADF;
+    __yo_io_wake_continuation(q->future);
+    __yo_win_free_overlapped(q);
+    q = next;
+  }
+  if (running) {
+    running->next_write = NULL;
+    running->writer = NULL;
+  }
+  __yo_win_pipe_writer_release(w);
+}
+
 static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   __yo_io_init();
 
@@ -2989,7 +3151,13 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   }
 
   DWORD handle_type = GetFileType(handle);
+  if (handle_type == FILE_TYPE_PIPE && __yo_io_iocp) {
+    // Never on the loop thread: a full pipe would park the loop until the
+    // reader drains it, and a reader that waits on us deadlocks.
+    return __yo_win_pipe_write_start(future, handle, buffer, size);
+  }
   if (handle_type == FILE_TYPE_PIPE || handle_type == FILE_TYPE_CHAR) {
+    // A console write, or a pipe on a loop with no port: synchronous.
     (void)offset;
     int result = _write(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
