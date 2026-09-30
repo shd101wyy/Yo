@@ -184,6 +184,21 @@ test("list elements of a recursive struct compare through its later Eq impl", {
   assert(_first_differs(xs, ys), "1 != 2");
   assert(!_first_differs(xs, xs), "1 == 1");
 });
+// ---------- a member calling a trait method from a later impl of its own type ----------
+// issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md
+Pt :: struct(x : i32);
+impl(
+  Pt,
+  dup_via : (fn(self : Self) -> Pt)({
+    (r : Pt) = self.clone();
+    r
+  })
+);
+impl(Pt, Clone(clone : (fn(inout(self) : Self) -> Self)(Pt(x : (self.x + i32(1))))));
+test("an impl member calls a trait method defined in a later impl of its type", {
+  p := Pt(x : i32(3));
+  assert(p.dup_via().x == i32(4), "dup_via goes through the later Clone impl");
+});
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // issues/fixed/unit-valued-fn-body-return-type-mismatch-not-reported.md — a
 // `{ ...; }` body's value is `()` (the parser appends a trailing unit); the
