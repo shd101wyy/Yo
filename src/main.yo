@@ -4266,7 +4266,16 @@ run_compile :: (
     // threaded through to the code generator.
     is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module);
+    // Finished function bodies stream to this file during emission
+    // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
+    // before the last C part.
+    code_spill_path := `${output}.yo-code-spill`;
+    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone());
+    (c_spilled : ArrayList(u8)) = ArrayList(u8).new();
+    if(io.await(exists(Path.new(code_spill_path.clone()), io), io), {
+      c_spilled = io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+      io.await(remove_file(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+    });
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -4281,6 +4290,9 @@ run_compile :: (
     if(emit_c, {
       (pi0 : usize) = usize(0);
       while(pi0 < c_parts.len(), {
+        if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
+          print(String.from_bytes(c_spilled));
+        });
         match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
         pi0 = (pi0 + usize(1));
       });
@@ -4352,11 +4364,15 @@ run_compile :: (
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
       },
       true => {
-        // One file, the parts written in order: no concatenated copy of the
-        // whole C text (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+        // One file, the parts written in order (the spilled code before the
+        // last one): no concatenated copy of the whole C text
+        // (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
         c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
         (pw : usize) = usize(0);
         while(pw < c_parts.len(), {
+          if((pw == usize(4)) && (c_spilled.len() > usize(0)), {
+            _pw_s := io.await(c_file.write_bytes(c_spilled, io), IoExn(io : io, exn : exn));
+          });
           match(
             c_parts.get(pw),
             .Some(part) => {

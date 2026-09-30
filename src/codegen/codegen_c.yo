@@ -281,7 +281,9 @@ static void __yo_dispose_dispatch(void* ptr) {
   });
 });
 /// Compile a module value to C11 source, returned as its parts in order
-/// (`Emitter.sections`: write or print them one after another).
+/// (`Emitter.sections`: write or print them one after another). With a
+/// `code_spill_path`, the leading part of the code section is in that file
+/// instead: it belongs between the fourth part and the fifth.
 ///
 /// Pipeline: register the collection/dispatch indirections → build the context →
 /// collect required functions + types → emit C includes → the Future-state enum →
@@ -298,7 +300,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false) -> ArrayList(String))({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false, (code_spill_path : String) ?= String.new()) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -329,6 +331,12 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // emitted size at assembly time (below), so the range recording runs during
   // emission and the split decision happens with exact bytes.
   base.chunk_mode = ((emit_chunks >= usize(1)) || (chunk_auto_cap >= usize(1)));
+  // Stream finished function bodies to `code_spill_path` (plans/CODEGEN_MEMORY_REDUCTION.md
+  // §3 lever 3). Chunk mode keeps the whole code buffer: its units are
+  // assembled from byte ranges into it.
+  if((code_spill_path.len() > usize(0)) && !base.chunk_mode, {
+    _spilling := base.emitter.start_code_spill(code_spill_path.clone());
+  });
   base.chunk_by_module = chunk_by_module;
   // Seed the always-needed standard C headers. <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
@@ -621,6 +629,7 @@ static Slice_uint8_t_u42_ __yo_args;
     prof_i = (prof_i + usize(1));
   });
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
+  base.emitter.close_code_spill();
   base.emitter.sections()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

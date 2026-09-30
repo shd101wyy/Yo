@@ -12,6 +12,9 @@
 //! functions.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ read_file_sync } :: import("../../manifest.yo");
+{ panic } :: import("std/assert");
+{ Exception } :: import("std/error");
 { Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
@@ -45,8 +48,9 @@
 // Insert `attr_line` on its own line immediately before the FIRST declaration
 // of `c_name` (clang requires the GNU error attribute on the first
 // declaration, not just the definition). Searches headers, then declarations,
-// then the code buffer up to `code_limit_b` (the definition site already
-// carries the attribute inline). The needle is ` <name>(` — every prototype
+// then the code section: its spilled part (`Emitter.code_spilled_bytes`, read
+// back and rewritten on a hit — rare) and the in-memory buffer up to
+// `code_limit_b` (the definition site already carries the attribute inline). The needle is ` <name>(` — every prototype
 // and definition spells the name after a space, and prototypes precede any
 // call. No hit is fine: the definition was the first declaration.
 _insert_attr_before_first_decl :: (
@@ -56,16 +60,20 @@ _insert_attr_before_first_decl :: (
   nb := needle.as_bytes();
   nlen := nb.len();
   (bi : usize) = usize(0);
-  while(bi < usize(3), {
-    // Read-only search: share the buffer (a `.clone()` copied the whole
-    // ~110 MB code buffer per stub).
-    hay_s := cond(
-      (bi == usize(0)) => em.headers,
-      (bi == usize(1)) => em.declarations,
-      true => em.code
+  while(bi < usize(4), {
+    // Read-only search: share the buffers (a `.clone()` copied the whole
+    // ~110 MB code buffer per stub). Stage 2 is the spilled code, if any.
+    hay := cond(
+      (bi == usize(0)) => em.headers.as_bytes(),
+      (bi == usize(1)) => em.declarations.as_bytes(),
+      (bi == usize(2)) => if(
+        em.code_spilled_bytes > usize(0),
+        read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`)))),
+        ArrayList(u8).new()
+      ),
+      true => em.code.as_bytes()
     );
-    hay := hay_s.as_bytes();
-    limit := cond((bi == usize(2)) => code_limit_b, true => hay.len());
+    limit := cond((bi == usize(3)) => code_limit_b, true => hay.len());
     if(limit >= nlen, {
       last_start := (limit - nlen);
       (si : usize) = usize(0);
@@ -105,16 +113,16 @@ _insert_attr_before_first_decl :: (
             out.push(match(hay.get(ci2), .Some(cb) => cb, .None => u8(0)));
             ci2 = (ci2 + usize(1));
           });
-          new_s := String.from_bytes(out);
           cond(
             (bi == usize(0)) => {
-              em.headers = new_s;
+              em.headers = String.from_bytes(out);
             },
             (bi == usize(1)) => {
-              em.declarations = new_s;
+              em.declarations = String.from_bytes(out);
             },
+            (bi == usize(2)) => em.rewrite_code_spill(out),
             true => {
-              em.code = new_s;
+              em.code = String.from_bytes(out);
             }
           );
           return(());
@@ -1032,6 +1040,9 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
             // final only then. Ranges are non-overlapping and ascending.
             fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
+            // A function boundary: spill finished code (a no-op without a
+            // spill file, which chunk mode never opens).
+            context.base.emitter.spill_code_if_large();
             if(context.base.chunk_mode, {
               context.base.chunk_fn_ranges.push(
                 ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len(), module : entry.def_module.clone())
