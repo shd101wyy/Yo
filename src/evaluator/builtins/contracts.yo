@@ -844,21 +844,18 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
     cur_env = expr_info_adopt_env(ty_info);
     bt := match(
       ty_info.value,
-      .Some(biv) => match(
-        biv,
-        .TypeVal(tv) => tv,
-        _ => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(barg),
-                String.from("quantifier binder must be (name : Type)")
-              )
+      .Some(.TypeVal(tv)) => tv,
+      .Some(_) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(barg),
+              String.from("quantifier binder must be (name : Type)")
             )
-          );
-          t_unit()
-        }
-      ),
+          )
+        );
+        t_unit()
+      },
       .None => {
         exn.throw(
           dyn(
@@ -2477,11 +2474,8 @@ _callee_member_cond :: (
 _dot_arg1_is :: (fn(dot_args : ArrayList(AstExpr), name : String) -> bool)(
   match(
     dot_args.get(usize(1)),
-    .Some(second) => match(
-      second,
-      .Atom(_, st) => (st.value == name),
-      .FnCall(_, _, _, _, _) => false
-    ),
+    .Some(.Atom(_, st)) => (st.value == name),
+    .Some(.FnCall(_, _, _, _, _)) => false,
     .None => false
   )
 );

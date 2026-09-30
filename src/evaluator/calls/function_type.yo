@@ -619,12 +619,9 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(rv_tv) => match(
-                    rv_tv,
-                    .SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _) =>
-                      resolve_some_binder_kind(rv_sname, rv_slvl),
-                    _ => Option(TypeValue).None
-                  ),
+                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _)) =>
+                    resolve_some_binder_kind(rv_sname, rv_slvl),
+                  _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
                 ),
                 .None => Option(TypeValue).None
@@ -1080,11 +1077,8 @@ Result type: ${type_to_string(result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(pt) => match(
-            pt,
-            .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
-            _ => String.from("")
-          ),
+          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _, _)) => name,
+          .Some(_) => String.from(""),
           .None => String.from("")
         );
         param_type_names.push(pt_name);

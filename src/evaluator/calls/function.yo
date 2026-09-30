@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   unmark_dot_callee
 } :: import("../context.yo");
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -426,11 +426,8 @@ _reject_class1_panic_method_call :: (
   c1_recv_banned := cond(
     c1_mi.is_static => match(
       c1_mi.receiver_value,
-      .Some(c1_rv) => match(
-        c1_rv,
-        .TypeVal(c1_tvb) => is_class1_panic_receiver_type(c1_tvb),
-        _ => false
-      ),
+      .Some(.TypeVal(c1_tvb)) => is_class1_panic_receiver_type(c1_tvb),
+      .Some(_) => false,
       .None => false
     ),
     true => match(
@@ -457,14 +454,14 @@ _reject_class1_panic_method_call :: (
     );
   });
   if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.clone())), {
-    exn.throw(
-      dyn(
-        format_error_message_with_help(
-          c1_name_tok,
-          `\`${c1_name_tok.value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
-          Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
-        )
-      )
+    raise_flow_violation(
+      format_error_message_with_help(
+        c1_name_tok,
+        `\`${c1_name_tok.value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+        Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+      ),
+      ctx,
+      exn
     );
   });
 });
@@ -981,13 +978,10 @@ _trait_display_name :: (fn(tid : String, env : Environment) -> String)({
               v.value.get(usize(0)),
               .Some(vv) => match(
                 vv,
-                .TypeVal(tt) => match(
-                  tt,
-                  .TraitT(_, _, _, _, t_id, _, _, _, _, _) => if(t_id == tid, {
-                    return(v.name.clone());
-                  }),
-                  _ => ()
-                ),
+                .TypeVal(.TraitT(_, _, _, _, t_id, _, _, _, _, _)) => if(t_id == tid, {
+                  return(v.name.clone());
+                }),
+                _ => (),
                 _ => ()
               ),
               .None => ()
@@ -2277,8 +2271,32 @@ _forall_types_conflict :: (fn(a : TypeValue, b : TypeValue) -> bool)(
 _forall_conflict_message :: (fn(label : String, first : TypeValue, first_from : String, later : TypeValue, later_arg : usize) -> String)(
   `Incompatible types for generic parameter "${label}": it is ${type_to_string(first)} from ${first_from} but ${type_to_string(later)} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`
 );
+/// The E0601 text for a VALUE binder (`generic(N : usize)`) two arguments
+/// bind to different array lengths
+/// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
+_forall_len_conflict_message :: (fn(label : String, first : String, first_from : String, later : String, later_arg : usize) -> String)(
+  `Incompatible types for generic parameter "${label}": it is length ${first} from ${first_from} but length ${later} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a generic parameter in one call stands for one value.`
+);
 /// "argument N" (1-based) for a conflict message.
 _forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_string()}`);
+/// A VALUE binder's concrete binding in a structural-inference scratch env
+/// (the synthesizer's Array-length arm binds `generic(N : usize)` to an
+/// `IntLit`), or `.None` while it is unbound or a type binder.
+_scratch_len_binding :: (fn(se : Environment, name : String) -> Option(String))({
+  vars := get_variables_from_env(se, name);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 /// A binder's CONCRETE binding in a structural-inference scratch env, or
 /// `.None` while it is unbound or still a type variable.
 _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(TypeValue))({
@@ -2507,14 +2525,11 @@ _fv_refine_closure_expected :: (
         while(ms_i < mentioned.len(), {
           match(
             mentioned.get(ms_i),
-            .Some(ms) => match(
-              ms,
-              .SomeT({ name : sg_n, frame_level : sg_l }) => if(sg_n == f_name, {
-                subst_add(sb, sg_n, sg_l, ft);
-                any = true;
-              }),
-              _ => ()
-            ),
+            .Some(.SomeT({ name : sg_n, frame_level : sg_l })) => if(sg_n == f_name, {
+              subst_add(sb, sg_n, sg_l, ft);
+              any = true;
+            }),
+            .Some(_) => (),
             .None => ()
           );
           ms_i = (ms_i + usize(1));
@@ -2847,6 +2862,8 @@ _funcval_bind_foralls :: (
           se_seen_names := ArrayList(String).new();
           se_seen_tys := ArrayList(TypeValue).new();
           se_seen_args := ArrayList(usize).new();
+          // A value binder's length per seen entry ("" for a type binder).
+          se_seen_lens := ArrayList(String).new();
           (sp_i : usize) = usize(0);
           while(sp_i < n_dp, {
             dpt := match(declared_param_types.get(sp_i), .Some(t) => t, .None => t_unit());
@@ -2860,21 +2877,26 @@ _funcval_bind_foralls :: (
             while(sn_i < forall_names.len(), {
               sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
               sn_i = (sn_i + usize(1));
-              sn_now := match(
-                _scratch_concrete_binding(se_new, sn_name.clone()),
-                .Some(t) => t,
-                .None => {
-                  continue;
-                }
-              );
+              sn_ty := _scratch_concrete_binding(se_new, sn_name.clone());
+              sn_len := match(sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(se_new, sn_name.clone()), .Some(l) => l, .None => String.new()));
+              if(sn_ty.is_none() && (sn_len.len() == usize(0)), {
+                continue;
+              });
+              sn_now := match(sn_ty, .Some(t) => t, .None => t_usize());
               (sn_k : usize) = usize(0);
               (sn_found : bool) = false;
               while((sn_k < se_seen_names.len()) && !(sn_found), {
                 if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
                   sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
-                  if(_forall_types_conflict(sn_prev, sn_now), {
-                    fa_conflicts.push(_forall_conflict_message(sn_name.clone(), sn_prev, _forall_arg_phrase(match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0))), sn_now, sp_i));
+                  sn_prev_len := match(se_seen_lens.get(sn_k), .Some(l) => l, .None => String.new());
+                  sn_prev_arg := match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0));
+                  if((sn_len.len() > usize(0)) && (sn_prev_len.len() > usize(0)) && (sn_len != sn_prev_len), {
+                    fa_conflicts.push(_forall_len_conflict_message(sn_name.clone(), sn_prev_len, _forall_arg_phrase(sn_prev_arg), sn_len.clone(), sp_i));
+                    fa_conflict_args.push(sp_i);
+                  });
+                  if((sn_len.len() == usize(0)) && (sn_prev_len.len() == usize(0)) && _forall_types_conflict(sn_prev, sn_now), {
+                    fa_conflicts.push(_forall_conflict_message(sn_name.clone(), sn_prev, _forall_arg_phrase(sn_prev_arg), sn_now, sp_i));
                     fa_conflict_args.push(sp_i);
                   });
                 });
@@ -2884,6 +2906,7 @@ _funcval_bind_foralls :: (
                 se_seen_names.push(sn_name);
                 se_seen_tys.push(sn_now);
                 se_seen_args.push(sp_i);
+                se_seen_lens.push(sn_len);
               });
             });
             sp_i = (sp_i + usize(1));
@@ -2900,8 +2923,22 @@ _funcval_bind_foralls :: (
             se_var.value.get(usize(0)),
             .Some(se_val) => match(
               se_val,
-              .TypeVal(se_tb) => {
-                if(!(is_some_type(se_tb)), {
+              .TypeVal(se_tb_raw) => {
+                // A CALLER's type variable the synthesis bound this binder to
+                // (`T_inner := T_outer` when a generic caller forwards its
+                // `f : Impl(Fn() -> T_outer)`) is read through the caller's env:
+                // inside the caller's specialization it has a value there. In a
+                // definition-time trial it is unbound, resolves to itself, and
+                // is rejected below as before.
+                se_tb := get_value_of_some_type_from_env(env, se_tb_raw);
+                // Concrete the way codegen means it: a type variable carrying
+                // an `io.async` body's `Future` or a closure's `Fn` lowers to its
+                // state machine / capture struct, so it IS the binding. The
+                // strict `!is_some_type` test dropped it, and
+                // `call_it(() => io.async(...))` with
+                // `fn(generic(T), f : Impl(Fn() -> T)) -> T` reported E0613
+                // (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+                if(!(type_contains_some_type_deep(se_tb)), {
                   fa_bound_names.push(fa_name.clone());
                   fa_bound_types.push(se_tb.clone());
                   _add_forall_sy := add_variable_to_env(
@@ -3822,16 +3859,13 @@ _evaluate_funcval_runtime_call :: (
           evaled_arg_infos.get(ou_cti),
           .Some(ou_ainfo) => match(
             ou_ainfo.value,
-            .Some(ou_v) => match(
-              ou_v,
-              .TypeVal(ou_tv) => if(get_all_some_types(ou_tv).len() > usize(0), {
-                ou_all_known = false;
-              }),
-              .UnknownVal(_, _) => {
-                ou_all_known = false;
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(ou_tv)) => if(get_all_some_types(ou_tv).len() > usize(0), {
+              ou_all_known = false;
+            }),
+            .Some(.UnknownVal(_, _)) => {
+              ou_all_known = false;
+            },
+            .Some(_) => (),
             .None => {
               ou_all_known = false;
             }
@@ -4207,14 +4241,11 @@ _evaluate_funcval_runtime_call :: (
     );
     match(
       rt_s1_spec_fv,
-      .Some(rt_d3_sv) => match(
-        rt_d3_sv,
-        .FuncVal(rt_d3_sfd, _) => {
-          rt_d3_fid = rt_d3_sfd.*.func_id.clone();
-          rt_d3_body = Option(AstExpr).Some(rt_d3_sfd.*.body);
-        },
-        _ => ()
-      ),
+      .Some(.FuncVal(rt_d3_sfd, _)) => {
+        rt_d3_fid = rt_d3_sfd.*.func_id.clone();
+        rt_d3_body = Option(AstExpr).Some(rt_d3_sfd.*.body);
+      },
+      .Some(_) => (),
       .None => ()
     );
     match(
@@ -4232,14 +4263,11 @@ _evaluate_funcval_runtime_call :: (
     );
     match(
       rt_s1_spec_fv,
-      .Some(rt_s1_sv) => match(
-        rt_s1_sv,
-        .FuncVal(rt_s1_sfd, _) => {
-          rt_s1_fid = rt_s1_sfd.*.func_id.clone();
-          rt_s1_body = Option(AstExpr).Some(rt_s1_sfd.*.body);
-        },
-        _ => ()
-      ),
+      .Some(.FuncVal(rt_s1_sfd, _)) => {
+        rt_s1_fid = rt_s1_sfd.*.func_id.clone();
+        rt_s1_body = Option(AstExpr).Some(rt_s1_sfd.*.body);
+      },
+      .Some(_) => (),
       .None => ()
     );
     (rt_s1_elided : bool) = false;
@@ -4325,13 +4353,10 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
               recv_is_module = is_module_type(d6_ri.ty);
               match(
                 d6_ri.value,
-                .Some(d6_v) => match(
-                  d6_v,
-                  .TypeVal(d6_t) => {
-                    recv_is_module = (recv_is_module || is_module_type(d6_t));
-                  },
-                  _ => ()
-                ),
+                .Some(.TypeVal(d6_t)) => {
+                  recv_is_module = (recv_is_module || is_module_type(d6_t));
+                },
+                .Some(_) => (),
                 .None => ()
               );
             },
@@ -5527,12 +5552,9 @@ Fix: wrap the call:
                 // the same reason.
                 iobp_ty := match(
                   iobp_v,
-                  .Some(iobp_ev) => match(
-                    iobp_ev,
-                    .FuncVal(iobp_fvd, _) => get_func_type(iobp_fvd.*.func_id),
-                    .UnknownVal(iobp_uty, _) => iobp_uty,
-                    _ => t_unit()
-                  ),
+                  .Some(.FuncVal(iobp_fvd, _)) => get_func_type(iobp_fvd.*.func_id),
+                  .Some(.UnknownVal(iobp_uty, _)) => iobp_uty,
+                  .Some(_) => t_unit(),
                   .None => t_unit()
                 );
                 if(struct_name == "Io", {
@@ -6214,11 +6236,8 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(ci.ty),
-              .Some(fv_ftt) => match(
-                fv_ftt,
-                .FnTraitT(_, _, _, _, _, _, _, fv_cprf) => fv_cprf,
-                _ => ArrayList(bool).new()
-              ),
+              .Some(.FnTraitT(_, _, _, _, _, _, _, fv_cprf)) => fv_cprf,
+              .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )
           ),
@@ -7178,13 +7197,10 @@ Fix: wrap the call:
             (omitted_val : EvalValue) = create_unknown_val(p_ty);
             match(
               fv_defaults.get(pi),
-              .Some(d) => match(
-                d,
-                .Some(dv) => {
-                  omitted_val = dv;
-                },
-                .None => ()
-              ),
+              .Some(.Some(dv)) => {
+                omitted_val = dv;
+              },
+              .Some(.None) => (),
               .None => ()
             );
             arg_info.value = Option(EvalValue).Some(omitted_val);
@@ -8300,13 +8316,10 @@ Fix: wrap the call:
           if(method_info.is_static, {
             match(
               method_info.receiver_value,
-              .Some(m_rv) => match(
-                m_rv,
-                .TypeVal(m_rt) => {
-                  ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
-                },
-                _ => ()
-              ),
+              .Some(.TypeVal(m_rt)) => {
+                ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
+              },
+              .Some(_) => (),
               .None => ()
             );
           }, {

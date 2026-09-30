@@ -114,11 +114,8 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                         true => match(
                           inner_args.get(usize(1)),
                           .None => false,
-                          .Some(ime) => match(
-                            ime,
-                            .FnCall(_, _, _, _, _) => false,
-                            .Atom(_, itok) => (itok.value == obj_name)
-                          )
+                          .Some(.FnCall(_, _, _, _, _)) => false,
+                          .Some(.Atom(_, itok)) => (itok.value == obj_name)
                         )
                       )
                     )
@@ -131,11 +128,8 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                 true => match(
                   dot_args.get(usize(1)),
                   .None => false,
-                  .Some(me) => match(
-                    me,
-                    .FnCall(_, _, _, _, _) => false,
-                    .Atom(_, tok) => (tok.value == method_name)
-                  )
+                  .Some(.FnCall(_, _, _, _, _)) => false,
+                  .Some(.Atom(_, tok)) => (tok.value == method_name)
                 )
               )
             }
@@ -208,11 +202,8 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
             true => match(
               dot_args.get(usize(1)),
               .None => false,
-              .Some(me) => match(
-                me,
-                .FnCall(_, _, _, _, _) => false,
-                .Atom(_, tok) => (tok.value == "await")
-              )
+              .Some(.FnCall(_, _, _, _, _)) => false,
+              .Some(.Atom(_, tok)) => (tok.value == "await")
             )
           )
         )

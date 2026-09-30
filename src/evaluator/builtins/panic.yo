@@ -129,13 +129,10 @@ evaluate_panic :: (
         msg_value := info.value;
         match(
           msg_value,
-          .Some(mv) => match(
-            mv,
-            .StrLit(raw) => {
-              ct_msg = .Some(_unquote_str_lit(raw));
-            },
-            _ => ()
-          ),
+          .Some(.StrLit(raw)) => {
+            ct_msg = .Some(_unquote_str_lit(raw));
+          },
+          .Some(_) => (),
           .None => ()
         );
         // `str` is the fieldless `.Str` TypeValue variant (NOT a Struct named
@@ -153,12 +150,9 @@ evaluate_panic :: (
         // single largest propagated def-eval failure (96 std files).
         is_comptime_str := match(
           msg_value,
-          .Some(v) => match(
-            v,
-            .StrLit(_) => true,
-            .UnknownVal(uty, _) => is_comptime_string_type(uty),
-            _ => false
-          ),
+          .Some(.StrLit(_)) => true,
+          .Some(.UnknownVal(uty, _)) => is_comptime_string_type(uty),
+          .Some(_) => false,
           .None => is_comptime_string_type(msg_type)
         );
         // *(u8) — C string pointer (e.g. a String's to_cstr().ptr())

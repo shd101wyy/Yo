@@ -1,0 +1,13 @@
+pragma(Pragma.AllowUnsafe); // a raw block from Allocator.alloc is a raw pointer
+{ Arena } :: import("std/arena");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  arena := Arena.new(usize(1024));
+  a := arena.allocator();
+  block := a.alloc(usize(32));
+  println(`allocated: ${block.is_some()}`);
+  // The block is still live, so releasing the region would leave it dangling.
+  arena.deinit();
+  println("unreachable");
+});
+export(main);

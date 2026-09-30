@@ -66,7 +66,7 @@ The two facts that matter for the comparison:
 | `generic(N : usize)` as a length binder in parameters and result, `-> Array(u8, N)` | works (`tests/array.test.yo`) |
 | `-> Array(u8, T.BYTES)` (a bare associated-constant projection) | works since 2026-09-16 (`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2) |
 | a COMPUTED length mentioning a binder, `-> Array(u8, N + usize(1))` | **rejected**: "Array length is not a compile-time constant, a bare generic parameter, or an associated constant" (`src/evaluator/types/array.yo`) |
-| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
+| one `N` bound by two arguments of different lengths | **accepted — soundness hole**, the last argument wins: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` (S2, filed by this audit; the type-variable twin was fixed in Phase 2.4) |
 | `where(N > usize(0))` | rejected: `where` takes only `T <: Trait` forms |
 | the index language | none: a length is a literal, a bare binder, or a bare projection; there is no symbolic arithmetic and no normalization, and none is needed because every length is concrete by the time a body is evaluated (Zig model) |
 
@@ -309,7 +309,7 @@ and it is what keeps unification free of arithmetic (§4 reason 3).
    parameter-position rejection, `N + M` with the two binders bound by two
    arguments.
 
-Depends on: `issues/a-usize-generic-binder-rebinds-per-argument.md` being
+Depends on: `issues/fixed/a-usize-generic-binder-rebinds-per-argument.md` being
 fixed first (the "second concrete binding disagrees" check for value
 binders — a computed result length built on a rebinding binder would
 silently size a buffer by the wrong argument), and on the soundness
@@ -326,9 +326,9 @@ return one hidden type without a vtable, contracts for hidden lengths), and
 the non-goal for constructor existentials with its reason. Cross-link from
 `GADTS.md`'s "No existential types" line. Half a day.
 
-### Q1 — a policy question, filed, not decided here
+### Q1 — a policy question (DECIDED 2026-09-30: a build step, never a `check` switch — `__yo_build_verify` landed, `build.verify` wrapper seed-gated)
 
-`issues/questions/verify-by-default-for-a-project.md`: should a `yo.toml`
+`issues/fixed/verify-by-default-for-a-project.md`: should a `yo.toml`
 or `build.yo` switch arm every file of a project as a verify target (the
 ATS "type checking proves indices" experience), rather than the per-entry
 pragma? Today only the entry file is verified under `check` / `compile`,
@@ -346,7 +346,7 @@ project's roots, already available; wire it as a build step like `test`).
 | R2 | R1 | 3 | ATS's `dataprop` / `prfun` layer over collections |
 | I1 | usize-binder fix; `tss/impl-self-operator` | 1–2 | computed comptime lengths in result/body positions |
 | E1 | — | 0.5 | the existential story written down |
-| Q1 | — | 0 | filed |
+| Q1 | — | 0 | decided; the verify build step landed (Generation A) |
 
 ## 6. How this interacts with the Z3-backed verifier
 

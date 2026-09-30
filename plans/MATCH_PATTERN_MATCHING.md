@@ -1,7 +1,13 @@
 # `match` — real pattern matching: audit, design, implementation plan
 
-**Status: ACTIVE (2026-09-13). P1–P3 LANDED 2026-09-19 (PR `feat/match-p1-pattern-ir`);
-P4 + Box payloads LANDED 2026-09-29** — tuple scrutinees `(a, b)` (exact
+**Status: COMPLETE (2026-09-30). Every phase is landed: P0–P3 (PR
+`feat/match-p1-pattern-ir` + #672 + #926), P4 + Box payloads (#993), the
+async general lowering §4.9 (#995), P5 docs + adoption waves 1–4 (#997,
+#1036), and P6 the verifier subset (#1036).** The one continuing thread is
+the adoption sweep — opportunistic, incremental, with no endpoint of its
+own (see "Still open" below); it no longer gates this plan.
+
+**P4 + Box payloads LANDED 2026-09-29** — tuple scrutinees `(a, b)` (exact
 arity, `tests/match_tuples.test.yo`), struct scrutinees named
 `Point(x : 0, y)` and anonymous `{x, y}` (partial, `tests/match_structs.test.yo`),
 and structural sub-patterns through `Box(T)` payloads (a `Pattern.ThroughBox`
@@ -62,22 +68,34 @@ Three deviations from the design below, each measured on the tree:
    emitter's goto chain is not dispatch-aware; §4.9's shared helpers are the
    follow-up.
 
-Still open: P5's adoption sweep in `src/`/`std/` — now UNBLOCKED
-(`SEED_VERSION` v0.2.45 carries every P1–P3 form) and BEGUN: the subcommand
-help dispatch in `src/main.yo` (the 22-arm cond the plan names first) is a
-`match` on the subcommand string; the rest of the 401 string chains and the
-two-level matches remain (incremental, each wave gated by the cli-cases).
+Still open (the adoption campaign only — incremental, no endpoint of its
+own, each wave gated by the cli-cases): waves 1–4 converted 195 sites (the
+subcommand help dispatch in `src/main.yo`, five hand conversions, 149
+rewriter-converted `.Some(x) => match(x, …)` double-unwraps across 64
+files, and 20 hand-converted rewriter skips). A strict-shape scan finds
+~226 two-level sites remaining plus the smaller string chains; take them
+wave by wave when touching the files anyway. The plan itself is complete.
 
-P6 (verifier subset) is DEFERRED by decision (2026-09-29): the plan always
-marked it optional, and a verified function that adopts a new pattern form
-already fails LOUDLY (`_fail_subset` in `src/verifier/vc.yo`) — nothing
-verifies falsely. Doing it properly means porting the verifier's AST-based
-match walk (`_arm_under_pattern` predates the Pattern IR) onto
-`lookup_match_arms` and adding SMT encodings for literals, ranges,
-or-alternatives and guards — its own campaign, best taken with the next
-verifier milestone rather than bolted on here. The async
-general lowering LANDED 2026-09-29: `_generate_match_with_await_impl`
-dispatches a non-classic match through `_aw_generate_general_match` — an
+P6 (verifier subset) LANDED 2026-09-29: the verifier's match walk is
+rewritten over the compiled Pattern IR (`lookup_match_arms` — `verify` now
+keeps the codegen tables on for exactly this table). Every arm contributes
+`ite(pattern-test ∧ guard, body[binds], tail)`: constructor tests on
+projections for variants (nested levels declare their datatypes too),
+literal/range tests reuse the evaluator's SYNTHESIZED test ASTs through the
+ordinary term walk (`subject == lit`, the two range inequalities — strings
+fail the walk by construction, no str theory), binding-free or-patterns are
+disjunctions, guards are conjuncts with the pattern's bindings in scope.
+Still outside the subset, each failing LOUDLY: string scrutinees (at the
+parameter level), tuple/struct/Box patterns, or-patterns that bind, and a
+GUARDED FINAL arm (the ite tree's bottom would be unsound). Tests:
+`tests/spec/verify_match_patterns.test.yo` — literal, nested, or, guard,
+range and Option-of-Option proofs (7/7 ok, pinned Z3); the existing
+straight_line/refine_types/pragma_verify proofs are unchanged (20/20), and
+directory-mode verify behaves exactly as the seed on the negative fixtures.
+
+**The async general lowering LANDED 2026-09-29 (#995):**
+`_generate_match_with_await_impl` dispatches a non-classic match through
+`_aw_generate_general_match` — an
 ordered test chain over the compiled arms (`_aw_emit_general_pattern`, the
 async twin of the sync `_emit_pattern_chain`, bindings routed through
 `_resolve_pattern_binding_sm_field` so a cross-await binding writes the state

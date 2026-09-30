@@ -439,3 +439,7 @@ sha256 为键）；传 `--no-cache` 可跳过。确定性来自 `:rlimit` 预算
 ```bash
 yo verify ./tests/spec/verify_straight_line.test.yo
 ```
+
+要让证明成为项目构建的一部分、而不是靠人记得去跑的命令，在 `build.yo` 里声明
+一个验证步骤 —— 见 [BUILD_SYSTEM.md § 验证步骤](BUILD_SYSTEM.md#验证步骤)。
+`yo check` 从不运行求解器；构建步骤才是项目级开关。

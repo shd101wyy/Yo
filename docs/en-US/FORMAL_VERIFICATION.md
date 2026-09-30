@@ -509,3 +509,8 @@ bugged twin that must refute:
 ```bash
 yo verify ./tests/spec/verify_straight_line.test.yo
 ```
+
+To make proofs part of a project's build rather than a command someone
+remembers to run, declare a verification step in `build.yo` — see
+[BUILD_SYSTEM.md § Verification steps](BUILD_SYSTEM.md#verification-steps).
+`yo check` never runs the solver; the build step is the project-level switch.

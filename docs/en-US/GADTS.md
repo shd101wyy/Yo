@@ -144,7 +144,7 @@ GADTs have the **same C representation as regular enums**. All type refinement i
 
 ## Limitations
 
-- **No existential types**: Constructors cannot introduce new type variables not in the enum's parameters.
+- **No existential types**: Constructors cannot introduce new type variables not in the enum's parameters. `Dyn(Trait)` is the supported way to hide a type; see [DESIGN.md § Existential Types](./DESIGN.md#existential-types) for the three forms Yo has and the one it does not.
 - Type refinement only applies in `match` expressions, not in `cond`.
 - Every arm is checked under its refinement at definition, even in a `generic` function nothing
   calls: an ill-typed `.BoolVal(b) => i32(7)` arm is an error at `yo check`, because a mismatch

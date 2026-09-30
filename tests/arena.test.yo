@@ -1,0 +1,171 @@
+//! `std/arena` and the `Allocator` vtable surface (`plans/EXPLICIT_ALLOCATORS.md` P0).
+//!
+//! The counting allocator below is the third `Allocator` implementor (after
+//! the global one and `Arena`): it forwards to the global allocator and keeps
+//! totals, which is what freezes the vtable's shape against a user-written
+//! implementation.
+pragma(Pragma.SkipWasm32Wasi); // the threaded cases need pthreads
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Allocator, AllocatorVTable, GlobalAllocator } :: import("std/allocator");
+{ Arena } :: import("std/arena");
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+// --- the counting allocator -------------------------------------------------
+_Counts :: struct(allocs : usize, frees : usize, reallocs : usize, bytes : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.allocs = (c.*.allocs + usize(1)));
+  unsafe(c.*.bytes = (c.*.bytes + size));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.reallocs = (c.*.reallocs + usize(1)));
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.frees = (c.*.frees + usize(1)));
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+test("A counting allocator sees every block it owns, prefix included", {
+  counts := _Counts(allocs : usize(0), frees : usize(0), reallocs : usize(0), bytes : usize(0));
+  a := Allocator(ctx : .Some((*void)(&counts)), vtable : &_COUNT_VTABLE);
+  p := a.alloc(usize(10));
+  q := a.alloc(usize(20));
+  assert(counts.allocs == usize(2), "two allocations");
+  // Each request carries the 16-byte owner prefix.
+  assert(counts.bytes == usize(62), `bytes: ${counts.bytes}`);
+  r := Allocator.realloc(q.unwrap(), usize(500));
+  assert(r.is_some(), "realloc succeeds");
+  assert(counts.reallocs == usize(1), "one realloc");
+  assert(Allocator.owner_of(r.unwrap()).same(a), "the owner survives a realloc");
+  Allocator.free(p);
+  Allocator.free(r);
+  assert(counts.frees == usize(2), "balanced");
+  Allocator.free(.None);
+  assert(counts.frees == usize(2), "freeing .None is a no-op");
+});
+test("The owner prefix is ctx then vtable, 16 bytes before the block", {
+  arena := Arena.new(usize(256));
+  a := arena.allocator();
+  p := (*u8)(a.alloc(usize(8)).unwrap());
+  // SAFETY: every Allocator.alloc block is preceded by its 16-byte prefix.
+  word0 := unsafe((*?*void)(p.sub(usize(16))).*);
+  word1 := unsafe((**AllocatorVTable)(p.sub(usize(8))).*);
+  assert(word0 == a.ctx, "prefix word 0 is ctx");
+  assert(word1 == a.vtable, "prefix word 1 is the vtable");
+  Allocator.free(.Some((*void)(p)));
+});
+test("Allocator.global round-trips and owns its blocks", {
+  g := Allocator.global();
+  assert(g.same(Allocator.global()), "one global allocator");
+  p := g.alloc(usize(64));
+  assert(p.is_some(), "alloc");
+  q := Allocator.realloc(p.unwrap(), usize(1 << 16));
+  assert(q.is_some(), "realloc");
+  assert(Allocator.owner_of(q.unwrap()).same(g), "owner");
+  Allocator.free(q);
+});
+test("Arena counts live blocks and reclaims the most recent one", {
+  arena := Arena.new(usize(4096));
+  a := arena.allocator();
+  p := a.alloc(usize(24));
+  mark := arena.used_bytes();
+  q := a.alloc(usize(100));
+  assert(arena.live_blocks() == usize(2), "two live");
+  offset := unsafe((*u8)(q.unwrap()).offset_from((*u8)(p.unwrap())));
+  assert((offset % isize(16)) == isize(0), `blocks are 16-aligned apart: ${offset}`);
+  Allocator.free(q);
+  assert(arena.used_bytes() == mark, "freeing the top block reclaims it");
+  assert(arena.live_blocks() == usize(1), "one live");
+  Allocator.free(p);
+  assert(arena.live_blocks() == usize(0), "none live");
+  arena.deinit();
+  assert(arena.is_released(), "released");
+  arena.deinit();
+  assert(arena.is_released(), "a second deinit is a no-op");
+});
+test("Arena realloc grows the top block in place and moves any other", {
+  arena := Arena.new(usize(4096));
+  a := arena.allocator();
+  p := a.alloc(usize(32)).unwrap();
+  grown := Allocator.realloc(p, usize(200)).unwrap();
+  assert(grown == p, "the top block grows in place");
+  unsafe((*u8)(grown).* = u8(7));
+  unsafe((*u8)(grown).add(usize(199)).* = u8(9));
+  other := a.alloc(usize(16)).unwrap();
+  moved := Allocator.realloc(grown, usize(400)).unwrap();
+  assert(moved != grown, "a buried block moves");
+  assert(unsafe((*u8)(moved).*) == u8(7), "first byte copied");
+  assert(unsafe((*u8)(moved).add(usize(199)).*) == u8(9), "last byte copied");
+  assert(arena.live_blocks() == usize(2), "realloc replaces one block by one");
+  Allocator.free(.Some(moved));
+  Allocator.free(.Some(other));
+  assert(arena.live_blocks() == usize(0), "none live");
+});
+test("An exhausted arena returns .None", {
+  arena := Arena.new(usize(64));
+  a := arena.allocator();
+  assert(a.alloc(usize(1000)).is_none(), "too big");
+  p := a.alloc(usize(8));
+  assert(p.is_some(), "a small block still fits");
+  assert(Allocator.realloc(p.unwrap(), usize(1000)).is_none(), "realloc past the region fails");
+  assert(arena.live_blocks() == usize(1), "the original block survives a failed realloc");
+  Allocator.free(p);
+});
+test("abandon stops tracking and makes deinit a no-op", {
+  arena := Arena.new(usize(256));
+  a := arena.allocator();
+  p := a.alloc(usize(8));
+  arena.abandon();
+  arena.deinit();
+  assert(arena.is_released(), "abandoned");
+  Allocator.free(p);
+});
+test("Dead arena states are reused by later arenas", {
+  i := usize(0);
+  while(runtime(i < usize(200)), {
+    arena := Arena.new(usize(128));
+    p := arena.allocator().alloc(usize(16));
+    Allocator.free(p);
+    // the handle dies here: its dispose releases the region
+    i = (i + usize(1));
+  });
+  arena := Arena.new(usize(128));
+  assert(arena.live_blocks() == usize(0), "a recycled state starts empty");
+  assert(arena.used_bytes() == usize(0), "and unused");
+});
+// Allocate and free 500 blocks through `a`.
+_churn :: (fn(a : Allocator) -> unit)({
+  blocks := ArrayList(*void).new();
+  k := usize(0);
+  while(runtime(k < usize(500)), {
+    blocks.push(a.alloc(usize(24)).unwrap());
+    k = (k + usize(1));
+  });
+  for(blocks, b => Allocator.free(.Some(b)));
+});
+test("An arena allocator crosses threads and stays consistent", {
+  arena := Arena.new(usize(1) << usize(20));
+  a := arena.allocator();
+  t1 := Thread(unit).spawn(io => _churn(a));
+  t2 := Thread(unit).spawn(io => _churn(a));
+  t1.join();
+  t2.join();
+  assert(arena.live_blocks() == usize(0), `live after both workers: ${arena.live_blocks()}`);
+});
+test("An Arena handle cannot cross into a spawn body; its Allocator can", {
+  arena := Arena.new(usize(1024));
+  // The handle is a non-atomic reference-counted object holding a raw
+  // pointer, so it is not `Send`; share the arena through its `Allocator`
+  // value instead (the previous test).
+  comptime_expect_error(
+    Thread(unit).spawn(io => {
+      _n := arena.live_blocks();
+    }),
+    "Send"
+  );
+});

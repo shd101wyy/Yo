@@ -95,10 +95,12 @@ _is_ident_name :: (fn(name : String) -> bool)({
   true
 });
 
-/// The language keyword list offered alongside identifier completion.
-/// Hand-curated from `expr.yo`'s BK_* constants (word-shaped entries only —
-/// operators are not completion material).
-_keywords :: (fn() -> ArrayList(String))({
+/// The language keyword list offered alongside identifier completion, and
+/// the rename gate's keyword half (rename refuses to CREATE one, though the
+/// parser technically accepts a keyword-named binding). Hand-curated from
+/// `expr.yo`'s BK_* constants (word-shaped entries only — operators are not
+/// completion material).
+keyword_names :: (fn() -> ArrayList(String))({
   ks := ArrayList(String).new();
   ks.push(String.from("comptime"));
   ks.push(String.from("given"));
@@ -451,14 +453,11 @@ _receiver_at :: (
   (unwrapped : bool) = false;
   match(
     info.value,
-    .Some(v) => match(
-      v,
-      .TypeVal(t) => {
-        recv = t;
-        unwrapped = true;
-      },
-      _ => ()
-    ),
+    .Some(.TypeVal(t)) => {
+      recv = t;
+      unwrapped = true;
+    },
+    .Some(_) => (),
     .None => ()
   );
   // Env refinement (hover's shape): several bindings can share the name;
@@ -473,14 +472,11 @@ _receiver_at :: (
           (var_unwrapped : bool) = false;
           match(
             sv.value.get(usize(0)),
-            .Some(vv) => match(
-              vv,
-              .TypeVal(t2) => {
-                recv = t2;
-                var_unwrapped = true;
-              },
-              _ => ()
-            ),
+            .Some(.TypeVal(t2)) => {
+              recv = t2;
+              var_unwrapped = true;
+            },
+            .Some(_) => (),
             .None => ()
           );
           if(!(var_unwrapped), {
@@ -584,13 +580,10 @@ _expected_enum_at :: (
                         (found : TypeValue) = tinfo.ty;
                         match(
                           tinfo.value,
-                          .Some(tv) => match(
-                            tv,
-                            .TypeVal(t) => {
-                              found = t;
-                            },
-                            _ => ()
-                          ),
+                          .Some(.TypeVal(t)) => {
+                            found = t;
+                          },
+                          .Some(_) => (),
                           .None => ()
                         );
                         match(
@@ -1322,7 +1315,7 @@ handle_completion :: (
       fi = (fi + usize(1));
     });
   });
-  kws := _keywords();
+  kws := keyword_names();
   (ki : usize) = usize(0);
   while(ki < kws.len(), {
     kw := kws(ki);
@@ -1334,4 +1327,4 @@ handle_completion :: (
   });
   JsonValue.Array(items : items)
 });
-export(handle_completion, _receiver_at);
+export(handle_completion, keyword_names, _receiver_at);

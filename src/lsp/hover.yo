@@ -133,6 +133,10 @@ _render_contract_block :: (
 });
 
 /// Find the token at (line, character), skipping whitespace and comments.
+/// A cursor at an IDENTIFIER's end column still names it (keyboard
+/// navigation parks right after a word); operators keep the exclusive end
+/// so the identifier after them wins the boundary
+/// (plans/LSP_AUDIT_2026-09-29.md §4).
 _find_token_at :: (
   fn(tokens : ArrayList(Token), line : usize, character : usize) -> Option(Token)
 )({
@@ -153,7 +157,10 @@ _find_token_at :: (
     if(!skip && (usize(t.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
       // to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      if((character >= usize(t.column)) && (character < (usize(t.column) + t.value.chars().count())), {
+      width := t.value.chars().count();
+      inside := ((character >= usize(t.column)) && (character < (usize(t.column) + width)));
+      at_end := ((t.kind == TokenKind.Identifier) && (character == (usize(t.column) + width)));
+      if(inside || at_end, {
         return(Option(Token).Some(t));
       });
     });

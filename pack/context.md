@@ -245,6 +245,11 @@ read :: (fn(p : Path, io : Io) -> String)({
   E0405).
 - Parameters are read-only by default; `inout(self)` for mutation; methods
   take `self : Self` explicitly.
+- Allocation is placement, RC is lifetime: `with_allocator(a, () => ...)`
+  (`std/allocator`) puts every RC object created inside it in allocator
+  `a`; containers take one directly (`ArrayList(T).new_in(a)`). The release
+  always goes back to the allocator that made the block. `std/arena`'s
+  `Arena` panics at `deinit` while any block is still live.
 
 ## Async (single-threaded) and effects
 
