@@ -64,7 +64,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
       },
       is_close => {
         if(open_rows.len() > usize(0), {
-          open_row := match(open_rows.get(open_rows.len() - usize(1)), .Some(r) => r, .None => usize(t.row));
+          open_row := match(open_rows.last(), .Some(r) => r, .None => usize(t.row));
           _p := open_rows.pop();
           if(open_row < usize(t.row), {
             _push_fold(out, seen, open_row, usize(t.row), "region");

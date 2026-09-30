@@ -80,7 +80,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       vars := get_variables_from_env(ei.env, var_name.clone());
       if(vars.len() > usize(0), {
         match(
-          vars.get(vars.len() - usize(1)),
+          vars.last(),
           .Some(variable) => {
             (var_id : String) = match(
               variable.is_owning_the_same_rc_value_as,
@@ -179,7 +179,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         svars := get_variables_from_env(ei_s.env, var_name.clone());
         if(svars.len() > usize(0), {
           match(
-            svars.get(svars.len() - usize(1)),
+            svars.last(),
             .Some(sv) => {
               read_site = Option(String).Some(`${sv.token.module_path}:${sv.token.row.to_string()}:${sv.token.column.to_string()}`);
             },
@@ -246,7 +246,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       vars2 := get_variables_from_env(ei2.env, var_name.clone());
       if(vars2.len() > usize(0), {
         match(
-          vars2.get(vars2.len() - usize(1)),
+          vars2.last(),
           .Some(variable2) => match(
             variable2.is_owning_the_same_rc_value_as,
             .Some(owner_box2) => {
@@ -439,7 +439,7 @@ _var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
       vs := get_variables_from_env(e, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
-        true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
+        true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
       )
     },
     .None => false

@@ -2970,7 +2970,7 @@ _quant_term :: (
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   (bi : usize) = usize(0);
-  while(bi < (args.len() - usize(1)), {
+  while((bi + usize(1)) < args.len(), {
     b := match(
       args.get(bi),
       .Some(bb) => bb,
@@ -3032,7 +3032,7 @@ _quant_term :: (
     bi = (bi + usize(1));
   });
   ctx.quant_depth = (ctx.quant_depth + usize(1));
-  body := _expr_term(ctx, args.get(args.len() - usize(1)).unwrap());
+  body := _expr_term(ctx, args.last().unwrap());
   ctx.quant_depth = (ctx.quant_depth - usize(1));
   // Restore the shadowed bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
@@ -3970,7 +3970,7 @@ _unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize
   (k : usize) = (ctx.path.len() - (base + guard_count));
   while(k > usize(0), {
     match(
-      ctx.path.get(ctx.path.len() - usize(1)),
+      ctx.path.last(),
       .Some(top) => keep.push(top),
       .None => ()
     );

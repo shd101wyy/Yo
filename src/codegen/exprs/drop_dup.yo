@@ -816,7 +816,7 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
       context.base.get_expr_info(atom),
       .Some(aei) => {
         vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
-        if(vars.len() == usize(0), false, match(vars.get(vars.len() - usize(1)), .Some(v) => v.is_parameter, .None => false))
+        if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
       },
       .None => false
     ),
