@@ -285,6 +285,16 @@ Every guard is a `static inline` C11 helper emitted by `src/codegen/c/collection
 
 **No GNU builtins** (`__builtin_*_overflow`): the MSVC target makes C11 the ceiling. Derive width bounds from the type, never from hard-coded 61/63, because `usize` is 32 bits on wasm32. Validate new helper arithmetic with a standalone C probe before splicing it in. `--sanitize undefined` (with `-fno-sanitize-recover=all`) is the instrument for checking that the guards themselves are UB-free.
 
+### Every runtime trap is `fflush(stdout); fprintf(stderr, …); __yo_abort();`
+
+Never emit a bare `abort()`. stdio fully buffers a piped stdout and `abort()`
+discards the buffer, so a program's own output vanished from CI logs and
+`build run` whenever it panicked
+(`issues/fixed/panic-loses-buffered-stdout-when-piped.md`). `__yo_abort()`
+(emitted right after the includes, `src/codegen/c/collection.yo`) flushes and
+aborts; a site that prints a message flushes stdout BEFORE its `fprintf`, so a
+piped run keeps the terminal's order.
+
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
 Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `rc()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.

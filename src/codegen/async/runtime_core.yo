@@ -440,7 +440,7 @@ static void __yo_async_poll_step(void) {
   // deadlock (their I/O never depends on a sibling task) but the guard cannot
   // tell. Flip the default once that is refactored.
   if (__yo_async_task_depth > 0 && __yo_async_strict_nesting()) {
-    fprintf(stderr,
+    fflush(stdout); fprintf(stderr,
       "panic: a blocking await ran inside an async task: an io.await in a "
       "non-io.async function, JoinHandle.await, or a std/async combinator "
       "(join_all/race/any/timeout) was called from a spawned or awaited task. "
@@ -448,7 +448,7 @@ static void __yo_async_poll_step(void) {
       "io.async future and await it; to race tasks from inside a task, poll "
       "is_finished() and await yield().\\n");
     fflush(stderr);
-    abort();
+    __yo_abort();
   }
   int ran = __yo_async_run_ready_tasks();
   if (__yo_io_initialized) {
@@ -577,8 +577,8 @@ static void __yo_async_run_until_complete(void* future_ptr) {
   __yo_async_free_cont_pool();
   ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", future->state);
   if (future->state == -2) {
-    fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
-    abort();
+    fflush(stdout); fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
+    __yo_abort();
   }
 }
 

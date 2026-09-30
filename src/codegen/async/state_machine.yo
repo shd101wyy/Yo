@@ -1638,7 +1638,7 @@ generate_async_block_resume_function_inline :: (
     .None => false
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
-  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  em.emit_string_line(`static void ${resume_function_name}__body(void* sm_ptr) {`);
   em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally aborted while suspended or queued: release the pending await's
@@ -1753,11 +1753,30 @@ generate_async_block_resume_function_inline :: (
   em.emit_string_line(`    default: return;`);
   em.emit_string_line(`  }`);
   em.emit_string_line(`}`);
+  em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
   g_inline_suspensions.insert(async_block_id.clone(), low.suspensions);
   local_var_drop_codes
 });
 
+/// The resume entry point every queue and waiter calls: it runs the body in
+/// the allocation scope the task was created in — the owner prefix of a
+/// task an explicit allocator placed, the global allocator otherwise — so a
+/// task keeps its scope across suspensions, wherever it is resumed from
+/// (plans/EXPLICIT_ALLOCATORS.md §3.5). The scope is read before the body
+/// runs, because the body may release the task.
+resume_scope_wrapper :: (fn(name : String) -> String)(
+  `void ${name.clone()}(void* sm_ptr) {
+  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
+    ${name.clone()}__body(sm_ptr);
+    return;
+  }
+  __yo_alloc_scope_t __yo_prev_scope = __yo_current_allocator;
+  __yo_current_allocator = __yo_scope_of_object(sm_ptr);
+  ${name.clone()}__body(sm_ptr);
+  __yo_current_allocator = __yo_prev_scope;
+}`
+);
 /// The abort hook of a single-pass state machine: cancel what the task is
 /// suspended on in `prev_state` (the one `__yo_await_slot`), then wake its
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
@@ -1808,6 +1827,7 @@ generate_async_block_cancel_pending_function_inline :: (
 });
 
 export(
+  resume_scope_wrapper,
   is_io_future_type,
   inline_await_result_fields,
   get_state_machine_field_name,

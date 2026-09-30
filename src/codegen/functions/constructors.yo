@@ -175,16 +175,18 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   sig.push_string(params);
   sig.push_str(") {");
   em.emit_string_line(sig);
+  // Placed by the current allocation scope (plans/EXPLICIT_ALLOCATORS.md §3.5).
+  em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
   alloc := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
   alloc.push_string(c_name.clone());
-  alloc.push_str("*)__yo_rc_alloc(sizeof(");
+  alloc.push_str("*)__yo_rc_alloc_scoped(__yo_sc, sizeof(");
   alloc.push_string(c_name.clone());
   alloc.push_str("));");
   em.emit_string_line(alloc);
   // RC header.
-  em.emit_string_line(String.from("  obj->header.ref_count = 1;  // Start with one reference"));
+  em.emit_string_line(String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"));
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
   is_atomic := is_atomic_reference_struct_type(type);
   small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
@@ -667,8 +669,9 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         });
         // Signature + malloc.
         em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
-        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
-        em.emit_string_line(`  obj->header.ref_count = 1;  // Start with one reference`);
+        em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
+        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc_scoped(__yo_sc, sizeof(${c_name}));`);
+        em.emit_string_line(`  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         if(context.base.needs_cycle_gc && !is_atomic, {
           // Shared packed word always initialized; GC list pointers exist
@@ -766,6 +769,11 @@ generate_closure_constructor_functions :: (fn(context : FunctionGenerationContex
 /// without the cycle collector. No visited set: reaching an object twice means
 /// its count is at least 2, which already fails.
 /// (issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md)
+/// The worklist starts in a 64-item buffer on `__yo_iso_uq_run`'s stack and
+/// moves to the heap only when a walk outgrows it; the heap copy is freed
+/// when that walk ends. A worklist cached in a thread-local outlived its
+/// thread and was reported by LSan on every program that used `^`
+/// (issues/fixed/the-iso-uniqueness-walk-leaks-its-worklist-per-thread.md).
 generate_iso_uniqueness_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   if(context.base.iso_types.len() == usize(0), {
     return(());
@@ -776,29 +784,38 @@ generate_iso_uniqueness_functions :: (fn(context : FunctionGenerationContext) ->
 static _Thread_local __yo_iso_uq_item_t* __yo_iso_uq_items = NULL;
 static _Thread_local size_t __yo_iso_uq_len = 0;
 static _Thread_local size_t __yo_iso_uq_cap = 0;
+static _Thread_local bool __yo_iso_uq_heap = false;
 static _Thread_local bool __yo_iso_uq_failed = false;
 static void __yo_iso_uq_visit(void* child, void* child_traverse) {
   if (__yo_iso_uq_failed || child == NULL) return;
   if (child_traverse == (void*)__yo_traverse_atomic_stop) return;
-  if (child_traverse == NULL || ((__yo_rc_prefix_t*)child)->ref_count != 1) {
+  if (child_traverse == NULL || (((__yo_rc_prefix_t*)child)->ref_count & __YO_RC_COUNT) != 1) {
     __yo_iso_uq_failed = true;
     return;
   }
   if (__yo_iso_uq_len == __yo_iso_uq_cap) {
-    size_t cap = __yo_iso_uq_cap ? __yo_iso_uq_cap * 2 : 64;
-    __yo_iso_uq_item_t* grown = (__yo_iso_uq_item_t*)realloc(__yo_iso_uq_items, cap * sizeof(__yo_iso_uq_item_t));
+    size_t cap = __yo_iso_uq_cap * 2;
+    __yo_iso_uq_item_t* grown = (__yo_iso_uq_item_t*)(__yo_iso_uq_heap
+        ? realloc(__yo_iso_uq_items, cap * sizeof(__yo_iso_uq_item_t))
+        : malloc(cap * sizeof(__yo_iso_uq_item_t)));
     if (!grown) {
-      fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
-      abort();
+      fflush(stdout); fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
+      __yo_abort();
     }
+    if (!__yo_iso_uq_heap) memcpy(grown, __yo_iso_uq_items, __yo_iso_uq_len * sizeof(__yo_iso_uq_item_t));
     __yo_iso_uq_items = grown;
     __yo_iso_uq_cap = cap;
+    __yo_iso_uq_heap = true;
   }
   __yo_iso_uq_items[__yo_iso_uq_len].ptr = child;
   __yo_iso_uq_items[__yo_iso_uq_len].traverse = (void (*)(void*, void (*)(void*, void*)))child_traverse;
   __yo_iso_uq_len++;
 }
 static bool __yo_iso_uq_run(void* root, void* root_traverse) {
+  __yo_iso_uq_item_t local[64];
+  __yo_iso_uq_items = local;
+  __yo_iso_uq_cap = 64;
+  __yo_iso_uq_heap = false;
   __yo_iso_uq_failed = false;
   __yo_iso_uq_len = 0;
   __yo_iso_uq_visit(root, root_traverse);
@@ -806,6 +823,10 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
     __yo_iso_uq_item_t it = __yo_iso_uq_items[--__yo_iso_uq_len];
     it.traverse(it.ptr, __yo_iso_uq_visit);
   }
+  if (__yo_iso_uq_heap) free(__yo_iso_uq_items);
+  __yo_iso_uq_items = NULL;
+  __yo_iso_uq_cap = 0;
+  __yo_iso_uq_heap = false;
   __yo_iso_uq_len = 0;
   return !__yo_iso_uq_failed;
 }`

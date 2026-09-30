@@ -115,7 +115,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type } :: import("../../types/utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -162,13 +162,10 @@ _collect_anon_param_names :: (
                     a,
                     .FnCall(_, _, ca, _, _) => match(
                       ca.get(usize(0)),
-                      .Some(name_e) => match(
-                        name_e,
-                        .Atom(_, nt) => {
-                          out.push(nt.value.clone());
-                        },
-                        .FnCall(_, _, _, _, _) => ()
-                      ),
+                      .Some(.Atom(_, nt)) => {
+                        out.push(nt.value.clone());
+                      },
+                      .Some(.FnCall(_, _, _, _, _)) => (),
                       .None => ()
                     ),
                     .Atom(_, _) => ()
@@ -249,11 +246,8 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
-          .Some(name_expr) => match(
-            name_expr,
-            .Atom(_, ntok) => ntok.value,
-            .FnCall(_, _, _, _, _) => fallback.clone()
-          ),
+          .Some(.Atom(_, ntok)) => ntok.value,
+          .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
         true => fallback.clone()
@@ -346,14 +340,11 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
           ss_found.get(ss_bi),
           .Some(sv) => match(
             sv.value.get(usize(0)),
-            .Some(sval) => match(
-              sval,
-              .TypeVal(stv) => if(!is_some_type(stv), {
-                ss_bound = Option(TypeValue).Some(stv);
-                ss_bi = usize(0);
-              }),
-              _ => ()
-            ),
+            .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+              ss_bound = Option(TypeValue).Some(stv);
+              ss_bi = usize(0);
+            }),
+            .Some(_) => (),
             .None => ()
           ),
           .None => ()
@@ -524,13 +515,10 @@ _trial_eval_annotation_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(ann_ei) => match(
       ann_ei.value,
-      .Some(ann_v) => match(
-        ann_v,
-        .TypeVal(ann_tv) => if(!is_some_type(ann_tv), {
-          out.push(ann_tv);
-        }),
-        _ => ()
-      ),
+      .Some(.TypeVal(ann_tv)) => if(!is_some_type(ann_tv), {
+        out.push(ann_tv);
+      }),
+      .Some(_) => (),
       .None => ()
     ),
     .None => ()
@@ -1176,14 +1164,11 @@ evaluate_anonymous_function_implementation :: (
             _st_bind_vars.get(_st_bi),
             .Some(sv) => match(
               sv.value.get(usize(0)),
-              .Some(sval) => match(
-                sval,
-                .TypeVal(stv) => if(!is_some_type(stv), {
-                  _st_bound = Option(TypeValue).Some(stv);
-                  _st_bi = usize(0);
-                }),
-                _ => ()
-              ),
+              .Some(.TypeVal(stv)) => if(!is_some_type(stv), {
+                _st_bound = Option(TypeValue).Some(stv);
+                _st_bi = usize(0);
+              }),
+              .Some(_) => (),
               .None => ()
             ),
             .None => ()
@@ -1259,14 +1244,11 @@ evaluate_anonymous_function_implementation :: (
               rpr_vars.get(rpr_vi),
               .Some(rv) => match(
                 rv.value.get(usize(0)),
-                .Some(rvv) => match(
-                  rvv,
-                  .TypeVal(rvt) => if(!is_some_type(rvt), {
-                    rpr_conc = true;
-                    rpr_vi = usize(0);
-                  }),
-                  _ => ()
-                ),
+                .Some(.TypeVal(rvt)) => if(!is_some_type(rvt), {
+                  rpr_conc = true;
+                  rpr_vi = usize(0);
+                }),
+                .Some(_) => (),
                 .None => ()
               ),
               .None => ()
@@ -1784,7 +1766,13 @@ Result type: ${type_to_string(decl_result_ty)}`
             // literal left `o.map((x) -> ...)`'s `R` unresolved
             // (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55).
             nrs_ret_bare := (is_some_type(nrs_ret_ty) && (is_creating_closure || !ctl_force) && !ctx.is_inside_io_async_call);
-            nrs_body_concrete := (!is_some_type(nrs_body_ty) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
+            // "Concrete" the way codegen means it: a type variable carrying a
+            // closure's `Fn` or an `io.async` body's `Future` lowers to its
+            // capture struct / state machine, so a closure RETURNING one binds
+            // the caller's result binder too. With the strict "no SomeT at
+            // all" test, `call_it(() => io.async(...))` left `T` unbound (E0613,
+            // issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+            nrs_body_concrete := !(type_contains_some_type_deep(nrs_body_ty));
             if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
               // REPLACING the declared return with the body type on the

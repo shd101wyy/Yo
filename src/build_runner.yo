@@ -2669,16 +2669,13 @@ _execute_batch :: (
       node := batch(i);
       result := match(
         outs.get(i),
-        .Some(o) => match(
-          o,
-          .Some(r) => r,
-          .None => StepResult(
-            name : node.name.clone(),
-            kind : node.kind,
-            success : false,
-            duration_ms : i64(0),
-            description : `failed ${node.name}`
-          )
+        .Some(.Some(r)) => r,
+        .Some(.None) => StepResult(
+          name : node.name.clone(),
+          kind : node.kind,
+          success : false,
+          duration_ms : i64(0),
+          description : `failed ${node.name}`
         ),
         .None => StepResult(
           name : node.name.clone(),

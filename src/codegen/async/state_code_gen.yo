@@ -52,13 +52,10 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   rc_final := some_resolution(ty);
   match(
     rc_final,
-    .Some(io_rcv) => match(
-      io_rcv,
-      .ExternOpaqueT(_, _) => {
-        return(true);
-      },
-      _ => ()
-    ),
+    .Some(.ExternOpaqueT(_, _)) => {
+      return(true);
+    },
+    .Some(_) => (),
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.

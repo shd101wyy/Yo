@@ -602,13 +602,10 @@ evaluate_match :: (
             });
             match(
               gi.value,
-              .Some(gv) => match(
-                gv,
-                .BoolVal(b) => {
-                  guard_val = Option(bool).Some(b);
-                },
-                _ => ()
-              ),
+              .Some(.BoolVal(b)) => {
+                guard_val = Option(bool).Some(b);
+              },
+              .Some(_) => (),
               .None => ()
             );
           },

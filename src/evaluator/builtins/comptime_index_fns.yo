@@ -158,7 +158,7 @@ ci_resolve_comptime_list :: (fn(val_opt : Option(EvalValue)) -> Option(EvalValue
       if(is_ptr_val(sv), {
         inner := match(
           sv,
-          .PtrVal(tgt_cell, _) => match(tgt_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal),
+          .PtrVal(tgt_cell, _, _) => match(tgt_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal),
           _ => EvalValue.UnitVal
         );
         if(is_comptime_list_val(inner), Option(EvalValue).Some(inner), Option(EvalValue).None)
@@ -642,7 +642,7 @@ ci_eval_array_index :: (
 _ci_str_pointer :: (fn(quoted : String) -> EvalValue)({
   cell := ArrayList(EvalValue).new();
   cell.push(EvalValue.StrLit(quoted));
-  EvalValue.PtrVal(cell, usize(0))
+  EvalValue.PtrVal(cell, usize(0), .None)
 });
 // ---------------------------------------------------------------------------
 // Handler: __yo_comptime_string_index / _range / _range_inclusive

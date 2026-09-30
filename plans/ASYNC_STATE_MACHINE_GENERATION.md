@@ -753,6 +753,9 @@ measured before choosing:
 - embedding an immediately awaited child's machine in the parent's slot
   (Rust-style: the child's lifetime is exactly the await), falling back to
   the heap when the future escapes;
+  designed in `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md` for the
+  single-await wrappers that make up half of std's `io.async` blocks
+  (measured: ~180 ns a round trip of std's `TcpStream` ping-pong);
 - **the spawn handle without a box.** `JoinHandle(T)` is a `ref` struct
   around the future pointer: one extra allocation per spawn
   (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, +79% on
