@@ -986,11 +986,23 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
 /// process-wide map would outlive those (+20 MB on `check src/main.yo`).
 (g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
 (g_share_name_paths : bool) = false;
+(g_field_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
 set_name_path_sharing :: (fn(on : bool) -> unit)({
   g_share_name_paths = on;
   if(!on, {
     g_name_path_collections.clear();
+    g_field_path_collections.clear();
   });
+});
+/// Field-access collections (`build_field_path_collection`), shared by
+/// content under the same switch: `self.x` read a thousand times is one
+/// `[[self, x]]`.
+path_collection_sharing_on :: (fn() -> bool)(g_share_name_paths);
+shared_field_path_collection :: (fn(key : String) -> Option(PathCollection))(
+  g_field_path_collections.get(key)
+);
+record_field_path_collection :: (fn(key : String, pc : PathCollection) -> unit)({
+  _prev := g_field_path_collections.insert(key, pc);
 });
 _fresh_name_path_collection :: (fn(name : String) -> PathCollection)({
   p := ArrayList(String).new();
@@ -1917,7 +1929,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing, path_collection_sharing_on, shared_field_path_collection, record_field_path_collection);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);

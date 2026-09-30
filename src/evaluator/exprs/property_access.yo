@@ -25,7 +25,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin_type,
   lookup_io_builtin_struct_field,
   ComptimeRef,
-  expr_info_set_comptime_ref
+  expr_info_set_comptime_ref,
+  path_collection_sharing_on,
+  shared_field_path_collection,
+  record_field_path_collection
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -199,6 +202,66 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Opti
 /// extended with `prop_name`.  Otherwise a fresh `[[var_name, prop_name]]`
 /// singleton is created.
 build_field_path_collection :: (
+  fn(
+    obj_pc : ArrayList(ArrayList(String)),
+    obj_vname : Option(String),
+    prop_name : String
+  ) -> ArrayList(ArrayList(String))
+)(
+  // One shared collection per content while compile's shared table is live
+  // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): nothing writes a stored
+  // collection in place.
+  if(path_collection_sharing_on(), {
+    key := _field_path_key(obj_pc, obj_vname, prop_name);
+    match(
+      shared_field_path_collection(key.clone()),
+      .Some(pc) => pc,
+      .None => {
+        built := _build_field_path_collection_fresh(obj_pc, obj_vname, prop_name);
+        record_field_path_collection(key, built);
+        built
+      }
+    )
+  }, _build_field_path_collection_fresh(obj_pc, obj_vname, prop_name))
+);
+/// The content key of `build_field_path_collection`'s result: each base path's
+/// segments (`\x01`-separated, paths `\x02`-separated), or the base name when
+/// there are none, then `\x03` and the property.
+_field_path_key :: (fn(obj_pc : ArrayList(ArrayList(String)), obj_vname : Option(String), prop_name : String) -> String)({
+  key := String.new();
+  if(obj_pc.len() > usize(0), {
+    (i : usize) = usize(0);
+    while(i < obj_pc.len(), {
+      match(
+        obj_pc.get(i),
+        .Some(path) => {
+          (j : usize) = usize(0);
+          while(j < path.len(), {
+            match(
+              path.get(j),
+              .Some(seg) => {
+                key.push_string(seg);
+                key.push_str("\x01");
+              },
+              .None => ()
+            );
+            j = (j + usize(1));
+          });
+          key.push_str("\x02");
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  }, {
+    key.push_str("\x04");
+    key.push_string(match(obj_vname, .Some(n) => n, .None => String.from("?")));
+  });
+  key.push_str("\x03");
+  key.push_string(prop_name);
+  key
+});
+_build_field_path_collection_fresh :: (
   fn(
     obj_pc : ArrayList(ArrayList(String)),
     obj_vname : Option(String),
