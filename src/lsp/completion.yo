@@ -52,7 +52,7 @@
 { str_lit_unquote_bytes } :: import("../utils.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum, rune_col_to_byte_offset, byte_offset_to_rune_col, uri_to_fs_path } :: import("./protocol.yo");
-{ _find_token_at, _collect_candidates, _best_candidate, _select_best_variable } :: import("./hover.yo");
+{ _collect_candidates, _best_candidate, _select_best_variable } :: import("./hover.yo");
 
 // LSP CompletionItemKind constants (the protocol's numeric encoding).
 K_METHOD :: usize(2);
@@ -733,7 +733,13 @@ _scan_idents :: (
 _matches_prefix :: (fn(name : String, prefix_lower : String) -> bool)(
   cond(
     (prefix_lower.len() == usize(0)) => true,
-    true => name.to_lowercase().contains(prefix_lower.clone())
+    // PREFIX matching, not substring (issues/questions/lsp-completion-substring-matching.md,
+    // maintainer verdict 2026-09-30): substring matched most of the document
+    // plus most of the prelude on a one-character prefix — VS Code's
+    // client-side filter hides it there, but bare clients (Neovim, helix)
+    // rendered the noise on every keystroke. Dot completion and the
+    // enum-prefix path already matched by starts_with.
+    true => name.to_lowercase().starts_with(prefix_lower.clone())
   )
 );
 

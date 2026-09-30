@@ -2,6 +2,13 @@
 
 > Design question from the 2026-09-29 audit (`plans/LSP_AUDIT_2026-09-29.md`).
 
+**Status: DECIDED — prefix matching.** Maintainer verdict 2026-09-30 while
+closing the audit out: `_matches_prefix` now uses `starts_with` (identifier,
+env and import-list completion; dot completion already did), ranking
+unchanged. The substring behavior was not a deliberate fuzzy decision — the
+helper's name said prefix — and bare clients (Neovim without fuzzy
+filtering, helix) rendered the noise on every keystroke.
+
 `_matches_prefix` (`src/lsp/completion.yo`) is named for prefix matching but
 implements `name.to_lowercase().contains(prefix_lower)`. Measured (probe
 session C): at the typed prefix `oi`, the completion list contains `Point`,

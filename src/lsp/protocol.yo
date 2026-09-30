@@ -65,15 +65,28 @@ j_range :: (
 
 // ---------------------------------------------------------------------------
 // Position encoding
-/// Whether the wire encoding is UTF-16 (the protocol default). `initialize`
-/// flips this to false when the client lists `utf-32` in
-/// `general.positionEncodings` — the server's native unit, so no conversion
-/// runs at all. Module-level because it must survive across messages.
-(g_utf16_positions : bool) = true;
-set_utf16_positions :: (fn(utf16 : bool) -> unit)({
-  g_utf16_positions = utf16;
+/// The negotiated wire position encoding: 0 = UTF-16 (the protocol default),
+/// 1 = UTF-32 (the server's native rune unit — no conversion at all),
+/// 2 = UTF-8 (byte offsets). `initialize` picks from the client's offered
+/// `general.positionEncodings`: utf-32 when offered, else utf-16, else
+/// utf-8 — never an encoding the client did not offer (answering utf-16 to
+/// a utf-8-only client hands it columns in units it cannot read). Absent or
+/// empty means the client takes the protocol default, utf-16. Module-level
+/// because it must survive across messages.
+(g_position_encoding : usize) = usize(0);
+set_position_encoding :: (fn(enc : usize) -> unit)({
+  g_position_encoding = enc;
 });
-utf16_positions :: (fn() -> bool)(g_utf16_positions);
+position_encoding :: (fn() -> usize)(g_position_encoding);
+
+/// Whether hover replies may use markdown `MarkupContent`. `initialize`
+/// clears it when the client's `hover.contentFormat` is a nonempty list
+/// without "markdown" (absent means the protocol default — markdown).
+(g_hover_markdown : bool) = true;
+set_hover_markdown :: (fn(md : bool) -> unit)({
+  g_hover_markdown = md;
+});
+hover_markdown :: (fn() -> bool)(g_hover_markdown);
 
 /// UTF-16 code units one rune occupies: 2 above the Basic Multilingual Plane.
 _utf16_units :: (fn(c : rune) -> usize)(
@@ -122,14 +135,64 @@ utf16_col_to_rune_col :: (fn(line : String, col : usize) -> usize)({
   });
   runes
 });
+
+/// UTF-8 column (BYTE offset) of RUNE column `col` within `line`. A `col` at
+/// or past the line's rune count clamps to the line's byte length.
+rune_col_to_utf8_col :: (fn(line : String, col : usize) -> usize)({
+  (seen : usize) = usize(0);
+  (bi : usize) = usize(0);
+  n := line.len();
+  while((seen < col) && (bi < n), {
+    b := line.byte_at(bi);
+    bi = (bi + usize(1));
+    // A rune's lead byte (ASCII or >= 0xC0) begins a rune; its continuation
+    // bytes (0x80..0xBF) are consumed too, so the returned byte offset sits
+    // AFTER the whole col-th rune, never mid-rune.
+    if((b < u8(0x80)) || (b >= u8(0xC0)), {
+      while((bi < n) && (line.byte_at(bi) >= u8(0x80)) && (line.byte_at(bi) < u8(0xC0)), {
+        bi = (bi + usize(1));
+      });
+      seen = (seen + usize(1));
+    });
+  });
+  bi
+});
+/// RUNE column of the rune that starts at, or spans, UTF-8 column (byte
+/// offset) `col` of `line` — the inverse of `rune_col_to_utf8_col`. A `col`
+/// that lands mid-rune belongs to that rune; a `col` past the end clamps to
+/// the line's rune count.
+utf8_col_to_rune_col :: (fn(line : String, col : usize) -> usize)({
+  (runes : usize) = usize(0);
+  (bi : usize) = usize(0);
+  n := line.len();
+  while(bi < col, {
+    if(bi >= n, {
+      break;
+    });
+    b := line.byte_at(bi);
+    if((b < u8(0x80)) || (b >= u8(0xC0)), {
+      runes = (runes + usize(1));
+    });
+    bi = (bi + usize(1));
+  });
+  runes
+});
 /// A `position.character` from the client → RUNE column, per the negotiated
 /// encoding.
 client_col_to_rune :: (fn(line : String, col : usize) -> usize)(
-  cond(g_utf16_positions => utf16_col_to_rune_col(line, col), true => col)
+  cond(
+    (g_position_encoding == usize(0)) => utf16_col_to_rune_col(line, col),
+    (g_position_encoding == usize(2)) => utf8_col_to_rune_col(line, col),
+    true => col
+  )
 );
 /// A RUNE column → the client's `character`, per the negotiated encoding.
 rune_col_to_client :: (fn(line : String, col : usize) -> usize)(
-  cond(g_utf16_positions => rune_col_to_utf16_col(line, col), true => col)
+  cond(
+    (g_position_encoding == usize(0)) => rune_col_to_utf16_col(line, col),
+    (g_position_encoding == usize(2)) => rune_col_to_utf8_col(line, col),
+    true => col
+  )
 );
 /// The `row`-th line of a document split on `\n` ("" past the end). A
 /// trailing `\r` (CRLF documents) stays on the line — it sits after every
@@ -343,8 +406,12 @@ export(
   byte_offset_to_rune_col,
   rune_col_to_utf16_col,
   utf16_col_to_rune_col,
-  set_utf16_positions,
-  utf16_positions,
+  rune_col_to_utf8_col,
+  utf8_col_to_rune_col,
+  set_position_encoding,
+  position_encoding,
+  set_hover_markdown,
+  hover_markdown,
   client_col_to_rune,
   rune_col_to_client,
   line_at,

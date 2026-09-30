@@ -2679,6 +2679,17 @@ test("every plain-named builtin is reserved for bindings", {
   comptime_expect_error(requires := 12, "names a builtin");
   comptime_expect_error(comptime_print := 13, "names a builtin");
 });
+test("the identifier-spelled call-heads begin/tuple/array cannot be bound", {
+  // issues/begin-tuple-array-bindings-are-silently-hijacked.md: a user `begin`
+  // or `tuple` binding compiled and ran with every call evaluating to unit
+  // (the definition never ran), and `array()` resolved to the array-literal
+  // builtin — all three are evaluator call-heads, now reserved like the rest.
+  comptime_expect_error(begin := 1, "names a builtin");
+  comptime_expect_error(tuple := 2, "names a builtin");
+  comptime_expect_error(array := 3, "names a builtin");
+  comptime_expect_error((begin : i32) = 4, "names a builtin");
+  comptime_expect_error(begin :: (fn(x : i32) -> i32)(x), "names a builtin");
+});
 test("a plain-named builtin cannot be destructured into, even renamed", {
   P :: struct(a : i32);
   p := P(a : 1);
