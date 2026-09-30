@@ -14,7 +14,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
-{ trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
+{ trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
@@ -2807,13 +2807,21 @@ force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutco
 /// The nominal head name of a type for impl forcing — the `name` of a
 /// struct/enum/union/trait (a generic instantiation's `Name(args)` spelling
 /// is cut at the paren), looked up through pointers (method dispatch
-/// auto-derefs the receiver). Empty for anything unnamed (SomeT, primitives,
-/// tuples, …) — no impl is forced for those.
+/// auto-derefs the receiver). A declared type resolved from its self-shell
+/// is nameless and answers with its binding's name (`type_binding_name`).
+/// Empty for anything unnamed (SomeT, primitives, tuples, …) — no impl is
+/// forced for those.
 type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
   raw := match(
     ty,
-    .Struct({ name : sn }) => sn.clone(),
-    .EnumT(_, en, _, _, _, _, _, _, _) => en.clone(),
+    .Struct({ id : sid, name : sn }) => cond(
+      (sn.len() > usize(0)) => sn.clone(),
+      true => match(type_binding_name(sid), .Some(b) => b, .None => String.new())
+    ),
+    .EnumT(eid, en, _, _, _, _, _, _, _) => cond(
+      (en.len() > usize(0)) => en.clone(),
+      true => match(type_binding_name(eid), .Some(b) => b, .None => String.new())
+    ),
     .Union(un, _, _) => un.clone(),
     .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
     .Pointer(pointee) => recur(pointee),

@@ -101,7 +101,7 @@ env_mod :: import("std/env");
 { render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
 { get_func_type } :: import("./function_value.yo");
 { is_unit_type } :: import("./types/guards.yo");
-{ t_unit } :: import("./types/creators.yo");
+{ t_unit, clear_type_binding_names } :: import("./types/creators.yo");
 { emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // State
@@ -1680,6 +1680,7 @@ mm_revalidate_apply :: (
 mm_reset :: (fn() -> unit)({
   clear_module_cache();
   clear_type_display_names();
+  clear_type_binding_names();
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_frame_count = usize(0);
   g_shared_expr_info_table = Option(ExprInfoTable).None;

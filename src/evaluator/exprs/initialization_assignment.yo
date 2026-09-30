@@ -58,7 +58,7 @@
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, type_value_tag } :: import("../../types/creators.yo");
+{ t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -947,6 +947,7 @@ ${rhs_str}`
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
               (st_name.len() == usize(0)) => {
                 register_type_display_name(st_id.clone(), binding_name.clone());
+                register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
                   TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
                 )
@@ -957,6 +958,8 @@ ${rhs_str}`
               (en_name.len() == usize(0)) => {
                 register_type_display_name(en_id.clone(), binding_name.clone());
                 register_type_display_name(`${en_id}__self_shell`, binding_name.clone());
+                register_type_binding_name(en_id.clone(), binding_name.clone());
+                register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
                   TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar)
                 )
