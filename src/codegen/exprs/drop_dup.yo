@@ -24,15 +24,15 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
 _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGenerationContext) -> Option(String))({
@@ -815,7 +815,7 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
     .Some(atom) => match(
       context.base.get_expr_info(atom),
       .Some(aei) => {
-        vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
+        vars := scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value);
         if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
       },
       .None => false
@@ -1023,7 +1023,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
                     .Some(ddei) => match(
                       ddei.variable_name,
                       .Some(ddvn) => {
-                        ddtn := get_variable_name_for_codegen(ddvn.clone(), Option(Environment).Some(ddei.env));
+                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
                         if(!(ddtn == code) && !context.base.declared_c_var_names.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
                       },
                       .None => Option(String).None
@@ -1089,7 +1089,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
               // is no temp: its value is its own rendering, which can be a
               // state-machine slot under the single-pass async lowering.
               src_self := is_self_named_atom(expr, src_vn.clone());
-              src_c_name := get_variable_name_for_codegen(src_vn.clone(), Option(Environment).Some(ei.env));
+              src_c_name := get_variable_name_for_codegen_at(ast_expr_id(expr), src_vn.clone(), Option(Environment).Some(ei.env));
               src_deref_read := `(*${src_c_name})`;
               // A by-`ref` binding (`inout(name) : T`) READS as `(*name)` while
               // its recorded `variable_name` is the bare `name`. The
@@ -1146,7 +1146,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
                 dei.variable_name,
                 .Some(dvn) => if(
                   type_key(dei.ty) == type_key(ei.ty),
-                  Option(String).Some(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))),
+                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn, Option(Environment).Some(dei.env))),
                   Option(String).None
                 ),
                 .None => Option(String).None
@@ -1243,7 +1243,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
   match(
     bei.variable_name,
     .Some(bvn) => {
-      btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
+      btv := get_variable_name_for_codegen_at(ast_expr_id(body_expr), bvn.clone(), Option(Environment).Some(bei.env));
       // Self-named atom: its value is its own rendering (see
       // handle_atom_deferred_dup in return.yo).
       b_self := is_self_named_atom(body_expr, bvn.clone());
@@ -1273,7 +1273,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
       .Some(bdup_info) => match(
         bdup_info.variable_name,
         .Some(dvn) => {
-          dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(bdup_info.env));
+          dtv := get_variable_name_for_codegen_at(ast_expr_id(bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env));
           dem := context.base.emitter;
           dline := indent.clone();
           dline.push_string(get_type_string(bei.ty, context.base));

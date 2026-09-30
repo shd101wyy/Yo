@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Variable, get_variables_from_env, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1938,6 +1938,16 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
+/// The Variables named `name` that node `key`'s recorded scope sees, innermost
+/// last: what codegen asks of a recorded env. Every codegen lookup through a
+/// recorded env goes through here, keyed by the node whose ExprInfo recorded
+/// it, so the recorded env can be released once its function body is
+/// evaluated and the answer come from the node's record instead
+/// (plans/CODEGEN_MEMORY_REDUCTION.md §6, scope-exit release).
+scope_variables :: (fn(key : ExprId, env : Environment, name : String) -> ArrayList(Variable))(
+  get_variables_from_env(env, name)
+);
+export(scope_variables);
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
