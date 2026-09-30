@@ -83,7 +83,7 @@ One line each; the linked doc is authoritative.
 - **`--allocator fixed`** is a TLSF allocator over one static region sized by `--heap-size` (`plans/reference/FIXED_REGION_ALLOCATOR.md`).
 - **Dependencies live in `yo.toml`, not `build.yo`**; `import("dep")` resolves through the nearest manifest in every command; only `yo build` fetches, so every other command needs `yo install` first on a fresh clone (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`).
 - **No runtime dependent types**; runtime properties go through the verifier (`plans/backlog/DEPENDENT_TYPES_POSITION.md`, `plans/backlog/FORMAL_VERIFICATION.md`).
-- **`match` is being redesigned** (`plans/MATCH_PATTERN_MATCHING.md`, active): today value matching exists only on the primitive path.
+- **`match` is real pattern matching** (`plans/reference/MATCH_PATTERN_MATCHING.md`, landed): nested/literal/or/string/range/guard/`:=`/tuple/struct/`Box` patterns in every emitter; exhaustiveness is usefulness (fixed-width integer constants and ranges are intervals); an arm the earlier arms cover only collectively is a warning, single-arm subsumption an error; every infix pattern is parenthesized (`(p && (g))`, `(x := p)`); a bare identifier binds unless it names a literal/enum `::` constant.
 - **No backward-compatibility scaffolding** (single user): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ### Algebraic effects model

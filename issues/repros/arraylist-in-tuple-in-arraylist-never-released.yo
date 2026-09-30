@@ -1,0 +1,26 @@
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+
+make_pair :: (fn(k : str, v : str) -> Tuple(String, String))((String.from(k), String.from(v)));
+
+flat :: (fn() -> usize)({
+  xs := ArrayList(Tuple(String, String)).new();
+  xs.push(make_pair("key-abc", "value-abcdef"));
+  xs.push(make_pair("a", "b"));
+  p := xs(usize(0));
+  p.0.len() + p.1.len()
+});
+
+nested :: (fn() -> i32)({
+  ys := ArrayList(Tuple(i32, ArrayList(i32))).new();
+  inner := ArrayList(i32).new();
+  inner.push(i32(7));
+  ys.push((i32(1), inner));
+  ys(usize(0)).1(usize(0))
+});
+
+main :: (fn() -> unit)({
+  println(`nested=${nested().to_string()}`);
+});
+export(main);

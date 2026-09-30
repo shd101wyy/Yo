@@ -85,10 +85,6 @@ if(done, println("done"), println("pending"));
 - Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
 - If a `match`/`cond` branch returns an enum variant and inference fails, qualify
   the variant with its enum type: `TypeValue.Unit` instead of `.Unit`.
-- Do not match enum payload literals directly, e.g. avoid `.Some(false)` and
-  `.Some(true)` as sibling branches. Match `.Some(value)` once, then branch with
-  `if(value, ...)` or `cond(...)` inside the arm; otherwise generated C can
-  contain duplicate enum `case` labels.
 - In large enum matches, avoid binding a pattern variable with the same name as a
   variant field (for example, prefer `struct_field_types` over `field_types`).
   This can currently produce invalid generated C in some self-hosted codegen
@@ -917,7 +913,7 @@ match(n,
   (0..10) => "small", (10..=99) => "medium",   // ranges (compile-time bounds)
   (v && (v < i32(0))) => "negative",           // guard sees the binding
   (big := 100) => "exactly a hundred",         // whole-value binding
-  _ => "large"                                 // a binding or `_` is required for ints
+  _ => "large"                                 // usize/isize, floats and strings need this arm; fixed-width ints are intervals
 );
 match(s, "compile" => 1, ("check" | "fmt") => 2, _ => 0);   // str / String scrutinee
 ```
@@ -926,9 +922,9 @@ match(s, "compile" => 1, ("check" | "fmt") => 2, _ => 0);   // str / String scru
   literal/enum value is in scope — then it compares (`TEN => …`, `RED => …`).
 - Exhaustiveness is structural (`Missing case: .Some(false)`), an unreachable
   arm is an error (`E0608`), a trailing `_` after full coverage is tolerated.
-- In an `io.async` arm that AWAITS, only the classic shapes are lowered
-  today; the new forms fail loudly at codegen (bind the payload and match
-  again inside the arm).
+- In an `io.async` arm that awaits, every pattern form is lowered
+  (`tests/match_async_arms.test.yo`); one shape is still rejected — an
+  `io.await(...)` inside a cond condition in an arm.
 
 ### `forall` / `exists` / `==>` — the verification quantifiers (V5, ghost-only)
 
@@ -1320,28 +1316,22 @@ compiler still accepted some of the rejected forms. That compiler is gone —
 `src/` is the only compiler — so everything below applies to **all** Yo
 code, not just the compiler's own sources.
 
-### Match patterns: no bare identifier catch-all
+### Match patterns: a bare identifier may silently COMPARE, not bind
 
-The parser only accepts three match arm forms:
-
-- `.VariantName` — unit variant
-- `.VariantName(p1, p2, ...)` — tuple variant
-- `_` — wildcard
-
-**Bare identifier catch-all `t => ...` is NOT supported.** Use `_` and access the outer binding directly:
+A bare identifier arm (`t => ...`) is a catch-all binding — it has worked
+since 2026-09-19 — **unless** the name resolves to a `::` constant in scope
+holding a literal or enum value, in which case it is a CONSTANT pattern and
+compares. Avoid naming a pattern binding like an in-scope `::` constant: the
+arm silently becomes a comparison and (if no other arm covers the rest) the
+match is rejected as non-exhaustive with a witness naming the constant's
+value.
 
 ```rust
-// ❌ NOT supported in src/
-match(val, {
-  .SomeVariant(x) => x,
-  t => t,      // ERROR: bare identifier not a valid pattern
-})
-
-// ✅ Correct — use outer binding
-match(val, {
-  .SomeVariant(x) => x,
-  _ => val,    // refer to outer binding
-})
+LIMIT :: i32(10);
+match(n,
+  LIMIT => "at the limit",   // COMPARES against 10 — not a binding
+  other => "other"           // binds; no `::` constant named `other`
+);
 ```
 
 ### String concatenation: no `String + str` operator
@@ -1788,9 +1778,10 @@ match(outer_val,
 
 ### Nested enum patterns in match
 
-Supported since 2026-09-19 (plans/MATCH_PATTERN_MATCHING.md P2): `.Some(.IntLit(n))`
-is one arm. The two-level form is still valid — and REQUIRED in `src/`/`std/`
-until the seed carries the feature.
+Supported since 2026-09-19 (plans/reference/MATCH_PATTERN_MATCHING.md P2): `.Some(.IntLit(n))`
+is one arm. The two-level form is still valid; every release since v0.2.39
+carries the nested forms, and `src/`/`std/` adopted them in the 2026-09-30
+waves — prefer the nested spelling.
 
 ```rust
 // One arm, nested:
