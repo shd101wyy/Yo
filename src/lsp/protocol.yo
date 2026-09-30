@@ -160,7 +160,13 @@ j_range_in :: (
 /// DiagnosticSeverity (1 error, 2 warning, 3 information, 4 hint); `code` is
 /// the registry code (`E0401`) when the diagnostic carries one.
 j_diagnostic :: (
-  fn(range : JsonValue, severity : usize, code : Option(String), message : String) -> JsonValue
+  fn(
+    range : JsonValue,
+    severity : usize,
+    code : Option(String),
+    message : String,
+    (related : JsonValue) ?= JsonValue.Null
+  ) -> JsonValue
 )({
   b := jb().put("range", range).put("severity", jnum(severity));
   match(
@@ -169,6 +175,15 @@ j_diagnostic :: (
       _b := b.put("code", jstr(c));
     },
     .None => ()
+  );
+  // relatedInformation (plans/LSP_AUDIT_2026-09-29.md §3): present only
+  // when the caller has note/help entries to attach.
+  match(
+    related,
+    .Array(items : _) => {
+      _r := b.put("relatedInformation", related);
+    },
+    _ => ()
   );
   b.put("source", jstr(String.from("yo"))).put("message", jstr(message)).obj()
 });

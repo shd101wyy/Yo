@@ -121,6 +121,10 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [动态分发](#动态分发)
   - [`Dyn` 和 `dyn`](#dyn-和-dyn)
   - [示例](#示例)
+- [存在类型](#存在类型)
+  - [打包形式：`Dyn(Trait)`](#打包形式dyntrait)
+  - [不透明形式：`Impl(Trait)` 与闭包](#不透明形式impltrait-与闭包)
+  - [不支持：存在型枚举构造器](#不支持存在型枚举构造器)
 - [Impl 与 Dyn 的对比](#impl-与-dyn-的对比)
 - [代数效应与处理器](#代数效应与处理器)
 - [错误处理](#错误处理)
@@ -2910,6 +2914,61 @@ main :: (fn() -> unit)({
 ```
 
 **注意：** `Dyn` 类型内部是引用计数的对象，提供自动内存管理，无需手动处理指针。
+
+## 存在类型
+
+"存在类型"指一个具体类型被藏在接口之后的值：`∃T. (T, 对 T 的操作)`。Yo 以一个
+单态化 C 后端负担得起的两种形式提供它，并且有意不提供第三种。按需求选择：
+
+| 你想要…… | 用 | 藏的是什么，怎么藏 |
+| --- | --- | --- |
+| 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Dyn(Trait)` + `dyn(v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(d, T)` 找回具体类型。 |
+| 返回**一个**具体类型但不点名它（闭包、迭代器、future） | 返回位置的 `Impl(Trait)`、`Impl(Fn(...))`、`Impl(Future(T, E))` | 类型是**不透明的，但没有被擦除**：每条返回路径必须产出同一个具体类型，编译器对调用方做单态化，不装箱。 |
+| 隐藏类型所依赖的**长度**或其他值（ATS / DML 里的 `[n:nat] list(a, n)`） | 一个普通的运行时值加上契约：`ensures(r.len() == ...)`、`requires(i < xs.len())`、`refine(T, p)` | 见证是验证器推理的**幽灵值**（[FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)）；运行时什么都不存在。 |
+
+### 打包形式：`Dyn(Trait)`
+
+```rust
+Shape :: trait(area : (fn(self : Self) -> f64));
+
+// 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
+shapes := ArrayList(Dyn(Shape)).new();
+shapes.push(dyn(Circle(r : f64(1.0))));
+shapes.push(dyn(Square(side : f64(2.0))));
+for(shapes, s => println(s.area()));
+```
+
+trait 必须是对象安全的（`self` 在首位、签名中没有其他 `Self`、没有
+`generic(...)` 参数），载荷是引用计数的，向更小的 trait 集合上转型必须显式写出：
+`upcast(d, Dyn(Sub))`。详见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+
+### 不透明形式：`Impl(Trait)` 与闭包
+
+```rust
+// 调用方写不出闭包的类型；编译器却精确地知道它。
+make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
+```
+
+每个闭包都是自己的类型，所以一个 `Impl(Fn(...))` 槽只能装一个闭包，装它们的
+容器是 `ArrayList(typeof(k))`——同一个容器里装两个不同的闭包需要
+`Dyn(Fn(...))`（见[闭包类型限制](#闭包类型限制)）。`Impl(Future(T, E))` 是
+`async` 结果的同一形态。
+
+### 不支持：存在型枚举构造器
+
+```rust
+// 不支持：`T` 由构造器而不是枚举绑定。
+Showable :: enum(
+  Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
+);
+```
+
+这是 ML 风格的 `pack`。在一个把一切单态化的编译器里，它的降级恰好就是一个
+`Dyn`：没有 vtable 的隐藏 `T` 无法被操作，有了 vtable 它就是 trait 对象。它仍
+是非目标（见 [GADTS.md](./GADTS.md#限制)）；请改写为 `Dyn(Show)`。
+
+因此 Yo 在类型层面没有 `exists`。标识符 `exists` 是验证器对值的幽灵量词，如
+`ensures(exists(k : i32, xs(k) == target))`。
 
 ## Impl 与 Dyn 的对比
 

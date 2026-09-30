@@ -266,7 +266,7 @@ Concurrent nodes interleave their output, the way `make -j` does — the `--summ
 | Field  | Type           | Description                                                                                              |
 | ------ | -------------- | -------------------------------------------------------------------------------------------------------- |
 | `name` | `comptime_str` | Step name (artifact name, or custom name for `build.step`)                                               |
-| `kind` | `StepKind`     | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
+| `kind` | `StepKind`     | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom`, `Documentation`, `Verification` |
 
 ### Step Methods
 
@@ -287,6 +287,8 @@ Concurrent nodes interleave their output, the way `make -j` does — the `--summ
 | `TestSuite`     | Returned by `build.test()`           |
 | `Run`           | Returned by `build.run()`            |
 | `Custom`        | Returned by `build.step()`           |
+| `Documentation` | Returned by `build.doc()`            |
+| `Verification`  | A verification step (see [Verification steps](#verification-steps)) |
 
 List all available steps:
 
@@ -902,6 +904,49 @@ outside the root.
 
 Members are visited in sorted order, so build and test output is stable across
 platforms (raw directory order is not).
+
+## Verification steps
+
+A verification step runs the compile-time verifier (`yo verify <root>`, with
+the pinned Z3 — see [FORMAL_VERIFICATION.md](FORMAL_VERIFICATION.md)) over a
+source root as part of the build DAG. This is the project-level "every build
+proves my contracts" switch. `yo check` stays solver-free by design: it ships
+nothing, and a missing solver there is a hint, not a failure.
+
+Until a release ships the builtin to the seed compiler, a build file calls it
+directly and wraps the step itself (the same generation pattern
+`build.manifest` followed):
+
+```rust
+build :: import("std/build");
+
+// (name, root, mode, strict): mode is "verify" or "verify+", strict passes
+// `--strict` (a vacuous `ok` with zero obligations fails).
+__yo_build_verify("proofs", "./src", "verify", false);
+proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+
+install :: build.step("install", "Build and prove");
+install.depend_on(exe);
+install.depend_on(proofs);
+```
+
+The friendly spelling, `build.verify({ name : "proofs", root : "./src", mode :
+build.VerifyMode.Verify, strict : false })`, lands in `std/build.yo` with the
+release after the builtin (see `plans/backlog/SEED_VERSION_AUTOMATION.md`).
+
+A verify step is a leaf of the DAG (it depends on nothing; steps depend on it),
+runs in the child compiler like a test suite, streams the per-function report,
+and fails the build on the same rule `yo verify` exits non-zero on: a refuted
+obligation always; an unproven one in `verify` mode. Only files carrying
+`pragma(Pragma.Verify)` / `pragma(Pragma.VerifyOrAssert)` under the root are
+verified; the step's mode is the `--verify-mode` override for them.
+
+```bash
+yo build install     # builds app, then proves ./src
+yo build --dry-run   # [dry-run]   verify proofs
+```
 
 ## Dependencies
 

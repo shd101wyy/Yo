@@ -2271,8 +2271,32 @@ _forall_types_conflict :: (fn(a : TypeValue, b : TypeValue) -> bool)(
 _forall_conflict_message :: (fn(label : String, first : TypeValue, first_from : String, later : TypeValue, later_arg : usize) -> String)(
   `Incompatible types for generic parameter "${label}": it is ${type_to_string(first)} from ${first_from} but ${type_to_string(later)} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`
 );
+/// The E0601 text for a VALUE binder (`generic(N : usize)`) two arguments
+/// bind to different array lengths
+/// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
+_forall_len_conflict_message :: (fn(label : String, first : String, first_from : String, later : String, later_arg : usize) -> String)(
+  `Incompatible types for generic parameter "${label}": it is length ${first} from ${first_from} but length ${later} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a generic parameter in one call stands for one value.`
+);
 /// "argument N" (1-based) for a conflict message.
 _forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_string()}`);
+/// A VALUE binder's concrete binding in a structural-inference scratch env
+/// (the synthesizer's Array-length arm binds `generic(N : usize)` to an
+/// `IntLit`), or `.None` while it is unbound or a type binder.
+_scratch_len_binding :: (fn(se : Environment, name : String) -> Option(String))({
+  vars := get_variables_from_env(se, name);
+  if(vars.len() == usize(0), {
+    return(Option(String).None);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 /// A binder's CONCRETE binding in a structural-inference scratch env, or
 /// `.None` while it is unbound or still a type variable.
 _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(TypeValue))({
@@ -2838,6 +2862,8 @@ _funcval_bind_foralls :: (
           se_seen_names := ArrayList(String).new();
           se_seen_tys := ArrayList(TypeValue).new();
           se_seen_args := ArrayList(usize).new();
+          // A value binder's length per seen entry ("" for a type binder).
+          se_seen_lens := ArrayList(String).new();
           (sp_i : usize) = usize(0);
           while(sp_i < n_dp, {
             dpt := match(declared_param_types.get(sp_i), .Some(t) => t, .None => t_unit());
@@ -2851,21 +2877,26 @@ _funcval_bind_foralls :: (
             while(sn_i < forall_names.len(), {
               sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
               sn_i = (sn_i + usize(1));
-              sn_now := match(
-                _scratch_concrete_binding(se_new, sn_name.clone()),
-                .Some(t) => t,
-                .None => {
-                  continue;
-                }
-              );
+              sn_ty := _scratch_concrete_binding(se_new, sn_name.clone());
+              sn_len := match(sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(se_new, sn_name.clone()), .Some(l) => l, .None => String.new()));
+              if(sn_ty.is_none() && (sn_len.len() == usize(0)), {
+                continue;
+              });
+              sn_now := match(sn_ty, .Some(t) => t, .None => t_usize());
               (sn_k : usize) = usize(0);
               (sn_found : bool) = false;
               while((sn_k < se_seen_names.len()) && !(sn_found), {
                 if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
                   sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
-                  if(_forall_types_conflict(sn_prev, sn_now), {
-                    fa_conflicts.push(_forall_conflict_message(sn_name.clone(), sn_prev, _forall_arg_phrase(match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0))), sn_now, sp_i));
+                  sn_prev_len := match(se_seen_lens.get(sn_k), .Some(l) => l, .None => String.new());
+                  sn_prev_arg := match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0));
+                  if((sn_len.len() > usize(0)) && (sn_prev_len.len() > usize(0)) && (sn_len != sn_prev_len), {
+                    fa_conflicts.push(_forall_len_conflict_message(sn_name.clone(), sn_prev_len, _forall_arg_phrase(sn_prev_arg), sn_len.clone(), sp_i));
+                    fa_conflict_args.push(sp_i);
+                  });
+                  if((sn_len.len() == usize(0)) && (sn_prev_len.len() == usize(0)) && _forall_types_conflict(sn_prev, sn_now), {
+                    fa_conflicts.push(_forall_conflict_message(sn_name.clone(), sn_prev, _forall_arg_phrase(sn_prev_arg), sn_now, sp_i));
                     fa_conflict_args.push(sp_i);
                   });
                 });
@@ -2875,6 +2906,7 @@ _funcval_bind_foralls :: (
                 se_seen_names.push(sn_name);
                 se_seen_tys.push(sn_now);
                 se_seen_args.push(sp_i);
+                se_seen_lens.push(sn_len);
               });
             });
             sp_i = (sp_i + usize(1));
