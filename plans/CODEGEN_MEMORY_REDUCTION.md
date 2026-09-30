@@ -374,6 +374,22 @@ The design must first make the set of names finite per `ExprInfo`: the
 node's own identifier, its deferred dup/drop targets, and its `variable_name`.
 It is the next piece of work on this plan, as its own design section.
 
+### 0.9 Gates for §0.4–§0.6 as landed (2026-09-30)
+
+The branch tip's stage-2 (mimalloc, src identical to `ee4022e79`), on the
+WSL2 box:
+- `check ./src` 279/279; `check ./std --std-path ./std` 176/176.
+- The fixpoint holds.
+- `gates_fast`: the same 8 failures as the develop-based baseline on the same
+  box, all local-only (`issues/gates-fast-batteries-fail-locally-on-wsl-but-pass-in-ci.md`);
+  the corpus is 156/156 golden.
+- The fast suite (`tests` minus `internal` and `cli-cases`), each binary in
+  its own worktree: branch 4,440 passed / 161 failed, baseline 4,438 / 163.
+  The branch's failures are a subset of the baseline's (the two extra
+  baseline failures are the timing-sensitive `spawn_blocking` tests).
+  - Running two suites in ONE checkout collides on batch file names:
+    `issues/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`.
+
 ## 1. Rules carried over from the evaluator campaign
 
 - **Never trade speed for memory.** Speed is measured as instruction counts
