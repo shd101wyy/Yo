@@ -3214,7 +3214,7 @@ _call_term :: (
   // could not rebind — V4 legalized `=` on locals, and identity then read
   // the CURRENT binding, a false PROOF (`y := x; y = (y + 1);
   // assert(y == old(y))` "proved" though it is false for every x).
-  if(((head == "old") && (n == usize(1))) && ctx.call_pre.is_some(), {
+  if((head == "old") && (n == usize(1)) && ctx.call_pre.is_some(), {
     // Inside a callee's ensures at a CALL SITE (R1 slice 2): `old(e)` is
     // e over the pre-call bindings of the mutated arguments (every other
     // name is unchanged by the call, so its current binding IS its pre
@@ -5021,7 +5021,7 @@ _old_mentions :: (fn(e : AstExpr, label : String) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, f, fargs, _, _) => {
-      here := ((ast_expr_token(f).value == "old") && (fargs.len() == usize(1))) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone());
+      here := ((ast_expr_token(f).value == "old") && (fargs.len() == usize(1)) && _expr_mentions_atom(fargs.get(usize(0)).unwrap(), label.clone()));
       (found : bool) = here;
       (i : usize) = usize(0);
       while((i < fargs.len()) && !found, {
