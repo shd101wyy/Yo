@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, subst_add_len_var, subst_add_len_var_alias, subst_set_self, substitute } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
@@ -703,11 +703,6 @@ _resolve_one_forall_binding_from :: (
                         });
                       },
                       .IntLit(_) => {
-                        return(Option(TypeValue).Some(var.ty));
-                      },
-                      // A value binder bound SYMBOLICALLY to a variable length
-                      // (`N := VarRef("T.BYTES")`, synthesizer.yo's Array arm).
-                      .VarRef(_) => {
                         return(Option(TypeValue).Some(var.ty));
                       },
                       _ => ()
@@ -1350,9 +1345,6 @@ try_match_generic_impl :: (
               .IntLit(fv_raw) => {
                 fa_val2 = EvalValue.IntLit(fv_raw.clone());
               },
-              .VarRef(fv_ref) => {
-                fa_val2 = EvalValue.VarRef(fv_ref.clone());
-              },
               _ => ()
             ),
             .None => ()
@@ -1967,10 +1959,6 @@ _inject_forall_captures :: (
                   memo_key.push_str("#");
                   memo_key.push_string(bv_r.clone());
                 },
-                .VarRef(bv_ref) => {
-                  memo_key.push_str("#~");
-                  memo_key.push_string(bv_ref.clone());
-                },
                 _ => ()
               ),
               .None => ()
@@ -2066,18 +2054,6 @@ _inject_forall_captures :: (
                     });
                     if(ifc_have_vars, {
                       new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
-                    });
-                  },
-                  // Bound to a variable length (`N := T.BYTES`): a `usize`
-                  // whose value is known once `T` is.
-                  .VarRef(_) => {
-                    fa_is_val = true;
-                    if(!(ifc_aligned), {
-                      new_cts.push(t_usize());
-                      new_cvs.push(create_unknown_val(t_usize()));
-                    });
-                    if(ifc_have_vars, {
-                      new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(create_unknown_val(t_usize())), String.from("")));
                     });
                   },
                   _ => ()
@@ -2261,9 +2237,6 @@ find_methods_from_generic_impls :: (
                   .IntLit(mbv_raw) => {
                     match_binding_vals.push(EvalValue.IntLit(mbv_raw.clone()));
                   },
-                  .VarRef(mbv_ref) => {
-                    match_binding_vals.push(EvalValue.VarRef(mbv_ref.clone()));
-                  },
                   _ => {
                     match_binding_vals.push(EvalValue.UnitVal);
                   }
@@ -2360,9 +2333,6 @@ find_methods_from_generic_impls :: (
                       }),
                       .None => ()
                     ),
-                    .VarRef(sb_ref) => {
-                      subst_add_len_var_alias(spec_s, sb_name.clone(), sb_ref.clone());
-                    },
                     _ => ()
                   ),
                   .None => ()
