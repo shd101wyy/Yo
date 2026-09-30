@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
-{ scope_husk_on, scope_husk_mark, scope_husk_release } :: import("../../expr_info.yo");
+{ scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_depth, scope_husk_set_depth } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, snapshot_env, frame_is_isolating } :: import("../../env.yo");
 {
   EvalContext,
@@ -1650,9 +1650,15 @@ evaluate_begin_expression :: (
   ) -> AstExpr
 )({
   if(scope_husk_on() && is_evaluating_function_body_begin_block, {
+    saved_depth := scope_husk_depth();
+    outermost := (saved_depth == usize(0));
     mark := scope_husk_mark();
+    scope_husk_set_depth(saved_depth + usize(1));
     r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
-    scope_husk_release(mark);
+    scope_husk_set_depth(saved_depth);
+    if(outermost, {
+      scope_husk_release(mark);
+    });
     return(r);
   });
   _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn)

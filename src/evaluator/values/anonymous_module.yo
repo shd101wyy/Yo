@@ -9,6 +9,7 @@
 //! `allow_partial_module` is supported via the inner exception handler.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ scope_husk_depth, scope_husk_set_depth } :: import("../../expr_info.yo");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -978,7 +979,10 @@ evaluate_anonymous_module_begin_exprs :: (
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
   ___ca := _take_walk_abort();
+  mw_saved_depth := scope_husk_depth();
+  scope_husk_set_depth(usize(0));
   result := _run_module_walk(begin_exprs, init_env, ctx, allow_partial_module, keep_frame_at_end, defer_definitions);
+  scope_husk_set_depth(mw_saved_depth);
   match(
     _take_walk_abort(),
     .Some(err) => {

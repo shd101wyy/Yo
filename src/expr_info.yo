@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, HUSK_MARK, husk_read, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -430,6 +430,7 @@ ExprInfo :: ref(
 /// compiler; only never-adopted snapshots stay shared.
 (g_adopt_env_calls : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
+  husk_read(info.env, String.from("expr_info_adopt_env"));
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(info.env);
   info.env = fresh;
@@ -1020,6 +1021,11 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
 (g_scope_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
 (g_scope_husks : HashMap(String, Environment)) = HashMap(String, Environment).new();
 (g_scope_husked : usize) = usize(0);
+(g_scope_depth : usize) = usize(0);
+scope_husk_depth :: (fn() -> usize)(g_scope_depth);
+scope_husk_set_depth :: (fn(d : usize) -> unit)({
+  g_scope_depth = d;
+});
 scope_husk_on :: (fn() -> bool)(g_scope_husk_on);
 scope_husk_mark :: (fn() -> usize)(g_scope_infos.len());
 /// Point every ExprInfo recorded since `mark` at a frameless per-module env.
@@ -1034,7 +1040,7 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
           g_scope_husks.get(mp.clone()),
           .Some(h0) => h0,
           .None => {
-            h1 := Environment(frames : ArrayList(Frame).new(), module_path : mp.clone(), function_declaration_frame_level : Option(usize).None, input_string : info.env.input_string.clone(), frozen : false);
+            h1 := Environment(frames : ArrayList(Frame).new(), module_path : mp.clone(), function_declaration_frame_level : Option(usize).Some(HUSK_MARK), input_string : info.env.input_string.clone(), frozen : false);
             g_scope_husks.insert(mp, h1);
             h1
           }
@@ -1049,7 +1055,7 @@ scope_husk_release :: (fn(mark : usize) -> unit)({
   g_scope_infos.truncate(mark);
 });
 scope_husk_count :: (fn() -> usize)(g_scope_husked);
-export(scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_count);
+export(scope_husk_on, scope_husk_mark, scope_husk_release, scope_husk_count, scope_husk_depth, scope_husk_set_depth);
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   if(g_scope_husk_on, {
     g_scope_infos.push(info);

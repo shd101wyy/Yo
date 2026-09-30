@@ -18,7 +18,7 @@
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type } :: import("../types/guards.yo");
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
-{ Environment } :: import("../env.yo");
+{ Environment, husk_report, husk_set_codegen_active } :: import("../env.yo");
 { EvalContext, force_pending_count } :: import("../evaluator/context.yo");
 { CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
@@ -529,6 +529,8 @@ typedef enum {
   prof_emit_t0 := Instant.now();
   if(scope_husk_on(), {
     eprintln(`[proto-scope] husked=${scope_husk_count().to_string()}`);
+    husk_report();
+    husk_set_codegen_active(true);
   });
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
