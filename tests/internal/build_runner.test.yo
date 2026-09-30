@@ -16,7 +16,7 @@ import("std/fmt");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
-{ BuildRegistry, BuildArtifact, ArtifactKind } :: import("../../src/evaluator/builtins/build.yo");
+{ BuildRegistry, BuildArtifact, ArtifactKind, BuildVerifyConfig, ResolvedDep } :: import("../../src/evaluator/builtins/build.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildArtifact)(
   BuildArtifact(
     kind : kind,
@@ -179,6 +179,61 @@ test("build_dag: run step depends on its artifact", {
     },
     .None => assert(false, "run:app node missing")
   );
+});
+test("build_dag: a verify step is a leaf Verify node a step can depend on", {
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_verify(BuildVerifyConfig(name : String.from("proofs"), root : String.from("./src"), mode : String.from("verify+"), strict : true), exn);
+  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  reg.add_step_dependency(String.from("install"), String.from("proofs"));
+  match(
+    reg.resolve_dependency(String.from("proofs")),
+    .Some(dep) => match(
+      dep,
+      .Verify(v) => {
+        assert(v.mode == `verify+`, "mode travels");
+        assert(v.strict, "strict travels");
+      },
+      _ => assert(false, "resolves as a verify step")
+    ),
+    .None => assert(false, "registered")
+  );
+  dag := build_dag(reg, String.from("install"));
+  assert(dag.len() == usize(2), "verify node plus the step");
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while(i < dag.len(), {
+    node := dag(i);
+    if(node.name == `proofs`, {
+      found = true;
+      assert(match(node.kind, .Verify => true, _ => false), "Verify kind");
+      assert(node.depends_on.len() == usize(0), "a verify step is a leaf");
+    });
+    i = (i + usize(1));
+  });
+  assert(found, "verify node present");
+});
+test("register_verify: the one build namespace rejects a reused name", {
+  (thrown : bool) = false;
+  exn := Exception(
+    throw : (
+      _err -> {
+        thrown = true;
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_step(String.from("verify"), String.from("A custom step"), exn);
+  reg.register_verify(BuildVerifyConfig(name : String.from("verify"), root : String.from("./src"), mode : String.from("verify"), strict : false), exn);
+  assert(thrown, "a verify step cannot reuse a step's name");
 });
 test("build_dag: nested steps are walked transitively", {
   exn := Exception(

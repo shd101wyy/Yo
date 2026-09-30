@@ -50,6 +50,7 @@
   BF_YO_BUILD_MODULE_LINK,
   BF_YO_BUILD_ADD_CFLAGS,
   BF_YO_BUILD_DOC,
+  BF_YO_BUILD_VERIFY,
   BF_YO_BUILD_MANIFEST_FIELD
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
@@ -167,6 +168,16 @@ BuildDocConfig :: ref(
     version : String
   )
 );
+/// A `build.verify(...)` step: `yo verify <root>` in `mode` (`verify` or
+/// `verify+`), `--strict` when asked (issues/fixed/verify-by-default-for-a-project.md).
+BuildVerifyConfig :: ref(
+  struct(
+    name : String,
+    root : String,
+    mode : String,
+    strict : bool
+  )
+);
 /// A `-D<name>=<value>` option declared by `build.option(...)`.
 BuildDeclaredOption :: ref(
   struct(
@@ -180,6 +191,7 @@ ResolvedDep :: enum(
   Test(value : BuildTestSuite),
   Run(value : BuildRunStep),
   Doc(value : BuildDocConfig),
+  Verify(value : BuildVerifyConfig),
   Step(value : BuildStep)
 );
 // ---------------------------------------------------------------------------
@@ -199,6 +211,7 @@ BuildRegistry :: ref(
     dependency_artifacts : ArrayList(DependencyArtifactRef),
     modules : ArrayList(BuildModuleEntry),
     doc_configs : ArrayList(BuildDocConfig),
+    verify_configs : ArrayList(BuildVerifyConfig),
     cli_options : HashMap(String, String),
     declared_options : HashMap(String, BuildDeclaredOption),
     /// The project's `yo.toml` `[package]` table, keyed by field name — what
@@ -221,6 +234,7 @@ impl(
       dependency_artifacts : ArrayList(DependencyArtifactRef).new(),
       modules : ArrayList(BuildModuleEntry).new(),
       doc_configs : ArrayList(BuildDocConfig).new(),
+      verify_configs : ArrayList(BuildVerifyConfig).new(),
       cli_options : HashMap(String, String).new(),
       declared_options : HashMap(String, BuildDeclaredOption).new(),
       manifest_fields : HashMap(String, String).new()
@@ -460,6 +474,10 @@ impl(
     Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
     self.doc_configs.push(config);
   }),
+  register_verify : (fn(inout(self) : Self, config : BuildVerifyConfig, exn : Exception) -> unit)({
+    Self._check_name_taken(self, config.name.clone(), "a verify step", exn);
+    self.verify_configs.push(config);
+  }),
   /// Attach a system library to a registered module. No-op when the module is
   /// unknown or the library is already attached.
   register_module_link : (fn(inout(self) : Self, module_name : String, system_library_name : String) -> unit)({
@@ -539,6 +557,16 @@ impl(
     });
     Option(BuildDocConfig).None
   }),
+  find_verify : (fn(inout(self) : Self, name : String) -> Option(BuildVerifyConfig))({
+    i := usize(0);
+    n := self.verify_configs.len();
+    while(i < n, {
+      v := self.verify_configs(i);
+      if(v.name == name, return(Option(BuildVerifyConfig).Some(v)));
+      i = (i + usize(1));
+    });
+    Option(BuildVerifyConfig).None
+  }),
   find_module : (fn(inout(self) : Self, name : String) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
@@ -599,6 +627,13 @@ impl(
       .None => ()
     );
     match(
+      self.find_verify(name),
+      .Some(v) => {
+        return(Option(ResolvedDep).Some(ResolvedDep.Verify(v)));
+      },
+      .None => ()
+    );
+    match(
       self.find_step(name),
       .Some(s) => {
         return(Option(ResolvedDep).Some(ResolvedDep.Step(s)));
@@ -617,6 +652,7 @@ impl(
     self.dependency_artifacts = ArrayList(DependencyArtifactRef).new();
     self.modules = ArrayList(BuildModuleEntry).new();
     self.doc_configs = ArrayList(BuildDocConfig).new();
+    self.verify_configs = ArrayList(BuildVerifyConfig).new();
     self.cli_options = HashMap(String, String).new();
     self.declared_options = HashMap(String, BuildDeclaredOption).new();
   }),
@@ -631,6 +667,7 @@ impl(
       self.find_test(name.clone()).is_some() => "a test suite",
       self.find_run_step(name.clone()).is_some() => "a run step",
       self.find_documentation(name.clone()).is_some() => "a documentation step",
+      self.find_verify(name.clone()).is_some() => "a verify step",
       self.find_step(name.clone()).is_some() => "a step",
       true => ""
     );
@@ -1325,6 +1362,19 @@ evaluate_yo_build_functions :: (
     );
     return(_build_unit_result(expr, env, ctx));
   });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_VERIFY, Option(usize).None), {
+    _build_require_args(args, usize(4), String.from("__yo_build_verify expects 4 arguments (name, root, mode, strict)"), expr, exn);
+    reg.register_verify(
+      BuildVerifyConfig(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        mode : _build_extract_string(args, usize(2), "mode", expr, ctx, exn),
+        strict : _build_extract_bool(args, usize(3), ctx)
+      ),
+      exn
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, Option(usize).None), {
     _build_require_args(args, usize(3), String.from("__yo_build_step_depend_on expects 3 arguments (step_name, dep_name, dep_kind)"), expr, exn);
     step_name := _build_extract_string(args, usize(0), "step_name", expr, ctx, exn);
@@ -1431,6 +1481,7 @@ export(
   DependencyArtifactRef,
   BuildModuleEntry,
   BuildDocConfig,
+  BuildVerifyConfig,
   BuildDeclaredOption,
   ResolvedDep,
   BuildRegistry,

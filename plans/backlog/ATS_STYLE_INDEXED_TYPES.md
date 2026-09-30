@@ -306,9 +306,9 @@ return one hidden type without a vtable, contracts for hidden lengths), and
 the non-goal for constructor existentials with its reason. Cross-link from
 `GADTS.md`'s "No existential types" line. Half a day.
 
-### Q1 — a policy question, filed, not decided here
+### Q1 — a policy question (DECIDED 2026-09-30: a build step, never a `check` switch — `__yo_build_verify` landed, `build.verify` wrapper seed-gated)
 
-`issues/questions/verify-by-default-for-a-project.md`: should a `yo.toml`
+`issues/fixed/verify-by-default-for-a-project.md`: should a `yo.toml`
 or `build.yo` switch arm every file of a project as a verify target (the
 ATS "type checking proves indices" experience), rather than the per-entry
 pragma? Today only the entry file is verified under `check` / `compile`,
@@ -326,7 +326,7 @@ project's roots, already available; wire it as a build step like `test`).
 | R2 | R1 | 3 | ATS's `dataprop` / `prfun` layer over collections |
 | I1 | usize-binder fix; `tss/impl-self-operator` | 1–2 | computed comptime lengths in result/body positions |
 | E1 | — | 0.5 | the existential story written down |
-| Q1 | — | 0 | filed |
+| Q1 | — | 0 | decided; the verify build step landed (Generation A) |
 
 ## 6. How this interacts with the Z3-backed verifier
 

@@ -267,6 +267,19 @@ doc_step.depend_on(docs);
 
 Then run: `yo build doc`
 
+### Verification build step — proofs as part of the build
+
+```rust
+// Generation A spelling (until the seed carries `__yo_build_verify`; then
+// `build.verify({ name : "proofs", root : "./src" })`):
+__yo_build_verify("proofs", "./src", "verify", false);   // (name, root, "verify"|"verify+", strict)
+proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+install.depend_on(proofs);
+```
+
+Then run: `yo build install` (runs `yo verify ./src` in the child; a refuted
+obligation fails the build). `yo check` never runs the solver.
+
 ### Doc comments
 
 ````rust
