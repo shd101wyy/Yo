@@ -6617,6 +6617,9 @@ test("a closure argument inside an io.async body keeps the future's result type"
 // io.async block: the inner capture struct read `cb` bare in the block's
 // closure function, where it lives in `closure_context`.
 // issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md
+// In the specialization the inner capture of `cb` is not RC, so it must reach
+// the io.async closure's capture struct without a dup:
+// issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md
 // ---------------------------------------------------------------------------
 _if_run_it :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
 _if_relay :: (
