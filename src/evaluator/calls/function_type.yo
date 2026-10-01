@@ -1336,9 +1336,12 @@ Result type: ${type_to_string(result_box)}`
         // values), with per-clause soft predicate evaluation so a
         // predicate that cannot resolve at definition time does not fail
         // the load (the WALK reports the unevaluated predicate loudly).
+        // An UNCONTRACTED generic helper stays unregistered: it has no
+        // claim to prove, and its call sites are verified per instance.
+        is_contracted := ((get_func_requires_exprs(fn_val_id.clone()).len() > usize(0)) || (get_func_ensures_exprs(fn_val_id.clone()).len() > usize(0)));
         if(((vmode == "verify") || (vmode == "verify+")) &&
           !(result_is_comptime_only) &&
-            (is_assumed || !(should_defer_ft)), {
+            ((is_assumed || !(should_defer_ft)) || is_contracted), {
           // The predicates are diagnostic-EVALUATED here (the plan's "one
           // diagnostic evaluation pass"): the side-table nodes are the
           // original signature AST, but ExprInfo lands on the evaluated

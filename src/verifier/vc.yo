@@ -1737,6 +1737,40 @@ _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
   out
 });
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
+/// The ExprInfo-free forms `_expr_term` accepts (see its gate), else
+/// `.None` without recording anything.
+_untyped_opaque_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+  if(ast_expr_is_atom(e), {
+    return(ctx.vars.get(ast_expr_token(e).value));
+  });
+  is_eq := ast_expr_is_fn_call_of(e, "==", Option(usize).Some(usize(2)));
+  is_ne := ast_expr_is_fn_call_of(e, "!=", Option(usize).Some(usize(2)));
+  if(!(is_eq || is_ne), {
+    return(Option(VcTerm).None);
+  });
+  oargs := match(
+    e,
+    .FnCall(_, _, oa, _, _) => oa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  lhs := _untyped_opaque_term(ctx, oargs.get(usize(0)).unwrap());
+  rhs := _untyped_opaque_term(ctx, oargs.get(usize(1)).unwrap());
+  if(lhs.is_none() || rhs.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  ls := match(_term_sort(lhs.unwrap()), .Some(.Uninterpreted(ln)) => ln, _ => String.new());
+  rs := match(_term_sort(rhs.unwrap()), .Some(.Uninterpreted(rn)) => rn, _ => String.new());
+  if((ls.len() == usize(0)) || (ls != rs), {
+    return(Option(VcTerm).None);
+  });
+  eq_t := _app2(VcOp.EqOp, lhs.unwrap(), rhs.unwrap());
+  Option(VcTerm).Some(
+    cond(
+      is_eq => eq_t,
+      true => _app1(VcOp.NotOp, eq_t)
+    )
+  )
+});
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
 _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
   // `xs.len()` / `xs.is_empty()` on a NAME bound to a list term needs no
@@ -1753,6 +1787,18 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(i) => i,
     .None => {
+      // A generic body's predicate pass cannot type `x == y` over an
+      // opaque type parameter (no `==` to dispatch to), and the swallowed
+      // evaluation leaves its atoms untyped too. Two forms need no
+      // ExprInfo: a name the walk already bound (its term carries its
+      // sort), and `==` / `!=` over two terms of one UNINTERPRETED sort.
+      match(
+        _untyped_opaque_term(ctx, e),
+        .Some(ut) => {
+          return(Option(VcTerm).Some(ut));
+        },
+        .None => ()
+      );
       _fail_subset(ctx, String.from("untyped expression"), e);
       return(Option(VcTerm).None);
     }
