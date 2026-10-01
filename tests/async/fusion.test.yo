@@ -208,3 +208,106 @@ test("aborting a task suspended at a fused await cancels the wait", {
   h.abort();
   assert(h.await(io).is_none(), "an aborted task has no result");
 });
+// Nested fusion (F3): a wrapper whose one await is itself a fusable wrapper
+// runs both blocks in the caller (§3.1, up to depth 4).
+_twice_checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+  m := (n * i32(2));
+  io.async(e => {
+    r := e.io.await(_checked(m, e.io), e);
+    r + i32(1)
+  })
+});
+_nest2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_twice_checked(n, e.io), e);
+    v
+  })
+);
+test("a fused wrapper nested in a fused wrapper gives its value", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  // 3 * 2 = 6, + 1 in _checked = 7, + 1 in _twice_checked = 8.
+  assert(io.await(_nest2(i32(3), io), IoExn(io : io, exn : exn)) == i32(8), "both blocks ran");
+});
+_nest2_unwound :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  _v := io.await(_nest2(i32(60), io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw two fused blocks deep unwinds to the caller's handler", {
+  assert(_nest2_unwound(io), "60 * 2 + 1 > 100 throws in the inner block");
+});
+// A chain of five wrappers: fusion stops at depth 4, and the fifth runs as its
+// own task. The value is the same either way: n + 5.
+_d1 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_leaf(n, e), e);
+    r + i32(1)
+  })
+);
+_d2 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d1(n, e), e);
+    r + i32(1)
+  })
+);
+_d3 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d2(n, e), e);
+    r + i32(1)
+  })
+);
+_d4 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d3(n, e), e);
+    r + i32(1)
+  })
+);
+_d5 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d4(n, e), e);
+    r + i32(1)
+  })
+);
+test("a chain of five fusable wrappers gives its value past the depth limit", {
+  assert(io.await(_d5(i32(10), io), io) == i32(15), "10 + 5");
+});
+// Two wrappers that await each other are recursive through the fused path
+// (§3.1 rule 5): codegen must terminate and not fuse the cycle. They are only
+// reached behind a runtime false, since running them never ends.
+_ping :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_pong(n, e), e);
+    r
+  })
+);
+_pong :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_ping(n, e), e);
+    r
+  })
+);
+_maybe_ping :: (fn(go : bool, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := cond(
+      go => e.await(_ping(i32(1), e), e),
+      true => i32(0)
+    );
+    r
+  })
+);
+test("mutually recursive wrappers compile, and are not fused into each other", {
+  assert(io.await(_maybe_ping(runtime(i32(0) > i32(1)), io), io) == i32(0), "the cycle is never entered");
+});
