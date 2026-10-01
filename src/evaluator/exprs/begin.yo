@@ -23,6 +23,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
+  BK_CONST,
   BF_DOT,
   BK_COND,
   BK_MATCH,
@@ -66,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -83,8 +84,9 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
-{ Severity, Diagnostic, Span, warnings_enabled, emit_warning } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ Severity, Diagnostic, Span, warnings_enabled, emit_warning, E_DISCARDED_MUST_USE } :: import("../../diagnostics.yo");
+{ extract_future_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
@@ -1638,6 +1640,30 @@ _variant_local_hint :: (
     true => Option(ExpectedTypeCtx).None
   )
 });
+/// What a must-use expression statement would drop ("a Result", "a
+/// future"), else `.None`: bindings (`:=`, `=`, `::`) bind the value, and a
+/// statement the compiler generated from a string (`auto-generated://`) is no
+/// user's discard.
+_must_use_kind :: (fn(stmt : AstExpr, ty : TypeValue) -> Option(String))({
+  if(ast_expr_is_fn_call_of(stmt, BK_ASSIGN, .None) || (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_CONST, .None)), {
+    return(Option(String).None);
+  });
+  if(ast_expr_token(stmt).module_path.starts_with("auto-generated://"), {
+    return(Option(String).None);
+  });
+  inner := t_refine_inner(ty);
+  is_result := match(
+    inner,
+    .EnumT(_) => type_to_string(inner).starts_with("Result("),
+    _ => false
+  );
+  cond(
+    is_result => Option(String).Some(String.from("a Result")),
+    extract_future_trait_from_type(ty).is_some() => Option(String).Some(String.from("a future")),
+    true => Option(String).None
+  )
+});
+
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
@@ -2135,6 +2161,31 @@ evaluate_begin_expression :: (
           },
           .None => ()
         );
+        // A2 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a non-final
+        // expression STATEMENT may not drop a Result or a future.
+        if(!is_last_in_loop, {
+          match(
+            ev_info_opt,
+            .Some(mu_info) => match(
+              _must_use_kind(evaluated, mu_info.ty),
+              .Some(mu_kind) => {
+                exn.throw(
+                  dyn(
+                    with_code(
+                      format_error_message(
+                        ast_expr_token(evaluated),
+                        `This statement drops ${mu_kind}: its value is never used. Handle it (match, ?), await a future with io.await(...), or discard it on purpose with \`_ := ...;\`.`
+                      ),
+                      E_DISCARDED_MUST_USE
+                    )
+                  )
+                );
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
         // folded to a compile-time value.
