@@ -102,6 +102,26 @@ _reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
   });
   sb.to_string()
 });
+/// Count of reports with this outcome. A contracted generic definition is
+/// verified abstractly (R1 task 4) and reports beside its callers, so tests
+/// count outcomes instead of reading positions.
+_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), outcome : String) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.outcome == outcome, {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
 
 test("a contracted generic callee's ensures is assumed at the call site", {
   if(!_have_z3(), {
@@ -112,14 +132,10 @@ test("a contracted generic callee's ensures is assumed at the call site", {
     io,
     true
   );
-  assert(reports.len() == usize(1), `the caller registers, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  match(
-    reports.get(usize(0)),
-    .Some(rp) => {
-      assert(rp.outcome == "ok", `the caller proves via the assumed generic ensures, got: [${_reports_dump(reports)}]`);
-    },
-    .None => ()
-  );
+  // `pick` (verified abstractly over its type parameter) and the caller,
+  // which proves only through pick's assumed ensures.
+  assert(reports.len() == usize(2), `pick and the caller register, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(_count_outcome(reports, String.from("ok")) == usize(2), `both prove, got: [${_reports_dump(reports)}]`);
 });
 
 test("a generic callee's requires discharges when satisfied", {
@@ -149,11 +165,8 @@ test("a generic callee's requires VIOLATION refutes", {
     io,
     true
   );
-  match(
-    reports.get(usize(0)),
-    .Some(rp) => {
-      assert(rp.outcome == "refuted", `flag=false must refute the requires discharge, got: [${_reports_dump(reports)}]`);
-    },
-    .None => ()
-  );
+  // The generic callee itself verifies; the caller passing flag=false
+  // refutes its requires.
+  assert(_count_outcome(reports, String.from("refuted")) == usize(1), `flag=false must refute the requires discharge, got: [${_reports_dump(reports)}]`);
+  assert(_count_outcome(reports, String.from("ok")) == usize(1), `only the generic callee may verify, got: [${_reports_dump(reports)}]`);
 });
