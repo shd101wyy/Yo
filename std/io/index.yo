@@ -83,7 +83,7 @@ Reader :: trait(
               out.reserve(out.capacity());
             });
             spare := out.spare_capacity().unwrap();
-            n := e.io.await(Self.read(self, spare.ptr, spare.len, io), e);
+            n := e.io.await(Self.read(self, spare, out.capacity() - out.len(), io), e);
             if(n == usize(0), {
               done = true;
             }, {
