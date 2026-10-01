@@ -5,7 +5,7 @@ Every concrete specialization worked, so nothing was reported. Phase 6 step 3 of
 `plans/TYPE_SYSTEM_SOUNDNESS.md` (re-raise a swallowed trial error) would have turned it into
 a false error in user code.
 
-**Status:** FIXED 2026-10-01 on branch `tss/generic-extern-trial-rev`. Found by the
+**Status:** FIXED 2026-10-01 on branch `tss/generic-extern-trial`. Found by the
 adversarial review of the fix for
 `issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`. That doc
 had claimed that a Yo-fn callee passes, but it passes only when the callee returns `unit`.
