@@ -74,7 +74,9 @@
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
+{ get_func_type, is_fn_ctfe_clone } :: import("../../function_value.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -443,6 +445,52 @@ _rhs_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
     )
   )
 });
+/// True when the innermost function body under evaluation belongs to a
+/// function DECLARED to return a compile-time value (`-> comptime(T)`,
+/// `-> Type`, `-> Expr`, …): a compile-time context, where a `:=` (a runtime
+/// variable) cannot appear.
+///
+/// The declared type is the one registered for the function value, not the
+/// context's `func_type`: CTFE capability analysis evaluates a RUNTIME
+/// function under a synthesized comptime type with the runtime function as
+/// its value, and a `comptime_fn` clone carries a comptime type over the
+/// runtime body the user wrote. Neither is a compile-time context. A function
+/// literal nested in a compile-time body opens its own function-body context,
+/// so a runtime method or closure defined there keeps its `:=`.
+_in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fctx) => match(
+      fctx.kind,
+      .FunctionBody => match(
+        fctx.func_value,
+        .Some(fv) => match(
+          fv,
+          .FuncVal(fvd, _) => {
+            fid := fvd.*.func_id;
+            declared := get_func_type(fid.clone());
+            cond(
+              is_fn_ctfe_clone(fid) => false,
+              is_function_type_and_returns_comptime_value(declared) => true,
+              // Unregistered value: fall back to the context's type, which is
+              // the declared one for every site that evaluates a user body.
+              is_unit_type(declared) => match(
+                fctx.func_type,
+                .Some(ft) => is_function_type_and_returns_comptime_value(ft),
+                .None => false
+              ),
+              true => false
+            )
+          },
+          _ => false
+        ),
+        .None => false
+      ),
+      _ => false
+    ),
+    .None => false
+  )
+);
 evaluate_initialization_assignment :: (
   fn(
     expr : AstExpr,
@@ -465,37 +513,35 @@ evaluate_initialization_assignment :: (
       )
     );
   });
-  // During CTFE (force_compile_time_bindings), `:=` is treated as `::`.
+  // `:=` declares a RUNTIME variable, so it cannot appear in a compile-time
+  // context: the body of a function declared to return a compile-time value
+  // (E1104, issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+  // Checked before `force_compile_time_bindings` is consulted, because that
+  // flag is set for every compile-time body evaluation and used to turn the
+  // `:=` into a `::` silently.
+  if(is_init_assign && _in_compile_time_fn_body(ctx), {
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_repair(
+            ast_expr_token(expr),
+            String.from("`:=` declares a runtime variable, but this is the body of a function that returns a compile-time value; declare the local with `::` (it is still mutable)."),
+            Option(String).Some(String.from("replace `:=` with `::`")),
+            String.from("::"),
+            String.from("declare the local with `::`")
+          ),
+          E_COMPTIME_RUNTIME_BINDING
+        )
+      )
+    );
+  });
+  // A RUNTIME function evaluated at compile time (a `comptime_fn` clone, CTFE
+  // capability analysis) runs under `force_compile_time_bindings`; its `:=`
+  // locals are stored as compile-time values there.
   is_compile_time_only := (is_const || ctx.force_compile_time_bindings);
   // For type conversion purposes, only `::` suppresses comptime→runtime
   // conversion; `:=` with forceCompileTimeBindings still converts.
   should_convert_to_runtime_type := !is_const;
-  // Reject runtime `:=` inside a compile-time-only function body.
-  // Phase 2w: `is_function_type_and_returns_comptime_value` is a stub (always false).
-  if(!is_compile_time_only, {
-    is_ctfe_body := match(
-      ctx.is_evaluating_function_body_or_async_block,
-      .Some(fctx) => (
-        match(fctx.kind, .FunctionBody => true, _ => false) &&
-          match(
-            fctx.func_type,
-            .Some(ft) => is_function_type_and_returns_comptime_value(ft),
-            .None => false
-          )
-      ),
-      .None => false
-    );
-    if(is_ctfe_body, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Unexpected runtime variable declaration in a compile-time only function body.")
-          )
-        )
-      );
-    });
-  });
   // Extract lhs and rhs from args.
   (lhs : AstExpr) = match(
     expr,
