@@ -420,7 +420,7 @@ test("try_with_write fails while a reader holds the lock", {
   assert(lock.try_with_write(v => v).is_none(), "one reader blocks the writer");
   // But another reader still gets in.
   assert(lock.try_with_read(v => v).is_some(), "a reader does not block a reader");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   reader.join();
   assert(lock.try_with_write(v => v).is_some(), "and the writer gets in once the reader left");
 });
@@ -438,7 +438,7 @@ test("try_with_read fails while a writer holds the lock", {
   writing.recv();
   assert(lock.try_with_read(v => v).is_none(), "a writer excludes readers");
   assert(lock.try_with_write(v => v).is_none(), "and excludes other writers");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   writer.join();
   assert(lock.try_with_read(v => v).unwrap() == i64(42), "the writer's value is visible after");
 });
@@ -461,7 +461,7 @@ test("a failed try_with_read leaves the reader count untouched", {
     assert(lock.try_with_read(v => v).is_none(), "each attempt fails");
     i = (i + i64(1));
   });
-  release.send(i32(1));
+  _ := release.send(i32(1));
   writer.join();
   // If any of those had leaked a reader, this exclusive acquisition would
   // fail forever.

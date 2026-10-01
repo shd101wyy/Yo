@@ -29,9 +29,9 @@ test("Channel send and recv single value", {
 });
 test("Channel send and recv multiple values preserves FIFO order", {
   ch := Channel(i32).new(usize(10));
-  ch.send(i32(1));
-  ch.send(i32(2));
-  ch.send(i32(3));
+  _ := ch.send(i32(1));
+  _ := ch.send(i32(2));
+  _ := ch.send(i32(3));
   assert(ch.len() == usize(3), "channel should have 3 items");
   v1 := ch.recv();
   v2 := ch.recv();
@@ -42,9 +42,9 @@ test("Channel send and recv multiple values preserves FIFO order", {
 });
 test("Channel send fills to capacity", {
   ch := Channel(i32).new(usize(3));
-  ch.send(i32(10));
-  ch.send(i32(20));
-  ch.send(i32(30));
+  _ := ch.send(i32(10));
+  _ := ch.send(i32(20));
+  _ := ch.send(i32(30));
   assert(ch.len() == usize(3), "channel should be full at capacity 3");
 });
 // ============================================================================
@@ -58,15 +58,15 @@ test("Channel try_send succeeds when not full", {
 });
 test("Channel try_send fails when full", {
   ch := Channel(i32).new(usize(2));
-  ch.send(i32(1));
-  ch.send(i32(2));
+  _ := ch.send(i32(1));
+  _ := ch.send(i32(2));
   r := ch.try_send(i32(3));
   assert(r.is_err(), "try_send should fail on full channel");
   assert(ch.len() == usize(2), "channel len should still be 2");
 });
 test("Channel try_recv returns value when available", {
   ch := Channel(i32).new(usize(5));
-  ch.send(i32(77));
+  _ := ch.send(i32(77));
   val := ch.try_recv();
   assert(val.is_ok(), "try_recv should return a value");
   assert(val.unwrap() == i32(77), "try_recv should return 77");
@@ -91,7 +91,7 @@ test("TryRecvError distinguishes the two cases a poller must act on", {
   // so a polling loop could not tell "not yet" from "never".
   ch := Channel(i32).new(usize(2));
   first := ch.try_recv();
-  ch.send(i32(5));
+  _ := ch.send(i32(5));
   second := ch.try_recv();
   ch.close();
   third := ch.try_recv();
@@ -135,7 +135,7 @@ test("Channel send to closed channel returns the value back", {
 });
 test("Channel try_send to full channel returns the value back", {
   ch := Channel(i32).new(usize(1));
-  ch.send(i32(1));
+  _ := ch.send(i32(1));
   r := ch.try_send(i32(2));
   match(
     r,
@@ -146,8 +146,8 @@ test("Channel try_send to full channel returns the value back", {
 });
 test("Channel recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
-  ch.send(i32(10));
-  ch.send(i32(20));
+  _ := ch.send(i32(10));
+  _ := ch.send(i32(20));
   ch.close();
   v1 := ch.recv();
   assert(v1.is_some(), "recv should return buffered value after close");
@@ -160,7 +160,7 @@ test("Channel recv drains remaining values after close", {
 });
 test("Channel try_recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
-  ch.send(i32(100));
+  _ := ch.send(i32(100));
   ch.close();
   val := ch.try_recv();
   assert(val.is_ok(), "try_recv should return buffered value after close");
@@ -176,8 +176,8 @@ test("Channel try_recv drains remaining values after close", {
 // ============================================================================
 test("Channel with bool type", {
   ch := Channel(bool).new(usize(5));
-  ch.send(true);
-  ch.send(false);
+  _ := ch.send(true);
+  _ := ch.send(false);
   v1 := ch.recv();
   v2 := ch.recv();
   assert(v1.unwrap(), "first value should be true");
@@ -185,7 +185,7 @@ test("Channel with bool type", {
 });
 test("Channel with usize type", {
   ch := Channel(usize).new(usize(5));
-  ch.send(usize(42));
+  _ := ch.send(usize(42));
   val := ch.recv();
   assert(val.unwrap() == usize(42), "value should be 42");
 });
