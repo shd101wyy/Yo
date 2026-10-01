@@ -802,7 +802,7 @@ Rules:
 
 Every public top-level `fn(...)` in `std/` should take and return value or `inout`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `inout(name) : T` for in-place mutation, or a higher-level safe type (`RawSlice(T)` for pragma'd internals).
 
-Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public_safe_report.yo`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
+Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public_safe_report.yo`. Keep the finding count from growing when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 

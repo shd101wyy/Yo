@@ -161,6 +161,56 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
 _name_is_raw_pointer_api :: (fn(name : String) -> bool)(
   name.ends_with(`_cstr`) || (name == "from_cstr") || ((name == "from_raw_parts") || (name == "as_ptr")) || ((name == "from_raw") || name.ends_with(`_raw`)) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`)) || ((name == "argv") || (name == "argc"))
 );
+/// True when the pointer type at `offset` in `text` is a parameter NAMED as a
+/// safe-mode privilege token — `witness` / `written` / `spare`. Such a
+/// parameter is the GATE (a pointer only unsafe-capable code can produce:
+/// `MaybeUninit.assume_init(written)`, `ArrayList.assume_init(n, spare)`,
+/// `std/spec/refine`'s `unchecked(witness)`), not raw-pointer API surface the
+/// caller must be able to use.
+_ptr_hit_is_privilege_token :: (fn(text : ArrayList(u8), offset : usize) -> bool)({
+  k := offset;
+  while((k > usize(0)) && _psr_is_ws_byte(text(k - usize(1))), {
+    k = (k - usize(1));
+  });
+  if((k == usize(0)) || (text(k - usize(1)) != u8(58)), {
+    return(false);
+  });
+  k = (k - usize(1));
+  while((k > usize(0)) && _psr_is_ws_byte(text(k - usize(1))), {
+    k = (k - usize(1));
+  });
+  labels := ArrayList(String).new();
+  labels.push(`witness`);
+  labels.push(`written`);
+  labels.push(`spare`);
+  (li : usize) = usize(0);
+  while(li < labels.len(), {
+    lbl := labels.get(li);
+    match(
+      lbl,
+      .Some(l) => {
+        if((k >= l.len()) && _bytes_end_with(text, k, l), {
+          return(true);
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  false
+});
+/// Do the `l.len()` bytes of `text` ending AT `end` spell `l`?
+_bytes_end_with :: (fn(text : ArrayList(u8), end : usize, l : String) -> bool)({
+  n := l.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(text((end - n) + i) != l(i), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
 /// Directories whose files are FFI by construction, plus the `.test.yo`
 /// exemption.
 _should_skip_file :: (fn(file : String) -> bool)({
@@ -534,18 +584,20 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
       (hi : usize) = usize(0);
       while(runtime(hi < param_hits.len()), {
         hit := param_hits(hi);
-        lc := _offset_to_line_col(src, decl.params_start + hit.offset);
-        findings.push(
-          PublicSafeFinding(
-            file : file.clone(),
-            line : lc.line,
-            column : lc.column,
-            decl_name : decl.name.clone(),
-            slot : String.from("parameter"),
-            pointer_type : hit.pointer_type.clone(),
-            snippet : _short_snippet(param_bytes, hit.offset)
-          )
-        );
+        if(!_ptr_hit_is_privilege_token(param_bytes, hit.offset), {
+          lc := _offset_to_line_col(src, decl.params_start + hit.offset);
+          findings.push(
+            PublicSafeFinding(
+              file : file.clone(),
+              line : lc.line,
+              column : lc.column,
+              decl_name : decl.name.clone(),
+              slot : String.from("parameter"),
+              pointer_type : hit.pointer_type.clone(),
+              snippet : _short_snippet(param_bytes, hit.offset)
+            )
+          );
+        });
         hi = (hi + usize(1));
       });
       if(decl.return_text.len() > usize(0), {
@@ -826,7 +878,7 @@ format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
     i = (i + usize(1));
   });
   out.write_str("\n");
-  out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract.");
+  out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract. A parameter named witness / written / spare is exempt too — it is a safe-mode privilege token (a pointer only unsafe-capable code can produce), not API surface.");
   out.write_string(_format_class1_section(report));
   out.to_string()
 });
