@@ -82,6 +82,11 @@ Unchanged:
   captured by any other binder called `T` (that is why the symbolic binding broke
   `tests/array.test.yo`). A length variable has to refer to its type variable by identity.
   The later-impl case is fixed on `fix/enum-final-name` (§3.4).
+- **`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`**
+  (S3, handed over by a peer 2026-10-01): `EnumT` has no `type_arguments`, so a phantom enum
+  instance cannot be matched to its generic impl through a `comptime(K) : Type` parameter. The
+  fix (a `type_arguments` field that `substitute` rewrites, plus the CTFE canonicalization
+  memo) is type identity: gate it on byte identity.
 - **`issues/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (new):
   the prelude's `GcTracer.visit` fails its definition-time trial on every `check`, and the
   failure is swallowed. It blocks §3.2 steps 3–4, which would re-raise it.
