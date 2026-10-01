@@ -1528,7 +1528,8 @@ try_match_generic_impl :: (
                         value : Option(EvalValue).Some(create_type_value(dar_res)),
                         source_trait_id : get_base_trait_key(entry.trait_type),
                         needs_pointer_conversion : false,
-                        self_type : Option(TypeValue).None
+                        self_type : Option(TypeValue).None,
+                        owner : String.new()
                       )
                     );
                   });
@@ -3528,7 +3529,8 @@ _c3_eval_colon_pair :: (
               // SelfType either (only the
               // SomeT / Dyn / TypeApp paths do, via
               // env.yo:get_receiver_methods_by_name_from_env).
-              self_type : Option(TypeValue).None
+              self_type : Option(TypeValue).None,
+              owner : String.new()
             )
           );
         });
@@ -3621,7 +3623,8 @@ _c2_register_member :: (
         value : Option(EvalValue).Some(value),
         source_trait_id : src_tid,
         needs_pointer_conversion : false,
-        self_type : Option(TypeValue).None
+        self_type : Option(TypeValue).None,
+        owner : String.new()
       )
     );
   });
@@ -3851,7 +3854,8 @@ force_in_flight_field :: (
           value : Option(EvalValue).Some(pa_v),
           source_trait_id : pa_src,
           needs_pointer_conversion : false,
-          self_type : Option(TypeValue).None
+          self_type : Option(TypeValue).None,
+          owner : String.new()
         );
         if(rec.is_generic, {
           register_provisional_trait_method(rec.recv_id.clone(), pa_entry);
@@ -4955,7 +4959,8 @@ evaluate_module_value :: (
                       value : Option(EvalValue).None,
                       source_trait_id : pv_trait_id.clone(),
                       needs_pointer_conversion : false,
-                      self_type : Option(TypeValue).Some(receiver_ty)
+                      self_type : Option(TypeValue).Some(receiver_ty),
+                      owner : String.new()
                     )
                   );
                 });
@@ -5267,7 +5272,8 @@ evaluate_module_value :: (
                           value : Option(EvalValue).Some(d_reg_val),
                           source_trait_id : type_id_or_empty(ctt2),
                           needs_pointer_conversion : false,
-                          self_type : Option(TypeValue).None
+                          self_type : Option(TypeValue).None,
+                          owner : String.new()
                         )
                       );
                     },

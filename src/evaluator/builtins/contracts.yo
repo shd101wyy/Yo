@@ -1387,7 +1387,7 @@ VerifyTask :: ref(
     /// caller the verifier never walks can break, so no guard may be elided
     /// on it (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
     /// Empty = none enforced.
-    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
+    requires_enforced : ArrayList(bool)
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
@@ -1730,7 +1730,8 @@ register_impl_inheritance_task :: (
           return_label : __t_ret,
           table : ctx.expr_info_table,
           mode : __mode.clone(),
-          func_val : method_val
+          func_val : method_val,
+          requires_enforced : ArrayList(bool).new()
         )
       );
     },
@@ -2389,7 +2390,8 @@ register_impl_variance_task :: (
       return_label : Option(String).None,
       table : ctx.expr_info_table,
       mode : __mode.clone(),
-      func_val : EvalValue.UnitVal
+      func_val : EvalValue.UnitVal,
+      requires_enforced : ArrayList(bool).new()
     )
   );
   ()
@@ -3208,7 +3210,8 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
       return_label : Option(String).None,
       table : ctx.expr_info_table,
       mode : law_mode.clone(),
-      func_val : EvalValue.UnitVal
+      func_val : EvalValue.UnitVal,
+      requires_enforced : ArrayList(bool).new()
     )
   );
   expr
