@@ -1,7 +1,16 @@
 # ATS-style indexed types, refinements and existentials in Yo — audit and plan
 
-**Status:** BACKLOG — audit done 2026-09-30 (develop `df3798c4a`, seed v0.2.46);
-the plan's phases are written, not started. Scoping charter:
+**Status:** DONE 2026-10-02. Every phase has landed:
+- R1 (#1057), the length-indexed list;
+- R2 slices 1–4 (#1075, #1106, #1107): recursive `ghost_fn`, lemmas, `seq_of`,
+  the DML exit fixtures, a verified `for` with `produced(xs)`, `distinct(a, b)`;
+- I1 (#1045), computed comptime lengths in result and body positions;
+- E1, `docs/*/DESIGN.md` §Existential Types;
+- Q1, the verify build step.
+
+Still parked, with a written follow-up: `push`'s element clause in std waits
+for the next seed (Generation B in `SEED_VERSION_AUTOMATION.md`). The audit
+was done 2026-09-30 (develop `df3798c4a`, seed v0.2.46). Scoping charter:
 [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) (updated the same
 day with this audit's verdict). Owner of the type-checker half of the
 prerequisites: [`../TYPE_SYSTEM_SOUNDNESS.md`](../TYPE_SYSTEM_SOUNDNESS.md);
@@ -430,6 +439,13 @@ one phase: R1 alone covers length indexing, which is 90 % of what ATS
 programs index by.
 
 ### I1 — computed comptime lengths in non-binding positions (Layer 1)
+
+> **Landed in #1045 (`f9a3b9936`).** A computed length is legal in a result
+> type, where it is re-evaluated per instantiation, and in a body type. A
+> parameter type rejects it with a precise message. Re-measured 2026-10-02 on
+> develop: `-> Array(u8, N + usize(1))`, `-> Array(u8, N * usize(2))` and
+> `-> Array(u8, N + M)` (with `generic(N : usize, M : usize)`) compile and
+> run, and `a : Array(u8, N + usize(1))` is rejected.
 
 **Goal:** `-> Array(u8, N + usize(1))` and `(r : Array(u8, N * usize(2)))`
 compile; `Array(u8, N + M)` in a result with both `N` and `M` bound by
