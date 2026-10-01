@@ -1515,9 +1515,11 @@ nothing, and it never wakes without a reason.
   `recv` never consumes data a later `recv` should see.
 - **A `std/net` stream write to a peer that has closed throws**
   (`IoError.BrokenPipe`, or a reset) instead of raising `SIGPIPE`, whose
-  default action kills the process: `TcpStream`/`UnixStream` writes pass
-  `std/sys/socket`'s `MSG_NOSIGNAL`. The raw `std/sys` `send` passes its
-  flags through unchanged.
+  default action kills the process. `TcpStream`/`UnixStream` writes go
+  through `std/sys`'s `stream_write`: `write(2)` on macOS, where std sets
+  `SO_NOSIGPIPE` on every stream it connects or accepts, and
+  `send(MSG_NOSIGNAL)` on Linux. The raw `std/sys` `send` passes its flags
+  through unchanged.
 - **Sockets may be blocking or nonblocking** for `send`/`recv`/`sendto`/
   `recvfrom`: the readiness backends attempt them with `MSG_DONTWAIT`.
   `accept`, `connect` and `read`/`write` on a pipe or tty need a nonblocking

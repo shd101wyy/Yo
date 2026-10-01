@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 184 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 183 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 6 | 1 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 22 | 4 |
-| Std library | 53 | 12 |
+| Std library | 52 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 47 | 9 |
-| **Total** | **184** | **33** |
+| **Total** | **183** | **33** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 32 |
 | S2 | 88 |
-| S3 | 62 |
+| S3 | 61 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -236,7 +236,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (53)
+### Std library (52)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -265,7 +265,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | S3 | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | S3 | — | yes |
 | [`std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`](./std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md) | S3 | — | — |
-| [`std-net-stream-writes-take-send-where-write-is-cheaper.md`](./std-net-stream-writes-take-send-where-write-is-cheaper.md) | S3 | — | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | S1 | OPEN — | yes |

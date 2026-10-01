@@ -780,3 +780,24 @@ test("a TcpStream write to a peer that has closed throws instead of killing the 
   io.await(server.close(io), e);
   io.await(listener.close(io), e);
 });
+// The same from the connecting end: `connect` and `accept` each make their
+// stream safe for the stream-write op (on macOS, plain write(2) with
+// SO_NOSIGPIPE set), so each end needs its own pin.
+test("a connected TcpStream write to an accepted peer that has closed throws instead of killing the process", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), e);
+  client := io.await(TcpStream.connect(listener.local_addr(), io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(server.close(io), e);
+  assert(_tcp_write_until_error(client, io), "a write to the closed peer reported an error");
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
+});

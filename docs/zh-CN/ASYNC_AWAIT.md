@@ -1427,9 +1427,10 @@ kqueue 后端遵循同样的“不经事件循环就完成”原则，并额外�
 - **中止任务会取消它正挂起其中的操作**，因此被中止的 `recv` 不会吞掉本应由
   后续 `recv` 读到的数据。
 - **`std/net` 流向已关闭的对端写入时会抛出错误**（`IoError.BrokenPipe` 或连
-  接重置），而不是触发默认动作为终止进程的 `SIGPIPE`：`TcpStream`/`UnixStream`
-  的写入会传入 `std/sys/socket` 的 `MSG_NOSIGNAL`。底层 `std/sys` 的 `send`
-  原样传递调用者给出的标志。
+  接重置），而不是触发默认动作为终止进程的 `SIGPIPE`。`TcpStream`/`UnixStream`
+  的写入经由 `std/sys` 的 `stream_write`：在 macOS 上是 `write(2)`，std 会为
+  它连接或接受的每个流设置 `SO_NOSIGPIPE`；在 Linux 上是
+  `send(MSG_NOSIGNAL)`。底层 `std/sys` 的 `send` 原样传递调用者给出的标志。
 - **`send`/`recv`/`sendto`/`recvfrom` 的套接字可以是阻塞或非阻塞的**：
   就绪型后端以 `MSG_DONTWAIT` 尝试这些调用。在 macOS 与 epoll 后端上，
   `accept`、`connect` 以及对管道或终端的 `read`/`write` 需要非阻塞描述符
