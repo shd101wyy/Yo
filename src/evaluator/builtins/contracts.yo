@@ -2631,6 +2631,16 @@ _guard_body_is :: (fn(body : AstExpr, prefix : String) -> bool)(
 /// by its module-level `name :: ghost_fn(...)` definition
 /// (`is_module_ghost_fn_def`), or by a FuncVal value when a node has one.
 requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> bool)(
+  _contract_clause_runs(pred, table, false)
+);
+/// An `ensures` clause that can run as an assert after the body: the
+/// `requires` rule, except that `old(...)` is allowed (the splice snapshots
+/// it at entry). A clause that quantifies or calls a `ghost_fn` is
+/// proof-only: splicing it would put a ghost-only builtin into runtime code.
+ensures_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> bool)(
+  _contract_clause_runs(pred, table, true)
+);
+_contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : bool) -> bool)(
   match(
     pred,
     .Atom(_, _) => match(
@@ -2645,7 +2655,7 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
-        if((((hn == BF_OLD) || (hn == BF_FORALL)) || (hn == BF_EXISTS)) || (hn == BF_GHOST), {
+        if(((hn == BF_OLD) && !(allow_old)) || (((hn == BF_FORALL) || (hn == BF_EXISTS)) || (hn == BF_GHOST)), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
@@ -2653,14 +2663,14 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
           return(false);
         });
       });
-      if(!(requires_is_runtime_checkable(head, table)), {
+      if(!(_contract_clause_runs(head, table, allow_old)), {
         return(false);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(!(requires_is_runtime_checkable(a, table)), {
+          .Some(a) => if(!(_contract_clause_runs(a, table, allow_old)), {
             return(false);
           }),
           .None => ()
@@ -2703,7 +2713,11 @@ wrap_function_body_with_contracts :: (
     (in_ghost_fn : bool) ?= false,
     /// Per `requires_exprs` entry: whether its predicate can run
     /// (`requires_is_runtime_checkable`). `verify` mode splices only those.
-    (requires_checkable : ArrayList(bool)) ?= ArrayList(bool).new()
+    (requires_checkable : ArrayList(bool)) ?= ArrayList(bool).new(),
+    /// Per `ensures_exprs` entry: whether its predicate can run
+    /// (`ensures_is_runtime_checkable`). Only those are ever spliced: a
+    /// quantified or ghost_fn clause is proof-only in every mode.
+    (ensures_checkable : ArrayList(bool)) ?= ArrayList(bool).new()
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
@@ -2712,7 +2726,14 @@ wrap_function_body_with_contracts :: (
   body_tok := ast_expr_token(body);
   // The ensures clauses that get runtime asserts: all of them, except in
   // `verify` mode (below).
-  (splice_ensures : ArrayList(AstExpr)) = ensures_exprs;
+  (splice_ensures : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (sei : usize) = usize(0);
+  while(sei < ensures_exprs.len(), {
+    if(match(ensures_checkable.get(sei), .Some(c) => c, .None => true), {
+      splice_ensures.push(ensures_exprs(sei));
+    });
+    sei = (sei + usize(1));
+  });
   (splice_requires : ArrayList(AstExpr)) = requires_exprs;
   // Whether the requires-only splice may flatten a block body into its own
   // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
@@ -3193,6 +3214,7 @@ export(
   ghost_fn_def_of,
   is_ghost_fn,
   requires_is_runtime_checkable,
+  ensures_is_runtime_checkable,
   requires_enforced_flags,
   ProvedGuardSite,
   record_proved_guard_site,

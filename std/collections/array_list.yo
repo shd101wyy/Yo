@@ -387,7 +387,10 @@ impl(
     fn(
       self : Self,
       value : T,
-      ensures(self.len() == (old(self.len()) + usize(1))),
+      ensures(
+        self.len() == (old(self.len()) + usize(1)),
+        forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))
+      ),
       assumed()
     ) -> unit
   )(

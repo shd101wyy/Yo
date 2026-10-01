@@ -51,6 +51,7 @@ pragma(Pragma.AllowUnsafe);
 {
   wrap_function_body_with_contracts,
   requires_is_runtime_checkable,
+  ensures_is_runtime_checkable,
   requires_enforced_flags,
   VerifyTask,
   register_verify_task,
@@ -1082,15 +1083,23 @@ Result type: ${type_to_string(result_box)}`
         ck_requires_checkable.push(match(ck_requires.get(ckr_i), .Some(ckp) => requires_is_runtime_checkable(ckp, ctx.expr_info_table), .None => false));
         ckr_i = (ckr_i + usize(1));
       });
+      ck_ensures := get_func_ensures_exprs(contract_key.clone());
+      ck_ensures_checkable := ArrayList(bool).new();
+      (cke_i : usize) = usize(0);
+      while(cke_i < ck_ensures.len(), {
+        ck_ensures_checkable.push(ensures_is_runtime_checkable(ck_ensures(cke_i), ctx.expr_info_table));
+        cke_i = (cke_i + usize(1));
+      });
       body_expr := wrap_function_body_with_contracts(
         body_expr_raw,
         ck_requires,
-        get_func_ensures_exprs(contract_key.clone()),
+        ck_ensures,
         get_func_return_label(contract_key.clone()),
         result_is_comptime_only,
         is_unit_type(result_box),
         ctx.is_ghost_context,
-        ck_requires_checkable
+        ck_requires_checkable,
+        ck_ensures_checkable
       );
       // Build param_type_names: for each param type, use the SomeT name (for generic
       // binding at call time) if the param type is a generic type variable, else "".

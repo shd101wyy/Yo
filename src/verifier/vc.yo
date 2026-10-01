@@ -774,13 +774,6 @@ VcCtx :: ref(
     /// is the spec's own guard's business; a free-variable bounds goal under
     /// a binder would be an unprovable non-obligation.
     quant_depth : usize,
-    /// > 0 while a CALLEE's `requires` / `ensures` are walked at a call site
-    /// (A1 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md). A `ghost_fn` named
-    /// inside a contract owes its own `requires` where the contract is the
-    /// owner's — in the owning function's task, as Dafny checks a spec's
-    /// well-formedness once — not at every caller, whose path does not
-    /// carry the facts the spec is written against.
-    (callee_spec_depth : usize) ?= usize(0),
     /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
     /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
     /// through `fundecl_keys`: comparing VcSorts at runtime would call the
@@ -1894,6 +1887,50 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
       e,
       .FnCall(_, _, a, _, _) => a,
       .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
+    // two-state term): the head token of `old(self)` is `old`, so the plain
+    // dispatch would read the call as `old(k)` and silently encode `k`. Walk
+    // the callee to its term; a list term makes this an index read.
+    computed_callee := match(
+      e,
+      .FnCall(_, f, _, _, _) => if(ast_expr_is_fn_call_of(f, "old", .Some(usize(1))), Option(AstExpr).Some(f), Option(AstExpr).None),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      computed_callee,
+      .Some(cf) => {
+        if(args.len() != usize(1), {
+          _fail_subset(ctx, String.from("call of a computed callee"), e);
+          return(Option(VcTerm).None);
+        });
+        ct := _expr_term(ctx, cf);
+        les := match(ct, .Some(.Var(_, cs)) => _list_sort_elem(cs), _ => Option(VcSort).None);
+        if(les.is_none(), {
+          _fail_subset(ctx, String.from("call of a computed callee that is not a list"), e);
+          return(Option(VcTerm).None);
+        });
+        idx := _expr_term(ctx, args.get(usize(0)).unwrap());
+        return(
+          match(
+            idx,
+            .Some(it) => {
+              if(ctx.quant_depth == usize(0), {
+                _emit(
+                  ctx,
+                  String.from("index-in-bounds"),
+                  ArrayList(VcTerm).new(),
+                  _lt_unsigned_term(_idx64(it), _list_len_term(les.unwrap(), ct.unwrap())),
+                  _guard_site(e, String.from("index-in-bounds"))
+                );
+              });
+              Option(VcTerm).Some(_app2(VcOp.SelectOp, _list_contents_term(les.unwrap(), ct.unwrap()), _idx64(it)))
+            },
+            .None => Option(VcTerm).None
+          )
+        );
+      },
+      .None => ()
     );
     head := match(
       e,
@@ -3606,6 +3643,19 @@ _call_term :: (
       )
     );
   });
+  // --- ghost(e): a spec STATEMENT (A1) ---------------------------------------
+  // `ghost(lemma(args))` invokes a lemma: the walk of the call proves its
+  // requires and assumes its ensures (`_callee_call_term`), which is the
+  // whole point. The statement itself has no value.
+  if((head == "ghost") && (n == usize(1)), {
+    return(
+      match(
+        _expr_term(ctx, args.get(usize(0)).unwrap()),
+        .Some(_) => Option(VcTerm).Some(VcTerm.BoolLit(true)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
     return(_begin_term(ctx, args));
@@ -5104,30 +5154,6 @@ _transparent_call_term :: (
 /// keeps the axiom consistent: inside the ghost_fn's OWN task each self
 /// call proves `decreases-step`; a caller assumes the axiom whatever that
 /// task's verdict, the same modular rule as a callee's `ensures`.
-/// R2 task 1 / A1: a `ghost_fn`'s `requires` is owed at its call. The SMT
-/// reading of a ghost_fn is total, so skipping this was consistent, but
-/// a spec could name `all_pos(xs, n)` past the end of `xs` and mean
-/// nothing. `params` must already be bound to the actuals. Suppressed
-/// while a callee's contract is walked (`callee_spec_depth`, the owner's
-/// task checks it) and inside a quantifier body (`quant_depth`: the
-/// binder's guard is not on the path).
-_emit_ghost_fn_requires :: (fn(inout(ctx) : VcCtx, fid : String) -> unit)({
-  if((ctx.callee_spec_depth > usize(0)) || (ctx.quant_depth > usize(0)), {
-    return(());
-  });
-  reqs := get_func_requires_exprs(fid);
-  (i : usize) = usize(0);
-  while(i < reqs.len(), {
-    match(
-      _expr_term(ctx, reqs(i)),
-      .Some(rt) => {
-        _emit(ctx, `ghost-requires#${i.to_string()}`, ArrayList(VcTerm).new(), rt);
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-});
 _ghost_fn_app_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
@@ -5195,19 +5221,6 @@ _ghost_fn_app_term :: (
     return(Option(VcTerm).None);
   });
   fname := mangle_vc_name(fid.clone(), String.from("gfn"));
-  // The call owes the ghost_fn's requires, over the actuals.
-  saved_rn := ArrayList(String).new();
-  saved_rv := ArrayList(Option(VcTerm)).new();
-  (rqi : usize) = usize(0);
-  while(rqi < params.len(), {
-    rpn := params.get(rqi).unwrap();
-    saved_rn.push(rpn.clone());
-    saved_rv.push(ctx.vars.get(rpn.clone()));
-    ctx.vars.insert(rpn, arg_terms.get(rqi).unwrap());
-    rqi = (rqi + usize(1));
-  });
-  _emit_ghost_fn_requires(ctx, fid.clone());
-  _restore_vars(ctx, saved_rn, saved_rv);
   // Inside the ghost_fn's own task a self call is where termination is
   // proved: the measure over the actuals is below the current one.
   if((fid == ctx.func_id) && ctx.decreases.is_some(), {
@@ -5373,7 +5386,6 @@ _ghost_fn_inline_term :: (
     );
     i = (i + usize(1));
   });
-  _emit_ghost_fn_requires(ctx, fid.clone());
   g_ghost_inline_stack.push(fid.clone());
   out := _expr_term(ctx, body);
   _ := g_ghost_inline_stack.pop();
@@ -5666,7 +5678,6 @@ _callee_call_term :: (
       .None => ()
     );
   });
-  ctx.callee_spec_depth = (ctx.callee_spec_depth + usize(1));
   (ri : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
@@ -5810,7 +5821,6 @@ _callee_call_term :: (
     );
     ei = (ei + usize(1));
   });
-  ctx.callee_spec_depth = (ctx.callee_spec_depth - usize(1));
   ctx.call_pre = Option(HashMap(String, VcTerm)).None;
   // Restore the caller's bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
