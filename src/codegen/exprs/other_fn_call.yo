@@ -10,7 +10,7 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_is_control_bound, dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
+{ type_is_control_bound, dyn_type_has_vtable_slot, type_contains_rc_type } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -2154,6 +2154,35 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           out.push_str("(");
           out.push_string(args_list.clone());
           out.push_str(")");
+          // An RC result the evaluator gave an owning temp (an I/O future
+          // from `__yo_async_*_start`) is declared under that temp, as the
+          // ordinary call path does: its scope-end drop is skipped for a temp
+          // that was never declared, and an inline call left the result with
+          // no owner (issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md).
+          match(
+            ei.variable_name,
+            .Some(tv) => if(type_contains_rc_type(r), {
+              already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
+              if(!(already), {
+                match(
+                  context.declared_temp_vars,
+                  .Some(s) => {
+                    s.insert(tv.clone());
+                  },
+                  .None => {
+                    ns := HashSet(String).new();
+                    ns.insert(tv.clone());
+                    context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+                  }
+                );
+                context.base.declared_c_var_names.insert(tv.clone());
+                em.emit_string_line(`${indent}${get_type_string(r, context.base)} ${tv} = ${out};`);
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
+              });
+              return(Option(String).Some(tv));
+            }),
+            .None => ()
+          );
           return(Option(String).Some(out));
         }),
         .None => ()

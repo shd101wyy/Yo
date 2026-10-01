@@ -1,4 +1,4 @@
-// Probe for cluster finding 3 (issues/async-capture-mode-argument-rendering-cluster.md):
+// Probe for cluster finding 3 (issues/fixed/async-capture-mode-argument-rendering-cluster.md):
 // a capture-mode state machine holding a REF-STRUCT local across an await —
 // the recorded ASan heap-use-after-free shape (capture dropped at
 // suspension, re-incremented on resume, __yo_incr_rc inside <sm>_resume).
@@ -22,7 +22,8 @@ hold_and_bump :: (fn(start : i32, io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (err -> unwind(())));
   r := io.await(hold_and_bump(i32(40), io), IoExn(io : io, exn : exn));
   println(r.to_string());
 });

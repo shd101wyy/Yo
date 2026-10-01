@@ -11,6 +11,7 @@ pragma(Pragma.SkipWasm32Wasi);
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
 
 Wrap :: ref(struct(v : i32));
 _mk_i32 :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
@@ -65,4 +66,36 @@ test("second await result is stored in each differently-shaped cond arm", {
   // The i32 arm: a(7) + b(3) = 10.
   r_https := io.await(_run(true, io), e);
   assert(r_https == i32(10), "i32-arm second await (b) read correctly");
+});
+// An await as the CONDITION of a later `cond` arm, with a ref local held
+// across it (issues/fixed/async-capture-mode-argument-rendering-cluster.md,
+// finding 2): once rejected with E0904, now lowered in one pass. The arm
+// must read the local after the suspension.
+_ArmBox :: ref(struct(v : i32));
+_ready_after_yield :: (fn(io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    true
+  })
+);
+_later_arm_await :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    b := _ArmBox(v : i32(7));
+    cond(
+      runtime(false) => i32(0),
+      e.io.await(_ready_after_yield(e.io), e.io) => b.v,
+      true => i32(-1)
+    )
+  })
+);
+test("an await as a later cond arm's condition, with a ref local held across it", {
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected");
+        unwind(());
+      }
+    )
+  );
+  assert(io.await(_later_arm_await(io), IoExn(io : io, exn : exn)) == i32(7), "the arm reads the box after the await");
 });

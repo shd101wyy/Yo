@@ -1,0 +1,24 @@
+// Synchronous awaits of a raw extern I/O future, each a temporary: the
+// future must be released after its result is read.
+pragma(Pragma.AllowUnsafe);
+{ __yo_async_send_start, __yo_async_recv_start } :: import("std/sys/externs");
+{ socketpair } :: import("std/sys/socketpair");
+{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  sv := (*i32)(malloc(usize(8)).unwrap());
+  _r := socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
+  a := sv.*;
+  b := (sv.add(usize(1))).*;
+  buf := (*u8)(malloc(usize(8)).unwrap());
+  (i : i32) = i32(0);
+  (sent : i32) = i32(0);
+  while(i < i32(5000), i = (i + i32(1)), {
+    sent = (sent + io.await(__yo_async_send_start(a, buf, usize(1), i32(0)), io));
+    _got := io.await(__yo_async_recv_start(b, buf, usize(1), i32(0)), io);
+  });
+  println(`sent ${sent}`);
+});
+export(main);

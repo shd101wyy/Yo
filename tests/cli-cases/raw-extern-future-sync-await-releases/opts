@@ -1,0 +1,8 @@
+# A raw `__yo_async_*_start` future awaited synchronously as a temporary is
+# released after its result is read
+# (issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md).
+# The probe awaits 5,000 of them on a 64 KiB fixed heap. One leaked 80-byte
+# future each would exhaust the heap and panic, so a clean `sent 5000` pins
+# the release.
+stdout_keep_match=^sent [0-9]+$
+timeout=600

@@ -1,4 +1,4 @@
-// Probe for cluster finding 2 (issues/async-capture-mode-argument-rendering-cluster.md):
+// Probe for cluster finding 2 (issues/fixed/async-capture-mode-argument-rendering-cluster.md):
 // an await in a LATER cond arm of a closure that ALSO holds a ref-typed
 // local across the suspension (capture mode) — the recorded
 // `.io`-projection-loss shape. The non-capture variant is the PASSING
@@ -10,10 +10,12 @@
 
 BOX :: ref(struct(v : i32));
 
-ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => {
-  io2.await(yield(io2), io2);
-  return(true);
-}));
+ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    return(true);
+  })
+);
 
 arm_capture :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {
@@ -33,7 +35,8 @@ arm_capture :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : (err -> unwind(())));
   r := io.await(arm_capture(io), IoExn(io : io, exn : exn));
   println(r.to_string());
 });
