@@ -13,4 +13,15 @@ impl(
   })
 );
 impl(LaterS, copy_of : (fn(self : Self) -> Self)(LaterS(n : self.n)));
-export(LaterS, later_twice_free);
+// A free function calling a trait DEFAULT that only the later impl supplies:
+// no impl declares `bumped`, so the miss forces the type's impls — never the
+// importer's, whose walk is parked on this import
+// (issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md).
+LaterBump :: trait(
+  base : (fn(self : Self) -> i32),
+  (bumped : (fn(self : Self) -> i32)) ?= (self -> (self.base() + i32(1)))
+);
+LaterT :: struct(n : i32);
+later_bumped :: (fn(t : LaterT) -> i32)(t.bumped());
+impl(LaterT, LaterBump(base : (fn(self : Self) -> i32)(self.n)));
+export(LaterS, later_twice_free, LaterT, later_bumped);

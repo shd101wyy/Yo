@@ -4,7 +4,7 @@
 // definition below is deliberately placed AFTER its first use.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ LaterS, later_twice_free } :: import("./fixtures/lazy_impl_later_member.yo");
+{ LaterS, later_twice_free, LaterT, later_bumped } :: import("./fixtures/lazy_impl_later_member.yo");
 import("std/fmt");
 // ---------- caller above callee ----------
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
@@ -210,6 +210,14 @@ test("an imported module's member miss does not force the importer's impls", {
   s := LaterS(n : i32(2));
   assert(s.show() == i32(4), "show goes through twice and the later copy_of");
   assert(later_twice_free(s) == i32(4), "the free function reaches the later impl too");
+});
+// issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md —
+// the fixture's `later_bumped` misses a trait default; that forced this impl
+// while this module's walk was parked on the import (E0906 on `LaterT`).
+impl(LaterT, LaterShow(show : (fn(self : Self) -> i32)(later_bumped(self))));
+test("an imported free function's trait-default miss does not force the importer's impls", {
+  t := LaterT(n : i32(2));
+  assert(t.show() == i32(3), "show goes through the later impl's default");
 });
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // issues/fixed/unit-valued-fn-body-return-type-mismatch-not-reported.md — a

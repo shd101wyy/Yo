@@ -2855,15 +2855,25 @@ force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(Str
 /// One forcing pass over the active walks (innermost first): every Unforced
 /// impl whose receiver head is `type_name` (or is un-nameable), restricted to
 /// the impls that declare `declaring` when it is given.
+///
+/// Walks nest strictly, so every walk below the innermost is parked on the
+/// import that is running now, and none of its imported names is bound yet.
+/// An impl there of a type imported FROM the running module cannot be
+/// evaluated: forcing it was E0906 on a valid program
+/// (issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md).
+/// An outer walk is searched only when it declares `type_name` itself, which
+/// is the import-cycle case (the running module reached back into a module
+/// still loading, whose own type's impl is pending).
 _force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.len();
+  (innermost : usize) = wi;
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
       g_module_walks.get(wi),
-      .Some(walk) => {
+      .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
           match(
@@ -2886,7 +2896,7 @@ _force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String))
           );
           di = (di + usize(1));
         });
-      },
+      }),
       .None => ()
     );
   });

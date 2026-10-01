@@ -66,4 +66,8 @@ member, or one inside a trait constructor (`_impl_expr_declares`). If none of th
 - elsewhere, all of the type's impls are forced, as before (a trait default or a derive does not
   appear in the impl's member list).
 
+That fallback still reached the importer, and so did develop's forcing from a free function:
+`issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md`. The fix there is the
+general one: a forcing pass never searches an outer walk that does not declare the type.
+
 A trait-satisfaction check (no name) forces as before.
