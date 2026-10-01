@@ -2737,9 +2737,6 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
 );
 /// Outcome of a method/trait-miss impl forcing (§4.4).
 PendingImplOutcome :: enum(NoneForced, Forced, Error(msg : String));
-/// Force every Unforced pending `impl` whose receiver head is `type_name`, plus
-/// the un-nameable ones, across the active walks (innermost first). `.Forced`
-/// tells the caller to retry its lookup; `.Error` carries the first failure.
 /// Does the `impl(...)` statement `expr` declare a member labelled `label`:
 /// a direct `label : value` pair, or one inside a trait constructor
 /// (`Eq(E)((==) : …)`)? The labels are read as impl.yo's field loop reads them.
@@ -2787,12 +2784,26 @@ _impl_expr_declares :: (fn(expr : AstExpr, label : String) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// Force every Unforced pending `impl` whose receiver head is `type_name`, plus
+/// the un-nameable ones, across the active walks (innermost first) — only
+/// the ones that declare `missed` when that answers the miss. `.Forced`
+/// tells the caller to retry its lookup; `.Error` carries the first failure.
 /// `missed` is the method or operator name whose lookup missed, when the
 /// caller has one (a trait-satisfaction check passes `.None`).
 force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(String)) -> PendingImplOutcome)({
   // An unnamed receiver (SomeT, primitive, tuple, …) cannot select an impl.
   if(type_name.len() == usize(0), {
     return(PendingImplOutcome.NoneForced);
+  });
+  if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
+    (m : String) = match(missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
+    (stack : String) = String.new();
+    (si : usize) = usize(0);
+    while(si < g_forcing_stack.len(), {
+      match(g_forcing_stack.get(si), .Some(fd) => stack.push_string(cond(fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+      si = (si + usize(1));
+    });
+    eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
   });
   // While an impl of THIS type is itself being evaluated, a miss on a member
   // that impl declares is the in-block sibling forward reference that impl.yo's
@@ -2801,10 +2812,12 @@ force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(Str
   // self.update(data)))` against a half-registered Sha1 and left its trait
   // methods resolving through the trait record (`__yo_t18.update`,
   // tests/crypto/digest.test.yo). A miss on a name the in-flight impl does NOT
-  // declare can only be answered by another impl, and forces it: a member
-  // calling `self.clone()` from an impl above `impl(S, Clone(...))` was E0610
+  // declare can only be answered by another impl, and forces the impls that
+  // DECLARE it: a member calling `self.clone()` from an impl above
+  // `impl(S, Clone(...))` was E0610
   // (issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md).
   // A trait-satisfaction check names no member and keeps the guard.
+  (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
   while(fi < g_forcing_stack.len(), {
     match(
@@ -2813,11 +2826,36 @@ force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(Str
         if(match(missed, .Some(m) => _impl_expr_declares(fd.expr, m), .None => true), {
           return(PendingImplOutcome.NoneForced);
         });
+        in_own_impl = true;
       }),
       .None => ()
     );
     fi = (fi + usize(1));
   });
+  // A named miss forces only the impls that declare the name. Forcing every
+  // impl of the type reached the IMPORTER's impls too: `std/string`'s
+  // `splitn` calling `self.clone()` forced `impl(String, ToString(…))` in
+  // `std/fmt/to_string.yo`, whose walk was still parked on
+  // `import("../string")` — E0906 on `String`, then one fresh `Pattern` trait
+  // per re-entry (issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md).
+  // Outside an impl of the type, a name no pending impl declares (a trait
+  // default, a derive) falls back to forcing them all, as before.
+  match(
+    missed,
+    .Some(m) => {
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m));
+      cond(
+        in_own_impl => declaring,
+        true => match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None), _ => declaring)
+      )
+    },
+    .None => _force_pending_impls_pass(type_name, Option(String).None)
+  )
+});
+/// One forcing pass over the active walks (innermost first): every Unforced
+/// impl whose receiver head is `type_name` (or is un-nameable), restricted to
+/// the impls that declare `declaring` when it is given.
+_force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.len();
@@ -2831,7 +2869,7 @@ force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(Str
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := ((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0))));
+              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(walk, def),
