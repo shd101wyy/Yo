@@ -1,6 +1,6 @@
 # Should identifier completion match by substring instead of prefix?
 
-> Design question from the 2026-09-29 audit (`plans/LSP_AUDIT_2026-09-29.md`).
+> Design question from the 2026-09-29 audit (`plans/archive/LSP_AUDIT_2026-09-29.md`).
 
 **Status: DECIDED — prefix matching.** Maintainer verdict 2026-09-30 while
 closing the audit out: `_matches_prefix` now uses `starts_with` (identifier,

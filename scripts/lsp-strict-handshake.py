@@ -9,7 +9,7 @@ exactly that many bytes of JSON.
 
 Why strict: `yo lsp` on Windows used to emit `\\r\\r\\n\\r\\n`-terminated
 headers (libc text-mode newline translation on top of the explicit CRLF —
-issues/lsp-windows-text-mode-framing-breaks-every-client.md). vscode-jsonrpc's
+issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md). vscode-jsonrpc's
 header state machine scans for exactly CR LF CR LF and never terminates on
 that byte run, so no LSP client could even complete `initialize`. A tolerant
 reader (readline + strip) cannot catch this class of bug; this parser can:

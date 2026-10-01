@@ -1,10 +1,10 @@
 # `textDocument/formatting`'s whole-document edit ends one line past EOF
 
-**Status:** FIXED 2026-09-29 (audit §2 PR, plans/LSP_AUDIT_2026-09-29.md): `_format_document` ends the whole-document edit at the last line's end (`j_range_in`, wire-encoded) instead of one line past EOF; the lsp-handshake golden's formatting frame was corrected with it. Was: **Severity:** S3 — an out-of-bounds TextEdit range that conforming clients are entitled to reject; VS Code silently clamps, so the visible symptom is none there.
+**Status:** FIXED 2026-09-29 (audit §2 PR, plans/archive/LSP_AUDIT_2026-09-29.md): `_format_document` ends the whole-document edit at the last line's end (`j_range_in`, wire-encoded) instead of one line past EOF; the lsp-handshake golden's formatting frame was corrected with it. Was: **Severity:** S3 — an out-of-bounds TextEdit range that conforming clients are entitled to reject; VS Code silently clamps, so the visible symptom is none there.
 
 ## Reproduction
 
-`plans/LSP_AUDIT_2026-09-29.md` probe session A. A 4-content-line document
+`plans/archive/LSP_AUDIT_2026-09-29.md` probe session A. A 4-content-line document
 (lines 0–3, trailing newline) needing a format returns:
 
 ```json

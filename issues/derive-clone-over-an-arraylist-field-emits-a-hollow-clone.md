@@ -1,6 +1,6 @@
 # derive(Clone) over a struct with an ArrayList field emits a hollow clone — fatal at runtime
 
-**Severity:** S2 — the derived `clone` silently fails its definition-time trial, so standalone compiles fail at the C stage with a hard-to-read error and — worse — inside a larger program the hollow body ships and `abort()`s when `clone()` is first called; found 2026-09-29 landing the audit §3 `relatedInformation` work (`plans/LSP_AUDIT_2026-09-29.md`).
+**Severity:** S2 — the derived `clone` silently fails its definition-time trial, so standalone compiles fail at the C stage with a hard-to-read error and — worse — inside a larger program the hollow body ships and `abort()`s when `clone()` is first called; found 2026-09-29 landing the audit §3 `relatedInformation` work (`plans/archive/LSP_AUDIT_2026-09-29.md`).
 
 ## Reproduction
 

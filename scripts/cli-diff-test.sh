@@ -248,7 +248,7 @@ refit_lsp_frames() {
   perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |rc=\d+\n\z|\z)/"Content-Length: " . length($2) . $1 . $2/gse'
 }
 
-# framing=strict (plans/LSP_AUDIT_2026-09-29.md §6.3): validate the RAW
+# framing=strict (plans/archive/LSP_AUDIT_2026-09-29.md §6.3): validate the RAW
 # stream's LSP framing BEFORE any normalization. The refit above recomputes
 # every Content-Length from its (substituted) body and tolerates loose
 # \r?\n\r?\n terminators by design — the body is the review surface — which

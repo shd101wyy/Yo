@@ -1,6 +1,6 @@
 # `yo lsp` emits `\r\r\n` framing on Windows — no LSP client can complete the handshake
 
-**Severity:** S1 — the language server is non-functional on a first-class release target (windows-x64, windows-arm64): every conforming client hangs on `initialize` forever; found 2026-09-29 by the `plans/LSP_AUDIT_2026-09-29.md` probes.
+**Severity:** S1 — the language server is non-functional on a first-class release target (windows-x64, windows-arm64): every conforming client hangs on `initialize` forever; found 2026-09-29 by the `plans/archive/LSP_AUDIT_2026-09-29.md` probes.
 
 ## Reproduction
 
@@ -76,7 +76,7 @@ fails before the fix on Windows and passes after; on Linux it passes before
 and after, so it can gate every platform once wired into the release
 workflow's existing Windows smoke steps. The lsp cli-cases cannot be this
 gate: the harness refits `Content-Length` and tolerates `\r?\n\r?\n`
-delimiters by design (`plans/LSP_AUDIT_2026-09-29.md` §6).
+delimiters by design (`plans/archive/LSP_AUDIT_2026-09-29.md` §6).
 
 ## Fix
 
