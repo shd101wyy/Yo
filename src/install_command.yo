@@ -674,10 +674,13 @@ run_install :: (
       );
       i = (i + usize(1));
     });
+    // Read through `current`, which holds the manifest now: a v0.2.47 build
+    // read the aliased local as NULL
+    // (issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
     (current : Manifest) = manifest;
     if(options.latest, {
       println("Checking for newer releases...");
-      bumped := e.io.await(_bump_ranges_to_latest(manifest, options.names, options.verbose, e.io, e.exn), e);
+      bumped := e.io.await(_bump_ranges_to_latest(current, options.names, options.verbose, e.io, e.exn), e);
       current = bumped;
     });
     mode := cond(

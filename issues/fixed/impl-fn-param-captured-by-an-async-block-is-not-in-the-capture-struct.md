@@ -2,7 +2,7 @@
 
 **Severity:** S2 — an Impl(Fn) param captured in io.async is emitted as a bare identifier — undeclared-identifier C error
 
-**Status:** open
+**Status:** fixed 2026-09-30 (together with `issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md`)
 **Found:** 2026-09-12, writing `spawn_blocking` for waker step 5
 (`plans/archive/WAKER_BASED_SCHEDULING.md`).
 **Reproducer:** `issues/repros/impl-fn-param-captured-by-an-async-block.yo`
@@ -90,3 +90,14 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 ## Fix (2026-09-29, async state-machine plan)
 
 A closure built inside a no-await `io.async` block initialized its capture struct with a bare name for a variable the block itself captured. The fallback in `generate_closure_construction` (`src/codegen/exprs/closures.yo`) now reads it through `closure_context`, with the same membership test `generate_atom` uses (`_enclosing_closure_capture_read`). Test: `tests/async_await.test.yo` "an Impl(Fn) parameter captured inside a no-await io.async block" (a C compile error on the v0.2.45 seed).
+
+**Measured independently (2026-09-30).** The root cause was also measured on
+the `fix/closure-local-in-io-async` branch (PR #1031) before #1018 landed.
+`YO_DEBUG_CAPTURE=1` showed the block's read of `cb` tracked only in the
+inner closure's body context, which is the capture-propagation gap that
+`propagate_captures_to_enclosing` closes
+(`issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md`).
+That branch carries this repro's shape as a case in
+`tests/closure_inside_io_async.test.yo`. It fails to compile on the v0.2.46
+seed. The PR's gate re-runs it on the merged tree, where develop's mechanism
+replaces the branch's own.

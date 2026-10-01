@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ is_io_async_call } :: import("../async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
@@ -898,6 +898,42 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
     .Atom(_, _) => false
   )
 });
+/// Does `e` (following `macro_expansion`, not entering a nested `io.async`
+/// body) contain an `io.await`? The state-machine lowering's own test
+/// (`analyze_await_points`): a block with no await has no local that lives
+/// across a suspension, so none of its locals is a state-machine slot.
+_contains_io_await_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(_, f, fargs, _, _) => cond(
+      is_io_await_call(e) => true,
+      is_io_async_call(e) => false,
+      true => {
+        (found : bool) = match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+          .Some(ei) => match(expr_info_macro_expansion(ei), .Some(mx) => _contains_io_await_for_opt(mx, ctx), .None => false),
+          .None => false
+        );
+        if(!found, {
+          found = _contains_io_await_for_opt(f, ctx);
+        });
+        (ai : usize) = usize(0);
+        while((ai < fargs.len()) && !found, {
+          match(
+            fargs.get(ai),
+            .Some(a) => {
+              found = _contains_io_await_for_opt(a, ctx);
+            },
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        found
+      }
+    ),
+    .Atom(_, _) => false
+  )
+);
 /// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
 /// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
 /// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
@@ -1034,6 +1070,7 @@ _optimize_dup_drop_pairs :: (
     begin_args : ArrayList(AstExpr),
     result_var_name : Option(String),
     last_expr : AstExpr,
+    block_awaits : bool,
     ctx : EvalContext
   ) -> unit
 )({
@@ -1326,7 +1363,19 @@ _optimize_dup_drop_pairs :: (
                   bci2 = (bci2 + usize(1));
                 });
               });
-              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
+              // A local moved into a container in a block that awaits: a
+              // local live across the await is a state-machine slot, and a slot
+              // must own its count — the abort dispose releases every non-null
+              // slot, so a move out of one zeroes it (`_sm_consuming_read`),
+              // and this move is one the local goes on reading
+              // (`Box2(xs : xs, n : xs.len())` read NULL:
+              // issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
+              // An ALIAS candidate (`v := base`) is still elided: the base keeps
+              // the count, and the state machine stores the alias in the base's
+              // slot (`sm_storage_id`), which is sound only while the alias owns
+              // nothing.
+              slot_move := (block_awaits && (base.id == v.id));
+              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && (!base_consumed && !slot_move))))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts.
                 (runtime_count : usize) = usize(0);
@@ -2511,7 +2560,22 @@ evaluate_begin_expression :: (
     current_frame_opt,
     // Not in a function that isolates a value (`^v`): the uniqueness walk
     // needs every count to equal its live handles (`frame_is_isolating`).
-    .Some(opt_fr) => if(!frame_is_isolating(opt_fr), _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, ctx)),
+    // Whether the block awaits decides the local-move case (see `slot_move`).
+    .Some(opt_fr) => {
+      (awaits : bool) = false;
+      (ai : usize) = usize(0);
+      while((ai < begin_args.len()) && !awaits, {
+        match(
+          begin_args.get(ai),
+          .Some(a) => {
+            awaits = _contains_io_await_for_opt(a, ctx);
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      if(!frame_is_isolating(opt_fr), _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, awaits, ctx));
+    },
     .None => ()
   );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
