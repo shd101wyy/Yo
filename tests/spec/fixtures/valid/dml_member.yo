@@ -1,0 +1,46 @@
+// R2 task 3: ATS's "element k occurs in xs" dataprop as a recursive ghost_fn,
+// discharged by a search loop's invariant (one unfolding per step), and a
+// lemma that turns membership into a witness index.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+contains :: (fn(xs : ArrayList(i32), v : i32, ensures(r == member(xs, xs.len(), v))) -> (r : bool))({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), found == member(xs, i, v));
+    if(xs(i) == v, {
+      found = true;
+    });
+    i = (i + usize(1));
+  });
+  found
+});
+
+// A member has a witness index.
+member_witness :: ghost_fn(
+  (
+    fn(
+      xs : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= xs.len(), member(xs, n, v)),
+      ensures(exists(k : usize, (k < n) && (xs(k) == v))),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (xs(n - usize(1)) == v) => (),
+      true => member_witness(xs, n - usize(1), v)
+    )
+  )
+);

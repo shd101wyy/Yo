@@ -1,0 +1,27 @@
+// The false twin of valid/dml_sorted_insert.yo: appending x at the end does
+// not keep the list sorted.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// REFUTED: x lands at the end whatever its value.
+insert_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    x : i32,
+    requires(
+      xs.len() < usize(1000000),
+      forall(i : usize, ((i < xs.len()) && ((i + usize(1)) < xs.len())) ==> (xs(i) <= xs(i + usize(1))))
+    ),
+    ensures(forall(i : usize, ((i < r.len()) && ((i + usize(1)) < r.len())) ==> (r(i) <= r(i + usize(1)))))
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == xs(k))));
+    out.push(xs(i));
+    i = (i + usize(1));
+  });
+  out.push(x);
+  out
+});

@@ -1,0 +1,40 @@
+// R2 task 3 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: ATS's `append`
+// dataprop as ONE line. `seq_of(xs)` is a list's elements as a ghost Seq; a
+// list-backed Seq stays in the list domain, and `==` on it is extensional
+// (equal lengths, equal elements below the length).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+append :: (
+  fn(
+    a : ArrayList(i32),
+    b : ArrayList(i32),
+    requires((a.len() + b.len()) >= a.len()),
+    ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    invariant(i <= a.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == a(k))));
+    out.push(a(i));
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), {
+    invariant(
+      j <= b.len(),
+      out.len() == (a.len() + j),
+      forall(k : usize, (k < a.len()) ==> (out(k) == a(k))),
+      forall(k : usize, (k < j) ==> (out(a.len() + k) == b(k)))
+    );
+    out.push(b(j));
+    j = (j + usize(1));
+  });
+  out
+});
+
+// seq_len / seq_nth read a list-backed Seq.
+first_of_append :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), requires(a.len() > usize(0)), ensures(r == seq_nth(seq_append(seq_of(a), seq_of(b)), usize(0)))) -> (r : i32)
+)(a(usize(0)));

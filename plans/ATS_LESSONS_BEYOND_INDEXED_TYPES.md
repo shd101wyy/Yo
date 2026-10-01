@@ -10,12 +10,12 @@ the seed, or a cited file.
 
 | Item | State |
 | --- | --- |
-| A1 lemma layer (= R2) | slice 1 (recursive `ghost_fn` as an axiomatized function) on `feat/verifier-recursive-ghost-fn` |
-| A2 must-use | not started |
-| A3 spec-transparent pure fns | not started (needs A1's axioms) |
-| A4 init proof token (S1) | next |
-| A5 lexicographic `decreases` | not started |
-| A6 typestate idiom | not started |
+| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`). **Left:** `produced()` for `for` over lists; the alias frame condition |
+| A2 must-use | done (#1075): E0617, plus the always-exits rule found while landing it |
+| A3 spec-transparent pure fns | slice 1 done (#1075); slice 2 open: recursive callees, a message naming the missing property |
+| A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |
+| A5 lexicographic `decreases` | done (#1075) |
+| A6 typestate idiom | docs done (#1075); its S3 (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |
 
 ## 0. The verdict
 

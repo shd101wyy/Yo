@@ -49,7 +49,7 @@
 { snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
@@ -238,6 +238,7 @@ BF_SEQ_UNIT :: "seq_unit";
 BF_SEQ_APPEND :: "seq_append";
 BF_SEQ_LEN :: "seq_len";
 BF_SEQ_NTH :: "seq_nth";
+BF_SEQ_OF :: "seq_of";
 BF_STR_BYTES :: "str_bytes";
 BF_MS_SINGLE :: "ms_single";
 BF_MS_ADD :: "ms_add";
@@ -700,7 +701,15 @@ _evaluate_spec_collection :: (
   res_ty := cond(
     ((head == "seq_len") || (head == "ms_count")) => t_i64(),
     (head == "set_contains") => t_bool(),
-    (head == "seq_nth") => t_u8(),
+    // A list-backed Seq's element is the list's (R2 task 2); a str's is u8.
+    (head == "seq_nth") => match(
+      t_refine_inner(arg1_ty),
+      .Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref }) => cond(
+        (sn_ref && (sn_targs.len() == usize(1))) => sn_targs(usize(0)),
+        true => t_u8()
+      ),
+      _ => t_u8()
+    ),
     true => arg1_ty
   );
   out_info := new_expr_info(cur_env, res_ty.clone());
@@ -709,6 +718,12 @@ _evaluate_spec_collection :: (
   expr
 });
 evaluate_seq_unit :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `seq_of(xs)` (R2 task 2): an `ArrayList(T)`'s elements as a ghost Seq.
+/// Typed as the list itself, like every Seq carrier here (Seq is an erased
+/// alias); the verifier keeps it in the list domain.
+evaluate_seq_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_seq_append :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -3223,6 +3238,7 @@ export(
   guard_site_is_proved,
   guard_site_pair_is_proved,
   evaluate_seq_unit,
+  evaluate_seq_of,
   evaluate_seq_append,
   evaluate_seq_len,
   evaluate_seq_nth,

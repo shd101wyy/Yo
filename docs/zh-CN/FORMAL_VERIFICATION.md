@@ -146,6 +146,61 @@ is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
 );
 ```
 
+### 引理：归纳证明
+
+Z3 不做归纳。递归 `ghost_fn` 的某些性质需要归纳才能证明，例如"在 `[0, n)` 上一致的两个列表在该区间内有相同的成员"。这类性质会一直是 `unknown`，直到你把它作为**引理**证明一次：引理是返回 `unit` 且带 `ensures` 的 `ghost_fn`（即 ATS 的 `prfun`）。
+
+```rust
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : ArrayList(i32),
+      b : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+```
+
+引理自己的报告按 `decreases` 对函数体做归纳证明。其中的递归调用先证明度量下降、其 `requires` 成立，再假设其 `ensures`，这个假设就是归纳假设。
+
+使用引理时，把它写成幽灵语句：`ghost(member_frame(xs, out, xs.len(), v));`。这次调用在这些实参上证明引理的 `requires`，此后假设其 `ensures`。错误的引理证不出来；`requires` 不成立的使用会被反驳。
+
+返回值的 `ghost_fn` 仍会被内联，递归时则被公理化。调用处不检查它的 `requires`：它的 SMT 解读是全函数。
+
+### 列表上的序列：`seq_of`
+
+`seq_of(xs)` 把 `ArrayList(T)` 的元素当作幽灵 Seq。`seq_append`、`seq_len`、`seq_nth` 都可作用于它，因此 ATS 的 `append` 性质只需一行：
+
+```rust
+append :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), requires((a.len() + b.len()) >= a.len()),
+     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))) -> (r : ArrayList(i32))
+)({ ... });
+```
+
+以列表为载体的 Seq 留在列表域中，即 contents 数组加长度。两个列表（或两个以列表为载体的 Seq）之间的相等是外延的：长度相等，且长度以内的每个元素相等。Z3 自带的 `Seq` 理论对这个目标给出 `unknown`，换到数组上就能证出。把以列表为载体的 Seq 与字面 Seq 混用（`seq_append(seq_of(xs), seq_unit(x))`）是子集错误。
+
+`ArrayList.push` 的契约写明新元素，并保持旧元素不变。正因如此，复制循环的 `forall(k, (k < i) ==> (out(k) == xs(k)))` 不变式才能证出。
+
 ### 精化类型 —— `refine(T, p)`
 
 `refine(T, p)` 注解"满足谓词 `p` 的 `T`"。注解求值为 `T` —— 已擦除、
@@ -394,7 +449,7 @@ refuted  fn@src/math.yo:8 [verify]
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
 | `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
-| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数（`issues/fixed/verifier-list-model-ignores-aliasing.md`）。带契约的泛型函数被抽象验证：其类型参数是只支持相等与透传的未解释排序。带 `decreases` 的 `ghost_fn` 可以递归：它成为由带触发器的公理定义的未解释函数，其自身任务证明度量递减（R2 第 1 片）。对列表的 `for` 和嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片） |
+| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数（`issues/fixed/verifier-list-model-ignores-aliasing.md`）。带契约的泛型函数被抽象验证：其类型参数是只支持相等与透传的未解释排序。带 `decreases` 的 `ghost_fn` 可以递归：它成为由带触发器的公理定义的未解释函数，其自身任务证明度量递减（R2 第 1 片）。返回 `unit` 且带 `ensures` 的 `ghost_fn` 是引理：它被归纳证明，并通过 `ghost(lemma(...))` 使用（§引理）。`push` 写明其元素，列表相等是外延的，`seq_of(xs)` 给出以列表为载体的 Seq（§列表上的序列）。在 `a ==> b` 中，以及循环不变式靠后的合取项中，遍历 `b`（或靠后的合取项）时产生的义务只在 `a`（前面的合取项）成立处才需证明。对列表的 `for` 和嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片、R2） |
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
 | 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |

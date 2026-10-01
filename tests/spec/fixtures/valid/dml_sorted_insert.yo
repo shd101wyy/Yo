@@ -1,0 +1,54 @@
+// R2 task 3: inserting into a sorted list keeps it sorted, and the inserted
+// value is a member of the result. Sortedness is the pairwise adjacent form
+// (guarded by `i < len` too: spec arithmetic is modular, so `i + 1 < len`
+// alone also holds at i = MAX). Each loop keeps `out` sorted and relates its
+// LAST element to the next one pushed; push's element contract does the rest.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+sorted_insert :: (
+  fn(
+    xs : ArrayList(i32),
+    x : i32,
+    requires(
+      xs.len() < usize(1000000),
+      forall(i : usize, ((i < xs.len()) && ((i + usize(1)) < xs.len())) ==> (xs(i) <= xs(i + usize(1))))
+    ),
+    ensures(
+      r.len() == (xs.len() + usize(1)),
+      forall(i : usize, ((i < r.len()) && ((i + usize(1)) < r.len())) ==> (r(i) <= r(i + usize(1)))),
+      exists(k : usize, (k < r.len()) && (r(k) == x))
+    )
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  // Copy the elements below x.
+  while((i < xs.len()) && (xs(i) < x), {
+    invariant(
+      i <= xs.len(),
+      out.len() == i,
+      forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
+      (i > usize(0)) ==> ((out(i - usize(1)) == xs(i - usize(1))) && (out(i - usize(1)) < x))
+    );
+    out.push(xs(i));
+    i = (i + usize(1));
+  });
+  at := i;
+  out.push(x);
+  // Copy the rest.
+  while(i < xs.len(), {
+    invariant(
+      at <= i,
+      i <= xs.len(),
+      out.len() == (i + usize(1)),
+      at < out.len(),
+      out(at) == x,
+      forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
+      (i < xs.len()) ==> (out(i) <= xs(i))
+    );
+    out.push(xs(i));
+    i = (i + usize(1));
+  });
+  out
+});

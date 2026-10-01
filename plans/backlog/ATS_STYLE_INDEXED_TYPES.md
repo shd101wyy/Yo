@@ -311,6 +311,32 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 >   total, so the axiom stays consistent;
 > - a lemma's `ensures` is not yet turned into a triggered axiom;
 > - `seq_of`, `produced()` and the alias frame condition (tasks 2, 4, 5).
+>
+> **Slice 2 (2026-10-01, `feat/verifier-lemmas`): tasks 1–3 done.**
+> - **Lemmas.** A unit-returning `ghost_fn` with an `ensures` is a lemma (A1 of
+>   `ATS_LESSONS_BEYOND_INDEXED_TYPES.md`). Its own task proves the body by
+>   induction, with the recursive call's `ensures` as the hypothesis.
+>   `ghost(lemma(args))` proves its `requires` and assumes its `ensures`.
+>   Fixture: `lemma_member_frame`.
+> - **`seq_of(xs)`** is a list-backed Seq kept in the list domain:
+>   `seq_append` builds the contents with a triggered `__yo_lapp_<elem>` axiom,
+>   and `==` on lists is extensional. The SMT-`Seq` encoding was measured
+>   `unknown` on the append goal; the array encoding proves it.
+> - **Fixtures.** `dml_append_seq`, `dml_member` and `dml_sorted_insert` prove,
+>   and their `_false` twins fail.
+> - **What the fixtures needed:**
+>   - `push`'s contract states its elements. It sits inside a `forall`, so it is
+>     proof-only and never spliced.
+>   - A contract clause that quantifies or calls a `ghost_fn` is no longer
+>     spliced as a runtime assert.
+>   - `old(xs)(k)` reads a list.
+>   - `a ==> b` and a loop invariant's later conjuncts walk under their
+>     antecedents.
+> - **Value `ghost_fn` requires:** checking them at every call was tried and
+>   dropped. It fires inside specifications whose guards are not on the path,
+>   which would need Dafny-style well-formedness. Their SMT reading stays total;
+>   a lemma's `requires` is always proved.
+> - **Left: tasks 4 (`produced()`) and 5 (the alias frame condition).**
 
 **Goal:** what ATS does with `prfun` over `dataprop` (sortedness, permutation,
 "element `k` occurs in `xs`") for runtime collections. Today `ghost_fn` is
