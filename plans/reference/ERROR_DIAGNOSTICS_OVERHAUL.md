@@ -5,8 +5,9 @@
 > #403, opened as #401 and superseded when #400's branch was deleted on
 > merge). **P4 landed 2026-09-22**: color (PR #842), the live warnings
 > channel and SARIF output (the same PR), `yo fix` earlier through
-> plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2 — only `#line`
-> remains deferred, now designed in plans/backlog/LINE_DIRECTIVES.md. Kept
+> plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2 — and its one
+> deferred item, `#line`, landed 2026-09-30
+> ([LINE_DIRECTIVES.md](LINE_DIRECTIVES.md)). Kept
 > as the living reference for the shipped design. This doc was
 > the detailed design for ROADMAP items [Phase 2.3](../ROADMAP.md)
 > ("Error-message overhaul"), [Phase 4.2](../ROADMAP.md) ("Errors as few-shot
@@ -634,10 +635,11 @@ golden re-recorded once more; runtime-panic-touching tests audited and green.
 - **`yo fix`** — landed earlier (before this plan's P4), through
   plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2: the `Repair`
   channel, `run_fix`, and the LSP quickfix sharing the same edit.
-- **`#line` directives (D12 / ROADMAP 2.4)** — still deferred by design;
-  scoped in plans/backlog/LINE_DIRECTIVES.md (emitter line accounting, a
-  `--line-directives` rollout flag, and the follow-on step of wrapping
-  C-compiler stderr as structured diagnostics).
+- **`#line` directives (D12 / ROADMAP 2.4)** — LANDED 2026-09-30 (the last
+  deferred P4 item): `yo compile --line-directives` emits the directives and
+  re-renders a failed C compile as structured diagnostics carrying `.yo`
+  spans, in every error format. Design and landing record:
+  [LINE_DIRECTIVES.md](LINE_DIRECTIVES.md) (now in `reference/`).
 
 ---
 

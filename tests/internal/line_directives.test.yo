@@ -1,0 +1,192 @@
+//! `#line` directives (plans/reference/LINE_DIRECTIVES.md) — the emitter's
+//! counter and the chunk-assembly rewrite, tested by driving the emitters
+//! directly (the uring_runtime.test.yo pattern: call the emitter, assert on
+//! the C). The oracle for honest numbering is SELF-CONSISTENCY: a restore
+//! directive's number must equal the 1-based physical line number of the line
+//! that follows it in the final stream.
+//!
+//! The assertion messages stay PLAIN string literals on purpose: the test
+//! batch is an `ast_expr_to_string()` RE-PRINT, and heavy template
+//! interpolations round-trip poorly (the runner then fails the whole batch
+//! for a printing artifact, not a test failure).
+import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{ Emitter, line_restore_marker } :: import("../../src/emitter.yo");
+{ assemble_chunks } :: import("../../src/codegen/chunk_assembly.yo");
+{ ChunkRange } :: import("../../src/codegen/utils/index.yo");
+/// Split `text` into physical lines (a text ending in "\n" yields exactly its
+/// lines, no trailing-empty artifact).
+_lines_of :: (fn(text : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (start : usize) = usize(0);
+  n := text.len();
+  while(start < n, {
+    (end : usize) = start;
+    (found : bool) = false;
+    while((end < n) && !found, {
+      if(text.byte_at(end) == u8(10), {
+        found = true;
+      }, {
+        end = (end + usize(1));
+      });
+    });
+    out.push(text.substring(start, end));
+    start = (end + usize(1));
+  });
+  out
+});
+/// The number in a `#line <n> …` line (0 when it does not start as one).
+_line_directive_number :: (fn(line : String) -> usize)({
+  if(!line.starts_with("#line "), {
+    return(usize(0));
+  });
+  rest := line.substring(usize(6), line.len());
+  digits := String.new();
+  (i : usize) = usize(0);
+  while((i < rest.len()) && ((rest.byte_at(i) >= u8(48)) && (rest.byte_at(i) <= u8(57))), {
+    digits.push_byte(rest.byte_at(i));
+    i = (i + usize(1));
+  });
+  match(
+    digits.parse_u64(),
+    .Some(v) => usize(v),
+    .None => usize(0)
+  )
+});
+test("emitter emits a #line per position change and none for a repeat", {
+  em := Emitter.new();
+  em.line_directives = true;
+  em.line_c_name = String.from("out.c");
+  em.emit_string_line(String.from("c1"));
+  em.set_yo_line_position(String.from("app.yo"), u32(4));
+  em.emit_string_line(String.from("c2"));
+  // Same position again: adjacent statements from one .yo line pay zero
+  // directives.
+  em.set_yo_line_position(String.from("app.yo"), u32(4));
+  em.emit_string_line(String.from("c3"));
+  text := em.print();
+  lines := _lines_of(text);
+  (directives : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    match(
+      lines.get(i),
+      .Some(l) => if(l.starts_with("#line "), {
+        directives = (directives + usize(1));
+        assert(l == `#line 5 "app.yo"`, "user directive text");
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(directives == usize(1), "exactly one user directive");
+});
+test("off by default: no directives without the flag", {
+  em := Emitter.new();
+  em.emit_string_line(String.from("c1"));
+  em.set_yo_line_position(String.from("app.yo"), u32(4));
+  em.clear_yo_line_position();
+  em.emit_string_line(String.from("c2"));
+  text := em.print();
+  assert(!text.contains(String.from("#line")), "flag-off emission carries no directives");
+});
+test("restore directive numbers the NEXT physical line honestly", {
+  em := Emitter.new();
+  em.line_directives = true;
+  em.line_c_name = String.from("out.c");
+  em.emit_header_line("h1");
+  em.emit_header_line("h2");
+  em.emit_declaration_line("d1");
+  em.emit_string_line(String.from("c1"));
+  em.set_yo_line_position(String.from("app.yo"), u32(1));
+  em.emit_string_line(String.from("c2"));
+  em.set_yo_line_position(String.from("app.yo"), u32(9));
+  em.emit_string_line(String.from("c3"));
+  em.clear_yo_line_position();
+  em.emit_string_line(String.from("c4"));
+  text := em.print();
+  assert(!text.contains(line_restore_marker()), "the placeholder zeros are patched away");
+  lines := _lines_of(text);
+  (checked : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    match(
+      lines.get(i),
+      .Some(l) => if(l.starts_with("#line ") && l.contains(String.from("\"out.c\"")), {
+        // The restore names the line AFTER itself: its number must equal that
+        // line's 1-based physical index in the whole stream.
+        nxt := match(lines.get(i + usize(1)), .Some(x) => x, .None => String.new());
+        assert(_line_directive_number(l) == (i + usize(2)), "restore number is the next line's physical index");
+        assert(nxt == String.from("c4"), "the restore precedes c4");
+        checked = (checked + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(checked == usize(1), "exactly one restore");
+});
+test("file:// module paths print as plain paths", {
+  em := Emitter.new();
+  em.line_directives = true;
+  em.line_c_name = String.from("out.c");
+  em.set_yo_line_position(String.from("file:///home/u/src/app.yo"), u32(41));
+  text := em.print();
+  assert(text.contains(`#line 42 "/home/u/src/app.yo"`), "plain path, row+1");
+});
+test("chunk assembly rewrites markers to the chunk's own file and line", {
+  code := String.new();
+  code.push_str("static int f1(void) {\n");
+  code.push_string(line_restore_marker());
+  code.push_str("out.c\"\n");
+  code.push_str("  return 1;\n");
+  code.push_str("}\n");
+  ranges := ArrayList(ChunkRange).new();
+  ranges.push(ChunkRange(c_name : String.from("f1"), start_b : usize(0), end_b : code.len(), module : String.new()));
+  assembly := assemble_chunks(
+    String.from("h\n"),
+    String.new(),
+    code.clone(),
+    ranges,
+    ArrayList(ChunkRange).new(),
+    String.new(),
+    usize(2),
+    false,
+    String.from("out_chunk")
+  );
+  assert(assembly.chunks.len() == usize(2), "two chunk bodies");
+  (ci : usize) = usize(0);
+  (saw_marker : bool) = false;
+  while(ci < assembly.chunks.len(), {
+    match(
+      assembly.chunks.get(ci),
+      .Some(body) => {
+        lines := _lines_of(body);
+        (li : usize) = usize(0);
+        while(li < lines.len(), {
+          match(
+            lines.get(li),
+            .Some(l) => if(l.starts_with("#line ") && l.contains(String.from("_chunk00")), {
+              saw_marker = true;
+              want_name := String.from("out_chunk00");
+              want_name.push_string(ci.to_string());
+              want_name.push_str(".c");
+              assert(l.contains(want_name.clone()), "restore names its own chunk file");
+              // The chunk FILE is `#include "shared.h"` (1 line) + body: a
+              // marker at body line L (1-based) is file line L+1, and #line
+              // names the NEXT line — L+2 = (li + 1) + 2.
+              assert(_line_directive_number(l) == (li + usize(1) + usize(2)), "chunk restore number is the next file line");
+            }),
+            .None => ()
+          );
+          li = (li + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  assert(saw_marker, "the marker was rewritten in exactly one chunk");
+});

@@ -1,0 +1,15 @@
+// `--line-directives` (plans/reference/LINE_DIRECTIVES.md acceptance 2): the
+// `#line` directives map the emitted C back to `.yo` sources, so a C-compile
+// error planted in user code reports THIS file's position. The mismatch is
+// the compile-c-include-pointer-type-mismatch shape — `strlen` really takes a
+// `const char *`, this binding says `*i32` — and the failing CALL sits inside
+// `main`, on a line the directive attributes to main.yo.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ strlen } :: c_include("<string.h>", strlen : (fn(s : *i32) -> usize));
+main :: (fn() -> unit)({
+  (n : i32) = i32(0);
+  len := unsafe(strlen(&n));
+  println(len.to_string());
+});
+export(main);
