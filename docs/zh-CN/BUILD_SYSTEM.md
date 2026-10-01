@@ -882,16 +882,14 @@ members = ["packages/*", "examples/demo"]
 目录运行。它是项目级的"每次构建都证明我的契约"开关。`yo check` 按设计不依赖
 求解器：它不产出任何东西，缺少求解器只是提示，不是失败。
 
-在某个发布把这个内建函数带进种子编译器之前，构建文件直接调用它并自己包装
-Step（与 `build.manifest` 相同的分代模式）：
+`build.verify` 注册该步骤并返回它的 `Step`：
 
 ```rust
 build :: import("std/build");
 
-// (name, root, mode, strict)：mode 为 "verify" 或 "verify+"，strict 传递
-// `--strict`（零义务的空洞 `ok` 视为失败）。
-__yo_build_verify("proofs", "./src", "verify", false);
-proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+// mode：build.VerifyMode.Verify（默认）或 build.VerifyMode.VerifyOrAssert；
+// strict 传递 `--strict`（零义务的空洞 `ok` 视为失败）。
+proofs :: build.verify({ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
 
 exe :: build.executable({ name : "app", root : "./src/main.yo" });
 
@@ -899,10 +897,6 @@ install :: build.step("install", "Build and prove");
 install.depend_on(exe);
 install.depend_on(proofs);
 ```
-
-友好写法 `build.verify({ name : "proofs", root : "./src", mode :
-build.VerifyMode.Verify, strict : false })` 将在内建函数之后的下一个发布进入
-`std/build.yo`（见 `plans/backlog/SEED_VERSION_AUTOMATION.md`）。
 
 验证步骤是 DAG 的叶节点（它不依赖任何东西；其他步骤依赖它），像测试套件一样
 在子编译器进程中运行，逐函数流式输出报告，并按 `yo verify` 非零退出的同一规

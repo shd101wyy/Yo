@@ -913,17 +913,14 @@ source root as part of the build DAG. This is the project-level "every build
 proves my contracts" switch. `yo check` stays solver-free by design: it ships
 nothing, and a missing solver there is a hint, not a failure.
 
-Until a release ships the builtin to the seed compiler, a build file calls it
-directly and wraps the step itself (the same generation pattern
-`build.manifest` followed):
+`build.verify` registers the step and returns its `Step`:
 
 ```rust
 build :: import("std/build");
 
-// (name, root, mode, strict): mode is "verify" or "verify+", strict passes
-// `--strict` (a vacuous `ok` with zero obligations fails).
-__yo_build_verify("proofs", "./src", "verify", false);
-proofs :: build.Step(name : "proofs", kind : build.StepKind.Verification);
+// mode: build.VerifyMode.Verify (the default) or build.VerifyMode.VerifyOrAssert;
+// strict passes `--strict` (a vacuous `ok` with zero obligations fails).
+proofs :: build.verify({ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
 
 exe :: build.executable({ name : "app", root : "./src/main.yo" });
 
@@ -931,10 +928,6 @@ install :: build.step("install", "Build and prove");
 install.depend_on(exe);
 install.depend_on(proofs);
 ```
-
-The friendly spelling, `build.verify({ name : "proofs", root : "./src", mode :
-build.VerifyMode.Verify, strict : false })`, lands in `std/build.yo` with the
-release after the builtin (see `plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 A verify step is a leaf of the DAG (it depends on nothing; steps depend on it),
 runs in the child compiler like a test suite, streams the per-function report,

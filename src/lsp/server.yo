@@ -34,21 +34,22 @@ json :: import("std/encoding/json");
   j_notification,
   uri_to_fs_path,
   module_path_to_uri,
-  set_utf16_positions,
+  set_position_encoding,
+  set_hover_markdown,
   client_col_to_rune,
   line_at
 } :: import("./protocol.yo");
 { analyze_document, LspDiag, RelatedInfo, AnalyzeOutcome } :: import("./diagnostics.yo");
 { handle_hover } :: import("./hover.yo");
-{ handle_definition, handle_type_definition } :: import("./definition.yo");
-{ handle_document_symbols, handle_workspace_symbols, WorkspaceDoc } :: import("./symbols.yo");
+{ handle_definition, handle_type_definition, handle_document_links } :: import("./definition.yo");
+{ handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, handle_implementations, WorkspaceDoc } :: import("./symbols.yo");
 { handle_references, handle_document_highlight } :: import("./references.yo");
 { handle_folding_ranges, handle_semantic_tokens } :: import("./folding.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("./rename.yo");
 { handle_signature_help } :: import("./signature_help.yo");
 { handle_completion } :: import("./completion.yo");
 { format_yo_source } :: import("../formatter.yo");
-{ resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
+{ resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document, mm_module_source } :: import("../module_manager.yo");
 { BufReader } :: import("std/io/bufio");
 { Stdin, stdin } :: import("std/io/stdio");
 
@@ -79,6 +80,14 @@ DocState :: ref(
 /// because it must survive across `_handle_message` calls
 /// (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
 (g_server_state : usize) = usize(0);
+
+/// Whether the client declared
+/// `textDocument.documentSymbol.hierarchicalDocumentSymbolSupport` — read at
+/// `initialize`; without it `textDocument/documentSymbol` replies with FLAT
+/// `SymbolInformation[]` instead of hierarchical `DocumentSymbol[]`, which
+/// such clients cannot render (VS Code's client always declares it; the
+/// cli-case driver does not).
+(g_hierarchical_symbols : bool) = false;
 
 /// Read a string field out of a JSON object; empty string when absent.
 _jfield_str :: (fn(v : JsonValue, key : str) -> String)(
@@ -135,11 +144,12 @@ _rune_position :: (fn(params : JsonValue, lines : ArrayList(String)) -> LspPos)(
 );
 
 /// The `relatedInformation` array for one diagnostic's note/help entries,
-/// or Null when it has none. A related span in THIS document converts to
-/// the wire encoding against its lines; a span in ANOTHER file (std's
-/// `where` clause under a missing-trait error) is emitted with its rune
-/// columns — exact for BMP-only lines, the same fallback definition.yo
-/// uses when a target file cannot be read.
+/// or Null when it has none. A related span converts to the wire encoding
+/// against ITS file's lines — this document's, or the target module's
+/// current source (open-buffer overlay or disk, the same reader
+/// definition.yo uses); only when the target cannot be read are the rune
+/// columns emitted unconverted (exact for BMP-only lines, the only thing
+/// knowable without the text).
 _related_json :: (fn(related : ArrayList(RelatedInfo), lines : ArrayList(String), doc_fs : String) -> JsonValue)({
   if(related.len() == usize(0), {
     return(JsonValue.Null);
@@ -153,7 +163,11 @@ _related_json :: (fn(related : ArrayList(RelatedInfo), lines : ArrayList(String)
         same_doc := (uri_to_fs_path(r.path.clone()) == doc_fs.clone());
         range := cond(
           same_doc => j_range_in(lines, r.row, r.col, r.row, r.end_col),
-          true => j_range(r.row, r.col, r.row, r.end_col)
+          true => match(
+            mm_module_source(uri_to_fs_path(r.path.clone())),
+            .Some(src) => j_range_in(src.split(String.from("\n")), r.row, r.col, r.row, r.end_col),
+            .None => j_range(r.row, r.col, r.row, r.end_col)
+          )
         );
         items.push(
           jb().put("location", jb().put("uri", jstr(module_path_to_uri(r.path.clone()))).put("range", range).obj()).put("message", jstr(r.message.clone())).obj()
@@ -259,9 +273,10 @@ _completion_triggers :: (fn() -> ArrayList(JsonValue))({
   ts
 });
 
-/// True iff the client's `capabilities.general.positionEncodings` lists
-/// `utf-32` — the server's native column unit.
-_client_offers_utf32 :: (fn(params : JsonValue) -> bool)({
+/// The client's `capabilities.general.positionEncodings` list, or an empty
+/// list when absent.
+_client_position_encodings :: (fn(params : JsonValue) -> ArrayList(String))({
+  out := ArrayList(String).new();
   encodings := match(
     params.get(String.from("capabilities")),
     .Some(caps) => match(
@@ -280,34 +295,152 @@ _client_offers_utf32 :: (fn(params : JsonValue) -> bool)({
         while(i < items.len(), {
           match(
             items.get(i),
-            .Some(.Str(s)) => if(s == String.from("utf-32"), {
-              return(true);
-            }),
+            .Some(.Str(s)) => out.push(s.clone()),
             .Some(_) => (),
             .None => ()
           );
           i = (i + usize(1));
         });
-        false
+        out
       },
-      _ => false
+      _ => out
+    ),
+    .None => out
+  )
+});
+
+/// The encoding to negotiate: `utf-32` (1, the server's native column unit —
+/// nothing is converted) when the client offers it, else `utf-16` (0), else
+/// `utf-8` (2). An absent or empty list takes the protocol default utf-16;
+/// the answer is never an encoding the client did not offer
+/// (issues/lsp-position-encoding-is-negotiated-against-the-clients-list.md).
+_negotiated_encoding :: (fn(params : JsonValue) -> usize)({
+  offered := _client_position_encodings(params);
+  (i : usize) = usize(0);
+  while(i < offered.len(), {
+    match(
+      offered.get(i),
+      .Some(s) => {
+        if(s == String.from("utf-32"), {
+          return(usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < offered.len(), {
+    match(
+      offered.get(j),
+      .Some(s) => {
+        if(s == String.from("utf-16"), {
+          return(usize(0));
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  (k : usize) = usize(0);
+  while(k < offered.len(), {
+    match(
+      offered.get(k),
+      .Some(s) => {
+        if(s == String.from("utf-8"), {
+          return(usize(2));
+        });
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  usize(0)
+});
+
+/// True iff the client declared
+/// `textDocument.documentSymbol.hierarchicalDocumentSymbolSupport` — without
+/// it the documentSymbol reply must be FLAT SymbolInformation[], not the
+/// hierarchical DocumentSymbol[] (VS Code's client always declares it).
+_client_wants_hierarchical_symbols :: (fn(params : JsonValue) -> bool)(
+  match(
+    params.get(String.from("capabilities")),
+    .Some(caps) => match(
+      caps.get(String.from("textDocument")),
+      .Some(td) => match(
+        td.get(String.from("documentSymbol")),
+        .Some(ds) => _jfield_bool(ds, "hierarchicalDocumentSymbolSupport", false),
+        .None => false
+      ),
+      .None => false
     ),
     .None => false
+  )
+);
+
+/// True iff the client accepts markdown hover content: false only when
+/// `textDocument.hover.contentFormat` is a NONEMPTY list without "markdown"
+/// (absent means the protocol default, markdown first).
+_client_accepts_markdown_hover :: (fn(params : JsonValue) -> bool)({
+  fmts := match(
+    params.get(String.from("capabilities")),
+    .Some(caps) => match(
+      caps.get(String.from("textDocument")),
+      .Some(td) => match(
+        td.get(String.from("hover")),
+        .Some(h) => h.get(String.from("contentFormat")),
+        .None => Option(JsonValue).None
+      ),
+      .None => Option(JsonValue).None
+    ),
+    .None => Option(JsonValue).None
+  );
+  match(
+    fmts,
+    .Some(.Array(items)) => {
+      if(items.len() == usize(0), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(.Str(s)) => {
+            if(s == String.from("markdown"), {
+              return(true);
+            });
+          },
+          .Some(_) => (),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    },
+    _ => true
   )
 });
 
 /// The `initialize` response: full-document sync, every feature provider,
 /// and the negotiated `positionEncoding` — `utf-32` when the client offers
-/// it (the server's native unit, so nothing is converted), else the
-/// protocol default `utf-16`, which every emitted and received column is
-/// converted to/from (issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md,
+/// it (the server's native unit, so nothing is converted), else `utf-16`
+/// (the protocol default), else `utf-8`; every emitted and received column
+/// is converted to/from it (issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md,
 /// issues/fixed/lsp-initialize-discards-the-clients-params.md). Push
-/// diagnostics carry no capability flag.
+/// diagnostics carry no capability flag. The client's documentSymbol and
+/// hover capability shapes are recorded for the reply builders
+/// (`g_hierarchical_symbols`, `set_hover_markdown`).
 _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
-  utf32 := _client_offers_utf32(params);
-  set_utf16_positions(!utf32);
-  encoding := cond(utf32 => String.from("utf-32"), true => String.from("utf-16"));
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  enc := _negotiated_encoding(params);
+  set_position_encoding(enc);
+  g_hierarchical_symbols = _client_wants_hierarchical_symbols(params);
+  set_hover_markdown(_client_accepts_markdown_hover(params));
+  encoding := cond(
+    (enc == usize(1)) => String.from("utf-32"),
+    (enc == usize(2)) => String.from("utf-8"),
+    true => String.from("utf-16")
+  );
+  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("declarationProvider", JsonValue.Bool(value : true)).put("implementationProvider", JsonValue.Bool(value : true)).put("documentLinkProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -369,6 +502,15 @@ _handle_message :: (
     throw : (
       err -> {
         eprintln(`yo-lsp: skipping malformed message: ${err.to_string()}`);
+        // JSON-RPC 2.0: a body that does not parse is answered with
+        // ParseError (-32700) under a null id — the id is unknowable from
+        // an unparseable body. Swallowing it silently left a strict client
+        // waiting on a reply that never comes.
+        write_lsp_message(
+          json.stringify(
+            j_error_response(JsonValue.Null, i64(0) - i64(32700), `parse error: ${err.to_string()}`)
+          )
+        );
         unwind(i32(0))
       }
     )
@@ -405,20 +547,13 @@ _handle_message :: (
     (method == String.from("exit")) => {
       return(cond((g_server_state == usize(2)) => i32(10), true => i32(11)));
     },
-    method.starts_with(String.from("$/")) => {
-      // "$/ requests must be answered with MethodNotFound so clients can
-      // feature-probe; $/ NOTIFICATIONS are ignored" (LSP 3.17, "$ /
-      // Requests") — a request dropped here would leave the client waiting
-      // forever (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
-      match(
-        id_opt,
-        .Some(id) => write_lsp_message(
-          json.stringify(
-            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
-          )
-        ),
-        .None => ()
-      );
+    (method == String.from("")) => {
+      // A message with an id but NO method is a RESPONSE to a server-side
+      // request (there are none today, but nothing here may answer one),
+      // and no-method-no-id is malformed — both are ignored, in any
+      // lifecycle state, rather than falling into the unknown-method arm
+      // and being answered with -32601 under the client's own id.
+      ();
     },
     (g_server_state == usize(0)) => {
       // Requests before initialize are ServerNotInitialized; notifications
@@ -440,6 +575,24 @@ _handle_message :: (
         .Some(id) => write_lsp_message(
           json.stringify(
             j_error_response(id, i64(0) - i64(32600), `server is shut down: ${method} arrived after shutdown`)
+          )
+        ),
+        .None => ()
+      );
+    },
+    method.starts_with(String.from("$/")) => {
+      // "$/ requests must be answered with MethodNotFound so clients can
+      // feature-probe; $/ NOTIFICATIONS are ignored" (LSP 3.17, "$ /
+      // Requests") — a request dropped here would leave the client waiting
+      // forever (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
+      // This arm sits BEHIND the lifecycle states: a request that arrives
+      // before initialize or after shutdown is a lifecycle violation
+      // whatever its method name, so those answers win.
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json.stringify(
+            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
           )
         ),
         .None => ()
@@ -494,6 +647,32 @@ _handle_message :: (
       );
       _respond(id_opt, def_result);
     },
+    (method == String.from("textDocument/declaration")) => {
+      // A binding's declaration IS its definition in yo (no separate .h
+      // shape), so this answers exactly what `textDocument/definition`
+      // does — clients that bind "go to declaration" separately keep
+      // working.
+      (decl_result : JsonValue) = JsonValue.Null;
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            match(
+              handle_definition(st.text, st.entry_abs, st.lines, std_path.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              .Some(loc) => {
+                decl_result = loc;
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, decl_result);
+    },
     (method == String.from("textDocument/typeDefinition")) => {
       (td_result : JsonValue) = JsonValue.Null;
       match(
@@ -515,6 +694,30 @@ _handle_message :: (
         .None => ()
       );
       _respond(id_opt, td_result);
+    },
+    (method == String.from("textDocument/implementation")) => {
+      (impl_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            pos := _rune_position(params, st.lines);
+            impl_result = handle_implementations(
+              st.text,
+              st.entry_abs,
+              _params_uri(params),
+              st.lines,
+              st.outcome.exprs,
+              pos.line,
+              pos.character
+            );
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, impl_result);
     },
     (method == String.from("textDocument/documentHighlight")) => {
       (dh_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
@@ -539,7 +742,12 @@ _handle_message :: (
         .Some(params) => match(
           docs.get(_params_uri(params)),
           .Some(st) => {
-            sym_result = handle_document_symbols(st.outcome.exprs, st.lines);
+            // Hierarchical DocumentSymbol[] only for clients that declared
+            // the capability; flat SymbolInformation[] otherwise.
+            sym_result = cond(
+              g_hierarchical_symbols => handle_document_symbols(st.outcome.exprs, st.lines),
+              true => handle_document_symbols_flat(st.outcome.exprs, st.lines, _params_uri(params))
+            );
           },
           .None => ()
         ),
@@ -549,7 +757,7 @@ _handle_message :: (
     },
     (method == String.from("workspace/symbol")) => {
       // The top-level symbols of every OPEN document whose name matches the
-      // query (plans/LSP_AUDIT_2026-09-29.md §3) — open-docs-only by design;
+      // query (plans/archive/LSP_AUDIT_2026-09-29.md §3) — open-docs-only by design;
       // cross-module symbol search wants an index shape decision first.
       (ws_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
@@ -815,6 +1023,21 @@ _handle_message :: (
       );
       _respond(id_opt, comp_result);
     },
+    (method == String.from("textDocument/documentLink")) => {
+      (links_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        params_opt,
+        .Some(params) => match(
+          docs.get(_params_uri(params)),
+          .Some(st) => {
+            links_result = handle_document_links(st.text, st.entry_abs, st.lines, std_path.clone());
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      _respond(id_opt, links_result);
+    },
     (method == String.from("textDocument/didOpen")) => {
       match(
         params_opt,
@@ -888,6 +1111,82 @@ _handle_message :: (
         .None => ()
       );
     },
+    (method == String.from("workspace/didChangeWatchedFiles")) => {
+      // A file changed OUTSIDE the editor: purge it (and every dependent)
+      // from the loader cache, then re-analyze each OPEN document so its
+      // diagnostics and analyses see the new on-disk imports — this used
+      // to need a server restart. Open documents manage their own state
+      // (their buffer is the truth), so their own paths are not purged.
+      match(
+        params_opt,
+        .Some(params) => match(
+          params.get(String.from("changes")),
+          .Some(.Array(changes)) => {
+            (ci : usize) = usize(0);
+            while(ci < changes.len(), {
+              match(
+                changes.get(ci),
+                .Some(ch) => {
+                  changed_fs := uri_to_fs_path(_jfield_str(ch, "uri"));
+                  if(changed_fs.len() > usize(0), {
+                    is_open := false;
+                    for(docs, entry => {
+                      if(entry.value.entry_abs == changed_fs, {
+                        is_open = true;
+                      });
+                    });
+                    if(!is_open, {
+                      _inv3 := mm_invalidate_document(changed_fs);
+                    });
+                  });
+                },
+                .None => ()
+              );
+              ci = (ci + usize(1));
+            });
+            // Re-analyze every open document against the purged cache;
+            // the open buffer's own text stays authoritative for its file.
+            open_uris := ArrayList(String).new();
+            open_texts := ArrayList(String).new();
+            for(docs, entry => {
+              open_uris.push(entry.key.clone());
+            });
+            (oi : usize) = usize(0);
+            while(oi < open_uris.len(), {
+              match(
+                open_uris.get(oi),
+                .Some(u) => match(
+                  docs.get(u.clone()),
+                  .Some(st) => {
+                    open_texts.push(st.text.clone());
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              oi = (oi + usize(1));
+            });
+            (ai : usize) = usize(0);
+            while(ai < open_uris.len(), {
+              match(
+                open_uris.get(ai),
+                .Some(u) => match(
+                  open_texts.get(ai),
+                  .Some(txt) => {
+                    _analyze_and_publish(u.clone(), txt.clone(), std_path.clone(), docs, io);
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              ai = (ai + usize(1));
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+    },
     true => {
       // Unknown REQUESTS get MethodNotFound; unknown notifications are
       // ignored per the JSON-RPC spec.
@@ -908,7 +1207,7 @@ _handle_message :: (
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
 run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   // Windows text-mode stdout would corrupt every frame header
-  // (issues/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
+  // (issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
   // to binary before anything can be written.
   prepare_wire();
   // The server re-forces definitions of finished walks on every edit

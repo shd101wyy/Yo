@@ -11,7 +11,7 @@
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
-{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
@@ -128,6 +128,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         match(
           args.get(i),
           .Some(arg) => {
+            note_line_position(em, arg);
             code := _call_generate_expr(arg, indent.clone(), context);
             if(code.len() > usize(0), {
               // Bare-temp-name skip (same gate as generate_state_segment_code,
@@ -235,11 +236,12 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
       prev_consumed := context.consumed_var_pending_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_drops, prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_consumed, prev_consumed));
+      em := context.base.emitter;
+      note_line_position(em, body_expr);
       code := _call_generate_expr(body_expr, indent.clone(), context);
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
       if(code.len() > usize(0), {
-        em := context.base.emitter;
         line := indent.clone();
         line.push_string(code);
         line.push_str(";");

@@ -122,7 +122,9 @@ variant; a build file calls the builtin directly and wraps the Step itself —
 cli-case `build-verify-dry-run`, docs `docs/*/BUILD_SYSTEM.md` § Verification
 steps.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying it):** add the
+**Generation B DONE 2026-10-01** (SEED_VERSION v0.2.47 carries the builtin): the
+wrapper below is in `std/build.yo`, and the cli-case, both `BUILD_SYSTEM.md` and the
+workflow cheatsheet use `build.verify`. The original instruction was: add the
 friendly wrapper to `std/build.yo` after `export(doc);` — it was written and
 parked here because the seed evaluates `std/build.yo` and fails E0401 on the
 unknown builtin (measured 2026-09-30 with v0.2.46: every wrapper shape fails,

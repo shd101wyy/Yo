@@ -17,8 +17,12 @@
 // YO_DEBUG_MG=1 prints every module-global name resolution (name, token
 // path, param-ness, registry hit) — the fastest way to see WHY a global's
 // declaration and reads disagree. Snapshot once at module init: name
-// resolution is hot, a per-call getenv is not acceptable there.
-(g_debug_mg : bool) = cgu_env.get(`YO_DEBUG_MG`).is_some();
+// resolution is hot, a per-call getenv is not acceptable there. The name is
+// a `str` LITERAL, not a template: `env.get` is generic over ToString, and a
+// template here minted an RC String at module init that nothing dropped —
+// 51 leaked bytes in every test binary importing this chain
+// (issues/fixed/module-init-env-get-template-string-leaks.md).
+(g_debug_mg : bool) = cgu_env.get("YO_DEBUG_MG").is_some();
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -2114,6 +2118,16 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValu
 is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
   ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
 );
+/// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
+/// flush point helper: attribute the C about to be emitted for `expr` to the
+/// `.yo` position of its token. A no-op unless the compile ran with
+/// `--line-directives` (one bool check inside the emitter), so every begin /
+/// function-body / loop-body / case-body statement loop can call it
+/// unconditionally.
+note_line_position :: (fn(em : Emitter, expr : AstExpr) -> unit)({
+  tok := ast_expr_token(expr);
+  em.set_yo_line_position(tok.module_path, tok.row);
+});
 export(
   is_self_named_atom,
   _checked_index_expr,
@@ -2167,5 +2181,6 @@ export(
   get_uses_parallelism,
   get_needs_intel_asm_syntax,
   set_on_demand_declare_fn,
-  fresh_local_counts_reset
+  fresh_local_counts_reset,
+  note_line_position
 );
