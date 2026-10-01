@@ -77,6 +77,14 @@ Unchanged:
   a later impl of the same type. Removing the exclusion, and binding array lengths
   symbolically, were both tried on the stack and reverted: the first failed `check ./std`, the
   second broke `tests/array.test.yo`.
+  Narrowed 2026-10-01: the `Array` case needs a design change, not a binding. A
+  value-dependent length is the string `length_var = "T.BYTES"`, resolved BY NAME, so it is
+  captured by any other binder called `T` (that is why the symbolic binding broke
+  `tests/array.test.yo`). A length variable has to refer to its type variable by identity.
+  The later-impl case is fixed on `fix/enum-final-name` (§3.4).
+- **`issues/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (new):
+  the prelude's `GcTracer.visit` fails its definition-time trial on every `check`, and the
+  failure is swallowed. It blocks §3.2 steps 3–4, which would re-raise it.
 
 ### 3.4 Impl ordering
 
