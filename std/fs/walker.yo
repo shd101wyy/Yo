@@ -297,9 +297,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
         true => ()
       );
     });
-    // Pattern post-filter runs in a SYNC helper: adding match/return control
-    // flow at this async body's tail reshaped the state machine into a hang
-    // (rc=124 on a plain walk) — the tail stays a single expression.
+    // The pattern post-filter is a sync helper over the drained results.
     _filter_by_pattern(results, root_s, options.pattern)
   })
 });

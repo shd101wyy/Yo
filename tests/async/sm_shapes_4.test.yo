@@ -1618,3 +1618,90 @@ test("shape l12_return_heap_local_in_body", {
   assert(io.await(_y_cases9_l12_return_heap_local_in_body(i32(3), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(3)), "yielding inner future, n=3");
   assert(io.await(_s_cases9_l12_return_heap_local_in_body(i32(3), io), io) == _r_cases9_l12_return_heap_local_in_body(i32(3)), "synchronous inner future, n=3");
 });
+// An awaiting loop, then a TAIL `match` whose arm returns mid-body, then the
+// tail value: this hung the old segment lowering even off the arm
+// (issues/fixed/async-tail-match-return-hangs-state-machine.md).
+_r_tail_match_return :: (fn(n : i32, pat : Option(i32)) -> i32)({
+  (i : i32) = i32(0);
+  (sum : i32) = i32(0);
+  while(i < n, {
+    sum = (sum + _sv(i));
+    i = (i + i32(1));
+  });
+  match(
+    pat,
+    .Some(p) => {
+      (kept : i32) = i32(0);
+      (j : i32) = i32(0);
+      while(j < n, {
+        if(j < p, {
+          kept = (kept + j);
+        });
+        j = (j + i32(1));
+      });
+      return(kept);
+    },
+    .None => ()
+  );
+  sum
+});
+_y_tail_match_return :: (fn(n : i32, pat : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (sum : i32) = i32(0);
+    while(i < n, {
+      x := e.await(_v(i, e), e);
+      sum = (sum + x);
+      i = (i + i32(1));
+    });
+    match(
+      pat,
+      .Some(p) => {
+        (kept : i32) = i32(0);
+        (j : i32) = i32(0);
+        while(j < n, {
+          if(j < p, {
+            kept = (kept + j);
+          });
+          j = (j + i32(1));
+        });
+        return(kept);
+      },
+      .None => ()
+    );
+    sum
+  })
+);
+_s_tail_match_return :: (fn(n : i32, pat : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    (i : i32) = i32(0);
+    (sum : i32) = i32(0);
+    while(i < n, {
+      x := e.await(_vsync(i, e), e);
+      sum = (sum + x);
+      i = (i + i32(1));
+    });
+    match(
+      pat,
+      .Some(p) => {
+        (kept : i32) = i32(0);
+        (j : i32) = i32(0);
+        while(j < n, {
+          if(j < p, {
+            kept = (kept + j);
+          });
+          j = (j + i32(1));
+        });
+        return(kept);
+      },
+      .None => ()
+    );
+    sum
+  })
+);
+test("shape tail_match_return: an awaiting loop, then a tail match returning mid-arm", {
+  assert(io.await(_y_tail_match_return(i32(5), Option(i32).None, io), io) == _r_tail_match_return(i32(5), Option(i32).None), "yielding inner future, the arm not taken");
+  assert(io.await(_s_tail_match_return(i32(5), Option(i32).None, io), io) == _r_tail_match_return(i32(5), Option(i32).None), "synchronous inner future, the arm not taken");
+  assert(io.await(_y_tail_match_return(i32(5), Option(i32).Some(i32(3)), io), io) == _r_tail_match_return(i32(5), Option(i32).Some(i32(3))), "yielding inner future, the returning arm");
+  assert(io.await(_s_tail_match_return(i32(5), Option(i32).Some(i32(3)), io), io) == _r_tail_match_return(i32(5), Option(i32).Some(i32(3))), "synchronous inner future, the returning arm");
+});
