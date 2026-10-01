@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 185 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 184 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 48 | 9 |
-| **Total** | **185** | **33** |
+| Other | 47 | 9 |
+| **Total** | **184** | **33** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 32 |
 | S2 | 88 |
-| S3 | 63 |
+| S3 | 62 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -335,7 +335,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (48)
+### Other (47)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -346,7 +346,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`](./a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md) | S2 | OPEN (filed 2026-09-30) | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md`](./a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md) | S1 | open | yes |
-| [`a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`](./a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md) | S3 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-escaped-task-leaks-references-to-values-it-bound.md`](./an-escaped-task-leaks-references-to-values-it-bound.md) | S2 | OPEN (measured; not yet diagnosed) | yes |
