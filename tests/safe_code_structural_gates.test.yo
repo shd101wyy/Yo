@@ -1,4 +1,6 @@
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ unchecked_non_zero } :: import("std/spec/refine");
 /// Phase C structural gates for safe code (per plans/reference/MEMORY_SAFETY.md).
 ///
 /// The previous gates required `unsafe(...)` to wrap pointer ops but
@@ -112,4 +114,35 @@ comptime_expect_error({
   PlainStruct3 :: struct(value : i32);
   impl(PlainStruct3, Send());
   impl(PlainStruct3, Acyclic());
+});
+
+// ============================================================================
+// Pointer-free APIs with unsafe semantics (the safe-mode handover §3.2
+// audit). Each of these compiled cleanly in safe code before its gate; the
+// tests pin the error the fix produces.
+// ============================================================================
+// Holding `String.raw_bytes()` — a struct with a PUBLIC `*(u8)` field — is a
+// raw-pointer value in safe code: the struct can be passed whole to a
+// function (random_bytes) that writes through the pointer after the string
+// reallocated. Measured as a heap-use-after-free WRITE under ASan.
+// issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md
+comptime_expect_error({
+  s := String.from("hi");
+  s.raw_bytes()
+});
+// `MaybeUninit.assume_init` reads the uninitialized slot: it now takes the
+// `as_ptr()` result as a witness, a pointer safe code cannot hold. The
+// one-argument spelling no longer exists, so the call is an arity error.
+// issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md
+comptime_expect_error({
+  m := MaybeUninit(i64).new();
+  m.assume_init()
+});
+// `std/spec/refine`'s trusted casts forge a refinement with no check and no
+// proof; they now take a `*(T)` witness (`&(x)`), which safe code cannot
+// produce. The two-argument spelling no longer exists.
+// issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md
+comptime_expect_error({
+  zero := i32(0);
+  unchecked_non_zero(zero)
 });

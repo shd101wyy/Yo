@@ -192,9 +192,9 @@ test("Test 'MaybeUninit'", {
     p := uninit_arr.as_ptr();
     (p.*)(0) = 1;
     // initialize the array
-    arr := uninit_arr.assume_init();
+    arr := uninit_arr.assume_init(p);
     // uninit_arr should be consumed after assume_init, so this should be an error:
-    comptime_expect_error(arr2 := uninit_arr.assume_init());
+    comptime_expect_error(arr2 := uninit_arr.assume_init(p));
     arr(0) = (arr(0) + 1);
     arr(1) = 99;
     assert(arr(0) == 2);
@@ -206,9 +206,9 @@ test("Test 'MaybeUninit'", {
     p := uninit_point.as_ptr();
     p.x = 1;
     // initialize the point
-    point := uninit_point.assume_init();
+    point := uninit_point.assume_init(p);
     // uninit_point should be consumed after assume_init, so this should be an error:
-    comptime_expect_error(point2 := uninit_point.assume_init());
+    comptime_expect_error(point2 := uninit_point.assume_init(p));
     point.x = (point.x + 1);
     point.y = 99;
     assert(point.x == 2);

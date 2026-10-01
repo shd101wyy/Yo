@@ -236,6 +236,7 @@ import("std/fmt");
 { evaluate_recur } :: import("./recur.yo");
 { evaluate_runtime, evaluate_borrow_check } :: import("./runtime.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
+{ is_private_member_name } :: import("../../utils.yo");
 { is_pointer_value_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
 /// True when `expr` is the desugaring of a PUNNED one-field record — the
@@ -1431,40 +1432,71 @@ _evaluate_expression_wrapper :: (
 /// Phase 3 verified that the codegen does in fact handle this — the
 /// previous panic was masking real evaluator coverage gaps as crashes
 /// instead of recoverable errors.
-/// Does a value of this type carry a raw pointer at its surface — a pointer,
-/// or an enum with a pointer directly among a variant's fields
-/// (`Option(*(T))`, what a pointer iterator's `next` yields)? Structs are
-/// deliberately NOT inspected: std hands safe code value structs that wrap a
-/// pointer (`JoinHandle`, iterators) and only privileged code can read the
-/// field out — that read is itself a pointer-typed expression and is gated.
-_surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)({
+/// Does a value of this type carry a raw pointer at its surface — a pointer;
+/// an enum one of whose PUBLIC variant payload fields surfaces one
+/// (`Option(*(T))`, what a pointer iterator's `next` yields); or a struct
+/// with a PUBLIC field that surfaces one (`RawSlice(T)`, the bare ptr+len
+/// view)? `_`-prefixed fields are private to their declaring module, and std
+/// hands safe code value structs that wrap a pointer behind such a field
+/// (`JoinHandle`, iterators): the field read is itself a pointer-typed
+/// expression and is gated, and no public function takes the whole struct
+/// and reaches the pointer for you. A PUBLIC pointer field is the different,
+/// dangerous shape — safe code can pass the whole struct to a function that
+/// uses the pointer inside (measured: `random_bytes(s.raw_bytes())` after the
+/// string reallocated is a heap-use-after-free WRITE,
+/// issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md), so it
+/// surfaces. Recursion is depth-capped, not memoized: the shapes it walks are
+/// shallow and this runs per struct-typed expression in safe files.
+_surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)(
+  _surfaces_raw_pointer_at(ty, usize(8))
+);
+_surfaces_raw_pointer_at :: (fn(ty : TypeValue, depth : usize) -> bool)({
   if(is_pointer_type(ty), {
     return(true);
   });
+  if(depth == usize(0), {
+    return(false);
+  });
   match(
     ty,
-    .EnumT({ variant_fields : all_fields }) => {
+    .EnumT({ variant_fields : all_fields, variant_field_labels : all_labels }) => {
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < all_fields.len()) && !found, {
         match(
           all_fields.get(vi),
           .Some(v_fields) => {
+            v_labels := match(
+              all_labels.get(vi),
+              .Some(ls) => ls,
+              .None => ArrayList(String).new()
+            );
             (fi : usize) = usize(0);
             while((fi < v_fields.len()) && !found, {
-              match(
-                v_fields.get(fi),
-                .Some(ft) => if(is_pointer_type(ft), {
-                  found = true;
-                }),
-                .None => ()
-              );
+              ft := match(v_fields.get(fi), .Some(t) => t, .None => t_unit());
+              fl := match(v_labels.get(fi), .Some(l) => l, .None => String.from(""));
+              if(!is_private_member_name(fl) && recur(ft, depth - usize(1)), {
+                found = true;
+              });
               fi = (fi + usize(1));
             });
           },
           .None => ()
         );
         vi = (vi + usize(1));
+      });
+      found
+    },
+    .Struct({ field_labels : labels, field_types : fts }) => {
+      (found : bool) = false;
+      (fi : usize) = usize(0);
+      while((fi < fts.len()) && !found, {
+        ft := match(fts.get(fi), .Some(t) => t, .None => t_unit());
+        fl := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+        if(!is_private_member_name(fl) && recur(ft, depth - usize(1)), {
+          found = true;
+        });
+        fi = (fi + usize(1));
       });
       found
     },

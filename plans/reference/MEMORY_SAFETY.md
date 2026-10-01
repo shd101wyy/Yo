@@ -119,7 +119,7 @@ The cost is mechanical: every `std/*.yo` and `yo-self/*.yo` file gets `pragma(Pr
 
 ### What Safe Code Cannot Do
 
-The rule is structural: **no expression in safe code may have type `*(T)`**, and no declaration in safe code may name `*(T)` in a parameter, field, or return type. This is checked per expression, not per byte-pattern — values whose _internal representation_ contains pointers (e.g. `Slice(T)`, `ArrayList(T)`, `String`) are fine, because the user-visible type isn't `*(T)`.
+The rule is structural: **no expression in safe code may have type `*(T)` or carry one through a PUBLIC field**, and no declaration in safe code may name `*(T)` in a parameter, field, or return type. This is checked per expression, not per byte-pattern — values whose _internal representation_ contains pointers (e.g. `ArrayList(T)`, `String`) are fine, because the user-visible type isn't `*(T)` and their pointer fields are private. A struct whose pointer field is PUBLIC (`RawSlice(T)`'s `ptr`) is the different shape — a bare view: holding it in safe code is rejected too, because a safe file could pass the whole struct to a public function that reaches the pointer inside (`random_bytes(RawSlice(u8))` over a `String.raw_bytes()` taken before a reallocation measured as a heap-use-after-free WRITE; closed 2026-10-01, `issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md`).
 
 In a file without the unsafe privilege, the following are compile errors:
 
@@ -128,6 +128,7 @@ In a file without the unsafe privilege, the following are compile errors:
 | Declaring a parameter, field, or return of type `*(T)`                           | `error: raw pointer types are not available in safe code. Use 'object', 'Slice(T)', or 'ref(...)' parameters.` |
 | Writing an expression with type `*(T)` (e.g. `&(expr)`, `slice._ptr`, `*(T)(x)`) | `error: this expression has type '*(T)', which is not available in safe code.`                                 |
 | Calling a function whose return type is `*(T)`                                   | rejected at the call site (the result expression would have type `*(T)`)                                       |
+| Holding a struct/enum whose PUBLIC field carries `*(T)` (e.g. `s.raw_bytes()`)    | `error: Raw pointer values are not available in safe code: … has type 'RawSlice(u8)'.`                          |
 | `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`   |
 | `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                        |
 | `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`        |
@@ -138,10 +139,10 @@ Each error includes a "what to use instead" hint pointing at the safe alternativ
 
 ### What Safe Code _Can_ Do With Pointer-Backed Types
 
-`Slice(T)`, `ArrayList(T)`, `HashMap(K, V)`, `String`, etc. all contain raw pointers in their internal representation. They are safe to expose to user code because:
+`ArrayList(T)`, `HashMap(K, V)`, `String`, iterators, `JoinHandle`, etc. all contain raw pointers in their internal representation. They are safe to expose to user code because:
 
 1. **No public API method has `*(T)` in its signature.** Every method takes/returns safe types (`usize`, `Option(T)`, `Self`, etc.). Lint enforces this in stdlib.
-2. **Field accesses that would yield `*(T)` are rejected in safe code** by the rule above. `slice._ptr` typechecks in stdlib but errors in user code: "this expression has type '\*(T)'."
+2. **Their pointer fields are PRIVATE (`_`-prefixed, module-private).** Field accesses that would yield `*(T)` are rejected in safe code by the rule above, and no public function takes the whole struct and reaches the pointer for you — that is exactly the distinction the value gate draws: a PUBLIC pointer field (`RawSlice.ptr`) surfaces, a private one does not.
 3. **Construction with arbitrary pointer contents is impossible.** User code can't construct a `*(T)` to put in a field, so it can't bypass the safe constructors.
 4. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on OOB. Pointer arithmetic happens inside stdlib `unsafe(...)` blocks with a verified bounds invariant.
 

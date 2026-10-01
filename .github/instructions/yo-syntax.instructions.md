@@ -579,7 +579,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
+Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)`, or that carries one through a PUBLIC field — `Option(*(T))` from a pointer iterator's `next()`, a struct like `RawSlice(T)` whose `ptr` field is public — is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A struct that wraps a pointer behind a PRIVATE (`_`-prefixed) field (std's iterators, `JoinHandle`) is fine to hold: the field read is itself gated and no public function reaches the pointer for you; a PUBLIC pointer field makes the struct a bare view that safe code could pass whole to a function that writes through it (measured as a UAF WRITE via `String.raw_bytes()` + `random_bytes`, 2026-10-01). A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
 
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
