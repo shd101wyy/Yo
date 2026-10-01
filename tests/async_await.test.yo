@@ -6630,7 +6630,7 @@ _if_relay :: (
     chan := SyncChannel(T).new(usize(1));
     sink := chan;
     _if_run_it(() => {
-      sink.send(cb());
+      _ := sink.send(cb());
       ()
     });
     match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))

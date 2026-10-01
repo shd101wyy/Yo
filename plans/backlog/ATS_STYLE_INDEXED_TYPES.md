@@ -94,7 +94,7 @@ collection whose length is a runtime value — which is every collection ATS's
 examples are about. Structs, tuples, `ref` enums, slices, `ArrayList`,
 generic-length arrays and `for` loops are outside the subset (`_fail_subset`
 sites in `vc.yo`); contracted **generic bodies are not walked at all**
-(`issues/verifier-contracted-generic-fn-is-silently-unverified.md`).
+(`issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`).
 
 ### 2.4 Existential types — what Yo has
 
@@ -235,7 +235,13 @@ seed gate for `std/` and `src/` adoption.
 > list is deferred to R2** (decided 2026-09-30,
 > `issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`):
 > its invariants need a ghost of the elements consumed so far, which is
-> R2's sequence layer. Left: task 4 (generic bodies).
+> R2's sequence layer.
+> **Task 4 (2026-10-01, `feat/verifier-recursive-ghost-fn`):** a contracted
+> generic fn is verified abstractly: its type parameter is an uninterpreted
+> sort, and equality and pass-through are the only operations over it
+> (`valid/generic_body_abstract.yo`). The registration gate had excluded
+> such fns since V6 task 2, silently. A generic array LENGTH stays a loud
+> subset error. **R1 is complete.**
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
@@ -273,7 +279,7 @@ Tasks:
    already does this for integers.
 4. **Generic `N` in the subset.** A parameter `Array(T, N)` with `generic(N :
    usize)` is verified per monomorphized call today (bodies of contracted
-   generic fns are not walked — `issues/verifier-contracted-generic-fn-is-silently-unverified.md`).
+   generic fns are not walked — `issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`).
    R1 does not fix that issue; it records that a generic-length body
    verifies at each concrete `N` only, and leaves the abstract walk to that
    issue.
@@ -291,6 +297,20 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 (`refine_nonzero_runtime.yo`'s pattern) so the assert form is also tested.
 
 ### R2 — the ATS lemma layer: recursive `ghost_fn` and user uninterpreted measures
+
+> **Slice 1 (2026-10-01, `feat/verifier-recursive-ghost-fn`):** a `ghost_fn`
+> carrying `decreases` is an uninterpreted SMT function (`VcFunDecl`)
+> defined by the triggered axiom `forall ps. f(ps) == body[ps]`, the
+> encoding task 1 measured. Its own task proves `decreases-step` at each
+> self call. A definition `f :: ghost_fn((fn ...)(body))` may name itself:
+> `publish_pending_phase_a` peels the wrapper. Fixture:
+> `valid/ghost_fn_recursive.yo`, where a list checker's loop invariant
+> `ok ==> all_pos(xs, i)` proves by one unfolding, and the non-decreasing
+> `spin` refutes. Not yet in slice 1:
+> - a call site does not check the ghost_fn's `requires`; the SMT reading is
+>   total, so the axiom stays consistent;
+> - a lemma's `ensures` is not yet turned into a triggered axiom;
+> - `seq_of`, `produced()` and the alias frame condition (tasks 2, 4, 5).
 
 **Goal:** what ATS does with `prfun` over `dataprop` (sortedness, permutation,
 "element `k` occurs in `xs`") for runtime collections. Today `ghost_fn` is

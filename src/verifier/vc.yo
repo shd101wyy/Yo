@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ExprId,
   BK_TUPLE,
+  BF_DECREASES,
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_fn_call,
@@ -39,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
-{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
@@ -288,10 +289,27 @@ _int_is_signed :: (fn(t : TypeValue) -> bool)(
 /// (issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md).
 /// No ExprInfo (untyped measure) defaults to signed, like `_binop_of_ctx`.
 _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
+  cond(
+    _is_lex_measure(e) => false,
+    true => match(
+      expr_info_table_get(ctx.table, ast_expr_id(e)),
+      .Some(mi) => _int_is_signed(mi.ty),
+      .None => true
+    )
+  )
+);
+/// A lexicographic measure `decreases(m1, m2, ...)` (A5 of
+/// plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md; ATS `.<m, n>.`): the signature
+/// stores the `decreases(...)` call itself when it has more than one
+/// component. Its term is the bit-vector CONCATENATION m1 ++ m2 ++ ...;
+/// with every component proved non-negative on entry, unsigned order on the
+/// concatenation IS the lexicographic order on the components.
+_is_lex_measure :: (fn(e : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None));
+_lex_components :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(
-    expr_info_table_get(ctx.table, ast_expr_id(e)),
-    .Some(mi) => _int_is_signed(mi.ty),
-    .None => true
+    e,
+    .FnCall(_, _, ca, _, _) => ca,
+    .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
 (g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
@@ -692,6 +710,8 @@ VcCtx :: ref(
     unenforced : ArrayList(VcTerm),
     /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
     (elision_obligations : bool) ?= false,
+    /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
+    (body_abstract : bool) ?= false,
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -765,7 +785,11 @@ VcCtx :: ref(
     /// deduped by the encoded array term — the same array term walked
     /// from several invariants defines the same function application.
     axioms : ArrayList(VcTerm),
-    ms_axiom_keys : ArrayList(String)
+    ms_axiom_keys : ArrayList(String),
+    /// R2: the uninterpreted function of every recursive `ghost_fn` walked
+    /// so far, and the keys that dedupe their definitional axioms.
+    fun_decls : ArrayList(VcFunDecl),
+    gfn_keys : ArrayList(String)
   )
 );
 _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
@@ -797,7 +821,9 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     fundecls : ArrayList(VcSort).new(),
     fundecl_keys : ArrayList(String).new(),
     axioms : ArrayList(VcTerm).new(),
-    ms_axiom_keys : ArrayList(String).new()
+    ms_axiom_keys : ArrayList(String).new(),
+    fun_decls : ArrayList(VcFunDecl).new(),
+    gfn_keys : ArrayList(String).new()
   )
 );
 _next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
@@ -1265,6 +1291,11 @@ _emit :: (
     );
     fdi = (fdi + usize(1));
   });
+  (ufi : usize) = usize(0);
+  while(ufi < ctx.fun_decls.len(), {
+    q.fun_decls.push(ctx.fun_decls.get(ufi).unwrap());
+    ufi = (ufi + usize(1));
+  });
   (axi : usize) = usize(0);
   while(axi < ctx.axioms.len(), {
     match(
@@ -1362,7 +1393,7 @@ _emit :: (
     _ => Option(VcPreVerdict).None
   );
   // Elidable: a guard obligation with no unenforced assumption on the path.
-  (elidable : bool) = site.is_some();
+  (elidable : bool) = (site.is_some() && !ctx.body_abstract);
   if(elidable && (ctx.unenforced.len() > usize(0)), {
     on_path := HashMap(String, bool).new();
     (pk : usize) = usize(0);
@@ -1726,6 +1757,40 @@ _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
   out
 });
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
+/// The ExprInfo-free forms `_expr_term` accepts (see its gate), else
+/// `.None` without recording anything.
+_untyped_opaque_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+  if(ast_expr_is_atom(e), {
+    return(ctx.vars.get(ast_expr_token(e).value));
+  });
+  is_eq := ast_expr_is_fn_call_of(e, "==", Option(usize).Some(usize(2)));
+  is_ne := ast_expr_is_fn_call_of(e, "!=", Option(usize).Some(usize(2)));
+  if(!(is_eq || is_ne), {
+    return(Option(VcTerm).None);
+  });
+  oargs := match(
+    e,
+    .FnCall(_, _, oa, _, _) => oa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  lhs := _untyped_opaque_term(ctx, oargs.get(usize(0)).unwrap());
+  rhs := _untyped_opaque_term(ctx, oargs.get(usize(1)).unwrap());
+  if(lhs.is_none() || rhs.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  ls := match(_term_sort(lhs.unwrap()), .Some(.Uninterpreted(ln)) => ln, _ => String.new());
+  rs := match(_term_sort(rhs.unwrap()), .Some(.Uninterpreted(rn)) => rn, _ => String.new());
+  if((ls.len() == usize(0)) || (ls != rs), {
+    return(Option(VcTerm).None);
+  });
+  eq_t := _app2(VcOp.EqOp, lhs.unwrap(), rhs.unwrap());
+  Option(VcTerm).Some(
+    cond(
+      is_eq => eq_t,
+      true => _app1(VcOp.NotOp, eq_t)
+    )
+  )
+});
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
 _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
   // `xs.len()` / `xs.is_empty()` on a NAME bound to a list term needs no
@@ -1738,10 +1803,44 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
     },
     .None => ()
   );
+  if(_is_lex_measure(e), {
+    comps := _lex_components(e);
+    (lex_t : Option(VcTerm)) = Option(VcTerm).None;
+    (lci : usize) = usize(0);
+    while(lci < comps.len(), {
+      ct := _expr_term(ctx, comps.get(lci).unwrap());
+      if(ct.is_none(), {
+        return(Option(VcTerm).None);
+      });
+      if(_term_width(ct.unwrap()) <= usize(1), {
+        _fail_subset(ctx, String.from("a lexicographic decreases component must be an integer"), comps.get(lci).unwrap());
+        return(Option(VcTerm).None);
+      });
+      lex_t = match(
+        lex_t,
+        .Some(acc) => Option(VcTerm).Some(_app2(VcOp.ConcatOp, acc, ct.unwrap())),
+        .None => ct
+      );
+      lci = (lci + usize(1));
+    });
+    return(lex_t);
+  });
   info := match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(i) => i,
     .None => {
+      // A generic body's predicate pass cannot type `x == y` over an
+      // opaque type parameter (no `==` to dispatch to), and the swallowed
+      // evaluation leaves its atoms untyped too. Two forms need no
+      // ExprInfo: a name the walk already bound (its term carries its
+      // sort), and `==` / `!=` over two terms of one UNINTERPRETED sort.
+      match(
+        _untyped_opaque_term(ctx, e),
+        .Some(ut) => {
+          return(Option(VcTerm).Some(ut));
+        },
+        .None => ()
+      );
       _fail_subset(ctx, String.from("untyped expression"), e);
       return(Option(VcTerm).None);
     }
@@ -4944,9 +5043,215 @@ _refine_pred_chain_term :: (
   });
   out
 });
+/// A fresh list holding the same sorts (`VcSort` has no `Clone`).
+_sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
+  out := ArrayList(VcSort).new();
+  (si : usize) = usize(0);
+  while(si < src.len(), {
+    out.push(src.get(si).unwrap());
+    si = (si + usize(1));
+  });
+  out
+});
+/// A3: try the definitional encoding for an uncontracted callee, silently.
+/// A failure (a body outside the subset, a body that mutates an argument)
+/// leaves no trace: the subset error and the mutation record are restored,
+/// and the caller reports the ordinary "callee without contracts".
+_transparent_call_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  saved_err := ctx.subset_error;
+  saved_mut := ctx.mutated_names.len();
+  saved_ob := ctx.obligations.len();
+  saved_keys := ctx.gfn_keys.len();
+  saved_decls := ctx.fun_decls.len();
+  t := _ghost_fn_app_term(ctx, e, args, fid);
+  failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut));
+  if(failed, {
+    ctx.subset_error = saved_err;
+    while(ctx.mutated_names.len() > saved_mut, {
+      _ := ctx.mutated_names.pop();
+    });
+    while(ctx.obligations.len() > saved_ob, {
+      _ := ctx.obligations.pop();
+    });
+    // The attempt declared the function before walking its body; forget it,
+    // or a later call would reuse the name with no defining axiom.
+    while(ctx.gfn_keys.len() > saved_keys, {
+      _ := ctx.gfn_keys.pop();
+    });
+    while(ctx.fun_decls.len() > saved_decls, {
+      _ := ctx.fun_decls.pop();
+    });
+    return(Option(VcTerm).None);
+  });
+  t
+});
+/// R2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
+/// `decreases` as the uninterpreted function `f`, applied to the walked
+/// actuals. Its meaning is the definitional axiom
+/// `forall ps. f(ps) == body[ps]` with the application as its trigger, the
+/// encoding measured against `define-fun-rec` (the axiom proves what the
+/// recursive definition cannot, `swap` from an update lemma). Termination
+/// keeps the axiom consistent: inside the ghost_fn's OWN task each self
+/// call proves `decreases-step`; a caller assumes the axiom whatever that
+/// task's verdict, the same modular rule as a callee's `ensures`.
+_ghost_fn_app_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  callee_atom := match(
+    at,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => at
+  );
+  params := ArrayList(String).new();
+  (body : AstExpr) = make_err_expr();
+  (found : bool) = false;
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(.FuncVal(gfvd, _)) => {
+        params = gfvd.*.params;
+        body = gfvd.*.body;
+        found = true;
+      },
+      .Some(_) => (),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(!found, {
+    _fail_subset(ctx, String.from("recursive ghost_fn without a resolvable body"), at);
+    return(Option(VcTerm).None);
+  });
+  if(args.len() != params.len(), {
+    _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
+    return(Option(VcTerm).None);
+  });
+  // The actuals, and each one's sort (from its type, else its term).
+  arg_terms := ArrayList(VcTerm).new();
+  arg_sorts := ArrayList(VcSort).new();
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    a := args.get(ai).unwrap();
+    at_t := _expr_term(ctx, a);
+    if(at_t.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    srt := match(
+      expr_info_table_get(ctx.table, ast_expr_id(a)),
+      .Some(ainf) => _type_sort(ainf.ty),
+      .None => Option(VcSort).None
+    );
+    srt2 := match(srt, .Some(s1) => Option(VcSort).Some(s1), .None => _term_sort(at_t.unwrap()));
+    if(srt2.is_none(), {
+      _fail_subset(ctx, String.from("recursive ghost_fn argument of an unmodeled sort"), a);
+      return(Option(VcTerm).None);
+    });
+    arg_terms.push(at_t.unwrap());
+    arg_sorts.push(srt2.unwrap());
+    ai = (ai + usize(1));
+  });
+  res_sort := match(
+    expr_info_table_get(ctx.table, ast_expr_id(at)),
+    .Some(rinf) => _type_sort(rinf.ty),
+    .None => Option(VcSort).None
+  );
+  if(res_sort.is_none(), {
+    _fail_subset(ctx, String.from("recursive ghost_fn result of an unmodeled sort"), at);
+    return(Option(VcTerm).None);
+  });
+  fname := mangle_vc_name(fid.clone(), String.from("gfn"));
+  // Inside the ghost_fn's own task a self call is where termination is
+  // proved: the measure over the actuals is below the current one.
+  if((fid == ctx.func_id) && ctx.decreases.is_some(), {
+    dm := ctx.decreases.unwrap();
+    m_current := _expr_term(ctx, dm);
+    saved_mn := ArrayList(String).new();
+    saved_mv := ArrayList(Option(VcTerm)).new();
+    (mi : usize) = usize(0);
+    while(mi < params.len(), {
+      pn := params.get(mi).unwrap();
+      saved_mn.push(pn.clone());
+      saved_mv.push(ctx.vars.get(pn.clone()));
+      ctx.vars.insert(pn, arg_terms.get(mi).unwrap());
+      mi = (mi + usize(1));
+    });
+    m_actual := _expr_term(ctx, dm);
+    _restore_vars(ctx, saved_mn, saved_mv);
+    match(
+      m_current,
+      .Some(mc) => match(
+        m_actual,
+        .Some(ma) => {
+          step_op := cond(
+            _measure_is_signed(ctx, dm) => VcOp.BvSlt,
+            true => VcOp.BvUlt
+          );
+          _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(step_op, ma, mc));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  // Declare the function and its definitional axiom once.
+  if(!ctx.gfn_keys.contains(fname.clone()), {
+    ctx.gfn_keys.push(fname.clone());
+    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : _sorts_copy(arg_sorts), result : res_sort.unwrap()));
+    binder_names := ArrayList(String).new();
+    binder_terms := ArrayList(VcTerm).new();
+    saved_bn := ArrayList(String).new();
+    saved_bv := ArrayList(Option(VcTerm)).new();
+    (bi : usize) = usize(0);
+    while(bi < params.len(), {
+      bname := `__yo_gfp${bi.to_string()}`;
+      bvar := VcTerm.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap());
+      binder_names.push(bname);
+      binder_terms.push(bvar);
+      pn2 := params.get(bi).unwrap();
+      saved_bn.push(pn2.clone());
+      saved_bv.push(ctx.vars.get(pn2.clone()));
+      ctx.vars.insert(pn2, bvar);
+      bi = (bi + usize(1));
+    });
+    // The definition's own obligations (AoRTE in the body) belong to the
+    // ghost_fn's task, not to this caller: drop whatever the walk emits.
+    ob_mark := ctx.obligations.len();
+    saved_func := ctx.func_id.clone();
+    ctx.func_id = String.from("__yo_gfn_definition");
+    body_t := _expr_term(ctx, body);
+    ctx.func_id = saved_func;
+    while(ctx.obligations.len() > ob_mark, {
+      _ := ctx.obligations.pop();
+    });
+    _restore_vars(ctx, saved_bn, saved_bv);
+    match(
+      body_t,
+      .Some(bt) => {
+        lhs := VcTerm.Ctor(name : fname.clone(), args : binder_terms);
+        triggers := ArrayList(VcTerm).new();
+        triggers.push(lhs);
+        ctx.axioms.push(
+          VcTerm.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : _sorts_copy(arg_sorts), body : _app2(VcOp.EqOp, lhs, bt), triggers : triggers)
+        );
+      },
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+  });
+  Option(VcTerm).Some(VcTerm.Ctor(name : fname, args : arg_terms))
+});
 _ghost_fn_inline_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
+  // R2: a ghost_fn with `decreases` may recurse. It is not inlined: it is
+  // an uninterpreted function defined by a triggered axiom.
+  if(get_func_decreases_expr(fid.clone()).is_some(), {
+    return(_ghost_fn_app_term(ctx, at, args, fid));
+  });
   (si : usize) = usize(0);
   while(si < g_ghost_inline_stack.len(), {
     if(g_ghost_inline_stack.get(si).unwrap() == fid, {
@@ -5184,7 +5489,19 @@ _callee_call_term :: (
     }
   );
   if((reqs.len() == usize(0)) && (enss.len() == usize(0)) && !callee_has_refined_spec, {
-    // No contracts: the plan's case 3 — result unconstrained beyond type.
+    // A3 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a callee with no
+    // contracts whose body the walk can express, and which changes none of
+    // its arguments, is TRANSPARENT: its call is the application of an
+    // uninterpreted function defined by its body (the recursive-ghost_fn
+    // axiom), so a spec may name it. Anything else stays case 3: the result
+    // is unconstrained beyond its type, which the subset rejects.
+    match(
+      _transparent_call_term(ctx, e, args, fid.clone()),
+      .Some(tt) => {
+        return(Option(VcTerm).Some(tt));
+      },
+      .None => ()
+    );
     _fail_subset(ctx, String.from("call to a callee without contracts"), e);
     return(Option(VcTerm).None);
   });
@@ -5680,6 +5997,7 @@ _app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
     .ZeroExtendOp(ze) => (_arg_width(args, usize(0)) + ze),
     .ExtractOp(eh, el) => ((eh - el) + usize(1)),
     .IntToBvOp(iw) => iw,
+    .ConcatOp => (_arg_width(args, usize(0)) + _arg_width(args, usize(1))),
     .SelectOp => match(
       args.get(usize(0)),
       .Some(arr) => _array_elem_width(arr),
@@ -5769,7 +6087,10 @@ VerifyFnInput :: ref(
     (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new(),
     /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
     /// when it records guard sites, `yo verify --elision`).
-    (elision_obligations : bool) ?= false
+    (elision_obligations : bool) ?= false,
+    /// The task's body is generic and verified abstractly: no obligation is
+    /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+    (body_abstract : bool) ?= false
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
@@ -5777,6 +6098,7 @@ VerifyFnInput :: ref(
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
   ctx.elision_obligations = input.elision_obligations;
+  ctx.body_abstract = input.body_abstract;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
   param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.
@@ -5908,20 +6230,34 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   // under the assumed requires, where it is actually provable.
   match(
     ctx.decreases,
-    .Some(dm) => {
-      m := _expr_term(ctx, dm);
-      match(
-        m,
-        .Some(mt) => {
-          zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
-          nonneg_op := cond(
-            _measure_is_signed(ctx, dm) => VcOp.BvSge,
-            true => VcOp.BvUge
-          );
-          _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
-        },
-        .None => ()
+    .Some(dm0) => {
+      // A lexicographic measure proves each COMPONENT non-negative.
+      parts := cond(
+        _is_lex_measure(dm0) => _lex_components(dm0),
+        true => {
+          one := ArrayList(AstExpr).new();
+          one.push(dm0);
+          one
+        }
       );
+      (npi : usize) = usize(0);
+      while(npi < parts.len(), {
+        dm := parts.get(npi).unwrap();
+        m := _expr_term(ctx, dm);
+        match(
+          m,
+          .Some(mt) => {
+            zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
+            nonneg_op := cond(
+              _measure_is_signed(ctx, dm) => VcOp.BvSge,
+              true => VcOp.BvUge
+            );
+            _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
+          },
+          .None => ()
+        );
+        npi = (npi + usize(1));
+      });
     },
     .None => ()
   );

@@ -113,8 +113,9 @@ pick :: (
   fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
 )(if(flag, a, b));
 
-// The caller's own post-condition is provable only THROUGH the assumed
-// generic ensures — the verifier never opens the pick body.
+// The caller's own post-condition is proved THROUGH pick's ensures. The
+// pick body is verified once, abstractly (T is an opaque sort), in its own
+// task.
 caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
   pick(true, i32(1), i32(2))
 );
@@ -124,12 +125,33 @@ A caller that violates the generic's `requires` (passing `flag = false`
 to a `requires(flag)` callee) is refuted at the call site with a
 counter-example.
 
+### Lexicographic measures
+
+`decreases(M1, M2, ...)` is a lexicographic measure (ATS's `.<m, n>.`): each
+recursive call must lower `M1`, or keep `M1` and lower `M2`, and so on.
+Every component must be a non-negative integer on entry. It proves recursions
+no single measure can, such as a call that lowers `i` while it resets `j`:
+
+```rust
+walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
+  cond(
+    ((i == u32(0)) && (j == u32(0))) => u32(0),
+    (j == u32(0)) => walk(i - u32(1), u32(100)),
+    true => walk(i, j - u32(1))
+  )
+);
+```
+
+The verifier encodes the tuple as the bit-vector concatenation of its
+components, so the step obligation is a single unsigned comparison. A `while`
+loop's `decreases(M)` still takes one measure.
+
 ### Mutual recursion
 
 Mutually recursive functions terminate when every member carries
 `decreases(M)` and every call **between clique members** proves the
 callee's measure at the actuals strictly below the caller's current
-measure — one shared well-founded domain, no lexicographic tuples. The
+measure — one shared well-founded domain (lexicographic measures included, when every member's measure has the same components). The
 cliques are derived automatically from the task set's call graph, so an
 edge without a decrease (passing `n` unchanged) is refuted:
 
@@ -434,7 +456,7 @@ runtime assert).
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
-| `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` relate `len()` to `old(len())`; a contract that never mentions `old(self)` promises the list unchanged): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `xs.get(i)` is the total read (`Some(select)` in bounds, `None` past the end — no obligation) and `xs.pop()` returns `Some(last)` and rebinds the receiver to length − 1 when non-empty, `None` and unchanged when empty; both are the call's own `Option(T)` datatype. `ArrayList` is a reference type but the model tracks each name as its own list, so a body that mutates a list is a subset error while a second name could be the same list: a list-typed local bound from anything but `ArrayList(T).new()`/`with_capacity(n)`, or a second parameter of the mutated parameter's list type (`issues/fixed/verifier-list-model-ignores-aliasing.md`). `for` over a list and nested lists stay outside | ✅ verified (R1 slices 1–3) |
+| `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` relate `len()` to `old(len())`; a contract that never mentions `old(self)` promises the list unchanged): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `xs.get(i)` is the total read (`Some(select)` in bounds, `None` past the end — no obligation) and `xs.pop()` returns `Some(last)` and rebinds the receiver to length − 1 when non-empty, `None` and unchanged when empty; both are the call's own `Option(T)` datatype. `ArrayList` is a reference type but the model tracks each name as its own list, so a body that mutates a list is a subset error while a second name could be the same list: a list-typed local bound from anything but `ArrayList(T).new()`/`with_capacity(n)`, or a second parameter of the mutated parameter's list type (`issues/fixed/verifier-list-model-ignores-aliasing.md`). A contracted GENERIC fn is verified abstractly: its type parameter is an uninterpreted sort that supports only equality and pass-through. A `ghost_fn` with `decreases` may recurse: it becomes an uninterpreted function defined by a triggered axiom, and its own task proves the measure decreases (R2 slice 1). `for` over a list and nested lists stay outside | ✅ verified (R1 slices 1–3) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
 | Contracted GENERIC functions at call sites — `requires` discharged and `ensures` assumed per monomorphized call site (the generic body itself stays unwalked) | ✅ verified (V6 task 2) |

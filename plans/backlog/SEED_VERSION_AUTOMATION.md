@@ -110,6 +110,14 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+## DONE (2026-10-01): delete `ArrayList.set_len`
+
+`issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md` (S1).
+This turned out NOT to be seed-gated. `markdown_yo` v0.0.9 removed its
+`set_len` calls by switching to `extend_from_ptr` and `truncate`, not to the
+token API. So the compiler bumped the dependency to `^0.0.9` and deleted
+`set_len` in the same change that added `spare_capacity` + `assume_init`.
+
 ## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
 
 **Generation A DONE 2026-09-30** (issues/fixed/verify-by-default-for-a-project.md):

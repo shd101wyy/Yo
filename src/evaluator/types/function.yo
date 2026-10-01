@@ -3519,12 +3519,12 @@ evaluate_function_parameters :: (
     });
     if(ast_expr_is_fn_call_of(c_expr, BF_DECREASES, Option(usize).None), {
       d_args := _fn_call_args(c_expr);
-      if(d_args.len() != usize(1), {
+      if(d_args.len() == usize(0), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("'decreases(...)' takes exactly one measure expression: decreases(M).")
+              String.from("'decreases(...)' takes a measure: decreases(M), or a lexicographic tuple decreases(M1, M2, ...).")
             )
           )
         );
@@ -3540,7 +3540,13 @@ evaluate_function_parameters :: (
         );
       });
       seen_decreases = true;
-      decreases_expr = d_args.get(usize(0));
+      // One component is the measure itself; several are a LEXICOGRAPHIC
+      // measure, stored as the decreases(...) call, whose components the
+      // verifier reads back (A5 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md).
+      decreases_expr = cond(
+        (d_args.len() == usize(1)) => d_args.get(usize(0)),
+        true => Option(AstExpr).Some(c_expr)
+      );
       continue;
     });
     if(ast_expr_is_fn_call_of(c_expr, BF_ASSUMED, Option(usize).None), {

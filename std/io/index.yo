@@ -82,13 +82,12 @@ Reader :: trait(
             if(out.len() == out.capacity(), {
               out.reserve(out.capacity());
             });
-            len := out.len();
-            p := match(out.ptr(), .Some(q) => q.add(len), .None => (*u8)(""));
-            n := e.io.await(Self.read(self, p, out.capacity() - len, io), e);
+            spare := out.spare_capacity().unwrap();
+            n := e.io.await(Self.read(self, spare, out.capacity() - out.len(), io), e);
             if(n == usize(0), {
               done = true;
             }, {
-              out.set_len(len + n);
+              out.assume_init(n, spare);
             });
           });
           out

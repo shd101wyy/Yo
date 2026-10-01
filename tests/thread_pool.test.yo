@@ -224,7 +224,7 @@ test("ThreadPool tasks return values over a Channel", {
   i := i32(0);
   while(runtime(i < i32(8)), {
     spawn(pool, io => {
-      out.send(i32(11));
+      _ := out.send(i32(11));
       ()
     });
     i = (i + i32(1));
@@ -252,7 +252,7 @@ test("a task may spawn on its own pool: the nested task runs and join_all return
     count.fetch_add(i32(1), MemoryOrder.SeqCst);
     spawn(pool, io => {
       total := count.fetch_add(i32(10), MemoryOrder.SeqCst);
-      done.send(total + i32(10));
+      _ := done.send(total + i32(10));
       ()
     });
     ()
@@ -318,6 +318,6 @@ test("join_all waits for its own pool's tasks only", {
   });
   a.join_all();
   assert(done.load(MemoryOrder.Acquire) == i32(1), "pool A's task ran before its join_all returned");
-  gate.send(true);
+  _ := gate.send(true);
   b.join_all();
 });

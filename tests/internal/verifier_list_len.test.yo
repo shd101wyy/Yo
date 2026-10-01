@@ -424,3 +424,82 @@ test("payload and qualified variant constructions verify, and a final arm keeps 
     `both false twins must refute, got: [${_reports_dump(bad_reports)}]`
   );
 });
+
+test("a contracted generic fn is verified abstractly: identity, pick and tenth prove; the false twins refute", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/generic_body_abstract.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(3),
+    `identity, pick and tenth must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/generic_body_abstract_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `wrong_id and tenth_wrong must refute, got: [${_reports_dump(bad_reports)}]`
+  );
+});
+
+test("a recursive ghost_fn is an axiomatized function: a loop invariant over it proves, a non-decreasing one refutes", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/ghost_fn_recursive.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(2),
+    `all_pos and check_all must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/ghost_fn_recursive_false.yo"),
+    io,
+    true
+  );
+  // all_pos itself verifies; check_wrong never clears its flag (unproven:
+  // the claim needs a counterexample through the quantified definition);
+  // spin's measure does not decrease (refuted).
+  assert(
+    _count_outcome(bad_reports, String.from("ok")) == usize(1),
+    `only all_pos may verify, got: [${_reports_dump(bad_reports)}]`
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
+    `spin must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
+  );
+});
+
+test("a lexicographic decreases(i, j) proves a recursion no single measure can; a raising call and the single measure refute", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/decreases_lexicographic.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(1),
+    `walk must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/decreases_lexicographic_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `walk_up and walk_single must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
+  );
+});

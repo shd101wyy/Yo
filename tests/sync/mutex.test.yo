@@ -189,7 +189,7 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
-      held.send(i32(1));
+      _ := held.send(i32(1));
       release.recv();
       v = i64(99);
     });
@@ -197,7 +197,7 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
   held.recv();
   blocked := m.try_with_lock(v => v);
   assert(blocked.is_none(), "a held mutex gives .None, and the body never ran");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   holder.join();
   // Once released it is takeable again, and the holder's write is visible.
   after := m.try_with_lock(v => v);
@@ -213,7 +213,7 @@ test("try_with_lock does not run the body when it fails", {
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
-      held.send(i32(1));
+      _ := held.send(i32(1));
       release.recv();
     });
   });
@@ -222,7 +222,7 @@ test("try_with_lock does not run the body when it fails", {
     ran.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran.load(MemoryOrder.SeqCst) == i32(0), "the body did not run at all");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   holder.join();
 });
 test("is_unlocked answers about the past, and says so", {
@@ -235,13 +235,13 @@ test("is_unlocked answers about the past, and says so", {
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
-      held.send(i32(1));
+      _ := held.send(i32(1));
       release.recv();
     });
   });
   held.recv();
   assert(!m.is_unlocked(), "a held mutex reports locked");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   holder.join();
 });
 

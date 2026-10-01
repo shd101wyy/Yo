@@ -26,12 +26,12 @@ test("Vec shared across threads read-only", {
     assert(v(usize(0)) == i32(10), "thread1 sees 10");
     assert(v(usize(1)) == i32(20), "thread1 sees 20");
     assert(v(usize(2)) == i32(30), "thread1 sees 30");
-    ch.send(true);
+    _ := ch.send(true);
   });
   t2 := Thread(unit).spawn(io => {
     assert(v.len() == usize(3), "thread2 sees length 3");
     assert(v(usize(2)) == i32(30), "thread2 sees 30");
-    ch.send(true);
+    _ := ch.send(true);
   });
   ch.recv();
   ch.recv();
@@ -52,12 +52,12 @@ test("Vec persistence — versions created on main, read across threads", {
   t1 := Thread(unit).spawn(io => {
     assert(v1.len() == usize(4), "v1 has 4 elements");
     assert(v1(usize(3)) == i32(4), "v1 last is 4");
-    ch.send(true);
+    _ := ch.send(true);
   });
   t2 := Thread(unit).spawn(io => {
     assert(v2.len() == usize(3), "v2 has 3 elements");
     assert(v2(usize(2)) == i32(99), "v2 last is 99");
-    ch.send(true);
+    _ := ch.send(true);
   });
   ch.recv();
   ch.recv();
@@ -73,11 +73,11 @@ test("List shared across threads", {
   ch := Channel(bool).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     assert(xs.head().unwrap() == i32(1), "t1 head is 1");
-    ch.send(true);
+    _ := ch.send(true);
   });
   t2 := Thread(unit).spawn(io => {
     assert(xs.len() == usize(3), "t2 length is 3");
-    ch.send(true);
+    _ := ch.send(true);
   });
   ch.recv();
   ch.recv();
@@ -90,11 +90,11 @@ test("List persistence across threads — prepend creates independent versions",
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     v1 := base.prepend(i32(0));
-    ch.send(v1.head().unwrap());
+    _ := ch.send(v1.head().unwrap());
   });
   t2 := Thread(unit).spawn(io => {
     v2 := base.prepend(i32(99));
-    ch.send(v2.head().unwrap());
+    _ := ch.send(v2.head().unwrap());
   });
   h1 := ch.recv().unwrap();
   h2 := ch.recv().unwrap();
@@ -112,11 +112,11 @@ test("Map shared across threads read-only", {
   ch := Channel(bool).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     assert(m.get(i32(1)).unwrap() == i32(100), "t1 gets key 1");
-    ch.send(true);
+    _ := ch.send(true);
   });
   t2 := Thread(unit).spawn(io => {
     assert(m.get(i32(2)).unwrap() == i32(200), "t2 gets key 2");
-    ch.send(true);
+    _ := ch.send(true);
   });
   ch.recv();
   ch.recv();
@@ -129,11 +129,11 @@ test("Map persistence across threads", {
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     m1 := base.insert(i32(2), i32(20)).insert(i32(3), i32(30));
-    ch.send(m1.len());
+    _ := ch.send(m1.len());
   });
   t2 := Thread(unit).spawn(io => {
     m2 := base.insert(i32(99), i32(99));
-    ch.send(m2.len());
+    _ := ch.send(m2.len());
   });
   l1 := ch.recv().unwrap();
   l2 := ch.recv().unwrap();
@@ -151,10 +151,10 @@ test("SortedMap shared across threads", {
   sm := SortedMap(i32, i32).new().insert(i32(3), i32(30)).insert(i32(1), i32(10)).insert(i32(2), i32(20));
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(sm.min_key().unwrap());
+    _ := ch.send(sm.min_key().unwrap());
   });
   t2 := Thread(unit).spawn(io => {
-    ch.send(sm.max_key().unwrap());
+    _ := ch.send(sm.max_key().unwrap());
   });
   min_k := ch.recv().unwrap();
   max_k := ch.recv().unwrap();
@@ -172,12 +172,12 @@ test("Set shared across threads", {
   t1 := Thread(unit).spawn(io => {
     assert(s.contains(i32(1)), "t1 sees 1");
     assert(s.contains(i32(2)), "t1 sees 2");
-    ch.send(true);
+    _ := ch.send(true);
   });
   t2 := Thread(unit).spawn(io => {
     assert(s.contains(i32(3)), "t2 sees 3");
     assert(s.len() == usize(3), "t2 sees len 3");
-    ch.send(true);
+    _ := ch.send(true);
   });
   ch.recv();
   ch.recv();
@@ -189,10 +189,10 @@ test("SortedSet shared across threads", {
   ss := SortedSet(i32).new().insert(i32(5)).insert(i32(1)).insert(i32(3));
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(ss.min().unwrap());
+    _ := ch.send(ss.min().unwrap());
   });
   t2 := Thread(unit).spawn(io => {
-    ch.send(ss.max().unwrap());
+    _ := ch.send(ss.max().unwrap());
   });
   min_v := ch.recv().unwrap();
   max_v := ch.recv().unwrap();
@@ -208,10 +208,10 @@ test("ImmString shared across threads", {
   s := ImmString.from("hello world");
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(s.len());
+    _ := ch.send(s.len());
   });
   t2 := Thread(unit).spawn(io => {
-    ch.send(s.len());
+    _ := ch.send(s.len());
   });
   l1 := ch.recv().unwrap();
   l2 := ch.recv().unwrap();
@@ -231,7 +231,7 @@ test("Channel of Vec — producer sends immutable snapshots to consumer", {
     i := i32(0);
     while(runtime(i < i32(5)), {
       v = v.push(i);
-      ch.send(v);
+      _ := ch.send(v);
       i = (i + i32(1));
     });
   });
@@ -276,17 +276,17 @@ test("ThreadPool creates independent List versions", {
   wg.add(i32(3));
   spawn(pool, io => {
     v := base.prepend(i32(100));
-    ch.send(v.head().unwrap());
+    _ := ch.send(v.head().unwrap());
     wg.done();
   });
   spawn(pool, io => {
     v := base.prepend(i32(200));
-    ch.send(v.head().unwrap());
+    _ := ch.send(v.head().unwrap());
     wg.done();
   });
   spawn(pool, io => {
     v := base.prepend(i32(300));
-    ch.send(v.head().unwrap());
+    _ := ch.send(v.head().unwrap());
     wg.done();
   });
   wg.wait();
@@ -309,7 +309,7 @@ test("Queued worker task keeps captured ImmString alive after creator scope exit
   i := usize(0);
   while(runtime(i < worker_count), {
     spawn(pool, io => {
-      ready.send(true);
+      _ := ready.send(true);
       release.recv().unwrap();
     });
     i = (i + usize(1));
@@ -322,12 +322,12 @@ test("Queued worker task keeps captured ImmString alive after creator scope exit
   {
     s := ImmString.from("hello");
     spawn(pool, io => {
-      result.send(s.len());
+      _ := result.send(s.len());
     });
   };
   i = usize(0);
   while(runtime(i < worker_count), {
-    release.send(true);
+    _ := release.send(true);
     i = (i + usize(1));
   });
   len := result.recv().unwrap();
@@ -344,7 +344,7 @@ test("Thread closure consumes Vec via own(self) push — no double-free", {
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     v1 := base.push(i32(3));
-    ch.send(v1.len());
+    _ := ch.send(v1.len());
   });
   len := ch.recv().unwrap();
   assert(len == usize(3), "thread pushed to get length 3");
@@ -356,12 +356,12 @@ test("Multiple threads each consume own Vec independently", {
   a := Vec(i32).new().push(i32(1));
   t1 := Thread(unit).spawn(io => {
     v := a.push(i32(2)).push(i32(3));
-    ch.send(v.len());
+    _ := ch.send(v.len());
   });
   b := Vec(i32).new().push(i32(10)).push(i32(20));
   t2 := Thread(unit).spawn(io => {
     v := b.push(i32(30)).push(i32(40)).push(i32(50));
-    ch.send(v.len());
+    _ := ch.send(v.len());
   });
   l1 := ch.recv().unwrap();
   l2 := ch.recv().unwrap();
@@ -378,7 +378,7 @@ test("Pool task consumes Vec via own(self) push", {
   wg.add(i32(1));
   spawn(pool, io => {
     v := base.push(i32(99));
-    ch.send(v.len());
+    _ := ch.send(v.len());
     wg.done();
   });
   wg.wait();
@@ -391,8 +391,8 @@ test("Thread closure borrows only — no own(self) consumption", {
   v := Vec(i32).new().push(i32(5)).push(i32(10));
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(v.len());
-    ch.send(v.len());
+    _ := ch.send(v.len());
+    _ := ch.send(v.len());
   });
   l1 := ch.recv().unwrap();
   l2 := ch.recv().unwrap();
@@ -405,7 +405,7 @@ test("Thread consumes ImmString via own(self) concat", {
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     s2 := s.concat(ImmString.from(" world"));
-    ch.send(s2.len());
+    _ := ch.send(s2.len());
   });
   len := ch.recv().unwrap();
   assert(len == usize(11), "concat produced 'hello world' (11 bytes)");
@@ -420,7 +420,7 @@ test("Thread with mixed consumed and borrowed captures", {
   t1 := Thread(unit).spawn(io => {
     v2 := v.push(i32(2));
     val := m.get(i32(1)).unwrap();
-    ch.send(v2.len() + usize(val));
+    _ := ch.send(v2.len() + usize(val));
   });
   result := ch.recv().unwrap();
   // v2.len() = 2, val = 100, so result = 102
@@ -434,7 +434,7 @@ test("Thread with chained own(self) calls on capture", {
   t1 := Thread(unit).spawn(io => {
     // Chained push calls: base consumed by first push, result consumed by second
     v := base.push(i32(1)).push(i32(2)).push(i32(3));
-    ch.send(v.len());
+    _ := ch.send(v.len());
   });
   len := ch.recv().unwrap();
   assert(len == usize(3), "chained pushes produced length 3");
@@ -446,7 +446,7 @@ test("Thread with no RC captures — only primitives", {
   y := i32(58);
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(x + y);
+    _ := ch.send(x + y);
   });
   result := ch.recv().unwrap();
   assert(result == i32(100), "primitive captures add to 100");
@@ -458,8 +458,8 @@ test("Vec pop in thread — own(self) returning PopResult", {
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     result := v.pop();
-    ch.send(result.value.unwrap());
-    ch.send(i32(result.vec.len()));
+    _ := ch.send(result.value.unwrap());
+    _ := ch.send(i32(result.vec.len()));
   });
   popped := ch.recv().unwrap();
   remaining := ch.recv().unwrap();
@@ -476,19 +476,19 @@ test("Multiple workers each consume different Vecs", {
   v1 := Vec(i32).new().push(i32(1));
   spawn(pool, io => {
     r := v1.push(i32(2));
-    ch.send(r.len());
+    _ := ch.send(r.len());
     wg.done();
   });
   v2 := Vec(i32).new().push(i32(1)).push(i32(2));
   spawn(pool, io => {
     r := v2.push(i32(3)).push(i32(4));
-    ch.send(r.len());
+    _ := ch.send(r.len());
     wg.done();
   });
   v3 := Vec(i32).new();
   spawn(pool, io => {
     r := v3.push(i32(1)).push(i32(2)).push(i32(3));
-    ch.send(r.len());
+    _ := ch.send(r.len());
     wg.done();
   });
   wg.wait();
@@ -512,11 +512,11 @@ test("Mixed ImmString across threads", {
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     assert(s1.len() == usize(5), "t1: s1 is 'hello'");
-    ch.send(s1.len());
+    _ := ch.send(s1.len());
   });
   t2 := Thread(unit).spawn(io => {
     assert(s2.len() == usize(5), "t2: s2 is 'world'");
-    ch.send(s2.len());
+    _ := ch.send(s2.len());
   });
   r1 := ch.recv().unwrap();
   r2 := ch.recv().unwrap();
@@ -535,11 +535,11 @@ test("Mixed Map types across threads", {
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     val := m.get(i32(1)).unwrap();
-    ch.send(val);
+    _ := ch.send(val);
   });
   t2 := Thread(unit).spawn(io => {
     val := m.get(i32(3)).unwrap();
-    ch.send(val);
+    _ := ch.send(val);
   });
   r1 := ch.recv().unwrap();
   r2 := ch.recv().unwrap();
@@ -568,7 +568,7 @@ test("Mixed List and Vec across threads", {
       sum = (sum + v(i));
       i = (i + usize(1));
     });
-    ch.send(sum);
+    _ := ch.send(sum);
   });
   // Thread 2 reads from List
   t2 := Thread(unit).spawn(io => {
@@ -578,7 +578,7 @@ test("Mixed List and Vec across threads", {
       sum = (sum + cur.head().unwrap());
       cur = cur.tail();
     });
-    ch.send(sum);
+    _ := ch.send(sum);
   });
   r1 := ch.recv().unwrap();
   r2 := ch.recv().unwrap();
@@ -600,10 +600,10 @@ test("Mixed Set and SortedSet across threads", {
   ss = ss.insert(i32(6));
   ch := Channel(usize).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    ch.send(s.len());
+    _ := ch.send(s.len());
   });
   t2 := Thread(unit).spawn(io => {
-    ch.send(ss.len());
+    _ := ch.send(ss.len());
   });
   r1 := ch.recv().unwrap();
   r2 := ch.recv().unwrap();
@@ -624,11 +624,11 @@ test("Mixed Map and SortedMap across threads", {
   ch := Channel(i32).new(usize(4));
   t1 := Thread(unit).spawn(io => {
     val := m.get(i32(2)).unwrap();
-    ch.send(val);
+    _ := ch.send(val);
   });
   t2 := Thread(unit).spawn(io => {
     val := sm.get(i32(4)).unwrap();
-    ch.send(val);
+    _ := ch.send(val);
   });
   r1 := ch.recv().unwrap();
   r2 := ch.recv().unwrap();
@@ -649,15 +649,15 @@ test("All imm types combined across threads", {
   ch := Channel(usize).new(usize(8));
   // Thread 1: Vec + List
   t1 := Thread(unit).spawn(io => {
-    ch.send(v.len() + l.len());
+    _ := ch.send(v.len() + l.len());
   });
   // Thread 2: Set + SortedSet
   t2 := Thread(unit).spawn(io => {
-    ch.send(s.len() + ss.len());
+    _ := ch.send(s.len() + ss.len());
   });
   // Thread 3: Map + SortedMap
   t3 := Thread(unit).spawn(io => {
-    ch.send(m.len() + sm.len());
+    _ := ch.send(m.len() + sm.len());
   });
   total := usize(0);
   i := i32(0);
