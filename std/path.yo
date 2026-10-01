@@ -802,8 +802,11 @@ impl(
   Hash(
     hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
       hasher.write_u8(if(self._is_absolute, u8(1), u8(0)));
-      (pb : RawSlice(u8)) = self._prefix.raw_bytes();
-      hasher.write(pb.ptr, pb.len);
+      match(
+        self._prefix.ptr(),
+        .Some(pp) => hasher.write(pp, self._prefix.len()),
+        .None => ()
+      );
       // Terminator, so the root stays prefix-free against the first segment.
       hasher.write_u8(u8(47));
       (n : usize) = self._segments.len();
@@ -813,8 +816,11 @@ impl(
         match(
           self._segments.get(i),
           .Some(seg) => {
-            (rb : RawSlice(u8)) = seg.raw_bytes();
-            hasher.write(rb.ptr, rb.len);
+            match(
+              seg.ptr(),
+              .Some(sp) => hasher.write(sp, seg.len()),
+              .None => ()
+            );
             // Terminator, so adjacent segments stay prefix-free.
             hasher.write_u8(u8(47));
           },

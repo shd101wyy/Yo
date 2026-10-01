@@ -12,15 +12,25 @@ test("Test str.from_raw_parts with zero length", {
   s := str.from_raw_parts((*u8)(""), usize(0));
   assert(s.len() == usize(0), "str.from_raw_parts with zero length should have length 0");
 });
-test("String.raw_bytes privileged view lengths", {
+test("String.ptr is the privileged raw view", {
   // as_str() was deleted (str is the STATIC string view —
-  // plans/archive/SLICE_REWORK.md); raw_bytes is the pragma-gated replacement.
+  // plans/archive/SLICE_REWORK.md); ptr() is the pragma-gated replacement,
+  // ArrayList.ptr()'s shape: the POINTER result is what the safe-mode gate
+  // rejects, so a safe file cannot hold the buffer at all.
   greeting := String.from("hello world");
-  assert(greeting.raw_bytes().len == usize(11), "raw_bytes len");
+  match(
+    greeting.ptr(),
+    .Some(p) => assert((p != (*u8)("")) && (greeting.len() == usize(11)), "an allocated string hands out its buffer"),
+    .None => assert(false, "an allocated string has a buffer")
+  );
   empty := String.new();
-  assert(empty.raw_bytes().len == usize(0), "empty raw_bytes len");
+  match(
+    empty.ptr(),
+    .Some(_) => assert(false, "nothing allocated before the first push"),
+    .None => assert(empty.len() == usize(0), "empty len")
+  );
   cafe := String.from("caf\u00e9");
-  assert(cafe.raw_bytes().len == usize(5), "utf8 raw_bytes len");
+  assert(cafe.len() == usize(5), "utf8 byte len");
 });
 test("split_whitespace discards empty pieces at both ends and between runs", {
   a := `  hello   world  `.split_whitespace();

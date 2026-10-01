@@ -121,14 +121,15 @@ comptime_expect_error({
 // audit). Each of these compiled cleanly in safe code before its gate; the
 // tests pin the error the fix produces.
 // ============================================================================
-// Holding `String.raw_bytes()` — a struct with a PUBLIC `*(u8)` field — is a
-// raw-pointer value in safe code: the struct can be passed whole to a
-// function (random_bytes) that writes through the pointer after the string
-// reallocated. Measured as a heap-use-after-free WRITE under ASan.
+// `String.ptr()` hands out the heap buffer: the POINTER result is a raw
+// pointer value, which safe code may not hold. Before the fix this was
+// `raw_bytes() -> RawSlice(u8)` — a struct wrapping the pointer, which
+// passed the gate and reached `random_bytes`: a heap-use-after-free WRITE
+// once the string reallocated.
 // issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md
 comptime_expect_error({
   s := String.from("hi");
-  s.raw_bytes()
+  s.ptr()
 });
 // `MaybeUninit.assume_init` reads the uninitialized slot: it now takes the
 // `as_ptr()` result as a witness, a pointer safe code cannot hold. The
@@ -146,19 +147,17 @@ comptime_expect_error({
   zero := i32(0);
   unchecked_non_zero(zero)
 });
-// The gate must NOT fire on a managed container with a public-by-accident
-// pointer field: HashMap's `ctrl : ?(*(u8))` is interior state behind the
-// RC-managed ref(struct) — reading the FIELD is an enum-wrapping-a-pointer
-// expression and separately gated (the fix's first cut surfaced it and broke
-// 238 of the compiler's own src files).
+// The struct-wrapping-a-pointer class is NOT structurally detectable, so
+// these stay as boundary pins: HOLDING a managed container whose pointer
+// field is public by accident (HashMap's `ctrl : ?(*(u8))`) is fine —
+// while READING that field is an enum-wrapping-a-pointer expression and
+// stays gated.
 comptime_expect_error({
-  // the FIELD READ stays gated —
   { HashMap } :: import("std/collections/hash_map");
   m := HashMap(i32, i32).new();
   c := m.ctrl;
   c
 });
-// — while HOLDING the container is fine.
 {
   { HashMap } :: import("std/collections/hash_map");
   m := HashMap(i32, i32).new();

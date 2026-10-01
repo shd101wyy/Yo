@@ -67,39 +67,47 @@ view shape.
 
 ## Fix
 
-`_surfaces_raw_pointer` now recurses: a struct surfaces a raw pointer when any
-PUBLIC (`_`-prefixed names are private to their declaring module) field's type
-surfaces one, and an enum when any public variant payload field's type does —
-depth-capped at 8. `rs := s.raw_bytes()` in a safe file is now:
+`String.raw_bytes()` is deleted; the raw view is `String.ptr() ->
+?*(u8)` — `ArrayList.ptr()`'s exact shape. The POINTER result is the
+gate: a raw pointer value is a compile error in safe code (the existing
+value gate), so a safe file cannot hold the buffer at all. `std/path.yo`'s
+Hash impl, `std/imm/string.yo`'s `from_string` and `tests/str.test.yo` were
+the only callers (all privileged) and now take `ptr()` + `.len()`
+themselves.
 
-```
-error: Raw pointer values are not available in safe code: '(s.raw_bytes)()' has type 'RawSlice(u8)'.
-```
+## Why the fix is per-API, not a wider gate (two measured attempts)
 
-`String.raw_bytes()` and `random_bytes` themselves are unchanged — they stay
-privileged plumbing (`std/path.yo`, `std/log.yo` use them inside pragma'd
-files). Nothing else in std produces a `RawSlice` or takes one as a parameter.
+The obvious "class fix" — teach the value gate to see through structs whose
+pointer fields are public — is NOT sound, because public-pointer-field does
+not mean unsafe:
 
-**Design note — the fix's first cut broke 238 of the compiler's own src
-files.** Keying the struct walk on field visibility alone surfaced
-`HashMap(String, String).new()` in every file without `AllowUnsafe`:
-HashMap's `ctrl : ?(*(u8))` field is PUBLIC BY ACCIDENT (its own Stability
-note says so), and an enum wrapping a pointer is one of the shapes that
-surfaces. The distinction that holds: reference-semantics structs
-(`ref(struct(...))`, every RC-managed container) are exempt — the same call
-`type_representation_contains_raw_ptr` makes — because the runtime owns the
-lifetime and pointer fields are interior state behind the type's methods
-(reading `m.ctrl` is itself gated). The bare-view handout is always a PLAIN
-struct: a view is copied, not RC-managed. `tests/safe_code_structural_gates.test.yo`
-pins both sides (holding a HashMap is fine; reading `m.ctrl` is not).
+- **Cut 1** surfaced `HashMap(String, String).new()` in 238 of the
+  compiler's own src files: HashMap's `ctrl : ?(*(u8))` field is PUBLIC BY
+  ACCIDENT (its Stability note says so). Exempting reference-semantics
+  structs (the call `type_representation_contains_raw_ptr` makes) fixed
+  that…
+- **Cut 2** (ref-structs exempt, private fields skipped) broke every safe
+  user of `Allocator` — `arena.allocator()` in `tests/string/string_builder.test.yo`
+  and 58 suite failures: Allocator is a plain struct of function pointers
+  with public fields, safe by design.
+
+A managed container's pointer field is interior state behind its methods
+(HashMap), and a function-pointer table is behavior, not memory
+(Allocator); only RawSlice is a bare view. That distinction is semantic,
+not structural, so the gate stays shallow (`*(T)` + an enum wrapping one)
+and each API that hands out storage gets the pointer-shaped signature the
+gate already understands — exactly the #1076 spare-capacity precedent
+("a `RawSlice` token was measured passing through safe code"). The
+`random_bytes(RawSlice)` sink stays reachable only from files that can
+construct a RawSlice, i.e. privileged ones.
 
 ## Verification
 
 - `tests/safe_code_structural_gates.test.yo` (a pragma-LESS file) pins
-  `comptime_expect_error(String.from("hi").raw_bytes())` — red before the fix,
-  green after.
-- The reproducer above fails to compile in safe mode and still compiles (and
-  runs) with `pragma(Pragma.AllowUnsafe);` added.
-- The fast suite (`yo test ./tests --exclude tests/internal --exclude
-  tests/cli-cases`) stays green: the only safe-code holders of
-  pointer-carrying structs were the ones this closes.
+  `comptime_expect_error(String.from("hi").ptr())` — red before the fix
+  (the `raw_bytes()` spelling compiled), green after; plus boundary pins
+  that HOLDING a HashMap stays legal while reading its `ctrl` field stays
+  gated.
+- The reproducer above fails to compile in safe mode and still compiles
+  (and runs, ASan-clean) with `pragma(Pragma.AllowUnsafe);` added — the
+  privileged shape passes the pointer explicitly.
