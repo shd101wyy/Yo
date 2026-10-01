@@ -1128,6 +1128,9 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
   g_scope_path = usize(4);
   get_variables_from_env(husk, name)
 });
+type_to_string_short :: (fn(ki : Option(ExprInfo)) -> String)(
+  match(ki, .Some(k) => match(k.value, .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
+);
 _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> ArrayList(Variable))({
   truth := get_variables_from_env(env, name);
   g_scope_calls = (g_scope_calls + usize(1));
@@ -1147,8 +1150,14 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> A
         g_scope_mismatch = (g_scope_mismatch + usize(1));
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
-        has_sv := match(match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None), .Some(ki) => ki.source_variable.is_some(), .None => false);
-        mk := `${pk}/${tk}/sv=${has_sv.to_string()}/t${if((truth.len() > usize(2)), usize(3), truth.len()).to_string()}r${if((rec.len() > usize(2)), usize(3), rec.len()).to_string()}`;
+        kinfo := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
+        has_sv := match(kinfo, .Some(ki) => ki.source_variable.is_some(), .None => false);
+        has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow), .None => false);
+        has_vn := match(kinfo, .Some(ki) => ki.variable_name.is_some(), .None => false);
+        has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
+        has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions.is_some(), .None => false);
+        tstr := type_to_string_short(kinfo);
+        mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
         mp := match(g_scope_mm_kinds.get(mk.clone()), .Some(c) => c, .None => usize(0));
         g_scope_mm_kinds.insert(mk, (mp + usize(1)));
         if((g_scope_samples.len() < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
