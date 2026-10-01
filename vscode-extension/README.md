@@ -5,10 +5,15 @@ This VS Code extension supports the syntax highlighting for the Yo language:
 https://github.com/shd101wyy/Yo
 
 With a `yo` binary on `PATH` (or `yo.binPath` set), it also starts the
-language server (`yo lsp`) for diagnostics, hover (types, values, doc
-comments — and a function's contracts: requires/ensures, the return
-label, `ghost_fn` markers, the file's verification mode), completion,
-navigation, rename and formatting.
+language server (`yo lsp`) for diagnostics (with linked related notes),
+hover (types, values, doc comments — and a function's contracts:
+requires/ensures, the return label, `ghost_fn` markers, the file's
+verification mode), completion, go-to-definition and go-to-type-definition,
+document highlights, find references, document/workspace symbols, semantic
+token coloring, rename (with `prepareRename` validation), code actions
+(quickfixes), folding ranges, signature help and formatting.
+
+Requires VS Code 1.82+ (the language client library's own floor).
 
 ## Tasks
 
