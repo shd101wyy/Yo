@@ -36,7 +36,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -311,6 +311,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         match(
           begin_args.get(j),
           .Some(arg) => {
+            note_line_position(em, arg);
             arg_code := _call_generate_expr(arg, indent.clone(), context);
             // Bare-temp-name skip (same gate as generate_state_segment_code /
             // generate_loop_body): a statement that emitted its own C lines
@@ -343,6 +344,13 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     });
     // Final expression — deferred-dup rewrite first (a borrowed value leaving
     // the arm needs its balancing +1; the bare emission was the round-5 UAF).
+    if(n > usize(0), {
+      match(
+        begin_args.get(n - usize(1)),
+        .Some(final_expr0) => note_line_position(em, final_expr0),
+        .None => ()
+      );
+    });
     final_code := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
     generate_deferred_drop_expressions(body_expr, indent.clone(), context);
     context.pending_deferred_drops = prev_pending;
@@ -369,6 +377,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     // When the arm value carries deferred `___dup`s (returning a borrowed
     // value out of the arm — e.g. `.Some(e) => e.ty`),
     // see arm_value_with_dups in drop_dup.yo.
+    note_line_position(context.base.emitter, body_expr);
     code := match(
       arm_value_with_dups(body_expr, indent.clone(), context),
       .Some(fc) => fc,
