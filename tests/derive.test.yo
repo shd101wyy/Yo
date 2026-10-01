@@ -854,3 +854,28 @@ test("a derived Clone over a field whose Clone impl is registered below the deri
   o2 := o.clone();
   assert((o2.inner.n == usize(7)) && (o2.k == usize(2)), "the later-registered field impl was forced by the derived body");
 });
+
+// REGRESSION CANARY (issues/fixed/derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md):
+// the container-field variant — the derived body's failure surfaced inside
+// std's Clone impl (`item.clone()` over the element type), a std-anchored
+// message the auto-generated-location escalation did not match; check stayed
+// green and the hollow clone aborted at the first call. The per-node
+// re-raise (#968, v0.2.46) reaches this shape too (pinned by the
+// check-derive-clone-container-non-clone-elem cli-case). With the element
+// type deriving Clone the derive must WORK, deep-clone the container, and
+// give every construction a FRESH one (no aliasing with the original).
+_ListItem :: struct(a : usize);
+derive(_ListItem, Clone);
+_Holder :: struct(x : usize, rel : ArrayList(_ListItem));
+derive(_Holder, Clone);
+test("a derived Clone over an ArrayList field deep-clones and stays independent of the original", {
+  src := ArrayList(_ListItem).new();
+  src.push(_ListItem(a : usize(10)));
+  h := _Holder(x : usize(1), rel : src);
+  c := h.clone();
+  assert(c.x == usize(1), "the scalar field clones");
+  assert(c.rel.len() == usize(1), "the container deep-clones its elements");
+  c.rel.push(_ListItem(a : usize(20)));
+  assert(h.rel.len() == usize(1), "the clone is a FRESH container, not an alias");
+  assert(c.rel.len() == usize(2), "the clone's own new element is intact");
+});

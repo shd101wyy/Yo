@@ -98,3 +98,33 @@ an element walk), or `check`/compile reports the swallowed derive trial AT
 THE DERIVE SITE instead of shipping the hollow body. Note the semantics are
 NOT in question — a field whose type lacks the trait SHOULD fail the derive;
 the bug is that the failure is silent at `check` and fatal later.
+
+## Resolution (2026-10-01)
+
+**Fixed in v0.2.46, before this doc was filed** — measured directly on the
+cached releases: v0.2.45 `yo check` exits 0 (the silence as filed), v0.2.46
+exits 1 with exactly the right error
+(`E0610: derive on "S" failed: No method "clone" on R`, anchored on the
+`derive` line). The fixing commit in the v0.2.45..v0.2.46 window is
+`f27762570` — "Type-system soundness Phase 6 step 2: re-raise what no call
+can fix (… the per-node swallow)" — the per-node swallow re-raise reaches
+this shape too: the swallowed error's std-anchored location no longer
+matters, because the generated body's def-time failure is re-raised on the
+node itself.
+
+What was genuinely missing until now was the **coverage**: the sibling
+gate (`tests/cli-cases/check-derive-clone-non-clone-field/`) covers only
+the failure directly inside the auto-generated body; this shape's failure
+surfaces one frame deeper, inside std's Clone impl, and had no test. Added
+by this PR:
+
+- `tests/cli-cases/check-derive-clone-container-non-clone-elem/` — the
+  repro, expecting the E0610-at-the-derive-line verdict (the golden pins
+  the std-anchored location shape).
+- the `tests/derive.test.yo` canary: with `derive(R, Clone)` the derive
+  works — the container deep-clones and the clone is a FRESH container
+  (pushing to the clone leaves the original at len 1).
+
+The semantics were never in question (a field whose element type lacks the
+trait SHOULD fail the derive — with `derive(R, Clone)` everything compiles
+and deep-clones correctly); the gap was the silent check, closed by #968.
