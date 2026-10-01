@@ -70,3 +70,49 @@ the fix:
   site would alias the same container) has the expression available.
 - A `check`-stage rejection of FuncVal-typed defaults would also close the
   hole (smaller, but rejects a program that could instead work).
+
+## Resolution (2026-10-01): rejected at check — `?=` stays compile-time known values
+
+**Maintainer verdict 2026-10-01**: DESIGN.md's rule stands ("Default
+parameters must use compile-time known values"); a runtime call default is
+a design question to be decided deliberately if ever wanted, not something
+that falls out of a crash fix. The fix closes the gate the thunk slipped
+through.
+
+## Root cause (probed, not inferred)
+
+`src/evaluator/types/field.yo` gates a `?=` default on
+"compile-time known value" by testing `dv_info.value.is_none()` — but a
+runtime CALL default's def-time evaluation yields **`Some(UnknownVal)`**
+("type known, value not" — probed with a gated print: the repro's default
+renders `<unknown: ArrayList(usize)>`), which is `.Some` and slips the
+gate. The default therefore carried no compile-time value, reached
+codegen, and the C stage died on `((T (*)())/* Error: no C function name
+for func value … */)()`. Measured on more shapes than the original
+filing: ANY runtime call default broke — a plain `mk()` returning i32, a
+`String.new()` wrapper, the original generic specialization.
+
+## Fix
+
+Both field gates in `field.yo` (`?=` defaults and `=`/`::` assigned
+values) now also reject an `UnknownVal` value with a clear error at the
+default expression: "A ?= default must be a compile-time known value: …
+is a runtime call. Write the field explicitly at each construction site
+instead." Concrete values, enum constructors and function values against
+fn-typed fields are untouched (canaries in tests/basic.test.yo; `yo check
+./std` — 177 defaults-heavy files — stays green).
+
+Two implementation directions were tried and REJECTED with measurements
+before this verdict (recorded so they are not rewalked): completing the
+runtime path — collection walking `ExprInfo.runtime_arg_exprs_in_order`
+made single-construction call defaults WORK (the repro printed 70) — and a
+per-site re-evaluation of a fresh-id clone, which was unsound twice (the
+recorded def env is dead → heap-use-after-free; the caller env → tcache
+corruption at -O2). The completed-runtime-path build remains in git
+history on the `call-default-fix` branch's first commit if runtime
+defaults are ever designed deliberately.
+
+Gates: `tests/cli-cases/check-struct-call-default/` (both thunk shapes —
+a plain fn and a generic specialization — expect the clear check error);
+`tests/basic.test.yo` gains the `comptime_expect_error` arm and the
+fn-typed-field canary.
