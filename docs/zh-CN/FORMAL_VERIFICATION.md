@@ -236,6 +236,12 @@ append_all :: (
 
 没有契约、函数体可被验证器表达、且不改变任何实参的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"）。
 
+### std 的受信契约：`assumed()`
+
+std 中 `ArrayList` 的核心操作（`new`、`with_capacity`、`push`、`insert`、`remove`、`swap_remove`、`swap`、`drain`、`assume_init`）带有标记为 `assumed()` 的契约（`get` 与 `pop` 不需要：验证器直接对它们建模）。验证器从不走查这些函数体。它们的契约是受信的：每个调用方的证明都使用它们，而凡是能在运行时检查的子句都会作为断言执行，因此错误的子句会让 std 测试套件中止，而不会悄悄通过。
+
+这是一个决定，而不是等待填补的缺口。证明这些函数体需要一个原始缓冲区模型（容量、已初始化前缀、元素所有权），对已有边界测试的代码而言，这意味着数周的验证器工作。在某个 std 缺陷被追溯到错误的 `assumed()` 子句之前，这些函数体保持受信（`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`）。`yo verify --strict` 会把每个 `assumed` 结果报告为失败，所以必须证明一切的门禁会如实指出。
+
 ### 精化类型 —— `refine(T, p)`
 
 `refine(T, p)` 注解"满足谓词 `p` 的 `T`"。注解求值为 `T` —— 已擦除、

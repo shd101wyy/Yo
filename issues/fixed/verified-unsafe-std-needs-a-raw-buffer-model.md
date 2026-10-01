@@ -1,9 +1,22 @@
 # Should the verifier prove std's `assumed()` collection bodies? It needs a raw-buffer model
 
-**Kind:** design question. It is an open decision, not a defect. Filed
-2026-10-02 to close §4 of `plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`. That
-section said to revisit after A1 (the lemma layer) and A4 (the init proof
-token), and both have landed.
+**Kind:** design question — decided. Filed 2026-10-02 to close §4 of
+`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`. That section said to revisit
+after A1 (the lemma layer) and A4 (the init proof token), and both have
+landed.
+
+**Verdict (2026-10-02, maintainer: "do whatever you would suggest"):**
+option 1, the recommendation below.
+- std's collection bodies stay `assumed()`: their contracts are trusted,
+  asserted at runtime where they are runtime-checkable, and used by every
+  caller's proof.
+- No raw-buffer or heap model is built now.
+- **Revisit trigger:** a std bug traced to a wrong `assumed()` clause. Then
+  take option 2, a raw-buffer model for `ArrayList` alone. Option 3, a general
+  heap model, stays with Open Question 1 of `plans/backlog/FORMAL_VERIFICATION.md`.
+- Nothing changes in the code. What the verdict fixes is where the line is
+  drawn, and the docs now state it (`docs/*/FORMAL_VERIFICATION.md`, the
+  `assumed()` paragraph).
 
 ## The question
 

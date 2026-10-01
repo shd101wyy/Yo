@@ -1,7 +1,10 @@
 # What else Yo can take from ATS: beyond indexed types
 
-**Status:** ACTIVE (2026-10-01): implementation started, in the §6 order
-(A4 first: it fixes a live S1). Audit done 2026-09-30 (develop `c0c8ab6af`,
+**Status:** DONE (2026-10-02). A1–A6 have landed (table below). §4 is decided:
+std's bodies stay `assumed()` until a std bug is traced to a wrong clause
+(`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`). One
+seed-gated follow-up remains: `push`'s element clause, Generation B in
+`backlog/SEED_VERSION_AUTOMATION.md`. Audit done 2026-09-30 (develop `c0c8ab6af`,
 seed `yo 0.2.46`). The companion of
 [`backlog/ATS_STYLE_INDEXED_TYPES.md`](backlog/ATS_STYLE_INDEXED_TYPES.md), which covered
 ATS's dependent (indexed) types and existentials; its R1 phase is complete.
@@ -190,6 +193,12 @@ runtime state already guards them.
 
 ## 4. Later: verified unsafe std (ATS's headline, the long form)
 
+> **DECIDED 2026-10-02 (maintainer: "do whatever you would suggest"): not
+> now.** The bodies stay `assumed()`. Revisit trigger: a std bug traced to a
+> wrong `assumed()` clause. Then build a raw-buffer model for `ArrayList`
+> alone, not a general heap model
+> (`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`).
+
 ATS's promise is low-level code proved safe: pointer arithmetic under
 views. Yo's `std/collections/array_list.yo` bodies are `assumed()`; their
 contracts are trusted and checked at runtime, never proved. A raw-buffer
@@ -229,7 +238,39 @@ A4's token is exactly the view that model would reason about.
 | A5 lexicographic `decreases` | — | 2–3 days | small verifier change, reconciles two docs |
 | A1 lemma layer (R2) | R1 (landed) | 3 weeks | the largest payoff, the largest cost |
 | A3 spec-transparent pure fns | A1's axioms | 1–2 weeks | removes the write-it-twice tax |
-| §4 verified unsafe std | A1, A4, a heap model | open | the long form of ATS's promise |
+| §4 verified unsafe std | A1, A4, a heap model | decided: not now (revisit on a wrong `assumed()` clause) | the long form of ATS's promise |
+
+## Closeout (2026-10-02)
+
+What landed, item by item:
+
+| Item | Landed in | What a user gets |
+| --- | --- | --- |
+| A1 lemma layer (= R2 of the indexed-types plan) | #1075, #1106, #1107 | recursive `ghost_fn` with `decreases`; lemmas (`ghost(lemma(...))`); `seq_of(xs)` over lists; a verified `for` with `produced(xs)`; `distinct(a, b)` for two lists |
+| A2 must-use | #1075 | E0617 on a dropped `Result` / unawaited `Future`, except for a statement that always exits |
+| A3 spec-transparent pure fns | #1075, #1107 | an uncontracted pure function can be named in a spec; a recursive one needs `decreases`; the error names the missing property |
+| A4 init proof token | #1075 | `set_len` gone; `spare_capacity` + `assume_init` |
+| A5 lexicographic `decreases` | #1075 | `decreases(a, b)` |
+| A6 typestate idiom | #1075 (docs), `fix/enum-type-arguments` (its S3) | phantom state on `ref(struct)` or `enum`; a generic impl's methods are found on both |
+| §4 verified unsafe std | decided 2026-10-02: not now | std's `ArrayList` contracts stay trusted (`assumed()`), documented in `docs/*/FORMAL_VERIFICATION.md` |
+
+Bugs found and fixed on the way, each with a regression test (`issues/fixed/`):
+- **S1:**
+  - `verifier-call-arguments-see-the-callees-own-params.md`
+  - `verifier-old-of-a-list-indexed-encodes-the-index.md`
+  - `a-transparent-callee-that-recurses-without-decreases-proves-anything.md`
+- **S2:**
+  - `a-quantified-ensures-is-spliced-as-a-runtime-assert.md`
+  - `verifier-guarded-obligations-ignore-their-guard.md`
+  - `e0617-rejects-a-statement-whose-every-path-returns.md`
+- **S3:** `method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`
+
+Left, by design:
+- **Seed-gated:** `push`'s element `forall` waits for the next seed, because
+  the released seed splices every `ensures` of std as a runtime assert.
+  Until then the fixtures state it through a local `assumed()` `push_at_end`
+  (`backlog/SEED_VERSION_AUTOMATION.md`, Generation B).
+- **Revisit trigger for §4:** a std bug traced to a wrong `assumed()` clause.
 
 ## 7. Sources
 

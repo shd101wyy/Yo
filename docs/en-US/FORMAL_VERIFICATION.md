@@ -296,6 +296,24 @@ function stays opaque, and the subset error names the missing property
 ("not spec-transparent: it changes an argument", "... its body is outside
 the verifier subset (...)", "... it calls itself without decreases(...)").
 
+### std's trusted contracts: `assumed()`
+
+std's `ArrayList` core operations (`new`, `with_capacity`, `push`,
+`insert`, `remove`, `swap_remove`, `swap`, `drain`, `assume_init`) carry
+contracts marked `assumed()`. (`get` and `pop` need none: the verifier
+models them directly.) The verifier never walks those bodies.
+Their contracts are trusted: every caller's proof uses them, and they run as
+asserts wherever a clause is runtime-checkable. A wrong clause therefore
+aborts the std test suite instead of slipping through.
+
+This is a decision, not a gap waiting to be filled. Proving the bodies needs
+a raw-buffer model (capacity, an initialized prefix, element ownership), and
+that is weeks of verifier work for code that already has edge-case tests.
+The bodies stay trusted until a std bug is traced to a wrong `assumed()`
+clause (`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`).
+`yo verify --strict` reports every `assumed` outcome as a failure, so a
+gate that must prove everything says so.
+
 ### Refinement types — `refine(T, p)`
 
 `refine(T, p)` annotates "a `T` that satisfies the predicate `p`". The

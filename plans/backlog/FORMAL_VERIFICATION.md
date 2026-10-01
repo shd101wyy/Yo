@@ -1832,6 +1832,9 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 
 1. **`object` heap model.** When `object` types enter the subset (V6+),
    flat per-class heaps (Burstall-Bornat) vs. full separation logic.
+   (The narrower question, proving std's `assumed()` `ArrayList` bodies
+   with a raw-buffer model, was decided "not now" on 2026-10-02:
+   `issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`.)
    Recommendation: flat heaps keyed by abstract reference, forbid
    cycles in verified code initially — decide when V6 shapes it.
    Design input for this decision:
