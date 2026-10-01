@@ -1734,6 +1734,38 @@ _store_specialization_cache :: (
     );
   });
 });
+/// Specializations minted while a recording is open
+/// (`specialization_recording_begin`). `check` gives each demand-loaded module
+/// its own ExprInfo table, so a specialization's evaluated body lives in the
+/// table of the module whose evaluation minted it — and is gone once that
+/// module finishes. The loader summarizes the bodies minted during each load
+/// before the table goes (`summarize_function_bodies`,
+/// issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+/// Recordings nest like module loads: each one takes only what was minted
+/// since it began.
+(g_minted_specializations : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+(g_mint_recordings_open : usize) = usize(0);
+/// Open a recording; returns its start mark for `specialization_recording_take`.
+specialization_recording_begin :: (fn() -> usize)({
+  g_mint_recordings_open = (g_mint_recordings_open + usize(1));
+  g_minted_specializations.len()
+});
+/// Close the recording opened at `start`: the specializations minted since.
+specialization_recording_take :: (fn(start : usize) -> ArrayList(EvalValue))({
+  out := ArrayList(EvalValue).new();
+  (i : usize) = start;
+  while(i < g_minted_specializations.len(), {
+    match(g_minted_specializations.get(i), .Some(v) => out.push(v), .None => ());
+    i = (i + usize(1));
+  });
+  while(g_minted_specializations.len() > start, {
+    _p := g_minted_specializations.pop();
+  });
+  if(g_mint_recordings_open > usize(0), {
+    g_mint_recordings_open = (g_mint_recordings_open - usize(1));
+  });
+  out
+});
 /// Drop every cached specialization `owner`'s evaluation requested
 /// (plans/reference/INCREMENTAL_COMPILATION.md Phase B2). `mm_invalidate_document`
 /// calls it for each removed module, in the same step that drops the module's
@@ -3801,6 +3833,9 @@ create_specialized_function_inline :: (
             ),
             new_cap_vals
           );
+          if(g_mint_recordings_open > usize(0), {
+            g_minted_specializations.push(specialized_func_val);
+          });
           // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
           // FuncVal's contract tables onto the specialized id — the
           // specialized FuncVal is what a caller's callee atom carries,
@@ -8328,7 +8363,7 @@ export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
-export(purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
+export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);

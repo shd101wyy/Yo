@@ -629,6 +629,112 @@ test("Phase 3 re-bind: an ordered statement that computed with the old value fal
 // invalidated anything, so an edited IMPORT was served from the cache: the
 // rebuilt binary kept the old code and a broken import still built. The loop
 // now calls `invalidate_changed_files` on the round's changed paths first.
+_D1W_LIB_CLEAN :: "{ ArrayList } :: import(\"std/collections/array_list\");\ng := ArrayList(i32).new();\nwork :: (fn() -> unit)({\n  _n := i32(1);\n});\nexport(work);\n";
+_D1W_LIB_REACH :: "{ ArrayList } :: import(\"std/collections/array_list\");\ng := ArrayList(i32).new();\nwork :: (fn() -> unit)({\n  g.push(i32(1));\n});\nexport(work);\n";
+_D1W_APP :: "{ Thread } :: import(\"std/thread\");\nlib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    lib_mod.work();\n    ()\n  });\n  t.join();\n});\nexport(main);\n";
+test("Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers only for the body it walked", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_d1_memo`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_CLEAN), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_D1W_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  // `work` lives in lib.yo, whose table is gone once it loads: the spawned
+  // closure in app.yo is judged from lib's end-of-load summary
+  // (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "a thread closure calling a clean imported function must pass check");
+  // `work` now pushes to the non-Send global `g`. The edit re-forces `work`
+  // (same func id: definition ids are stable) and `main`; the reach memo of
+  // the old body must not answer for the new one
+  // (issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_REACH), io), ioexn);
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed == usize(1), `a re-forced body that reaches a non-Send global must fail the thread closure, failed=${failed.to_string()}`);
+  // And back: the re-forced clean body is summarized again, so the next round
+  // is clean (not "never evaluated").
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_CLEAN), io), ioexn);
+  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `the clean body must pass again, failed=${failed2.to_string()}`);
+});
+
+// Regression (issues/fixed/watch-per-def-round-skips-same-module-callers.md):
+// a module's definitions read each other through the module frame, so an
+// in-order reference records no def edge, and the per-def round re-forced the
+// edited definition alone. Its same-module callers kept their old verdicts: a
+// signature change that breaks `answer`, and a body change that makes
+// `run`'s thread closure reach the non-Send `g` through the unchanged `mid`,
+// both passed the round while a cold `check` rejects them.
+_SMC_LIB_OK :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_SMC_LIB_SIG :: "helper :: (fn() -> bool)(true);\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_SMC_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := lib_mod.answer();\n});\nexport(main);\n";
+_SMC_D1_CLEAN :: "{ ArrayList } :: import(\"std/collections/array_list\");\n{ Thread } :: import(\"std/thread\");\ng := ArrayList(i32).new();\ncallee :: (fn() -> unit)({\n  _n := i32(1);\n});\nmid :: (fn() -> unit)(callee());\nrun :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    mid();\n    ()\n  });\n  t.join();\n});\nexport(run);\n";
+_SMC_D1_REACH :: "{ ArrayList } :: import(\"std/collections/array_list\");\n{ Thread } :: import(\"std/thread\");\ng := ArrayList(i32).new();\ncallee :: (fn() -> unit)({\n  g.push(i32(1));\n});\nmid :: (fn() -> unit)(callee());\nrun :: (fn() -> unit)({\n  t := Thread(unit).spawn((io : Io) => {\n    mid();\n    ()\n  });\n  t.join();\n});\nexport(run);\n";
+_SMC_D1_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)(lib_mod.run());\nexport(main);\n";
+test("Phase 3b: an edit re-judges the edited definition's same-module callers, transitively", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  std_path := resolve_std_path();
+  // 1. Type check: `helper` now returns bool, `answer` (unchanged, same
+  //    module) adds it to an i32.
+  dir := `/tmp/yo_check_watch_fixture_same_module_sig`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_SMC_APP), io), ioexn);
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial same-module app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_SIG), io), ioexn);
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed == usize(1), `a same-module caller of a re-typed definition must fail the round, failed=${failed.to_string()}`);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_OK), io), ioexn);
+  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `the reverted helper must pass again, failed=${failed2.to_string()}`);
+  // 2. Rule D1 through an unchanged middle function: only `callee` is edited;
+  //    `mid` calls it, `run`'s thread closure calls `mid`.
+  dir_d1 := `/tmp/yo_check_watch_fixture_same_module_d1`;
+  io.await(create_dir_all(Path.new(dir_d1.clone()), io), ioexn);
+  lib_d1 := `${dir_d1}/lib.yo`;
+  app_d1 := `${dir_d1}/app.yo`;
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_CLEAN), io), ioexn);
+  io.await(write_string(Path.new(app_d1.clone()), String.from(_SMC_D1_APP), io), ioexn);
+  _p3 := mm_invalidate_document(lib_d1.clone());
+  _p4 := mm_invalidate_document(app_d1.clone());
+  files_d1 := ArrayList(String).new();
+  files_d1.push(app_d1.clone());
+  assert(mm_load_file(app_d1.clone(), std_path.clone(), true, io, exn).ok, "initial same-module D1 app check should pass");
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_REACH), io), ioexn);
+  failed3 := _round(lib_d1.clone(), files_d1, std_path.clone(), io, exn);
+  assert(failed3 == usize(1), `a thread closure reaching g through mid -> callee must fail the round, failed=${failed3.to_string()}`);
+  io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_CLEAN), io), ioexn);
+  failed4 := _round(lib_d1.clone(), files_d1, std_path.clone(), io, exn);
+  assert(failed4 == usize(0), `the reverted callee must pass again, failed=${failed4.to_string()}`);
+});
+
 test("build --watch: invalidate_changed_files makes an edited import re-read on the next load", {
   exn := Exception(
     throw : (

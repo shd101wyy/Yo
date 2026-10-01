@@ -89,10 +89,11 @@ Unchanged:
 ### 3.3 Phase 6 remaining sites
 
 - **#8 test bodies.** Census 2026-09-29 over the 293 files of `tests/**/*.test.yo`. The two
-  mechanical causes are fixed (#1062). Still open:
+  mechanical causes are fixed (#1062). The rest:
   - `check` gives each module its own ExprInfo table, so the D1 reach walk (E0906, 4 files)
-    and StrictBorrow's mutation masks (1 file) see other modules' bodies as unevaluated:
-    `issues/check-cannot-see-function-bodies-from-other-modules.md` (design in the doc).
+    and StrictBorrow's mutation masks (1 file) see other modules' bodies as unevaluated. Fixed on
+    `fix/check-foreign-bodies`: `issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`
+    (all five files pass `check --test-bodies`).
   - plain `check` of `closure_param_forwarding.test.yo` peaks at a 48 GB footprint, and the
     `imm_*` files die with SIGBUS. Not yet compared against develop.
 

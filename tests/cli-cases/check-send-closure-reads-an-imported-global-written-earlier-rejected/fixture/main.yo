@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+{ read_counter, bump } :: import("./lib.yo");
+main :: (fn() -> unit)({
+  bump(i32(1));
+  t := Thread(i32).spawn((io : Io) => read_counter());
+  println(`seen=${t.join()}`);
+});
+export(main);

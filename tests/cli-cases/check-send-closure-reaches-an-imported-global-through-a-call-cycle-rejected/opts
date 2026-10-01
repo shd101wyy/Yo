@@ -1,0 +1,9 @@
+# The cross-module twin of check-send-closure-reaches-a-global-through-a-call-cycle-rejected.
+# `check` summarizes lib.yo's function bodies when lib.yo finishes, in
+# definition order: `f` first, whose walk reaches `h` with `f` in progress.
+# Memoizing `h` as clean there would let the spawned closure calling `h` pass;
+# it must be rejected with the path through `f`, as `compile` rejects it
+# (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md,
+# issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md).
+stdout_keep_match=calls 'h', which calls 'f', which references the module-level global 'g'
+timeout=120

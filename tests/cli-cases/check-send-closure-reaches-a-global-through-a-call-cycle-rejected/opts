@@ -1,0 +1,10 @@
+# Rule D1's reach walk memoizes each function's verdict, and a recursive call
+# to a function whose walk is in progress answers "clean" optimistically. Here
+# the first closure (`run`'s argument, walked at its creation) walks `f`, which
+# calls `h`, which calls `f` back: `h` came out clean and was memoized while
+# `f` was still being walked, so the spawned closure calling `h` passed check
+# and compile although `h` reaches the non-Send global `g` through `f`. A
+# verdict taken under an in-progress edge is now held until the cycle closes
+# (issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md).
+stdout_keep_match=calls 'h', which calls 'f', which references the module-level global 'g'
+timeout=120

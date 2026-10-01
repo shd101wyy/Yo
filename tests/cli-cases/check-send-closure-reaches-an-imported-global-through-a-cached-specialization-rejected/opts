@@ -1,0 +1,10 @@
+# A generic body is evaluated per specialization, in the table of the module
+# whose evaluation minted it. `warm` makes lib.yo mint `gen(i32)` while lib.yo
+# loads; main.yo's call reuses it from the specialization cache, so its body
+# is in lib.yo's (dropped) table and only lib.yo's end-of-load summary knows
+# it. The spawned closure must be rejected through `gen`'s read of the
+# non-Send global, as `compile` rejects it; before the summary `check` said
+# only "never evaluated"
+# (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+stdout_keep_match=calls 'gen', which references the module-level global 'gl'
+timeout=120
