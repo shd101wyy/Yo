@@ -1,6 +1,6 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-01 ~10:00 CST, handed over (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
 to do next. Move it to `archive/` with a banner once §3 is empty.
 
@@ -45,45 +45,38 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 
 ## 3. Open work, in order
 
-### 3.0 Handover to another machine (2026-10-01 ~10:00 CST): every branch and its state
+### 3.0 The branches (2026-10-01, after the handover)
 
-Develop is frozen for v0.2.48 (cut after yo-7a's goldens-only fix). Nothing below merges until
-v0.2.48 is published. All branches are pushed. None of them has a green local battery yet.
+Develop is frozen until v0.2.48 is published (yo-88 cuts it). Until then nothing merges. New
+work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
 
 | branch | content | state |
 | --- | --- | --- |
-| `fix/sm-dup-temp-leak` | state-machine leaks: dup-result temp, task-abort registry array; tests | built and partially gated earlier; never fully gated on current develop |
-| `fix/join-handle-owning` (stacked on the above; THIS PR) | owning `JoinHandle` (step 2); value-form codegen deleted; handover/plan/issue docs | not gated |
-| `fix/enum-final-name` | §3.4: impl forcing names a recursive type's nameless final by its binding; name-aware forcing guard; tests in `tests/lazy_toplevel_bindings.test.yo` (red before) | not gated; **suspect for the `check ./std` failure below** |
-| `combo/leak-jh-enum` | the three above merged with develop at 7957aa579 | battery aborted at the handover: build rc=0, **`check ./std` rc=1** |
-| `fix/header-macro-prefix` | `__yo_v_` prefix in `sanitize_for_c_identifier`; capture/scope/return-name sites sanitized; test in `tests/basic.test.yo` (red before) | WIP, never built; the stage-2 C will name the remaining raw sites |
-| `fix/check-foreign-bodies` | §3.3 #8: summarize D1 and StrictBorrow memos at module end under `check`; two cli-cases (red before, goldens not recorded) | WIP, never built; measure `check ./src` time |
+| `tss/docs` | this doc, the plan's Phase 3 step 9, and the type-system issue docs carried over from #1084 | docs only |
+| `tss/enum-final-name` (on `tss/docs`) | §3.4: both impl-ordering fixes, plus the fix for the branch's own `check ./std` regression | `check ./std` green (177/177); full battery running |
+| `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
+| `tss/generic-extern-trial` | §3.3: the generic-extern trial failure | in progress |
+| `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
+| `fix/header-macro-prefix` | §3.5 | parked: it edits the async codegen that `async-triage` rewrites |
 
-**`check ./std` on `combo/leak-jh-enum` (measured, not attributed):**
+**#1084 is superseded.** Its JoinHandle step 2 and both state-machine leak fixes are also on
+yo-65's `async-triage` (an owning `ref` JoinHandle, the value-handle branches deleted, Rule 1's
+dup-temp slot store, the abort-registry free, and more), which lands after v0.2.48. Two
+`sm_protocol` tests from #1084 go there too. The type-system docs moved to `tss/docs`.
+`fix/sm-dup-temp-leak` and `fix/join-handle-owning` can be deleted once `async-triage` lands.
 
-```
-error[E0906]: forward reference to "String" (bound at line 2018) …  --> std/string/string.yo:1600:5
-error[E0616]: The call to "index_in" is ambiguous: trait_string__string_Pattern_r0c11_n0 and Pattern both supply a "index_in" …
-```
-
-The likely cause (reasoned, not tested) is `fix/enum-final-name`'s name-aware guard. It now forces a type's later
-impls on a miss that the in-flight impl does not declare, which reaches `std/string`'s
-`Pattern` impls mid-registration (two trait instances of `Pattern` minted). Bisect by building
-each branch alone. If the guard is the cause, narrow it (for example, force only impls whose
-member list declares the missed name) instead of reverting the binding-name half.
-
-Battery scripts used: `battery6.sh`/`battery7.sh` (a session scratchpad, not in the repo). They
-run, in order: `yo build`, `check ./std`, `check ./src`, `fmt --check`, the fast suite, the
-cli-diff scorecard, `fixpoint_only.sh`, a stage-2 cold `install --locked`, `gates_fast.sh`, and
-the `tests/internal` files matching the change. Follow the heavy-lock protocol
-(`~/Workspace/Yo-wt/.heavy-lock`) with the peers on this machine.
+**The `check ./std` failure is attributed and fixed.** It was `fix/enum-final-name` alone (built
+by itself, the E0906 and E0616 cascade reproduces). `YO_DEBUG_LAZY=1` (which now also prints
+each miss) showed `[force-miss] String.clone (forcing stack: impl(String) splitn)` forcing every
+pending `String` impl in every walk. That included `impl(String, ToString(…))` in
+`std/fmt/to_string.yo`, whose walk was still parked on `import("../string")`. A named miss now
+forces only the impls that declare the name. See
+`issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md`, which has a
+two-module test.
 
 ### 3.1 The owning JoinHandle (step 2) and the state-machine leaks
 
-`fix/sm-dup-temp-leak` (a dup-result temp released through an empty field; the task-abort
-registry array never freed) with `fix/join-handle-owning` stacked on it (std's `JoinHandle` is
-the `ref` struct again, now that `SEED_VERSION` is v0.2.47; the value branches of both
-lowerings are deleted). Gate the tip once, then merge in order.
+Moved to `async-triage` (yo-65), as described in §3.0.
 
 ### 3.2 Phase 6 steps 3–4 and Phase 4.2 (the FTT-stub backstop)
 
@@ -126,16 +119,23 @@ Unchanged:
 
 ### 3.4 Impl ordering
 
-Both fixes are on `fix/enum-final-name`, with tests in `tests/lazy_toplevel_bindings.test.yo`;
-each was red before. Gate the branch, then move both issue docs to `fixed/`:
+On `tss/enum-final-name`, tests in `tests/lazy_toplevel_bindings.test.yo` (+ fixture
+`tests/fixtures/lazy_impl_later_member.yo`); each was red before. The issue docs move to `fixed/`
+on that branch:
 
-- `issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`: the forcing
-  guard is now name-aware. A miss on a member the in-flight impl declares still belongs to that
-  impl; any other miss forces the type's later impls.
-- `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`: not the cycle (measured
-  table in the doc). An element of `ArrayList(Self)` resolves to the declaration's nameless
-  final, so the operator miss forced nothing. Impl forcing now names such a type by its binding
-  (`type_binding_name`). Enums and structs were both affected.
+- `a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type`: the forcing guard is
+  name-aware. A miss on a member the in-flight impl declares still belongs to that impl. Any
+  other named miss forces the pending impls that DECLARE the name, and only those.
+- `mutual-recursion-between-a-fn-and-a-trait-impl-body`: not the cycle. An element of
+  `ArrayList(Self)` resolves to the declaration's nameless final, so the operator miss forced
+  nothing. Impl forcing now names such a type by its binding (`type_binding_name`).
+- `a-named-impl-miss-forces-the-importers-impls-mid-import` (new): the branch's own `check ./std`
+  regression (§3.0).
+- `a-lazy-impl-force-reaches-an-importer-parked-on-the-import` (new, present on develop and
+  v0.2.47): a forcing pass searched every active walk, but every walk below the innermost is
+  parked on the running import. A free function in an imported module that called a later
+  impl's trait default forced the importer's impl of that type: E0906 on a valid program. Now
+  an outer walk is searched only when it declares the type (the import-cycle case).
 
 ### 3.5 Other issues the plan links
 
