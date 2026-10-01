@@ -121,77 +121,46 @@ impl(
   ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
-  /// Generation A of the fix for
-  /// issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md:
-  /// `set_len` stays until the dependency that calls it (`markdown_yo`)
-  /// moves to `spare_capacity` + `assume_init`, which needs a seed carrying
-  /// them (plans/backlog/SEED_VERSION_AUTOMATION.md). Then it goes.
-  /// Declare that the first `new_len` slots of the buffer are live — Rust's
-  /// `Vec::set_len`, and just as unsafe.
+  /// A pointer to the first uninitialized slot, `ptr() + len()`: the start of
+  /// the `capacity() - len()` slots a reader fills before `assume_init`
+  /// commits them. `.None` when nothing is allocated yet (`reserve` first).
   ///
-  /// Nothing is initialized and nothing is dropped: growing the length exposes
-  /// whatever bytes the buffer already held, and shrinking it leaks the
-  /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
-  /// Reach for it only after filling the buffer through `ptr()` or
-  /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
-  /// The capacity clause is a true fact, and it is also what tells the
-  /// verifier this call changes `self`: a contract that never mentions
-  /// `old(self)` promises `self` unchanged at every call site
-  /// (issues/questions/modifies-clause-for-callee-side-effects.md).
-  set_len : (
-    fn(
-      self : Self,
-      new_len : usize,
-      requires(new_len <= self.capacity()),
-      ensures(self.len() == new_len, self.capacity() == old(self.capacity())),
-      assumed()
-    ) -> unit
-  )({
-    cond(
-      (new_len <= self._cap()) => {
-        self._length = new_len;
-      },
-      true => __yo_panic("set_len: new length exceeds capacity")
-    );
-  }),
-  /// The uninitialized tail of the buffer, `[len, capacity)`, as a raw slice:
-  /// the region a reader fills before `assume_init` commits it. `.None` when
-  /// nothing is allocated yet (`reserve` first).
-  ///
-  /// The result carries a raw pointer, so only code under
-  /// `pragma(Pragma.AllowUnsafe)` can hold it: claiming memory initialized
-  /// needs this token, which safe code cannot obtain (ATS's view of the
-  /// region; issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
-  /// The slice is valid until the next reallocation, like `ptr()`.
-  spare_capacity : (fn(self : Self) -> Option(RawSlice(T)))(
+  /// The result is a raw pointer VALUE, so the safe-mode gate keeps it out of
+  /// safe code exactly as it keeps out `ptr()`. Claiming memory initialized
+  /// needs this token, which safe code cannot obtain (ATS's view of the region;
+  /// issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
+  /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
+  /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
+  /// until the next reallocation, like `ptr()`.
+  spare_capacity : (fn(self : Self) -> Option(*(T)))(
     match(
       self._ptr,
-      .Some(p) => Option(RawSlice(T)).Some(RawSlice(T)(ptr : p.add(self._length), len : (self._cap() - self._length))),
-      .None => Option(RawSlice(T)).None
+      .Some(p) => Option(*(T)).Some(p.add(self._length)),
+      .None => Option(*(T)).None
     )
   ),
-  /// Commit the first `n` slots of `spare` (a token from `spare_capacity`)
-  /// as live elements: the length grows by `n`. Nothing is initialized or
-  /// dropped; the caller has written those `n` slots. PANICS unless `spare`
-  /// starts at this list's current end and `n <= spare.len`.
+  /// Commit the first `n` spare slots (`spare` is the token from
+  /// `spare_capacity`) as live elements: the length grows by `n`. Nothing is
+  /// initialized or dropped; the caller has written those `n` slots. PANICS
+  /// unless `spare` is this list's current end and `n <= capacity() - len()`.
   assume_init : (
     fn(
       self : Self,
       n : usize,
-      spare : RawSlice(T),
-      requires(n <= spare.len),
+      spare : *(T),
+      requires(n <= (self.capacity() - self.len())),
       ensures(self.len() == (old(self.len()) + n)),
       assumed()
     ) -> unit
   )({
     at_end := match(
       self._ptr,
-      .Some(p) => (p.add(self._length) == spare.ptr),
+      .Some(p) => (p.add(self._length) == spare),
       .None => false
     );
     cond(
-      !(at_end) => __yo_panic("assume_init: the slice is not this list's spare capacity"),
-      (n > spare.len) => __yo_panic("assume_init: n exceeds the spare slice"),
+      !(at_end) => __yo_panic("assume_init: the pointer is not this list's spare capacity"),
+      (n > (self._cap() - self._length)) => __yo_panic("assume_init: n exceeds the spare capacity"),
       true => {
         self._length = (self._length + n);
       }
