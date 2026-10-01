@@ -67,6 +67,8 @@ import("std/fmt");
 } :: import("../../types/env_lookup.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { is_valid_variable_name } :: import("../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
@@ -5003,7 +5005,8 @@ _resolve_some_types_deep :: (
     // return type concretize `T` to the spawned future's actual output so the
     // `handle.await` generic-impl match can bind it. See
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
-    if(_env_rebound_to_another_some(st, resolved), {
+    (rebound_to_some : bool) = _env_rebound_to_another_some(st, resolved);
+    if(rebound_to_some, {
       match(
         some_resolution(resolved),
         .Some(c) => {
@@ -5018,7 +5021,12 @@ _resolve_some_types_deep :: (
     if(is_bound_closure_identity(resolved), {
       resolved = resolve_cell_chain(resolved);
     });
-    if(!is_some_type(resolved), {
+    tmp_probe_on := debug_knob(`YO_TMP_RSD_PROBE`).is_some();
+    tmp_fix_off := debug_knob(`YO_TMP_RSD_OFF`).is_some();
+    if(rebound_to_some && is_some_type(resolved) && tmp_probe_on, {
+      eprintln(`[rsd-probe] st=${type_to_string(st)} st_id=${match(st, .SomeT({ id : pa }) => pa, _ => String.from(""))} r=${type_to_string(resolved)} r_id=${match(resolved, .SomeT({ id : pb }) => pb, _ => String.from(""))} ty=${type_to_string(ty)}`);
+    });
+    if(!is_some_type(resolved) || (rebound_to_some && !(tmp_fix_off)), {
       match(
         st,
         .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
