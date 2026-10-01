@@ -35,6 +35,13 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
   float → int; the `Var` builtins propagate errors, require an identifier, and emit their
   answer at run time). Two WIP commits were reverted when first built (§3.3).
 - **v0.2.46 and v0.2.47** released.
+- **#1072:** a compiler built by v0.2.47 segfaulted in `unsafe-report`, `public-safe-report`
+  and `update --latest`. #1018's state-machine move-out zeroed a slot when the dup/drop pair
+  optimizer cancelled a store the local goes on reading. In a block that awaits, a local's move
+  is no longer cancelled; the alias elision stays.
+  `issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md`. Any
+  program v0.2.47 compiled with that shape is affected, so the next patch release should carry
+  it.
 
 ## 3. Open work, in order
 
@@ -73,12 +80,16 @@ Unchanged:
 
 ### 3.4 Impl ordering
 
-- `issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`: an impl
-  member calling a method of a LATER impl of the same type fails E0610, because
-  `force_pending_impls_for_type_name` refuses to force while an impl of the type is in flight.
-- `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`: still fails after #1062
-  (re-measured 2026-10-01). It needs the cycle (helper → impl → helper) and probably shares the
-  root above.
+Both fixes are on `fix/enum-final-name`, with tests in `tests/lazy_toplevel_bindings.test.yo`;
+each was red before. Gate the branch, then move both issue docs to `fixed/`:
+
+- `issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`: the forcing
+  guard is now name-aware. A miss on a member the in-flight impl declares still belongs to that
+  impl; any other miss forces the type's later impls.
+- `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`: not the cycle (measured
+  table in the doc). An element of `ArrayList(Self)` resolves to the declaration's nameless
+  final, so the operator miss forced nothing. Impl forcing now names such a type by its binding
+  (`type_binding_name`). Enums and structs were both affected.
 
 ### 3.5 Other issues the plan links
 
