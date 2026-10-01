@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -44,6 +44,28 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+});
+/// The atom a place expression is rooted at (`a` of `a.b.c`, `a.*`, `a(i)`)
+/// when its token is `name`, else `lhs` itself: the node whose record
+/// resolves the place's base variable (scope-exit release,
+/// plans/CODEGEN_MEMORY_REDUCTION.md §6).
+_lhs_root_atom :: (fn(lhs : AstExpr, name : String) -> AstExpr)({
+  (cur : AstExpr) = lhs;
+  (go : bool) = true;
+  while(go, {
+    match(
+      cur,
+      .Atom(_, _) => {
+        go = false;
+      },
+      .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).None), {
+        cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
+      }, {
+        cur = callee;
+      })
+    );
+  });
+  if(ast_expr_token(cur).value == name, cur, lhs)
 });
 /// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -86,7 +108,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       .Some(path) => if(path.len() >= usize(2), {
         match(
           path.get(usize(0)),
-          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(lhs), lhs_ei.env, base_var.clone()), {
+          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_atom(lhs, base_var.clone())), lhs_ei.env, base_var.clone()), {
             return(String.from(""));
           }),
           .None => ()

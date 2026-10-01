@@ -104,11 +104,34 @@ _sm_binding_slot :: (fn(key : ExprId, env : Environment, name : String, context 
   );
   Option(String).Some(`sm->${field}`)
 });
+/// The id of the atom in destructuring `pattern` that binds `name` (the key
+/// whose scope record holds the bound variable), or the pattern's own id.
+_binding_atom_key :: (fn(pattern : AstExpr, name : String) -> ExprId)({
+  (stack : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  stack.push(pattern);
+  while(stack.len() > usize(0), {
+    cur := match(stack.pop(), .Some(x) => x, .None => pattern);
+    match(
+      cur,
+      .Atom(_, _) => if(ast_expr_token(cur).value == name, {
+        return(ast_expr_id(cur));
+      }),
+      .FnCall(_, _, args, _, _) => {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          match(args.get(i), .Some(a) => stack.push(a), .None => ());
+          i = (i + usize(1));
+        });
+      }
+    );
+  });
+  ast_expr_id(pattern)
+});
 /// Emit destructuring binds for `{x, y} := rhs`. In a state machine a name
 /// with a task slot is written there: its reads render the slot, and a C local
 /// would be read by nothing (the `(n, from) := got` after an await in
-/// `tests/net/udp.test.yo`). `bind_env` is node `bind_key`'s recorded env.
-_emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, bind_key : ExprId, bind_env : Environment, indent : String, context : FunctionGenerationContext) -> unit)({
+/// `tests/net/udp.test.yo`). `bind_env` is the binding node's recorded env.
+_emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, pattern : AstExpr, rhs_type : TypeValue, bind_env : Environment, indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   rhs_code := _call_generate_expr(rhs, indent.clone(), context);
   member_op := if(is_reference_struct_type(rhs_type), String.from("->"), String.from("."));
@@ -119,7 +142,7 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
       destructurings.get(i),
       .Some(rd) => if(!(rd.variable_name == "_"), {
         sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
-        var_type_and_name := match(_sm_binding_slot(bind_key, bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(rd.ty, sanitized, context.base));
+        var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(rd.ty, sanitized, context.base));
         // Newtype: destructuring the single field is just the value.
         handled_newtype := match(
           _newtype_single_label(rhs_type),
@@ -214,7 +237,7 @@ _sm_local_slot :: (fn(v : Variable, context : FunctionGenerationContext) -> Opti
     .None => Option(String).None
   )
 );
-/// `bind_env` is node `bind_key`'s recorded env.
+/// `bind_env` is the binding node's recorded env.
 _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, bind_key : ExprId, bind_env : Option(Environment), indent : String, context : FunctionGenerationContext) -> Option(String))({
   em := context.base.emitter;
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -331,14 +354,16 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     return(Option(String).Some(String.from("")));
   });
   if(ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), {
-    return(_generate_inout_local_binding(lhs, rhs, ast_expr_id(expr), Option(Environment).Some(ei.env), indent.clone(), context));
+    // Keyed by the `inout(name)` name atom: its scope record holds the binding.
+    inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
+    return(_generate_inout_local_binding(lhs, rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
   });
   // Destructuring binds.
   match(
     expr_info_runtime_destructurings(ei),
     .Some(destructurings) => {
       rhs_type := match(context.base.get_expr_info(rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
-      _emit_destructurings(destructurings, rhs, rhs_type, ast_expr_id(expr), ei.env, indent.clone(), context);
+      _emit_destructurings(destructurings, rhs, lhs, rhs_type, ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
     .None => ()
@@ -364,10 +389,10 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     // Same prototype-agreement rule as generate_function_body's result_is_unit.
     lhs_type := resolve_some_type_to_concrete(lhs_ei.ty);
     // Skip compile-time and module-level globals.
-    if(_last_is_compile_time_only(ast_expr_id(lhs), lhs_ei.env, var_name.clone()), {
+    if(_last_is_compile_time_only(ast_expr_id(lhs), ei.env, var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
-    if(_last_is_module_level(ast_expr_id(lhs), lhs_ei.env, var_name.clone()), {
+    if(_last_is_module_level(ast_expr_id(lhs), ei.env, var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
     em := context.base.emitter;
@@ -379,7 +404,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     // atom's env predates the binding and misses the variable.
     if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
       match(
-        _sm_binding_slot(ast_expr_id(expr), ei.env, var_name.clone(), context),
+        _sm_binding_slot(ast_expr_id(lhs), ei.env, var_name.clone(), context),
         .Some(sm_slot) => {
           // The RHS must go through the deferred-dup chain before it lands
           // in the slot: compute ONE `rhsCode` through all four

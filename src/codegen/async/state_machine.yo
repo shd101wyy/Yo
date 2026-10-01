@@ -15,7 +15,7 @@
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
@@ -125,10 +125,15 @@ _lv_span_end :: (fn(e : AstExpr, w : _LiveWalk) -> u64)({
 /// The id (after SSA remapping) of the variable `name` resolves to in `e`'s
 /// environment, and that variable's declaration position.
 _lv_resolve :: (fn(e : AstExpr, name : String, w : _LiveWalk, context : FunctionGenerationContext) -> Option(Variable))(
+  _lv_resolve_keyed(ast_expr_id(e), e, name, w, context)
+);
+/// `_lv_resolve`, with the scope-release query keyed by `key`: a binding's
+/// name atom, whose record holds the variable the binding declared.
+_lv_resolve_keyed :: (fn(key : ExprId, e : AstExpr, name : String, w : _LiveWalk, context : FunctionGenerationContext) -> Option(Variable))(
   match(
     context.base.get_expr_info(e),
     .Some(info) => {
-      vs := scope_variables(ast_expr_id(e), info.env, name);
+      vs := scope_variables(key, info.env, name);
       cond(
         (vs.len() == usize(0)) => Option(Variable).None,
         true => vs.get(vs.len() - usize(1))
@@ -278,7 +283,7 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
           name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
           name := ast_expr_token(name_atom).value;
           match(
-            _lv_resolve(e.clone(), name, w, context),
+            _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), name, w, context),
             .Some(v) => _lv_declare(_lv_id(v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
             .None => ()
           );
