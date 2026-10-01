@@ -16,14 +16,12 @@ pragma(Pragma.AllowUnsafe);
 { Instant } :: import("std/time/instant");
 { env } :: import("std/env");
 IO_tcp :: import("std/sys/tcp");
-{ MSG_NOSIGNAL } :: import("std/sys/socket");
 { GlobalAllocator } :: import("std/allocator");
 { malloc } :: GlobalAllocator;
 
-// The raw ops pass exactly the flags std's stream writes pass on this tree
-// (`MSG_NOSIGNAL`), so the two modes make the same syscalls and differ only in
-// the wrapper.
-STD_SEND_FLAGS :: MSG_NOSIGNAL;
+// The raw writes take the op std's stream writes take on this tree
+// (`stream_write`: write(2) on macOS, send(MSG_NOSIGNAL) on Linux), so the two
+// modes make the same syscalls and differ only in the wrapper.
 ROUNDS :: i64(40000);
 K :: usize(8);
 WRITES :: i64(100000);
@@ -32,7 +30,7 @@ _raw_side :: (fn(fd : i32, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
   io.async(e => {
     buf := (*u8)(malloc(usize(64)).unwrap());
     if(first, {
-      e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+      e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
     });
     (i : i64) = i64(0);
     while(runtime(i < ROUNDS), {
@@ -41,7 +39,7 @@ _raw_side :: (fn(fd : i32, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
         return(i);
       });
       if(((i + i64(1)) < ROUNDS) || !first, {
-        e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+        e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
       });
       i = (i + i64(1));
     });
@@ -75,7 +73,7 @@ _write_raw :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i64, IoExn)))(
     (i : i64) = i64(0);
     (sum : i64) = i64(0);
     while(runtime(i < WRITES), {
-      r := e.io.await(IO_tcp.send(fd, buf, usize(1), STD_SEND_FLAGS), e.io);
+      r := e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
       sum = (sum + i64(r));
       i = (i + i64(1));
     });
