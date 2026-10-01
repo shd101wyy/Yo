@@ -1240,7 +1240,7 @@ a broken invariant is a compile error naming the failing iteration.
 > sort proved all obligations in milliseconds — the axiom/function split
 > is what makes the full spec provable); VcOp must not carry String
 > payloads (the plain enum's derive(Eq) synthesizes a HOLLOW equals —
-> issues/derived-eq-ref-enum-self-payload-hollow-at-runtime.md; latent
+> issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md; latent
 > since task 5's ref-enum VcSort, first runtime caller here);
 > `_sorted_strings` unwrapped `ptr()` on empty lists (reached by a
 > literal-only ensures); a body-level bug twin was measured and DROPPED
