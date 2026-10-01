@@ -1784,7 +1784,7 @@ _collect_fused_sites :: (
 /// straight into the await slot, and a field for it would only be dropped and
 /// zeroed, never written. Every emitter that reads `sm_local_field_name`
 /// then finds it. Returns (variable id, field name, type).
-FusedLocalField :: struct(id : String, field_name : String, ty : TypeValue);
+FusedLocalField :: struct(id : String, name : String, field_name : String, ty : TypeValue);
 _fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))({
   out := ArrayList(FusedLocalField).new();
   cvs := site.block.analysis.captured_variables;
@@ -1794,7 +1794,7 @@ _fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))
     match(
       cvs.get(i),
       .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
-        out.push(FusedLocalField(id : v.base.id.to_string(), field_name : sm_local_field_name(v.base.id.to_string()), ty : v.base.ty));
+        out.push(FusedLocalField(id : v.base.id.to_string(), name : v.base.name.clone(), field_name : sm_local_field_name(v.base.id.to_string()), ty : v.base.ty));
       }),
       .None => ()
     );
@@ -1833,6 +1833,13 @@ _emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : Func
             .Some(lf) => if(!local_names.contains(lf.field_name.clone()), {
               local_names.insert(lf.field_name.clone());
               em.emit_declaration_string_line(`  ${get_type_string(lf.ty, context.base)} ${lf.field_name.clone()};`);
+              // A named local's move flag, as in the wrapper's own struct: the
+              // fused body's moves and stores name the same field
+              // (`note_sm_move_flag_field`).
+              if(!is_any_temp_variable_name(lf.name.clone()), {
+                note_sm_move_flag_field(lf.field_name.clone());
+                em.emit_declaration_string_line(`  uint8_t __yo_mv_${lf.field_name.clone()};  // ${lf.name.clone()} was moved out`);
+              });
             }),
             .None => ()
           );
@@ -1905,7 +1912,20 @@ _emit_fused_local_release :: (fn(lf : FusedLocalField, indent : String, zero : b
       em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
     });
   }, {
-    match(_rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
+    match(
+      _rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context),
+      .Some(line) => {
+        // A slot whose value moved out keeps it for the name's reads; its new
+        // owner releases it.
+        match(
+          sm_move_flag_of(`sm->${lf.field_name.clone()}`),
+          .Some(flag) => em.emit_string_line(`${indent}if (${flag}) { memset(&(sm->${lf.field_name.clone()}), 0, sizeof(sm->${lf.field_name.clone()})); }`),
+          .None => ()
+        );
+        em.emit_string_line(line);
+      },
+      .None => ()
+    );
   });
 });
 /// The state-machine variables a fused block is emitted with: its locals, its
