@@ -22,7 +22,7 @@
 { eprintln } :: import("std/fmt");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -221,6 +221,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
               stop = true;
             },
             .Some(arg_ei) => {
+              note_line_position(em, arg);
               result := _call_generate_expr(arg, indent2.clone(), context);
               is_last := (idx == (n - usize(1)));
               if(
@@ -278,6 +279,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         match(
           args.get(idx),
           .Some(arg) => {
+            note_line_position(em, arg);
             arg_code := _call_generate_expr(arg, indent2.clone(), context);
             if(arg_code.len() > usize(0), {
               line := indent2.clone();

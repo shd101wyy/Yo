@@ -400,3 +400,27 @@ test("a loop havocs a cond-bound integer and a comparison-bound bool at their ow
     `count_up and any_less must verify, got: [${_reports_dump(reports)}]`
   );
 });
+
+test("payload and qualified variant constructions verify, and a final arm keeps its bindings", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/variant_payload_construction.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(6),
+    `six constructions must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/variant_payload_construction_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `both false twins must refute, got: [${_reports_dump(bad_reports)}]`
+  );
+});

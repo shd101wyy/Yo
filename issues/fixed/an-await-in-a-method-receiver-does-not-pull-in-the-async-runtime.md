@@ -4,7 +4,7 @@
 
 **Status:** fixed
 **Found:** 2026-09-30, while fixing
-`issues/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md`.
+`issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md`.
 **Regression test:** `tests/cli-cases/an-await-in-a-method-receiver-pulls-in-the-async-runtime`
 
 ## Symptom

@@ -25,7 +25,7 @@ It works, it is eventually consistent, small projects feel instant, and the
 fix is a design change (below), not a one-liner. But it caps how good the IDE
 can feel on the compiler's own sources, which is the dogfood that matters.
 
-## Fix direction (design, sequenced in plans/LSP_AUDIT_2026-09-29.md §7)
+## Fix direction (design, sequenced in plans/archive/LSP_AUDIT_2026-09-29.md §7)
 
 1. **Debounce analysis** on a short idle window (the classic 200–500 ms):
    a didChange only updates `DocState.text/lines` immediately (so position

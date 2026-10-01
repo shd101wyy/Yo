@@ -146,7 +146,16 @@ is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
     ((name == "requires") || ((name == "ensures") || ((name == "invariant") || (name == "decreases")))) ||
       ((name == "assumed") || (name == "___drop") || ((name == "___dup") || (name == "dyn")))
   ) || ((name == "the") || ((name == "as") || ((name == "clone") || (name == "quote")))) ||
-    ((name == "downcast") || (name == "upcast"))
+    ((name == "downcast") || (name == "upcast")) ||
+      // The identifier-spelled call-HEADS the evaluator dispatches on
+      // (begin/tuple/array sit in the special-head list of
+      // src/evaluator/effects/mutation_summary.yo beside the reserved
+      // clone/consume/the/as/dyn above): a user binding of the name never
+      // runs — `begin`/`tuple` calls evaluate to unit, `array()` parses as
+      // the array-literal builtin (issues/begin-tuple-array-bindings-are-silently-hijacked.md).
+      // `thread_local` is special only in the
+      // `(thread_local(name) : T) = init;` LHS position, so it stays bindable.
+      (((name == "begin") || (name == "tuple")) || (name == "array"))
 );
 is_identifier_start :: (fn(c : rune) -> bool)(
   (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))

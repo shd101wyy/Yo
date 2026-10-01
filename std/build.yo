@@ -514,6 +514,53 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step))({
 });
 export(doc);
 // ── Verification ─────────────────────────────────────────────────────
+/// The mode a `build.verify` step runs its target files in (the same two
+/// modes `Pragma.Verify` / `Pragma.VerifyOrAssert` select per file, see
+/// docs/en-US/FORMAL_VERIFICATION.md §Modes).
+VerifyMode :: enum(
+  /// `verify`: every obligation must be proved; a refuted, unproven or
+  /// outside-subset contracted function fails the step.
+  Verify,
+  /// `verify+`: a refutation fails the step; an unproven obligation keeps its
+  /// runtime assert and warns.
+  VerifyOrAssert
+);
+export(VerifyMode);
+/// Configuration for a verification step.
+VerifyConfig :: struct(
+  /// Step name (e.g., "verify").
+  name : comptime_str,
+  /// Root source file or directory to verify (every `.yo` file under it).
+  root : comptime_str,
+  /// Verification mode (default: `Verify`).
+  (mode : VerifyMode) ?= VerifyMode.Verify,
+  /// Pass `--strict` (a vacuous `ok` with zero obligations fails, see
+  /// docs/en-US/FORMAL_VERIFICATION.md §Strict mode).
+  (strict : bool) ?= false
+);
+export(VerifyConfig);
+/// Register a verification step: `yo build <name>` runs `yo verify <root>`
+/// with the pinned Z3. Returns a Step for dependency wiring. This is the
+/// project-level "every build proves my contracts" switch; `yo check` stays
+/// solver-free by design.
+///
+/// ## Examples
+///
+/// ```yo
+/// build :: import("std/build");
+///
+/// proofs :: build.verify({ name : "verify", root : "./src" });
+///
+/// install :: build.step("install", "Build all artifacts");
+/// install.depend_on(proofs);
+/// ```
+verify :: (fn(comptime(config) : VerifyConfig) -> comptime(Step))({
+  mode_str :: match(config.mode, .Verify => "verify", .VerifyOrAssert => "verify+");
+  __yo_build_verify(config.name, config.root, mode_str, config.strict);
+  Step(name : config.name, kind : StepKind.Verification)
+});
+export(verify);
+// ── Verification ─────────────────────────────────────────────────────
 // Generation A (plans/backlog/SEED_VERSION_AUTOMATION.md, "`build.verify`"):
 // the compiler carries `__yo_build_verify(name, root, mode, strict)` and a
 // build file calls it directly, wrapping the result as

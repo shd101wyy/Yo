@@ -20,6 +20,8 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { size_would_overflow, layout_of, GlobalAllocator } :: import("std/allocator");
+{ Error } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
 { aligned_alloc, aligned_free } :: GlobalAllocator;
 { SIZE_MAX } :: import("std/libc/stdint");
 
@@ -146,4 +148,33 @@ test("aligned_alloc rejects a size whose rounding would overflow usize", {
 test("aligned_free of .None is a no-op", {
   aligned_free(.None);
   assert(true, "freeing nothing is legal, matching free(.None)");
+});
+// `sizeof` of a dyn type is a compile-time constant: a fat pointer
+// `{ data, vtable }` whatever the traits. It used to be unknown, so
+// `size_would_overflow(Dyn(Error), n)` — reached by every
+// `ArrayList(Dyn(Error)).with_capacity` — emitted a reference to an undeclared
+// `type_size` (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
+test("sizeof of a dyn type is a compile-time fat pointer", {
+  d :: sizeof(Dyn(Error));
+  assert(d == (usize(2) * sizeof(*u8)), "two pointers");
+  assert(!size_would_overflow(Dyn(Error), usize(4)), "four dyn values fit");
+  xs := ArrayList(Dyn(Error)).with_capacity(usize(4));
+  assert(xs.capacity() >= usize(4), "capacity");
+});
+// A `::` binding whose value the evaluator can only TYPE — `sizeof(int)` is
+// target-dependent — is declared, so its reads resolve
+// (issues/fixed/a-comptime-binding-with-an-unknown-value-emits-an-undeclared-identifier.md).
+test("a comptime binding with a target-dependent value is still readable", {
+  n :: sizeof(int);
+  assert(n >= usize(2), "int is at least 16 bits");
+  assert(!size_would_overflow(int, usize(4)), "four ints fit");
+});
+// `sizeof` of a C platform integer is a runtime `sizeof(int)` in the C; its
+// type argument must lower to the structural C name, not the collected-type
+// registry (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
+test("sizeof of a C platform type is a runtime value", {
+  x := sizeof(int);
+  y := sizeof(long);
+  assert(x >= usize(2), "int is at least 16 bits");
+  assert(y >= x, "long is at least as wide as int");
 });

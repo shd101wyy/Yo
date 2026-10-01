@@ -1,10 +1,10 @@
 # `documentSymbol` misses typed top-level declarations and uses the name token as the whole range
 
-**Status:** FIXED 2026-09-29 (audit §2 PR, plans/LSP_AUDIT_2026-09-29.md): `handle_document_symbols` also walks top-level `=` statements whose left side is a `name : T` pair and reports a Variable (13) symbol for the name atom — a mutable slot regardless of the value's shape. Was: **Severity:** S3 — outline/breadcrumb coverage gap plus a cosmetic range limitation; no incorrect navigation, just missing entries.
+**Status:** FIXED 2026-09-29 (audit §2 PR, plans/archive/LSP_AUDIT_2026-09-29.md): `handle_document_symbols` also walks top-level `=` statements whose left side is a `name : T` pair and reports a Variable (13) symbol for the name atom — a mutable slot regardless of the value's shape. Was: **Severity:** S3 — outline/breadcrumb coverage gap plus a cosmetic range limitation; no incorrect navigation, just missing entries.
 
 ## Reproduction
 
-`plans/LSP_AUDIT_2026-09-29.md` probe session A. Document:
+`plans/archive/LSP_AUDIT_2026-09-29.md` probe session A. Document:
 
 ```rust
 Point :: struct(x : i32, y : i32);

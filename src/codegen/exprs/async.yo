@@ -2947,7 +2947,13 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   saved_sm_unwind_catch := context.sm_unwind_catch;
   context.sm_unwind_catch = _sm_unwind_catch_for(block, context);
+  // [`#line` directives] The resume function's prologue and the dispatch
+  // switch around the body are compiler-generated; the body's statements set
+  // their own `.yo` positions inside. Restore honest C numbering before and
+  // after so the setter/dispose/ctor scaffolding that follows reports real C.
+  em.clear_yo_line_position();
   local_var_drops := generate_async_block_resume_function_inline(block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), filtered_analysis, block.future_type, block.capture_type, context);
+  em.clear_yo_line_position();
   em.declared_ref = prev_declared_ref;
   em.scope_ref = prev_scope_ref;
   context.base.declared_c_var_names = prev_declared;

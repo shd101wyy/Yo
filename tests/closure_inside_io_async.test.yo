@@ -1,0 +1,116 @@
+//! Regression (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md):
+//! a `=>` closure written INSIDE an `io.async` body inherited the "this is the
+//! io.async closure" evaluator flag, so its `Impl(Fn)` binding never took the
+//! capture type: the local lowered to `void*` and was called as a bare function
+//! pointer. Separately, a closure built inside ANY closure body initialized its
+//! capture struct from the bare C name of a variable the enclosing closure had
+//! captured (`{ .n = n }`, an undeclared identifier).
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ Channel } :: import("std/sync/channel");
+
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+// Sync future (no await): the closure captures the enclosing fn's parameter.
+sync_captures_param :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
+    f(n)
+  })
+);
+// Sync future, capture-free closure.
+sync_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v * i32(3)));
+    f(n)
+  })
+);
+// State machine: an await before the binding, the closure captures the
+// parameter and a local bound after the await.
+sm_captures_param_and_local :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, n), e);
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n + r));
+    f(i32(10))
+  })
+);
+// State machine, capture-free closure, called after a second await.
+sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, n), e);
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v * i32(2)));
+    s := e.await(leaf(e, r), e);
+    f(s)
+  })
+);
+// A reference-typed capture: the nested closure owns its copy.
+sm_captures_string :: (fn(io : Io, name : String) -> Impl(Future(usize)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, i32(1)), e);
+    (f : Impl(Fn(k : usize) -> usize)) = (k => (k + name.len()));
+    f(usize(r))
+  })
+);
+// Outside io.async: a closure built inside a closure's body captures a name
+// the enclosing closure captured.
+apply :: (fn(x : i32, cb : Impl(Fn(v : i32) -> i32)) -> i32)(cb(x));
+nested_in_closure :: (fn(n : i32) -> i32)(
+  apply(n, x => {
+    (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
+    f(x)
+  })
+);
+
+// An `Impl(Fn)` PARAMETER of the enclosing generic fn, captured by a closure
+// built inside a sync io.async block
+// (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md):
+// the block reads `cb` only through the inner closure, so it never captured it
+// and the inner capture struct was built from a bare `cb`.
+run_it :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
+relay :: (
+  fn(
+    generic(T : Type),
+    cb : Impl(Fn() -> T, Send),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> Impl(Future(T, Io))
+)(
+  io.async((io : Io) => {
+    chan := Channel(T).new(usize(1));
+    sink := chan;
+    run_it(() => {
+      sink.send(cb());
+      ()
+    });
+    match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
+  })
+);
+
+test("a closure local in a sync io.async body captures the fn parameter", {
+  assert(io.await(sync_captures_param(io, i32(1)), io) == i32(2), "f(1) = 1 + 1");
+});
+
+test("a capture-free closure local in a sync io.async body", {
+  assert(io.await(sync_capture_free(io, i32(4)), io) == i32(12), "4 * 3");
+});
+
+test("a closure local in an awaiting io.async body captures a param and a local", {
+  // r = 5 + 1 = 6; f(10) = 10 + 5 + 6
+  assert(io.await(sm_captures_param_and_local(io, i32(5)), io) == i32(21), "10 + 5 + 6");
+});
+
+test("a capture-free closure local across two awaits", {
+  // r = 2, s = 3, f(3) = 6
+  assert(io.await(sm_capture_free(io, i32(1)), io) == i32(6), "(1 + 1 + 1) * 2");
+});
+
+test("a closure local in an awaiting io.async body captures a String", {
+  assert(io.await(sm_captures_string(io, String.from("four")), io) == usize(6), "2 + len(four)");
+});
+
+test("a closure built inside a closure captures the outer capture", {
+  assert(nested_in_closure(i32(5)) == i32(10), "5 + 5");
+});
+
+test("an Impl(Fn) parameter captured by a closure inside an io.async block", {
+  assert(io.await(relay(() => i32(42), io), io) == i32(42), "the relayed value");
+});

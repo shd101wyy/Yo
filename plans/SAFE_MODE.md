@@ -13,9 +13,15 @@ oracles, the UBSan acceptance run with its function-type class fixed, the
 standing UBSan workflow (D6, `.github/workflows/ubsan.yml`), the class-1
 governance cross-check, the 5b design, and the union read gate that the
 first full-suite UBSan run motivated
-(`issues/fixed/safe-code-can-read-an-inactive-union-member.md`). Open: 5b's implementation
+(`issues/fixed/safe-code-can-read-an-inactive-union-member.md`). 5b Phases 0–2 landed (#983, #987, #998, #1009): a verify-mode entry file's
+proved index, division, shift and overflow guards are emitted as the bare
+operation. Open: 5b Phase 3, imported verified modules
 (`plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), and 6, which is gated
-on it.**
+on 5b. The 2026-09-29 work also closed a 3a hole: a 64-bit `usize` `+ - *` was
+never trapped (#1024). Its one shared cold overflow trap recovered a measured
+19% self-compile cost across 9933 inlined sites. Doing the same for the index,
+division and shift guards was measured and dropped: a guard-bound microbenchmark
+ran 0.44 s both ways, and the compiler has only ~765 of those sites.**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
 
@@ -644,7 +650,7 @@ the C compiler already does it** — the guard helper returns the index, so a do
 `-O0`/`-O1` self-builds are the only candidates. If `-O2` recovers everything, 5a
 shrinks to a documented non-change and the phase collapses into 5b.
 
-### 5b Verifier-driven elision (tier 1) — design written 2026-09-28, implementation not started
+### 5b Verifier-driven elision (tier 1) — design written 2026-09-28; Phases 0–2 landed 2026-09-30 (the plan's §7 status notes)
 
 The gate this section named is closed: FV V1–V7 landed, including V6's remaining
 slices and the `assumed()`/`outside-subset` visibility work
@@ -780,7 +786,7 @@ semantics.
 | 3c | saturating float→int casts (D2) — LANDED (#837) | ruling D2 (adopted) | low | small |
 | 4 | OOM audit — LANDED (#836): cycle-collector scratch realloc NULL-deref fixed | — | low | small |
 | 5a | local elision — CLOSED as a documented non-change (§8 measurement) | — | — | — |
-| 5b | verifier-driven elision | FV campaign (LANDED V1–V7; gate lifted) | design written (`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`), not started | large |
+| 5b | verifier-driven elision — Phases 0–2 LANDED (#983, #987, #998, #1009); Phase 3 (imported modules) open | FV campaign (LANDED V1–V7; gate lifted) | `backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md` | large |
 | 6 | strict mode | 5b | — | deferred |
 
 ## 13. Decisions (all ruled 2026-09-22: every recommendation adopted)

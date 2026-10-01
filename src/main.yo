@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
   profile_fn_at_collect,
   profile_fn_std
 } :: import("./utils.yo");
-{ Command } :: import("std/process/command");
+{ Command, ExitStatus } :: import("std/process/command");
 { platform, Platform } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { environ, execve } :: import("std/libc/unistd");
@@ -137,7 +137,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ Diagnostic } :: import("./diagnostics.yo");
+{ Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
   render_diagnostics_for_mode,
@@ -857,6 +857,9 @@ _run_contract_verification :: (
     return(true);
   });
   cfg := default_verify_run_config();
+  // 5b Phase 2: the elision-only obligations are generated only where a
+  // proof can remove a guard.
+  cfg.elision_obligations = record_guard_sites;
   // Only a `verify`-mode task depends on its proofs for soundness.
   (needs_proofs : bool) = false;
   (ti : usize) = usize(0);
@@ -1441,6 +1444,7 @@ run_verify_cmd :: (
   (rlimit_opt : Option(usize)) = Option(usize).None;
   (format_json : bool) = false;
   (no_cache : bool) = false;
+  (elision : bool) = false;
   (explain_fn : Option(String)) = Option(String).None;
   // B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the outcomes
   // that FAIL the run on top of the default rule. Empty = today's behavior.
@@ -1505,6 +1509,12 @@ run_verify_cmd :: (
         no_cache = true;
         ai = (ai + usize(1));
       },
+      // 5b Phase 2: also prove the elision-only obligations `yo compile`
+      // uses to remove guards (the C-diff oracle's view of them).
+      (a_name == "--elision") => {
+        elision = true;
+        ai = (ai + usize(1));
+      },
       // `--strict` is the laws gate: a run must not pass because every
       // contract was `assumed()` away, or because a body quietly fell out of
       // the verifiable subset. It is exactly `--deny assumed,outside-subset,unproven`.
@@ -1546,7 +1556,7 @@ run_verify_cmd :: (
       a.starts_with(String.from("-")) => {
         exn.throw(
           dyn(
-            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--strict] [--deny <outcomes>]`
+            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--elision] [--strict] [--deny <outcomes>]`
           )
         );
       },
@@ -1587,6 +1597,7 @@ run_verify_cmd :: (
   cfg := default_verify_run_config();
   cfg.solver_path = solver_path;
   cfg.no_cache = no_cache;
+  cfg.elision_obligations = elision;
   match(
     rlimit_opt,
     .Some(n) => {
@@ -1967,6 +1978,12 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
             .None => JsonValue.Null
           )
         );
+        // 5b Phase 2: present only on an elision-only obligation, so a run
+        // without `--elision` prints the same report as before.
+        if(obl.elision_only, {
+          ks.push(String.from("elision_only"));
+          vs.push(JsonValue.Bool(true));
+        });
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
       },
       .None => ()
@@ -2026,6 +2043,18 @@ _verify_self_test_json :: (fn(results : ArrayList(VerifyResult)) -> ArrayList(Js
   });
   entries
 });
+/// How many of a report's obligations proved.
+_verify_proved_count :: (fn(rp : VerifyFnReport) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    if(match(rp.obligations(i).verdict, .Proved(_) => true, _ => false), {
+      n = (n + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  n
+});
 /// Text rendering of one function report. `detailed` (from `--explain`)
 /// prints every obligation; the default prints per-function lines plus the
 /// failing obligations' counter-examples.
@@ -2059,8 +2088,12 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
     // is inspectable too — the detail loop used to be reachable only
     // from non-ok outcomes, the exact case that never needed it.
     ((rp.outcome == "ok") && (!detailed)) => {
+      // 5b Phase 2: an elision-only obligation that did not prove keeps its
+      // guard; it is not a failure, so it is counted, not listed.
+      n_kept := (rp.obligations.len() - _verify_proved_count(rp));
+      kept_note := if(n_kept > usize(0), `; ${n_kept.to_string()} guard(s) kept (elision-only, not proved)`, String.new());
       println(
-        `  ok       ${rp.fn_id} [${rp.mode}] — ${rp.obligations.len().to_string()} obligation(s) proved`
+        `  ok       ${rp.fn_id} [${rp.mode}] — ${_verify_proved_count(rp).to_string()} obligation(s) proved${kept_note}`
       );
       ()
     },
@@ -2076,7 +2109,7 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               .Proved(_) => false,
               _ => true
             );
-            if(bad || detailed, {
+            if((bad && !(obl.elision_only)) || detailed, {
               detail := match(
                 obl.verdict,
                 .Proved(_) => String.from("PROVED"),
@@ -2094,7 +2127,8 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               );
               cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
               folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
-              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}`);
+              kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
+              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);
               // The VC itself, as the solver saw it (`--explain`'s "VC
               // set": what the obligation asks, not just its name).
               if(detailed && (obl.goal.len() > usize(0)), {
@@ -3070,6 +3104,12 @@ CcPlan :: struct(
   /// (`_chunk_jobs_for_memory`); an explicit `--jobs` is kept as given.
   chunk_max_bytes : usize,
   jobs_memory_capped : bool,
+  /// [`--line-directives`] Capture the link/compile leg's stderr instead of
+  /// letting it stream, so a failure can be re-rendered as structured
+  /// diagnostics (the `#line` directives make the C compiler report `.yo`
+  /// positions). Set for the whole plan because the exec handoff
+  /// (`__cc-plan`) re-runs it in a fresh image.
+  capture_cc : bool,
   /// STATIC_LIB: the object `argv` writes and the archive it goes into.
   obj_path : String,
   ar_out : String
@@ -3090,6 +3130,7 @@ _new_cc_plan :: (fn(mode : u8, cc : String, c_path : String, output : String) ->
     jobs : usize(0),
     chunk_max_bytes : usize(0),
     jobs_memory_capped : false,
+    capture_cc : false,
     obj_path : String.new(),
     ar_out : String.new()
   )
@@ -3143,6 +3184,7 @@ _cc_plan_serialize :: (fn(plan : CcPlan) -> String)({
   out.push_string(`jobs ${plan.jobs.to_string()}\n`);
   out.push_string(`chunk_max_bytes ${plan.chunk_max_bytes.to_string()}\n`);
   out.push_string(`jobs_memory_capped ${if(plan.jobs_memory_capped, String.from("1"), String.from("0"))}\n`);
+  out.push_string(`capture_cc ${if(plan.capture_cc, String.from("1"), String.from("0"))}\n`);
   out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
   out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
   out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
@@ -3181,6 +3223,9 @@ _cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
           },
           (key == "jobs_memory_capped") => {
             plan.jobs_memory_capped = (val == "1");
+          },
+          (key == "capture_cc") => {
+            plan.capture_cc = (val == "1");
           },
           (key == "cc") => {
             plan.cc = val;
@@ -3346,6 +3391,142 @@ _chunk_jobs_for_memory :: (fn(jobs : usize, max_unit_bytes : usize) -> usize)({
     true => jobs
   )
 });
+/// [`--line-directives`] One gcc/clang diagnostic line
+/// (`<path>:<row>:<col>: <severity>: <message>`) as a structured Diagnostic
+/// with a 0-based span, or `.None` for any other shape (caret blocks,
+/// summaries, noise). MSVC's `file(l,c):` spelling never occurs: yo drives
+/// clang/gcc/zig/emcc, all gcc-format. With `#line` directives the C compiler
+/// reports `.yo` positions for code that came from Yo — a parsed entry then
+/// carries a real Yo span; a C-file position (generated plumbing, after a
+/// restore directive) stays a C span. No source excerpt is attached.
+_parse_cc_diagnostic_line :: (fn(line : String) -> Option(Diagnostic))({
+  // The earliest severity marker on the line wins (a path can contain " : ").
+  sevs := ArrayList(String).new();
+  sevs.push(String.from(": error: "));
+  sevs.push(String.from(": fatal error: "));
+  sevs.push(String.from(": warning: "));
+  sevs.push(String.from(": note: "));
+  (best_idx : Option(usize)) = Option(usize).None;
+  (best_sev : Severity) = Severity.Error;
+  (best_marker_len : usize) = usize(0);
+  (mi : usize) = usize(0);
+  while(mi < sevs.len(), {
+    match(
+      sevs.get(mi),
+      .Some(marker) => match(
+        line.index_of(marker.clone()),
+        .Some(idx) => match(
+          best_idx,
+          .Some(bi) => if(idx < bi, {
+            best_idx = Option(usize).Some(idx);
+            best_sev = cond(
+              (mi == usize(2)) => Severity.Warning,
+              (mi == usize(3)) => Severity.Note,
+              true => Severity.Error
+            );
+            best_marker_len = marker.len();
+          }),
+          .None => {
+            best_idx = Option(usize).Some(idx);
+            best_sev = cond(
+              (mi == usize(2)) => Severity.Warning,
+              (mi == usize(3)) => Severity.Note,
+              true => Severity.Error
+            );
+            best_marker_len = marker.len();
+          }
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  match(
+    best_idx,
+    .Some(idx) => {
+      // `line[0..idx]` must end in `:<col>` after `:<row>`; strip both.
+      prefix := line.substring(usize(0), idx);
+      c2 := prefix.last_index_of(String.from(":"));
+      match(
+        c2,
+        .Some(ci) => {
+          col_str := prefix.substring((ci + usize(1)), prefix.len());
+          head := prefix.substring(usize(0), ci);
+          c1 := head.last_index_of(String.from(":"));
+          match(
+            c1,
+            .Some(ri) => {
+              row_str := head.substring((ri + usize(1)), head.len());
+              path := head.substring(usize(0), ri);
+              match(
+                row_str.parse_u64(),
+                .Some(r64) => match(
+                  col_str.parse_u64(),
+                  .Some(c64) => if((r64 > u64(0)) && ((path.len() > usize(0)) && (c64 > u64(0))), {
+                    msg := line.substring((idx + best_marker_len), line.len());
+                    Option(Diagnostic).Some(
+                      Diagnostic(
+                        code : Option(String).None,
+                        severity : best_sev,
+                        message : msg,
+                        span : Span(path : path, row : usize((r64 - u64(1))), col : usize((c64 - u64(1))), len : usize(1)),
+                        source_line : String.new()
+                      )
+                    )
+                  }, Option(Diagnostic).None),
+                  .None => Option(Diagnostic).None
+                ),
+                .None => Option(Diagnostic).None
+              )
+            },
+            .None => Option(Diagnostic).None
+          )
+        },
+        .None => Option(Diagnostic).None
+      )
+    },
+    .None => Option(Diagnostic).None
+  )
+});
+/// [`--line-directives`] Re-render a failed C-compiler run's captured stderr
+/// through the active `--error-format`: parsed diagnostic lines become
+/// structured Diagnostics (carrying the `.yo` spans the `#line` directives
+/// gave the C compiler), everything unparseable is printed verbatim first so
+/// no compiler output is lost.
+_report_captured_cc_stderr :: (fn(captured_err : ArrayList(u8)) -> unit)({
+  text := String.from_bytes(captured_err);
+  if(text.len() == usize(0), {
+    return(());
+  });
+  lines := text.split(String.from("\n"));
+  diags := ArrayList(Diagnostic).new();
+  raw := String.new();
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    match(
+      lines.get(i),
+      .Some(line) => match(
+        _parse_cc_diagnostic_line(line.clone()),
+        .Some(d) => {
+          diags.push(d);
+        },
+        .None => if(line.len() > usize(0), {
+          raw.push_string(line.clone());
+          raw.push_str("\n");
+        })
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(raw.len() > usize(0), {
+    emit_chatter(raw);
+  });
+  if(diags.len() > usize(0), {
+    emit_rendered_text(render_diagnostics_for_mode(diags));
+  });
+});
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
 /// wherever it runs.
 _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
@@ -3390,12 +3571,31 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
     chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
   });
   prof_link_t0 := Instant.now();
-  st := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+  // [`--line-directives`] capture the leg's stderr so a failure re-renders as
+  // structured diagnostics (`_report_captured_cc_stderr`); a success keeps C
+  // warnings visible by printing what was captured.
+  (link_st : ExitStatus) = ExitStatus(raw : i32(0));
+  if(plan.capture_cc, {
+    cap := io.await(_cc_command(cc.clone(), plan.argv).output(io), IoExn(io : io, exn : exn));
+    link_st = cap.status;
+    if(link_st.raw != i32(0), {
+      _report_captured_cc_stderr(cap.stderr.clone());
+    }, {
+      if(cap.stderr.len() > usize(0), {
+        emit_chatter(String.from_bytes(cap.stderr.clone()));
+      });
+      if(cap.stdout.len() > usize(0), {
+        print(String.from_bytes(cap.stdout.clone()));
+      });
+    });
+  }, {
+    link_st = io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+  });
   profile_record_phase(
     if(chunked, String.from("link"), String.from("cc compile+link")),
     prof_link_t0.elapsed().as_nanos()
   );
-  if(st.raw != i32(0), {
+  if(link_st.raw != i32(0), {
     // A chunk `.o` can be present with a matching stamp yet unusable (a
     // truncated or clobbered file — the stamp records the INPUTS, so it cannot
     // detect that). Rather than make the user discover `YO_BUILD_NO_CACHE=1`,
@@ -3422,7 +3622,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
       });
       return(())
     });
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${link_st.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
   });
 });
 /// Hand the C-compiler step to a fresh image when this process may be
@@ -3569,6 +3769,10 @@ run_compile :: (
   (debug_async_await : bool) = false;
   (debug_symbols : bool) = false; // -g
   (strip_syms : bool) = false; // -s
+  // `--line-directives` (plans/reference/LINE_DIRECTIVES.md): emit `#line`
+  // directives mapping the C back to `.yo` sources — a C debugger steps
+  // through Yo, and C-compiler diagnostics carry `.yo` positions.
+  (line_directives : bool) = false;
   (static_link : bool) = false; // --static
   (static_library : bool) = false; // --static-library
   // --shared-library: the same library EMISSION as --static-library (plain
@@ -3794,6 +3998,10 @@ run_compile :: (
       },
       (a == "--debug-gc") => {
         debug_gc = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--line-directives") => {
+        line_directives = true;
         ai = (ai + usize(1));
       },
       (a == "--no-chunk-lto") => {
@@ -4285,7 +4493,33 @@ run_compile :: (
     // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
     // before the last C part.
     code_spill_path := `${output}.yo-code-spill`;
-    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone());
+    // Strip a target-format extension so `app.html` gets `app.c`, not
+    // `app.html.c` (hoisted above the compile: `--line-directives` needs the
+    // sidecar/chunk names the C will be written to BEFORE emission starts —
+    // restore directives embed them).
+    (c_base : String) = output.clone();
+    cond(
+      c_base.ends_with(".html") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+      },
+      c_base.ends_with(".wasm") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+      },
+      c_base.ends_with(".exe") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(4));
+      },
+      c_base.ends_with(".js") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(3));
+      },
+      true => ()
+    );
+    // `--line-directives` (plans/reference/LINE_DIRECTIVES.md): `#line`
+    // directives map the emitted C back to `.yo` sources. The restore
+    // directives need the C file's name up front; chunked emission gets the
+    // `<base>_chunk` prefix the chunk files are named from.
+    line_c_name := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
+    line_chunk_base := `${c_base}_chunk`;
+    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
     (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
@@ -4320,24 +4554,8 @@ run_compile :: (
       });
       println("");
     });
-    // Strip a target-format extension so `app.html` gets `app.c`, not
-    // `app.html.c`.
-    (c_base : String) = output.clone();
-    cond(
-      c_base.ends_with(".html") => {
-        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-      },
-      c_base.ends_with(".wasm") => {
-        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-      },
-      c_base.ends_with(".exe") => {
-        c_base = c_base.substring(usize(0), c_base.len() - usize(4));
-      },
-      c_base.ends_with(".js") => {
-        c_base = c_base.substring(usize(0), c_base.len() - usize(3));
-      },
-      true => ()
-    );
+    // `c_base` was derived above, before compile_module (the `--line-directives`
+    // restore directives embed the sidecar name).
     // `--emit-c-to` overrides the derived sidecar path entirely, and its parent
     // directory is created — the point of the flag is to place the file
     // somewhere deliberate (e.g. `dist/yo.c`) that need not exist yet.
@@ -4894,6 +5112,7 @@ run_compile :: (
   plan.jobs = jobs;
   plan.chunk_max_bytes = chunk_max_bytes;
   plan.jobs_memory_capped = jobs_defaulted;
+  plan.capture_cc = line_directives;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -8248,6 +8467,9 @@ Options:
                             (an edit then dirties only the edited module's units)
   --no-chunk-lto            Opt out of ThinLTO for chunked builds
   --jobs <n>                Parallel C compiles for chunked builds
+  --line-directives         Emit #line directives mapping the C back to .yo
+                            sources, so a C debugger steps through Yo and C
+                            diagnostics carry .yo positions
   --compile-timeout-ms <ms> C compiler timeout
   --profile                 Print per-phase / per-module timing on stderr
   --profile-json <path>     Write the profile as JSON (module keys are absolute paths)
@@ -8299,6 +8521,8 @@ Examples:
                             （按模块时一次编辑只使被改模块所在的单元失效）
   --no-chunk-lto            分块构建时退出 ThinLTO
   --jobs <n>                分块构建的并行 C 编译数
+  --line-directives         生成 #line 指令，把 C 映射回 .yo 源码 ——
+                            C 调试器可以按 Yo 单步，C 诊断带 .yo 位置
   --compile-timeout-ms <ms> C 编译器超时
   --profile                 在 stderr 上打印分阶段/分模块耗时
   --profile-json <path>     把耗时写成 JSON（模块键为绝对路径）
@@ -8566,6 +8790,8 @@ Options:
   --explain <fn>            Print the full obligation detail for functions
                             whose id matches <fn> (substring)
   --no-cache                Skip the verification cache
+  --elision                 Also prove the overflow obligations that let
+                            yo compile remove a guard (they never fail a run)
   --strict                  Fail on assumed, outside-subset and unproven too
                             (= --deny assumed,outside-subset,unproven). Without
                             it a run passes even when every contract was
@@ -8599,6 +8825,8 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   --format <text|json>     输出格式（默认 text）
   --explain <函数名>       打印 id 匹配（子串）的函数的完整义务明细
   --no-cache               跳过验证缓存
+  --elision                同时证明让 yo compile 移除守卫的溢出义务
+                           （它们从不导致运行失败）
   --strict                 assumed、outside-subset 与 unproven 也算失败
                            （等价于 --deny assumed,outside-subset,unproven）。
                            不加此选项时，即使所有契约都被 assumed() 掉，

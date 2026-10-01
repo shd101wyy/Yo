@@ -32,6 +32,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { hash_one } :: import("std/hash");
 { ChunkRange } :: import("./utils/index.yo");
+{ line_restore_marker } :: import("../emitter.yo");
 /// The assembled chunked emission: the shared header text and one body text
 /// per translation unit (without the `#include` line — the driver knows the
 /// header's file name). NOTE the field is `header_text`, not `header`: a ref
@@ -521,6 +522,119 @@ _ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
     );
   });
 });
+/// Zero-pad a chunk index to 3 digits (`7` → `"007"`) — MUST match the
+/// driver's `<base>_chunkNNN.c` naming (main.yo `_pad3`) exactly: the restore
+/// directives patched here name the file the driver writes.
+_ca_pad3 :: (fn(i : usize) -> String)({
+  s := i.to_string();
+  cond(
+    (s.len() >= usize(3)) => s,
+    (s.len() == usize(2)) => `0${s}`,
+    true => `00${s}`
+  )
+});
+/// [`#line` directives] Rewrite every restore marker in an assembled chunk
+/// body to the chunk's own file and HONEST line (plans/reference/
+/// LINE_DIRECTIVES.md chunking). The chunk file is the `#include` line (1)
+/// plus the body, so a marker at body line L is file line L+1 and `#line N`
+/// names the line after it: N = L+2, with L = newlines-before + 1. The name
+/// is rewritten too — the emitter wrote the monolithic `<out>.c` name it
+/// knows; only the driver's chunk naming is real here. Returns the body
+/// unchanged when no marker is present, so a flag-off compile pays nothing.
+_ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
+  marker := line_restore_marker();
+  if(!body.contains(marker), {
+    return(body);
+  });
+  bytes := body.as_bytes();
+  n := bytes.len();
+  mb := marker.as_bytes();
+  mlen := mb.len();
+  out := ArrayList(u8).new();
+  (ls : usize) = usize(0);
+  (b_nl : usize) = usize(0);
+  while(ls < n, {
+    // Line extent [ls, le); `has_nl` says whether le sits ON the newline.
+    (le : usize) = ls;
+    (has_nl : bool) = false;
+    while((le < n) && !has_nl, {
+      match(
+        bytes.get(le),
+        .Some(b) => if(b == u8(10), {
+          has_nl = true;
+        }, {
+          le = (le + usize(1));
+        }),
+        .None => {
+          le = (le + usize(1));
+        }
+      );
+    });
+    (is_marker : bool) = false;
+    if((le - ls) >= mlen, {
+      (mi : usize) = usize(0);
+      (all_eq : bool) = true;
+      while((mi < mlen) && all_eq, {
+        a := _ca_bget(bytes, ls + mi);
+        b := match(mb.get(mi), .Some(b1) => b1, .None => u8(1));
+        if(a != b, {
+          all_eq = false;
+        });
+        mi = (mi + usize(1));
+      });
+      is_marker = all_eq;
+    });
+    if(is_marker, {
+      // Body line L = b_nl + 1; the chunk FILE adds the `#include` line, so
+      // the line after this directive is file line L+2. Digits unpadded (a
+      // zero-padded number reads as octal to a pre-C99 pp-token reader).
+      value := (b_nl + usize(1) + usize(2));
+      if(value > usize(99999999), {
+        value = usize(99999999);
+      });
+      digits := value.to_string();
+      out.push(u8(35)); // '#'
+      out.push(u8(108)); // 'l'
+      out.push(u8(105)); // 'i'
+      out.push(u8(110)); // 'n'
+      out.push(u8(101)); // 'e'
+      out.push(u8(32)); // ' '
+      (di2 : usize) = usize(0);
+      while(di2 < digits.len(), {
+        out.push(digits.byte_at(di2));
+        di2 = (di2 + usize(1));
+      });
+      out.push(u8(32)); // ' '
+      out.push(u8(34)); // '"'
+      cf := chunk_file.as_bytes();
+      (ci3 : usize) = usize(0);
+      while(ci3 < cf.len(), {
+        out.push(_ca_bget(cf, ci3));
+        ci3 = (ci3 + usize(1));
+      });
+      out.push(u8(34)); // '"'
+      if(has_nl, {
+        out.push(u8(10));
+      });
+    }, {
+      (ci : usize) = ls;
+      while(ci < le, {
+        out.push(_ca_bget(bytes, ci));
+        ci = (ci + usize(1));
+      });
+      if(has_nl, {
+        out.push(u8(10));
+      });
+    });
+    if(has_nl, {
+      b_nl = (b_nl + usize(1));
+      ls = (le + usize(1));
+    }, {
+      ls = le;
+    });
+  });
+  String.from_bytes(out)
+});
 /// Merge two start-ascending range lists into one start-ascending list.
 _ca_merge_ranges :: (
   fn(a : ArrayList(ChunkRange), b : ArrayList(ChunkRange)) -> ArrayList(ChunkRange)
@@ -573,7 +687,12 @@ assemble_chunks :: (
     /// Group functions by DEFINING module (`fnv1a(module) % n`) instead of by
     /// C name — the edit-stable grouping for the `.o` cache (§8). Ranges with
     /// no module (the header-routed runtime blocks) keep the by-name rule.
-    (by_module : bool) ?= false
+    (by_module : bool) ?= false,
+    /// [`#line` directives] The `<output>_chunk` base the driver names chunk
+    /// files from (`<base>NNN.c`): non-empty makes this pass rewrite every
+    /// restore marker to its chunk's real file and line. Empty (directives
+    /// off) leaves the bodies untouched.
+    (chunk_base : String) ?= String.new()
   ) -> ChunkAssembly
 )({
   n := if(n_chunks < usize(1), usize(1), n_chunks);
@@ -774,6 +893,12 @@ assemble_chunks :: (
       .Some(ft) => body.push_string(ft),
       .None => ()
     );
+    if(chunk_base.len() > usize(0), {
+      cfile := chunk_base.clone();
+      cfile.push_string(_ca_pad3(ci2));
+      cfile.push_str(".c");
+      body = _ca_patch_chunk_markers(body, cfile);
+    });
     chunks.push(body);
     ci2 = (ci2 + usize(1));
   });
