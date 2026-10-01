@@ -1219,9 +1219,10 @@ generate_async_block_state_dispose_function :: (
   // A fused site's fields (await-site fusion): zeroed unless the task died
   // while the site was live.
   fsites := fused_await_sites(analysis, context);
+  released_locals := HashSet(String).new();
   (fsi : usize) = usize(0);
   while(fsi < fsites.len(), fsi = (fsi + usize(1)), {
-    match(fsites.get(fsi), .Some(fs) => _emit_fused_site_releases(fs, String.from("  "), false, context), .None => ());
+    match(fsites.get(fsi), .Some(fs) => _emit_fused_site_releases(fs, String.from("  "), false, released_locals, context), .None => ());
   });
   em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
   em.emit_line("}");
@@ -1549,9 +1550,11 @@ _async_fusion_enabled :: (fn() -> bool)(
 );
 /// One fused await. `block` is the state machine the wrapper's `io.async`
 /// lowers to, registered when the wrapper itself was emitted. `prefix` names
-/// the block's fields in the caller; it is per wrapper block, so two awaits of
-/// one wrapper in one caller share those fields, which is sound because they
-/// run one after the other in one task.
+/// the block's fields in the caller: one `__fz<io.async call id>_` segment per
+/// fused block on the way from the caller to this site, so a site nested in a
+/// fused block (F3) has its own fields. Two awaits of one wrapper at one depth
+/// share them, which is sound because they run one after the other in one
+/// task.
 FusedAwaitSite :: struct(
   prefix : String,
   call : AstExpr,
@@ -1574,16 +1577,14 @@ _fusion_not_lowered :: (fn(await_expr : AstExpr, why : String, report : bool) ->
   });
   Option(FusedAwaitSite).None
 });
+/// How many fused blocks deep a site may be (§3.1: `TlsStream.read` over
+/// `TcpStream.read` is two; four bounds a wrapper chain without a cycle).
+_FUSION_MAX_DEPTH :: usize(4);
 /// The fused site `await_expr` is, when F2 is on and the evaluator's verdict on
 /// its future's callee was fusable (F1), and every piece F2 needs is in hand.
 fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionGenerationContext) -> Option(FusedAwaitSite))({
   if(!(_async_fusion_enabled()), {
     return(Option(FusedAwaitSite).None);
-  });
-  // An await inside a fused block is not fused again: nested fusion is F3,
-  // and the caller's struct holds fields for its own sites only.
-  if(context.fusion_field_prefix.len() > usize(0), {
-    return(_fusion_not_lowered(await_expr, String.from("nested fusion (F3)"), report));
   });
   await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => return(Option(FusedAwaitSite).None));
   future_arg := match(await_args.get(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
@@ -1632,6 +1633,28 @@ fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionG
     .None => ()
   );
   block := match(found, .Some(b) => b, .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
+  // Nested fusion (F3): the enclosing fused blocks are the segments of the
+  // prefix in force. A wrapper already on that chain is recursive through the
+  // fused path (§3.1 rule 5), and the chain stops at depth 4.
+  own_segment := `${ast_expr_id(io_call).to_string()}_`;
+  chain := context.fusion_field_prefix.split("__fz");
+  (depth : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < chain.len(), ci = (ci + usize(1)), {
+    match(
+      chain.get(ci),
+      .Some(seg) => if(seg.len() > usize(0), {
+        if(seg == own_segment, {
+          return(_fusion_not_lowered(await_expr, String.from("the wrapper is recursive through the fused path"), report));
+        });
+        depth = (depth + usize(1));
+      }),
+      .None => ()
+    );
+  });
+  if(depth >= _FUSION_MAX_DEPTH, {
+    return(_fusion_not_lowered(await_expr, `nested fusion deeper than ${_FUSION_MAX_DEPTH.to_string()}`, report));
+  });
   // v1 limits: by-value parameters, the call's arguments in parameter order,
   // one bundle parameter of exactly the await's effect type.
   (n_params : usize) = usize(0);
@@ -1671,7 +1694,7 @@ fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionG
   });
   Option(FusedAwaitSite).Some(
     FusedAwaitSite(
-      prefix : `__fz${ast_expr_id(io_call).to_string()}_`,
+      prefix : `${context.fusion_field_prefix}__fz${own_segment}`,
       call : future_arg,
       wrapper_fid : cand.func_id,
       wrapper_body : wrapper_body,
@@ -1682,14 +1705,22 @@ fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionG
     )
   )
 });
-/// The fused sites of a state machine whose await analysis is `analysis`, one
-/// per wrapper block (the sites of one wrapper share its fields).
+/// The fused sites of a state machine whose await analysis is `analysis`: one
+/// per wrapper block and depth (sites that share a prefix share fields), and,
+/// through each, the sites nested in its block (F3), under its prefix.
 fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
   out := ArrayList(FusedAwaitSite).new();
   if(!(_async_fusion_enabled()), {
     return(out);
   });
-  seen := HashSet(String).new();
+  _collect_fused_sites(analysis, HashSet(String).new(), out, context);
+  out
+});
+/// `fused_await_sites`' walk: the sites among `analysis`'s awaits under the
+/// prefix in force, then each one's nested sites under its own prefix.
+_collect_fused_sites :: (
+  fn(analysis : AwaitAnalysisResult, seen : HashSet(String), out : ArrayList(FusedAwaitSite), context : FunctionGenerationContext) -> unit
+)({
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
@@ -1713,6 +1744,10 @@ fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGener
               .Some(s) => if(!(seen.contains(s.prefix.clone())), {
                 seen.insert(s.prefix.clone());
                 out.push(s);
+                saved_prefix := context.fusion_field_prefix;
+                context.fusion_field_prefix = s.prefix.clone();
+                _collect_fused_sites(s.block.analysis, seen, out, context);
+                context.fusion_field_prefix = saved_prefix;
               }),
               .None => ()
             ),
@@ -1723,7 +1758,6 @@ fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGener
       .None => ()
     );
   });
-  out
 });
 /// A fused block's cross-boundary locals (`FusedAwaitSite.cross_ids`): each
 /// gets a field in the caller under the stable name the naming registry gives
@@ -1754,6 +1788,10 @@ _fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))
 /// wrapper block's capture struct, bundle parameter, locals and await results.
 _emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
+  // A wrapper block reached at two depths has one set of local fields: its
+  // locals' names come from the naming registry, and its sites run one after
+  // the other.
+  local_names := HashSet(String).new();
   (si : usize) = usize(0);
   while(si < sites.len(), si = (si + usize(1)), {
     match(
@@ -1773,7 +1811,14 @@ _emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : Func
         lfs := _fused_local_fields(site);
         (li : usize) = usize(0);
         while(li < lfs.len(), li = (li + usize(1)), {
-          match(lfs.get(li), .Some(lf) => em.emit_declaration_string_line(`  ${get_type_string(lf.ty, context.base)} ${lf.field_name.clone()};`), .None => ());
+          match(
+            lfs.get(li),
+            .Some(lf) => if(!(local_names.contains(lf.field_name.clone())), {
+              local_names.insert(lf.field_name.clone());
+              em.emit_declaration_string_line(`  ${get_type_string(lf.ty, context.base)} ${lf.field_name.clone()};`);
+            }),
+            .None => ()
+          );
         });
         saved_prefix := context.fusion_field_prefix;
         context.fusion_field_prefix = site.prefix.clone();
@@ -1790,8 +1835,12 @@ _emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : Func
 });
 /// Release what a fused site's fields hold, then zero them: at the site's end,
 /// and in the caller's dispose (a site that is not live has zeroed fields, so
-/// this releases nothing there).
-_emit_fused_site_releases :: (fn(site : FusedAwaitSite, indent : String, zero : bool, context : FunctionGenerationContext) -> unit)({
+/// this releases nothing there). `done_locals` holds the local fields already
+/// handled: a wrapper block reached at two depths shares them, and the dispose
+/// must release each once.
+_emit_fused_site_releases :: (
+  fn(site : FusedAwaitSite, indent : String, zero : bool, done_locals : HashSet(String), context : FunctionGenerationContext) -> unit
+)({
   em := context.base.emitter;
   match(
     site.block.capture_type,
@@ -1820,17 +1869,26 @@ _emit_fused_site_releases :: (fn(site : FusedAwaitSite, indent : String, zero : 
   while(li < lfs.len(), li = (li + usize(1)), {
     match(
       lfs.get(li),
-      .Some(lf) => if(zero, {
-        // The block's own scope-end drops released these; zero the ones the
-        // dispose would release, so it finds nothing left.
-        if(type_contains_rc_type(lf.ty), {
-          em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
-        });
-      }, {
-        match(_rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
+      .Some(lf) => if(done_locals.contains(lf.field_name.clone()), (), {
+        done_locals.insert(lf.field_name.clone());
+        _emit_fused_local_release(lf, indent.clone(), zero, context);
       }),
       .None => ()
     );
+  });
+});
+/// One local field of a fused site, at the site's end (`zero`: the block's
+/// scope-end drops released it, so only zero it) or in the dispose.
+_emit_fused_local_release :: (fn(lf : FusedLocalField, indent : String, zero : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  if(zero, {
+    // The block's own scope-end drops released it; zero it when the dispose
+    // would release it, so the dispose finds nothing left.
+    if(type_contains_rc_type(lf.ty), {
+      em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
+    });
+  }, {
+    match(_rc_field_drop_line(`sm->${lf.field_name.clone()}`, lf.ty, indent.clone(), context), .Some(line) => em.emit_string_line(line), .None => ());
   });
 });
 /// The state-machine variables a fused block is emitted with: its locals, its
@@ -2084,7 +2142,7 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
     })
   );
   generate_deferred_drop_expressions(site.block.body_expr, inner.clone(), context);
-  _emit_fused_site_releases(site, inner.clone(), true, context);
+  _emit_fused_site_releases(site, inner.clone(), true, HashSet(String).new(), context);
   em.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
   context.emitted_deferred_drop_ids = saved_drop_ids2;

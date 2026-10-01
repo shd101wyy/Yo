@@ -484,6 +484,33 @@ Rule 3.1's depth-4 recursion (`TlsStream` over `TcpStream`, `BufReader`
 over a stream). Exit: an HTTPS GET makes no wrapper allocation per read,
 counted by a `__yo_rc_alloc` counter in the emitted C.
 
+**Status (2026-10-01): implemented (#1085), on by default with F2; the
+HTTPS exit measurement is still to do.**
+
+- **How it works:** the prefix in force is the chain, one `__fz<id>_` segment
+  per enclosing fused block. A fusable await inside a fused block fuses under
+  the composed prefix, and `fused_await_sites` recurses into each site's block
+  so the caller's struct holds every level's fields.
+- **Not lowered:** a wrapper already on the chain (recursion through the fused
+  path, rule 5), and anything past depth 4 (`_FUSION_MAX_DEPTH`). A deeper
+  wrapper runs as its own task and fuses again from depth 1 inside it.
+- **Shared fields:** a wrapper block reached at two depths shares its local
+  fields, since their names come from the registry and the sites run one
+  after the other. The struct and the dispose emit and release each once.
+
+Measured (v0.2.47 seed):
+
+- **`tests/async/fusion.test.yo`, 12/12 on and off.** It covers depth 2's
+  value and a throw unwinding through two fused blocks, a chain of five past
+  the limit, and a mutually recursive pair that must not fuse into itself.
+- **`async-await-fusion-nested`** pins the verdicts: four levels fused, then
+  `nested fusion deeper than 4`; the pair stops at `the wrapper is recursive
+  through the fused path`.
+- **The fast suite with it on:** 4,880 passed.
+- **`gates_fast`:** everything passes except #1018's three rc 139 CLI cases,
+  which the tree predated #1072 for.
+- **`fixpoint_only.sh`:** `FIXPOINT_HOLDS`.
+
 ## 5. Tests
 
 **Differential.** Every async test file (`tests/async*`, `tests/net`,
