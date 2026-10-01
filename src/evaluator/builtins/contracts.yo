@@ -1354,6 +1354,11 @@ VerifyTask :: ref(
     /// the fn as `assumed` without walking the body (raw-pointer internals
     /// are outside the verifiable subset); its contracts still gate callers.
     (body_assumed : bool) ?= false,
+    /// The body is a GENERIC one verified abstractly (its type parameters are
+    /// uninterpreted sorts). Its proofs remove no guards: guard bounds are
+    /// width-specific and each specialization is a distinct emission
+    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 5).
+    (body_abstract : bool) ?= false,
     /// Per `requires_exprs` entry: whether a runtime entry assert enforces
     /// it (always in `verify+`; in `verify`, only a runtime-checkable one
     /// outside a `ghost_fn`). An unenforced requires is an assumption a

@@ -379,8 +379,10 @@ or not. No id has to cross a unit.
    excluding the unenforced names from the core is still sound.
 4. **Target widths.** No elision on a target whose pointer width is not 64
    until `_int_width` / `_cast_width` read the target (Phase 0 fixes this).
-5. **Concrete bodies only.** A future abstract proof of a generic body
-   (V6 task 2 uninterpreted sorts) removes nothing. Guard bounds are
+5. **Concrete bodies only.** An abstract proof of a generic body
+   (V6 task 2 uninterpreted sorts, walked since 2026-10-01) removes nothing:
+   `VerifyTask.body_abstract` makes every obligation of such a task
+   non-elidable. Guard bounds are
    width-specific, and the specializations are distinct emissions.
 
 ### 5.2 Why the bit-vector model over-approximates (reasoned)

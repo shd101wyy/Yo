@@ -692,6 +692,8 @@ VcCtx :: ref(
     unenforced : ArrayList(VcTerm),
     /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
     (elision_obligations : bool) ?= false,
+    /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
+    (body_abstract : bool) ?= false,
     obligations : ArrayList(VcObligation),
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
@@ -1373,7 +1375,7 @@ _emit :: (
     _ => Option(VcPreVerdict).None
   );
   // Elidable: a guard obligation with no unenforced assumption on the path.
-  (elidable : bool) = site.is_some();
+  (elidable : bool) = (site.is_some() && !ctx.body_abstract);
   if(elidable && (ctx.unenforced.len() > usize(0)), {
     on_path := HashMap(String, bool).new();
     (pk : usize) = usize(0);
@@ -5998,7 +6000,10 @@ VerifyFnInput :: ref(
     (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new(),
     /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
     /// when it records guard sites, `yo verify --elision`).
-    (elision_obligations : bool) ?= false
+    (elision_obligations : bool) ?= false,
+    /// The task's body is generic and verified abstractly: no obligation is
+    /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+    (body_abstract : bool) ?= false
   )
 );
 /// Symbolically execute one function definition. Always returns a result —
@@ -6006,6 +6011,7 @@ VerifyFnInput :: ref(
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
   ctx.elision_obligations = input.elision_obligations;
+  ctx.body_abstract = input.body_abstract;
   // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
   param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.
