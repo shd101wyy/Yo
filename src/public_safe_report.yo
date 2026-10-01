@@ -768,15 +768,19 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
       });
       ki = (ki + usize(1));
     });
+    // The totals read the list before the report stores it: a v0.2.47
+    // build read a stored local as NULL
+    // (issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
+    totals := PublicSafeTotals(
+      files_scanned : files_scanned,
+      public_decls_scanned : public_decls_scanned,
+      findings : findings.len(),
+      class1_ungated : class1_ungated
+    );
     PublicSafeReport(
       findings : findings,
       class1 : class1,
-      totals : PublicSafeTotals(
-        files_scanned : files_scanned,
-        public_decls_scanned : public_decls_scanned,
-        findings : findings.len(),
-        class1_ungated : class1_ungated
-      )
+      totals : totals
     )
   })
 );

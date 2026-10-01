@@ -1,6 +1,6 @@
 # `yo lsp` emits `\r\r\n` framing on Windows — no LSP client can complete the handshake
 
-**Severity:** S1 — the language server is non-functional on a first-class release target (windows-x64, windows-arm64): every conforming client hangs on `initialize` forever; found 2026-09-29 by the `plans/LSP_AUDIT_2026-09-29.md` probes.
+**Severity:** S1 — the language server is non-functional on a first-class release target (windows-x64, windows-arm64): every conforming client hangs on `initialize` forever; found 2026-09-29 by the `plans/archive/LSP_AUDIT_2026-09-29.md` probes.
 
 ## Reproduction
 
@@ -76,4 +76,22 @@ fails before the fix on Windows and passes after; on Linux it passes before
 and after, so it can gate every platform once wired into the release
 workflow's existing Windows smoke steps. The lsp cli-cases cannot be this
 gate: the harness refits `Content-Length` and tolerates `\r?\n\r?\n`
-delimiters by design (`plans/LSP_AUDIT_2026-09-29.md` §6).
+delimiters by design (`plans/archive/LSP_AUDIT_2026-09-29.md` §6).
+
+## Fix
+
+Landed with the audit stack in #1020 (2026-09-30): `prepare_wire`
+(`src/lsp/transport.yo`) flips Windows stdout to binary mode
+(`_setmode(_fileno(stdout), _O_BINARY)`) as the first statement of
+`run_lsp_server`, behind a comptime platform cond so non-Windows C is
+untouched — the Linux cross-emit contains no `_setmode`, and the lsp
+cli-case goldens were byte-identical after. Verified on the installed
+v0.2.45 (gate FAILS) and the fixed Windows build (PASSES).
+
+The regression gate this doc asked for is wired: the release workflow's
+Windows bundle legs run `scripts/lsp-strict-handshake.py` against the
+shipped `bin/yo.exe` (a full initialize/didOpen/publishDiagnostics/
+shutdown/exit session through a strict `\r\n\r\n` + exact-Content-Length
+parser), and the lsp cli-cases now assert `framing=strict` on their raw
+streams in every battery, so the Linux/macOS framing bytes are pinned
+byte-exactly too.

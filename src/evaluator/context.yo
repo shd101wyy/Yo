@@ -3141,7 +3141,14 @@ create_function_body_evaluation_context :: (
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
     is_ghost_context : ctx.is_ghost_context,
     is_in_function_call_checking_phase : ctx.is_in_function_call_checking_phase,
-    is_inside_io_async_call : ctx.is_inside_io_async_call,
+    // The flag marks the closure LITERAL that is `io.async`'s argument, and a
+    // function body is a new scope: carried into the body, it made every
+    // closure written INSIDE an io.async block look like the io.async closure
+    // itself, which skips binding its `Impl(Fn)` to the capture type (the
+    // local lowered to `void*` and was called as a bare fn pointer) and its
+    // capture-owning temp (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md).
+    // A nested `io.async(...)` call sets it again for its own argument.
+    is_inside_io_async_call : false,
     is_inside_given_handler : ctx.is_inside_given_handler,
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,

@@ -1,0 +1,7 @@
+# The exit-code half of the LSP lifecycle contract: `exit` without a
+# preceding `shutdown` makes the process exit 1 (with a shutdown, 0 - every
+# other lsp case pins that half). The reply stream is just the initialize
+# result. No framing=strict here: the server reports the protocol violation
+# on stderr, which the harness merges into the stream after the last frame
+# (framing itself is pinned by the fourteen framing=strict cases).
+timeout=240

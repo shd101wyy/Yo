@@ -26,12 +26,38 @@ Status as of 2026-09-30:
   2,807 → **2,707 MB**, `check` 966 → 909 MB, C identical.
 - **Measured and rejected:** env interning (§0.7), per-function env
   release (§0.8), a bigger snapshot ring and adopt-time env reuse (§0.12).
-- **Env-free codegen, step 1 measured (§6):** 3.56 M env queries during
-  `compile_module`. Nearly all are keyed by an ExprInfo whose own node
-  yields the name; collect's 82 K read live envs only.
-- **Next**, after #1018 (the async state-machine stack, which rewrites most
-  of the code these touch) lands: env-free codegen steps 2–4 (§6) and
-  Phase 4 Design 1 (the specialization clones).
+- **Env-free codegen (§6): measured and rejected in its drop-at-emit form.**
+  - Dropping every recorded env at the start of emit, with no records at
+    all, lowers `compile`'s max RSS only 2,692 → 2,656 MB.
+  - With mimalloc told to purge immediately, the same drop lowers it
+    2,685 → 2,611 MB.
+  - The records it would need cost more than that: +316 MB measured with a
+    partial record set.
+
+  Memory freed after evaluation only offsets what collect and emit still
+  allocate. The 746 MB matters only if evaluation stops retaining it (§6,
+  "What would work").
+- **`fetch_package`'s emit transient (§0.7) is gone** since #1018's
+  single-pass lowering: the deferred-async-blocks mark moves 2,622 → 2,624 MB.
+  Develop `29bf728b4` compiles itself at **2,692 MB** max RSS.
+- **Phase 4 Design 1 of the evaluator plan: implemented and rejected
+  (2026-10-01)**, on branch `mem/phase4`. Specializations evaluate the
+  original body under a spec that owns its nodes. `spec_key` keys only that
+  body's ids, so foreign evaluation keeps its keys. About 45 body readers
+  enter the FuncVal's spec.
+  - Retained cloned nodes went 1,501,935 → 1,110,984.
+  - `compile` went 2,688 → 2,672 MB (−16), `check` 918 → 914 MB.
+  - Instructions went up 1.55 % (96.95 G → 98.46 G on
+    `check src/types/intern.yo`): the owned-id probe on every table access.
+  - The plan's "1.43 M cloned nodes" counted every `clone_expr_fresh_ids`
+    call. Most of those clones are transient trial, CTFE and where-clause
+    clones. Only ~391 K were retained specialization bodies, so the lever is
+    small and costs speed.
+- **Next: scope-exit env records (§6, "Its ceiling, measured").** Releasing
+  at the outermost function body measures −595 MB (2,700 → 2,105 MB) with
+  the evaluator's re-readers traced. The records can be small: an atom's is
+  its `source_variable` in 97.7 % of cases. It is the one lever left that is
+  large enough for the 2.0 GB target. Implementation plan: §6.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -624,10 +650,9 @@ Phase 0 measures it.
 4. **Stop retaining trial-born specializations in the specialization
    cache** (the 8 GB plan's residual). **Landed as the trial-clone purge
    (§0.12)**: the clones were 290 K of the 313 K trial-born entries.
-5. **Phase 4 Design 1 of the evaluator plan** also shrinks `compile`: the
-   1.43 M cloned nodes are all retained there. It is parked on
-   `mem/phase4-spec-keys`, and this campaign can resume it when Phase 0 says
-   it is the largest lever.
+5. **Phase 4 Design 1 of the evaluator plan**: implemented on `mem/phase4`
+   and rejected. −16 MB for +1.55 % instructions; only ~391 K of the
+   "1.43 M" cloned nodes were retained specialization bodies (status block).
 6. **Share equal path collections (§0.10: 185 K distinct among ~710 K).**
    `expr_info_paths_for_write` copies while the collection is shared, and
    equal collections are interned when they are recorded. Measure the RSS,
@@ -655,7 +680,29 @@ Proposed, to confirm after Phase 0:
   mimalloc (from 3.25 GB);
 - the CI cgroup peak (C compiler included) below **2.5 GB** (from 3.36 GiB).
 
-## 6. Design (step 1 measured): env-free codegen, for §0.6's 746 MB
+**Where it stands (2026-09-30).**
+- The self-compile is at 2,692 MB (develop `29bf728b4`).
+- The CI cgroup peak was 3,144,408 kB (3.0 GiB) at #1041, before #1054.
+
+What the campaign learned about reaching 2.0 GB:
+- **The peak is set late**, at the end of emit. Evaluation ends at
+  ~2,350 MB, collect adds ~200 MB and emit ~75 MB.
+- **Memory freed after evaluation returns little RSS.** mimalloc keeps the
+  scattered freed slots and reuses them only for what is allocated later
+  (§0.7 interning, §0.8 release, §6's env drop).
+- So the remaining ~700 MB can only come from what evaluation allocates and
+  retains. The only lever that did it here is lever 4, which purges while
+  evaluation still allocates.
+
+The candidates, largest first:
+- scope-exit env records (§6): measured ceiling −671 MB (2,700 → 2,029 MB)
+  before the records' own cost. It is large and risky, and it is the only
+  lever that alone could approach 2.0 GB;
+- further in-evaluation purges.
+
+Phase 4 Design 1 was measured and rejected (−16 MB, +1.55 % instructions).
+
+## 6. Design: env-free codegen, for §0.6's 746 MB — REJECTED as a drop at emit (2026-09-30); the scope-exit form measured at −671 MB (2026-10-01)
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -804,6 +851,180 @@ The record's shape decides whether that survives:
     same one-element list).
 
   The query sites then ask by node, which is the step-3 change.
+
+**Step 2 prototyped and rejected (2026-09-30).** Before refactoring the ~112
+query sites (the re-inventory on develop `29bf728b4`: 27 own-token rows, 50
+`variable_name` rows, 15 ITVN-only rows, 8 child-name rows, 15 rows needing
+a redesign), a scratch prototype measured the win. The prototype is on
+branch `wip/env-drop-prototype`, behind `YO_PROTO_ENVFREE`. At the start of
+emit it builds the records the table alone yields, then points every
+recorded env at a frameless per-module env. `YO_PROTO_NORECORDS` skips the
+records. Its C is wrong; only its memory counts. Same binary, same tree,
+mimalloc:
+
+| variant | max RSS | end of collect | end of emit |
+| --- | --- | --- | --- |
+| knob off (develop `29bf728b4` + the scratch code) | 2,692 MB | 2,549 | 2,624 |
+| records (654 K atom lists, 1.39 M name lists) + envs dropped | 3,008 (+316) | 2,549 | 2,932 |
+| envs dropped, no records | 2,656 (−36) | 2,555 | 2,589 |
+| `MIMALLOC_PURGE_DELAY=0`, knob off | 2,685 | 2,550 | 2,621 |
+| `MIMALLOC_PURGE_DELAY=0`, envs dropped, no records | 2,611 (−74) | 2,549 | 2,495 (2,451 right after the drop) |
+
+- **The ceiling of dropping envs after evaluation is emit's own growth**,
+  plus what mimalloc can purge: −36 MB, or −74 MB with immediate purging.
+  It is not §0.6's 746 MB. The census counted live objects; RSS keeps the
+  scattered pages they free.
+- **Records cost more than the drop frees.** The lever as designed
+  (steps 2–4) is rejected.
+
+**The read classification** (the same branch, `YO_CODEGEN_READS` plus a
+per-entry class of value kind × type): no large class is entirely unread.
+Unit-typed runtime nodes, `Type`-valued type expressions, and `String` /
+`ArrayList` / `Option` locals all appear on both the read and the unread
+side. A lever-4-style purge needs a structural test at evaluation time,
+such as "this node belongs to a body that will never be emitted", not a
+type test.
+
+**What would work.** Stop evaluation from retaining the envs, while the heap
+is still growing:
+- when a function body's or begin block's evaluation ends and its frames
+  are final, resolve the records of the ExprInfos created inside it;
+- then release their env references, so the frames die during evaluation
+  and later evaluation reuses the space.
+
+The costs:
+- the same records (~200 MB measured);
+- a hook at every scope exit;
+- the 15 hard rows redesigned (pending drops across envs, capture labels,
+  whole-env `given` scans, the handler-installation frame predicate);
+- `mutation_summary.yo` converted;
+- all ~112 sites switched.
+
+The possible win is §0.6's retention minus the records. It is the largest
+lever left, and also the largest refactor.
+
+**Its ceiling, measured (2026-10-01).** A second scratch prototype (branch
+`wip/scope-exit-env-release`, knob `YO_PROTO_SCOPE_HUSK`) works like this:
+- `expr_info_table_set` notes every ExprInfo written;
+- a wrapper on `evaluate_begin_expression` marks function bodies;
+- when a function body's evaluation ends, every ExprInfo written since its
+  mark is pointed at a frameless per-module env. No records are built, so
+  the C is wrong.
+
+Evaluation still completes, and `check` still passes. Same binary, same
+tree (develop `6f5dec5db`), mimalloc:
+
+| | max RSS | end of evaluation | end of collect | end of emit |
+| --- | --- | --- | --- | --- |
+| knob off | 2,700 MB | 2,349 | 2,545 | 2,632 |
+| envs released at function-body exit | **2,029 MB (−671, −25 %)** | 1,767 | 1,907 | 1,977 |
+
+4,042,327 ExprInfos were released. `check` went 925 → 1,058 MB, but that
+cost is the prototype's own tracking list, which never lets go of
+module-level entries. Released during evaluation, the frames die while the
+heap is still growing, and later evaluation reuses the space. That is the
+difference from §6's drop at emit (−36 MB).
+
+The design this points to:
+- **Records hold only a body's LOCAL resolutions.** Module-level frames
+  stay alive regardless (module envs, FuncVal definition envs), so a name
+  that no local frame binds resolves at codegen time through the module env,
+  as today. The prototype's numbers already include keeping those frames.
+- **Records are resolved at the body's exit**, when its local frames are
+  final. That is the state codegen reads today, since frames grow in place.
+- **Before any switch-over, a detector:** under a knob, a husked env panics
+  when the EVALUATOR reads it, not only codegen. Run it on the self-compile
+  and `gates_fast`'s corpus to list the evaluation-time readers of finished
+  bodies, which the prototype could have silently changed.
+- Then the steps above: name enumeration per ExprInfo (§6 step 1's classes),
+  the 15 hard rows, the ~112 sites, `mutation_summary.yo`.
+
+**Readers, records and their cost, measured (2026-10-01, same branch).**
+- **Evaluation-time readers of released envs.** A detector (`husk_read` in
+  the main `env.yo` readers and in `expr_info_adopt_env`) counted 30,033
+  lookups and 16,933 adoptions when releasing at every function body's exit.
+  gdb backtraces at sampled hits named two sources:
+  - capture analysis re-walks a nested closure while its enclosing function
+    is still being evaluated;
+  - CTFE (`comptime_fn.yo`) adopts its body's root env right after
+    evaluating it.
+- **Release at the OUTERMOST function body only** (depth tracked; restored
+  on return and around each module walk, so a throw cannot pin it). That
+  fixes the first source. The detector then counts 7,935 lookups and 820
+  adoptions, all traced to CTFE's adoption and to
+  `mutation_summary.yo`'s non-`Send` reach walk
+  (`function_reaches_non_send_global`, an atom's own name).
+  `compile`: **2,105 MB** max RSS (−595 vs 2,700), end of evaluation
+  1,841 MB.
+- **Naive records cost more than they free.** Building, at release, one
+  fresh list per resolution (atom name, `variable_name`, deferred targets)
+  made 2,266,564 records holding 3,322,755 lists. Max RSS: **2,958 MB**.
+- **Atoms need almost no record.** Of the released ExprInfos with a
+  `source_variable`:
+  - 761,546 resolve, at release, to that same Variable as the last match;
+  - 65 resolve to a different one;
+  - 12,302 find nothing;
+  - 5,929 have more than one match.
+
+  3,174,730 have no `source_variable` (non-atoms).
+
+So the record design is:
+- an atom's codegen resolution IS its `source_variable`, already stored.
+  Only the ~18 K exceptions (different, none, several matches) get an
+  explicit record;
+- non-atoms keep a record only for the names §6 step 1 found:
+  `variable_name`, deferred targets, subtree atoms and temps;
+- the replacement env keeps the function's OUTER frames (module and prelude
+  frames, alive regardless) and drops only its local ones. A name no local
+  frame binds then resolves exactly as today, and records hold local
+  resolutions only.
+
+**Pruned "record envs" measured and rejected (2026-10-01).** One variant kept
+the ~112 query sites unchanged. Each run of ExprInfos sharing an env got a
+replacement env: its outer frames (the entry env's) plus one synthetic frame
+holding the local Variables the run's ExprInfos ask for (their
+`source_variable` names, `variable_name`s, deferred targets), interned by a
+content key. It is too heavy:
+- `compile` rose to **3,118 MB**;
+- 558,334 record envs were built, with no sharing at all (the intern key
+  names every Variable);
+- 1,008,030 ExprInfos kept their original env, because it does not extend
+  the body's entry env (closure capture envs, specialization envs), so their
+  frames stay alive.
+
+A frameless release plus per-kind side tables is what fits the measured
+numbers:
+- **atoms** answer from `source_variable`, plus an exception table for the
+  ~18 K different / none / several matches;
+- **temps** answer from an ExprId → Variable table for their `variable_name`
+  (one entry, not a list);
+- **names bound outside the function** resolve through the module env, as
+  today;
+- **the frame-structure and whole-env rows** (handler installation, `given`
+  scans) are answered at evaluation time and stored on the node.
+
+That needs the ~112 codegen sites to query by node rather than by env. The
+sequence:
+1. A shadow mode, envs still intact: every codegen query computes both
+   answers and reports mismatches.
+2. Drive the mismatches to zero on the self-compile and `gates_fast`'s
+   corpus.
+3. Release.
+
+**The side tables, measured (same branch, `YO_PROTO_SCOPE_SIDE`).**
+Releasing to frameless husks at the outermost function body, while keeping:
+- an ExprId → Variable table for every released temp's `variable_name`
+  (1,392,997 entries);
+- the atom exception table (12,962 entries: `source_variable` is not the
+  sole match);
+
+gives `compile` **2,357 MB** max RSS (−343 vs 2,700; the release alone was
+−595). The temp table is the cost: it keeps 1.39 M temp Variables and their
+values alive. Codegen needs little from a temp. Temp names are unique, so
+the C name is the name, and the flags it reads are `is_ref`, owning and
+compile-time-only. A flags-only temp record (ExprId → byte, ~20–40 MB)
+brings the design to an estimated **~2,150 MB**. That is the design to
+implement, with the shadow mode first.
 
 **Open questions.**
 - **Lazy evaluation during collect.** Specializations are forced while
