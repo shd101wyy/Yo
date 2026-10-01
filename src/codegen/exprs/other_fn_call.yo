@@ -15,7 +15,7 @@
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, aggregate_field_store } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -894,7 +894,13 @@ _generate_runtime_enum_construct :: (
     (ptr_opt.is_some() && (rt_args.len() == usize(0))) => String.from("NULL"),
     (ptr_opt.is_some() && (rt_args.len() == usize(1))) => match(
       rt_args.get(usize(0)),
-      .Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
+      // The payload is the whole value: cast it to the typedef's spelling.
+      .Some(a) => aggregate_field_store(
+        match(context.base.get_type_c_name(type_key(enum_ty.clone())), .Some(cn) => cn, .None => String.new()),
+        match(ptr_opt, .Some(pt) => pt, .None => TypeValue.Unit),
+        emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
+        context.base
+      ),
       .None => String.from("NULL")
     ),
     can_optimize_as_simple_enum(enum_ty) => get_enum_variant_c_name(enum_ty, variant.clone(), context.base),
@@ -927,10 +933,14 @@ _generate_runtime_enum_construct :: (
                 });
                 any_field = true;
                 flabel := match(vflabels.get(i), .Some(l) => l, .None => String.from(""));
+                fname := sanitize_for_c_identifier(flabel, false);
                 inits.push_str(".");
-                inits.push_string(sanitize_for_c_identifier(flabel, false));
+                inits.push_string(fname.clone());
                 inits.push_str(" = ");
-                inits.push_string(fcode.clone());
+                // The compound literal stores into the typedef's member (a ref
+                // enum's constructor parameter is spelled now, and its body
+                // casts the store).
+                inits.push_string(aggregate_field_store(`${c_name}.${variant}.${fname}`, fty, fcode.clone(), context.base));
                 positional.push_string(fcode);
               });
               i = (i + usize(1));
@@ -1963,7 +1973,15 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                         emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
                         context
                       );
-                      cl_out.push_string(vs_fv);
+                      // And to the member's own spelling, fixed when the
+                      // typedef was emitted.
+                      cl_out.push_string(
+                        match(
+                          rt_fields.get(rfi),
+                          .Some(f) => aggregate_field_store(`${vs_cname}.${sanitize_for_c_identifier(flabel.clone(), false)}`, f.ty, vs_fv.clone(), context.base),
+                          .None => vs_fv
+                        )
+                      );
                     },
                     .None => ()
                   );

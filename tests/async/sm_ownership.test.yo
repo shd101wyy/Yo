@@ -466,3 +466,27 @@ test("aborting a task after it stored a local in a field releases the local once
   _abort_store(io);
   assert(g_disposed == i32(1), "the abort releases the local and the holder, and the object once");
 });
+// A future type variable held in a generic aggregate: the aggregate's typedef
+// is emitted once, before the variable resolves to the io.async block's state
+// machine, so its stores and reads cast between the two spellings
+// (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
+_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_hold_future :: (fn(generic(T : Type), x : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
+test("an io.async future stored in a generic struct's Option field is awaited from it", {
+  h := _hold_future(io.async((io2 : Io) => i32(8)));
+  r := match(
+    h.r,
+    .Some(task) => io.await(task, io),
+    .None => i32(-1)
+  );
+  assert(r == i32(8), "the stored future's value");
+});
+_PtrHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(*T))));
+_wrap_future :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)({
+  _h := _PtrHolder(T)(r : .None);
+  f()
+});
+test("a generic struct with a pointer-to-future field, built beside the future it returns", {
+  task := _wrap_future(() => io.async((io2 : Io) => i32(8)));
+  assert(io.await(task, io) == i32(8), "the returned future's value");
+});

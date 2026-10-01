@@ -36,7 +36,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, aggregate_field_read } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -918,7 +918,19 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
         nullable_arm_payload_binder(pat),
         .Some(dvar) => {
           dvn := sanitize_for_c_identifier(ast_expr_token(dvar).value, false);
-          _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
+          // The whole value is the payload: read it from the typedef's spelling.
+          _emit_pattern_binding_decl(
+            context,
+            body_indent.clone(),
+            dvn.clone(),
+            nullable_inner,
+            aggregate_field_read(
+              match(context.base.get_type_c_name(type_key(enum_type.clone())), .Some(cn) => cn, .None => String.new()),
+              nullable_inner,
+              matched_value_code.clone(),
+              context.base
+            )
+          );
           // Shadow-register the binding like _emit_destructure_binds does
           // for tagged-union arms: the arm body must resolve `q` to THIS
           // local C declaration. Without it, a GENERIC-IMPL materialized
@@ -1254,6 +1266,8 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
       // bind is emitted and the body references an undeclared variable) and so
       // the `.data.<variant>` field name is valid.
       cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
+      // The payload members' spellings were fixed with the enum's typedef.
+      enum_cname := match(context.base.get_type_c_name(type_key(enum_type.clone())), .Some(cn) => cn, .None => String.new());
       // Find the variant index.
       (vi : usize) = vns.len();
       nv := vns.len();
@@ -1332,7 +1346,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                           body_indent.clone(),
                           sanitize_for_c_identifier(ast_expr_token(var_expr).value, false),
                           ftype,
-                          init
+                          aggregate_field_read(`${enum_cname}.${cvariant}.${sanitize_for_c_identifier(label.clone(), false)}`, ftype, init, context.base)
                         );
                         _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
                       });
@@ -1361,13 +1375,13 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                   init.push_str("data.");
                   init.push_string(cvariant.clone());
                   init.push_str(".");
-                  init.push_string(sanitize_for_c_identifier(field_label, false));
+                  init.push_string(sanitize_for_c_identifier(field_label.clone(), false));
                   _emit_pattern_binding_decl(
                     context,
                     body_indent.clone(),
                     sanitize_for_c_identifier(ast_expr_token(var_expr).value, false),
                     ftype,
-                    init
+                    aggregate_field_read(`${enum_cname}.${cvariant}.${sanitize_for_c_identifier(field_label, false)}`, ftype, init, context.base)
                   );
                   _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(var_expr).value, false), ast_expr_token(var_expr));
                 });

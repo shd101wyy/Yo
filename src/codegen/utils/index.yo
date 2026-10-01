@@ -259,6 +259,13 @@ CodeGenContext :: ref(
     /// section — still assembled before code) or the ctor references an
     /// unknown type (the suspension_analysis batch).
     dyn_box_typedefs : HashSet(String),
+    /// The C type each aggregate typedef declared a field with, keyed
+    /// `<c_name>.<field>` (a struct), `<c_name>.<variant>.<field>` (an enum
+    /// payload) or `<c_name>` (a nullable-pointer enum). A future-bounded type
+    /// variable's spelling depends on whether it is resolved yet, and the
+    /// typedef is emitted once: stores and reads cast between this record and
+    /// their own spelling (`aggregate_field_store` / `aggregate_field_read`).
+    aggregate_field_c_types : HashMap(String, String),
     /// dyn() usages → box types / vtables / wrappers (keyed by a
     /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
     dyn_impls : HashMap(String, DynImplEntry),
@@ -390,6 +397,7 @@ impl(
       type_declaration_passes_done : false,
       on_demand_fwd_only : HashMap(String, TypeValue).new(),
       dyn_box_typedefs : HashSet(String).new(),
+      aggregate_field_c_types : HashMap(String, String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       dyn_upcasts : HashMap(String, ArrayList(TypeValue)).new(),
       current_module_path : Option(String).None,
@@ -1470,6 +1478,55 @@ _gts_stack_contains :: (fn(sid : String) -> bool)({
   });
   found
 });
+/// Does a field of type `ty` have a spelling that can change after its
+/// typedef is emitted? A future-bounded type variable (directly, or behind
+/// pointers) is the erased future interface until it is resolved, and its
+/// state machine after.
+_field_type_has_late_future :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Pointer(inner) => _field_type_has_late_future(inner),
+    .SomeT({ id : _sid }) => _some_t_requires_future(ty),
+    _ => false
+  )
+);
+/// Record the C type an aggregate typedef declared one of its fields with.
+record_aggregate_field_c_type :: (fn(key : String, field_ty : TypeValue, c_type : String, context : CodeGenContext) -> unit)(
+  if(_field_type_has_late_future(field_ty), {
+    context.aggregate_field_c_types.insert(key, c_type);
+  })
+);
+/// A value stored into an aggregate field: cast to the spelling the typedef
+/// declared, when the field's future type variable has resolved since. Every
+/// future starts with the erased interface's prefix, so the pointer cast is
+/// the design's own conversion. Any other store is unchanged.
+aggregate_field_store :: (fn(key : String, field_ty : TypeValue, code : String, context : CodeGenContext) -> String)({
+  declared := context.aggregate_field_c_types.get(key);
+  cond(
+    (!_field_type_has_late_future(field_ty) || (code.len() == usize(0))) => code,
+    true => match(
+      declared,
+      .Some(dc) => if(dc.ends_with("*") && (dc != get_type_string(field_ty, context)), `((${dc})(${code}))`, code),
+      .None => code
+    )
+  )
+});
+/// A field read into a place of the field's own type: cast from the
+/// typedef's spelling to this site's, the other half of `aggregate_field_store`.
+aggregate_field_read :: (fn(key : String, field_ty : TypeValue, code : String, context : CodeGenContext) -> String)({
+  declared := context.aggregate_field_c_types.get(key);
+  cond(
+    !_field_type_has_late_future(field_ty) => code,
+    true => {
+      here := get_type_string(field_ty, context);
+      match(
+        declared,
+        .Some(dc) => if(here.ends_with("*") && (dc != here), `((${here})(${code}))`, code),
+        .None => code
+      )
+    }
+  )
+});
 get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
   match(
     t,
@@ -2142,6 +2199,9 @@ export(
   get_runtime_struct_fields,
   type_key,
   get_type_string,
+  record_aggregate_field_c_type,
+  aggregate_field_store,
+  aggregate_field_read,
   get_storage_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
