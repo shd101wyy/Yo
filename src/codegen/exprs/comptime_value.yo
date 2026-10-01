@@ -28,9 +28,9 @@ _int_suffix :: (fn(ty : TypeValue) -> str)(
   match(
     ty,
     .Int(bits, signed) => cond(
-      ((bits == u8(64)) && !(signed)) => "ULL",
+      ((bits == u8(64)) && !signed) => "ULL",
       ((bits == u8(64)) && signed) => "LL",
-      ((bits == u8(32)) && !(signed)) => "U",
+      ((bits == u8(32)) && !signed) => "U",
       true => ""
     ),
     .Usize => "ULL",
@@ -146,11 +146,10 @@ _is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
         match(
           __ibm1.*.extern_name,
           .Some(en) => (
-            (
-              ((en == "__yo_io_async") || (en == "__yo_io_await")) ||
-                ((en == "__yo_io_state") || (en == "__yo_io_spawn"))
-            ) ||
-              (en == "__yo_join_handle_await")
+            (en == "__yo_io_async") || (en == "__yo_io_await") ||
+              ((en == "__yo_io_state") || (en == "__yo_io_spawn"))
+              ||
+                (en == "__yo_join_handle_await")
           ),
           .None => false
         ),
@@ -178,7 +177,7 @@ comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> 
   match(
     value,
     .EnumVal(_, _) => cond(
-      (!(is_reference_enum_type(ty))) => false,
+      !is_reference_enum_type(ty) => false,
       can_optimize_as_nullable_pointer(ty).is_some() => false,
       can_optimize_as_simple_enum(ty) => false,
       true => true
@@ -187,7 +186,7 @@ comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> 
       ty,
       .Struct({ field_types, is_reference_semantics, is_newtype }) => cond(
         // A newtype renders as a cast over its single underlying field.
-        ((is_newtype && (field_types.len() == usize(1))) && (field_values.len() == usize(1))) => false,
+        (is_newtype && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => false,
         true => is_reference_semantics
       ),
       _ => false
@@ -262,7 +261,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         (lowered.starts_with("inf") || lowered.starts_with("+inf")) => if(_is_f32(ty), String.from("HUGE_VALF"), String.from("HUGE_VAL")),
         lowered.starts_with("-inf") => if(_is_f32(ty), String.from("(-HUGE_VALF)"), String.from("(-HUGE_VAL)")),
         (
-          (lowered.starts_with("nan") || lowered.starts_with("+nan")) || lowered.starts_with("-nan")
+          lowered.starts_with("nan") || lowered.starts_with("+nan") || lowered.starts_with("-nan")
         ) => if(_is_f32(ty), String.from("NAN"), String.from("((double)NAN)")),
         true => String.from("")
       );
@@ -280,7 +279,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       // `.0` to an exponent form, producing invalid C like `1e+09.0`. Treat
       // `e`/`E` as a float marker too so only bare integer-form raws get `.0`.
       has_float_marker := (
-        (raw.contains(".") || raw.contains("e")) || raw.contains("E")
+        raw.contains(".") || raw.contains("e") || raw.contains("E")
       );
       base := if(has_float_marker, raw.clone(), {
         r := raw.clone();
@@ -349,7 +348,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 (fi : usize) = usize(0);
                 while(fi < nf, {
                   fty := match(vftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                  if(!(is_unit_type(fty)), {
+                  if(!is_unit_type(fty), {
                     fcode := match(fields.get(fi), .Some(fv) => recur(fv, fty, context), .None => String.from(""));
                     if(any_field, {
                       inits.push_str(", ");
@@ -500,7 +499,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
               fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
               // A `unit` field is zero-sized: the ctor has no parameter for it
               // (functions/constructors.yo).
-              if(!(field_is_ct) && !(is_unit_type(fty)), {
+              if(!field_is_ct && !is_unit_type(fty), {
                 if(any_arg, {
                   out.push_str(", ");
                 });
@@ -526,7 +525,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
-              if(!(is_unit_type(fty)) && !(field_is_ct2), {
+              if(!is_unit_type(fty) && !field_is_ct2, {
                 if(any, {
                   out.push_str(", ");
                 });
@@ -552,7 +551,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     // `sizeof(<TypeVal>)` (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
     .TypeVal(t) => cond(
       is_str_type(t) => String.from("__yo_str"),
-      (is_primitive_type(t) && !(is_unit_type(t))) => get_type_string(t, context),
+      (is_primitive_type(t) && !is_unit_type(t)) => get_type_string(t, context),
       true => match(
         context.get_type_c_name(type_key(t)),
         .Some(cn) => cn,
@@ -605,7 +604,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !(is_array_type(pointee))) => String.from("/* skip generating value */"),
+            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(pointee)) => String.from("/* skip generating value */"),
             true => _static_address(target, pointee, String.new(), context)
           ),
           .Some(agg_ty) => {

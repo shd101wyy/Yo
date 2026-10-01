@@ -539,24 +539,32 @@ inc :: (fn() -> unit)({
 - Cannot be exported; only compile-time values can be exported
 - Not allowed inside `impl` blocks; use `::` for constants there
 
-## Namespaces: one module per file (there is no inline `impl { ... }`)
-
-A module IS a file. To group names under a namespace, put them in their own
-file and import it; `export(...)` makes a name public, destructuring picks
-members. Compile-time-only static members of a `struct` (`name :: value`
-fields) cover the "namespace of helpers" case inside one type:
+## Anonymous modules: `impl({ ... })` — a module value in one expression
 
 ```rust
-// math_helpers.yo
-helper :: (fn(x : i32) -> i32)((x + i32(1)));
-export(helper);
+my_module :: impl({
+  helper :: (fn(x : i32) -> i32)((x + i32(1)));
+  scale :: i32(2);            // `::` = compile-time member
+  runtime_note := i32(0);     // `:=` = module-level runtime static (allowed)
+  export(helper, scale);
+});
 
-// user.yo
-{ helper } :: import("./math_helpers.yo");
-result := helper(i32(5));
+result := my_module.helper(i32(5));      // member access through the module value
+{ helper, scale } :: my_module;          // or destructure the exports by name
 ```
 
-(The old `impl { ... }` "anonymous module" spelling does not parse.)
+- The braces block is the module BODY: `::` bindings are compile-time
+  members, `:=` bindings are module-level runtime statics, and
+  `export(...)` (parenthesized, comma-separated, `export(...(Other))`
+  spreads another module's exports) makes names public.
+- The parser hands the evaluator this as `impl(begin(...))` — the block
+  desugars to a `begin` call (relevant when building one through
+  `quote(...)`/AST reflection). A literal `begin(...)` spelled by hand in
+  that position does not parse `::` statements — write the braces form.
+- Bindings inside are block-scoped and ordered
+  (`docs/en-US/DEFINITION_ORDER.md`); tests: `tests/module.test.yo`.
+- For a bigger namespace, a module is still a file — put the names in
+  their own file and `{ name } :: import("./file.yo");`.
 
 ## yo-self API: String vs str parameter gotchas
 

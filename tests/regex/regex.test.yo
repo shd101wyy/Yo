@@ -1223,8 +1223,8 @@ test("more than 99 capture groups neither error nor truncate", {
 test("Regex.escape quotes metacharacters into literals", {
   re := Regex.new(Regex.escape(`a.b*c`)).unwrap();
   assert(re.is_match(`a.b*c`), "escaped pattern should match the literal text");
-  assert(!(re.is_match(`aXb*c`)), "dot must not act as a wildcard after escaping");
-  assert(!(re.is_match(`abbc`)), "star must not act as a quantifier after escaping");
+  assert(!re.is_match(`aXb*c`), "dot must not act as a wildcard after escaping");
+  assert(!re.is_match(`abbc`), "star must not act as a quantifier after escaping");
   assert(Regex.escape(`hello`) == `hello`, "ordinary text passes through untouched");
 });
 test("Regex.escape covers the whole metacharacter set once", {
@@ -1322,31 +1322,31 @@ test("replace_with computes the replacement from the match", {
   re := Regex.new(`(\w+)@(\w+)`).unwrap();
   out := re.replace_with(
     `mail Ada@Example`,
-    (m) => (((m.group(usize(1)).unwrap() + ` <`) + m.group(usize(2)).unwrap()) + `>`)
+    m => (m.group(usize(1)).unwrap() + ` <` + m.group(usize(2)).unwrap() + `>`)
   );
   assert(out == `mail Ada <Example>`, String.from("callback replacement should rebuild from groups, got ") + out);
 });
 test("replace_with inserts callback output verbatim", {
   re := Regex.new(`x`).unwrap();
-  out := re.replace_with(`axb`, (m) => `$0`);
+  out := re.replace_with(`axb`, m => `$0`);
   assert(out == `a$0b`, "no dollar-reference processing on callback output");
 });
 test("replace_with returns input unchanged when no match", {
   re := Regex.new(`zzz`).unwrap();
-  out := re.replace_with(`abc`, (m) => `never`);
+  out := re.replace_with(`abc`, m => `never`);
   assert(out == `abc`, "no match should return the input untouched");
 });
 test("replace_all_with computes every replacement from its match", {
   re := Regex.new(`(\d+)`).unwrap();
   out := re.replace_all_with(
     `1 2 3`,
-    (m) => (i32(10) * m.value().parse_i32().unwrap()).to_string()
+    m => (i32(10) * m.value().parse_i32().unwrap()).to_string()
   );
   assert(out == `10 20 30`, String.from("each match should be scaled by the callback, got ") + out);
 });
 test("replace_all_with keeps text between matches", {
   re := Regex.new(`-+`).unwrap();
-  out := re.replace_all_with(`a--b---c`, (m) => `+`);
+  out := re.replace_all_with(`a--b---c`, m => `+`);
   assert(out == `a+b+c`, String.from("runs between matches should be preserved, got ") + out);
 });
 // ============================================================================

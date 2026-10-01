@@ -1,8 +1,37 @@
 # A same-operator chain of FOUR or more operands is not left-associative — `20 - 5 - 4 - 3` is 16
 
+> **FIXED 2026-10-01 — option 1 of this doc's own fix list ("mark the nodes
+> `parse_left_assoc_op` itself creates"), refined with a paren-DEPTH tag.**
+> `parse_left_assoc_op` now splices `primary` at the BOTTOM of the rhs's
+> left spine, descending only through same-operator infix nodes the
+> operator machinery recorded at the CURRENT `paren_depth` (a new Parser
+> field bumped by `parse_paren_expr`; a new `infix_chain_node_depths` map
+> carries id → depth). A parenthesized group's inner chain records one
+> depth deeper, so `a - (b - c) - d` keeps its explicit grouping — the
+> regression this doc warned about does not happen (pinned in
+> `tests/operator_grouping.test.yo` for group-first, group-middle,
+> group-with-own-3-chain, and group-then-chain shapes). Verified: the repro
+> prints 8/6/5/10 for `-`/`/` chains of 4–6 operands; 278/278 `check ./src`;
+> the full tree passes `fmt --check` after the sweep below; stage-2/3
+> fixpoint per `scripts/bootstrap/fixpoint_only.sh`.
+>
+> **Two consequences that shipped with the fix:**
+> 1. The formatter's D2 flatten rule (`is_left_same_operator_flatten_group`,
+>    #386) is gated on a re-parse that must reproduce the original tree —
+>    under the old parser the flattened form re-parsed mis-grouped, so long
+>    same-op chains could never flatten. The fix unlocks it: 50 files
+>    (`src/`, `std/`, `tests/`) carried `(x ⊕ y) ⊕ z …` groups that fmt now
+>    flattens; they were reformatted in the same commit (the fmt gate is
+>    green again).
+> 2. `infix_chain_node_depths` adds one HashMap(usize, usize) entry per
+>    infix node a file parses (~the infix-node count; the memory-ratchet
+>    plans should account for it if it shows).
+>
+> The doc below is the frozen pre-fix record.
+
 **Severity:** S1 — a 4+-operand same-operator chain parses one level off — `20 - 5 - 4 - 3` silently evaluates to 16
 
-**Status: OPEN. Not fixed — see "Why this is not a small fix".**
+**Status:** OPEN (frozen pre-fix record; see the banner above).
 
 **Severity: language semantics.** Yo has no operator precedence; the rule is
 that a chain of the SAME operator left-associates

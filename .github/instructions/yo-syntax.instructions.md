@@ -89,12 +89,12 @@ Fmt elides these — write the bare form:
   (not `?(*(T))`), `**T`, `-p.a`, `-f(x)`.
 - **Atom-like operands of any operator**: `x + y` (not `(x) + (y)`),
   `y := -x` (not `y := (-x)`).
-- **Left same-operator chains (2–3 operands)**: `a + b + c` (not
-  `(a + b) + c`) — chains of up to three operands left-associate. FOUR or
-  more same-operator operands MIS-GROUP today
-  (`issues/same-operator-chain-of-four-or-more-is-not-left-associative.md`,
-  e.g. `20 - 5 - 4 - 3` evaluates to 16): keep explicit parens until it is
-  fixed, and let fmt keep them.
+- **Left same-operator chains (any length)**: `a + b + c` (not
+  `(a + b) + c`), `20 - 5 - 4 - 3` — same-operator chains left-associate
+  at every operand count (fixed 2026-10-01,
+  `issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`;
+  before the fix four or more operands spliced one level too high, and fmt
+  refused to flatten the redundant parens).
 - **Whole call arguments**: `f(a + b)` (not `f((a + b))`), and the
   classic comma-delimiter rule: `if(x == y, { ... })`, `assert(a == b, "m")`,
   `while(i < n, { ... })` — never wrap a comma-delimited argument again.

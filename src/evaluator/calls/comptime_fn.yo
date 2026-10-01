@@ -89,7 +89,7 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < somes.len()) && !(found), {
+  while((i < somes.len()) && !found, {
     match(
       somes.get(i),
       .Some(.SomeT({ resolution : has_rc })) => if(has_rc.is_none(), {
@@ -129,7 +129,7 @@ _ctfe_same_id_type_args_agree :: (fn(aty : TypeValue, bty : TypeValue, d : usize
   });
   (i : usize) = usize(0);
   while(i < a_ta.len(), {
-    if(!(_ctfe_types_era_equal(match(a_ta.get(i), .Some(t) => t, .None => t_unit()), match(b_ta.get(i), .Some(t) => t, .None => t_unit()), d + usize(1))), {
+    if(!_ctfe_types_era_equal(match(a_ta.get(i), .Some(t) => t, .None => t_unit()), match(b_ta.get(i), .Some(t) => t, .None => t_unit()), d + usize(1)), {
       return(false);
     });
     i = (i + usize(1));
@@ -163,7 +163,7 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
         while((tai < a_ta.len()) && ta_ok, {
           at2 := match(a_ta.get(tai), .Some(t) => t, .None => t_unit());
           bt2 := match(b_ta.get(tai), .Some(t) => t, .None => t_unit());
-          if(!(recur(at2, bt2, d + usize(1))), {
+          if(!recur(at2, bt2, d + usize(1)), {
             ta_ok = false;
           });
           tai = (tai + usize(1));
@@ -195,7 +195,7 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
             while((ffi < a_fl.len()) && vf_ok, {
               af2 := match(a_fl.get(ffi), .Some(t) => t, .None => t_unit());
               bf2 := match(b_fl.get(ffi), .Some(t) => t, .None => t_unit());
-              if(!(recur(af2, bf2, d + usize(1))), {
+              if(!recur(af2, bf2, d + usize(1)), {
                 vf_ok = false;
               });
               ffi = (ffi + usize(1));
@@ -208,10 +208,10 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
         // have identical variant fields and must still be two memo keys.
         a_eta := lookup_enum_type_arguments(a_eid);
         b_eta := lookup_enum_type_arguments(b_eid);
-        if((vf_ok && (a_eta.len() > usize(0))) && (a_eta.len() == b_eta.len()), {
+        if(vf_ok && (a_eta.len() > usize(0)) && (a_eta.len() == b_eta.len()), {
           (etai : usize) = usize(0);
           while((etai < a_eta.len()) && vf_ok, {
-            if(!(recur(match(a_eta.get(etai), .Some(t) => t, .None => t_unit()), match(b_eta.get(etai), .Some(t) => t, .None => t_unit()), d + usize(1))), {
+            if(!recur(match(a_eta.get(etai), .Some(t) => t, .None => t_unit()), match(b_eta.get(etai), .Some(t) => t, .None => t_unit()), d + usize(1)), {
               vf_ok = false;
             });
             etai = (etai + usize(1));
@@ -739,14 +739,12 @@ evaluate_comptime_fn_call :: (
     .Func({ meta : __fm2 }) => __fm2.*.forall_labels.len(),
     _ => usize(0)
   );
-  if((
-    (
-      (ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime) &&
-        (!(is_type_hierarchy_type(return_type)))
-    ) &&
-      (!(macro_return_is_unquote(func_id_str.clone())))
-  ) &&
-    (ctfe_gate_forall_n == usize(0)), {
+  if(ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime &&
+    !is_type_hierarchy_type(return_type)
+    &&
+      !macro_return_is_unquote(func_id_str.clone())
+      &&
+        (ctfe_gate_forall_n == usize(0)), {
     if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       eprintln(`[ctfe-check-gate] fid=${func_id_str}`);
     });
@@ -823,7 +821,7 @@ evaluate_comptime_fn_call :: (
     );
     vai = (vai + usize(1));
   });
-  if(!(collect_ok), {
+  if(!collect_ok, {
     exn.throw(
       dyn(
         format_error_message(
@@ -869,7 +867,7 @@ evaluate_comptime_fn_call :: (
   (any_arg_unknown : bool) = false;
   {
     (uai : usize) = usize(0);
-    while((uai < all_arg_vals.len()) && !(any_arg_unknown), {
+    while((uai < all_arg_vals.len()) && !any_arg_unknown, {
       match(
         all_arg_vals.get(uai),
         .Some(v) => if(is_unknown_val(v), {
@@ -893,7 +891,7 @@ evaluate_comptime_fn_call :: (
   // trial time already execute today with SomeT type args (roots 7942/7973
   // measured executing) under the same no-durable-cache regime.
   trial_type_ctor_unknown_ok := (in_def_time_trial() && is_type_hierarchy_type(return_type));
-  if(any_arg_unknown && !(trial_type_ctor_unknown_ok), {
+  if(any_arg_unknown && !trial_type_ctor_unknown_ok, {
     if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       (dbg_args : String) = String.from("");
       (dbg_i : usize) = usize(0);
@@ -947,7 +945,7 @@ evaluate_comptime_fn_call :: (
       while((cti < all_arg_vals.len()) && ok2, {
         match(
           all_arg_vals.get(cti),
-          .Some(v) => if(!(is_type_val(v)), {
+          .Some(v) => if(!is_type_val(v), {
             ok2 = false;
           }),
           .None => {
@@ -959,7 +957,7 @@ evaluate_comptime_fn_call :: (
       ok2
     }
   );
-  (should_cache : bool) = ((is_type_hierarchy_type(return_type) || all_args_are_types) && !(trial_unknown_nocache));
+  (should_cache : bool) = ((is_type_hierarchy_type(return_type) || all_args_are_types) && !trial_unknown_nocache);
   // Checking-phase guard (SomeT surgery slice 2b): a ctfe call whose TYPE
   // args still CONTAIN unresolved SomeTs (analysis/validation generations
   // evaluating a declaration with `Self` bound to a fresh SomeT — the
@@ -1156,7 +1154,7 @@ evaluate_comptime_fn_call :: (
     ),
     .None => usize(0)
   );
-  ctfe_live := (!(any_arg_unknown) && (ctx.ctfe_untaken_arm_depth == ctfe_outer_depth));
+  ctfe_live := (!any_arg_unknown && (ctx.ctfe_untaken_arm_depth == ctfe_outer_depth));
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -1169,7 +1167,7 @@ evaluate_comptime_fn_call :: (
   );
   ctx.is_evaluating_loop_body = .None;
   ctx.captured_variables = .None;
-  ctx.is_executing = (!(ctx.is_validating_function_definition));
+  ctx.is_executing = !ctx.is_validating_function_definition;
   ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
     ArrayList(ImplConcreteTypeInfo).new()
   );
@@ -1304,7 +1302,7 @@ evaluate_comptime_fn_call :: (
   // whatever the alias's arguments are.
   match(
     return_value,
-    .TypeVal(.EnumT({ id : eta_id })) => if(!(eta_id.starts_with("enum_decl_")), {
+    .TypeVal(.EnumT({ id : eta_id })) => if(!eta_id.starts_with("enum_decl_"), {
       register_enum_type_arguments(eta_id, inst_type_args.clone());
     }),
     _ => (),
@@ -1375,7 +1373,7 @@ evaluate_comptime_fn_call :: (
       .TypeVal(rv_disp) => {
         disp_id := match(
           rv_disp,
-          .Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns }) => if((d_snm.len() == usize(0)) && !(d_ns), d_sid, String.from("")),
+          .Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns }) => if((d_snm.len() == usize(0)) && !d_ns, d_sid, String.from("")),
           .EnumT(d_eid, d_enm, _, _, _, _, _, _, _) => if(d_enm.len() == usize(0), d_eid, String.from("")),
           _ => String.from("")
         );

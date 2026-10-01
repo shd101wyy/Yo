@@ -43,6 +43,26 @@ $ rm -rf yo-out && yo build --std-path ./std   # second clean build
 DETERMINISTIC: two clean builds identical
 ```
 
+## Second symptom (measured 2026-10-01): a FAILED build leaves the OLD binary in place
+
+During the parser fix for
+`same-operator-chain-of-four-or-more-is-not-left-associative.md`:
+
+1. `yo build --std-path ./std` on a tree whose `src/parser.yo` carried a
+   type error → the yo-compile child failed
+   (`error[E0606]: Type Tuple(...) cannot be called`), the log printed
+   `Skipping install: a step it depends on failed`, and the build exited
+   rc=1 (correct).
+2. The pre-existing `yo-out/.../bin/yo` from an EARLIER build stayed in
+   place, mtime untouched — so a subsequent test run silently exercised
+   the OLD compiler (measured: a scratch repro through it produced the
+   pre-fix parse results with no warning).
+
+The exit code is honest; the ARTIFACT is not. A failed build must not
+leave a previously-built binary looking current (delete it, or mark it
+stale so nothing downstream trusts it) — the same "every gate can
+unknowingly test the wrong compiler" blast radius as the caching symptom.
+
 Two consecutive clean builds of the same tree are byte-identical, which is
 consistent with the repo gating a byte-identical self-compile fixpoint in CI.
 So the byte difference in step 5 is a real difference in the PRODUCT, not noise:

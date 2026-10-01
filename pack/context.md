@@ -97,10 +97,8 @@ ok := ((x > i32(0)) && (y < i32(9))); // parenthesize comparisons too
 A binary right-hand side must be parenthesized (`E0003`): `x := (a + b);`,
 not `x := a + b;`. The operator set is closed and fixed. Mixing adjacent
 operators (`a && b || c`) needs explicit parens (`E0003`); a chain of ONE
-operator groups left — but keep same-operator chains to three operands:
-four or more mis-group today (open issue
-`same-operator-chain-of-four-or-more-is-not-left-associative`), so write
-`(((a - b) - c) - d)`.
+operator groups left at any length (`a - b - c - d` is
+`(((a - b) - c) - d)`).
 
 ## Control flow: calls, not keywords
 

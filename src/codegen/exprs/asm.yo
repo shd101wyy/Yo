@@ -24,19 +24,18 @@
 // Constraint tables
 // ---------------------------------------------------------------------------
 _is_register_class :: (fn(name : String) -> bool)(
-  (
-    (((name == "reg") || (name == "reg_byte")) || ((name == "reg_abcd") || (name == "xmm_reg"))) ||
-      ((name == "ymm_reg") || (name == "imm"))
-  ) || (name == "mem")
+  (name == "reg") || (name == "reg_byte") || ((name == "reg_abcd") || (name == "xmm_reg")) ||
+    ((name == "ymm_reg") || (name == "imm"))
+    || (name == "mem")
 );
 _explicit_register_constraint :: (fn(name : String) -> Option(String))(
   cond(
-    (((name == "rax") || (name == "eax")) || ((name == "ax") || (name == "al"))) => Option(String).Some(String.from("a")),
-    (((name == "rbx") || (name == "ebx")) || ((name == "bx") || (name == "bl"))) => Option(String).Some(String.from("b")),
-    (((name == "rcx") || (name == "ecx")) || ((name == "cx") || (name == "cl"))) => Option(String).Some(String.from("c")),
-    (((name == "rdx") || (name == "edx")) || ((name == "dx") || (name == "dl"))) => Option(String).Some(String.from("d")),
-    (((name == "rsi") || (name == "esi")) || (name == "si")) => Option(String).Some(String.from("S")),
-    (((name == "rdi") || (name == "edi")) || (name == "di")) => Option(String).Some(String.from("D")),
+    ((name == "rax") || (name == "eax") || ((name == "ax") || (name == "al"))) => Option(String).Some(String.from("a")),
+    ((name == "rbx") || (name == "ebx") || ((name == "bx") || (name == "bl"))) => Option(String).Some(String.from("b")),
+    ((name == "rcx") || (name == "ecx") || ((name == "cx") || (name == "cl"))) => Option(String).Some(String.from("c")),
+    ((name == "rdx") || (name == "edx") || ((name == "dx") || (name == "dl"))) => Option(String).Some(String.from("d")),
+    ((name == "rsi") || (name == "esi") || (name == "si")) => Option(String).Some(String.from("S")),
+    ((name == "rdi") || (name == "edi") || (name == "di")) => Option(String).Some(String.from("D")),
     true => Option(String).None
   )
 );
@@ -120,7 +119,7 @@ _transform_template :: (fn(template : String) -> String)({
         (found_close : bool) = false;
         {
           (j : usize) = (i + usize(1));
-          while((j < n) && !(found_close), {
+          while((j < n) && !found_close, {
             if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
               close_idx = j;
               found_close = true;
@@ -128,7 +127,7 @@ _transform_template :: (fn(template : String) -> String)({
             j = (j + usize(1));
           });
         };
-        if(!(found_close), {
+        if(!found_close, {
           result.push_byte(c);
           i = (i + usize(1));
         }, {
@@ -141,7 +140,7 @@ _transform_template :: (fn(template : String) -> String)({
             while(k < close_idx, {
               ck := match(b.get(k), .Some(x) => x, .None => u8(0));
               cond(
-                ((ck == u8(58)) && !(seen_colon)) => {
+                ((ck == u8(58)) && !seen_colon) => {
                   seen_colon = true;
                 },
                 seen_colon => modifier.push_byte(ck),
@@ -303,7 +302,7 @@ _parse_operand_for_codegen :: (
   if(args.len() >= usize(2), {
     first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     is_reg_class_atom := (ast_expr_is_atom(first) && _is_register_class(_atom_value_cg(first)));
-    if(!(is_reg_class_atom), {
+    if(!is_reg_class_atom, {
       match(
         _cg_comptime_str(first, context),
         .Some(s) => {
@@ -574,11 +573,10 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
     if(ast_expr_is_fn_call(arg), {
       call_name := match(arg, .FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.new());
       is_operand := (
-        (
-          (((call_name == "in") || (call_name == "out")) || ((call_name == "inout") || (call_name == "lateout"))) ||
-            ((call_name == "inlateout") || (call_name == "ref"))
-        ) ||
-          ((call_name == "const_val") || (call_name == "sym"))
+        (call_name == "in") || (call_name == "out") || ((call_name == "inout") || (call_name == "lateout")) ||
+          ((call_name == "inlateout") || (call_name == "ref"))
+          ||
+            ((call_name == "const_val") || (call_name == "sym"))
       );
       cond(
         is_operand => {
@@ -623,13 +621,13 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
           while(i < n, {
             c := match(b.get(i), .Some(x) => x, .None => u8(0));
             (replaced : bool) = false;
-            if((c == u8(123)) && !(match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false)), {
+            if((c == u8(123)) && !match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false), {
               // find close and split ref
               (close_idx : usize) = i;
               (found_close : bool) = false;
               {
                 (j : usize) = (i + usize(1));
-                while((j < n) && !(found_close), {
+                while((j < n) && !found_close, {
                   if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
                     close_idx = j;
                     found_close = true;
@@ -642,7 +640,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
                 {
                   (k : usize) = (i + usize(1));
                   (stop : bool) = false;
-                  while((k < close_idx) && !(stop), {
+                  while((k < close_idx) && !stop, {
                     ck := match(b.get(k), .Some(x) => x, .None => u8(0));
                     if(ck == u8(58), {
                       stop = true;
@@ -661,7 +659,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
                 });
               });
             });
-            if(!(replaced), {
+            if(!replaced, {
               rebuilt.push_byte(c);
               i = (i + usize(1));
             });
@@ -702,7 +700,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
               em.emit_string_line(l);
             },
             ((op.kind == String.from("out")) || (op.kind == String.from("lateout"))) => {
-              if(!(op.is_variable_target) && (op.c_type.len() > usize(0)), {
+              if(!op.is_variable_target && (op.c_type.len() > usize(0)), {
                 vn := `__asm_out_${_next_asm_temp().to_string()}`;
                 temp_names(oi) = vn.clone();
                 l := indent.clone();
@@ -746,8 +744,8 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
       match(
         operands.get(oi),
         .Some(op) => {
-          skip := (((op.kind == String.from("in")) || (op.kind == String.from("const_val"))) || (op.kind == String.from("sym")));
-          if(!(skip), {
+          skip := ((op.kind == String.from("in")) || (op.kind == String.from("const_val")) || (op.kind == String.from("sym")));
+          if(!skip, {
             prefix := cond(
               (op.kind == String.from("lateout")) => String.from("=&"),
               (op.kind == String.from("out")) => String.from("="),
@@ -879,10 +877,10 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
         operands.get(oi),
         .Some(op) => {
           skip := (
-            (op.is_discarded || op.is_variable_target) ||
-              (((op.kind == String.from("in")) || (op.kind == String.from("const_val"))) || (op.kind == String.from("sym")))
+            op.is_discarded || op.is_variable_target ||
+              ((op.kind == String.from("in")) || (op.kind == String.from("const_val")) || (op.kind == String.from("sym")))
           );
-          if(!(skip), {
+          if(!skip, {
             tv := match(temp_names.get(oi), .Some(t) => t, .None => String.new());
             if(tv.len() > usize(0), {
               return_exprs.push(tv);

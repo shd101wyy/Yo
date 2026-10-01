@@ -219,7 +219,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       (is_struct_type(type) && _struct_some_type_is_only_in_function_fields(type, HashSet(String).new()))
       || (is_enum_type(type) && _enum_some_type_is_only_in_function_fields(type, HashSet(String).new()))
     );
-    if(!(keep), {
+    if(!keep, {
       return(());
     });
   });
@@ -236,13 +236,13 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   });
   is_registerable := (
     (
-      ((is_struct_type(type) || is_union_type(type)) || (is_enum_type(type) || is_tuple_type(type)))
+      is_struct_type(type) || is_union_type(type) || (is_enum_type(type) || is_tuple_type(type))
       // FutureTraitT: the generic Future trait-object interface struct — a
       // SEPARATE variant (not a TraitT subtype), so it
       // needs its own clause. Registered so a future-typed parameter's
       // `__yo_future_trait_*` interface struct gets a C name + declaration
       // (generation.yo's is_future_trait_type declaration pass).
-      || ((is_dyn_type(type) || is_trait_type(type)) || is_future_trait_type(type))
+      || (is_dyn_type(type) || is_trait_type(type) || is_future_trait_type(type))
     )
     || (is_module_type(type) || is_iso_type(type))
   );
@@ -273,7 +273,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         g_stable_to_key.insert(stable.clone(), tk.clone());
       }
     );
-    if(!(aliased), {
+    if(!aliased, {
       // A type ADOPTED by a `c_include` (`Color : Type` naming a Yo struct)
       // already has a C name and a definition — the header's. Register THAT
       // name and the header: `collect_c_includes` then emits the `#include`,
@@ -295,7 +295,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     // C name appears as the interface struct's `result` field.
     match(
       type,
-      .FutureTraitT({ output : ftc_out }) => if(!(is_some_type(ftc_out)), {
+      .FutureTraitT({ output : ftc_out }) => if(!is_some_type(ftc_out), {
         recur(ftc_out, context);
       }),
       _ => ()
@@ -310,7 +310,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         while(i < n, {
           match(
             runtime_fields.get(i),
-            .Some(rf) => if(!(is_function_type(rf.ty)), {
+            .Some(rf) => if(!is_function_type(rf.ty), {
               recur(rf.ty, context);
             }),
             .None => ()
@@ -333,7 +333,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(!(is_function_type(ft)), {
+              .Some(ft) => if(!is_function_type(ft), {
                 recur(ft, context);
               }),
               .None => ()
@@ -476,7 +476,7 @@ collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
     snapshot := ArrayList(TypeValue).new();
     vit := context.types.values();
     (done : bool) = false;
-    while(!(done), {
+    while(!done, {
       match(
         vit.next(),
         .Some(entry) => {
@@ -568,7 +568,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
             is_control_fn(fid.clone()) => {
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
-            (!(context.has_function(fid.clone()))) => {
+            !context.has_function(fid.clone()) => {
               context.register_function(fid.clone(), v, function_c_name(fid));
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
@@ -673,7 +673,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
             },
             true => {
               vt := type_of_eval_value(value);
-              if(!(is_function_type(vt)), {
+              if(!is_function_type(vt), {
                 collect_type(vt, context);
               });
             }
@@ -708,7 +708,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     keys := ArrayList(String).new();
     kit := context.functions.keys();
     (kdone : bool) = false;
-    while(!(kdone), {
+    while(!kdone, {
       match(
         kit.next(),
         .Some(k) => {
@@ -723,7 +723,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     (ki : usize) = usize(0);
     while(ki < nk, {
       key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
-      if(!(processed.contains(key.clone())), {
+      if(!processed.contains(key.clone()), {
         processed.insert(key.clone());
         found_new = true;
         match(

@@ -43,13 +43,13 @@ _CAP_MASK :: (_CAP_TAG - usize(1));
 // The tag for bytes `_alloc_bytes` just placed.
 _scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, true => usize(0)));
 // Release bytes the way `_alloc_bytes` placed them.
-_free_bytes :: (fn(p : *(u8), capw : usize) -> unit)(
+_free_bytes :: (fn(p : *u8, capw : usize) -> unit)(
   cond(
     ((capw & _CAP_TAG) != usize(0)) => Allocator.free(.Some((*void)(p))),
     true => free(.Some((*void)(p)))
   )
 );
-_alloc_bytes :: (fn(n : usize) -> *(u8))(
+_alloc_bytes :: (fn(n : usize) -> *u8)(
   match(
     match(current_allocator(), .Some(a) => a.alloc(n), .None => malloc(n)),
     .Some(p) => (*u8)(p),
@@ -65,7 +65,7 @@ _alloc_bytes :: (fn(n : usize) -> *(u8))(
 ImmString :: atomic(
   ref(
     struct(
-      _ptr : ?(*(u8)),
+      _ptr : ?*u8,
       _len : usize,
       _capw : usize
     )
@@ -89,7 +89,7 @@ impl(
 impl(
   ImmString,
   // The capacity, without the allocator tag.
-  _capn : (fn(self : Self) -> usize)((self._capw & _CAP_MASK)),
+  _capn : (fn(self : Self) -> usize)(self._capw & _CAP_MASK),
   /// Create a new empty string (zero allocation).
   new : (fn() -> Self)(
     Self(_ptr : .None, _len : usize(0), _capw : usize(0))
@@ -341,7 +341,7 @@ impl(
   }),
   /// Check if a byte is ASCII whitespace.
   _is_whitespace : (fn(b : u8) -> bool)(
-    (((b == u8(0x20)) || (b == u8(0x09))) || (b == u8(0x0A))) || ((b == u8(0x0D)) || (b == u8(0x0C)))
+    (b == u8(0x20)) || (b == u8(0x09)) || (b == u8(0x0A)) || ((b == u8(0x0D)) || (b == u8(0x0C)))
   ),
   /// Trim leading and trailing ASCII whitespace.
   trim : (fn(self : Self) -> Self)({
@@ -356,13 +356,13 @@ impl(
       .Some(p) => {
         start := usize(0);
         while(
-          (start < self._len) && (Self._is_whitespace((p.add(start)).*)),
+          (start < self._len) && Self._is_whitespace((p.add(start)).*),
           start = (start + usize(1)),
           ()
         );
         end := self._len;
         while(
-          (end > start) && (Self._is_whitespace((p.add(end - usize(1))).*)),
+          (end > start) && Self._is_whitespace((p.add(end - usize(1))).*),
           end = (end - usize(1)),
           ()
         );
@@ -386,7 +386,7 @@ impl(
       .Some(p) => {
         start := usize(0);
         while(
-          (start < self._len) && (Self._is_whitespace((p.add(start)).*)),
+          (start < self._len) && Self._is_whitespace((p.add(start)).*),
           start = (start + usize(1)),
           ()
         );
@@ -410,7 +410,7 @@ impl(
       .Some(p) => {
         end := self._len;
         while(
-          (end > usize(0)) && (Self._is_whitespace((p.add(end - usize(1))).*)),
+          (end > usize(0)) && Self._is_whitespace((p.add(end - usize(1))).*),
           end = (end - usize(1)),
           ()
         );
@@ -510,7 +510,7 @@ impl(
     pos := usize(0);
     (done_n : usize) = usize(0);
     done := false;
-    while(!(done), {
+    while(!done, {
       cond(
         // Budget spent: copy the unreplaced remainder and stop.
         (bounded && (done_n >= limit)) => {
@@ -795,10 +795,10 @@ impl(
     if(end > self._len, {
       return(.None);
     });
-    if(!(self.is_char_boundary(start)), {
+    if(!self.is_char_boundary(start), {
       return(.None);
     });
-    if(!(self.is_char_boundary(end)), {
+    if(!self.is_char_boundary(end), {
       return(.None);
     });
     return(.Some(self.slice(start, end)));
@@ -830,7 +830,7 @@ impl(
       )
     }),
     (!=) : (fn(self : Self, other : Self) -> bool)({
-      return(!(Self.(==)(self, other)));
+      return(!Self.(==)(self, other));
     })
   )
 );

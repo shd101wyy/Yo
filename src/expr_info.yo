@@ -1059,7 +1059,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
   before := table.data.len();
   table.data.retain((k, _v) => keep.contains(k));
-  (before - table.data.len())
+  before - table.data.len()
 });
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
@@ -2258,7 +2258,7 @@ purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo :
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  (((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_macro_expansions.len())
+  g_method_callee_types.len() + g_io_builtin_calls.len() + g_method_callee_values.len() + g_macro_expansions.len()
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);

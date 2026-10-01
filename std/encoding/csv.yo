@@ -127,7 +127,7 @@ parse_with :: (
         start := i;
         i = (i + usize(1));
         (closed : bool) = false;
-        while((i < n) && !(closed), {
+        while((i < n) && !closed, {
           c := bytes(i);
           cond(
             (c == _QUOTE) => cond(
@@ -146,7 +146,7 @@ parse_with :: (
             }
           );
         });
-        if(!(closed), {
+        if(!closed, {
           return(.Err(.UnterminatedQuote(start : start)));
         });
         in_record = true;
@@ -154,7 +154,7 @@ parse_with :: (
         // may follow.
         if(i < n, {
           nb := bytes(i);
-          if(((nb != opts.delimiter) && (nb != _CR)) && (nb != _LF), {
+          if((nb != opts.delimiter) && (nb != _CR) && (nb != _LF), {
             return(.Err(.UnexpectedAfterQuote(pos : i, byte : nb)));
           });
         });
@@ -230,7 +230,7 @@ _needs_quotes :: (fn(field : String, delimiter : u8) -> bool)({
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes(i);
-    if((((b == delimiter) || (b == _QUOTE)) || (b == _CR)) || (b == _LF), {
+    if((b == delimiter) || (b == _QUOTE) || (b == _CR) || (b == _LF), {
       return(true);
     });
   });

@@ -1687,21 +1687,19 @@ val := .Some(oi.ty);
 val := Option(TypeValue).Some(oi.ty);
 ```
 
-### Operator chains: 2–3 same-operator operands group left; 4+ mis-group
+### Operator chains: one operator groups left at any length
 
-Mixing adjacent operators still needs explicit parentheses (E0003), and a
-chain of one operator with up to THREE operands groups left with no parens.
-FOUR or more same-operator operands mis-group today
-(`issues/same-operator-chain-of-four-or-more-is-not-left-associative.md`:
-`20 - 5 - 4 - 3` evaluates to 16) — parenthesize until the parser fix
-lands:
+Mixing adjacent operators still needs explicit parentheses (E0003); a
+chain of ONE operator left-associates at every operand count (fixed
+2026-10-01 — before, four or more spliced one level too high, see
+`issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`):
 
 ```rust
 // ✅ Three same-operator operands — fine:
 if ((is_tuple_type(ty) || is_struct_type(ty) || is_union_type(ty)), ...)
 
-// ✅ Four operands — keep explicit parens (4+ mis-group today):
-x := (((a - b) - c) - d);
+// ✅ Four operands — also left-associative since the fix:
+x := (a - b - c - d); // (((a - b) - c) - d)
 ```
 
 ### Duplicate imports from the same path must be merged

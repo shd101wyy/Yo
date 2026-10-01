@@ -243,7 +243,7 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
     (next : Option(AstExpr)) = match(
       cur,
       .FnCall(_, callee, args, _, _) => cond(
-        (ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2)))) => args.get(usize(0)),
+        ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))) => args.get(usize(0)),
         // An index write `a(i)`: the callee is the place.
         true => Option(AstExpr).Some(callee)
       ),
@@ -275,7 +275,7 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
   match(
     vars.last(),
     .Some(v) => cond(
-      (((v.is_owning_the_rc_value || v.is_ref) || v.is_compile_time_only) || v.is_module_level) => Option(Variable).None,
+      (v.is_owning_the_rc_value || v.is_ref || v.is_compile_time_only || v.is_module_level) => Option(Variable).None,
       true => Option(Variable).Some(v)
     ),
     .None => Option(Variable).None
@@ -300,7 +300,7 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
         match(args.get(usize(0)), .Some(a) => a, .None => expr)
       ),
       // A labelled argument `label : place` — the place is the second child.
-      (ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))) => recur(
+      ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2))) => recur(
         match(args.get(usize(1)), .Some(a) => a, .None => expr)
       ),
       true => recur(callee)
@@ -336,7 +336,7 @@ _module_global_root_var :: (
   });
   match(
     variables.last(),
-    .Some(v) => if((v.is_module_level && !v.is_compile_time_only) && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
+    .Some(v) => if(v.is_module_level && !v.is_compile_time_only && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
 });
@@ -665,7 +665,7 @@ evaluate_assignment :: (
     // (issues/fixed/assignment-to-call-expression-silently-accepted.md). The
     // recognised call-shaped places are `x.a` (a `.` call) and `arr(i)` (an
     // Index-trait callee, whose callee is a VALUE, not a function).
-    if(!(ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2)))), {
+    if(!ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         lhs,
         .FnCall(_, lhs_callee, _, _, _) => match(
@@ -781,8 +781,8 @@ evaluate_assignment :: (
           what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
           // The place as written: `p.s`, not the printer's `(p.s)`.
           place_text := ast_expr_to_string(lhs);
-          if((place_text.starts_with("(") && place_text.ends_with(")")), {
-            place_text = place_text.substring(usize(1), (place_text.len() - usize(1)));
+          if(place_text.starts_with("(") && place_text.ends_with(")"), {
+            place_text = place_text.substring(usize(1), place_text.len() - usize(1));
           });
           fix := cond(
             bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
@@ -1085,7 +1085,7 @@ evaluate_assignment :: (
         if(bvars.len() == usize(0), false, match(bvars.last(), .Some(v) => v.is_compile_time_only, .None => false))
       })
     };
-    if((!is_comptime_only_prop && lhs_info.value.is_some()) && prop_rhs_info.value.is_some() && base_var_is_comptime, {
+    if(!is_comptime_only_prop && lhs_info.value.is_some() && prop_rhs_info.value.is_some() && base_var_is_comptime, {
       if(expr_info_index_trait_ptr_type(lhs_info).is_none(), {
         is_comptime_only_prop = true;
       });
@@ -1275,8 +1275,8 @@ Bound type: ${type_to_string(mcb_v.ty)}`
   // `(g : T) = init` reaches this arm too, as the initialization of the
   // binding at its own declaration token — that is not a write.
   d1_lhs_tok := ast_expr_token(lhs_resolved);
-  d1_is_decl_init := (((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column)) && (d1_lhs_tok.module_path == variable.token.module_path));
-  if(((variable.is_module_level && !variable.is_compile_time_only) && !d1_is_decl_init) && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
+  d1_is_decl_init := ((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column) && (d1_lhs_tok.module_path == variable.token.module_path));
+  if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
     _d1_record_write(variable, ast_expr_token(lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Evaluate the RHS.

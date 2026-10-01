@@ -2027,10 +2027,10 @@ _unmet_trait_message :: (fn(concrete : TypeValue, tv : TypeValue, env : Environm
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
     want := match(wants.get(i), .Some(t) => t, .None => TypeValue.Unit);
     i = (i + usize(1));
-    if(!(is_some_type(want)) && (get_all_some_types(want).len() == usize(0)), {
+    if(!is_some_type(want) && (get_all_some_types(want).len() == usize(0)), {
       match(
         resolve_assoc_type_for_target(concrete, label.clone(), env),
-        .Some(got) => if(!(are_types_compatible(got, want)), {
+        .Some(got) => if(!are_types_compatible(got, want), {
           return(`${base}: its associated type ${label} is ${type_to_string(got)}, not ${type_to_string(want)}.`);
         }),
         .None => ()
@@ -5224,7 +5224,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
             some_resolution(tas_r),
             .Some(tas_g) => {
               // The env left the slot as itself: this is its own resolution.
-              if(!(_env_rebound_to_another_some(tas_st, tas_r)), {
+              if(!_env_rebound_to_another_some(tas_st, tas_r), {
                 tas_own = true;
               });
               tas_r = tas_g;
@@ -5335,7 +5335,7 @@ purge_function_side_tables :: (fn(ids : ArrayList(String)) -> unit)({
 });
 export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
-function_side_table_entry_count :: (fn() -> usize)(((((((((((((((((g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len()) + g_func_param_defaults.len()) + g_func_variadic_params.len()) + g_func_param_assigned_values.len()) + g_func_param_comptime.len()) + g_func_return_type_expr.len()) + g_func_param_default_exprs.len()) + g_func_param_type_exprs.len()) + g_func_where_constraints.len()) + g_func_where_clause_exprs.len()) + g_func_requires_exprs.len()) + g_func_ensures_exprs.len()) + g_func_decreases_expr.len()) + g_func_assumed_body.len()) + g_func_refined_params.len()) + g_func_return_label.len()));
+function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len() + g_func_param_defaults.len() + g_func_variadic_params.len() + g_func_param_assigned_values.len() + g_func_param_comptime.len() + g_func_return_type_expr.len() + g_func_param_default_exprs.len() + g_func_param_type_exprs.len() + g_func_where_constraints.len() + g_func_where_clause_exprs.len() + g_func_requires_exprs.len() + g_func_ensures_exprs.len() + g_func_decreases_expr.len() + g_func_assumed_body.len() + g_func_refined_params.len() + g_func_return_label.len());
 export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters);
 export(apply_where_clause_constraints);
