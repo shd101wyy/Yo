@@ -1492,8 +1492,8 @@ test("the mutators' length contracts hold at the edges: spare_capacity + assume_
   xs.push(i32(1));
   cap := xs.capacity();
   spare := xs.spare_capacity().unwrap();
-  assert(spare.len == (cap - usize(1)), "the spare slice is [len, capacity)");
-  spare.ptr.* = i32(7);
+  assert(xs.ptr().unwrap().add(usize(1)) == spare, "the spare pointer is ptr() + len()");
+  spare.* = i32(7);
   xs.assume_init(usize(1), spare);
   assert(xs.len() == usize(2), "assume_init commits the written slot");
   assert(xs(usize(1)) == i32(7), "the committed slot holds what was written");
