@@ -429,3 +429,40 @@ test("an aborted task does not release a local copied from its capture", {
   _abort_alias(io);
   assert(g_disposed == i32(1), "the capture releases it once; the copy owns nothing");
 });
+// issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md
+ThingHolder :: ref(struct(t : Thing, n : i32));
+_store_then_read :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(3));
+    e.await(yield(e), e);
+    h := ThingHolder(t : t, n : t.n);
+    e.await(yield(e), e);
+    h.n + t.n
+  })
+);
+test("a local stored in a field stays readable across the next await", {
+  g_disposed = i32(0);
+  r := io.await(_store_then_read(io), io);
+  assert(r == i32(6), "both reads see the stored local");
+  assert(g_disposed == i32(1), "the local and the field share one object, released once");
+});
+_store_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    t := Thing(n : i32(3));
+    e.await(yield(e), e);
+    h := ThingHolder(t : t, n : t.n);
+    e.await(sleep(u64(50)), e);
+    h.n + t.n
+  })
+);
+_abort_store :: (fn(io : Io) -> unit)({
+  h := io.spawn(_store_then_sleep(io), io);
+  io.await(sleep(u64(10)), io);
+  h.abort();
+  _r := h.await(io);
+});
+test("aborting a task after it stored a local in a field releases the local once", {
+  g_disposed = i32(0);
+  _abort_store(io);
+  assert(g_disposed == i32(1), "the abort releases the local and the holder, and the object once");
+});
