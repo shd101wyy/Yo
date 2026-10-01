@@ -67,8 +67,6 @@ import("std/fmt");
 } :: import("../../types/env_lookup.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ debug_knob } :: import("../../utils.yo");
-{ eprintln } :: import("std/fmt");
 { is_valid_variable_name } :: import("../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
@@ -5021,12 +5019,16 @@ _resolve_some_types_deep :: (
     if(is_bound_closure_identity(resolved), {
       resolved = resolve_cell_chain(resolved);
     });
-    tmp_probe_on := debug_knob(`YO_TMP_RSD_PROBE`).is_some();
-    tmp_fix_off := debug_knob(`YO_TMP_RSD_OFF`).is_some();
-    if(rebound_to_some && is_some_type(resolved) && tmp_probe_on, {
-      eprintln(`[rsd-probe] st=${type_to_string(st)} st_id=${match(st, .SomeT({ id : pa }) => pa, _ => String.from(""))} r=${type_to_string(resolved)} r_id=${match(resolved, .SomeT({ id : pb }) => pb, _ => String.from(""))} ty=${type_to_string(ty)}`);
-    });
-    if(!is_some_type(resolved) || (rebound_to_some && !(tmp_fix_off)), {
+    // A slot the env rebound to ANOTHER SomeType with no concrete resolution
+    // (the callee's `U := T` when the argument's type carries the CALLER's
+    // unresolved binder) substitutes to that SomeType at every depth, as the
+    // bare-SomeT branch above already does by returning `r`. Keeping only
+    // concrete resolutions here left `slot : *(U)` re-evaluating to `*(U)`
+    // while a bare `slot : U` became `T`, and Step 8 of the parameter check
+    // then rejected `*(T)` against `*(U)` — the prelude's `GcTracer.visit`
+    // failed its definition-time trial on every `check`
+    // (issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md).
+    if(!is_some_type(resolved) || rebound_to_some, {
       match(
         st,
         .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
