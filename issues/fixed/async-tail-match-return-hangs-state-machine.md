@@ -3,9 +3,9 @@
 **Severity:** S1 — a mid-body `return` in a tail match makes the state machine hang forever at runtime, even off the arm
 
 **Found**: 2026-08-28 adding the walk-pattern filter to `std/fs/walker.yo`
-(branch `p1/glob-expansion`). **Status**: OPEN — std avoids the shape (the
-filter moved into a sync helper called as the tail expression); the shape
-itself remains a codegen hazard.
+(branch `p1/glob-expansion`). **Status**: FIXED by the single-pass lowering
+(#1002/#1018, phase 5, which deleted the segment lowering this hung under).
+Verified 2026-10-01 with the original recipe; see the last section.
 
 ## Shape
 
@@ -60,3 +60,20 @@ shape passes both on the v0.2.45 seed and on the single-pass lowering, so
 there is still no reproducer. Left open until one is distilled from a real
 failure; if you meet it again, file the reproducer rather than rewriting
 around it.
+
+## Verified fixed 2026-10-01 (v0.2.47 seed, the single-pass lowering)
+
+**Measured**, using the doc's own recipe: a copy of develop's std with the
+original tail put back into `walk_with`. The tail is the `match` on
+`options.pattern` whose `.Some` arm filters and does `return(kept)`, with
+`results` after it.
+- **Without it:** a plain walk hung on its first call (`rc=124`).
+- **With it now:** `tests/fs/walker.test.yo` passes 8/8 with no hang, plain walks and glob walks alike.
+
+The regression test is `tests/async/sm_shapes_4.test.yo`'s
+`shape tail_match_return`, which runs both arms with a yielding and a
+synchronous inner future against the same body written synchronously. It
+passes.
+
+std keeps the filter in a sync helper (`_filter_by_pattern`), which is
+plain structure, not a workaround. Its comment no longer blames a hang.

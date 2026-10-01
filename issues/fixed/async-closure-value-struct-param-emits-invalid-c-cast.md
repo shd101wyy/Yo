@@ -13,7 +13,7 @@ agreement. Behavioral regression:
 across an await; the value survives the suspension, both reads agree).
 The follow-up cluster (import-cascade swallows, `.io` projection
 position-dependence, resume UAF) is split out and remains OPEN as
-`issues/async-capture-mode-argument-rendering-cluster.md`.
+`issues/fixed/async-capture-mode-argument-rendering-cluster.md`.
 
 Originally surfaced 2026-09-07 by Phase V2 of
 `plans/backlog/FORMAL_VERIFICATION.md` — `src/verifier/driver.yo`'s async

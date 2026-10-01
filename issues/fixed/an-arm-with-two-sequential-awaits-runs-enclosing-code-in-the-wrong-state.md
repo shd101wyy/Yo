@@ -15,7 +15,7 @@
   twice). Expected `0,1,33`, got `0,2,24`.
 
 This may be the minimized form of the unminimized
-`issues/async-await-nested-if-lost-continuation.md`.
+`issues/retired/async-await-nested-if-lost-continuation.md`.
 
 ## Root cause
 

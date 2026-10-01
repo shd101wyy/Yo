@@ -12,6 +12,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { __yo_async_yield_start } :: import("std/sys/externs");
 { IoFuture } :: import("std/sys/future");
+{ Error, Exception, IoExn } :: import("std/error");
+{ ToString } :: import("std/fmt");
 
 (g_disposed : i32) = i32(0);
 Thing :: ref(struct(n : i32));
@@ -243,7 +245,7 @@ test("two io.async closures that update a module global", {
   assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
 });
 
-// issues/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair)
+// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair)
 test("an aborted task drops a pattern binding's scrutinee once", {
   before := g_disposed;
   {
@@ -465,4 +467,36 @@ test("aborting a task after it stored a local in a field releases the local once
   g_disposed = i32(0);
   _abort_store(io);
   assert(g_disposed == i32(1), "the abort releases the local and the holder, and the object once");
+});
+// An awaitless `match` in a task whose `.Err` arm MOVES its payload into a
+// thrown `dyn`: the handler unwinds, and the aborted task's dispose must not
+// drop that payload a second time through the scrutinee
+// (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md, the
+// move-out pair). `keep` shares the payload's Thing: exactly one release
+// leaves its count at 1, a double drop takes it to 0, a leak leaves it at 2.
+Oops :: ref(struct(thing : Thing));
+impl(Oops, ToString(to_string : (self -> String.from("oops"))));
+impl(Oops, Error());
+_classify :: (fn(t : Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t)));
+_move_into_throw :: (fn(t : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    match(
+      _classify(t),
+      .Err(o) => e.exn.throw(dyn(o)),
+      .Ok(v) => v
+    )
+  })
+);
+_throw_moved :: (fn(t : Thing, io : Io) -> bool)({
+  exn := Exception(throw : (_err -> unwind(true)));
+  _v := io.await(_move_into_throw(t, io), IoExn(io : io, exn : exn));
+  false
+});
+test("an arm that moves its payload into a thrown dyn: the aborted task releases it once", {
+  g_disposed = i32(0);
+  keep := Thing(n : i32(7));
+  assert(_throw_moved(keep, io), "the throw unwinds to the handler");
+  assert(rc(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
+  assert(g_disposed == i32(0), "keep is still alive");
 });

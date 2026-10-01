@@ -1,7 +1,8 @@
 //! Socket address and option queries — the raw syscall boundary.
 //!
 //! The four synchronous socket-metadata calls: `getsockname`, `getpeername`,
-//! `getsockopt`, `setsockopt`. They are here rather than in `std/sys/tcp`
+//! `getsockopt`, `setsockopt`, and `own_stream_socket`, the one option
+//! `std/net` sets on every stream it creates. They are here rather than in `std/sys/tcp`
 //! because they do not submit I/O and so need no `IoFuture` — the kernel
 //! answers from the socket's own state. `std/net/tcp.yo` and
 //! `std/net/udp.yo` are the public surface (`local_addr`, `peer_addr`, and
@@ -19,6 +20,8 @@
 //! option surface; `std/net` is the stable layer meanwhile.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_getsockname, __yo_sync_getpeername, __yo_sync_getsockopt, __yo_sync_setsockopt } :: import("./externs.yo");
+{ SOL_SOCKET, SO_NOSIGPIPE } :: import("./socket");
+{ platform, Platform } :: import("../process");
 /// Read the LOCAL address `sockfd` is bound to into `addr` — POSIX
 /// `getsockname(2)`. `addrlen` is in/out: set it to the capacity of `addr`
 /// (`sockaddr_storage_size()` is the safe choice) and it comes back holding
@@ -57,9 +60,28 @@ getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen
 setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> i32)(
   __yo_sync_setsockopt(sockfd, level, optname, optval, optlen)
 );
+/// Make a stream socket safe for `std/sys/tcp`'s and `std/sys/unix`'s
+/// `stream_write`: on macOS, set `SO_NOSIGPIPE`, so a write to a closed peer
+/// returns `EPIPE` instead of raising `SIGPIPE`. Nothing else is needed: the
+/// runtime makes every socket it creates or accepts non-blocking, Linux's
+/// `stream_write` passes `MSG_NOSIGNAL`, and Windows has no `SIGPIPE`.
+///
+/// Returns 0, or the negative errno of the failed `setsockopt`. A caller must
+/// not write such a socket with `stream_write`; `std/net` fails the connect or
+/// accept instead, as libuv's `uv__stream_open` does.
+own_stream_socket :: (fn(sockfd : i32) -> i32)(
+  cond(
+    (platform == Platform.Macos) => {
+      one := i32(1);
+      __yo_sync_setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (*u8)(&one), u32(4))
+    },
+    true => i32(0)
+  )
+);
 export(
   getsockname,
   getpeername,
   getsockopt,
-  setsockopt
+  setsockopt,
+  own_stream_socket
 );

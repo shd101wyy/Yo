@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
 { IoFuture } :: import("./future.yo");
-{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_close_start, __yo_sockaddr_un_set_path, __yo_sockaddr_un_get_path, __yo_sockaddr_set_family } :: import("./externs.yo");
+{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_stream_write_start, __yo_async_recv_start, __yo_async_close_start, __yo_sockaddr_un_set_path, __yo_sockaddr_un_get_path, __yo_sockaddr_set_family } :: import("./externs.yo");
 { AF_UNIX, SOCK_STREAM, SOCK_DGRAM, sockaddr_un_size } :: import("./socket.yo");
 // ============================================================================
 // UnixAddr - sockaddr_un buffer with pointer and length
@@ -108,6 +108,20 @@ connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
 send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
+/// Write from `buf` on a connected stream socket that `std/net` owns — the
+/// cheapest write entry point per platform: `write(2)` on macOS,
+/// `send(MSG_NOSIGNAL)` on Linux, the ordinary send elsewhere. Resolves to the
+/// number of bytes accepted (possibly fewer than `len`), or a negative errno.
+///
+/// **Precondition: the socket is non-blocking and, on macOS, has
+/// `std/sys/socket`'s `SO_NOSIGPIPE` set.** `write(2)` takes no flags, so on a
+/// socket without `SO_NOSIGPIPE` a write to a closed peer raises `SIGPIPE`.
+/// Every socket the runtime creates or accepts is non-blocking; `std/net` sets
+/// `SO_NOSIGPIPE` when it creates a stream. Use `send` with `MSG_NOSIGNAL` on a
+/// socket nobody configured.
+stream_write :: (fn(sockfd : i32, buf : *u8, len : usize) -> IoFuture)(
+  __yo_async_stream_write_start(sockfd, buf, len)
+);
 /// Receive on a connected socket — POSIX `recv(2)`. Resolves to the number of
 /// bytes read, or a negative errno. On a `SOCK_STREAM` socket **0 means the
 /// peer closed**; on a `SOCK_DGRAM` one it is a zero-length message.
@@ -170,6 +184,7 @@ export(
   accept,
   connect,
   send,
+  stream_write,
   recv,
   close,
   make_sockaddr_un,
