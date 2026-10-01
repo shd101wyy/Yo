@@ -50,6 +50,10 @@ pragma(Pragma.AllowUnsafe);
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
 /// before any lazy `::` definition can be forced by an importer.
 (g_ghost_inline_stack : ArrayList(String)) = ArrayList(String).new();
+/// A3: the transparent callees whose definitions are being walked, and why
+/// the last attempt failed (read by the caller's subset message).
+(g_transparent_defining : ArrayList(String)) = ArrayList(String).new();
+(g_transparent_reason : String) = String.new();
 {
   get_func_requires_exprs,
   get_func_ensures_exprs,
@@ -5600,20 +5604,46 @@ _sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
   out
 });
 /// A3: try the definitional encoding for an uncontracted callee, silently.
-/// A failure (a body outside the subset, a body that mutates an argument)
-/// leaves no trace: the subset error and the mutation record are restored,
-/// and the caller reports the ordinary "callee without contracts".
+/// A failure (a body outside the subset, a body that mutates an argument, a
+/// recursion without `decreases`) leaves no trace: the subset error and the
+/// mutation record are restored, and `g_transparent_reason` says which
+/// property was missing for the caller's "callee without contracts" error.
+///
+/// A recursive callee is transparent only with `decreases(...)`: its own
+/// task proves the measure drops, which keeps the defining axiom
+/// consistent. Without one, `spin(x) = spin(x) + 1` would be an axiom that
+/// proves anything.
 _transparent_call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
+  if(g_transparent_defining.contains(fid.clone()) && get_func_decreases_expr(fid.clone()).is_none(), {
+    g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
+    return(Option(VcTerm).None);
+  });
   saved_err := ctx.subset_error;
   saved_mut := ctx.mutated_names.len();
   saved_ob := ctx.obligations.len();
   saved_keys := ctx.gfn_keys.len();
   saved_decls := ctx.fun_decls.len();
+  g_transparent_reason = String.new();
+  g_transparent_defining.push(fid.clone());
   t := _ghost_fn_app_term(ctx, e, args, fid);
+  _ := g_transparent_defining.pop();
   failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut));
   if(failed, {
+    // The innermost reason wins (a nested callee's recursion); else name
+    // what this attempt hit.
+    if(g_transparent_reason.len() == usize(0), {
+      g_transparent_reason = cond(
+        (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
+        (ctx.subset_error.is_some() && saved_err.is_none()) => match(
+          ctx.subset_error,
+          .Some(se) => `its body is outside the verifier subset (${se.construct})`,
+          .None => String.from("its body is outside the verifier subset")
+        ),
+        true => String.from("its body is outside the verifier subset")
+      );
+    });
     ctx.subset_error = saved_err;
     while(ctx.mutated_names.len() > saved_mut, {
       _ := ctx.mutated_names.pop();
@@ -6067,7 +6097,7 @@ _callee_call_term :: (
       },
       .None => ()
     );
-    _fail_subset(ctx, String.from("call to a callee without contracts"), e);
+    _fail_subset(ctx, `call to a callee without contracts (not spec-transparent: ${g_transparent_reason})`, e);
     return(Option(VcTerm).None);
   });
   // Evaluate the argument terms FIRST (a failure aborts the call), then

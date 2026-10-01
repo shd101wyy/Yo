@@ -10,9 +10,9 @@ the seed, or a cited file.
 
 | Item | State |
 | --- | --- |
-| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`); slice 3: a verified `for` over a list with `produced(xs)` (`feat/verifier-for-produced`). **Left:** the alias frame condition |
+| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`); slice 3: a verified `for` over a list with `produced(xs)` (`feat/verifier-for-produced`); slice 4: `distinct(a, b)` (`feat/verifier-distinct`). **Done** |
 | A2 must-use | done (#1075): E0617, plus the always-exits rule found while landing it |
-| A3 spec-transparent pure fns | slice 1 done (#1075); slice 2 open: recursive callees, a message naming the missing property |
+| A3 spec-transparent pure fns | done: slice 1 (#1075); slice 2 (`feat/verifier-distinct`): a recursive callee is transparent only with `decreases` (without it, an S1: `issues/fixed/a-transparent-callee-that-recurses-without-decreases-proves-anything.md`), and the subset error names the missing property |
 | A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |
 | A5 lexicographic `decreases` | done (#1075) |
 | A6 typestate idiom | docs done (#1075); its S3 (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |

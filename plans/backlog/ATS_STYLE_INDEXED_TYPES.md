@@ -354,6 +354,17 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 > - Fixtures: `valid/for_produced` (copy, `index_of` with `break`,
 >   `count_positive` with `continue`) and its `_false` twin.
 > - **Left: task 5 (the alias frame condition).**
+>
+> **Slice 4 (2026-10-01, `feat/verifier-distinct`): task 5 done. R2 is complete.**
+> - `requires(distinct(a, b))` says two list parameters are different lists,
+>   which lifts R1's rejection of a body that mutates one of them.
+> - A call proves it from where its arguments came from: two different names,
+>   neither bound from an existing list, one a fresh `new()` local or the
+>   pair stated by the caller's own `distinct`. It is a syntactic judgment,
+>   as R1's alias rule is; the model still has no object identity.
+> - `distinct` is proof-only (never spliced) and legal only in a `requires`.
+> - Fixtures: `valid/list_distinct` and its `_false` twin (one list passed as
+>   both refutes; the same body without `distinct` is a subset error).
 
 **Goal:** what ATS does with `prfun` over `dataprop` (sortedness, permutation,
 "element `k` occurs in `xs`") for runtime collections. Today `ghost_fn` is

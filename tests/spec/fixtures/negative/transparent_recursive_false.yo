@@ -1,0 +1,21 @@
+// The negative twin of valid/transparent_recursive.yo.
+pragma(Pragma.Verify);
+
+is_even :: (fn(n : u32, decreases(n)) -> bool)(
+  cond(
+    (n == u32(0)) => true,
+    (n == u32(1)) => false,
+    true => is_even(n - u32(2))
+  )
+);
+
+// REFUTED: six is even.
+six_is_odd :: (fn(ensures(r == is_even(u32(6)))) -> (r : bool))(false);
+
+// SUBSET ERROR in its own task: recursion without decreases.
+spin :: (fn(x : u32) -> u32)(spin(x) + u32(1));
+
+// SUBSET ERROR, naming the missing property: spin is not transparent. Its
+// definition `spin(x) == spin(x) + 1` would be an axiom that proves anything,
+// this false ensures included.
+liar :: (fn(x : u32, ensures(r == spin(x))) -> (r : u32))(u32(0));
