@@ -7,6 +7,9 @@
 // `test(...)` declarations as no-ops; release bundles drop `*.test.yo`.
 { assert } :: import("std/assert");
 { HashSet } :: import("./hash_set");
+{ HashMap } :: import("./hash_map");
+{ MapEntry } :: import("./entry");
+{ SIZE_MAX } :: import("std/libc/stdint");
 test("HashSet delegates to one backing HashMap, reachable as the private _map", {
   set := HashSet(i32).new();
   set.insert(i32(1));
@@ -38,4 +41,26 @@ test("HashSet churn keeps the backing map's live + tombstones under the load thr
   });
   assert(set._map.len() == usize(2000), "size is unchanged by churn");
   assert(set._map.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
+});
+
+// The C35 capacity-overflow guard for the SET half: HashSet allocates through
+// its backing HashMap, so what must refuse the wrap is the map's
+// `_alloc_with_capacity` at the set's own entry width, MapEntry(T, unit)
+// (issues/hash-container-capacity-overflow-guard-has-no-regression-test.md).
+test("the backing map's _alloc_with_capacity rejects a capacity that would overflow at the set's entry width", {
+  big := ((SIZE_MAX / sizeof(MapEntry(i64, unit))) + usize(1));
+  match(
+    HashMap(i64, unit)._alloc_with_capacity(big),
+    .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
+    .Err(.AllocError(_)) => assert(false, "an allocation was attempted: the overflow guard is gone"),
+    .Ok(_) => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
+  );
+});
+
+test("the backing map's _alloc_with_capacity accepts an ordinary capacity at the set's entry width", {
+  match(
+    HashMap(i64, unit)._alloc_with_capacity(usize(16)),
+    .Ok(_) => assert(true, "16 buckets is a normal allocation"),
+    .Err(_) => assert(false, "an ordinary capacity was rejected")
+  );
 });

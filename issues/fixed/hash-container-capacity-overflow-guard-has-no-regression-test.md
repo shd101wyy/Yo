@@ -106,3 +106,28 @@ fixed 2026-08-29 by a nominal name check). Keeping each assertion in its own
 container's test file avoids re-entering that shape at all; if a single
 combined test is written instead, it doubles as a regression guard for that fix
 and should say so.
+
+## Fix (landed 2026-10-01, safe-mode handover §3.3)
+
+Delivered as prescribed, with one shape change the 2026-09-04 text could not
+foresee: `_alloc_with_capacity` became module-private when member visibility
+landed (2026-09-16, `plans/reference/MEMBER_VISIBILITY.md`), so a test in
+`tests/collections/` can no longer call it. The tests are SIBLING tests beside
+the containers instead — `std/collections/hash_map.test.yo` (new, following
+`hash_set.test.yo`'s precedent) and two tests appended to
+`std/collections/hash_set.test.yo` — the sanctioned shape for reaching
+`_`-prefixed members (`yo test ./std` runs them; release bundles drop them).
+
+Each file pins the pair the issue asked for: `(SIZE_MAX / sizeof(MapEntry(..))) + 1`
+is `.Err(.CapacityOverflow)` (not `.Err(.AllocError(..))`, not `.Ok(..)`), and
+an ordinary capacity is `.Ok`. The HashSet half asserts at the set's own entry
+width, `MapEntry(T, unit)`. The set-level `with_capacity` still PANICS on the
+error (its contract), so the `.Err` match is the only observable seam — which
+is exactly what the sibling tests reach.
+
+Verified RED first by disabling the `size_would_overflow` check in
+`_alloc_with_capacity_in`: both overflow tests fail (the ordinary-capacity
+negatives keep passing, so the tests cannot pass by rejecting everything),
+then green with the guard restored. The C35 row in
+`plans/archive/STD_API_AUDIT.md` now says which halves are covered by which
+files.

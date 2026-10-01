@@ -1,0 +1,40 @@
+// SIBLING TEST — lives beside hash_map.yo on purpose. Member visibility
+// (plans/reference/MEMBER_VISIBILITY.md) makes `_`-prefixed members usable
+// only from the declaring module and its same-directory siblings, so this is
+// Yo's shape of Rust's in-file `#[cfg(test)] mod tests`: a test that may
+// reach the private `_alloc_with_capacity` directly, where
+// tests/collections/ may not. `yo test ./std` runs it; `yo check ./std` and
+// normal builds see the `test(...)` declarations as no-ops; release bundles
+// drop `*.test.yo`.
+//
+// This file exists to give the C35 capacity-overflow guard its regression
+// coverage (issues/hash-container-capacity-overflow-guard-has-no-regression-test.md):
+// before it, a revert of the `size_would_overflow` check in
+// `_alloc_with_capacity_in` passed the entire suite green.
+{ assert } :: import("std/assert");
+{ HashMap, MapEntry } :: import("./hash_map");
+{ SIZE_MAX } :: import("std/libc/stdint");
+
+test("_alloc_with_capacity rejects a capacity whose byte size would wrap usize", {
+  // The smallest bucket count whose `count * sizeof(MapEntry)` cannot fit
+  // usize — derived from sizeof, so the boundary stays meaningful on wasm32
+  // where usize is 32 bits (tests/allocator.test.yo derives its shifts the
+  // same way).
+  big := ((SIZE_MAX / sizeof(MapEntry(i64, i64))) + usize(1));
+  match(
+    HashMap(i64, i64)._alloc_with_capacity(big),
+    .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
+    .Err(.AllocError(_)) => assert(false, "an allocation was attempted: the overflow guard is gone"),
+    .Ok(_) => assert(false, "the wrapped capacity was accepted: the overflow guard is gone")
+  );
+});
+
+test("_alloc_with_capacity accepts an ordinary capacity", {
+  // The guard must reject only the wrap: an everyday count comes back .Ok,
+  // so the test above cannot pass by rejecting everything.
+  match(
+    HashMap(i64, i64)._alloc_with_capacity(usize(16)),
+    .Ok(_) => assert(true, "16 buckets is a normal allocation"),
+    .Err(_) => assert(false, "an ordinary capacity was rejected")
+  );
+});
