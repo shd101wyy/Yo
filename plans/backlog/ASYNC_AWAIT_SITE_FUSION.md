@@ -367,8 +367,9 @@ is emitted by the same function, keyed by (node id, site) (§2.1). Exit:
 - `yo.c` size and the compiler's own `check ./src` time recorded, since fusion
   duplicates tails per site. Both must not grow by more than 2%.
 
-**Status (2026-09-30): implemented behind `YO_ASYNC_FUSION=1`, differential
-run pending.** `emit_fused_await` and its helpers are in
+**Status (2026-10-01): implemented behind `YO_ASYNC_FUSION=1`; the fast
+suite passes with it on. The fixpoint with it on, the size numbers and the
+default flip are still to do.** `emit_fused_await` and its helpers are in
 `src/codegen/exprs/async.yo`, reached from `emit_inline_await` through a
 registered hook (`src/codegen/async/_fsm.yo`).
 
@@ -410,6 +411,15 @@ Bugs found and fixed on the way, each with the emitted C that showed it:
 - An alias on the local `e` shadowed the closure-param preference, and a throw
   from a fused tail read an unset field (SIGSEGV).
 - A nested site used fields its caller's struct lacked.
+- After rebasing on #1018 (phase 7), an await whose result p7 keeps in a C
+  local (`g_local_await_results`: nothing can suspend between the await and
+  its use) has no result field, so the fused site stored its tail nowhere and
+  the C read `int32_t t = ;`. The site now declares the same
+  `__yo_await_value` local outside its block. One helper,
+  `inline_await_local_result_type`, makes that decision for both paths.
+- The `YO_DEBUG_FUSION` line for a fused site printed the block's C name,
+  which is derived from the module path and so differs between checkouts.
+  It prints the callee's position, as the `fusable` line does.
 
 Measured so far, with the lowering on:
 
@@ -429,12 +439,22 @@ runtime predates #988, so the wrapper share is smaller than §1.1's):
 | 8-connection ping-pong (ns per round trip) | 4,314 | 4,368 | 4,294 |
 | inline send (ns per op) | 1,378 | 1,419 | 1,391 |
 
+The differential on develop after #1018 (v0.2.47 seed, 2026-10-01), lowering
+on unless noted:
+
+| Run | Result |
+| --- | --- |
+| fusion, fs_convenience, net/tcp, off and on | 8/8, 16/16, 24/24 both ways |
+| fast suite (`tests/` minus internal and cli-cases) | 4,876 passed, 0 failed |
+| `gates_fast.sh`: corpus, `check ./std`, `check ./src`, init, fmt, embedded Yo | all pass (156, 177, 278 files) |
+| `gates_fast.sh`: CLI cases | 323 pass. Diffs: 3 are #1018's rc 139 crash (fixed separately by #1072), and `async-await-fusion-verdicts`, whose golden is the lowering-off output. With the lowering on it prints `fused`, the case `async-await-fusion-lowered` pins. |
+
 Ping-pong is at raw, inside the 2% exit. Inline send is 13 ns an op over raw
 against the 5 ns exit; the remaining cost is not yet accounted for. Still to
 do:
 
-- the full differential (fast suite and `gates_fast.sh` with the lowering on,
-  the fixpoint included);
+- the fixpoint with the lowering on (`fixpoint_only.sh`: the compiler built
+  with fusion compiles itself to the same C);
 - the `yo.c` size and `check ./src` numbers;
 - then the default flips on, with `YO_ASYNC_FUSION=0` as the switch.
 

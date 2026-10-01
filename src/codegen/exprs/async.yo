@@ -1929,7 +1929,10 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
   effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
-    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} fused (block ${site.block.async_block_id})`);
+    // The callee's position, as the `fusable` line prints it: the block id is
+    // a C name derived from the module path, so it differs between checkouts.
+    callee_at := match(await_fusion_candidate(site.call), .Some(c) => c.callee_at, .None => String.from("?"));
+    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
   outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(low.analysis, context));
