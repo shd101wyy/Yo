@@ -4316,6 +4316,10 @@ run_compile :: (
   // Whether the chunk `.o` cache actually served anything, plus the compile
   // flag prefix — both needed to retry without the cache if the link fails.
   chunk_compile_flags := ArrayList(String).new();
+  // Source files on the cc line besides the program's own C (the bundled
+  // mimalloc `static.c`): compiled once by the link invocation, never replayed
+  // into a chunk's `cc -c`, which accepts one input per `-o`.
+  link_only_sources := ArrayList(String).new();
   (chunk_max_bytes : usize) = usize(0);
   // Phase 0: arm the profiler before anything is evaluated (the module loader
   // and codegen record only when armed). `profile_reset` first so this
@@ -4881,6 +4885,7 @@ run_compile :: (
     if(mim_found, {
       cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
       cmd.arg(mim_static.clone());
+      link_only_sources.push(mim_static.clone());
       println(String.from("Using bundled mimalloc"));
     }, {
       eprintln(String.from("Bundled mimalloc not found, falling back to standard malloc"));
@@ -5024,7 +5029,16 @@ run_compile :: (
       // The compile flags are SNAPSHOT here: `cmd.recorded` keeps growing
       // into the link line (the objects, `-o`, the libraries), and the
       // poisoned-cache retry used to replay that whole line per chunk.
-      chunk_compile_flags = cmd.recorded.clone();
+      // The link-only sources leave the snapshot: each chunk is compiled
+      // alone, and the link line below still compiles them once.
+      (rfi : usize) = usize(0);
+      while(rfi < cmd.recorded.len(), {
+        rf := match(cmd.recorded.get(rfi), .Some(x) => x, .None => String.new());
+        if(!(link_only_sources.contains(rf.clone())), {
+          chunk_compile_flags.push(rf);
+        });
+        rfi = (rfi + usize(1));
+      });
       (cci : usize) = usize(0);
       while(cci < chunk_c_files.len(), {
         match(
