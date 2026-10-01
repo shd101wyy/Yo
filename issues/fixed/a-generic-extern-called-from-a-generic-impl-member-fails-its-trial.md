@@ -83,7 +83,7 @@ SomeT even when it has no concrete resolution. No caller or callee is special-ca
   is the only way to observe it; `comptime_expect_error` does not surface definition-time
   trial errors.
   - Red before: the seed (v0.2.47) fails the golden with three `Type mismatch for parameter
-    "slot"` lines (prelude, `main.yo:9:97`, `main.yo:12:78`). The same-tree build with the
+    "slot"` lines (prelude, `main.yo:9:95`, `main.yo:12:74`). The same-tree build with the
     fix disabled by a temporary knob also fails it.
   - Green after: the fixed build passes.
 - Swallow census, `YO_DEBUG_SWALLOW=1 check ./std` on one binary with the fix disabled vs
