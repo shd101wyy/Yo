@@ -1,0 +1,59 @@
+// A1 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md (R2 of
+// backlog/ATS_STYLE_INDEXED_TYPES.md): a LEMMA is a ghost_fn returning unit
+// with an ensures. Its body is a proof by induction over `decreases`: the
+// recursive call proves the measure drops and its requires, then assumes its
+// ensures (the induction hypothesis). A use proves the lemma's requires and
+// assumes its ensures at those arguments, like ATS's `prfun`.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// v occurs in xs[0..n).
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+// Two lists that agree on [0, n) have the same members there. Z3 does no
+// induction, so this cannot be had without the lemma.
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : ArrayList(i32),
+      b : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+
+// A use: a copy of a prefix keeps every member of that prefix.
+copy_keeps_member :: (
+  fn(
+    xs : ArrayList(i32),
+    v : i32,
+    requires(member(xs, xs.len(), v)),
+    ensures(member(r, xs.len(), v))
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == xs(k))));
+    out.push(xs(i));
+    i = (i + usize(1));
+  });
+  ghost(member_frame(xs, out, xs.len(), v));
+  out
+});
