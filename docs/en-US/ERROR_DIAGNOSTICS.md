@@ -177,6 +177,36 @@ note: raised here, inside the standard library
 - Runtime panics carry a call-site location suffix:
   `panic: <message> (at file://…/app.yo:3:17)`.
 
+## C-compiler diagnostics (`--line-directives`)
+
+Yo compiles through C, and the C compiler's own diagnostics used to be the one
+channel with no Yo location: an error in the generated `yo.c` pointed at a
+line in a machine-generated file nobody reads. `yo compile
+--line-directives` closes that gap. The emitted C carries `#line` directives
+that map every statement back to its `.yo` source, and restore directives that
+give compiler-generated code (drops, async state machines, runtime
+scaffolding) its honest C numbering:
+
+```c
+#line 42 "app.yo"
+  len := __yo_strlen(...);
+#line 2603630 "out.c"
+```
+
+With the flag on:
+
+- a C debugger (lldb/gdb on the compiled binary, ideally with `-g`) steps
+  through `.yo` files — breakpoints on Yo lines and files work;
+- C-compiler diagnostics for code that came from Yo report the `.yo`
+  position, and a failed compile re-renders them as regular structured
+  diagnostics in the selected `--error-format` — `error: incompatible
+  pointer types` shows a `--> app.yo:12:9` anchor like any Yo error;
+- `--emit-chunks` works: each translation unit's restore directives name that
+  unit's own chunk file.
+
+The flag is off by default (it grows the emitted C and is a debugging aid);
+combine it with `-g` when you want a source-level debugging session.
+
 ## Exit codes
 
 Errors exit `1`, success exits `0` — both in every format. Machine consumers

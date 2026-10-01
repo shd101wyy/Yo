@@ -217,6 +217,65 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
     i = (i + usize(1));
   });
 });
+/// Count `\n` bytes — the physical-line accounting `#line` restore numbers
+/// need (plans/reference/LINE_DIRECTIVES.md).
+_emitter_count_newlines :: (fn(s : String) -> usize)({
+  bytes := s.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  (count : usize) = usize(0);
+  while(i < n, {
+    match(
+      bytes.get(i),
+      .Some(b) => if(b == u8(10), {
+        count = (count + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  count
+});
+/// Overwrite byte `i` of the SHARED backing buffer (`as_bytes()` hands back
+/// the internal handle) — the in-place `#line` restore-number patch must not
+/// copy the ~100 MB code buffer the spill lever exists to avoid copying.
+_emitter_set_byte :: (fn(bytes : ArrayList(u8), i : usize, b : u8) -> unit)({
+  match(
+    bytes.ptr(),
+    .Some(p) => {
+      q := p.add(i);
+      unsafe(q.* = b);
+    },
+    .None => ()
+  );
+});
+/// Quote a path for a `#line "…"` directive: escape `\` (a Windows path
+/// separator) and `"` per C's pp-string rules.
+_emitter_quote_c_filename :: (fn(p : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < p.len(), {
+    b := p.byte_at(i);
+    cond(
+      (b == u8(92)) => {
+        out.push_str("\\\\");
+      },
+      (b == u8(34)) => {
+        out.push_str("\\\"");
+      },
+      true => {
+        out.push_byte(b);
+      }
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// The restore-marker prefix: 8 placeholder zeros never occur in a real line
+/// number, so the patch passes (here and in chunk_assembly.yo) can recognize
+/// their own directives and nothing else. A function, not a `::` constant —
+/// a module-level `String.from(...)` is a runtime value.
+line_restore_marker :: (fn() -> String)(String.from("#line 00000000 \""));
 /// Simple string emitter with three output sections.
 ///
 /// Three buffers are maintained separately so that forward declarations
@@ -248,7 +307,24 @@ Emitter :: ref(
     code_spilled_bytes : usize,
     /// Spill once `code` holds this many bytes (`CODE_SPILL_BYTES`; tests
     /// lower it to spill after every function).
-    code_spill_threshold : usize
+    code_spill_threshold : usize,
+    /// `#line` directives (plans/reference/LINE_DIRECTIVES.md): ON = the
+    /// statement flush points map the emitted C back to its `.yo` position and
+    /// compiler-generated regions restore honest C numbering, so a C debugger
+    /// or a C-compiler diagnostic steps through Yo. OFF (default) keeps the
+    /// emission byte-identical to the pre-directive compiler.
+    line_directives : bool,
+    /// The C file name restore directives attribute generated code to (the
+    /// `<output>.c` sidecar). Chunked emission rewrites the name per chunk at
+    /// assembly time (chunk_assembly.yo): the emitter cannot know which chunk
+    /// a function lands in.
+    line_c_name : String,
+    /// The RAW `.yo` path spelling of the last directive (the comparison key —
+    /// a module's tokens always carry one spelling), with its 0-based token
+    /// row. `.None` = honest C numbering (no user directive active). Adjacent
+    /// statements from one `.yo` line pay zero directives.
+    line_last_path : Option(String),
+    line_last_row : usize
   )
 );
 /// The code buffer is spilled once it holds this much (8 MiB).
@@ -266,7 +342,11 @@ impl(
       code_spill_fd : i32(-1),
       code_spill_path : String.new(),
       code_spilled_bytes : usize(0),
-      code_spill_threshold : CODE_SPILL_BYTES
+      code_spill_threshold : CODE_SPILL_BYTES,
+      line_directives : false,
+      line_c_name : String.new(),
+      line_last_path : Option(String).None,
+      line_last_row : usize(0)
     )
   ),
   /// Spill finished code to `path` from now on. The file is created at the
@@ -407,6 +487,153 @@ impl(
   mark_declared_in_scope : (fn(inout(self) : Self, name : String) -> unit)(
     match(self.scope_ref, .Some(st) => st.push(name), .None => ())
   ),
+  /// A `#line` directive must start a physical line: an `emit`/`emit_string`
+  /// fragment with no trailing newline gets its newline first, so a directive
+  /// is never spliced mid-line.
+  _ensure_code_line_start : (fn(inout(self) : Self) -> unit)(
+    if((self.code.len() > usize(0)) && (self.code.byte_at(self.code.len() - usize(1)) != u8(10)), {
+      self.code.push_str("\n");
+    })
+  ),
+  /// [`#line` directives] Attribute the C that follows to `.yo`
+  /// `path`:`row` (a 0-based Token row — the directive prints row+1). Emits a
+  /// directive only when the position CHANGES from the previous statement's,
+  /// so adjacent statements from one `.yo` line pay zero directives. Called by
+  /// the statement flush points (begin/function-body/loop-body/case-body
+  /// loops in src/codegen/).
+  set_yo_line_position : (fn(inout(self) : Self, path : String, row : u32) -> unit)({
+    if(!self.line_directives, {
+      return(());
+    });
+    // Eval-minted and error nodes carry "_", synthesized drops carry "drop",
+    // and macro/derive expansions carry `auto-generated://` pseudo-paths
+    // (which embed the expansion TEXT, newlines included — unusable in a
+    // directive, and the position is not a real source location anyway).
+    if((path.len() == usize(0)) || (((path == String.from("_")) || (path == String.from("drop"))) || path.starts_with(String.from("auto-generated://"))), {
+      return(());
+    });
+    if(path.contains(String.from("\n")), {
+      return(());
+    });
+    match(
+      self.line_last_path,
+      .Some(last) => if((last == path) && (self.line_last_row == usize(row)), {
+        return(());
+      }),
+      .None => ()
+    );
+    norm := path.clone();
+    if(norm.starts_with(String.from("file://")), {
+      norm = norm.slice_copy(usize(7) .. norm.len());
+    });
+    self._ensure_code_line_start();
+    line := String.from("#line ");
+    line.push_string((usize(row) + usize(1)).to_string());
+    line.push_str(" \"");
+    line.push_string(_emitter_quote_c_filename(norm.clone()));
+    line.push_str("\"");
+    self.emit_string_line(line);
+    self.line_last_path = Option(String).Some(path.clone());
+    self.line_last_row = usize(row);
+  }),
+  /// [`#line` directives] Leave user-code attribution: the C that follows is
+  /// compiler-generated (drops, state-machine plumbing, runtime scaffolding),
+  /// so emit a restore directive. The number is the placeholder
+  /// `line_restore_marker` until `patch_restore_line_numbers` runs — the
+  /// header/declaration sizes, which shift every code line, are final only
+  /// when emission is complete. A no-op when honest numbering is already
+  /// active, so the function-boundary call sites cost one bool check.
+  clear_yo_line_position : (fn(inout(self) : Self) -> unit)({
+    if(!self.line_directives, {
+      return(());
+    });
+    match(
+      self.line_last_path,
+      .Some(_) => {
+        self._ensure_code_line_start();
+        line := line_restore_marker();
+        line.push_string(_emitter_quote_c_filename(self.line_c_name.clone()));
+        line.push_str("\"");
+        self.emit_string_line(line);
+        self.line_last_path = Option(String).None;
+      },
+      .None => ()
+    )
+  }),
+  /// [`#line` directives] Replace every restore marker's placeholder zeros
+  /// with the honest physical line number of the line AFTER it, in the final
+  /// `headers ++ "\n" ++ declarations ++ "\n" ++ code` stream. `sections` and
+  /// `print` call this once emission is complete; chunked emission patches the
+  /// same markers per chunk instead (chunk_assembly.yo) and this patch then
+  /// fixes the monolithic `--emit-c` view. In-place byte writes: the code
+  /// buffer is the ~100 MB the spill lever exists to avoid copying.
+  patch_restore_line_numbers : (fn(inout(self) : Self) -> unit)({
+    if(!self.line_directives, {
+      return(());
+    });
+    base := ((_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations)) + usize(2));
+    bytes := self.code.as_bytes();
+    n := bytes.len();
+    marker := line_restore_marker();
+    mb := marker.as_bytes();
+    mlen := mb.len();
+    (ls : usize) = usize(0);
+    (c_nl : usize) = usize(0);
+    while(ls < n, {
+      // Line extent [ls, le); `has_nl` says whether le sits ON the newline.
+      (le : usize) = ls;
+      (has_nl : bool) = false;
+      while((le < n) && !has_nl, {
+        match(
+          bytes.get(le),
+          .Some(b) => if(b == u8(10), {
+            has_nl = true;
+          }, {
+            le = (le + usize(1));
+          }),
+          .None => {
+            le = (le + usize(1));
+          }
+        );
+      });
+      if(((le - ls) >= mlen), {
+        (mi : usize) = usize(0);
+        (all_eq : bool) = true;
+        while((mi < mlen) && all_eq, {
+          a := match(bytes.get(ls + mi), .Some(b0) => b0, .None => u8(0));
+          b := match(mb.get(mi), .Some(b1) => b1, .None => u8(1));
+          if(a != b, {
+            all_eq = false;
+          });
+          mi = (mi + usize(1));
+        });
+        if(all_eq, {
+          // The directive is physical line (base + c_nl + 1); `#line N` names
+          // the line AFTER it, so N = base + c_nl + 2. The number is written
+          // LEFT-aligned over the 8 placeholder digits, space-filled: a
+          // zero-padded number reads as OCTAL to a pre-C99-conforming
+          // preprocessor and clang warns about it.
+          value := ((base + c_nl) + usize(2));
+          if(value > usize(99999999), {
+            value = usize(99999999);
+          });
+          digits := value.to_string();
+          (wi : usize) = usize(0);
+          while(wi < usize(8), {
+            b := if((wi < digits.len()), digits.byte_at(wi), u8(32));
+            _emitter_set_byte(bytes, (ls + usize(6)) + wi, b);
+            wi = (wi + usize(1));
+          });
+        });
+      });
+      if(has_nl, {
+        c_nl = (c_nl + usize(1));
+        ls = (le + usize(1));
+      }, {
+        ls = le;
+      });
+    });
+  }),
   /// The full C source as its parts in order — headers, "\n", declarations,
   /// "\n", code: the bytes of `print()`, sharing the three buffers instead of
   /// concatenating them. With a code spill, the spilled bytes come between
@@ -414,6 +641,7 @@ impl(
   /// concatenated copy (grown by doubling) was the peak of `compile`
   /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
   sections : (fn(inout(self) : Self) -> ArrayList(String))({
+    self.patch_restore_line_numbers();
     parts := ArrayList(String).with_capacity(usize(5));
     parts.push(self.headers);
     parts.push(String.from("\n"));
@@ -424,6 +652,7 @@ impl(
   }),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(inout(self) : Self) -> String)({
+    self.patch_restore_line_numbers();
     result := String.new();
     result.push_string(self.headers);
     result.push_str("\n");
@@ -433,4 +662,4 @@ impl(
     result
   })
 );
-export(Emitter);
+export(Emitter, line_restore_marker);
