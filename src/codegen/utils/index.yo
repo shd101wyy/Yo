@@ -1936,6 +1936,56 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
 /// Extract the target atom name from a deferred drop expression.
 ///   Form A: `varName.drop()` (method-call syntax).
 ///   Form B: `___drop(varName)`.
+/// The target atom of a deferred drop: `(x.___drop)()` or `___drop(x)`.
+get_deferred_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
+  match(
+    drop_expr,
+    .Atom(_, _) => .None,
+    .FnCall(_, func_box, args, _, _) => {
+      if(args.len() == usize(0), {
+        match(
+          func_box,
+          .FnCall(_, _, dot_args, _, _) => if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
+            second_is_drop := match(dot_args.get(usize(1)), .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false), .None => false);
+            if(second_is_drop, {
+              match(
+                dot_args.get(usize(0)),
+                .Some(a) => if(ast_expr_is_atom(a), {
+                  return(.Some(a));
+                }),
+                .None => ()
+              );
+            });
+          }),
+          .Atom(_, _) => ()
+        );
+      });
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, .None) && (args.len() >= usize(1)), {
+        match(
+          args.get(usize(0)),
+          .Some(first_arg) => if(ast_expr_is_atom(first_arg), {
+            return(.Some(first_arg));
+          }),
+          .None => ()
+        );
+      });
+      Option(AstExpr).None
+    }
+  )
+);
+/// The Variable a deferred drop's target atom resolves to (innermost match),
+/// read through that atom's own record (`scope_variables`).
+deferred_drop_target_variable :: (fn(drop_expr : AstExpr, base : CodeGenContext) -> Option(Variable))(
+  match(
+    get_deferred_drop_target_atom(drop_expr),
+    .Some(atom) => match(
+      base.get_expr_info(atom),
+      .Some(aei) => scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value).last(),
+      .None => Option(Variable).None
+    ),
+    .None => Option(Variable).None
+  )
+);
 get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
   match(
     drop_expr,
@@ -2179,5 +2229,8 @@ export(
   get_uses_parallelism,
   get_needs_intel_asm_syntax,
   set_on_demand_declare_fn,
-  fresh_local_counts_reset
+  fresh_local_counts_reset,
+  get_deferred_drop_target_atom,
+  deferred_drop_target_variable,
+  _codegen_name_of_variables
 );
