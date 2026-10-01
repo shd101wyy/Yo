@@ -118,6 +118,29 @@ This turned out NOT to be seed-gated. `markdown_yo` v0.0.9 removed its
 token API. So the compiler bumped the dependency to `^0.0.9` and deleted
 `set_len` in the same change that added `spare_capacity` + `assume_init`.
 
+## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
+
+**Generation A DONE 2026-10-01** (`feat/verifier-for-produced`,
+`issues/fixed/a-quantified-ensures-is-spliced-as-a-runtime-assert.md`): the
+compiler splices only a runtime-checkable `ensures`; a clause that quantifies
+or calls a `ghost_fn` is proof-only. Measured with the v0.2.48 seed: the seed
+splices every `ensures` of a non-verify-target module, so a `forall` in
+std's `push` makes every program that pushes fail with `ghost-only builtin`
+(`YO_STD=<tree>/std yo compile` of a three-line `push` program). The CI jobs
+that compile with the seed and the tree's std (the FV job, the seed-with-tree-std
+build) would all go red. So `push` keeps only its length clause, and the
+fixtures that need its elements (`dml_append_seq`, `dml_sorted_insert`,
+`for_produced`, `lemma_member_frame` and their twins) call a local `assumed()`
+`push_at_end` that states them. A verify target's own `ensures` is not
+spliced by the seed.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying the filter):** add
+to `push`'s `ensures`
+`forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`,
+delete the fixtures' `push_at_end` wrappers (back to `out.push(x)`), and drop
+the "until the seed" sentence from `docs/*/FORMAL_VERIFICATION.md`
+§Sequences over lists.
+
 ## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
 
 **Generation A DONE 2026-09-30** (issues/fixed/verify-by-default-for-a-project.md):

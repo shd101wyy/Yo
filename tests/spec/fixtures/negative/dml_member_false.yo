@@ -1,0 +1,26 @@
+// The false twins of valid/dml_member.yo.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+// REFUTED: the loop stops one element early.
+contains_short :: (fn(xs : ArrayList(i32), v : i32, ensures(r == member(xs, xs.len(), v))) -> (r : bool))({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i + usize(1)) < xs.len(), {
+    invariant(i <= xs.len(), found == member(xs, i, v));
+    if(xs(i) == v, {
+      found = true;
+    });
+    i = (i + usize(1));
+  });
+  found
+});

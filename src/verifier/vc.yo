@@ -43,6 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
+{ is_unit_type } :: import("../types/guards.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
@@ -691,6 +692,11 @@ VcBodyResult :: ref(
 // ============================================================================
 // The executor context
 // ============================================================================
+/// A verified `for(xs, x => body)` (R2 task 4 of
+/// plans/backlog/ATS_STYLE_INDEXED_TYPES.md): the loop runs over a ghost
+/// index `idx_name` from 0 to `len(list)`, `x` is `list[idx]`, and
+/// `produced(<coll_name>)` is the list cut at the index.
+ForFrame :: struct(idx_name : String, coll_name : String, list : VcTerm, elem : VcSort, elem_name : String);
 VcCtx :: ref(
   struct(
     table : ExprInfoTable,
@@ -731,6 +737,9 @@ VcCtx :: ref(
     loop_invariants : ArrayList(AstExpr),
     /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
     loop_measure : Option(AstExpr),
+    /// The ghost index of the loop being walked when it is a `for`: a
+    /// `continue` there moves to the next element before the head.
+    loop_for_idx : Option(String),
     /// The head (havoced) measure TERM of the loop being walked, if any —
     /// a `continue` site proves its own `M(now) < M(head)` step against it.
     head_measure : Option(VcTerm),
@@ -789,7 +798,9 @@ VcCtx :: ref(
     /// R2: the uninterpreted function of every recursive `ghost_fn` walked
     /// so far, and the keys that dedupe their definitional axioms.
     fun_decls : ArrayList(VcFunDecl),
-    gfn_keys : ArrayList(String)
+    gfn_keys : ArrayList(String),
+    /// The `for` loops being walked, innermost last (`produced(xs)`).
+    for_frames : ArrayList(ForFrame)
   )
 );
 _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
@@ -808,6 +819,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     break_sites : ArrayList(BreakSite).new(),
     loop_invariants : ArrayList(AstExpr).new(),
     loop_measure : Option(AstExpr).None,
+    loop_for_idx : Option(String).None,
     head_measure : Option(VcTerm).None,
     path_dead : false,
     loop_depth : usize(0),
@@ -823,7 +835,8 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     axioms : ArrayList(VcTerm).new(),
     ms_axiom_keys : ArrayList(String).new(),
     fun_decls : ArrayList(VcFunDecl).new(),
-    gfn_keys : ArrayList(String).new()
+    gfn_keys : ArrayList(String).new(),
+    for_frames : ArrayList(ForFrame).new()
   )
 );
 _next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
@@ -1887,6 +1900,50 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
       .FnCall(_, _, a, _, _) => a,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
+    // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
+    // two-state term): the head token of `old(self)` is `old`, so the plain
+    // dispatch would read the call as `old(k)` and silently encode `k`. Walk
+    // the callee to its term; a list term makes this an index read.
+    computed_callee := match(
+      e,
+      .FnCall(_, f, _, _, _) => if(ast_expr_is_fn_call_of(f, "old", .Some(usize(1))), Option(AstExpr).Some(f), Option(AstExpr).None),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      computed_callee,
+      .Some(cf) => {
+        if(args.len() != usize(1), {
+          _fail_subset(ctx, String.from("call of a computed callee"), e);
+          return(Option(VcTerm).None);
+        });
+        ct := _expr_term(ctx, cf);
+        les := match(ct, .Some(.Var(_, cs)) => _list_sort_elem(cs), _ => Option(VcSort).None);
+        if(les.is_none(), {
+          _fail_subset(ctx, String.from("call of a computed callee that is not a list"), e);
+          return(Option(VcTerm).None);
+        });
+        idx := _expr_term(ctx, args.get(usize(0)).unwrap());
+        return(
+          match(
+            idx,
+            .Some(it) => {
+              if(ctx.quant_depth == usize(0), {
+                _emit(
+                  ctx,
+                  String.from("index-in-bounds"),
+                  ArrayList(VcTerm).new(),
+                  _lt_unsigned_term(_idx64(it), _list_len_term(les.unwrap(), ct.unwrap())),
+                  _guard_site(e, String.from("index-in-bounds"))
+                );
+              });
+              Option(VcTerm).Some(_app2(VcOp.SelectOp, _list_contents_term(les.unwrap(), ct.unwrap()), _idx64(it)))
+            },
+            .None => Option(VcTerm).None
+          )
+        );
+      },
+      .None => ()
+    );
     head := match(
       e,
       .FnCall(_, f, _, _, _) => ast_expr_token(f).value,
@@ -2877,6 +2934,16 @@ _record_break_site :: (fn(inout(ctx) : VcCtx) -> unit)({
 /// obligation emitted here, not only at the back-edge.
 _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
   (ok : bool) = true;
+  // A `for`'s continue still consumes the element: the head sees idx + 1.
+  saved_idx := match(ctx.loop_for_idx, .Some(nm) => ctx.vars.get(nm.clone()), .None => Option(VcTerm).None);
+  match(
+    ctx.loop_for_idx,
+    .Some(nm1) => {
+      ctx.vars.insert(nm1.clone(), _app2(VcOp.BvAdd, saved_idx.unwrap(), VcTerm.BvLit(value : u64(1), width : usize(64))));
+      ()
+    },
+    .None => ()
+  );
   inv_terms := ArrayList(VcTerm).new();
   (i : usize) = usize(0);
   while(i < ctx.loop_invariants.len(), {
@@ -2913,6 +2980,14 @@ _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
           }
         );
       });
+    },
+    .None => ()
+  );
+  match(
+    ctx.loop_for_idx,
+    .Some(nm2) => {
+      ctx.vars.insert(nm2.clone(), saved_idx.unwrap());
+      ()
     },
     .None => ()
   );
@@ -2977,6 +3052,163 @@ _havoc_assigned :: (fn(inout(ctx) : VcCtx, assigned : ArrayList(String)) -> unit
 /// `decreases(M)`: at iterate, prove `0 <= M` over the havoced state and
 /// `M' < M` over the post-body state (M < M compared SIGNED at M's width —
 /// the measure must be an integer expression).
+/// A loop's invariant conjuncts, walked IN ORDER with each earlier one on
+/// the path while the next is walked (Dafny's well-formedness rule): a
+/// later conjunct's partial reads (`out(at)` after `out.len() == i + 1`,
+/// `at <= i`) are owed only where the earlier ones hold. The path is
+/// restored afterwards; the caller decides whether the terms are a goal or
+/// an assumption.
+_walk_invariants_in_order :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr)) -> Option(ArrayList(VcTerm)))({
+  out := ArrayList(VcTerm).new();
+  mark := ctx.path.len();
+  (i : usize) = usize(0);
+  while(i < invs.len(), {
+    match(
+      _expr_term(ctx, invs.get(i).unwrap()),
+      .Some(t) => {
+        out.push(t);
+        ctx.path.push(t);
+      },
+      .None => {
+        while(ctx.path.len() > mark, {
+          ctx.path.pop();
+        });
+        return(Option(ArrayList(VcTerm)).None);
+      }
+    );
+    i = (i + usize(1));
+  });
+  while(ctx.path.len() > mark, {
+    ctx.path.pop();
+  });
+  Option(ArrayList(VcTerm)).Some(out)
+});
+/// A call node's arguments (empty for an atom).
+_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(
+    e,
+    .FnCall(_, _, cargs, _, _) => cargs.clone(),
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  )
+);
+/// The loop inside a `for`'s value-form expansion: its hoisted invariant
+/// (if any) and the statements of the `.Some(x)` arm, which are the
+/// user's body.
+_for_expansion_loop :: (fn(xp : AstExpr) -> Option(LoopAnnotations))({
+  // The block ends in a unit after the loop: find the `while` statement.
+  outer := _fn_call_args(xp);
+  (wl_opt : Option(AstExpr)) = Option(AstExpr).None;
+  (oi : usize) = usize(0);
+  while((oi < outer.len()) && wl_opt.is_none(), {
+    st := outer.get(oi).unwrap();
+    if(ast_expr_is_fn_call_of(st, "while", Option(usize).Some(usize(2))), {
+      wl_opt = Option(AstExpr).Some(st);
+    });
+    oi = (oi + usize(1));
+  });
+  if(wl_opt.is_none(), {
+    return(Option(LoopAnnotations).None);
+  });
+  wl := wl_opt.unwrap();
+  wbody := _fn_call_args(wl).get(usize(1)).unwrap();
+  (invs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (stmts : ArrayList(AstExpr)) = _fn_call_args(wbody);
+  match(
+    _loop_annotations(wbody),
+    .Some(an) => {
+      invs = an.invariants;
+      stmts = an.body;
+    },
+    .None => ()
+  );
+  if(stmts.len() == usize(0), {
+    return(Option(LoopAnnotations).None);
+  });
+  m := stmts.get(stmts.len() - usize(1)).unwrap();
+  if(!ast_expr_is_fn_call_of(m, "match", Option(usize).None), {
+    return(Option(LoopAnnotations).None);
+  });
+  marms := _fn_call_args(m);
+  if(marms.len() < usize(2), {
+    return(Option(LoopAnnotations).None);
+  });
+  some_arm := marms.get(usize(1)).unwrap();
+  if(!ast_expr_is_fn_call_of(some_arm, "=>", Option(usize).Some(usize(2))), {
+    return(Option(LoopAnnotations).None);
+  });
+  arm_body := _fn_call_args(some_arm).get(usize(1)).unwrap();
+  body := ArrayList(AstExpr).new();
+  if(ast_expr_is_fn_call_of(arm_body, "begin", Option(usize).None), {
+    bargs := _fn_call_args(arm_body);
+    (bi : usize) = usize(0);
+    while(bi < bargs.len(), {
+      body.push(bargs.get(bi).unwrap().clone());
+      bi = (bi + usize(1));
+    });
+  }, {
+    body.push(arm_body.clone());
+  });
+  Option(LoopAnnotations).Some(LoopAnnotations(invariants : invs, decreases : Option(AstExpr).None, body : body))
+});
+/// A verified `for(xs, x => { invariant(...); body })` over a list
+/// variable (R2 task 4 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md): the
+/// `while` rule over a ghost index from 0 while `idx < len(xs)`, with `x`
+/// bound to `xs[idx]` in the body, `idx <= len(xs)` an implicit invariant,
+/// and `produced(xs)` naming `xs[0..idx)`. The body may not change xs (the
+/// model reads its elements by index), and the invariant is optional.
+_for_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+  if(args.len() != usize(2), {
+    _fail_subset(ctx, String.from("for with other than (collection, x => body)"), e);
+    return(Option(VcTerm).None);
+  });
+  coll := args.get(usize(0)).unwrap();
+  lam := args.get(usize(1)).unwrap();
+  if(!ast_expr_is_atom(coll), {
+    _fail_subset(ctx, String.from("for over something other than an ArrayList variable"), e);
+    return(Option(VcTerm).None);
+  });
+  coll_name := ast_expr_token(coll).value;
+  list_t := ctx.vars.get(coll_name.clone());
+  // The element sort is read off the list's own term: the source-form
+  // `for` call's arguments are typed through its expansion, not in place.
+  elem_opt := match(list_t, .Some(lt) => _list_sort_elem(_havoc_binding_sort(lt)), .None => Option(VcSort).None);
+  if(elem_opt.is_none(), {
+    _fail_subset(ctx, String.from("for over something other than an ArrayList variable"), e);
+    return(Option(VcTerm).None);
+  });
+  if(!ast_expr_is_fn_call_of(lam, "=>", Option(usize).Some(usize(2))), {
+    _fail_subset(ctx, String.from("for with other than (collection, x => body)"), e);
+    return(Option(VcTerm).None);
+  });
+  lam_args := _fn_call_args(lam);
+  var := lam_args.get(usize(0)).unwrap();
+  if(!ast_expr_is_atom(var), {
+    // `inout(x) => ...` writes the list through its element.
+    _fail_subset(ctx, String.from("for binding other than a plain name (an inout element writes the list)"), e);
+    return(Option(VcTerm).None);
+  });
+  // The body is walked in the macro expansion the evaluator typed (the
+  // source-form arguments carry no types): `{ it := xs.into_iter();
+  // while(runtime(true), { [invariant(...);] tmp := it.next();
+  // match(tmp, .Some(x) => body, .None => { break; }) }) }`.
+  a_opt := match(
+    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    .Some(ei) => match(expr_info_macro_expansion(ei), .Some(xp) => _for_expansion_loop(xp), .None => Option(LoopAnnotations).None),
+    .None => Option(LoopAnnotations).None
+  );
+  if(a_opt.is_none(), {
+    _fail_subset(ctx, String.from("for whose expansion is not the list-iterator loop"), e);
+    return(Option(VcTerm).None);
+  });
+  a := a_opt.unwrap();
+  idx_name := `__yo_for_idx_${ast_expr_id(e).to_string()}`;
+  ctx.vars.insert(idx_name.clone(), VcTerm.BvLit(value : u64(0), width : usize(64)));
+  fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_token(var).value);
+  ctx.for_frames.push(fr);
+  r := _loop_core(ctx, e, a, Option(AstExpr).None, ctx.for_frames.get(ctx.for_frames.len() - usize(1)));
+  _ := ctx.for_frames.pop();
+  r
+});
 _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   if(args.len() != usize(2), {
     _fail_subset(ctx, String.from("while with unexpected arity"), e);
@@ -2992,19 +3224,44 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     _fail_subset(ctx, String.from("invariant(...) with no predicates"), e);
     return(Option(VcTerm).None);
   });
+  _loop_core(ctx, e, a, args.get(usize(0)), Option(ForFrame).None)
+});
+/// The invariant terms of a loop, in order; a `for` adds its own bound
+/// `idx <= len(list)`.
+_loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), frame : Option(ForFrame)) -> Option(ArrayList(VcTerm)))(
+  match(
+    _walk_invariants_in_order(ctx, invs),
+    .Some(ws) => match(
+      frame,
+      .Some(fr) => {
+        ws.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
+        Option(ArrayList(VcTerm)).Some(ws)
+      },
+      .None => Option(ArrayList(VcTerm)).Some(ws)
+    ),
+    .None => Option(ArrayList(VcTerm)).None
+  )
+);
+/// A loop's head condition: the `while`'s own, or a `for`'s `idx < len(list)`.
+_loop_cond_term :: (fn(inout(ctx) : VcCtx, cond_ast : Option(AstExpr), frame : Option(ForFrame)) -> Option(VcTerm))(
+  match(
+    frame,
+    .Some(fr) => Option(VcTerm).Some(_app2(VcOp.BvUlt, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list))),
+    .None => _expr_term(ctx, cond_ast.unwrap())
+  )
+);
+/// The havoc-invariant rule shared by `while` and a verified `for`.
+_loop_core :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, a : LoopAnnotations, cond_ast : Option(AstExpr), frame : Option(ForFrame)) -> Option(VcTerm)
+)({
   // 1. ENTRY: Inv over the current state.
-  inv_entry_terms := ArrayList(VcTerm).new();
-  (ii : usize) = usize(0);
-  while(ii < a.invariants.len(), {
-    match(
-      _expr_term(ctx, a.invariants.get(ii).unwrap()),
-      .Some(t) => inv_entry_terms.push(t),
-      .None => {
-        return(Option(VcTerm).None);
-      }
-    );
-    ii = (ii + usize(1));
-  });
+  inv_entry_terms := match(
+    _loop_invariant_terms(ctx, a.invariants, frame),
+    .Some(ws) => ws,
+    .None => {
+      return(Option(VcTerm).None);
+    }
+  );
   _emit(ctx, String.from("loop-invariant-entry"), ArrayList(VcTerm).new(), _and_terms(inv_entry_terms));
   // 2. HAVOC: rebind every assigned name to a fresh constant.
   assigned := ArrayList(String).new();
@@ -3017,20 +3274,28 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     );
     bi = (bi + usize(1));
   });
+  match(
+    frame,
+    .Some(fr) => {
+      // The list a `for` walks is fixed for the whole loop: the model reads
+      // its elements by index, so a body that changes it is outside.
+      if(assigned.contains(fr.coll_name.clone()), {
+        _fail_subset(ctx, `for body mutates the list it iterates ('${fr.coll_name}')`, e);
+        return(Option(VcTerm).None);
+      });
+      assigned.push(fr.idx_name.clone());
+    },
+    .None => ()
+  );
   _havoc_assigned(ctx, assigned);
   // ITERATE assumptions over the havoced state.
-  inv_havoc_terms := ArrayList(VcTerm).new();
-  (hi : usize) = usize(0);
-  while(hi < a.invariants.len(), {
-    match(
-      _expr_term(ctx, a.invariants.get(hi).unwrap()),
-      .Some(t) => inv_havoc_terms.push(t),
-      .None => {
-        return(Option(VcTerm).None);
-      }
-    );
-    hi = (hi + usize(1));
-  });
+  inv_havoc_terms := match(
+    _loop_invariant_terms(ctx, a.invariants, frame),
+    .Some(ws) => ws,
+    .None => {
+      return(Option(VcTerm).None);
+    }
+  );
   // The cond is walked UNDER the invariant, not before it: the head is
   // only ever reached from states satisfying Inv, so obligations the
   // cond's own walk emits (an index read inside the condition) must see
@@ -3038,7 +3303,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   // those obligations against an unconstrained fresh constant.
   path_mark := ctx.path.len();
   ctx.path.push(_and_terms(inv_havoc_terms));
-  cond_havoc := _expr_term(ctx, args.get(usize(0)).unwrap());
+  cond_havoc := _loop_cond_term(ctx, cond_ast, frame);
   if(cond_havoc.is_none(), {
     return(Option(VcTerm).None);
   });
@@ -3066,14 +3331,47 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   saved_invariants := ctx.loop_invariants;
   saved_measure := ctx.loop_measure;
   saved_head_measure := ctx.head_measure;
+  saved_for_idx := ctx.loop_for_idx;
   ctx.loop_invariants = a.invariants;
   ctx.loop_measure = a.decreases;
+  ctx.loop_for_idx = match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None);
   ctx.head_measure = m_havoc;
   saved_sites := ctx.break_sites;
   ctx.break_sites = ArrayList(BreakSite).new();
   ctx.path_dead = false;
   ctx.loop_depth = (ctx.loop_depth + usize(1));
+  // A `for` binds the element at the index for the body.
+  saved_elem := match(frame, .Some(fr0) => ctx.vars.get(fr0.elem_name.clone()), .None => Option(VcTerm).None);
+  match(
+    frame,
+    .Some(fr1) => {
+      ctx.vars.insert(fr1.elem_name.clone(), _app2(VcOp.SelectOp, _list_contents_term(fr1.elem, fr1.list), ctx.vars.get(fr1.idx_name.clone()).unwrap()));
+      ()
+    },
+    .None => ()
+  );
   bd := _begin_term(ctx, a.body.clone());
+  // ... and moves to the next one.
+  match(
+    frame,
+    .Some(fr2) => {
+      if(!ctx.path_dead, {
+        ctx.vars.insert(fr2.idx_name.clone(), _app2(VcOp.BvAdd, ctx.vars.get(fr2.idx_name.clone()).unwrap(), VcTerm.BvLit(value : u64(1), width : usize(64))));
+      });
+      match(
+        saved_elem,
+        .Some(se) => {
+          ctx.vars.insert(fr2.elem_name.clone(), se);
+          ()
+        },
+        .None => {
+          _ := ctx.vars.remove(fr2.elem_name.clone());
+          ()
+        }
+      );
+    },
+    .None => ()
+  );
   sites := ctx.break_sites;
   ctx.break_sites = saved_sites;
   ctx.loop_depth = (ctx.loop_depth - usize(1));
@@ -3082,23 +3380,19 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   ctx.loop_invariants = saved_invariants;
   ctx.loop_measure = saved_measure;
   ctx.head_measure = saved_head_measure;
+  ctx.loop_for_idx = saved_for_idx;
   if(bd.is_none(), {
     return(Option(VcTerm).None);
   });
   if(fell_through, {
     // ITERATE goal: Inv (and the measure step) over the post-body state.
-    inv_after_terms := ArrayList(VcTerm).new();
-    (ti : usize) = usize(0);
-    while(ti < a.invariants.len(), {
-      match(
-        _expr_term(ctx, a.invariants.get(ti).unwrap()),
-        .Some(t) => inv_after_terms.push(t),
-        .None => {
-          return(Option(VcTerm).None);
-        }
-      );
-      ti = (ti + usize(1));
-    });
+    inv_after_terms := match(
+      _loop_invariant_terms(ctx, a.invariants, frame),
+      .Some(ws) => ws,
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
     _emit(ctx, String.from("loop-invariant-iterate"), ArrayList(VcTerm).new(), _and_terms(inv_after_terms));
     if(m_havoc.is_some(), {
       m2 := match(
@@ -3130,18 +3424,13 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     ctx.path.pop();
   });
   _havoc_assigned(ctx, assigned);
-  inv_exit := ArrayList(VcTerm).new();
-  (xi : usize) = usize(0);
-  while(xi < a.invariants.len(), {
-    match(
-      _expr_term(ctx, a.invariants.get(xi).unwrap()),
-      .Some(t) => inv_exit.push(t),
-      .None => {
-        return(Option(VcTerm).None);
-      }
-    );
-    xi = (xi + usize(1));
-  });
+  inv_exit := match(
+    _loop_invariant_terms(ctx, a.invariants, frame),
+    .Some(ws) => ws,
+    .None => {
+      return(Option(VcTerm).None);
+    }
+  );
   // Walk the exit cond under the invariant — the same reasoning as the
   // iterate cond (every head evaluation happens in a state satisfying
   // Inv, and the cond-exit disjunct assumes Inv). The bracket is popped
@@ -3149,7 +3438,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   // branch pushes Inv ∧ ¬Cond again below).
   cond_guard_mark := ctx.path.len();
   ctx.path.push(_and_terms(inv_exit));
-  cond_exit := _expr_term(ctx, args.get(usize(0)).unwrap());
+  cond_exit := _loop_cond_term(ctx, cond_ast, frame);
   while(ctx.path.len() > cond_guard_mark, {
     ctx.path.pop();
   });
@@ -3344,6 +3633,83 @@ _quant_term :: (
     .None => Option(VcTerm).None
   )
 });
+/// R2 task 2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: an `ArrayList(T)`
+/// operand's element sort when the expression is list-typed (a list value,
+/// `seq_of(xs)`, or a `seq_append` of lists, which the evaluator types as
+/// the list), else `.None`. A list-backed Seq stays in the list domain
+/// (contents array + length): z3's `Seq` theory with `bv2nat` indices
+/// leaves `seq_of(r) == seq_append(seq_of(a), seq_of(b))` unknown, while the
+/// same goal over arrays proves (measured 2026-10-01, z3 5.1.0).
+_list_operand_elem :: (fn(inout(ctx) : VcCtx, a : AstExpr) -> Option(VcSort))(
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(a)),
+    .Some(ai) => _list_elem_sort(ai.ty),
+    .None => Option(VcSort).None
+  )
+);
+/// `__yo_lapp_<elem>(c1, l1, c2)`: the contents of a list-backed
+/// `seq_append`, defined elementwise by a triggered axiom
+/// (`select(lapp(c1, l1, c2), i) == ite(i < l1, select(c1, i), select(c2, i - l1))`).
+/// Declared once per element sort.
+_list_append_contents :: (fn(inout(ctx) : VcCtx, elem : VcSort, c1 : VcTerm, l1 : VcTerm, c2 : VcTerm) -> VcTerm)({
+  fname := `__yo_lapp_${_msof_key(elem)}`;
+  arr := VcSort.ArrS(elem : elem, len : usize(0));
+  if(!ctx.gfn_keys.contains(fname.clone()), {
+    ctx.gfn_keys.push(fname.clone());
+    dargs := ArrayList(VcSort).new();
+    dargs.push(arr);
+    dargs.push(VcSort.BvS(width : usize(64)));
+    dargs.push(arr);
+    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : dargs, result : arr));
+    names := ArrayList(String).new();
+    names.push(String.from("__yo_la_c1"));
+    names.push(String.from("__yo_la_l1"));
+    names.push(String.from("__yo_la_c2"));
+    names.push(String.from("__yo_la_i"));
+    sorts := ArrayList(VcSort).new();
+    sorts.push(arr);
+    sorts.push(VcSort.BvS(width : usize(64)));
+    sorts.push(arr);
+    sorts.push(VcSort.BvS(width : usize(64)));
+    bc1 := VcTerm.Var(name : String.from("__yo_la_c1"), sort : arr);
+    bl1 := VcTerm.Var(name : String.from("__yo_la_l1"), sort : VcSort.BvS(width : usize(64)));
+    bc2 := VcTerm.Var(name : String.from("__yo_la_c2"), sort : arr);
+    bi := VcTerm.Var(name : String.from("__yo_la_i"), sort : VcSort.BvS(width : usize(64)));
+    fargs := ArrayList(VcTerm).new();
+    fargs.push(bc1);
+    fargs.push(bl1);
+    fargs.push(bc2);
+    lhs := _app2(VcOp.SelectOp, VcTerm.Ctor(name : fname.clone(), args : fargs), bi);
+    rhs := _app3(VcOp.IteOp, _app2(VcOp.BvUlt, bi, bl1), _app2(VcOp.SelectOp, bc1, bi), _app2(VcOp.SelectOp, bc2, _app2(VcOp.BvSub, bi, bl1)));
+    triggers := ArrayList(VcTerm).new();
+    triggers.push(lhs);
+    ctx.axioms.push(VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : _app2(VcOp.EqOp, lhs, rhs), triggers : triggers));
+  });
+  cargs := ArrayList(VcTerm).new();
+  cargs.push(c1);
+  cargs.push(l1);
+  cargs.push(c2);
+  VcTerm.Ctor(name : fname, args : cargs)
+});
+/// Two list values are equal when their lengths are and every element
+/// below the length is (the slots past the length are not part of the
+/// value). The datatype's own `=` would also compare those slots.
+_list_ext_eq :: (fn(inout(ctx) : VcCtx, elem : VcSort, a : VcTerm, b : VcTerm) -> VcTerm)({
+  la := _list_len_term(elem, a);
+  kn := `__yo_lk${_next_fresh(ctx).to_string()}`;
+  k := VcTerm.Var(name : kn.clone(), sort : VcSort.BvS(width : usize(64)));
+  names := ArrayList(String).new();
+  names.push(kn);
+  sorts := ArrayList(VcSort).new();
+  sorts.push(VcSort.BvS(width : usize(64)));
+  sel_a := _app2(VcOp.SelectOp, _list_contents_term(elem, a), k);
+  body := _app2(VcOp.ImpOp, _app2(VcOp.BvUlt, k, la), _app2(VcOp.EqOp, sel_a, _app2(VcOp.SelectOp, _list_contents_term(elem, b), k)));
+  _app2(
+    VcOp.AndOp,
+    _app2(VcOp.EqOp, la, _list_len_term(elem, b)),
+    VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : ArrayList(VcTerm).new())
+  )
+});
 /// The operator/cast/call dispatch.
 _call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
@@ -3437,6 +3803,17 @@ _call_term :: (
         _fail_subset(ctx, String.from("operation over an opaque type parameter (task 2 abstract scope: equality only)"), e);
         return(Option(VcTerm).None);
       });
+    });
+    // Equality of two list values (or list-backed Seqs) is extensional.
+    if((op == VcOp.EqOp) || (op == VcOp.DistinctOp), {
+      match(
+        _list_operand_elem(ctx, args.get(usize(0)).unwrap()),
+        .Some(lel) => if(_list_operand_elem(ctx, args.get(usize(1)).unwrap()).is_some(), {
+          ext := _list_ext_eq(ctx, lel, at, bt);
+          return(Option(VcTerm).Some(cond((op == VcOp.EqOp) => ext, true => _app1(VcOp.NotOp, ext))));
+        }),
+        .None => ()
+      );
     });
     // AoRTE: division/remainder divisor non-zero.
     if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
@@ -3553,7 +3930,24 @@ _call_term :: (
     return(_while_term(ctx, e, args));
   });
   if(head == "for", {
-    _fail_subset(ctx, String.from("for loop (write it as a while over an explicit index with an invariant; a verified for waits for a ghost of the elements consumed so far — issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md)"), e);
+    return(_for_term(ctx, e, args));
+  });
+  // `produced(xs)` (R2 task 4): the elements of xs a `for` over it has
+  // consumed so far — the list cut at the loop's ghost index.
+  if((head == "produced") && (n == usize(1)), {
+    pa := args.get(usize(0)).unwrap();
+    if(ast_expr_is_atom(pa), {
+      pname := ast_expr_token(pa).value;
+      (fi : usize) = ctx.for_frames.len();
+      while(fi > usize(0), {
+        fi = (fi - usize(1));
+        fr := ctx.for_frames.get(fi).unwrap();
+        if(fr.coll_name == pname, {
+          return(Option(VcTerm).Some(VcTerm.Ctor(name : _list_ctor_name(fr.elem), args : _two_terms(_list_contents_term(fr.elem, fr.list), ctx.vars.get(fr.idx_name.clone()).unwrap()))));
+        });
+      });
+    });
+    _fail_subset(ctx, String.from("produced(xs) outside a for over xs"), e);
     return(Option(VcTerm).None);
   });
   // break/continue are STATEMENT-level constructs (V4.2): `_begin_term`
@@ -3594,6 +3988,19 @@ _call_term :: (
           });
           Option(VcTerm).Some(VcTerm.BoolLit(true))
         },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  // --- ghost(e): a spec STATEMENT (A1) ---------------------------------------
+  // `ghost(lemma(args))` invokes a lemma: the walk of the call proves its
+  // requires and assumes its ensures (`_callee_call_term`), which is the
+  // whole point. The statement itself has no value.
+  if((head == "ghost") && (n == usize(1)), {
+    return(
+      match(
+        _expr_term(ctx, args.get(usize(0)).unwrap()),
+        .Some(_) => Option(VcTerm).Some(VcTerm.BoolLit(true)),
         .None => Option(VcTerm).None
       )
     );
@@ -3741,7 +4148,15 @@ _call_term :: (
     if(a.is_none(), {
       return(Option(VcTerm).None);
     });
+    // Like `&&`: the consequent only matters where the antecedent holds,
+    // so an obligation its walk emits (a guarded index read's bounds) is
+    // owed under the antecedent.
+    imp_mark := ctx.path.len();
+    ctx.path.push(a.unwrap());
     b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    while(ctx.path.len() > imp_mark, {
+      ctx.path.pop();
+    });
     if(b.is_none(), {
       return(Option(VcTerm).None);
     });
@@ -3756,6 +4171,50 @@ _call_term :: (
   // over Array sorts (Multiset: elem→count, Set: elem→membership). Ghost
   // only (same gate as the quantifiers at the evaluator level); the sorts
   // come from the walked operands' own sorts.
+  // R2 task 2: `seq_of(xs)` and the Seq builtins over list-backed values
+  // stay in the list domain (see `_list_operand_elem`).
+  if((head == "seq_of") && (n == usize(1)), {
+    if(_list_operand_elem(ctx, args.get(usize(0)).unwrap()).is_none(), {
+      _fail_subset(ctx, String.from("seq_of of a value that is not a modeled ArrayList(T)"), e);
+      return(Option(VcTerm).None);
+    });
+    return(_expr_term(ctx, args.get(usize(0)).unwrap()));
+  });
+  if((head == "seq_append") && (n == usize(2)) && _list_operand_elem(ctx, args.get(usize(0)).unwrap()).is_some(), {
+    elem := _list_operand_elem(ctx, args.get(usize(0)).unwrap()).unwrap();
+    if(_list_operand_elem(ctx, args.get(usize(1)).unwrap()).is_none(), {
+      _fail_subset(ctx, String.from("seq_append of a list-backed Seq and a literal Seq"), e);
+      return(Option(VcTerm).None);
+    });
+    la := _expr_term(ctx, args.get(usize(0)).unwrap());
+    lb := _expr_term(ctx, args.get(usize(1)).unwrap());
+    if(la.is_none() || lb.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    at := la.unwrap();
+    bt := lb.unwrap();
+    contents := _list_append_contents(ctx, elem, _list_contents_term(elem, at), _list_len_term(elem, at), _list_contents_term(elem, bt));
+    return(Option(VcTerm).Some(VcTerm.Ctor(name : _list_ctor_name(elem), args : _two_terms(contents, _app2(VcOp.BvAdd, _list_len_term(elem, at), _list_len_term(elem, bt))))));
+  });
+  if((head == "seq_len") && (n == usize(1)) && _list_operand_elem(ctx, args.get(usize(0)).unwrap()).is_some(), {
+    elem := _list_operand_elem(ctx, args.get(usize(0)).unwrap()).unwrap();
+    return(
+      match(
+        _expr_term(ctx, args.get(usize(0)).unwrap()),
+        .Some(st) => Option(VcTerm).Some(_list_len_term(elem, st)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_nth") && (n == usize(2)) && _list_operand_elem(ctx, args.get(usize(0)).unwrap()).is_some(), {
+    elem := _list_operand_elem(ctx, args.get(usize(0)).unwrap()).unwrap();
+    st := _expr_term(ctx, args.get(usize(0)).unwrap());
+    it := _expr_term(ctx, args.get(usize(1)).unwrap());
+    if(st.is_none() || it.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    return(Option(VcTerm).Some(_app2(VcOp.SelectOp, _list_contents_term(elem, st.unwrap()), _idx64(it.unwrap()))));
+  });
   if((head == "seq_unit") && (n == usize(1)), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     return(
@@ -5297,27 +5756,22 @@ _ghost_fn_inline_term :: (
     _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
     return(Option(VcTerm).None);
   });
-  // Walk the actuals, bind the spec params, walk the body, restore.
+  // Walk every actual, THEN bind the spec params (binding one before the
+  // next actual is walked lets a param named like a caller variable capture
+  // it: issues/fixed/verifier-call-arguments-see-the-callees-own-params.md),
+  // walk the body, restore.
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
+  inl_terms := ArrayList(VcTerm).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(
       args.get(i),
       .Some(a) => {
-        v := _expr_term(ctx, a);
         match(
-          v,
+          _expr_term(ctx, a),
           .Some(vt) => {
-            match(
-              params.get(i),
-              .Some(cp) => {
-                saved_names.push(cp.clone());
-                saved_vals.push(ctx.vars.get(cp.clone()));
-                ctx.vars.insert(cp.clone(), vt);
-              },
-              .None => ()
-            );
+            inl_terms.push(vt);
           },
           .None => {
             return(Option(VcTerm).None);
@@ -5327,6 +5781,19 @@ _ghost_fn_inline_term :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  (bi : usize) = usize(0);
+  while(bi < inl_terms.len(), {
+    match(
+      params.get(bi),
+      .Some(cp) => {
+        saved_names.push(cp.clone());
+        saved_vals.push(ctx.vars.get(cp.clone()));
+        ctx.vars.insert(cp.clone(), inl_terms.get(bi).unwrap());
+      },
+      .None => ()
+    );
+    bi = (bi + usize(1));
   });
   g_ghost_inline_stack.push(fid.clone());
   out := _expr_term(ctx, body);
@@ -5406,8 +5873,19 @@ _callee_call_term :: (
   // V5 task 3 slice 2: a ghost_fn callee is INLINED — its body walks with
   // the actuals bound to its parameters (spec functions carry no contracts;
   // their meaning IS the body).
+  //
+  // A1 (plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md): a LEMMA — a ghost_fn
+  // returning `unit` with an `ensures` — is ATS's `prfun`. Its body is a
+  // proof checked once, in its own task, by induction: a recursive call
+  // below proves `decreases-step` and its `requires`, then assumes its
+  // `ensures`, which is the induction hypothesis. At a use the body says
+  // nothing (it is `unit`), so the call goes through the contracted path:
+  // prove the lemma's `requires`, assume its `ensures` at these arguments.
   if(is_ghost_fn(fid.clone()), {
-    return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
+    is_lemma := (is_unit_type(info.ty) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
+    if(!is_lemma, {
+      return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
+    });
   });
   // Recursion (V4): a self-call needs `decreases(M)`. The measure of the
   // CURRENT state is captured BEFORE the param rebinding; after the
@@ -5552,25 +6030,19 @@ _callee_call_term :: (
       .None => fid
     ).clone()
   );
+  // Walk every actual in the caller's scope first, then bind the callee's
+  // params to them: a param bound mid-walk would capture a later actual
+  // that names a caller variable of the same name
+  // (issues/fixed/verifier-call-arguments-see-the-callees-own-params.md).
   (i : usize) = usize(0);
   while(i < eff_args.len(), {
     match(
       eff_args.get(i),
       .Some(a) => {
-        v := _expr_term(ctx, a);
         match(
-          v,
+          _expr_term(ctx, a),
           .Some(vt) => {
             arg_terms.push(vt);
-            match(
-              callee_params.get(i),
-              .Some(cp) => {
-                saved_names.push(cp.clone());
-                saved_vals.push(ctx.vars.get(cp.clone()));
-                ctx.vars.insert(cp.clone(), vt);
-              },
-              .None => ()
-            );
           },
           .None => {
             return(Option(VcTerm).None);
@@ -5580,6 +6052,19 @@ _callee_call_term :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  (pbi : usize) = usize(0);
+  while(pbi < arg_terms.len(), {
+    match(
+      callee_params.get(pbi),
+      .Some(cp) => {
+        saved_names.push(cp.clone());
+        saved_vals.push(ctx.vars.get(cp.clone()));
+        ctx.vars.insert(cp.clone(), arg_terms.get(pbi).unwrap());
+      },
+      .None => ()
+    );
+    pbi = (pbi + usize(1));
   });
   if((is_self_recursion || is_clique_recursion) && m_current.is_some(), {
     // SELF: my own measure re-evaluated over the rebound (actual)

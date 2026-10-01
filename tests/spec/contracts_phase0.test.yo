@@ -120,14 +120,23 @@ test("invariant(...) inside cond branch is rejected", {
   }, "invariant");
 });
 
-test("invariant(...) in a for body is rejected with a hint to use an indexed while", {
+test("invariant(...) leading a for body is the loop's invariant", {
+  (n : i32) = i32(0);
+  for(usize(0) .. usize(3), k => {
+    invariant(n >= i32(0));
+    n = (n + i32(1));
+  });
+  assert(n == i32(3), "the for ran every element");
+});
+
+test("invariant(...) later in a for body is rejected with a hint to lead with it", {
   comptime_expect_error({
     (n : i32) = i32(0);
     for(usize(0) .. usize(3), k => {
-      invariant(n >= i32(0));
       n = (n + i32(1));
+      invariant(n >= i32(0));
     });
-  }, "A 'for(...)' loop cannot carry an invariant");
+  }, "In a 'for(...)' loop it must be the first statement of the body");
 });
 
 test("duplicate requires(...) clauses in a signature are rejected", {
@@ -436,4 +445,16 @@ test("V1: labeled comptime return binds in comptime ensures(...)", {
   sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> (comptime(result) : i32))(x * x);
   R :: sq(i32(5));
   assert(R == i32(25), "5^2 == 25 via labeled comptime return");
+});
+
+// issues/fixed/a-quantified-ensures-is-spliced-as-a-runtime-assert.md: a
+// clause that quantifies (or calls a ghost_fn) has no runtime meaning, so it
+// is proof-only and never spliced. It used to be spliced, and every program
+// calling the function failed to compile with "ghost-only builtin". A
+// runtime-checkable clause beside it is still asserted.
+test("a quantified ensures is proof-only; a checkable ensures beside it still asserts", {
+  floor_of :: (
+    fn(x : i32, requires(x > i32(0)), ensures(r == x, forall(k : i32, (k <= i32(0)) ==> (k < r)))) -> (r : i32)
+  )(x);
+  assert(floor_of(i32(3)) == i32(3), "floor_of(3) == 3");
 });

@@ -1,0 +1,55 @@
+// The negative twin of valid/lemma_member_frame.yo: a lemma is checked, not
+// trusted. A false claim refutes in the lemma's own task, and a use whose
+// requires does not hold refutes at the call.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+// FALSE: agreeing on [0, n) says nothing about the element at n.
+member_frame_too_far :: ghost_fn(
+  (
+    fn(
+      a : ArrayList(i32),
+      b : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n < a.len(), n < b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n + usize(1), v) == member(b, n + usize(1), v)),
+      decreases(n)
+    ) -> unit
+  )(())
+);
+
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : ArrayList(i32),
+      b : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+
+// REFUTED at the call: nothing says a and b agree on their prefix.
+misuse :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), v : i32, requires(a.len() == b.len()), ensures(true)) -> unit
+)({
+  ghost(member_frame(a, b, a.len(), v));
+});

@@ -1,0 +1,11 @@
+// issues/fixed/verifier-call-arguments-see-the-callees-own-params.md: a call
+// whose actuals name caller variables that share the callee's parameter
+// names. Each actual is the CALLER's value.
+pragma(Pragma.Verify);
+
+one_more :: (fn(a : i32, b : i32, requires(b == (a + i32(1))), ensures(r == b)) -> (r : i32))(b);
+
+// one_more(b, a) asks a == b + 1, which the requires gives.
+swapped :: (fn(a : i32, b : i32, requires((b < i32(100)) && (a == (b + i32(1)))), ensures(r == a)) -> (r : i32))(
+  one_more(b, a)
+);
