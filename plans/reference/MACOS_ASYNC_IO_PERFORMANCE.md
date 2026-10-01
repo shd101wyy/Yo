@@ -118,13 +118,13 @@ of the ~0.5 µs std gap is `send` over `write`, kept for the reason below, and
 the rest is std's per-operation wrapper work
 (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
 
-Both halves have a fix underway. For `send` over `write`, std owns its stream
-sockets, so it can make them non-blocking and `SO_NOSIGPIPE` and then write
-them with `write(2)`, as libuv does. The runtime op exists (stage 1), and std
-adopts it once the seed carries it
-(`issues/std-net-stream-writes-take-send-where-write-is-cheaper.md`;
-prototyped on the emitted C: 3,582 → 3,450 ns a round trip on the std
-8-connection row). The wrapper half is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
+The `send` half is fixed. std owns its stream sockets, so it makes them
+non-blocking and `SO_NOSIGPIPE` and writes them with `write(2)`, as libuv does:
+the runtime op is #1019 and std's adoption #1074
+(`issues/fixed/std-net-stream-writes-take-send-where-write-is-cheaper.md`).
+Measured on the std-level pair, medians of 6 rounds: `multi` 3.70 → 3.54 µs a
+round trip (libuv 3.19) and `pingpong` 15.24 → 14.47 (libuv 13.79). The
+wrapper half is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md` (#1073).
 
 Reading the rows:
 
@@ -154,8 +154,11 @@ Reading the rows:
   fired every pass: 7.5 `kevent`s a hop at 100% CPU.
 - **Spinning or probing before blocking** (a `select()` probe, 1–10 µs spins,
   a 1 µs userspace spin): 5–40% slower on the TCP echo, and more CPU.
-- **`write` instead of `send`** for inline sends: `write` takes no
-  `MSG_NOSIGNAL`, and it would block the loop on a caller's blocking socket.
+- **`write` instead of `send`** for inline sends on an arbitrary socket:
+  `write` takes no `MSG_NOSIGNAL`, and it would block the loop on a caller's
+  blocking socket. That stands for `__yo_async_send_start`. std's own streams
+  take the separate `stream_write` op, because std establishes both
+  preconditions when it creates them (#1074).
 - **Level knotes disabled lazily** (keep a knote enabled after its FIFO
   drains, disable it on the first delivery that finds no waiter): saves the
   per-park `EV_ENABLE`, 28 ns a socketpair hop in C (0.602 vs 0.574 µs). It

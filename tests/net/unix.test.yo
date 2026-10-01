@@ -182,3 +182,26 @@ test("a UnixStream write to a peer that has closed throws instead of killing the
   io.await(listener.close(io), e);
   io.await(remove_file(path, io), e);
 });
+// The same from the connecting end, which `connect` (not `accept`) makes safe
+// for the stream-write op.
+test("a connected UnixStream write to an accepted peer that has closed throws instead of killing the process", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("sigpipe-client.sock");
+  _remove_stale(path, io);
+  listener := io.await(UnixListener.bind(path, io), e);
+  client := io.await(UnixStream.connect(path, io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(server.close(io), e);
+  assert(_unix_write_until_error(client, io), "a write to the closed peer reported an error");
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
+  io.await(remove_file(path, io), e);
+});

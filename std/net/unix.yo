@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_unix :: import("../sys/unix");
-{ MSG_NOSIGNAL } :: import("../sys/socket");
+SockInfo :: import("../sys/sockinfo");
 IoTraits :: import("../io");
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -108,6 +108,14 @@ impl(
         (client_fd < i32(0)) => _throw_io(i32(0) - client_fd, e.exn),
         true => ()
       );
+      own := SockInfo.own_stream_socket(client_fd);
+      cond(
+        (own < i32(0)) => {
+          e.io.await(IO_unix.close(client_fd), e.io);
+          _throw_io(i32(0) - own, e.exn);
+        },
+        true => ()
+      );
       return(UnixStream(_fd : client_fd, _is_closed : false));
     })
   }),
@@ -147,6 +155,14 @@ impl(
     io.async(e => {
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
+      own := SockInfo.own_stream_socket(fd);
+      cond(
+        (own < i32(0)) => {
+          e.io.await(IO_unix.close(fd), e.io);
+          _throw_io(i32(0) - own, e.exn);
+        },
+        true => ()
+      );
       path_s := path.to_string();
       cstr_bytes := path_s.to_cstr();
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
@@ -193,7 +209,7 @@ impl(
   write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, buf, size, MSG_NOSIGNAL), e.io);
+      r := e.io.await(IO_unix.stream_write(fd, buf, size), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -203,7 +219,7 @@ impl(
     s := String.from(data);
     s_bytes := s.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), MSG_NOSIGNAL), e.io);
+      r := e.io.await(IO_unix.stream_write(fd, s_bytes.ptr().unwrap(), s_bytes.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -212,7 +228,7 @@ impl(
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), MSG_NOSIGNAL), e.io);
+      r := e.io.await(IO_unix.stream_write(fd, data_bytes.ptr().unwrap(), data_bytes.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -220,7 +236,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.send(fd, data.ptr().unwrap(), data.len(), MSG_NOSIGNAL), e.io);
+      r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),

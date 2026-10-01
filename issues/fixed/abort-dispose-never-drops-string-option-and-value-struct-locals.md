@@ -22,7 +22,7 @@ leaks, and the synchronous version does not. In real code,
 
 Pointer-typed locals (`ArrayList`, `ref` structs) are dropped correctly, so
 dispose counters for `ref` types look right while every String leaks. This
-is also why `issues/async-abort-dispose-double-drops-moved-enum-payload.md`
+is also why `issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md`
 now shows a leak rather than a double drop.
 
 ## Root cause

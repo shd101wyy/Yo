@@ -4,7 +4,7 @@
 
 **Status: FIXED (2026-09-29).** Filed 2026-09-28 from the macOS async-runtime audit.
 **Measured** on macOS 26.6. Linux has the same shape: the async state-machine
-audit re-verification in `issues/pending-io-future-local-drop-uaf.md` saw
+audit re-verification in `issues/fixed/pending-io-future-local-drop-uaf.md` saw
 "the tree build leaks the 128 B timer-heap array at exit".
 
 ## Symptom

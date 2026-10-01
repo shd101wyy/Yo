@@ -2,8 +2,9 @@
 
 **Severity:** S1 — abort-dispose double-frees a moved enum payload (ASan-confirmed heap-use-after-free)
 
-**Status: the binding pair is FIXED in TS (2026-08-11); the move-out pair
-remains band-aided by a call-site clone.** Found by the new
+**Status: FIXED.** The binding pair was fixed in TS (2026-08-11). The
+move-out pair is fixed by the single-pass lowering's per-type dispose
+(#1018), and the call-site clone is gone (2026-10-01; last section). Found by the new
 `tests/internal/version.test.yo` "read_yo_version: throws on invalid
 content" port under the Linux/ASan internal-tests arm (PR #93). macOS does
 not reproduce (AMFI blocks the test-runner's ASan dylib there, and without
@@ -96,3 +97,26 @@ variable id in `FunctionGenerationContext.state_machine_binding_ids`, and
 `tests/async/sm_ownership.test.yo` "an aborted task drops a pattern binding's
 scrutinee once" (ASan UAF before, passes after). The moved-payload pair above
 stays open.
+
+## Fixed 2026-10-01: the move-out pair, and the band-aid removed
+
+**Measured** on the v0.2.47 seed (the single-pass lowering, whose dispose
+releases a task's live slots per type):
+- `issues/repros/async-abort-dispose-leaks-local-slots.yo` is the move-out
+  shape with no clone: a `match` on a `Result` whose `.Err(msg)` arm throws
+  `dyn(msg)`, with the handler unwinding.
+- With `--allocator system`, `leaks --atExit` reports `0 leaks for 0 total
+  leaked bytes`. The 2026-09-28 tree build leaked 171 bytes in 5
+  allocations.
+- With `--sanitize address`, it runs clean: no double free and no
+  use-after-free.
+
+The regression test is `tests/async/sm_ownership.test.yo`'s "an arm that
+moves its payload into a thrown dyn: the aborted task releases it once". The
+thrown payload shares a counted `Thing` with a `keep` outside the task, so
+the test checks the release count exactly: `rc(keep) == 1` after the abort.
+A double drop would give 0, a leak 2.
+
+`read_yo_version` in `src/version.yo` throws `dyn(msg)` again. The
+internal `tests/internal/version.test.yo` "throws on invalid content", the
+test that found this, covers it.

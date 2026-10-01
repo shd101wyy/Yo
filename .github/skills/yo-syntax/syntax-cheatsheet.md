@@ -1981,10 +1981,11 @@ Each shape now has a test in `tests/async_await.test.yo`. The emitter they
 lived in is gone: phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` lowers
 an `io.async` body in one pass through the ordinary expression generators, so
 an await may sit in any arm, condition or operand. One older report of this
-family (issues/async-await-nested-if-lost-continuation.md, a nested awaiting
+family (issues/retired/async-await-nested-if-lost-continuation.md, a nested awaiting
 `if` after a PLAIN helper that awaits internally, 2026-08-22) was never
-minimized; its reconstructed shape passes, so if you meet it again, distill it
-and file the reproducer rather than hoisting around it.
+minimized. Three reconstructions pass, and it is retired with the lowering it
+was seen under. If you meet it again, distill it and file the reproducer
+rather than hoisting around it.
 
 ## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
 

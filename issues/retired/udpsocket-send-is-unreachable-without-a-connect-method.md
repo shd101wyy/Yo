@@ -106,7 +106,7 @@ a `peer_addr()` accessor becomes possible later.
 
 Do NOT place a nested closure inside the `io.async` body — that shape is the
 known-fragile one (`issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md`,
-`issues/async-await-nested-if-lost-continuation.md`).
+`issues/retired/async-await-nested-if-lost-continuation.md`).
 
 Also fix the doc comment on `send` once `connect` exists, so it points at a
 real method: "Send data to the peer set by `connect`."

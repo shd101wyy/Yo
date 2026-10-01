@@ -2,8 +2,10 @@
 
 **Severity:** S2 — the documented yield resumption order is intermittently violated on macOS CI legs — a memory-corruption cause is explicitly not excluded
 
-**Status: OPEN — observed TWICE on CI, on two DIFFERENT macOS legs, from two
-unrelated PRs. Never reproduced locally on `aarch64-apple-darwin`.**
+**Status: FIXED** by #561 and #608 (2026-09-11). The root cause is in the
+last section: std's `yield` was a 1 ms timer. It was observed twice on CI, on
+two different macOS legs, from two unrelated PRs, and never reproduced
+locally on `aarch64-apple-darwin`.
 First seen 2026-09-06, again 2026-09-09.
 
 ## Evidence
@@ -114,3 +116,38 @@ passing locally at the second. Both CI sightings are on x86_64 macOS images.
 Local `arch -x86_64` is unavailable on this machine (no Rosetta), so an x86
 macOS repro needs CI or another host — which is why this is diagnosed from job
 logs rather than a local run.
+
+## Root cause, and the fix (2026-10-01)
+
+**Measured from history.** The analysis above reads
+`src/codegen/async/runtime_core.yo`'s `__yo_async_yield`, which returns a
+born-Completed future. std's `yield` did not call it. At the second
+sighting's head (`33fef268b`), `std/async/index.yo` was:
+
+```rust
+yield :: (fn(io : Io) -> Impl(Future(unit)))(
+  io.async((io : Io) => {
+    io.await(IO_timer.sleep(u64(1)), io);
+  })
+);
+```
+
+Each yield was a 1 ms kqueue timer. Two equal-deadline timers that macOS
+coalesces can be delivered in either order, so task2's yield could complete
+first. That is the observed counter of 11, not 12, on either x86_64 leg.
+It never showed locally because the order is the kernel's, not the
+program's.
+
+**Fixed:**
+- #561 replaced the timer with a pending yield future parked on a list and
+  completed at the next ready-task drain (`__yo_async_yield_start` /
+  `__yo_async_drain_yields`).
+- #608 wakes that list in yield order. It is built by head insertion, and
+  the drain reverses it: "IN THE ORDER THEY YIELDED".
+
+The ordering no longer passes through the kernel. The runtime fixes it by
+construction.
+
+**Verified** on the v0.2.47 seed: `tests/async_await.test.yo`'s "Test basic
+spawn of two futures" passes 5 of 5 runs. It stays the oracle, and its
+assertion is unchanged.
