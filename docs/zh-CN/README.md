@@ -66,7 +66,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - **C** 语言互操作。
 - 等等。
 
-<img width="855" height="368" alt="Image" src="https://github.com/user-attachments/assets/04a9050e-598b-4e02-a6c3-44863d47a4ac" />
+<img width="855" alt="Yo 中的编译期阶乘；编辑器悬停在 result 上显示 comptime_int = 120" src="../assets/readme-code-example.png" />
 
 ## 安装
 

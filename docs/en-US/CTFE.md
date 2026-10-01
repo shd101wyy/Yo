@@ -9,8 +9,8 @@ CTFE allows the compiler to execute functions at compile-time when all inputs ar
 ```rust
 // comptime parameters + comptime return: evaluated at compile time
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result := i32(1);
-  i := i32(1);
+  result :: i32(1);
+  i :: i32(1);
   while(comptime(i <= n), {
     result = (result * i);
     i = (i + i32(1));
@@ -35,8 +35,8 @@ with `while(comptime(cond), body)`.
 ```rust
 // comptime(n) + comptime return: this runs during compilation
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result := i32(0);
-  i := i32(1);
+  result :: i32(0);
+  i :: i32(1);
   while(comptime(i <= n), {
     result = (result + (i * i));
     i = (i + i32(1));
@@ -62,8 +62,8 @@ Yo's CTFE supports all control flow constructs:
 ```rust
 // Example: Sum only odd numbers using continue
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
-  result := i32(0);
-  i := i32(0);
+  result :: i32(0);
+  i :: i32(0);
   while(comptime(i < max), {
     i = (i + i32(1));
     cond(
@@ -246,7 +246,12 @@ Yo's CTFE is more flexible than Rust's `const fn` in several ways:
 
 During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
 
-1. Makes `:=` bindings store compile-time values (behaves like `::`)
+1. Evaluates the body's `::` locals as compile-time values. Every Yo variable
+   is mutable, so a `::` accumulator is reassigned in a loop like any other
+   (`result = (result * i)`). `:=` declares a *runtime* variable and is not
+   allowed in a compile-time context; the evaluator still accepts it there
+   today and treats it like `::`, which is a bug
+   ([`issues/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/colon-equals-is-accepted-in-a-compile-time-context.md)).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only
 
@@ -288,8 +293,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
-      i := i32(2);
-      result := true;
+      i :: i32(2);
+      result :: true;
       while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {

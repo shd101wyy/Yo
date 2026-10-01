@@ -67,7 +67,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - **C** interop.
 - etc.
 
-<img width="855" height="368" alt="Image" src="https://github.com/user-attachments/assets/04a9050e-598b-4e02-a6c3-44863d47a4ac" />
+<img width="855" alt="A compile-time factorial in Yo; the editor hover on result shows comptime_int = 120" src="./docs/assets/readme-code-example.png" />
 
 ## Installation
 

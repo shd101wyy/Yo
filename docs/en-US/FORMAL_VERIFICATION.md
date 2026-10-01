@@ -25,7 +25,7 @@ is named by the label in `-> (name : T)` — there is no magic `result`
 identifier.
 
 ```rust
-abs_i32 :: (fn(x : i32, ensures(r >= i32(0))) -> (r : i32))(
+abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
   if(x < i32(0), i32(0) - x, x)
 );
 
@@ -33,6 +33,11 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
   x / y
 );
 ```
+
+`abs_i32` needs its `requires`: `i32(0) - x` has no non-negative result at
+`x = i32(-2147483648)`, and the verifier models the emitted C exactly. Drop
+the precondition and `yo verify` refutes the `ensures` with
+`counter-example: x = #x80000000`.
 
 Verification is **modular** (the Dafny model):
 
