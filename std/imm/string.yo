@@ -113,7 +113,10 @@ impl(
     ptr := _alloc_bytes(slen);
     match(
       s.ptr(),
-      .Some(sp) => unsafe(memcpy((*void)(ptr), (*void)(sp), slen)),
+      .Some(sp) => {
+        unsafe(memcpy((*void)(ptr), (*void)(sp), slen));
+        ()
+      },
       .None => ()
     );
     return(Self(_ptr : .Some(ptr), _len : slen, _capw : (slen | _scope_tag())));
