@@ -9,8 +9,8 @@ CTFE 允许编译器在所有输入在编译期已知的情况下，于编译期
 ```rust
 // comptime 参数 + comptime 返回值：在编译期求值
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result := i32(1);
-  i := i32(1);
+  result :: i32(1);
+  i :: i32(1);
   while(comptime(i <= n), {
     result = (result * i);
     i = (i + i32(1));
@@ -34,8 +34,8 @@ value :: factorial(10);
 ```rust
 // comptime(n) + comptime 返回值：在编译过程中运行
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
-  result := i32(0);
-  i := i32(1);
+  result :: i32(0);
+  i :: i32(1);
   while(comptime(i <= n), {
     result = (result + (i * i));
     i = (i + i32(1));
@@ -61,8 +61,8 @@ Yo 的 CTFE 支持所有控制流结构：
 ```rust
 // 示例: 使用 continue 只对奇数求和
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
-  result := i32(0);
-  i := i32(0);
+  result :: i32(0);
+  i :: i32(0);
   while(comptime(i < max), {
     i = (i + i32(1));
     cond(
@@ -235,7 +235,11 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
 
 在 CTFE 期间，Yo 设置一个特殊的上下文标志（`forceCompileTimeBindings`），该标志会：
 
-1. 使 `:=` 绑定存储编译期值（行为等同于 `::`）
+1. 把函数体中的 `::` 局部变量作为编译期值求值。Yo 的变量都是可变的，所以
+   `::` 累加器可以像其他变量一样在循环中重新赋值（`result = (result * i)`）。
+   `:=` 声明的是*运行时*变量，不允许出现在编译期上下文中；目前求值器仍然接受它，
+   并把它当作 `::` 处理，这是一个 bug
+   （[`issues/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/colon-equals-is-accepted-in-a-compile-time-context.md)）。
 2. 保留函数参数值用于编译期求值
 3. 将参数标记为仅编译期使用
 
@@ -276,8 +280,8 @@ is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
-      i := i32(2);
-      result := true;
+      i :: i32(2);
+      result :: true;
       while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {

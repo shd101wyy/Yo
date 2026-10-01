@@ -2,8 +2,41 @@
 
 **Severity:** S2 — fn ↔ trait-impl mutual recursion is wrongly rejected (E0610 on a valid recursive-tree `Eq`)
 
-**Status: OPEN.** Found 2026-09-09 while writing `Eq` for the recursive
-`JsonValue` tree.
+**Status: OPEN.** Re-measured 2026-10-01 on develop after #1062, which was expected to fix it
+and does not. The mutual recursion is NOT the trigger. An earlier note here said a non-recursive
+helper checks fine; that was measured on a different shape and is wrong. Measured with v0.2.47
+`yo check`, one file per row, the helper `_h` placed above `impl(E, Eq(E)(…))`:
+
+| `E` | `_h`'s parameters | operands | result |
+| --- | --- | --- | --- |
+| `enum(Leaf(v : i32), Node(n : i32))` | `a : E, b : E` | `a != b` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a : E, b : E` | `a != b` | OK |
+| `enum(Leaf(v : i32), Node(n : i32))` | `a, b : ArrayList(E)` | `a(usize(0)) != b(usize(0))` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a : ArrayList(E)` | two fresh `E.Leaf(…)` | OK |
+| `enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` | `a, b : ArrayList(E)` | `a(usize(0)) != b(usize(0))` | **E0610** |
+| same | same | `(x : E) = a(usize(0))`, `x != y` | **E0610** |
+
+`YO_DEBUG_LAZY=1` prints `[force] impl(E, …)` in every passing row and nothing in the failing
+ones. So the operator-miss path (`calls/function.yo`, the lazy-impl branch before the E0610
+throw) runs `force_pending_impls_for_type_name` with a head name that does not match the impl's
+`E`. The element type of an `ArrayList` over a self-referential enum reaches the operator as a
+type whose `type_head_name_for_impl_forcing` is not `E`. Which spelling it has (an enum shell,
+the internal `enum_decl_…` name, a pointer) is the next measurement, and it needs a debug print
+in a built compiler. The mutual recursion only matters because that is where such a helper
+occurs.
+
+Likely mechanism (REASONED from the source, not yet measured). A self-referential enum
+evaluates its variants against a shell `EnumT` with a distinct id. `ArrayList(Self)` is
+instantiated with that shell, and the finished type is recorded under the shell's id with an
+EMPTY name (`register_enum_final(shell_id, EnumT(enum_id, "", …))`, `evaluator/types/enum.yo`).
+An element read from the list is the shell. The operator path calls `resolve_enum_shell`, which
+returns that nameless final, so `type_head_name_for_impl_forcing` returns `""` and
+`force_pending_impls_for_type_name` exits at "an unnamed receiver cannot select an impl". A
+parameter typed `E` carries the bound, named type and forces normally. To confirm, print the
+head name at the operator-miss branch in a built compiler.
+
+`issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` still fails with
+E0610 at 9:13. Found 2026-09-09 while writing `Eq` for the recursive `JsonValue` tree.
 
 ## Reproducer
 
