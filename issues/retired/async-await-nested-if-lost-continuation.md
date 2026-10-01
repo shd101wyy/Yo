@@ -89,3 +89,25 @@ shape passes both on the v0.2.45 seed and on the single-pass lowering, so
 there is still no reproducer. Left open until one is distilled from a real
 failure; if you meet it again, file the reproducer rather than rewriting
 around it.
+
+## Retired 2026-10-01: resolved wholesale by the single-pass lowering
+
+**Measured** (v0.2.47 seed). This third reconstruction adds the ingredients
+the two probes above left out:
+- the stamp helper is a plain function that blocking-awaits inside the task;
+- it recurses through `read_dir` with a per-call `Exception` handler that
+  `unwind`s, exercised on a missing directory;
+- the closure awaits `create_dir_all` and two child-process `status` calls
+  around the branch;
+- the nested `if (stamp.len() > 0)` awaits `exists`.
+
+It prints `inner branch ran, exists=true`, a 3,397-byte stamp and
+`result 1`, all correct.
+
+The original failing code was never committed: #213's PR ref holds only the
+rewritten version. So no closer reproduction exists. The segment lowering it
+was seen under is deleted (`plans/ASYNC_STATE_MACHINE_GENERATION.md`
+phase 5), and every await shape around it is tested in
+`tests/async/sm_shapes_*`. That makes this a record of a lowering that no
+longer exists, not an open bug. If the symptom appears again, file the
+reproducer as a new issue.

@@ -55,7 +55,7 @@ restrictions (AGENTS.md "check misses async codegen rules").
 2. Fix the state-machine emitter (`src/codegen/async/`) to dedupe the
    loop-resume label emission (emit the resume path once per loop, or
    qualify labels per state).
-3. Possibly related to `issues/async-await-nested-if-lost-continuation.md`
+3. Possibly related to `issues/retired/async-await-nested-if-lost-continuation.md`
    (also deep-nesting async emission); check whether one fix covers both.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
