@@ -527,7 +527,6 @@ typedef enum {
   profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();
-  scope_release_report();
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   raise_codegen_error(exn);
@@ -701,6 +700,7 @@ static Slice_uint8_t_u42_ __yo_args;
     prof_i = (prof_i + usize(1));
   });
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
+  scope_release_report();
   base.emitter.close_code_spill();
   base.emitter.sections()
 });
