@@ -53,12 +53,18 @@ wrapper half of the plan is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
 
 ## 3.0 The branches
 
+**Update 2026-10-02 (taken over by another session).** Items 1 and 2 have moved:
+
+- **Item 1 is done as #1099**, stacked on #1093 (`async-triage`). #1093 pre-registers async block types before the type declarations (`src/codegen/codegen_c.yo`). That removes the two C spellings at their source, and all three generic-aggregate shapes pass with it, including shape 1 (`Option(*T)`), which #1090's casts still failed. So #1099 keeps #1090's evaluator fix (`_is_future_handle_slot`), its doc and its three tests, and drops the casts. #1090 is superseded; close it when #1099 lands.
+- **Item 2:** #1075 has landed. The integration branch `int/fusion-on-triage` is develop + #1093 + #1099 + #1073. It found one integration bug: fused wrapper locals had no move flag in the caller's struct (`issues/fixed/a-fused-wrappers-named-local-has-no-move-flag-in-the-callers-struct.md`). It is fixed on that branch in commit `30e0abe4f`, which #1073 must carry once it is rebased on a develop that has #1093. With the fix, the fusion, `sm_ownership`, `sm_protocol` and `async_await` tests pass with fusion on and off (12 / 35 / 15 / 261). The fixpoint waits for develop's #1098 breakage (a `?=` default check that rejects develop's own `src/`) to be fixed.
+- **Merge order:** #1093, then #1099 (retarget to develop), then #1073 rebased with `30e0abe4f`, then close #1090.
+
 | Branch | PR | Head | State |
 | --- | --- | --- | --- |
-| `perf/await-site-fusion` | #1073 | `97fac3a17` | ready; local gates passed on an older merge with develop (§3, item 2) |
-| `fix/generic-aggregate-future-field` | #1090 | `f961f549d` | draft; its gate FAILED on one shape (§3, item 1) |
-
-No other branch of this session is open.
+| `perf/await-site-fusion` | #1073 | `97fac3a17` | ready after #1093; needs the integration fix `30e0abe4f` (§3, item 2) |
+| `fix/generic-aggregate-future-field` | #1090 | `f961f549d` | superseded by #1099 (§3, item 1) |
+| `fix/generic-dispose-over-future` | #1099 | | draft, stacked on #1093; local gates pass |
+| `int/fusion-on-triage` | none | `30e0abe4f` | integration gate branch; not for merging |
 
 ## 3. Open work, in order
 
