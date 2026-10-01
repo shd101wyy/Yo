@@ -121,32 +121,47 @@ impl(
   ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
-  /// Declare that the first `new_len` slots of the buffer are live — Rust's
-  /// `Vec::set_len`, and just as unsafe.
+  /// The uninitialized tail of the buffer, `[len, capacity)`, as a raw slice:
+  /// the region a reader fills before `assume_init` commits it. `.None` when
+  /// nothing is allocated yet (`reserve` first).
   ///
-  /// Nothing is initialized and nothing is dropped: growing the length exposes
-  /// whatever bytes the buffer already held, and shrinking it leaks the
-  /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
-  /// Reach for it only after filling the buffer through `ptr()` or
-  /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
-  /// The capacity clause is a true fact, and it is also what tells the
-  /// verifier this call changes `self`: a contract that never mentions
-  /// `old(self)` promises `self` unchanged at every call site
-  /// (issues/questions/modifies-clause-for-callee-side-effects.md).
-  set_len : (
+  /// The result carries a raw pointer, so only code under
+  /// `pragma(Pragma.AllowUnsafe)` can hold it: claiming memory initialized
+  /// needs this token, which safe code cannot obtain (ATS's view of the
+  /// region; issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
+  /// The slice is valid until the next reallocation, like `ptr()`.
+  spare_capacity : (fn(self : Self) -> Option(RawSlice(T)))(
+    match(
+      self._ptr,
+      .Some(p) => Option(RawSlice(T)).Some(RawSlice(T)(ptr : p.add(self._length), len : (self._cap() - self._length))),
+      .None => Option(RawSlice(T)).None
+    )
+  ),
+  /// Commit the first `n` slots of `spare` (a token from `spare_capacity`)
+  /// as live elements: the length grows by `n`. Nothing is initialized or
+  /// dropped; the caller has written those `n` slots. PANICS unless `spare`
+  /// starts at this list's current end and `n <= spare.len`.
+  assume_init : (
     fn(
       self : Self,
-      new_len : usize,
-      requires(new_len <= self.capacity()),
-      ensures(self.len() == new_len, self.capacity() == old(self.capacity())),
+      n : usize,
+      spare : RawSlice(T),
+      requires(n <= spare.len),
+      ensures(self.len() == (old(self.len()) + n)),
       assumed()
     ) -> unit
   )({
+    at_end := match(
+      self._ptr,
+      .Some(p) => (p.add(self._length) == spare.ptr),
+      .None => false
+    );
     cond(
-      (new_len <= self._cap()) => {
-        self._length = new_len;
-      },
-      true => __yo_panic("set_len: new length exceeds capacity")
+      !(at_end) => __yo_panic("assume_init: the slice is not this list's spare capacity"),
+      (n > spare.len) => __yo_panic("assume_init: n exceeds the spare slice"),
+      true => {
+        self._length = (self._length + n);
+      }
     );
   }),
   /// Empty list. Allocates nothing — the first `push` buys the buffer (four
