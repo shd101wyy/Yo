@@ -1,0 +1,81 @@
+//! Nested fusion shapes: depth 2, a chain of five, a recursive pair.
+_leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(io.async((e : Io) => n));
+_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_leaf(n, e), e);
+    r + i32(1)
+  })
+);
+_outer :: (fn(n : i32, io : Io) -> Impl(Future(i32)))({
+  m := (n * i32(2));
+  io.async((e : Io) => {
+    r := e.await(_inner(m, e), e);
+    r + i32(1)
+  })
+});
+_d2 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_inner(n, e), e);
+    r + i32(1)
+  })
+);
+_d3 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d2(n, e), e);
+    r + i32(1)
+  })
+);
+_d4 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d3(n, e), e);
+    r + i32(1)
+  })
+);
+_d5 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d4(n, e), e);
+    r + i32(1)
+  })
+);
+_ping :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_pong(n, e), e);
+    r
+  })
+);
+_pong :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_ping(n, e), e);
+    r
+  })
+);
+// The callers are tasks, where fusion happens: a blocking await in `main` is
+// not lowered.
+_caller2 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    v := e.await(_outer(n, e), e);
+    v
+  })
+);
+_caller5 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    v := e.await(_d5(n, e), e);
+    v
+  })
+);
+_maybe_ping :: (fn(go : bool, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := cond(
+      go => e.await(_ping(i32(1), e), e),
+      true => i32(0)
+    );
+    r
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  a := io.await(_caller2(i32(3), io), io);
+  b := io.await(_caller5(i32(10), io), io);
+  c := io.await(_maybe_ping(runtime(a > i32(1000)), io), io);
+  _sum := (a + b + c);
+});
+export(main);
