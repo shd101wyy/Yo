@@ -1,7 +1,7 @@
 # Safe mode: handover
 
 **Status:** written 2026-10-01 by the session that landed 5b Phases 0–2 and the
-`usize` overflow guard, handing over to an agent on another machine. The plan is
+`usize` overflow guard, handing over to an agent on another machine. **§3.1–§3.3 are DONE** (2026-10-02 update: §3.1 with #1075, §3.2 and §3.3 by the takeover session — see §3.0 for the branches); what remains is §3.4 (blocked), §3.5, §3.6 (deferred), §3.7 and §3.8. The plan is
 [`SAFE_MODE.md`](SAFE_MODE.md) and the 5b design is
 [`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md);
 both stay authoritative for what each phase means. This doc says where the work
@@ -54,38 +54,73 @@ Promise A ("no UB in safe code") has one **known open S1 hole**: `ArrayList.set_
 
 ## 3. Open work, in order
 
-### 3.0 The branches (2026-10-01)
+### 3.0 The branches (2026-10-02 update)
 
-None. Every branch of this session is merged and deleted; no worktree is left. The
-only open PR is this handover.
+- `safe-mode-audit` — the §3.2 audit's PR #1108 (three gated APIs, the two
+  filed findings, the per-API design lesson).
+- `hash-capacity-guard-test` — the §3.3 regression tests (#1101).
+- This handover. Everything else from the original session is merged.
 
-### 3.1 S1: safe code reaches freed memory through `ArrayList.set_len`
+### 3.1 S1: safe code reaches freed memory through `ArrayList.set_len` — RESOLVED
 
-`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md`. `set_len`
-carries no pointer in its type, so the type-based gate never sees it, and a
-file without `AllowUnsafe` reads uninitialized slots and freed RC elements
-(rc=139 under Guard Malloc). **A fix is in flight in yo-7a's #1075** ("set_len
-S1 fix"). Check that #1075 landed with the issue moved to `fixed/`. If it did
-not, this is the top item.
+Landed with #1075 (merged 2026-10-01): `ArrayList.set_len` is deleted,
+growth over unwritten memory takes the `spare_capacity()`/`assume_init(n,
+spare)` token pair, and the issue lives in `issues/fixed/`. NOTE: #1076
+showed "MERGED" on GitHub without reaching develop — its commits were
+pushed into sibling stack branches, which auto-closed it; the fix actually
+travelled in #1075. Watch for that pattern when reading the PR log.
 
-### 3.2 Audit std for pointer-free APIs with unsafe semantics (recommended next)
+### 3.2 Audit std for pointer-free APIs — DONE (2026-10-02, #1108)
 
-§3.1 is a class, not one bug: the safe-mode gate keys on raw pointers in a
-signature, so any public std function whose *behavior* is unsafe but whose
-*type* is pointer-free slips through. Nobody has looked for the others.
-- **Method:** list every public std method that writes a container's length,
-  capacity or element storage, or that skips a check: `set_len`, `*_unchecked`,
-  `assume_init*`, `from_raw*`, a `ptr()` that hands out storage, and RC-count
-  setters. Cross-check each against `plans/reference/MEMORY_SAFETY.md`'s gate.
-- **For each hit:** gate it (make it need `AllowUnsafe` or a token safe code cannot
-  hold, as #1075 does for `set_len`), file an `issues/` doc, and add a test that
-  shows the safe-mode error.
+Every pattern in the handover's method list swept, by grep plus empirical
+probes (each candidate compiled from a pragma-less file with the installed
+yo). Three hits, all gated:
 
-### 3.3 S3: the HashMap/HashSet capacity-overflow guard has no test
+- **S1 `String.raw_bytes() -> RawSlice(u8)`** — a struct wrapping a public
+  `*(u8)` handed to safe code; `random_bytes(rs)` after a reallocation is a
+  heap-use-after-free WRITE (proven under ASan). Fix is PER-API:
+  `raw_bytes` deleted, `String.ptr() -> ?*u8` in `ArrayList.ptr()`'s shape.
+  Two attempts at a class fix (see through structs with public pointer
+  fields) were measured and REVERTED: `HashMap`'s `ctrl` is public BY
+  ACCIDENT (broke 238 src files), `Allocator` is a public fn-pointer table
+  (broke 58 suite runs). Public-pointer-field does not decide safety; the
+  gate stays shallow and std hands out storage as the pointer.
+  `issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md`.
+- **S1 `MaybeUninit.assume_init`** — a pointer-free uninitialized read.
+  Now `assume_init(written : *(BaseType))` — the `as_ptr()` result, #1076's
+  token pattern. The extern declaration ALSO carries the witness (a direct
+  body call hits the alias-only emitter and emits `return (__yo_t_…)` —
+  invalid C under the seed). `issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md`.
+- **S2 `std/spec/refine.unchecked*`** — trusted casts whose doc said "pair
+  with AllowUnsafe", unenforced. Each takes `witness : *(T)` (`&(x)` at
+  privileged call sites); the module declares AllowUnsafe.
+  `issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md`.
 
-`issues/hash-container-capacity-overflow-guard-has-no-regression-test.md`. A
-memory-safety guard (heap corruption on overflow) with no regression coverage,
-while the audit row claims there is one. Small.
+Cleared by probe/list: `__yo_*` runtime externs (Rule D6), `rc()` (read-only),
+`unsafe.drop` (move checker), `unsafe.cast` (`__yo_as`, Rule D6),
+`String.from_bytes` (invalid UTF-8 is mojibake/panic — std hands back
+unvalidated bytes by design), json `advance` (checked indexing + trapping
+usize arithmetic), container `_`-fields (E0405), `str.from_raw_parts` /
+`extend_from_ptr` / the `ptr()` family (pointer-typed signatures), `iov`
+(pointer-typed). `public-safe-report` learned the witness/written/spare
+token exemption.
+
+Filed on the way: `issues/prelude-methods-have-no-visibility-owner.md` (S3 —
+prelude-registered methods carry owner `""`, so a `_` method there would be
+public everywhere; none exists today) and
+`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (every
+fast-suite leak failure is a LeakSanitizer verdict CI cannot see; all
+reproduce with the seed).
+
+### 3.3 S3: the HashMap/HashSet capacity-overflow guard has no test — DONE (#1101)
+
+The guard is pinned by sibling tests beside the containers
+(`std/collections/hash_map.test.yo` new, `hash_set.test.yo` extended):
+the wrap capacity is `.Err(.CapacityOverflow)` and an ordinary capacity is
+`.Ok`, RED-verified by disabling the guard. The 2026-09-04 issue's
+`tests/collections/` plan no longer compiled — `_alloc_with_capacity`
+became module-private with member visibility (2026-09-16) — siblings are
+the sanctioned shape. `issues/fixed/hash-container-capacity-overflow-guard-has-no-regression-test.md`.
 
 ### 3.4 5b Phase 3 (imported verified modules): blocked, measured
 
