@@ -16,9 +16,10 @@ implementation breakdown another agent can pick up phase by phase
 > 2026-09-23: tasks 1–2 are the pack + API index under one verb; task 3's
 > recipe landed as the context-first `AGENTS.md`, WITHOUT the verify
 > recipe — `issues/init-agentsmd-template-omits-the-verify-recipe.md`);
-> B2's remaining tasks are designed and owned by
-> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 — implement
-> there, not here; B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
+> B2's substance moved to
+> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 (slice 1 —
+> recursive `ghost_fn` lemmas + lexicographic `decreases` — LANDED as
+> #1075); B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
 > and are the live remainder of the ROADMAP's Agent-loop item; B6 `par2`
 > unstarted, weakest agent-loop relevance. Known blocker for the `spec/`
 > convention: `issues/law-over-an-imported-callee-cannot-verify.md`.
@@ -500,12 +501,12 @@ law proves); cheatsheet + docs updated.
 
 ### B2 — Lemmas: contracted `ghost_fn`s verified by induction
 
-> **2026-10-01: tasks 2–7 remain UNSTARTED in-tree, and the recursive
-> ghost_fn encoding (SMT function symbols + definitional unfolding) is now
-> designed and owned by
-> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 — implement
-> there, not here (slice 1 is open as PR #1075,
-> `feat/verifier-recursive-ghost-fn`).** This section stays as the
+> **2026-10-01: slice 1 of this phase LANDED as #1075** (a recursive
+> `ghost_fn` with `decreases` becomes an uninterpreted function defined by
+> a triggered axiom, its own task proves the measure; lexicographic
+> `decreases(m1, m2, ...)` measures) — designed and owned by
+> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2; its
+> remaining slices live there, not here. This section stays as the
 > original design record.
 
 > **Task 1 (the probe) is DONE — 2026-09-19. Answer: YES, already registered,

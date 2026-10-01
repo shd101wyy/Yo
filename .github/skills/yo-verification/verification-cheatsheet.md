@@ -108,9 +108,12 @@ sum_to :: (
 ```
 
 - `invariant(...)` is the loop body's FIRST statement and takes
-  comma-separated predicates; `decreases(M)` follows it with a SINGLE
-  measure expression (a comma list is a subset error; lexicographic
-  measures are not available yet).
+  comma-separated predicates; `decreases(M)` follows it with a single
+  measure expression. In a SIGNATURE, `decreases(M1, M2, ...)` is a
+  lexicographic measure: each recursive call must lower `M1`, or keep `M1`
+  and lower `M2`, and so on (encoded as bit-vector concatenation); every
+  component must be non-negative on entry. A `while` loop's `decreases`
+  still takes one measure.
 - The havoc rule: prove the invariant on entry, assume it over a havoced
   state, re-prove it after the body; the exit assumes
   `invariant && !(cond)`. Strengthen until the post-condition is derivable
@@ -226,14 +229,18 @@ install.depend_on(spec_gate);
 `(strict : bool) ?= false`. `yo build <name>` runs the verification step as
 part of the DAG; a denied outcome fails the build.
 
+## Lemmas: recursive `ghost_fn` with `decreases` (R2 slice 1, #1075)
+
+A `ghost_fn` with `decreases` MAY recurse: it becomes an **uninterpreted
+function defined by a triggered axiom**, its own verify task proves the
+measure decreases, and callers reason from its `ensures` — the lemma layer
+(BEND B2 / ATS R2 slice 1). A `ghost_fn` WITHOUT contracts is still inlined
+at its call sites (and a recursive one without `decreases` is a subset
+error). Lexicographic `decreases(m1, m2, ...)` measures let one lemma cover
+a recursion no single measure can.
+
 ## Not available yet
 
-- **Lemmas** — contracted `ghost_fn`s proved by induction with definitional
-  unfolding (BEND plan B2, now designed under
-  `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R2). Today induction is
-  `decreases(...)` plus the ensures-assume at recursive calls; a
-  NON-recursive `ghost_fn` is inlined at its call sites, a recursive one is
-  a cyclic-definition/subset error.
 - Proving the overflow trap never taken; string-content reasoning; `for`
   loops. If a spec needs them, mark the fn `assumed()` deliberately and say
   so — never silently.

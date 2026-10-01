@@ -36,7 +36,7 @@ Use this skill when you need to:
 - A plain `yo verify` PASSES on `assumed` and `outside-subset` — and on `unproven` in `verify+` files (in verify mode an `unproven` already fails the run) — so a green run is not "everything proved". `--strict` denies all three in every mode.
 - `law(fn(..., requires(...), ensures(...)) -> unit)` states a claim outside the code, proved from the callee's contract alone. Today the callee must live in the SAME file (a law over an imported callee is an open issue); gate laws with `yo verify <path> --strict`.
 - Do not confuse this `--strict` with safe mode's planned "strict mode" (denying safe-mode laxity) — different features, same word.
-- Lemmas (inductive proofs over recursive spec functions) are NOT available yet; induction today is `decreases(...)` plus the ensures-assume at recursive calls.
+- Lemmas ARE available since #1075: a recursive `ghost_fn` with `decreases` becomes an uninterpreted function defined by a triggered axiom, proved as its own task; a `ghost_fn` without contracts is inlined at call sites.
 
 ## Resource
 

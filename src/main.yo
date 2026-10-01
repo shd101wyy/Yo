@@ -1706,9 +1706,10 @@ run_verify_cmd :: (
   verify_t0 := Instant.now();
   all_reports := verify_registered_functions(cfg, binary.clone());
   verify_elapsed_ms := verify_t0.elapsed().as_millis();
-  // `--explain FN` narrows the report to functions whose id matches
-  // (substring, so a bare name or a `file:line` both work) and forces the
-  // detailed rendering.
+  // `--explain PATTERN` narrows the report to functions whose id matches
+  // (a substring of the id — ids are `fn@<file>:<row>` / `law@<file>:<row>:<col>`,
+  // so match the file path or `file:line`; a bare fn NAME matches nothing,
+  // the name is not part of the id) and forces the detailed rendering.
   reports := ArrayList(VerifyFnReport).new();
   match(
     explain_fn,
