@@ -41,7 +41,7 @@ Use this skill when you need to:
 - Effects are passed as explicit parameters — pass them by name at call sites.
 - A handler whose body may `unwind` must be typed `ctl(args) -> R`; otherwise type it `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`.
 - `return(value)` inside a handler resumes the continuation; `unwind(expr)` discards it and exits the install frame.
-- `Exception` — non-resumable; handler calls `unwind(...)` to exit. `ResumableException(T)` — handler calls `return(...)` to resume.
+- `Exception` — non-resumable; handler calls `unwind(...)` to exit (returning a value from one is a compile error). `ResumableException(T)` — handler calls `return(...)` to resume.
 - Closures cannot be `ctl` and cannot capture `ctl` values. Handlers are bare (non-capturing) anonymous functions.
 - Yo async is single-threaded concurrency, not multithreaded parallelism.
 

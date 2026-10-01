@@ -3153,6 +3153,11 @@ result := safe_divide(6, 3); // result = 2
 safe_divide(10, 0, exn); // 处理器触发，unwind — 之后的代码不会执行
 ```
 
+`Exception` 的处理器不能带着值恢复 throw。`throw` 的恢复类型是一个由每个
+throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散，或以 `()` 结束。
+返回固定类型值的处理器（例如 `err -> { return(i32(7)); }`）是编译错误，
+错误信息会指向 `ResumableException`：
+
 ### ResumableException
 
 `ResumableException(ResumeType)` 用于可恢复异常处理。当处理器调用
