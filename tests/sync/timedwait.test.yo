@@ -39,7 +39,7 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   // Block until the other thread is definitely holding it.
   held.recv();
   assert(m.try_with_lock(_v => ()).is_none(), "trylock fails on a held mutex");
-  release.send(i32(1));
+  _ := release.send(i32(1));
   holder.join();
   // Once released, it is acquirable again.
   assert(m.try_with_lock(_v => ()).is_some(), "trylock succeeds after the holder released");
@@ -73,7 +73,7 @@ test("__yo_cond_timedwait returns early when signalled", {
   });
   start := Instant.now();
   signalled := m.with_lock(_v => {
-    ready.send(i32(1));
+    _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
     cv.wait_timeout_with(m, Duration.from_secs(i64(10)))
   });
