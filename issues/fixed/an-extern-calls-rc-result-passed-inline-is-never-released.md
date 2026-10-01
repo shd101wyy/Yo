@@ -16,7 +16,7 @@ There were two:
 
 ## Fix
 
-- An extern call whose owning temp holds an RC value is materialized into that temp, and stored into its task slot when it has one, as the direct-call path does.
+- An extern call whose owning temp holds an RC value is materialized into that temp, and stored into its task slot when it has one, as the direct-call path does. #1089 landed the same change independently (`issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`), and its version is the one kept.
 - The thread-exit hook (`__yo_async_free_cont_pool`, `src/codegen/async/runtime_core.yo`) releases every pending yield node, and `__yo_async_yield_start` arms that hook.
 
 Tests: `tests/async/sm_protocol.test.yo` under leak verdicts. The raw futures are not observable with a `Dispose` counter.
