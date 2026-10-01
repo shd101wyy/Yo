@@ -2401,6 +2401,21 @@ _format_yo_source_impl :: (
                       result.push_str("\n");
                     });
                     at_line_start = true;
+                    // Preserve at most one blank line after the comment, as the
+                    // statement separator does: a header or section comment
+                    // keeps the gap that sets it apart from the code below.
+                    blank_after := match(
+                      next,
+                      .None => false,
+                      .Some(nx) => (
+                        (nx.row >= (token.row + u32(2))) && !(
+                          (nx.kind == TokenKind.RParen) || ((nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket))
+                        )
+                      )
+                    );
+                    if(blank_after, {
+                      result.push_str("\n");
+                    });
                   },
                   true => {
                     // Block comment handling
@@ -2865,7 +2880,16 @@ _format_yo_source_impl :: (
                         (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
                       )
                     );
-                    if(!next_is_closer && match(next, .None => false, .Some(_) => true), {
+                    // A line comment on the comma's own row annotates the item
+                    // before it (`a : bool, // why`): leave it on this line —
+                    // the comment handler writes the newline after it. Breaking
+                    // here would move the comment onto the NEXT item.
+                    next_is_trailing_comment := match(
+                      next,
+                      .None => false,
+                      .Some(nx) => (is_line_comment_token(nx.kind) && (nx.row == token.row))
+                    );
+                    if(!next_is_closer && (!next_is_trailing_comment && match(next, .None => false, .Some(_) => true)), {
                       cur_bracket_ml := cond(
                         (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
