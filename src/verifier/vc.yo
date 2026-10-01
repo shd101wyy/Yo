@@ -5053,6 +5053,40 @@ _sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
   });
   out
 });
+/// A3: try the definitional encoding for an uncontracted callee, silently.
+/// A failure (a body outside the subset, a body that mutates an argument)
+/// leaves no trace: the subset error and the mutation record are restored,
+/// and the caller reports the ordinary "callee without contracts".
+_transparent_call_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  saved_err := ctx.subset_error;
+  saved_mut := ctx.mutated_names.len();
+  saved_ob := ctx.obligations.len();
+  saved_keys := ctx.gfn_keys.len();
+  saved_decls := ctx.fun_decls.len();
+  t := _ghost_fn_app_term(ctx, e, args, fid);
+  failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none())) || (ctx.mutated_names.len() > saved_mut);
+  if(failed, {
+    ctx.subset_error = saved_err;
+    while(ctx.mutated_names.len() > saved_mut, {
+      _ := ctx.mutated_names.pop();
+    });
+    while(ctx.obligations.len() > saved_ob, {
+      _ := ctx.obligations.pop();
+    });
+    // The attempt declared the function before walking its body; forget it,
+    // or a later call would reuse the name with no defining axiom.
+    while(ctx.gfn_keys.len() > saved_keys, {
+      _ := ctx.gfn_keys.pop();
+    });
+    while(ctx.fun_decls.len() > saved_decls, {
+      _ := ctx.fun_decls.pop();
+    });
+    return(Option(VcTerm).None);
+  });
+  t
+});
 /// R2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
 /// `decreases` as the uninterpreted function `f`, applied to the walked
 /// actuals. Its meaning is the definitional axiom
@@ -5455,7 +5489,19 @@ _callee_call_term :: (
     }
   );
   if((reqs.len() == usize(0)) && (enss.len() == usize(0)) && !callee_has_refined_spec, {
-    // No contracts: the plan's case 3 — result unconstrained beyond type.
+    // A3 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a callee with no
+    // contracts whose body the walk can express, and which changes none of
+    // its arguments, is TRANSPARENT: its call is the application of an
+    // uninterpreted function defined by its body (the recursive-ghost_fn
+    // axiom), so a spec may name it. Anything else stays case 3: the result
+    // is unconstrained beyond its type, which the subset rejects.
+    match(
+      _transparent_call_term(ctx, e, args, fid.clone()),
+      .Some(tt) => {
+        return(Option(VcTerm).Some(tt));
+      },
+      .None => ()
+    );
     _fail_subset(ctx, String.from("call to a callee without contracts"), e);
     return(Option(VcTerm).None);
   });

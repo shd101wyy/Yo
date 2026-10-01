@@ -1,0 +1,16 @@
+// The false twins of valid/transparent_pure_fn.yo, and a callee that is not
+// transparent: it prints, so its body is outside the subset and a spec that
+// names it stays the ordinary "callee without contracts" subset error.
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+
+sq :: (fn(x : i32) -> i32)(x * x);
+
+square_off :: (fn(x : i32, requires((x > i32(0)) && (x < i32(10))), ensures(r == (sq(x) + i32(1)))) -> (r : i32))(x * x);
+
+noisy :: (fn(x : i32) -> i32)({
+  println("side effect");
+  x
+});
+
+uses_noisy :: (fn(x : i32, ensures(r == noisy(x))) -> (r : i32))(x);
