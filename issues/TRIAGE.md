@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
 **Generated** by `scripts/gen-issue-triage.py` over the 179 open bug
-docs in `issues/` root and the 15 design questions in
+docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
