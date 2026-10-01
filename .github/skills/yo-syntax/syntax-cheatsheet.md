@@ -108,13 +108,13 @@ Key rules:
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes. The unify failure names neither line nor column — it surfaces at the file's `1:1` (`Cannot unify incompatible types: "str" and "String"`), so grep for the two `String.from(`` ` `` call sites when you see it.
 - **`push_str` takes `str`, `push_string` takes `String`** (same split as `String.from` vs a bare template): `s.push_str(", ")` with a bare literal is right; `s.push_str(String.from(", "))` fails to unify. Reach for `push_string` only when the value is a runtime `String` (measured 2026-09-06).
 - **A double-quoted literal does NOT concatenate with a `String` variable**: `"prefix " + var` fails with `Cannot unify incompatible types: "String" and "comptime_str"`. For a runtime concat starting from a literal, write `String.from("prefix ") + var` (measured 2026-09-02).
-- **A template string may NOT contain another template string inside `${…}`.** Writing an inner `` ` ``-string in an interpolation hole is rejected, and the diagnostic is actively misleading: `error[E0403]: Module field "to_string" not found in module type` pointing at **line 1, column 1** of the file (the first `import`), naming neither the construct nor the real line — the inner backtick terminates the outer literal at the lexer level. Hoist the inner value into a local first (`inner := f(...);` then interpolate `inner`). Measured 2026-09-05; filed as `issues/template-string-nested-inside-an-interpolation-fails-to-parse.md` (sibling of the backslash-before-`${…}` bug).
+- **A template string MAY contain another template string inside `${…}`** (`` `outer ${`inner ${x}`} end` `` works — fixed 2026-09-23, `issues/fixed/template-string-nested-inside-an-interpolation-fails-to-parse.md`; before that fix the inner backtick ended the outer literal with a misleading line-1 `to_string` error). The sibling bug is still OPEN: a `\\` immediately before `${…}` eats the escape AND the interpolation (`issues/template-string-backslash-before-interpolation-eats-both.md`) — hoist the inner value into a local when you need that shape.
 - **The escape tables of the two string forms are DIFFERENT, and neither errors on an escape it does not know.** Both decode `\n \t \r \\ \" \' \0 \b \f \v`; only the double-quoted form decodes `\uXXXX` (exactly four hex digits), and only the template form decodes `` \` `` and `\$`. There is no `\u{...}` (Rust's delimited form) and no `\xNN` anywhere. Everything else is passed through as a literal backslash plus the next character — silently. Measured 2026-09-11: `"x\u0041y"` is 3 bytes (`xAy`) but `` `x\u0041y` `` is 8 literal bytes, and a malformed `"\uZZZZ"` is a NUL byte while `"\u{41}"` is U+0410 followed by leftover text (each non-hex digit counts as 0). `issues/fixed/unicode-escape-accepts-non-hex-digits.md`. Consequences: never spell a unicode escape in a template string, and build a control byte with `s.push_byte(u8(7))` rather than an escape.
 - **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
 - **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
 - Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
 - **`__yo_panic` takes the ENCLOSING FUNCTION's return type, so it cannot sit beside a `()` arm as a guard statement.** In a `fn(...) -> u64`, `cond(bad => __yo_panic("…"), true => ());` fails with `Incompatible types: u64 / unit` (and the other order fails the other way). Make the panic the cond's VALUE instead — wrap the real body in the `true =>` arm: `cond(bad => __yo_panic("…"), true => { …body…; result })` — exactly how `ArrayList.with_capacity` guards its overflow (`std/rand.yo`'s `next_below`/`range` are the 2026-09-06 examples).
-- **No mid-body `return(...)` inside an `io.async` body.** A `return` nested in a `while`/`cond` arm of an `io.async(e => { … })` body is not lowered by the async state machine: `check` stays clean, and `compile` dies at codegen with `internal compiler error: … this io.async closure's body was never fully evaluated`. A `return(x)` as the body's LAST statement is fine. Record the outcome in a local (`failed := i32(0); … failed = i32(2); done = true;`), let the loop end, and produce the value in the tail expression (`std/http/wire.yo`'s `read_http_message`, 2026-09-06). The same body used `e.exn.throw(...)` at those spots before, which is why throwing worked and returning did not.
+- **Mid-body `return(...)` inside an `io.async` body WORKS now** (single-pass lowering, #1018, 2026-09-30): a `return` nested in a `while`/`cond` arm of an `io.async(e => { … })` body compiles and runs — it returns from the async closure, producing the future's value. (Before #1018 this died at codegen with `internal compiler error`; the old workaround — record the outcome in a local, let the loop end, produce the value in the tail — is no longer needed, `std/http/wire.yo`'s `read_http_message` is the historical example.)
 
 ## Calls, operators, and whitespace
 
@@ -148,14 +148,14 @@ masked := ((A | B) | C);
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 - **A `c_include` opaque type is emitted by its bare name — a C `struct` tag is NOT added.** `tm : Type` from `<time.h>` renders as `tm*` in the C, which clang rejects (`must use 'struct' tag to refer to type 'tm'`). Give the C spelling explicitly: `tm_buf : c_type("struct tm")` lowers the SomeT `tm_buf` to `struct tm`, so `*tm_buf` is `struct tm*` (2026-09-15, `tests/c_include_c_type.test.yo`; SEED-GATED for `std/` until a release carries it — `std/libc/sys/stat.yo` and `time.yo` keep `*(void)` until then). Do not declare a prototype-conflicting signature for a name the header already declares (`std/libc/time.yo`'s `localtime_r`, 2026-09-06).
 - **`extern("Yo", …)` runtime symbols come from DIFFERENT preambles, and not all are always emitted.** `__yo_get_thread_id` is defined in the ASYNC runtime core (`src/codegen/async/runtime_core.yo`), which a program without `io` never emits — std code that calls it makes every such program fail to link (`undefined symbol`, after an `implicit-function-declaration` warning). For thread identity in std use `__yo_thread_self()` (a macro in the always-present threading preamble, `src/codegen/types/generation.yo`), declared as `__yo_thread_self : (fn() -> usize)`. Before leaning on any `__yo_*` runtime function from std, `grep -rn "static .*NAME" src/codegen/` and check WHICH preamble defines it and when that preamble is emitted; then compile a probe whose `main` has NO `io` (`std/thread.yo`, 2026-09-06).
-- **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
+- **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
 - **A trait method carrying its own `generic(...)` with a PRIMITIVE `inout(self)` receiver reads the receiver as a VALUE correctly** (`u64(self)` → `42`, not the address). This was a silent miscompile until the `Variable.is_ref` repairs after #258 (re-measured fixed 2026-08-28 and pinned since by `tests/hash.test.yo`'s SipHash values through primitive receivers); `issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md` keeps the record — no workaround needed.
 - **`inout` is a PARAMETER modifier and a LOCAL BINDING (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md).** `inout(name) : T` params; `inout(y) := x;` local bindings (y names x's slot: `y = v` writes x, `copy := y` copies). Binding places: whole variables (any scope), value-struct field paths, field paths through a reference-semantics value (`h.n` — the object is PINNED for the binding's scope). Rejected: `-> inout(T)` / `-> (inout(name) : T)` / `-> (name : inout(T))` returns; element places `xs(i)` / `p.*` (borrow elements with `for(coll, inout(x) => …)` / `for(map, (k, inout(v)) => …)`: the collection is pinned and its runtime borrow flag held for the loop; growing/shrinking it inside the body PANICS); rvalues; `inout(r) :: …`; module-level bindings; moving a borrowed root (`sink(own(x))` while `inout(y) := x` is live). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected for arguments (bind to a local first, or use a local `inout` binding). Bindings and the borrowed `for` work inside `io.async` bodies across awaits (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo` (the binding matrix), `tests/ref_field_borrow.test.yo`.
 - **Integer overflow TRAPS at runtime and is REJECTED at comptime; wrap only with `wrapping_*`.** `x + i32(1)` on a runtime `x = i32(MAX)` aborts with `integer addition overflow (at file:line:col)` (rc 134), at every `--optimize` level and for unsigned widths too. The same applies to `-`, `*`, unary negation of MIN, `/` or `%` by zero, `MIN / -1`, and a shift count ≥ the width. A folded constant like `(i32(2147483647) + i32(1))` is a compile error ("Integer overflow in compile-time evaluation"). Arithmetic that wraps BY DESIGN (hashing, PRNGs, checksums) must say so: `a.wrapping_add(b)` / `wrapping_sub` / `wrapping_mul`. Float→int casts saturate (NaN → 0) instead of trapping. A trap test cannot live in a `*.test.yo` batch, because the abort kills the batch; it belongs in a `tests/cli-cases/` case that asserts rc and message.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/reference/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
-- Bare prefix operators bind ONE postfix expression (Rule 1, plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md, 2026-08-21): `-1`, `!ready`, `&v`, `?*u8`, `3 - -3` are valid and preferred in NEW user code; an INFIX operand still needs parens (`-(1 + 2)`). **Seed constraint: `src/` and `std/` keep the call forms (`!(x)`, `-(value)`) until a release with the rule becomes the seed.**
+- Bare prefix operators bind ONE postfix expression (Rule 1, plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md, 2026-08-21): `-1`, `!ready`, `&v`, `?*u8`, `3 - -3` are valid and preferred; an INFIX operand still needs parens (`-(1 + 2)`). (The old seed constraint on `src/`/`std/` was LIFTED 2026-09-02 — v0.2.21+ seeds accept the bare forms.)
 - **`!x && y` groups as `(!x) && y`** — the prefix op binds only one postfix expression. Unary and infix are different operators (no precedence), so write the other intent as `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
@@ -749,19 +749,26 @@ ClampBound :: trait(
 get_impl :: (fn(self : i32, i : i32, requires(i >= i32(-1)), ensures(result == i)) -> (result : i32))(i);
 impl(i32, ClampBound(get : get_impl));
 ```
-- **`short`, `long`, `int`, `char` cannot be used as variable names.** They are
-  builtin type names, so `short := ...` fails with `Failed to define variable
-  "short"` — a message that points at the binding and says nothing about
-  keywords, so it reads like a type-inference failure in the RHS and sends you
-  debugging the wrong expression. Measured 2026-08-12: `short`/`long`/`int`/`char`
-  are rejected; `float`, `double`, `signed`, `unsigned`, `register`, `volatile`
-  are all fine. Rename the local (`truncated`, `count`, `ch`, …).
+- **Builtin-DISPATCH names cannot be used as variable names** (`unwind`,
+  `recur`, `consume`, `dyn`, …, and `for`): binding `unwind`/`recur`/
+  `consume`/`dyn` rejects with the clear "names a builtin ... Choose a
+  different name" error; `for` still fails with `Failed to define
+  variable "for"` — a message that points at the binding and says nothing
+  about keywords, so it reads like a type-inference failure in the RHS and
+  sends you debugging the wrong expression. Grammar words are NOT reserved
+  as bindings (`type`, `trait`, `match` all work), `panic`/`assert` bind
+  cleanly, and the 2026-08 restriction on `short`/`long`/`int`/`char` is
+  gone (all verified 2026-10-01). Rename a colliding local anyway
+  (`truncated`, `count`, `ch`, …) for readability.
 
 - `result` in an `ensures(...)` is the LABELED RETURN, an ordinary binding
   declared by the signature (`-> (result : i32)`) — not a keyword. Without
   the label, the return value is not nameable in `ensures(...)`.
 - `pragma(Pragma.NoContracts);` erases contracts; `pragma(Pragma.Verify);`
-  parses but warns "verify mode not implemented".
+  puts the file in verify mode (proofs replace the `ensures` asserts; a
+  refutation is a compile error); `pragma(Pragma.VerifyOrAssert);` is
+  verify+ (falls back to the runtime assert when the solver budget is
+  exhausted). See the yo-verification skill.
 - **`std/spec/` refinement families (V6 task 3 rework):** `NonZero(T)`,
   `Bounded(T, lo, hi)`, `Positive(T)`, `Even(T)`, … are REAL refinement
   types now — each alias spells its predicate ghost INSIDE the alias body,
@@ -1023,16 +1030,16 @@ Both forms call the same `Index` trait method. The call-syntax form
 is shorter, doesn't need raw-pointer plumbing in user code, and
 panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
-### Named fields required for `struct`/`ref(struct(...))` constructors
+### Named fields preferred for `struct`/`ref(struct(...))` constructors
 
 ```rust
 Point :: struct(x : i32, y : i32);
 
-// CORRECT:
+// PREFERRED — named fields (robust to field insertion, self-documenting):
 p := Point(x: i32(1), y: i32(2));
 
-// WRONG — positional not supported for struct/ref(struct(...)):
-p := Point(i32(1), i32(2));
+// ALSO VALID — positional construction (same call, field order):
+q := Point(i32(1), i32(2));
 ```
 
 Enum variant construction is positional (no field names needed).
@@ -1680,17 +1687,19 @@ val := .Some(oi.ty);
 val := Option(TypeValue).Some(oi.ty);
 ```
 
-### `||` chaining requires explicit parentheses for 3+ operands
+### Operator chains: one operator groups left at any length
 
-Chaining three or more `||` terms in a single expression is rejected with a precedence error.
-Always add explicit parentheses around each pair:
+Mixing adjacent operators still needs explicit parentheses (E0003); a
+chain of ONE operator left-associates at every operand count (fixed
+2026-10-01 — before, four or more spliced one level too high, see
+`issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`):
 
 ```rust
-// ❌ Rejected — ambiguous precedence
+// ✅ Three same-operator operands — fine:
 if ((is_tuple_type(ty) || is_struct_type(ty) || is_union_type(ty)), ...)
 
-// ✅ Parenthesise each pair
-if (((is_tuple_type(ty) || is_struct_type(ty)) || is_union_type(ty)), ...)
+// ✅ Four operands — also left-associative since the fix:
+x := (a - b - c - d); // (((a - b) - c) - d)
 ```
 
 ### Duplicate imports from the same path must be merged
@@ -2004,13 +2013,17 @@ the scrutinee: `(first : Option(usize)) = sep.index_in(self, usize(0));` then
   makes the token a Float; the mantissa may be dot-less, and a sign with no
   digit — `1e+` — is not an exponent).
 
-## Tuples: semicolon TYPE, comma VALUE, `.0` access, no destructuring patterns
+## Tuples: semicolon TYPE, comma VALUE, `.0` access, destructuring in match
 
-`(A; B)` is the tuple TYPE (semicolons); `(a, b)` is the tuple VALUE (commas).
-Field access is by integer index: `p.0`, `p.1`. (tests/internal/parser.test.yo
-"Parse tuple value (a, b)" / "Parse Tuple type (a; b)" pin the mapping.) Match
-patterns CANNOT destructure tuples: write `.Some(p) => p.0`, never
-`.Some((k, v))`. The first std API returning one is
+`(A; B)` is the tuple TYPE (semicolons); `(a, b)` is the tuple VALUE (commas);
+`Tuple(A, B)` is the same type in constructor spelling (the form that works
+as a generic argument — `Option(Tuple(i32, i32))`, not
+`Option((i32; i32))`). Field access is by integer index: `p.0`, `p.1`.
+(tests/internal/parser.test.yo "Parse tuple value (a, b)" / "Parse Tuple
+type (a; b)" pin the mapping.) Match patterns DO destructure tuples — as a
+scrutinee (`match(t, (0, y) => ..., (x, y) => ...)`) and in payload
+positions (`.Some((k, v))`), any sub-pattern per element
+(`tests/match_tuples.test.yo`). The first std API returning one is
 `String.split_once -> Option((String; String))`.
 
 **`Tuple(A, B)` is a TYPE spelling only — it is not a value constructor.**

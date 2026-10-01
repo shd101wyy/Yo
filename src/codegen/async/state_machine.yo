@@ -89,7 +89,7 @@ _lv_pos :: (fn(tok : Token, w : _LiveWalk) -> u64)({
   if(!(tok.module_path == w.module_path), {
     w.foreign = true;
   });
-  ((u64(tok.row) * u64(1048576)) + u64(tok.column))
+  (u64(tok.row) * u64(1048576)) + u64(tok.column)
 });
 /// The last source position inside `e` (memoized by node id).
 _lv_span_end :: (fn(e : AstExpr, w : _LiveWalk) -> u64)({
@@ -143,7 +143,7 @@ _lv_id :: (fn(v : Variable, w : _LiveWalk) -> String)({
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
 _lv_declare :: (fn(id : String, name : String, def_end : u64, scope_end : u64, w : _LiveWalk) -> unit)({
-  if(!(w.vars.contains_key(id.clone())), {
+  if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
     ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
     ids.push(id);
@@ -418,7 +418,7 @@ compute_cross_boundary_variables :: (
       ae,
       .FnCall(_, _, aargs, _, _) => match(
         aargs.get(usize(0)),
-        .Some(fut) => if(!(ast_expr_is_atom(fut)), {
+        .Some(fut) => if(!ast_expr_is_atom(fut), {
           match(
             context.base.get_expr_info(fut),
             .Some(fi) => match(
@@ -456,20 +456,20 @@ compute_cross_boundary_variables :: (
   });
   // An await's result is a C local unless a later await in its statement can
   // suspend before the statement consumes it (`f(await a, await b)`).
-  if(!(w.foreign), {
+  if(!w.foreign, {
     (wi : usize) = usize(0);
     while(wi < w.await_sites.len(), wi = (wi + usize(1)), {
       p := match(w.await_pos.get(wi), .Some(x) => x, .None => u64(0));
       se := match(w.await_stmt_end.get(wi), .Some(x) => x, .None => u64(0));
       (later : bool) = false;
       (qi : usize) = usize(0);
-      while((qi < w.await_pos.len()) && !(later), qi = (qi + usize(1)), {
+      while((qi < w.await_pos.len()) && !later, qi = (qi + usize(1)), {
         q := match(w.await_pos.get(qi), .Some(x) => x, .None => u64(0));
         if((q > p) && (q <= se), {
           later = true;
         });
       });
-      if(!(later), {
+      if(!later, {
         match(
           w.await_sites.get(wi),
           .Some(site) => {
@@ -488,7 +488,7 @@ compute_cross_boundary_variables :: (
       captured_variables.get(ai),
       .Some(cv) => match(
         cv.kind,
-        .Local => if(!(is_unit_type(cv.base.ty)), {
+        .Local => if(!is_unit_type(cv.base.ty), {
           id := cv.base.id.to_string();
           crosses := cond(
             w.foreign => true,
@@ -502,7 +502,7 @@ compute_cross_boundary_variables :: (
                 end := if((lv.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv.scope_end > lv.last), lv.scope_end, lv.last);
                 (hit : bool) = false;
                 (si : usize) = usize(0);
-                while((si < sus.len()) && !(hit), si = (si + usize(1)), {
+                while((si < sus.len()) && !hit, si = (si + usize(1)), {
                   sp := match(sus.get(si), .Some(x) => x, .None => u64(0));
                   if((sp > lv.def_end) && (sp <= end), {
                     hit = true;
@@ -517,7 +517,7 @@ compute_cross_boundary_variables :: (
             // reads the min and max of the set).
             match(
               w.vars.get(id.clone()),
-              .Some(lv2) => if(!(w.foreign), {
+              .Some(lv2) => if(!w.foreign, {
                 end2 := if((lv2.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv2.scope_end > lv2.last), lv2.scope_end, lv2.last);
                 seg := HashSet(usize).new();
                 seg.insert(usize(lv2.def_end));
@@ -635,8 +635,8 @@ compute_overlapping_slots :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
         vid0 := v.base.id.to_string();
-        rc_shareable := (!(pattern_binding_ids.contains(vid0.clone())) && (v.is_owning_the_same_rc_value_as.is_none() && !(rc_owners.contains(vid0.clone()))));
-        if(((is_local && cross_boundary_ids.contains(vid0.clone())) && !(await_future_temp_var_aliases.contains_key(vid0.clone()))) && (!(type_contains_rc_type(v.base.ty)) || rc_shareable), {
+        rc_shareable := (!pattern_binding_ids.contains(vid0.clone()) && (v.is_owning_the_same_rc_value_as.is_none() && !rc_owners.contains(vid0.clone())));
+        if(is_local && cross_boundary_ids.contains(vid0.clone()) && !await_future_temp_var_aliases.contains_key(vid0.clone()) && (!type_contains_rc_type(v.base.ty) || rc_shareable), {
           eligible.push(v);
         });
       },
@@ -665,7 +665,7 @@ compute_overlapping_slots :: (
             match(
               seg_it.next(),
               .Some(s) => if(s != CLEANUP_SEGMENT, {
-                if(!(has_any), {
+                if(!has_any, {
                   mn = s;
                   mx = s;
                   has_any = true;
@@ -708,7 +708,7 @@ compute_overlapping_slots :: (
         vid := v.base.id.to_string();
         if(ranges.contains_key(vid.clone()), {
           ctype := get_type_string(v.base.ty, context.base);
-          if(!(by_type.contains_key(ctype.clone())), {
+          if(!by_type.contains_key(ctype.clone()), {
             ordered_c_types.push(ctype.clone());
           });
           group := match(by_type.get(ctype.clone()), .Some(grp) => grp, .None => ArrayList(String).new());
@@ -788,7 +788,7 @@ compute_overlapping_slots :: (
       while(cti < var_ids.len(), {
         var_id := match(var_ids.get(cti), .Some(x) => x, .None => String.new());
         col := match(colors.get(var_id.clone()), .Some(c) => c, .None => usize(0));
-        if(!(color_to_vars.contains_key(col)), {
+        if(!color_to_vars.contains_key(col), {
           ordered_colors.push(col);
         });
         cgroup := match(color_to_vars.get(col), .Some(g) => g, .None => ArrayList(String).new());
@@ -1048,7 +1048,7 @@ find_bundle_field_name :: (
             .Some(b) => {
               smvar := b.value;
               is_outer := match(smvar.kind, .Outer => true, .Local => false);
-              if(!(is_outer), {
+              if(!is_outer, {
                 svid := match(smvar.base.ty, .Struct({ id }) => id, _ => String.from(""));
                 if(svid == target_id, {
                   aliased := match(state_machine_field_aliases, .Some(al) => al.get(smvar.base.id.to_string()), .None => Option(String).None);
@@ -1266,7 +1266,7 @@ emit_effect_injection_for_sm :: (
               etype := match(eff_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
               if(is_function_type(etype), {
                 has_forall := match(etype, .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
-                if(!(has_forall), {
+                if(!has_forall, {
                   match(
                     resolve_effect_field_from_sm_scope(elabel, context, await_expr),
                     .Some(handler) => emit_future_effect_injection_line(fut_ty, future_access, elabel, handler, indent, context),
@@ -1358,7 +1358,7 @@ _emit_await_suspension_core :: (
   if(is_io_future, {
     em.emit_string_line(`${ind}// Io future: no extra ref needed (completion handler does not decr_rc)`);
   });
-  if(!(is_io_future), {
+  if(!is_io_future, {
     // The running-task reference is taken by whoever STARTS the future: its
     // completion releases exactly one. A future that is already running
     // (spawned, or started by another awaiter) has one already, and taking a
@@ -1401,7 +1401,7 @@ _emit_await_result_store :: (
   fn(dest : String, src : String, rt : TypeValue, is_reassign : bool, ind : String, context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
-  if(!(type_contains_rc_type(rt)), {
+  if(!type_contains_rc_type(rt), {
     em.emit_string_line(`${ind}${dest} = ${src};`);
     return();
   });
@@ -1413,7 +1413,7 @@ _emit_await_result_store :: (
     // dispose later frees (issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md).
     .None => generate_dup_code_for_value(src.clone(), rt, context)
   );
-  if(!(is_reassign), {
+  if(!is_reassign, {
     em.emit_string_line(`${ind}${dest} = ${dup_expr};`);
     return();
   });
@@ -1481,7 +1481,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize)) -> unit)({
-    if((!(seen.contains(ast_expr_id(e))) && !(_inline_result_is_unit(t))) && !(g_local_await_results.contains(_site_of(ast_expr_token(e.clone())))), {
+    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.contains(_site_of(ast_expr_token(e.clone()))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
@@ -1589,7 +1589,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   );
   acc := if(is_named, future_code.clone(), `((${future_c_type})sm->__yo_await_slot)`);
   em.emit_string_line(`${indent}// await (resumes in state ${ks})`);
-  if(!(is_named), {
+  if(!is_named, {
     emit_future_store_into_slot(future_arg, future_code, String.from("__yo_await_slot"), indent, context);
     // The slot owns the future now; the temp the evaluator minted for it
     // (its scope-end drop is scheduled) holds nothing of its own.
@@ -1611,12 +1611,12 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
   em.emit_string_line(`${indent}}`);
   em.emit_string_line(`${indent}${label}: ;`);
-  low.suspensions.push(InlineSuspension(state : k, in_slot : !(is_named), is_io : is_io));
+  low.suspensions.push(InlineSuspension(state : k, in_slot : !is_named, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
   em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
   em.emit_string_line(`${inner}__yo_task_abort_take_unwind((void*)${acc});`);
-  if(!(is_named), {
+  if(!is_named, {
     em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
     em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
   });
@@ -1636,7 +1636,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     },
     .None => {
       rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context);
-      if(!(_inline_result_is_unit(rty)), {
+      if(!_inline_result_is_unit(rty), {
         if(g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))), {
           // No suspension between here and the statement's use of it.
           local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
@@ -1650,7 +1650,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       });
     }
   );
-  if(!(is_named), {
+  if(!is_named, {
     em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
     em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
   });
@@ -1731,14 +1731,14 @@ generate_async_block_resume_function_inline :: (
       body_exprs.get(bi),
       .Some(bexpr) => {
         bcode := _call_generate_expr(bexpr, `  `, context);
-        if((bi == (n_body - usize(1))) && !(is_unit_result), {
+        if((bi == (n_body - usize(1))) && !is_unit_result, {
           if(bcode.len() > usize(0), {
             em.emit_string_line(`  sm->result = ${bcode};`);
           });
         }, {
           // A statement's value temp is already declared by its own emission.
           skip := ((bcode.len() == usize(0)) || match(context.base.get_expr_info(bexpr), .Some(bei) => is_temp_variable_name(bei.env.module_path, bcode.clone()), .None => true));
-          if(!(skip), {
+          if(!skip, {
             em.emit_string_line(`  ${bcode};`);
           });
         });
@@ -1752,7 +1752,7 @@ generate_async_block_resume_function_inline :: (
   // leaves the fall-through path to complete here
   // (issues/fixed/build-smoke-hangs-registry-perturbation.md).
   tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(le, "return", Option(usize).None), .None => false);
-  if(!(tail_returns), {
+  if(!tail_returns, {
     match(
       match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
       .Some(drops) => {

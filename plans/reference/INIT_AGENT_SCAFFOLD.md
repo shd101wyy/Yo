@@ -26,6 +26,14 @@
    same convention this repository's own root uses, so Claude Code reads the
    same guidance without a second copy to keep in sync.
 
+**Open item (audit 2026-10-01):** the scaffolded `AGENTS.md` toolchain block
+teaches context/build/test/check/fmt but not the verification recipe
+(`yo verify <spec-dir> --strict`); BEND B3 task 3's recipe and YO_CONTEXT
+C6 task 1 both intended it and neither landed it —
+`issues/init-agentsmd-template-omits-the-verify-recipe.md`. Teach it once
+the template change can ride a release (it re-records the `init-*`
+cli-case goldens).
+
 ## Non-negotiables
 
 - **Best-effort, never fatal.** `yo skills install` exits 1 when the bundled

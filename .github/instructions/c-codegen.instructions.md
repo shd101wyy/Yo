@@ -302,8 +302,9 @@ some expression, so the bare-atom arm position had never been exercised.
 
 ## Memory allocator options
 
-- `--allocator mimalloc` (default) — high-performance allocation
-- `--allocator system` — the platform system allocator (default; `libc` is a deprecated alias)
+- `--allocator system` (default) — the platform system allocator
+- `--allocator mimalloc` — high-performance allocation (the process-wide
+  global allocator `std/allocator` builds on when present)
 - `--allocator fixed` — hand-written TLSF over ONE static `.bss` region
   (`plans/reference/FIXED_REGION_ALLOCATOR.md`). The implementation is emitted
   by `src/codegen/c/allocator_fixed.yo`: defines + external prototypes in the
@@ -350,6 +351,20 @@ piped run keeps the terminal's order.
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
 Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `rc()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.
+
+**Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
+
+- The TOP BIT of `ref_count` is `__YO_RC_TAG` — every count read masks with
+  `__YO_RC_COUNT` (`(ref_count & __YO_RC_COUNT)`), never the raw field.
+- A tagged block carries a 16-byte `__yo_alloc_prefix_t` owner prefix
+  AHEAD of the RC header: free through `__yo_rc_free` (which reads the
+  prefix and routes the release back to the owning allocator), never a
+  bare `__yo_free` — a bare free silently breaks every placed block.
+- User-visible constructors allocate via `__yo_rc_alloc_scoped`, reading
+  the thread-local `__yo_current_allocator` that `with_allocator(a, ...)`
+  sets (the ONLY setter; `new_in(a)` instead hands the `Allocator` value
+  straight to the container's own buffer allocation). The runtime's OWN
+  blocks keep `__yo_rc_alloc` and are never placed.
 
 ## Memory leak detection
 
@@ -616,7 +631,7 @@ When an `io.await` detects a Future abort (state == -2), the behavior depends on
 
 - **Propagation** — The function receives the effect via an evidence parameter (e.g. `raise : Raise` in its own signature). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
-The helper `is_await_unwind_handler_installation` in `src/codegen/exprs/await.yo` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's evidence params. If an effect's key is missing from evidence params, it must be locally installed.
+The helper `_call_is_handler_installation` (`src/codegen/exprs/other_fn_call.yo`) determines this by locating the handler binding locally — a direct control/effect-record callee (or its name) bound in a begin-block frame of the enclosing function, or a fn-typed/ctl-bound parameter whose threaded argument resolves to one — and `emit_effect_unwind_check`'s `is_handler_installation` parameter (`src/codegen/exprs/return.yo`) carries the verdict into the emitted check.
 
 ### Effect member return types
 
@@ -692,7 +707,7 @@ Future interface, and the raw I/O future `__yo_io_future_t` — starts with the
 same prefix, the `__YO_FUTURE_PREFIX` macro (`src/codegen/types/generation.yo`):
 
 ```c
-__yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*, int prev_state); void (*continuation_fn)(void*); void* continuation_sm;
+__yo_ref_header_t header; int state; const __yo_future_vtable_t* vt; void (*continuation_fn)(void*); void* continuation_sm;
 ```
 
 `result` comes AFTER the prefix, because its type and therefore its size
@@ -712,8 +727,9 @@ The protocol on that prefix lives in `src/codegen/async/runtime_core.yo`:
   `__yo_future_wake_waiters(fut)`, which wakes every waiter in registration
   order.
 - **Abort.** `__yo_future_abort(fut)` marks a non-terminal future -2 and calls
-  `cancel_pending_fn(fut, prev_state)` with the state it was suspended in.
-  Each async block emits that hook beside its resume function
+  `fut->vt->cancel_pending(fut, prev_state)` with the state it was suspended
+  in (a future with no vtable — the raw I/O future — just wakes its
+  waiters). Each async block emits that hook beside its resume function
   (`generate_async_block_cancel_pending_function`). It switches on
   `prev_state`: an I/O await cancels the operation (`__yo_async_io_cancel` →
   the backend's `cancel_fn`, `issues/fixed/timeout-deadline-timer-future-leak.md`),

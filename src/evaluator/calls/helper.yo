@@ -241,12 +241,12 @@ _module_type_contains_ctl_field :: (
   match(
     module_type,
     .Struct({ field_labels : field_labels, field_types : field_types, is_source_namespace : m_sns }) => cond(
-      !(m_sns) => false,
+      !m_sns => false,
       true => {
         n := field_types.len();
         (fi : usize) = usize(0);
         (found : bool) = false;
-        while((fi < n) && (!(found)), {
+        while((fi < n) && !found, {
           field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           (field_val_opt : Option(EvalValue)) = match(
             module_val,
@@ -277,7 +277,7 @@ _module_type_contains_ctl_field :: (
           });
           // Recurse into nested module fields
           is_module_field := match(field_ty, .Struct({ is_source_namespace : f_sns }) => f_sns, _ => false);
-          if(is_module_field && (!(found)), {
+          if(is_module_field && !found, {
             (inner_module_val_opt : Option(EvalValue)) = match(
               field_val_opt,
               .None => Option(EvalValue).None,
@@ -396,7 +396,7 @@ validate_function_return_type :: (
                 type_implements_fn(st) ||
                   (required_trait_types.len() > usize(0))
             );
-            if(!(should_skip), {
+            if(!should_skip, {
               // Check if name is directly in the env.
               vars := get_variables_from_env(env, name);
               if(vars.len() == usize(0), {
@@ -405,7 +405,7 @@ validate_function_return_type :: (
                 (found_transitively : bool) = false;
                 (j : usize) = usize(0);
                 nv := all_vars.len();
-                while((j < nv) && !(found_transitively), {
+                while((j < nv) && !found_transitively, {
                   match(
                     all_vars.get(j),
                     .Some(var) => {
@@ -417,7 +417,7 @@ validate_function_return_type :: (
                             .TypeVal(ty_box) => {
                               transitive := get_all_some_types(ty_box);
                               (k : usize) = usize(0);
-                              while((k < transitive.len()) && !(found_transitively), {
+                              while((k < transitive.len()) && !found_transitively, {
                                 match(
                                   transitive.get(k),
                                   .Some(tst) => {
@@ -447,7 +447,7 @@ validate_function_return_type :: (
                   j = (j + usize(1));
                 });
                 // Not found even transitively — throw error.
-                if(!(found_transitively), {
+                if(!found_transitively, {
                   exn.throw(
                     dyn(
                       format_error_message(
@@ -526,7 +526,7 @@ _type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
       .Struct({ field_types : alv_fts }) => {
         (alv_found : bool) = false;
         (alv_i2 : usize) = usize(0);
-        while((alv_i2 < alv_fts.len()) && !(alv_found), {
+        while((alv_i2 < alv_fts.len()) && !alv_found, {
           match(
             alv_fts.get(alv_i2),
             .Some(alv_ft) => if(recur(alv_ft, d + usize(1)), {
@@ -541,10 +541,10 @@ _type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
       .EnumT({ variant_fields : alv_vfs }) => {
         (alv_found2 : bool) = false;
         (alv_vi : usize) = usize(0);
-        while((alv_vi < alv_vfs.len()) && !(alv_found2), {
+        while((alv_vi < alv_vfs.len()) && !alv_found2, {
           alv_vf := match(alv_vfs.get(alv_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (alv_vj : usize) = usize(0);
-          while((alv_vj < alv_vf.len()) && !(alv_found2), {
+          while((alv_vj < alv_vf.len()) && !alv_found2, {
             match(
               alv_vf.get(alv_vj),
               .Some(alv_vt) => if(recur(alv_vt, d + usize(1)), {
@@ -573,7 +573,7 @@ _type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d
 _trial_eval_ret_type_expr :: (
   fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
@@ -603,7 +603,7 @@ _refine_one_fn_trait_result :: (fn(ftt : TypeValue, new_result : TypeValue) -> T
   match(
     ftt,
     .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_is, rw_cpr) => cond(
-      ((!(is_some_type(rw_cr))) && (get_all_some_types(rw_cr).len() > usize(0))) => TypeValue.FnTraitT(
+      (!is_some_type(rw_cr) && (get_all_some_types(rw_cr).len() > usize(0))) => TypeValue.FnTraitT(
         rw_bn,
         rw_cpl,
         rw_cpt,
@@ -625,7 +625,7 @@ _wrapper_fn_result_needs_refine :: (fn(ty : TypeValue) -> bool)(
     extract_fn_trait_from_type(ty),
     .Some(nr_ftt) => match(
       nr_ftt,
-      .FnTraitT({ call_result : nr_cr }) => ((!(is_some_type(nr_cr))) && (get_all_some_types(nr_cr).len() > usize(0))),
+      .FnTraitT({ call_result : nr_cr }) => (!is_some_type(nr_cr) && (get_all_some_types(nr_cr).len() > usize(0))),
       _ => false
     ),
     .None => false
@@ -669,12 +669,12 @@ _refine_wrapper_fn_result :: (fn(ty : TypeValue, new_result : TypeValue) -> Type
 /// a label that is written must match the declared parameter label at that
 /// position. Returns the value expression (the argument itself when unlabeled).
 strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(arg, ":", .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(arg);
   });
   cl_args := _h_get_fn_call_args(arg);
   cl_label_expr := match(cl_args.get(usize(0)), .Some(a) => a, .None => arg);
-  if(!(ast_expr_is_atom(cl_label_expr)), {
+  if(!ast_expr_is_atom(cl_label_expr), {
     exn.throw(
       dyn(
         format_error_message(
@@ -765,7 +765,7 @@ argument_is_aliased_by_inout :: (fn(arg : AstExpr, param_is_ref : bool, inout_ro
     return(false);
   });
   bare := _unlabeled_argument(arg);
-  if(!(ast_expr_is_atom(bare)), {
+  if(!ast_expr_is_atom(bare), {
     return(false);
   });
   name := ast_expr_token(bare).value;
@@ -806,7 +806,7 @@ consume_argument_for_parameter :: (
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
-  if((param_is_owning && !(param_is_ct)) && !(ctx.is_in_function_call_checking_phase), {
+  if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase, {
     match(
       arg_info.variable_name,
       .None => (),
@@ -834,7 +834,7 @@ consume_argument_for_parameter :: (
       }
     );
   });
-  if(((((!(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && (aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env)), {
+  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern && (aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env)), {
     return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout));
   });
   Option(AstExpr).None
@@ -879,7 +879,7 @@ check_argument_for_parameter :: (
     exn : Exception
   ) -> TypeValue
 )({
-  if(param_is_ct && (!(in_def_time_trial()) && !(ctx.is_analyzing_ctfe_capability)) && runtime_value_for_comptime_param(arg_ty, arg_info.value), {
+  if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, arg_info.value), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -890,16 +890,16 @@ check_argument_for_parameter :: (
       )
     );
   });
-  pt_is_comptime := ((is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt)) || is_comptime_string_type(resolved_pt));
-  arg_is_comptime_lit := ((is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) || is_comptime_string_type(arg_ty));
+  pt_is_comptime := (is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt) || is_comptime_string_type(resolved_pt));
+  arg_is_comptime_lit := (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty) || is_comptime_string_type(arg_ty));
   lit_concrete := (
-    (!(is_some_type(resolved_pt)) && !(type_contains_some_type_deep(resolved_pt)))
-    && ((!(is_function_type(resolved_pt)) && !(is_fn_trait_type(resolved_pt))) && !(is_type_hierarchy_type(resolved_pt)))
+    !is_some_type(resolved_pt) && !type_contains_some_type_deep(resolved_pt)
+    && (!is_function_type(resolved_pt) && !is_fn_trait_type(resolved_pt) && !is_type_hierarchy_type(resolved_pt))
   );
   // The fit and range checks hold for a `comptime(...)` parameter too
   // (`comptime(n) : u8` given `300`); only the lowering below skips it.
-  if(arg_is_comptime_lit && !(pt_is_comptime), {
-    if(lit_concrete && !(are_types_compatible(arg_ty, resolved_pt)), {
+  if(arg_is_comptime_lit && !pt_is_comptime, {
+    if(lit_concrete && !are_types_compatible(arg_ty, resolved_pt), {
       _arg_rule_throw_types(arg_tok, `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_pt)}"\nGiven: "${type_to_string(arg_ty)}"${same_name_note(resolved_pt, arg_ty)}`, resolved_pt, arg_ty, ctx, exn);
     });
     if(lit_concrete && is_comptime_int_type(arg_ty), {
@@ -912,15 +912,15 @@ check_argument_for_parameter :: (
   });
   lowered := cond(
     (param_is_ct || pt_is_comptime) => arg_ty,
-    ((lit_concrete && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) && are_types_compatible(arg_ty, resolved_pt)) => resolved_pt,
+    (lit_concrete && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) && are_types_compatible(arg_ty, resolved_pt)) => resolved_pt,
     true => convert_comptime_type_to_runtime_type_with_expected(arg_ty, Option(TypeValue).Some(resolved_pt), env)
   );
   if(fn_constrained_param_requires_callable(resolved_pt), {
     nc_callable := (
-      (type_is_callable_shaped(lowered) || expr_info_capture_type(arg_info).is_some())
+      type_is_callable_shaped(lowered) || expr_info_capture_type(arg_info).is_some()
       || match(arg_info.value, .Some(nc_av) => is_func_val(nc_av), .None => false)
     );
-    if(!(nc_callable), {
+    if(!nc_callable, {
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, lowered), ctx, exn);
     });
   });
@@ -1032,12 +1032,12 @@ check_if_function_parameter_matches_argument :: (
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
   // not a `__yo_str` struct). Only the codegen reads this field.
-  if(((is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty)) || is_comptime_string_type(arg_info.ty)) && !(is_ct_only), {
+  if((is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty) || is_comptime_string_type(arg_info.ty)) && !is_ct_only, {
     expr_info_set_converted_runtime_type(arg_info, Option(TypeValue).Some(arg_type.clone()));
   });
   arg_value := arg_info.value;
   // Step 4: Append to runtime arg list if not comptime-only.
-  if(!(is_ct_only), {
+  if(!is_ct_only, {
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
@@ -1064,7 +1064,7 @@ check_if_function_parameter_matches_argument :: (
       arg_value,
       .Some(agv) => {
         (pav_matches : bool) = are_values_equal(pav, callee_env_r, agv, caller_env_r);
-        if(!(pav_matches), {
+        if(!pav_matches, {
           // Outside a dry-run this rejection is a REAL user error: every
           // overload candidate was already trial-rejected, the fallback
           // committed to this one, and its assigned value still mismatches
@@ -1078,7 +1078,7 @@ check_if_function_parameter_matches_argument :: (
           // is HOW candidates are filtered), in cee propagate mode (the
           // throw itself reaches the comptime_expect_error catch), and
           // when an earlier flag is pending.
-          if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+          if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
             flag_flow_violation(
               format_error_message(
                 ast_expr_token(actual_arg),
@@ -1129,7 +1129,7 @@ ${ast_expr_to_string(actual_arg)}`
       av_pr,
       .FuncVal(pr_fvd, _) => match(
         get_closure_body_type(pr_fvd.*.func_id.clone()),
-        .Some(pr_body_ty) => if((!(is_some_type(pr_body_ty))) && (get_all_some_types(pr_body_ty).len() == usize(0)), {
+        .Some(pr_body_ty) => if(!is_some_type(pr_body_ty) && (get_all_some_types(pr_body_ty).len() == usize(0)), {
           resolved_pt = _refine_wrapper_fn_result(resolved_pt, pr_body_ty.clone());
           if(_wrapper_fn_result_needs_refine(arg_type), {
             arg_type = _refine_wrapper_fn_result(arg_type, pr_body_ty);
@@ -1203,7 +1203,7 @@ ${ast_expr_to_string(actual_arg)}`
     eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(arg_type, final_pt).to_string()}`);
   });
   // Step 8: Type-compatibility check.
-  if(!(are_types_compatible(arg_type, final_pt)), {
+  if(!are_types_compatible(arg_type, final_pt), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1459,7 +1459,7 @@ compute_compile_time_signature :: (
   (rti : usize) = usize(0);
   while(rti < n_rt, {
     ptype := match(runtime_param_tys.get(rti), .Some(t) => t, .None => t_unit());
-    if(!(is_unit_type(ptype)), {
+    if(!is_unit_type(ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_key(ptype))}`;
       parts.push(seg);
     });
@@ -1582,7 +1582,7 @@ _find_specialization_cache :: (
                   while((cti < n_ct) && ct_match, {
                     cached_v := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
                     current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
-                    if(!(eval_value_eq(cached_v, current_v)), {
+                    if(!eval_value_eq(cached_v, current_v), {
                       ct_match = false;
                     });
                     cti = (cti + usize(1));
@@ -1625,10 +1625,10 @@ _find_specialization_cache :: (
                         ),
                         _ => false
                       );
-                      if(((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some)) || cap_ids_differ, {
+                      if((cached_is_some && !current_is_some) || (!cached_is_some && current_is_some) || cap_ids_differ, {
                         rt_match = false;
                       }, {
-                        if(!(are_types_compatible_exact(cached_ty, current_ty)), {
+                        if(!are_types_compatible_exact(cached_ty, current_ty), {
                           rt_match = false;
                         }, {
                           // A nominal instantiation whose type_arguments carry a
@@ -1707,7 +1707,7 @@ _store_specialization_cache :: (
   n_entries := g_specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
-  while((ei < n_entries) && !(found), {
+  while((ei < n_entries) && !found, {
     entry_opt := g_specialized_fn_caches.get(ei);
     match(
       entry_opt,
@@ -1722,7 +1722,7 @@ _store_specialization_cache :: (
     );
     ei = (ei + usize(1));
   });
-  if(!(found), {
+  if(!found, {
     // Create new entry
     new_caches := ArrayList(SpecializedFunctionCache).new();
     new_caches.push(new_cache);
@@ -1918,7 +1918,7 @@ _find_mutual_specializing_info :: (
         while(i < stk.len(), {
           match(
             stk.get(i),
-            .Some(si) => if(((si.original_func_id == fid) && (si.impl_bindings_sig == bindings_sig)) && found.is_none(), {
+            .Some(si) => if((si.original_func_id == fid) && (si.impl_bindings_sig == bindings_sig) && found.is_none(), {
               found = Option(SpecializingFunctionInfo).Some(
                 SpecializingFunctionInfo(
                   original_func_id : si.original_func_id.clone(),
@@ -2014,7 +2014,7 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
         (bk_r : TypeValue) = bk_t;
         if(is_some_type(bk_t), {
           bk_r = _spec_resolve_slot_cell(bk_t);
-          if(!(is_some_type(bk_r)), {
+          if(!is_some_type(bk_r), {
             bk_changed = true;
           }, {
             bk_r = bk_t;
@@ -2023,7 +2023,7 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
         bk_new_tas.push(bk_r);
         bk_i = (bk_i + usize(1));
       });
-      if(!(bk_changed), {
+      if(!bk_changed, {
         return(ty);
       });
       bk_new_ft := ArrayList(TypeValue).new();
@@ -2071,7 +2071,7 @@ _reeval_closure_body_swallow :: (
   // swallow runs with the closure's parameter types already substituted).
   rcb_exn := Exception(
     throw : (
-      (_rcb_e) -> {
+      _rcb_e -> {
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[reeval-swallow] ${_rcb_e.to_string()}`);
         });
@@ -2196,13 +2196,13 @@ _somes_are_closure_forall_args :: (fn(somes : ArrayList(TypeValue), forall_args 
     sid := match(somes.get(si), .Some(st) => match(st, .SomeT(sid0, _, _, _, _, _, _, _, _, _, _) => sid0, _ => String.new()), .None => String.new());
     (found : bool) = false;
     (ii : usize) = usize(0);
-    while((ii < ids.len()) && !(found), {
+    while((ii < ids.len()) && !found, {
       if(match(ids.get(ii), .Some(x) => (x == sid), .None => false), {
         found = true;
       });
       ii = (ii + usize(1));
     });
-    if(!(found), {
+    if(!found, {
       return(false);
     });
     si = (si + usize(1));
@@ -2326,10 +2326,10 @@ create_specialized_function_inline :: (
           func_type,
           .Func({ param_types : dg_pt }) => {
             (dgi : usize) = usize(0);
-            while((dgi < runtime_param_tys.len()) && !(degenerate_unit_arg), {
+            while((dgi < runtime_param_tys.len()) && !degenerate_unit_arg, {
               rpt_d := match(runtime_param_tys.get(dgi), .Some(t) => t, .None => t_unit());
               decl_d := match(dg_pt.get(dgi), .Some(t) => t, .None => t_unit());
-              if((is_unit_type(rpt_d) && !(is_unit_type(decl_d))) && !(type_contains_some_type(decl_d)), {
+              if(is_unit_type(rpt_d) && !is_unit_type(decl_d) && !type_contains_some_type(decl_d), {
                 degenerate_unit_arg = true;
               });
               dgi = (dgi + usize(1));
@@ -2542,7 +2542,7 @@ create_specialized_function_inline :: (
                   zb_ae.value,
                   .Some(zb_v) => match(
                     zb_v,
-                    .TypeVal(zb_tb) => if((!(is_some_type(zb_tb))) && is_type_0(zb_kind), {
+                    .TypeVal(zb_tb) => if(!is_some_type(zb_tb) && is_type_0(zb_kind), {
                       _zb := add_variable_to_env(
                         callee_env,
                         zb_name,
@@ -2571,7 +2571,7 @@ create_specialized_function_inline :: (
                         zb_pt := match(func_type, .Func({ param_types : zpt }) => zpt, _ => ArrayList(TypeValue).new());
                         (zbp : usize) = usize(0);
                         (zb_done : bool) = false;
-                        while((zbp < zb_pt.len()) && !(zb_done), {
+                        while((zbp < zb_pt.len()) && !zb_done, {
                           zb_decl_nm := match(
                             zb_pt.get(zbp),
                             .Some(.SomeT(_, zdn, _, _, _, _, _, _, _, _, _)) => zdn,
@@ -2603,7 +2603,7 @@ create_specialized_function_inline :: (
                                 match(
                                   zb_conc,
                                   .Some(_) => (),
-                                  .None => if((get_all_some_types(zb_ae2.arg_type).len() == usize(0)) && !(is_unit_type(zb_ae2.arg_type)), {
+                                  .None => if((get_all_some_types(zb_ae2.arg_type).len() == usize(0)) && !is_unit_type(zb_ae2.arg_type), {
                                     zb_conc = Option(TypeValue).Some(zb_ae2.arg_type);
                                   })
                                 );
@@ -2639,7 +2639,7 @@ create_specialized_function_inline :: (
                         // while the body builds `Arc(<closure SomeT>)` — two
                         // instances, and clang rejects the return
                         // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-                        if(!(zb_done) && extract_fn_trait_from_type(zb_tb).is_some(), {
+                        if(!zb_done && extract_fn_trait_from_type(zb_tb).is_some(), {
                           _zb3 := add_variable_to_env(
                             callee_env,
                             zb_name,
@@ -2695,7 +2695,7 @@ create_specialized_function_inline :: (
                           arg_values.forall_args.get(zbni),
                           .Some(zae) => match(
                             zae.value,
-                            .Some(.TypeVal(ztb)) => if(!(is_some_type(ztb)), {
+                            .Some(.TypeVal(ztb)) => if(!is_some_type(ztb), {
                               subst_add(zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
                               zs_any = true;
                             }),
@@ -2745,7 +2745,7 @@ create_specialized_function_inline :: (
           (rte_has_ct_param : bool) = false;
           {
             (rhc_i : usize) = usize(0);
-            while((rhc_i < spec_param_ct_flags.len()) && !(rte_has_ct_param), {
+            while((rhc_i < spec_param_ct_flags.len()) && !rte_has_ct_param, {
               match(
                 spec_param_ct_flags.get(rhc_i),
                 .Some(f) => if(f, {
@@ -2797,7 +2797,7 @@ create_specialized_function_inline :: (
                   .Some(pte_dpt) => extract_fn_trait_from_type(pte_dpt).is_some(),
                   .None => false
                 );
-                if(!(pte_ct) && !(pte_is_fn_carrier), {
+                if(!pte_ct && !pte_is_fn_carrier, {
                   match(
                     pte_exprs.get(pte_i),
                     .Some(pte_e_opt) => match(
@@ -2807,7 +2807,7 @@ create_specialized_function_inline :: (
                         _trial_eval_ret_type_expr(clone_expr_fresh_ids(pte_e), callee_env, ctx, pte_out);
                         match(
                           pte_out.get(usize(0)),
-                          .Some(pte_t) => if(((get_all_some_types(pte_t).len() == usize(0)) && !(is_unit_type(pte_t))) && !(_type_has_array_len_var(pte_t)), {
+                          .Some(pte_t) => if((get_all_some_types(pte_t).len() == usize(0)) && !is_unit_type(pte_t) && !_type_has_array_len_var(pte_t), {
                             runtime_param_tys(pte_i) = pte_t;
                           }),
                           .None => ()
@@ -2839,7 +2839,7 @@ create_specialized_function_inline :: (
             ArrayList(String).new()
           );
           rte_era_suspect := ((rte_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(spec_ret_ty).len() == usize(0)));
-          if((((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param) || rte_era_suspect, {
+          if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty) || rte_has_ct_param || rte_era_suspect, {
             match(
               get_func_return_type_expr(func_id.clone()),
               .Some(rte_expr) => {
@@ -2884,7 +2884,7 @@ create_specialized_function_inline :: (
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(rte_ty);
                     rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args));
-                    if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
+                    if(((rte_somes.len() == usize(0)) || rte_only_closure_args) && !_type_has_array_len_var(rte_ty) && !is_unit_type(rte_ty), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
                     });
@@ -3072,7 +3072,7 @@ create_specialized_function_inline :: (
                 (npv == usize(0)) => false,
                 true => match(
                   pvars.get(npv - usize(1)),
-                  .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !(is_unknown_val(vv)), .None => false),
+                  .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !is_unknown_val(vv), .None => false),
                   .None => false
                 )
               )
@@ -3124,15 +3124,14 @@ create_specialized_function_inline :: (
             // `test_unwind(task, io)`). Skipped when the folded-const rebind
             // below already binds the arg's wrapper as the param's type.
             (fw_rebind : Option(TypeValue)) = Option(TypeValue).None;
-            if((!(is_closure_param)) && !(cur_is_folded_const), {
+            if(!is_closure_param && !cur_is_folded_const, {
               match(
                 decl_pt,
                 .SomeT({ id : fw_id }) => if(extract_future_trait_from_type(decl_pt).is_some(), {
                   match(
                     runtime_param_tys.get(rbp_i),
-                    .Some(fw_arg) => if(is_some_type(fw_arg) && (
-                      match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
-                    ), {
+                    .Some(fw_arg) => if(is_some_type(fw_arg) &&
+                      match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false), {
                       match(
                         decl_pt,
                         .SomeT(
@@ -3216,9 +3215,7 @@ create_specialized_function_inline :: (
               (cap_ty_fixed : Option(TypeValue)) = runtime_param_tys.get(rbp_i);
               match(
                 cap_ty_fixed,
-                .Some(ct_probe) => if(!(
-                  match(ct_probe, .Struct({ id : _ }) => true, _ => false)
-                ), {
+                .Some(ct_probe) => if(!match(ct_probe, .Struct({ id : _ }) => true, _ => false), {
                   match(
                     arg_values.args.get(rbp_i),
                     .Some(cb_ae2) => match(
@@ -3253,7 +3250,7 @@ create_specialized_function_inline :: (
                 // type instead; the resolved-era mints (arg resolves to the
                 // concrete capture via _spec_resolve_arg_ty) rebuild as
                 // before.
-                .Some(cap_ty) => if(!(is_some_type(cap_ty)), {
+                .Some(cap_ty) => if(!is_some_type(cap_ty), {
                   fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
                   match(
                     decl_pt,
@@ -3337,7 +3334,7 @@ create_specialized_function_inline :: (
                               cl_v3,
                               .FuncVal(cl_fvd3, _) => match(
                                 get_func_type(cl_fvd3.*.func_id.clone()),
-                                .Func({ result : cl_res3 }) => if(!(is_some_type(cl_res3)), {
+                                .Func({ result : cl_res3 }) => if(!is_some_type(cl_res3), {
                                   match(
                                     fn_res,
                                     // A type binding: the variable's type is
@@ -3459,7 +3456,7 @@ create_specialized_function_inline :: (
               );
             });
           });
-          if(!(spec_self_set), {
+          if(!spec_self_set, {
             // (b1) An impl member's FuncVal carries the matched CONCRETE
             // receiver as a "Self" capture (impl.yo's
             // _inject_forall_captures).
@@ -3484,7 +3481,7 @@ create_specialized_function_inline :: (
               spec_self_src = String.from("b1-self-capture");
             });
           });
-          if(!(spec_self_set), {
+          if(!spec_self_set, {
             spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
             if(spec_self_vars.len() > usize(0), {
               match(
@@ -3591,8 +3588,8 @@ create_specialized_function_inline :: (
               if(is_never_type(sb_ty) && (get_all_some_types(spec_ret_ty).len() == usize(0)), {
                 adopt_never_type(specialized_body, if(sb_ret_is_ref, t_ptr(spec_ret_ty), spec_ret_ty), ctx);
               });
-              sb_skip := (((((has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty)) || is_type_hierarchy_type(spec_ret_ty)) || (get_all_some_types(spec_ret_ty).len() > usize(0))) || (get_all_some_types(sb_ty).len() > usize(0))) || sb_ret_is_ref);
-              if(!(sb_skip) && !(are_types_compatible(sb_ty, spec_ret_ty)), {
+              sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() > usize(0)) || (get_all_some_types(sb_ty).len() > usize(0)) || sb_ret_is_ref);
+              if(!sb_skip && !are_types_compatible(sb_ty, spec_ret_ty), {
                 sb_inst := String.new();
                 (sbi : usize) = usize(0);
                 while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
@@ -3733,7 +3730,7 @@ create_specialized_function_inline :: (
           while(oci < n_oc, {
             // Aligned: names, types AND values come through the handles, so
             // nothing is copied (memory plan §0.13/§0.16).
-            if(!(spec_aligned), {
+            if(!spec_aligned, {
               new_cap_names.push(fv_source_name(orig_src, oci));
               new_cap_tys.push(fv_source_ty(orig_src, oci));
               new_cap_vals.push(match(fv_capture_val(__fvm2.*, cap_vals, oci), .Some(v) => v, .None => EvalValue.UnitVal));
@@ -3762,7 +3759,7 @@ create_specialized_function_inline :: (
                   match(
                     ev.value.get(usize(0)),
                     .Some(v) => {
-                      if(!(spec_aligned), {
+                      if(!spec_aligned, {
                         new_cap_names.push(label);
                         new_cap_tys.push(ev.ty);
                         new_cap_vals.push(v);
@@ -3976,7 +3973,7 @@ create_specialized_function_inline :: (
                                                   cw_fae.value,
                                                   .Some(cw_fav) => match(
                                                     cw_fav,
-                                                    .TypeVal(cw_fat) => if((!(is_some_type(cw_fat))) && (get_all_some_types(cw_fat).len() == usize(0)), {
+                                                    .TypeVal(cw_fat) => if(!is_some_type(cw_fat) && (get_all_some_types(cw_fat).len() == usize(0)), {
                                                       subst_add(cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
                                                     }),
                                                     _ => ()
@@ -4117,7 +4114,7 @@ create_specialized_function_inline :: (
                                   // closure body is the program's error.
                                   match(
                                     g_reeval_closure_err.get(usize(0)),
-                                    .Some(rc_err) => if(!(propagate_def_time_errors()) && match(rc_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+                                    .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
                                       g_reeval_closure_err.clear();
                                       exn.throw(dyn(rc_err));
                                     }),
@@ -4140,7 +4137,7 @@ create_specialized_function_inline :: (
                 use_ty := match(
                   closure_cap_ty,
                   .Some(cc_t) => cc_t,
-                  .None => if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+                  .None => if(is_unit_type(rpt) && !is_unit_type(declared_pt), {
                     resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
                     if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
                   }, rpt)
@@ -4167,7 +4164,7 @@ create_specialized_function_inline :: (
               if((get_all_some_types(spec_result).len() > usize(0)) || {
                 (yp_probe : bool) = false;
                 (ypi0 : usize) = usize(0);
-                while((ypi0 < spec_param_types.len()) && !(yp_probe), {
+                while((ypi0 < spec_param_types.len()) && !yp_probe, {
                   match(
                     spec_param_types.get(ypi0),
                     .Some(ypt0) => if(get_all_some_types(ypt0).len() > usize(0), {
@@ -4221,7 +4218,7 @@ create_specialized_function_inline :: (
                             arg_values.forall_args.get(ybni),
                             .Some(yae) => match(
                               yae.value,
-                              .Some(.TypeVal(ytb)) => if(!(is_some_type(ytb)), {
+                              .Some(.TypeVal(ytb)) => if(!is_some_type(ytb), {
                                 subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
                                 ys_added_names.push(yrst_name.clone());
                                 ys_any = true;
@@ -4266,7 +4263,7 @@ create_specialized_function_inline :: (
                         (ydb_is_forall : bool) = false;
                         if(ydb_nm.len() > usize(0), {
                           (ydb_f : usize) = usize(0);
-                          while((ydb_f < forall_names.len()) && !(ydb_is_forall), {
+                          while((ydb_f < forall_names.len()) && !ydb_is_forall, {
                             match(
                               forall_names.get(ydb_f),
                               .Some(fnm) => if(fnm == ydb_nm, {
@@ -4277,7 +4274,7 @@ create_specialized_function_inline :: (
                             ydb_f = (ydb_f + usize(1));
                           });
                         });
-                        (ydb_seen : bool) = !(ydb_is_forall);
+                        (ydb_seen : bool) = !ydb_is_forall;
                         (ydb_k : usize) = usize(0);
                         while(ydb_k < ys_added_names.len(), {
                           match(
@@ -4289,11 +4286,11 @@ create_specialized_function_inline :: (
                           );
                           ydb_k = (ydb_k + usize(1));
                         });
-                        if((!(ydb_seen)) && (ydb < spec_param_types.len()), {
+                        if(!ydb_seen && (ydb < spec_param_types.len()), {
                           match(
                             spec_param_types.get(ydb),
                             .Some(ydb_ct) => {
-                              if((get_all_some_types(ydb_ct).len() == usize(0)) && !(is_unit_type(ydb_ct)), {
+                              if((get_all_some_types(ydb_ct).len() == usize(0)) && !is_unit_type(ydb_ct), {
                                 subst_add(ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
                                 ys_added_names.push(ydb_nm.clone());
                                 ys_any = true;
@@ -4315,7 +4312,7 @@ create_specialized_function_inline :: (
                   // positional substitution of the DECLARED return would
                   // mint a second one (`Arc(V)` with `V := <param type>`)
                   // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-                  if(!(rte_adopted), {
+                  if(!rte_adopted, {
                     spec_result = substitute(ys_ret, sp_res_b);
                   });
                   // Rebuild the param list through the same substitution
@@ -4391,7 +4388,7 @@ create_specialized_function_inline :: (
                 (sp_mi : usize) = usize(0);
                 while(sp_mi < sp_pl.len(), {
                   sp_mi_ct := match(spec_param_ct_flags.get(sp_mi), .Some(f) => f, .None => false);
-                  if(!(sp_mi_ct), {
+                  if(!sp_mi_ct, {
                     sp_pl_f.push(match(sp_pl.get(sp_mi), .Some(l) => l, .None => String.new()));
                     sp_pir_f.push(match(sp_pir.get(sp_mi), .Some(b) => b, .None => false));
                     sp_pio_f.push(match(sp_pio.get(sp_mi), .Some(b) => b, .None => false));
@@ -4576,7 +4573,7 @@ evaluate_ctl_function_body_inline :: (
                   .Some(cv3) => match(cv3, .FuncVal(_, _) => true, _ => false),
                   .None => false
                 );
-                if(!(is_fn_val), {
+                if(!is_fn_val, {
                   existing := get_variables_from_env(specialized_env, caller_var.name);
                   if(existing.len() == usize(0), {
                     _add_caller_var_res := add_variable_to_env(
@@ -4721,7 +4718,7 @@ evaluate_ctl_function_body_inline :: (
   );
   (oci : usize) = usize(0);
   while(oci < n_oc, {
-    if(!(ctl_aligned), {
+    if(!ctl_aligned, {
       ctl_cap_names.push(fv_source_name(orig_cap_src, oci));
       ctl_cap_tys.push(fv_source_ty(orig_cap_src, oci));
       ctl_cap_vals.push(match(match(original_func_val, .FuncVal(__ctl_v, _) => fv_capture_val(__ctl_v.*, orig_cap_vals, oci), _ => orig_cap_vals.get(oci)), .Some(v) => v, .None => EvalValue.UnitVal));
@@ -4733,7 +4730,7 @@ evaluate_ctl_function_body_inline :: (
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
     ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
-    if(!(ctl_aligned), {
+    if(!ctl_aligned, {
       ctl_cap_names.push(fl3.clone());
       ctl_cap_tys.push(ft3);
       ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
@@ -4839,7 +4836,7 @@ validate_where_constraints_for_call :: (
       .TraitT(_, _, _, tr_ftys, _, _, _, _, _, _) => {
         (tm_i : usize) = usize(0);
         (tm_has_method : bool) = false;
-        while((tm_i < tr_ftys.len()) && !(tm_has_method), {
+        while((tm_i < tr_ftys.len()) && !tm_has_method, {
           match(
             tr_ftys.get(tm_i),
             .Some(tf) => if(is_function_type(tf), {
@@ -4849,11 +4846,11 @@ validate_where_constraints_for_call :: (
           );
           tm_i = (tm_i + usize(1));
         });
-        !(tm_has_method)
+        !tm_has_method
       },
       _ => false
     );
-    if(!(trait_is_marker), {
+    if(!trait_is_marker, {
       wcl_i = (wcl_i + usize(1));
       continue;
     });
@@ -4880,7 +4877,7 @@ validate_where_constraints_for_call :: (
               // global passed every such bound
               // (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
               (value_judged : bool) = false;
-              if(!(wce.is_negated), {
+              if(!wce.is_negated, {
                 match(
                   call_function_value_marker(bound_ty, Option(EvalValue).None, wce.trait_ty, callee_env, ctx),
                   .Some(fvm) => {
@@ -4907,12 +4904,12 @@ validate_where_constraints_for_call :: (
               // generic instantiation inside an impl body) defers to
               // constraint propagation, which the marker derivation
               // can't see through yet.
-              if(((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0))) && !(value_judged), {
+              if(!is_some_type(bound_ty) && (get_all_some_types(bound_ty).len() == usize(0)) && !value_judged, {
                 (wc_implemented : bool) = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
                 // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
                 // bound may be satisfied by an impl placed later in its
                 // module — force and re-check before rejecting.
-                if(!(wc_implemented) && !(wce.is_negated), {
+                if(!wc_implemented && !wce.is_negated, {
                   match(
                     force_pending_impls_for_type_name(type_head_name_for_impl_forcing(bound_ty), Option(String).None),
                     .Forced => {
@@ -4936,7 +4933,7 @@ validate_where_constraints_for_call :: (
                     );
                   });
                 }, {
-                  if(!(wc_implemented), {
+                  if(!wc_implemented, {
                     exn.throw(
                       dyn(
                         format_error_message(
@@ -5004,7 +5001,7 @@ reapply_where_clause_exprs_for_call :: (
                       .Some(wge_var) => match(
                         wge_var.value.get(usize(0)),
                         .Some(wge_val) => {
-                          if(!(is_type_val(wge_val)), {
+                          if(!is_type_val(wge_val), {
                             wce_state_ok = false;
                           });
                         },
@@ -5082,7 +5079,7 @@ resolve_param_types_from_expected :: (
   });
   // Capture-free swallow: on any synthesis error, unwind `()` (the loop that
   // fills `out` runs only after a successful synth, so `out` stays empty).
-  rps_exn := Exception(throw : ((_e) -> unwind(())));
+  rps_exn := Exception(throw : (_e -> unwind(())));
   // Seed every signature SomeT as a self-binding placeholder so
   // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
@@ -5141,10 +5138,10 @@ _func_type_has_runtime_some_param :: (fn(t : TypeValue) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := pts.len();
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           pts.get(i),
-          .Some(pt) => if(is_some_type(pt) && !(type_implements_future(pt)), {
+          .Some(pt) => if(is_some_type(pt) && !type_implements_future(pt), {
             found = true;
           }),
           .None => ()
@@ -5191,7 +5188,7 @@ _collect_atom_names_into :: (fn(e : AstExpr, out : ArrayList(String)) -> unit)(
 _try_apply_early_where_clauses :: (
   fn(constraint_exprs : ArrayList(AstExpr), callee_env : Environment, ctx : EvalContext) -> unit
 )({
-  eaw_exn := Exception(throw : ((_eaw_e) -> unwind(())));
+  eaw_exn := Exception(throw : (_eaw_e -> unwind(())));
   apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);
 });
 /// C60 (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md):
@@ -5307,7 +5304,7 @@ _evaluated_expr_type :: (
 /// A value of a comptime-only type is compile-time by construction, and a
 /// SomeT-typed one is still generic.
 runtime_value_for_comptime_param :: (fn(ty : TypeValue, value : Option(EvalValue)) -> bool)(
-  (!(type_requires_comptime_modifier(ty)) && (get_all_some_types(ty).len() == usize(0))) && match(
+  !type_requires_comptime_modifier(ty) && (get_all_some_types(ty).len() == usize(0)) && match(
     value,
     .None => true,
     .Some(v) => match(v, .UnknownVal(_, ro) => ro, .VarRef(_) => true, _ => false)
@@ -5367,7 +5364,7 @@ _is_fn_literal_arg :: (fn(arg : AstExpr) -> bool)({
   if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
     a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
   });
-  (ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(a, "->", .Some(usize(2))))
+  ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(a, "->", .Some(usize(2)))
 });
 /// Does `t` mention a SomeT named after one of `forall_names`?
 /// Every SomeT `t` mentions, including those inside an `Impl(Fn(...))`
@@ -5435,7 +5432,7 @@ _mentions_forall_binder :: (fn(t : TypeValue, forall_names : ArrayList(String)) 
 fn_literal_arg_is_deferred :: (fn(args : ArrayList(AstExpr), i : usize, n_p : usize, param_types : ArrayList(TypeValue), forall_names : ArrayList(String)) -> bool)({
   a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
   pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
-  (((((i < n_p) && _is_fn_literal_arg(a)) && is_some_type(pt)) && extract_fn_trait_from_type(pt).is_some()) && _mentions_forall_binder(pt, forall_names))
+  (i < n_p) && _is_fn_literal_arg(a) && is_some_type(pt) && extract_fn_trait_from_type(pt).is_some() && _mentions_forall_binder(pt, forall_names)
 });
 /// Step 7's parameter order: every parameter in order, the deferred function
 /// literals (`fn_literal_arg_is_deferred`) last.
@@ -5516,7 +5513,7 @@ _restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize
     while(k2 < list.len(), {
       (in_span : bool) = false;
       (q2 : usize) = usize(0);
-      while((q2 < span_start.len()) && !(in_span), {
+      while((q2 < span_start.len()) && !in_span, {
         st2 := match(span_start.get(q2), .Some(v) => v, .None => usize(0));
         en2 := match(span_end.get(q2), .Some(v) => v, .None => usize(0));
         if((k2 >= st2) && (k2 < en2), {
@@ -5524,7 +5521,7 @@ _restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize
         });
         q2 = (q2 + usize(1));
       });
-      if(!(in_span), {
+      if(!in_span, {
         match(list.get(k2), .Some(v) => out.push(v), .None => ());
       });
       k2 = (k2 + usize(1));
@@ -5547,7 +5544,7 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
         .SomeT({ id : ub_id, name : ubn_label }) => {
           (own : bool) = false;
           (bi : usize) = usize(0);
-          while((bi < binder_ids.len()) && !(own), {
+          while((bi < binder_ids.len()) && !own, {
             if(match(binder_ids.get(bi), .Some(b) => (b == ub_id), .None => false), {
               own = true;
             });
@@ -5555,13 +5552,13 @@ unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), boun
           });
           (bound : bool) = false;
           (ni : usize) = usize(0);
-          while((ni < bound_names.len()) && !(bound), {
+          while((ni < bound_names.len()) && !bound, {
             if(match(bound_names.get(ni), .Some(n) => (n == ubn_label), .None => false), {
               bound = true;
             });
             ni = (ni + usize(1));
           });
-          if((own && !(bound)) && some_resolution(st).is_none(), {
+          if(own && !bound && some_resolution(st).is_none(), {
             return(Option(String).Some(ubn_label));
           });
         },
@@ -5691,7 +5688,7 @@ _check_forall_bindings_after_arg :: (
     now := match(now_ty, .Some(t) => t, .None => t_usize());
     (si : usize) = usize(0);
     (found : bool) = false;
-    while((si < seen.len()) && !(found), {
+    while((si < seen.len()) && !found, {
       match(
         seen.get(si),
         .Some(prev) => if(prev.label == label, {
@@ -5714,7 +5711,7 @@ _check_forall_bindings_after_arg :: (
               }),
               .None => ()
             ),
-            .None => if(prev.len_value.is_none() && (!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty))), {
+            .None => if(prev.len_value.is_none() && (!are_types_compatible(prev.ty, now) && !are_types_compatible(now, prev.ty)), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -5730,7 +5727,7 @@ _check_forall_bindings_after_arg :: (
       );
       si = (si + usize(1));
     });
-    if(!(found), {
+    if(!found, {
       seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index, len_value : now_len));
     });
   });
@@ -5807,7 +5804,7 @@ try_to_call_function_with_arguments :: (
   // records EMPTY runtime args → codegen emits the closure call with no
   // arguments.
   (norm_func_type2 : TypeValue) = norm_func_type;
-  if(!(is_function_type(norm_func_type2)), {
+  if(!is_function_type(norm_func_type2), {
     (nf2_cur : TypeValue) = func_type;
     (nf2_hops : usize) = usize(0);
     (nf2_walk : bool) = true;
@@ -5878,7 +5875,7 @@ try_to_call_function_with_arguments :: (
       });
       // For method calls, generic may appear at index 1 (self is at 0).
       (skip_arg_idx : Option(usize)) = Option(usize).None;
-      if((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1))), {
+      if(!has_f0 && (is_method_call && (arg_exprs.len() > usize(1))), {
         has_f1 := match(
           arg_exprs.get(usize(1)),
           .Some(a) => ast_expr_is_fn_call_of(a, "generic", Option(usize).None),
@@ -5906,7 +5903,7 @@ try_to_call_function_with_arguments :: (
       while(ai < n_total, {
         a := match(arg_exprs.get(ai), .Some(x) => x, .None => make_err_expr());
         is_skipped_forall := match(skip_arg_idx, .Some(si) => (si == ai), .None => false);
-        if(!(is_skipped_forall), {
+        if(!is_skipped_forall, {
           if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
             using_args_opt = .Some(_h_get_fn_call_args(a));
           }, {
@@ -5978,7 +5975,7 @@ try_to_call_function_with_arguments :: (
       // Variadic functions (C-style `...` externs like `snprintf`) accept any
       // number of extra arguments — the count check is skipped entirely for
       // them.
-      if((!(fn_has_variadic)) && ((n_args < n_required) || (n_args > n_params)), {
+      if(!fn_has_variadic && ((n_args < n_required) || (n_args > n_params)), {
         (count_msg : String) = `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`;
         if(n_required != n_params, {
           count_msg = `Argument count mismatch: expected ${n_required.to_string()}..${n_params.to_string()} arguments, got ${n_args.to_string()}`;
@@ -6171,13 +6168,13 @@ try_to_call_function_with_arguments :: (
           sx_sid := match(sx_self_ids.get(sx_si), .Some(s) => s, .None => String.from(""));
           (sx_in_rest : bool) = false;
           (sx_ri : usize) = usize(0);
-          while((sx_ri < sx_rest_ids.len()) && !(sx_in_rest), {
+          while((sx_ri < sx_rest_ids.len()) && !sx_in_rest, {
             if(match(sx_rest_ids.get(sx_ri), .Some(r) => (r == sx_sid), .None => false), {
               sx_in_rest = true;
             });
             sx_ri = (sx_ri + usize(1));
           });
-          if((sx_sid.len() > usize(0)) && !(sx_in_rest), {
+          if((sx_sid.len() > usize(0)) && !sx_in_rest, {
             self_only_ids.push(sx_sid);
           });
           sx_si = (sx_si + usize(1));
@@ -6192,7 +6189,7 @@ try_to_call_function_with_arguments :: (
           sg_nm := match(sg_st, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
           (sg_dup : bool) = false;
           (sd_i : usize) = usize(0);
-          while((sd_i < seen_st_ids.len()) && !(sg_dup), {
+          while((sd_i < seen_st_ids.len()) && !sg_dup, {
             if(match(seen_st_ids.get(sd_i), .Some(s) => (s == sg_id), .None => false), {
               sg_dup = true;
             });
@@ -6201,18 +6198,18 @@ try_to_call_function_with_arguments :: (
           (sg_self_only : bool) = false;
           if(sg_nm != "Self", {
             (so_i : usize) = usize(0);
-            while((so_i < self_only_ids.len()) && !(sg_self_only), {
+            while((so_i < self_only_ids.len()) && !sg_self_only, {
               if(match(self_only_ids.get(so_i), .Some(s) => (s == sg_id), .None => false), {
                 sg_self_only = true;
               });
               so_i = (so_i + usize(1));
             });
           });
-          if(((!(sg_dup)) && (sg_nm.len() > usize(0))) && !(sg_self_only), {
+          if(!sg_dup && (sg_nm.len() > usize(0)) && !sg_self_only, {
             seen_st_ids.push(sg_id);
             (sg_is_forall : bool) = false;
             (sf_i : usize) = usize(0);
-            while((sf_i < n_forall) && !(sg_is_forall), {
+            while((sf_i < n_forall) && !sg_is_forall, {
               if(match(fl.get(sf_i), .Some(l) => (l == sg_nm), .None => false), {
                 sg_is_forall = true;
               });
@@ -6234,7 +6231,7 @@ try_to_call_function_with_arguments :: (
             // issues/fixed/warm-test-batches-doc-stability-genericimplentry.md
             // (measured root cause: type ids minted in the per-compile
             // emission namespace; the signature clone was NOT needed).
-            if(sg_is_forall || !(sg_already_bound), {
+            if(sg_is_forall || !sg_already_bound, {
               add_variable_to_env(
                 callee_env,
                 sg_nm,
@@ -6247,7 +6244,7 @@ try_to_call_function_with_arguments :: (
                 synthetic_token(sg_nm, callee_env.module_path)
               );
             });
-            if((!(sg_is_forall)) && !(sg_already_bound), {
+            if(!sg_is_forall && !sg_already_bound, {
               // The updatable second binding for non-generic SomeTs.
               add_variable_to_env(
                 callee_env,
@@ -6299,13 +6296,13 @@ try_to_call_function_with_arguments :: (
                 fv_mid := match(fv_mst, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
                 (fv_foreign : bool) = false;
                 (fv_si : usize) = usize(0);
-                while((fv_si < self_only_ids.len()) && !(fv_foreign), {
+                while((fv_si < self_only_ids.len()) && !fv_foreign, {
                   if(match(self_only_ids.get(fv_si), .Some(s) => (s == fv_mid), .None => false), {
                     fv_foreign = true;
                   });
                   fv_si = (fv_si + usize(1));
                 });
-                if((fv_mn == flabel) && !(fv_foreign), {
+                if((fv_mn == flabel) && !fv_foreign, {
                   fv_marker = Option(TypeValue).Some(fv_mst);
                 });
               },
@@ -6367,7 +6364,7 @@ try_to_call_function_with_arguments :: (
             match(
               fas.get(fpi),
               .Some(fa) => {
-                if(!(ast_expr_is_atom_of(fa, "_")), {
+                if(!ast_expr_is_atom_of(fa, "_"), {
                   evaled_fa := evaluate_expression_raw(fa, caller_env, ctx, exn);
                   fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
                   match(
@@ -6445,7 +6442,7 @@ try_to_call_function_with_arguments :: (
                 // arm inside types as `unit` (the Step-10 adopt) — so the
                 // def-time body eval survives and the closure gets ExprInfo +
                 // FSM treatment (the self-capture io.async FTT family).
-                if(!(is_some_type(io_t_out)), {
+                if(!is_some_type(io_t_out), {
                   (tb_i : usize) = usize(0);
                   while(tb_i < n_forall, {
                     tb_label := match(fl.get(tb_i), .Some(l) => l, .None => String.from(""));
@@ -6460,7 +6457,7 @@ try_to_call_function_with_arguments :: (
                             .Some(tb_val) => if(is_type_val(tb_val), {
                               match(
                                 tb_val,
-                                .TypeVal(tb_tv) => if(!(is_some_type(tb_tv)) && _binding_is_for_call_binder(tb_var, callee_env, tb_label.clone()), {
+                                .TypeVal(tb_tv) => if(!is_some_type(tb_tv) && _binding_is_for_call_binder(tb_var, callee_env, tb_label.clone()), {
                                   tb_already = true;
                                 }),
                                 _ => ()
@@ -6471,7 +6468,7 @@ try_to_call_function_with_arguments :: (
                           .None => ()
                         );
                       });
-                      if(!(tb_already), {
+                      if(!tb_already, {
                         _record_prebound_binder(
                           add_variable_to_env(
                             callee_env,
@@ -6493,7 +6490,7 @@ try_to_call_function_with_arguments :: (
                 });
                 match(
                   io_ets.get(usize(0)),
-                  .Some(io_e_conc) => if(!(is_some_type(io_e_conc)), {
+                  .Some(io_e_conc) => if(!is_some_type(io_e_conc), {
                     (eb_i : usize) = usize(0);
                     while(eb_i < n_forall, {
                       eb_label := match(fl.get(eb_i), .Some(l) => l, .None => String.from(""));
@@ -6509,7 +6506,7 @@ try_to_call_function_with_arguments :: (
                               .Some(eb_val) => if(is_type_val(eb_val), {
                                 match(
                                   eb_val,
-                                  .TypeVal(eb_tv) => if(!(is_some_type(eb_tv)) && _binding_is_for_call_binder(eb_var, callee_env, eb_label.clone()), {
+                                  .TypeVal(eb_tv) => if(!is_some_type(eb_tv) && _binding_is_for_call_binder(eb_var, callee_env, eb_label.clone()), {
                                     eb_already = true;
                                   }),
                                   _ => ()
@@ -6520,7 +6517,7 @@ try_to_call_function_with_arguments :: (
                             .None => ()
                           );
                         });
-                        if(!(eb_already), {
+                        if(!eb_already, {
                           _record_prebound_binder(
                             add_variable_to_env(
                               callee_env,
@@ -6564,12 +6561,12 @@ try_to_call_function_with_arguments :: (
       // expected-type path, skipping when `E` is already concretely bound
       // (so every already-working expected-type flow is untouched) or when
       // the derived type is itself still a SomeT (an unbound outer trial).
-      if(is_io_async_call(expr) && !(_io_async_closure_param_is_annotated(expr)), {
+      if(is_io_async_call(expr) && !_io_async_closure_param_is_annotated(expr), {
         match(
           _io_async_receiver_bundle_expr(expr),
           .Some(ne_bexpr) => match(
             _evaluated_expr_type(ne_bexpr, caller_env, ctx),
-            .Some(ne_bty) => if(!(is_some_type(ne_bty)), {
+            .Some(ne_bty) => if(!is_some_type(ne_bty), {
               (ne_i : usize) = usize(0);
               while(ne_i < n_forall, {
                 ne_label := match(fl.get(ne_i), .Some(l) => l, .None => String.from(""));
@@ -6585,7 +6582,7 @@ try_to_call_function_with_arguments :: (
                         .Some(ne_val) => if(is_type_val(ne_val), {
                           match(
                             ne_val,
-                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)) && _binding_is_for_call_binder(ne_var, callee_env, ne_label.clone()), {
+                            .TypeVal(ne_tv) => if(!is_some_type(ne_tv) && _binding_is_for_call_binder(ne_var, callee_env, ne_label.clone()), {
                               ne_already = true;
                             }),
                             _ => ()
@@ -6596,7 +6593,7 @@ try_to_call_function_with_arguments :: (
                       .None => ()
                     );
                   });
-                  if(!(ne_already), {
+                  if(!ne_already, {
                     _record_prebound_binder(
                       add_variable_to_env(
                         callee_env,
@@ -6716,7 +6713,7 @@ try_to_call_function_with_arguments :: (
                   ew_fl := match(fl.get(ew_fi), .Some(l) => l, .None => String.from(""));
                   (ew_named : bool) = false;
                   (ew_nj : usize) = usize(0);
-                  while((ew_nj < ew_names.len()) && !(ew_named), {
+                  while((ew_nj < ew_names.len()) && !ew_named, {
                     match(
                       ew_names.get(ew_nj),
                       .Some(nn) => if(nn == ew_fl, {
@@ -6744,7 +6741,7 @@ try_to_call_function_with_arguments :: (
                     if(ew_is_unknown, {
                       (ew_mi : usize) = usize(0);
                       (ew_done : bool) = false;
-                      while((ew_mi < sig_some_types.len()) && !(ew_done), {
+                      while((ew_mi < sig_some_types.len()) && !ew_done, {
                         match(
                           sig_some_types.get(ew_mi),
                           .Some(ew_mst) => {
@@ -6804,7 +6801,7 @@ try_to_call_function_with_arguments :: (
                             ewa_lvars.last(),
                             .Some(lv) => match(
                               lv.value.get(usize(0)),
-                              .Some(.TypeVal(lvt)) => if(!(is_some_type(lvt)), {
+                              .Some(.TypeVal(lvt)) => if(!is_some_type(lvt), {
                                 ewa_target = Option(TypeValue).Some(lvt);
                               }),
                               .Some(_) => (),
@@ -6830,7 +6827,7 @@ try_to_call_function_with_arguments :: (
                                 // Only forall labels of THIS call, still unbound.
                                 (ewa_is_fl : bool) = false;
                                 (ewa_fi : usize) = usize(0);
-                                while((ewa_fi < fl.len()) && !(ewa_is_fl), {
+                                while((ewa_fi < fl.len()) && !ewa_is_fl, {
                                   if(match(fl.get(ewa_fi), .Some(l) => (l == ewa_xn), .None => false), {
                                     ewa_is_fl = true;
                                   });
@@ -6844,7 +6841,7 @@ try_to_call_function_with_arguments :: (
                                       ewa_xvars.last(),
                                       .Some(xv) => match(
                                         xv.value.get(usize(0)),
-                                        .Some(.TypeVal(xvt)) => if(!(is_some_type(xvt)), {
+                                        .Some(.TypeVal(xvt)) => if(!is_some_type(xvt), {
                                           ewa_unbound = false;
                                         }),
                                         .Some(_) => (),
@@ -6857,7 +6854,7 @@ try_to_call_function_with_arguments :: (
                                 if(ewa_is_fl && ewa_unbound, {
                                   match(
                                     resolve_assoc_type_for_target(ewa_tt, ast_expr_token(ewa_al).value, callee_env),
-                                    .Some(ewa_res) => if(!(is_some_type(ewa_res)), {
+                                    .Some(ewa_res) => if(!is_some_type(ewa_res), {
                                       add_variable_to_env(
                                         callee_env,
                                         ewa_xn.clone(),
@@ -6930,7 +6927,7 @@ try_to_call_function_with_arguments :: (
       // evaluated WITHOUT an expected type so the future arg keeps its natural
       // type. There is no `ioBuiltin` marker, so detect the call structurally
       // here (once).
-      io_builtin_skip_expected := (((is_io_await_call(expr) || is_io_state_call(expr)) || is_io_spawn_call(expr)) || is_join_handle_await_call(expr));
+      io_builtin_skip_expected := (is_io_await_call(expr) || is_io_state_call(expr) || is_io_spawn_call(expr) || is_join_handle_await_call(expr));
       // io.async params use the (per-call freshened) declared type DIRECTLY —
       // but ONLY when the call has NO Future-carrying expected type. WITH a
       // return constraint, Step-6b above pre-bound `E` (and a concrete `T`)
@@ -6950,7 +6947,7 @@ try_to_call_function_with_arguments :: (
           .None => false
         )
       );
-      io_async_param_direct := (is_io_async_call(expr) && !(io_async_has_ret_constraint));
+      io_async_param_direct := (is_io_async_call(expr) && !io_async_has_ret_constraint);
       (pi : usize) = usize(0);
       forall_seen := ArrayList(ForallBindingSeen).new();
       // Aliasing Stage 0: per-call `___drop(<dup temp>)`s from the params
@@ -7224,7 +7221,7 @@ try_to_call_function_with_arguments :: (
                   ebc_eff_ty,
                   .Struct({ id : ebc_eid, field_labels : ebc_elabels }) => {
                     (ebc_layout_ok : bool) = (ebc_tid == ebc_eid);
-                    if(!(ebc_layout_ok) && (ebc_tlabels.len() == ebc_elabels.len()), {
+                    if(!ebc_layout_ok && (ebc_tlabels.len() == ebc_elabels.len()), {
                       ebc_layout_ok = true;
                       (ebc_li : usize) = usize(0);
                       while(ebc_li < ebc_tlabels.len(), {
@@ -7236,7 +7233,7 @@ try_to_call_function_with_arguments :: (
                         ebc_li = (ebc_li + usize(1));
                       });
                     });
-                    if(!(ebc_layout_ok), {
+                    if(!ebc_layout_ok, {
                       ebc_arg := match(adjusted_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                       exn.throw(
                         dyn(
@@ -7354,7 +7351,7 @@ try_to_call_function_with_arguments :: (
                   // a durable write-through in the mutable env model (the
                   // rule _bind_some_type follows for the same reason).
                   wb_top_frame := ((callee_env_m.frames.len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames.len() - usize(1))));
-                  if(((wb_from_cell && wb_plain) && wb_top_frame) && !(match(v_out, .TypeVal(wb_t) => is_some_type(wb_t), _ => true)), {
+                  if(wb_from_cell && wb_plain && wb_top_frame && !match(v_out, .TypeVal(wb_t) => is_some_type(wb_t), _ => true), {
                     wb_cell := ArrayList(EvalValue).new();
                     wb_cell.push(v_out);
                     last_v.value = wb_cell;
@@ -7463,7 +7460,7 @@ try_to_call_function_with_arguments :: (
                             // (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md).
                             // Wrappers resolve through their own resolutions / the
                             // rte re-eval below, never through a sibling's arg.
-                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(((s9_rnm == s9_pnm) && (s9_rnm != "Impl")) && (s9_rnm.len() > usize(0)), {
+                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if((s9_rnm == s9_pnm) && (s9_rnm != "Impl") && (s9_rnm.len() > usize(0)), {
                               subst_add(s9, s9_rnm.clone(), s9_rlvl, s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
@@ -7513,9 +7510,9 @@ try_to_call_function_with_arguments :: (
                     // no name-keyed env identity of its own (a sibling
                     // wrapper's binding would answer), so it is left for the
                     // resolution / rte routes.
-                    if((!(s9_seen2)) && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
+                    if(!s9_seen2 && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
-                      if(!(is_some_type(s9_env_res)), {
+                      if(!is_some_type(s9_env_res), {
                         subst_add(s9, s9_rnm2.clone(), s9_rlvl2, s9_env_res);
                         s9_any = true;
                       });
@@ -7551,7 +7548,7 @@ try_to_call_function_with_arguments :: (
       // codegen-concrete via resolution chains (see calls/function.yo
       // rre_wanted): the by-NAME re-eval would clobber the per-call
       // closure-`F` identity with the where-clause-bound bare fn type.
-      if(((get_all_some_types(return_type).len() > usize(0)) && !(type_somes_all_resolve_concrete(return_type))) || _type_has_array_len_var(return_type), {
+      if(((get_all_some_types(return_type).len() > usize(0)) && !type_somes_all_resolve_concrete(return_type)) || _type_has_array_len_var(return_type), {
         match(
           func_val,
           .Some(rte_fv9) => match(
@@ -7599,7 +7596,7 @@ try_to_call_function_with_arguments :: (
                   // calls/function.yo rre block): SomeTs that ALL resolve
                   // concretely through their resolutions are codegen-concrete.
                   .Some(rte9_ty) => {
-                    if((((get_all_some_types(rte9_ty).len() == usize(0)) || type_somes_all_resolve_concrete(rte9_ty)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
+                    if(((get_all_some_types(rte9_ty).len() == usize(0)) || type_somes_all_resolve_concrete(rte9_ty)) && !_type_has_array_len_var(rte9_ty) && !is_unit_type(rte9_ty), {
                       return_type = rte9_ty;
                       if(s9_dbg, {
                         eprintln(`[s9b-rte] ret=${type_to_string(return_type)}`);
@@ -7635,7 +7632,7 @@ try_to_call_function_with_arguments :: (
             // expected is a fn type the call does not itself return.
             st10_skip := match(
               et.ty,
-              .Func(_, _, _, _, _, _, _) => !(is_function_type(return_type)),
+              .Func(_, _, _, _, _, _, _) => !is_function_type(return_type),
               _ => false
             );
             // The CALL's token anchors a return-type-vs-expected unification
@@ -7695,7 +7692,7 @@ try_to_call_function_with_arguments :: (
             // result — `U` was then bound to its own type variable and
             // `_take` specialized abstractly (an FTT stub)
             // (issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md).
-            if(((are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty))) && (get_all_some_types(et.ty).len() == usize(0))) && !(is_comptime_int_type(ret_for_adopt)), {
+            if(are_types_compatible(ret_for_adopt, et.ty) && !type_contains_some_type(et.ty) && (get_all_some_types(et.ty).len() == usize(0)) && !is_comptime_int_type(ret_for_adopt), {
               return_type = et.ty;
             });
           },
@@ -7762,7 +7759,7 @@ try_to_call_function_with_arguments :: (
             .None => TypeValue.Unit
           );
         });
-        if(!(is_some_type(ctl_rt_conc)) && !(is_unit_type(ctl_rt_conc)), {
+        if(!is_some_type(ctl_rt_conc) && !is_unit_type(ctl_rt_conc), {
           match(
             return_type,
             .SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt, ct_rtl, ct_ntt, ct_ntl, ct_ier, ct_kft, _) => {
@@ -7811,7 +7808,7 @@ try_to_call_function_with_arguments :: (
                     match(
                       ua_info.value,
                       .Some(ua_val) => {
-                        if(!(are_types_compatible(ua_info.ty, resolved_impl_type)), {
+                        if(!are_types_compatible(ua_info.ty, resolved_impl_type), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -7856,7 +7853,7 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
         // Fall back: search caller_env for a matching given variable.
-        if(!(resolved), {
+        if(!resolved, {
           all_cenv_vars := get_all_variables_from_env(caller_env_m);
           n_cenv := all_cenv_vars.len();
           (found_given : bool) = false;
@@ -7864,7 +7861,7 @@ try_to_call_function_with_arguments :: (
           (given_ty : TypeValue) = t_unit();
           (given_name : String) = String.from("");
           (vi : usize) = usize(0);
-          while((vi < n_cenv) && !(found_given), {
+          while((vi < n_cenv) && !found_given, {
             gv_opt := all_cenv_vars.get(vi);
             match(
               gv_opt,
@@ -7872,7 +7869,7 @@ try_to_call_function_with_arguments :: (
                 if(gv.is_implicit && (
                   gv.is_compile_time_only &&
                     (
-                      (!(gv.is_from_effect_spread)) &&
+                      !gv.is_from_effect_spread &&
                         are_types_compatible(gv.ty, resolved_impl_type)
                     )
                 ), {
@@ -7886,7 +7883,7 @@ try_to_call_function_with_arguments :: (
             );
             vi = (vi + usize(1));
           });
-          if(!(found_given), {
+          if(!found_given, {
             exn.throw(
               dyn(
                 format_error_message(
@@ -7949,7 +7946,7 @@ try_to_call_function_with_arguments :: (
       // chain (`ch.filter(x => …)`'s per-call `F`) is resolved in the result
       // even though its env slot still holds the marker. A control function's
       // `ResumeType` is exempt (resolved per call site above), as are externs.
-      if((!(callee_is_extern) && !(__fm8.*.is_control)) && !(ctx.is_evaluating_function_type), {
+      if(!callee_is_extern && !(__fm8.*.is_control) && !ctx.is_evaluating_function_type, {
         s12_own_ids := ArrayList(String).new();
         s12_somes := collect_somes_with_fn_sigs(ret_b);
         match(ret_b, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => s12_somes.push(ret_b), _ => ());
@@ -7979,7 +7976,7 @@ try_to_call_function_with_arguments :: (
           .Some(s12_name) => {
             (s12_env_unbound : bool) = false;
             (s12_k : usize) = usize(0);
-            while((s12_k < s12_own_ids.len()) && !(s12_env_unbound), {
+            while((s12_k < s12_own_ids.len()) && !s12_env_unbound, {
               if(_forall_binder_unbound(callee_env_m, s12_name.clone(), match(s12_own_ids.get(s12_k), .Some(x) => x, .None => String.new())), {
                 s12_env_unbound = true;
               });
@@ -8037,7 +8034,7 @@ try_to_call_function_with_arguments :: (
       // tests/codegen-bootstrap/assigned_param_overload_select.yo).
       fv_result_ct := match(func_type, .Func({ meta : __fm12 }) => __fm12.*.result_is_comptime_only, _ => false);
       (fv_has_ct_param : bool) = false;
-      if(!(fv_result_ct), {
+      if(!fv_result_ct, {
         match(
           func_val,
           .Some(fvcp) => match(
@@ -8045,7 +8042,7 @@ try_to_call_function_with_arguments :: (
             .FuncVal(__fvd16, _) => {
               cfp_flags := get_func_param_comptime(__fvd16.*.func_id.clone());
               (cfp_i : usize) = usize(0);
-              while((cfp_i < cfp_flags.len()) && !(fv_has_ct_param), {
+              while((cfp_i < cfp_flags.len()) && !fv_has_ct_param, {
                 match(
                   cfp_flags.get(cfp_i),
                   .Some(cfp_f) => if(cfp_f, {
@@ -8061,14 +8058,14 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
       });
-      is_func_generic := (((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic) || fv_has_ct_param);
+      is_func_generic := ((fl.len() > usize(0)) || (il.len() > usize(0)) || fv_has_forall || callee_own_generic || fv_has_ct_param);
       spec_template_type := if(
-        callee_own_generic && !(_func_type_has_runtime_some_param(func_type)),
+        callee_own_generic && !_func_type_has_runtime_some_param(func_type),
         callee_own_type,
         func_type
       );
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
-      if(!(skip_specialization) && is_func_generic, {
+      if(!skip_specialization && is_func_generic, {
         callee_fid_g := match(
           func_val,
           .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
@@ -8115,7 +8112,7 @@ try_to_call_function_with_arguments :: (
           }),
           .None => ()
         );
-        if((!(is_recursive_spec) && !(mutual_is_some)) && is_concrete_fv, {
+        if(!is_recursive_spec && !mutual_is_some && is_concrete_fv, {
           fv2 := match(func_val, .Some(v) => v, .None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
           // Ctl function path: a control function with generic params.
@@ -8167,7 +8164,7 @@ try_to_call_function_with_arguments :: (
                 ),
                 .None => match(func_type, .Func({ result : rb2e }) => rb2e, _ => TypeValue.Unit)
               );
-              if(!(is_some_type(ctl_res_conc)) && !(is_unit_type(ctl_res_conc)), {
+              if(!is_some_type(ctl_res_conc) && !is_unit_type(ctl_res_conc), {
                 match(
                   return_type,
                   .SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_ier, cr_kft, _) => {
@@ -8248,8 +8245,8 @@ try_to_call_function_with_arguments :: (
             s1_tv,
             .FuncVal(s1_fvd, _) => {
               s1_fid := s1_fvd.*.func_id.clone();
-              if(!(is_control_fn(s1_fid.clone())), {
-                if(!(function_may_mutate_rc_storage(s1_fid, s1_fvd.*.body, ctx)), {
+              if(!is_control_fn(s1_fid.clone()), {
+                if(!function_may_mutate_rc_storage(s1_fid, s1_fvd.*.body, ctx), {
                   s1_elided = true;
                 });
               });
@@ -8294,7 +8291,7 @@ try_to_call_function_with_arguments :: (
         ),
         runtime_arg_exprs_in_order : rt_args,
         specialized_function_value : spec_func_val,
-        deferred_drop_expressions : if((s0_call_drops.len() > usize(0)) && !(s1_elided), Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
+        deferred_drop_expressions : if((s0_call_drops.len() > usize(0)) && !s1_elided, Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
       )
     },
     _ => {

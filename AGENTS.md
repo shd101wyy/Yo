@@ -76,7 +76,7 @@ Building it needs an existing `yo`: a **seed release** (the previous published v
 One line each; the linked doc is authoritative.
 
 - **No function overloading** (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`); the prelude's operator pairs are the only exported multi-candidate `Call` tuples.
-- **No operator precedence**: parenthesize every infix chain (`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`). `yo fmt` preserves parens.
+- **No operator precedence**: parenthesize when mixing adjacent operators — `a && b || c` is a parse error (`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`). A chain of ONE operator left-associates at any length (`a - b - c - d` is `(((a - b) - c) - d)`) and `yo fmt` flattens the redundant parens; parens on a RIGHT operand (`3 + (4 + 5)`) are kept.
 - **Macros kept but gated**: definitions need `Pragma.AllowMacroDef`; `if(...)` is desugared to `cond(...)` at parse time (`plans/reference/MACRO_POLICY.md`).
 - **`::` definitions and `impl` registration are order-independent within a module** (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
 - **`--target` is the canonical Rust triple**, no aliases (`plans/reference/TARGET_TRIPLES.md`).
@@ -151,7 +151,7 @@ yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out
 yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test
 ```
 
-`yo compile` cannot be used on `*.test.yo` files: extract the failing case into a standalone `.yo` file with a `main` function and `export(main);`.
+`yo compile` on a `*.test.yo` file compiles the Yo side but synthesizes no `main`, so the C link fails (`undefined reference to 'main'`; `--skip-c-compiler` succeeds). To iterate on a failing test, extract the case into a standalone `.yo` file with a `main` function and `export(main);`.
 
 Build-system and CLI subsystems (`build_runner`, `fetch`, `lock_file`, `install_command`, `cache`, `init`, `version`, `pkg_config`, …) are tested under `tests/internal/`.
 

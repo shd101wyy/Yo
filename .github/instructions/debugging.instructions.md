@@ -232,12 +232,12 @@ check that the type's constructor stamps a dispose id and that
 
 ## Design docs for context
 
-- Compile-time RC ownership: `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`
-- Async/await concurrency: `ASYNC_AWAIT.md`
-- Parallelism: `PARALLELISM.md`
-- Low-level sys module: `STD_SYS_MODULE.md`
-- Algebraic Effects: `ALGEBRAIC_EFFECTS.md`
-- Thread-local cycle collector: `CYCLE_COLLECTION.md`
+- Compile-time RC ownership: `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`
+- Async/await concurrency: `docs/en-US/ASYNC_AWAIT.md`
+- Parallelism: `docs/en-US/PARALLELISM.md`
+- Low-level sys module: `docs/en-US/STD_SYS_MODULE.md`
+- Algebraic Effects: `docs/en-US/ALGEBRAIC_EFFECTS.md`
+- Thread-local cycle collector: `docs/en-US/CYCLE_COLLECTION.md`
 
 ## VS Code extension
 
@@ -248,7 +248,7 @@ check that the type's constructor stamps a dispose id and that
 
 When a test fails after a series of commits:
 
-1. First confirm the test passes on `origin/develop`: `git stash && git checkout origin/develop && yo test <file> --bail`
+1. First confirm the test passes on `origin/develop`, in a throwaway worktree (the main checkout is shared — never `stash`/`checkout` it; see AGENTS.md): `git worktree add $HOME/Workspace/Yo-wt/bisect origin/develop && cd $HOME/Workspace/Yo-wt/bisect && yo test <file> --bail --std-path ./std`
 2. Use `git bisect` or manually check individual commits to find the first failing commit
 3. Read the diff of that commit to understand what changed
 4. Embed debug info in **error messages** (not `println`) — each test binary runs as a separate process and its stdout is captured by the runner

@@ -271,6 +271,8 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 ## Impl blocks and generics
 
 ```rust
+{ sqrt } :: import("std/libc/math");
+
 impl(Point,
   distance : (fn(self : Self, other : Point) -> f64)({
     dx := f64((self.x - other.x));
@@ -436,7 +438,8 @@ if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
 ## Error handling
 
 ```rust
-{ Exception } :: import("std/error");
+{ Exception } :: import("std/error"); // brings the Error derive rule
+{ ToString } :: import("std/fmt");    // Error's derive needs ToString
 
 DivError :: enum(DivByZero);
 // `derive(Error)` emits ToString AND Error from one message per variant, in
@@ -536,19 +539,32 @@ inc :: (fn() -> unit)({
 - Cannot be exported; only compile-time values can be exported
 - Not allowed inside `impl` blocks; use `::` for constants there
 
-## Anonymous modules
+## Anonymous modules: `impl({ ... })` — a module value in one expression
 
 ```rust
-my_module :: impl {
+my_module :: impl({
   helper :: (fn(x : i32) -> i32)((x + i32(1)));
-  export helper;
-};
+  scale :: i32(2);            // `::` = compile-time member
+  runtime_note := i32(0);     // `:=` = module-level runtime static (allowed)
+  export(helper, scale);
+});
 
-result := my_module.helper(i32(5));
+result := my_module.helper(i32(5));      // member access through the module value
+{ helper, scale } :: my_module;          // or destructure the exports by name
 ```
 
-- `impl { ... }` creates a module namespace
-- Only `::` (compile-time) bindings are allowed inside
+- The braces block is the module BODY: `::` bindings are compile-time
+  members, `:=` bindings are module-level runtime statics, and
+  `export(...)` (parenthesized, comma-separated, `export(...(Other))`
+  spreads another module's exports) makes names public.
+- The parser hands the evaluator this as `impl(begin(...))` — the block
+  desugars to a `begin` call (relevant when building one through
+  `quote(...)`/AST reflection). A literal `begin(...)` spelled by hand in
+  that position does not parse `::` statements — write the braces form.
+- Bindings inside are block-scoped and ordered
+  (`docs/en-US/DEFINITION_ORDER.md`); tests: `tests/module.test.yo`.
+- For a bigger namespace, a module is still a file — put the names in
+  their own file and `{ name } :: import("./file.yo");`.
 
 ## yo-self API: String vs str parameter gotchas
 

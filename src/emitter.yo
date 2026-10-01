@@ -358,7 +358,7 @@ impl(
   }),
   _open_code_spill : (fn(inout(self) : Self) -> bool)({
     cpath := self.code_spill_path.to_cstr();
-    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));
     if(fd < i32(0), {
       // Unopenable: stop trying; the code stays in memory.
       self.code_spill_path = String.new();
@@ -397,7 +397,7 @@ impl(
   rewrite_code_spill : (fn(inout(self) : Self, bytes : ArrayList(u8)) -> unit)({
     close_sync(self.code_spill_fd);
     cpath := self.code_spill_path.to_cstr();
-    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));
     if(fd < i32(0), {
       panic(`yo: reopening the C code spill file failed (${fd.to_string()})`);
     });
@@ -509,7 +509,7 @@ impl(
     // and macro/derive expansions carry `auto-generated://` pseudo-paths
     // (which embed the expansion TEXT, newlines included — unusable in a
     // directive, and the position is not a real source location anyway).
-    if((path.len() == usize(0)) || (((path == String.from("_")) || (path == String.from("drop"))) || path.starts_with(String.from("auto-generated://"))), {
+    if((path.len() == usize(0)) || ((path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://"))), {
       return(());
     });
     if(path.contains(String.from("\n")), {
@@ -571,7 +571,7 @@ impl(
     if(!self.line_directives, {
       return(());
     });
-    base := ((_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations)) + usize(2));
+    base := (_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations) + usize(2));
     bytes := self.code.as_bytes();
     n := bytes.len();
     marker := line_restore_marker();
@@ -596,7 +596,7 @@ impl(
           }
         );
       });
-      if(((le - ls) >= mlen), {
+      if((le - ls) >= mlen, {
         (mi : usize) = usize(0);
         (all_eq : bool) = true;
         while((mi < mlen) && all_eq, {
@@ -613,15 +613,15 @@ impl(
           // LEFT-aligned over the 8 placeholder digits, space-filled: a
           // zero-padded number reads as OCTAL to a pre-C99-conforming
           // preprocessor and clang warns about it.
-          value := ((base + c_nl) + usize(2));
+          value := (base + c_nl + usize(2));
           if(value > usize(99999999), {
             value = usize(99999999);
           });
           digits := value.to_string();
           (wi : usize) = usize(0);
           while(wi < usize(8), {
-            b := if((wi < digits.len()), digits.byte_at(wi), u8(32));
-            _emitter_set_byte(bytes, (ls + usize(6)) + wi, b);
+            b := if(wi < digits.len(), digits.byte_at(wi), u8(32));
+            _emitter_set_byte(bytes, ls + usize(6) + wi, b);
             wi = (wi + usize(1));
           });
         });

@@ -20,8 +20,13 @@ authorship from day one.
   [`archive/SELF_HOSTING_COMPLETION.md`](archive/SELF_HOSTING_COMPLETION.md)).
 - **Formal verification, V1–V7.** `requires`/`ensures`, loop invariants,
   `decreases`, ghost code and laws, lowered to SMT-LIB and discharged by Z3;
-  `yo verify`
-  ([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)).
+  `yo verify`, with `--strict` failing on `assumed`/`outside-subset`/
+  `unproven` — a CI gate over the straight-line battery, while the
+  `std/collections` dogfooding step stays non-strict
+  ([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md),
+  the laws/strict halves of
+  [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+  B0–B1).
 - **Iteration speed.** Incremental compilation: an artifact cache, a
   resident `--watch` checker, and chunked C emission with a `.o` cache
   ([`reference/INCREMENTAL_COMPILATION.md`](reference/INCREMENTAL_COMPILATION.md),
@@ -92,9 +97,13 @@ authorship from day one.
 
 ## Next
 
-- **Agent loop.** Laws, a `yo verify --strict` gate and an evals corpus that
-  measures agents writing Yo
-  ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md),
+- **Agent loop.** The evals corpus that measures agents writing Yo, and a
+  repo-shape gate that keeps the agent-facing text loadable — the laws and
+  the `yo verify --strict` gate this item originally named have landed
+  (B0–B1), and `yo context` subsumed the `yo guide`/`yo std` half
+  ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+  B4–B5, plus
+  [`backlog/AGENT_LOOP_NEXT.md`](backlog/AGENT_LOOP_NEXT.md);
   [`backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md)).
 - **Package registry.** A registry and `yo publish` on top of the git and
   path dependencies that exist today; deferred when the build campaign

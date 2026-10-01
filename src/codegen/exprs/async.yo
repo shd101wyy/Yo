@@ -97,7 +97,7 @@ EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
 /// async prefixes).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
-  (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
+  name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_") || name.starts_with("__yo_async_")
 );
 /// The FIRST effect type of an io.async call's own recorded Future trait type,
 /// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the
@@ -128,7 +128,7 @@ _io_async_call_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeV
 _add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, path : String) -> unit)({
   (exists : bool) = false;
   (i : usize) = usize(0);
-  while((i < mappings.len()) && !(exists), {
+  while((i < mappings.len()) && !exists, {
     match(
       mappings.get(i),
       .Some(m) => if((m.effect_label == label) && (m.access_path == path), {
@@ -138,7 +138,7 @@ _add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, pa
     );
     i = (i + usize(1));
   });
-  if(!(exists), {
+  if(!exists, {
     mappings.push(EffectFieldMapping(effect_label : label, access_path : path));
   });
 });
@@ -245,7 +245,7 @@ _find_bundle_var_field :: (
       .Some(b) => {
         sm_var := b.value;
         is_outer := match(sm_var.kind, .Outer => true, .Local => false);
-        if(!(is_outer) && (type_key(sm_var.base.ty) == target_key), {
+        if(!is_outer && (type_key(sm_var.base.ty) == target_key), {
           vid := sm_var.base.id;
           alias_opt := match(
             state_machine_field_aliases,
@@ -407,7 +407,7 @@ generate_future_effect_setter :: (
   bundle_field := find_bundle_field_name(future_trait_type, context.state_machine_variables, context.state_machine_field_aliases);
   has_effect := match(future_trait_type, .FutureTraitT({ effect_labels : el }) => (el.len() > usize(0)), _ => false);
   has_sync_param := sync_param_slot.is_some();
-  has_bundle_case := ((!(has_sync_param) && bundle_field.is_some()) && has_effect);
+  has_bundle_case := (!has_sync_param && bundle_field.is_some() && has_effect);
   // Where a whole bundle is copied: the same choice the `__bundle` case of
   // the setter made before the vtable carried it.
   bundle_slot := match(
@@ -610,14 +610,14 @@ emit_async_block_struct_definition :: (
       cvs.get(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
-        if(!(is_outer), {
+        if(!is_outer, {
           keep := match(
             info.cross_boundary_ids,
             .Some(cbi) => {
               in_cb := cbi.contains(v.base.id.to_string());
               aliased_future := match(info.await_future_temp_var_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
               aliased_slot := match(info.overlapping_slot_aliases, .Some(m) => m.contains_key(v.base.id.to_string()), .None => false);
-              (in_cb && !(aliased_future)) && !(aliased_slot)
+              in_cb && !aliased_future && !aliased_slot
             },
             .None => true
           );
@@ -1061,7 +1061,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : Func
   while(i < fields.len(), {
     match(
       fields.get(i),
-      .Some(field) => if(!(field.is_effect_param), {
+      .Some(field) => if(!field.is_effect_param, {
         field_ref := `sm->__capture.${field.label.clone()}`;
         match(
           _rc_field_drop_line(field_ref.clone(), field.ty, String.from("  "), context),
@@ -1113,7 +1113,7 @@ generate_async_block_state_dispose_function :: (
   match(
     capture_type,
     .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
-      if(!(_capture_type_entry_exists(cap_ty, context)), {
+      if(!_capture_type_entry_exists(cap_ty, context), {
         codegen_fatal(String.from("the capture struct type of an async block is not registered, so its captures cannot be released"));
       }, {
         match(
@@ -1130,7 +1130,7 @@ generate_async_block_state_dispose_function :: (
   );
   em.emit_line("");
   // Drop the result field if it contains GC-managed data (state == -1 = completed).
-  if(!(is_unit_type(result_type)) && type_contains_rc_type(result_type), {
+  if(!is_unit_type(result_type) && type_contains_rc_type(result_type), {
     em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
     em.emit_line("  int final_state = sm->state;");
     em.emit_line("  if (final_state == -1) {");
@@ -1171,7 +1171,7 @@ generate_async_block_state_dispose_function :: (
         is_binding := match(context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
         // A member of a shared slot is dropped through the slot, below.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
-        if(((((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning)) && !(is_binding)) && !(is_shared), {
+        if(is_local && cross_boundary_ids.contains(v.base.id.to_string()) && !await_future_temp_var_aliases.contains_key(v.base.id.to_string()) && !is_owning && !is_binding && !is_shared, {
           field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
@@ -1380,7 +1380,7 @@ _build_async_capture_struct_literal :: (
         }, {
           // Find a matching deferred ___dup expression by variable name.
           (matched : Option(AstExpr)) = Option(AstExpr).None;
-          if(!(in_special_context), {
+          if(!in_special_context, {
             (di : usize) = usize(0);
             while(di < dup_exprs.len(), {
               match(
@@ -1467,7 +1467,7 @@ _build_async_capture_struct_literal :: (
   });
   capture_fields := _join_names(parts);
   literal := `(${capture_struct_name.clone()}){${capture_fields}}`;
-  if(!(used_deferred_dups), {
+  if(!used_deferred_dups, {
     match(
       get_dup_function_for_type(capture_type, context),
       .Some(dup_fn) => return(`${dup_fn}(${literal})`),
@@ -1490,7 +1490,7 @@ _build_async_capture_struct_literal :: (
         while(ri < fields.len(), {
           match(
             fields.get(ri),
-            .Some(f) => if(!(f.is_effect_param), {
+            .Some(f) => if(!f.is_effect_param, {
               match(
                 _rc_field_retain_line(`${tmp.clone()}.${f.label.clone()}`, f.ty, indent.clone(), context),
                 .Some(line) => {
@@ -1717,7 +1717,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     );
   });
   future_type := ei.ty;
-  if(!(type_implements_future(future_type)), {
+  if(!type_implements_future(future_type), {
     return(codegen_fatal_expr(String.from("async block must have Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
@@ -1858,7 +1858,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
           .Some(res_fid) => match(
             get_func_type(res_fid.clone()),
-            .Func({ result : frr }) => if(!(is_some_type(frr)) && !(type_implements_future(frr)), {
+            .Func({ result : frr }) => if(!is_some_type(frr) && !type_implements_future(frr), {
               result_type = frr.clone();
               resolved_via_fn_ret = true;
             }),
@@ -1868,7 +1868,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
         );
         // Closure body type fallback — guarded against the future-typed
         // `return(...)` tail for the same reason.
-        if(!(resolved_via_fn_ret), {
+        if(!resolved_via_fn_ret, {
           match(
             context.base.get_expr_info(body_expr),
             .Some(bei) => {
@@ -1882,7 +1882,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
                   .None => ()
                 );
               }, {
-                if(!(type_implements_future(bt)), {
+                if(!type_implements_future(bt), {
                   result_type = bt;
                 });
               });
@@ -1895,7 +1895,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   });
   // Register under the per-closure key so future lookups (by the same closure
   // or await site) resolve to this concrete type without clobbering siblings.
-  if(!(is_some_type(result_type)), {
+  if(!is_some_type(result_type), {
     g_async_block_result_types.insert(_per_clone_rsid.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
@@ -2172,7 +2172,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
       src_cvs.get(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
-        keep := (((is_outer || cross_boundary_ids.contains(v.base.id.to_string())) || await_future_temp_var_aliases.contains_key(v.base.id.to_string())) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
+        keep := (is_outer || cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
         if(keep, {
           filtered.push(v);
         });
@@ -2402,7 +2402,7 @@ _called_extern_name :: (fn(expr : AstExpr, context : FunctionGenerationContext) 
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
 preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> unit)({
   is_fn_call := match(expr, .FnCall(_, _, _, _, _) => true, _ => false);
-  if(!(is_fn_call), return());
+  if(!is_fn_call, return());
   ei_opt := context.base.get_expr_info(expr);
   // Async-block path (struct name always _state_t).
   if(is_io_async_call(expr), {
@@ -2564,7 +2564,7 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
 generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.async missing ExprInfo"))));
   future_type := ei.ty;
-  if(!(type_implements_future(future_type)), {
+  if(!type_implements_future(future_type), {
     return(codegen_fatal_expr(String.from("io.async must return a Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
@@ -2658,7 +2658,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         fv,
         .FuncVal(__fvd5, _) => match(
           get_func_type(__fvd5.*.func_id),
-          .Func({ result : rb }) => if(!(is_some_type(rb)), {
+          .Func({ result : rb }) => if(!is_some_type(rb), {
             result_type = rb.clone();
           }),
           _ => ()
@@ -2672,7 +2672,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // (output_some_id @@ async_block_id) so the matching `io.await` site can
   // resolve the awaited value's type. The await site matches because it shares
   // the same async_block_id (it awaits the same io.async expression).
-  if(!(is_some_type(result_type)) && !(per_clone_key.is_empty()), {
+  if(!is_some_type(result_type) && !per_clone_key.is_empty(), {
     g_async_block_result_types.insert(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
@@ -2821,7 +2821,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // Resume function — calls the closure with the embedded capture data.
   em.emit_declaration_string_line(`static void ${resume_function_name.clone()}__body(void* ptr) {`);
   em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
-  if(!(is_unit_type(result_type)), {
+  if(!is_unit_type(result_type), {
     em.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
   }, {
     em.emit_declaration_string_line(`  ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
@@ -2868,7 +2868,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // buffer — capture the side lines through a temp emitter and re-emit them.
   (result_inline_side : String) = String.from("");
   (result_inline_stmt : String) = String.from("");
-  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!(is_unit_type(result_type)) && type_contains_rc_type(result_type)), {
+  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!is_unit_type(result_type) && type_contains_rc_type(result_type)), {
     temp_em := Emitter.new();
     saved_em := context.base.emitter;
     context.base.emitter = temp_em;
@@ -2893,7 +2893,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         while(cfi < cap_fields.len(), {
           match(
             cap_fields.get(cfi),
-            .Some(cf) => if(!(cf.is_effect_param) && type_contains_rc_type(cf.ty), {
+            .Some(cf) => if(!cf.is_effect_param && type_contains_rc_type(cf.ty), {
               cap_em := Emitter.new();
               cap_saved := context.base.emitter;
               context.base.emitter = cap_em;
@@ -2925,7 +2925,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // Its last reference is gone: an effect-unwind abort nobody observed is
   // reported now (gc_runtime.yo, emit_task_abort_registry).
   em.emit_declaration_line("  __yo_task_abort_released(ptr);");
-  has_drop := (((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline) || has_capture_inline);
+  has_drop := (match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false) || has_result_inline || has_capture_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     match(

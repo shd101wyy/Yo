@@ -100,13 +100,13 @@ _FnDecl :: ref(
   )
 );
 _psr_is_ident_byte :: (fn(b : u8) -> bool)(
-  ((((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || ((b >= u8(48)) && (b <= u8(57)))) || (b == u8(95))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 _psr_is_alpha_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))
 );
 _psr_is_ws_byte :: (fn(b : u8) -> bool)(
-  (((b == u8(32)) || (b == u8(9))) || (b == u8(10))) || (b == u8(13))
+  (b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13))
 );
 _psr_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
   nb := String.from(needle).as_bytes();
@@ -148,7 +148,7 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
     });
     return(k);
   });
-  if(((c == u8(47)) && ((i + usize(1)) < n)) && (src(i + usize(1)) == u8(47)), {
+  if((c == u8(47)) && ((i + usize(1)) < n) && (src(i + usize(1)) == u8(47)), {
     (k : usize) = i;
     while((k < n) && (src(k) != u8(10)), {
       k = (k + usize(1));
@@ -159,7 +159,7 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
 });
 /// Names whose raw pointer is part of the contract, not a leak.
 _name_is_raw_pointer_api :: (fn(name : String) -> bool)(
-  ((((name.ends_with(`_cstr`) || (name == "from_cstr")) || ((name == "from_raw_parts") || (name == "as_ptr"))) || ((name == "from_raw") || name.ends_with(`_raw`))) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`))) || ((name == "argv") || (name == "argc"))
+  name.ends_with(`_cstr`) || (name == "from_cstr") || ((name == "from_raw_parts") || (name == "as_ptr")) || ((name == "from_raw") || name.ends_with(`_raw`)) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`)) || ((name == "argv") || (name == "argc"))
 );
 /// Directories whose files are FFI by construction, plus the `.test.yo`
 /// exemption.
@@ -171,7 +171,7 @@ _should_skip_file :: (fn(file : String) -> bool)({
   (i : usize) = usize(0);
   while(runtime(i < segs.len()), {
     seg := segs(i);
-    if((((seg == "libc") || (seg == "linux")) || ((seg == "darwin") || (seg == "cuda"))) || ((seg == "sys") || (seg == "sync")), {
+    if((seg == "libc") || (seg == "linux") || ((seg == "darwin") || (seg == "cuda")) || ((seg == "sys") || (seg == "sync")), {
       return(true);
     });
     i = (i + usize(1));
@@ -185,8 +185,8 @@ _find_extern_spans :: (fn(src : ArrayList(u8)) -> ArrayList(_Span))({
   n := src.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
-    boundary_ok := if(i == usize(0), true, !(_psr_is_ident_byte(src(i - usize(1)))));
-    if((boundary_ok && _psr_bytes_at(src, i, "extern")) && true, {
+    boundary_ok := if(i == usize(0), true, !_psr_is_ident_byte(src(i - usize(1))));
+    if(boundary_ok && _psr_bytes_at(src, i, "extern") && true, {
       // `extern` then optional whitespace then `(`.
       (k : usize) = (i + usize(6));
       while((k < n) && _psr_is_ws_byte(src(k)), {
@@ -197,7 +197,7 @@ _find_extern_spans :: (fn(src : ArrayList(u8)) -> ArrayList(_Span))({
         (depth : i64) = i64(1);
         (j : usize) = (k + usize(1));
         (open_found : bool) = false;
-        while(runtime((j < n) && !(open_found)), {
+        while(runtime((j < n) && !open_found), {
           nj := _psr_skip_string_or_comment(src, j);
           if(nj != j, {
             j = nj;
@@ -239,10 +239,9 @@ _position_inside_spans :: (fn(offset : usize, spans : ArrayList(_Span)) -> bool)
 /// True for bytes that can continue a bare identifier: ASCII letters,
 /// digits, underscore.
 _psr_ident_byte :: (fn(c : u8) -> bool)(
-  (
-    (((c >= u8(97)) && (c <= u8(122))) || ((c >= u8(65)) && (c <= u8(90)))) ||
-      ((c >= u8(48)) && (c <= u8(57)))
-  ) || (c == u8(95))
+  ((c >= u8(97)) && (c <= u8(122))) || ((c >= u8(65)) && (c <= u8(90))) ||
+    ((c >= u8(48)) && (c <= u8(57)))
+    || (c == u8(95))
 );
 /// Every pointer-type occurrence in `text` with its offset, skipping string
 /// literals and line comments. extended for the
@@ -260,12 +259,12 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
     if(ni != i, {
       i = ni;
     }, {
-      if(((text(i) == u8(42)) && ((i + usize(1)) < n)) && (text(i + usize(1)) == u8(40)), {
+      if((text(i) == u8(42)) && ((i + usize(1)) < n) && (text(i + usize(1)) == u8(40)), {
         start := i;
         (depth : i64) = i64(0);
         (j : usize) = (i + usize(1));
         (closed : bool) = false;
-        while(runtime((j < n) && !(closed)), {
+        while(runtime((j < n) && !closed), {
           cond(
             (text(j) == u8(40)) => {
               depth = (depth + i64(1));
@@ -293,7 +292,7 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
         i = j;
       }, {
         cond(
-          (((text(i) == u8(42)) && ((i + usize(1)) < n)) && _psr_ident_byte(text(i + usize(1)))) => {
+          ((text(i) == u8(42)) && ((i + usize(1)) < n) && _psr_ident_byte(text(i + usize(1)))) => {
             // bare form: the `*` run, the identifier, then any TIGHT call
             // groups (`*List(i32)`)
             start := i;
@@ -305,11 +304,11 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
               j = (j + usize(1));
             });
             (no_more_groups : bool) = false;
-            while(((j < n) && (text(j) == u8(40))) && !(no_more_groups), {
+            while((j < n) && (text(j) == u8(40)) && !no_more_groups, {
               (gdepth : i64) = i64(0);
               k := j;
               (gclosed : bool) = false;
-              while((k < n) && !(gclosed), {
+              while((k < n) && !gclosed, {
                 cond(
                   (text(k) == u8(40)) => {
                     gdepth = (gdepth + i64(1));
@@ -358,7 +357,7 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
 /// newline.
 _offset_to_line_col :: (fn(src : ArrayList(u8), offset : usize) -> _LineCol)({
   (line : usize) = usize(1);
-  (last_nl : i64) = i64(-(1));
+  (last_nl : i64) = i64(-1);
   (i : usize) = usize(0);
   while(runtime(i < offset), {
     if(src(i) == u8(10), {
@@ -379,7 +378,7 @@ _short_snippet :: (fn(text : ArrayList(u8), offset : usize) -> String)({
   while(i < end, {
     b := text(i);
     if(_psr_is_ws_byte(b), {
-      if(!(last_was_ws), {
+      if(!last_was_ws, {
         sb.write_byte(u8(32));
       });
       last_was_ws = true;
@@ -432,7 +431,7 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
             // Balance-scan the whole signature from sig_open.
             (depth : i64) = i64(0);
             (j : usize) = sig_open;
-            (sig_close : i64) = i64(-(1));
+            (sig_close : i64) = i64(-1);
             while(runtime((j < n) && (sig_close < i64(0))), {
               nj := _psr_skip_string_or_comment(src, j);
               if(nj != j, {
@@ -454,7 +453,7 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
               // Balance-scan the parameter list from params_start.
               (pdepth : i64) = i64(1);
               (pj : usize) = params_start;
-              (params_end : i64) = i64(-(1));
+              (params_end : i64) = i64(-1);
               while(runtime((pj < usize(sig_close)) && (params_end < i64(0))), {
                 npj := _psr_skip_string_or_comment(src, pj);
                 if(npj != pj, {
@@ -528,8 +527,8 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
   (di : usize) = usize(0);
   while(runtime(di < decls.len()), {
     decl := decls(di);
-    keep := (!(decl.name.starts_with(`_`)) && !(_name_is_raw_pointer_api(decl.name.clone())));
-    if(keep && !(_position_inside_spans(decl.params_start, extern_spans)), {
+    keep := (!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()));
+    if(keep && !_position_inside_spans(decl.params_start, extern_spans), {
       param_bytes := decl.param_text.as_bytes();
       param_hits := _find_pointer_types(param_bytes);
       (hi : usize) = usize(0);
@@ -557,7 +556,7 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
           // first `->` after params_start.
           (arrow : usize) = decl.params_start;
           (found_arrow : bool) = false;
-          while(runtime((arrow < src.len()) && !(found_arrow)), {
+          while(runtime((arrow < src.len()) && !found_arrow), {
             if(_psr_bytes_at(src, arrow, "->"), {
               found_arrow = true;
             }, {
@@ -628,7 +627,7 @@ scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(
     line := if(raw.ends_with("\r"), raw.substring(usize(0), raw.len() - usize(1)), raw);
     cond(
       line.starts_with("impl(") => {
-        in_impl = !(line.ends_with(");"));
+        in_impl = !line.ends_with(");");
         target_seen = false;
         receiver = String.new();
         method = String.new();
@@ -638,12 +637,12 @@ scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(
         method = String.new();
       },
       in_impl => {
-        if(line.starts_with("  ") && !(line.starts_with("   ")), {
+        if(line.starts_with("  ") && !line.starts_with("   "), {
           body := line.substring(usize(2), line.len());
-          skip := ((body.starts_with("generic(") || body.starts_with("where(")) || body.starts_with("//"));
+          skip := (body.starts_with("generic(") || body.starts_with("where(") || body.starts_with("//"));
           cond(
             skip => (),
-            !(target_seen) => {
+            !target_seen => {
               target_seen = true;
               receiver = cond(
                 body.starts_with("Option(") => String.from("Option"),
@@ -663,7 +662,7 @@ scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(
             )
           );
         });
-        if(((receiver.len() > usize(0)) && (method.len() > usize(0))) && (!(recorded) && line.contains("__yo_panic(")), {
+        if((receiver.len() > usize(0)) && (method.len() > usize(0)) && (!recorded && line.contains("__yo_panic(")), {
           recorded = true;
           status := cond(
             method_comptime => String.from("comptime"),
@@ -685,11 +684,11 @@ _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn :
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
-    if(!(exists), {
+    if(!exists, {
       return(());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
-    if(!(md.is_dir()), {
+    if(!md.is_dir(), {
       if(root.ends_with(`.yo`), {
         out.push(root.clone());
       });
@@ -710,7 +709,7 @@ _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn :
         (si : usize) = usize(0);
         while(runtime((si + usize(1)) < segs.len()), {
           seg := segs(si);
-          skip := ((((((seg == "node_modules") || (seg == ".git")) || (seg == "dist")) || (seg == "yo-out")) || (seg == "build")) || seg.starts_with(`.`));
+          skip := ((seg == "node_modules") || (seg == ".git") || (seg == "dist") || (seg == "yo-out") || (seg == "build") || seg.starts_with(`.`));
           if(skip, {
             ok = false;
           });
@@ -743,14 +742,14 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
     (fi : usize) = usize(0);
     while(runtime(fi < files.len()), {
       file := files(fi);
-      if(!(_should_skip_file(file.clone())), {
+      if(!_should_skip_file(file.clone()), {
         files_scanned = (files_scanned + usize(1));
         src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
         decls := _extract_top_level_fn_decls(src.as_bytes());
         (di : usize) = usize(0);
         while(runtime(di < decls.len()), {
           decl := decls(di);
-          if(!(decl.name.starts_with(`_`)) && !(_name_is_raw_pointer_api(decl.name.clone())), {
+          if(!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()), {
             public_decls_scanned = (public_decls_scanned + usize(1));
           });
           di = (di + usize(1));

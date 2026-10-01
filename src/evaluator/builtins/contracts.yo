@@ -1449,7 +1449,7 @@ _guard_site_recorded :: (fn(expr : AstExpr, class : str) -> bool)(
       (i : usize) = usize(0);
       while(i < sites.len(), {
         gs := sites(i);
-        if((((gs.class == class) && (gs.module == canon)) && (gs.row == usize(tok.row))) && (gs.column == usize(tok.column)), {
+        if((gs.class == class) && (gs.module == canon) && (gs.row == usize(tok.row)) && (gs.column == usize(tok.column)), {
           return(true);
         });
         i = (i + usize(1));
@@ -2678,7 +2678,7 @@ _contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : 
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
         ai.value,
-        .Some(.FuncVal(afv, _)) => !(is_ghost_fn(afv.*.func_id.clone())),
+        .Some(.FuncVal(afv, _)) => !is_ghost_fn(afv.*.func_id.clone()),
         _ => true
       ),
       .None => true
@@ -2686,7 +2686,7 @@ _contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : 
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
-        if(((hn == BF_OLD) && !(allow_old)) || (((hn == BF_FORALL) || (hn == BF_EXISTS)) || ((hn == BF_GHOST) || (hn == BF_DISTINCT))), {
+        if(((hn == BF_OLD) && !allow_old) || ((hn == BF_FORALL) || (hn == BF_EXISTS) || ((hn == BF_GHOST) || (hn == BF_DISTINCT))), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
@@ -2694,14 +2694,14 @@ _contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : 
           return(false);
         });
       });
-      if(!(_contract_clause_runs(head, table, allow_old)), {
+      if(!_contract_clause_runs(head, table, allow_old), {
         return(false);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(!(_contract_clause_runs(a, table, allow_old)), {
+          .Some(a) => if(!_contract_clause_runs(a, table, allow_old), {
             return(false);
           }),
           .None => ()
@@ -2798,7 +2798,7 @@ wrap_function_body_with_contracts :: (
       // `ghost_fn` or quantifies stays proof-only, which leaves it unchecked
       // for a caller the verifier never walks, the same as a `refine`.
       kept_requires := ArrayList(AstExpr).new();
-      if(!(in_ghost_fn), {
+      if(!in_ghost_fn, {
         (kri : usize) = usize(0);
         while(kri < requires_exprs.len(), {
           if(match(requires_checkable.get(kri), .Some(c) => c, .None => false), {

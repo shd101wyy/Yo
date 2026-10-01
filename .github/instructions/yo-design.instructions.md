@@ -191,6 +191,20 @@ AF_INET6 :: cond(
 
 Current goal: make Yo work on Linux, macOS, and Windows.
 
+## A bare integer literal converts at argument positions, NOT as a receiver
+
+A literal converts to any runtime integer type at ARGUMENT positions
+(`xs.push(1)`, `f(0)`), but as the LEFT operand of a binary operator it does
+not: `(0..n)`, `(3 == n)`, `(1 + n)` with a runtime `n` of a differing
+integer type are rejected with a
+phantom "runtime argument to compile-time parameter" diagnostic (OPEN
+`issues/an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`;
+measured with `usize` operands — with an `i32` `n` the same spellings can
+pass, so do not rely on either direction).
+Put the runtime operand on the left — `(n == 3)`, `(n + 1)`,
+`usize(0)..n` — and cast both ends of an all-literal runtime range
+(`i32(0)..i32(5)`).
+
 ## Verification: a green `yo verify` is not "everything proved"
 
 `assumed` (contracts declared, body never walked) and `outside-subset` (the
@@ -210,6 +224,18 @@ verification work:
   `summary`. The self-verification campaign
   (`plans/SELF_VERIFICATION.md`) ratchets on the non-vacuous count for
   exactly this reason.
+- **Laws (`law(...)`) state claims OUTSIDE the code** (B1, landed
+  2026-09-19): `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);`
+  — the argument is a written-out fn type with clauses and no body. A law
+  is proved from the callee's CONTRACT alone (never its body), evaluates
+  to `unit` and is erased in codegen; a non-`unit` return, no `ensures`,
+  `assumed()`, `decreases(...)` or a named alias in place of the fn type
+  are all compile errors, and `unproven` has no assert fallback for a law,
+  so `--strict` decides. A law is never `outside-subset`. KNOWN LIMITATION:
+  the callee must live in the same file today
+  (`issues/law-over-an-imported-callee-cannot-verify.md`). Full contract:
+  `docs/en-US/FORMAL_VERIFICATION.md` §Laws; workflow: the yo-verification
+  skill.
 
 ## API stability: the language may still break, `std` may not
 
@@ -270,24 +296,27 @@ This applies to all parameters and return types in comptime-only APIs:
 - `E` is a single type — typically a struct that bundles every effect the async body needs. Define one bundle struct (e.g. `Ctx :: struct(io : Io, raise : Raise)`) and pass it as the single `E`.
 - The async closure takes that bundle as one parameter: `io.async((ctx : Ctx) => { ctx.raise(...); ... })`.
 - When a function uses `io : Io` and runs an async body, the bundle must include `Io`, so the return type names it: `Impl(Future(Result(T, E), Ctx))`.
-- Return `io.async(...)` directly as the last expression — do NOT assign to an intermediate variable:
+- Return `io.async(...)` directly as the last expression. An intermediate
+  variable is HALF-working since #792: it passes `yo check` (the local's
+  variant infers from a later `return(local)` or the body tail) but still
+  FAILS `yo compile` with `Failed to infer enum variant type` at the bare
+  variant inside the async closure
+  (`issues/io-async-variant-inference-passes-check-but-fails-compile.md`) —
+  keep the direct form until that lands:
 
 ```rust
-// WRONG — intermediate variable prevents enum variant type inference:
-my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, IoError), Io)))({
-  task := io.async((io : Io) => {
-    .Ok(i32(42))
-  });
-  return(task);
-});
-
 // CORRECT — return io.async directly:
-my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, IoError), Io)))(
+my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))(
   io.async((io : Io) => {
-    .Ok(i32(42))
+    zero := i32(0);
+    .Ok((i32(42) + zero))
   })
 );
 ```
+
+(The async closure body above uses two statements on purpose: a
+single-expression `{ ... }` body parses as a record literal — the braces
+rule.)
 
 ## Async iteration — the `Stream` trait (`std/async/stream.yo`)
 

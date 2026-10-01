@@ -226,7 +226,7 @@ decode_parts :: (
   if(width == usize(1), {
     return(.Ok(Decoded(code : rune(char : u32(b0)), width : usize(1))));
   });
-  if(!(is_continuation(b1)), {
+  if(!is_continuation(b1), {
     return(.Err(.InvalidContinuation(index, usize(1), b1)));
   });
   if(width == usize(2), {
@@ -235,11 +235,11 @@ decode_parts :: (
     code2 := (((u32(b0) & u32(0x1F)) << u32(6)) | (u32(b1) & u32(0x3F)));
     return(.Ok(Decoded(code : rune(char : code2), width : usize(2))));
   });
-  if(!(is_continuation(b2)), {
+  if(!is_continuation(b2), {
     return(.Err(.InvalidContinuation(index, usize(2), b2)));
   });
   if(width == usize(3), {
-    code3 := ((((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6))) | (u32(b2) & u32(0x3F)));
+    code3 := (((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6)) | (u32(b2) & u32(0x3F)));
     if(code3 < u32(0x800), {
       return(.Err(.Overlong(index, code3)));
     });
@@ -248,10 +248,10 @@ decode_parts :: (
     });
     return(.Ok(Decoded(code : rune(char : code3), width : usize(3))));
   });
-  if(!(is_continuation(b3)), {
+  if(!is_continuation(b3), {
     return(.Err(.InvalidContinuation(index, usize(3), b3)));
   });
-  code4 := (((((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12))) | ((u32(b2) & u32(0x3F)) << u32(6))) | (u32(b3) & u32(0x3F)));
+  code4 := (((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12)) | ((u32(b2) & u32(0x3F)) << u32(6)) | (u32(b3) & u32(0x3F)));
   if(code4 < u32(0x10000), {
     return(.Err(.Overlong(index, code4)));
   });

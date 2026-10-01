@@ -63,7 +63,7 @@ DestructuringResult :: ref(
 _label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while((i < seen.len()) && !(found), {
+  while((i < seen.len()) && !found, {
     match(
       seen.get(i),
       .Some(s) => {
@@ -194,7 +194,7 @@ _record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : S
   });
   match(
     rhs_type,
-    .Struct({ id : sid, is_source_namespace : sns }) => if((sns && is_extern_c_module_id(sid.clone())) && is_extern_c_global(label.clone()), {
+    .Struct({ id : sid, is_source_namespace : sns }) => if(sns && is_extern_c_module_id(sid.clone()) && is_extern_c_global(label.clone()), {
       register_extern_c_global_alias(var_name, label, ty);
     }),
     _ => ()
@@ -211,7 +211,7 @@ _is_adopted_extern_c_field :: (fn(rhs_type : TypeValue, fval_opt : Option(EvalVa
   match(
     rhs_type,
     .Struct({ id : sid, is_source_namespace : sns }) => (
-      (sns && is_extern_c_module_id(sid.clone())) &&
+      sns && is_extern_c_module_id(sid.clone()) &&
         match(
           fval_opt,
           .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(t).is_some(), _ => false),
@@ -260,7 +260,7 @@ handle_member_destructuring :: (
     exn : Exception
   ) -> DestructuringResult
 )({
-  require_underscore := !(is_tuple_type(rhs_type));
+  require_underscore := !is_tuple_type(rhs_type);
   lhs_func_name := ast_expr_token(lhs_func).value;
   if(require_underscore && !(lhs_func_name == "_"), {
     exn.throw(
@@ -274,7 +274,7 @@ handle_member_destructuring :: (
   });
   // Union destructuring requires exactly one field, and is a member READ:
   // the same safe-mode gate as `u.x` (property_access.yo).
-  if(is_union_type(rhs_type) && !(is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.clone()), ctx.unsafe_context)), {
+  if(is_union_type(rhs_type) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.clone()), ctx.unsafe_context), {
     exn.throw(dyn(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type)))));
   });
   if(is_union_type(rhs_type), {
@@ -332,8 +332,8 @@ handle_member_destructuring :: (
           match(
             lhs_field,
             .FnCall(_, _, args, _, _) => (
-              (match(args.get(usize(0)), .Some(a) => (ast_expr_token(a).value == "..."), .None => false)) &&
-                (match(args.get(usize(1)), .Some(b) => (ast_expr_token(b).value == "..."), .None => false))
+              match(args.get(usize(0)), .Some(a) => (ast_expr_token(a).value == "..."), .None => false) &&
+                match(args.get(usize(1)), .Some(b) => (ast_expr_token(b).value == "..."), .None => false)
             ),
             _ => false
           )
@@ -358,7 +358,7 @@ handle_member_destructuring :: (
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
         fty := match(rhs_field_types.get(j), .Some(t) => t, .None => TypeValue.Unit);
-        if(!(_label_already_seen(seen_labels, flab.clone())), {
+        if(!_label_already_seen(seen_labels, flab.clone()), {
           {
             seen_labels.push(flab.clone());
           };
@@ -415,7 +415,7 @@ handle_member_destructuring :: (
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_field), spread_info);
       did_spread = true;
     });
-    if(!(did_spread), {
+    if(!did_spread, {
       // -------------------------------------------------------------------
       // Branch 2: labeled rename `(label : new_name)`
       // -------------------------------------------------------------------
@@ -505,7 +505,7 @@ handle_member_destructuring :: (
       // -------------------------------------------------------------------
       // Branch 3: nested FnCall pattern (not supported)
       // -------------------------------------------------------------------
-      if(!(is_labeled) && ast_expr_is_fn_call(lhs_field), {
+      if(!is_labeled && ast_expr_is_fn_call(lhs_field), {
         exn.throw(
           dyn(
             format_error_message(
@@ -518,7 +518,7 @@ handle_member_destructuring :: (
       // -------------------------------------------------------------------
       // Branch 4: positional atom `name`
       // -------------------------------------------------------------------
-      _b4_cond1 := (!(is_labeled) && !(ast_expr_is_fn_call(lhs_field)));
+      _b4_cond1 := (!is_labeled && !ast_expr_is_fn_call(lhs_field));
       _b4_cond2 := (ast_expr_is_atom(lhs_field) && is_valid_variable_name(lhs_field));
       if(_b4_cond1 && _b4_cond2, {
         if(is_union_type(rhs_type), {
@@ -567,7 +567,7 @@ handle_member_destructuring :: (
       // -------------------------------------------------------------------
       // Branch 5: unsupported pattern
       // -------------------------------------------------------------------
-      if((!(is_labeled) && !(ast_expr_is_fn_call(lhs_field))) && !(ast_expr_is_atom(lhs_field) && is_valid_variable_name(lhs_field)), {
+      if(!is_labeled && !ast_expr_is_fn_call(lhs_field) && !(ast_expr_is_atom(lhs_field) && is_valid_variable_name(lhs_field)), {
         exn.throw(
           dyn(
             format_error_message(
@@ -690,7 +690,7 @@ evaluate_destructuring_assignment :: (
   // -------------------------------------------------------------------
   // Struct / union / module destructuring
   // -------------------------------------------------------------------
-  is_struct_union_module := ((is_struct_type(rhs_type) || is_union_type(rhs_type)) || is_module_type(rhs_type));
+  is_struct_union_module := (is_struct_type(rhs_type) || is_union_type(rhs_type) || is_module_type(rhs_type));
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
       rhs_type,
@@ -728,7 +728,7 @@ evaluate_destructuring_assignment :: (
   // -------------------------------------------------------------------
   // Tuple destructuring
   // -------------------------------------------------------------------
-  if((is_tuple_type(rhs_type) && ast_expr_is_fn_call(lhs)) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
+  if(is_tuple_type(rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(rhs_type, .Tuple(fl, _) => fl, _ => ArrayList(String).new());
     field_types := match(rhs_type, .Tuple(_, ft) => ft, _ => ArrayList(TypeValue).new());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
@@ -830,7 +830,7 @@ evaluate_destructuring_assignment :: (
   // -------------------------------------------------------------------
   // Error: unsupported type
   // -------------------------------------------------------------------
-  if(!(((is_tuple_type(rhs_type) || is_struct_type(rhs_type)) || (is_union_type(rhs_type) || is_module_type(rhs_type))) || is_enum_type(rhs_type)), {
+  if(!(is_tuple_type(rhs_type) || is_struct_type(rhs_type) || (is_union_type(rhs_type) || is_module_type(rhs_type)) || is_enum_type(rhs_type)), {
     exn.throw(
       dyn(
         format_error_message(

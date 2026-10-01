@@ -121,7 +121,7 @@ _template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
   if((usize(tok.byte_offset) < n) && (bytes(usize(tok.byte_offset)) == u8(0x60)), {
     (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
     (done : bool) = false;
-    while((pos.byte < n) && !(done), {
+    while((pos.byte < n) && !done, {
       b := bytes(pos.byte);
       nb := cond(((pos.byte + usize(1)) < n) => bytes(pos.byte + usize(1)), true => u8(0));
       cond(
@@ -251,7 +251,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          is_ws := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || (tok.kind == TokenKind.DocBlockComment)) || (tok.kind == TokenKind.InnerDocBlockComment));
+          is_ws := ((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment) || (tok.kind == TokenKind.MultiLineComment) || (tok.kind == TokenKind.DocLineComment) || (tok.kind == TokenKind.InnerDocLineComment) || (tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment));
           if(is_ws == false, {
             break;
           });
@@ -270,7 +270,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          is_ws := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || (tok.kind == TokenKind.DocBlockComment)) || (tok.kind == TokenKind.InnerDocBlockComment));
+          is_ws := ((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment) || (tok.kind == TokenKind.MultiLineComment) || (tok.kind == TokenKind.DocLineComment) || (tok.kind == TokenKind.InnerDocLineComment) || (tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment));
           if(is_ws == false, {
             break;
           });
@@ -517,7 +517,7 @@ impl(
     // be whitespace. The last one is what preserves a spaced colon-pair
     // (`${a : b}` keeps its meaning) while `${x:>8}` splits.
     _is_spec_char :: (fn(c : rune) -> bool)(
-      (((((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A)))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A)))) || (((c.char == u32(0x2E)) || (c.char == u32(0x3C))) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E))))) || ((((c.char == u32(0x2B)) || (c.char == u32(0x2D))) || ((c.char == u32(0x23)) || (c.char == u32(0x2A)))) || (((c.char == u32(0x5F)) || (c.char == u32(0x3D))) || (c.char == u32(0x7E))))
+      ((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A))) || ((c.char == u32(0x2E)) || (c.char == u32(0x3C)) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E)))) || ((c.char == u32(0x2B)) || (c.char == u32(0x2D)) || ((c.char == u32(0x23)) || (c.char == u32(0x2A))) || ((c.char == u32(0x5F)) || (c.char == u32(0x3D)) || (c.char == u32(0x7E))))
     );
     // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end are
     // resolved through the rune->byte map `char_indices()` gives rather than
@@ -638,7 +638,7 @@ impl(
               self.has_template_spec = true;
               spec_tok := Token(
                 kind : TokenKind.StringLit,
-                value : ((String.from("\"") + sp.spec) + String.from("\"")),
+                value : (String.from("\"") + sp.spec + String.from("\"")),
                 row : tok.row,
                 column : tok.column,
                 character : tok.character,
@@ -668,7 +668,7 @@ impl(
           content_str := content.clone();
           str_tok := Token(
             kind : TokenKind.StringLit,
-            value : ((String.from("\"") + content) + String.from("\"")),
+            value : (String.from("\"") + content + String.from("\"")),
             row : tok.row,
             column : tok.column,
             character : tok.character,
@@ -739,7 +739,7 @@ impl(
           // REJECTED there ("Unexpected token").
           idx = (idx + usize(1));
         },
-        (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
+        ((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
         },
         (curr.kind == TokenKind.RParen) => {
@@ -888,7 +888,7 @@ impl(
     is_tuple_type := match(
       separator_is_comma,
       .None => true,
-      .Some(__sb) => ((__sb) == false)
+      .Some(__sb) => (__sb == false)
     );
     kw := cond(is_tuple_type => BK_TUPLE_TYPE, true => BK_TUPLE);
     func_tok := Token(
@@ -973,7 +973,7 @@ impl(
     is_array_type_form := match(
       separator_is_comma,
       .None => true,
-      .Some(__sb) => ((__sb) == false)
+      .Some(__sb) => (__sb == false)
     );
     n_args := args.len();
     if(is_array_type_form && (n_args == usize(1)), {
@@ -1092,7 +1092,7 @@ impl(
             input : String.from("")
           )
         );
-        is_semi := match(separator_is_comma, .None => false, .Some(__sb) => ((__sb) == false));
+        is_semi := match(separator_is_comma, .None => false, .Some(__sb) => (__sb == false));
         if(is_semi && ((last_tok.kind == TokenKind.Semicolon) || (last_tok.kind == TokenKind.LCurlyBracket)), {
           unit_tok := Token(
             kind : TokenKind.Identifier,
@@ -1127,7 +1127,7 @@ impl(
             args.get(vi),
             .None => (),
             .Some(arg) => {
-              if(!(self.is_valid_struct_field_arg(arg)), {
+              if(!self.is_valid_struct_field_arg(arg), {
                 block_msg := String.from(
                   "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
                 );
@@ -1225,12 +1225,61 @@ impl(
       }
     )
   }),
+  /// True iff `target` (an operator token of a candidate spine node) is
+  /// found scanning `self.tokens` from `rhs_start` BEFORE any bracket group
+  /// opens — i.e. the token sits at bracket depth zero, so the node it
+  /// belongs to was built by this level's operator machinery rather than
+  /// inside a parenthesized/bracketed group. Scanning stops at the match;
+  /// `end_of_input` (no match: a synthetic token) reads as NOT at this
+  /// level, the conservative stop.
+  _op_token_at_rhs_depth : (
+    fn(self : Self, rhs_start : usize, target : Token) -> bool
+  )({
+    (depth : usize) = usize(0);
+    (answer : bool) = false;
+    (stopped : bool) = false;
+    (i : usize) = rhs_start;
+    while((i < self.tokens.len()) && !stopped, {
+      (step : Option(bool)) = match(
+        self.tokens.get(i),
+        .None => Option(bool).Some(false),
+        .Some(t) => cond(
+          (t.byte_offset == target.byte_offset) => Option(bool).Some(depth == usize(0)),
+          true => {
+            // Anything that can OPEN a group before the target pushes the
+            // rest of the scan one level down; the target then sits inside
+            // that group and does not belong to this level's chain.
+            if((t.kind == TokenKind.LParen) || ((t.kind == TokenKind.LBracket) || (t.kind == TokenKind.LCurlyBracket)), {
+              depth = (depth + usize(1));
+            });
+            if((t.kind == TokenKind.RParen) || ((t.kind == TokenKind.RBracket) || (t.kind == TokenKind.RCurlyBracket)), {
+              if(depth > usize(0), {
+                depth = (depth - usize(1));
+              });
+            });
+            Option(bool).None
+          }
+        )
+      );
+      match(
+        step,
+        .Some(v) => {
+          answer = v;
+          stopped = true;
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    answer
+  }),
   parse_left_assoc_op : (
     fn(
       inout(self) : Self,
       primary : AstExpr,
       op_tok : Token,
       rhs : AstExpr,
+      rhs_start : usize,
       index : usize,
       exn : Exception
     ) -> ParseResult
@@ -1279,15 +1328,98 @@ impl(
         ),
         .Atom(_, t) => t
       );
-      left_side_args := ArrayList(AstExpr).new();
-      left_side_args.push(primary);
-      left_side_args.push(left_operand);
-      (left_side : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), left_side_args, true, op_tok);
-      new_args := ArrayList(AstExpr).new();
-      new_args.push(left_side);
-      new_args.push(right_operand);
-      (new_primary : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), rhs_func_tok), new_args, true, rhs_func_tok);
-      self.parse_primary_end(new_primary, index, exn)
+      // Splice at the BOTTOM of the rhs's left spine, not one level below
+      // the top. The rhs of a FOUR-or-more-operand same-operator chain
+      // arrives here already left-nested (`(b - c) - d`), and a single
+      // rotation splices `primary` one level too high
+      // (`(a - (b - c)) - d` —
+      // issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md).
+      // A candidate spine node was built by THIS level's machinery — rather
+      // than a parenthesized group re-encountered — exactly when its own
+      // operator token sits at bracket depth zero over the rhs's token
+      // range: `a - (b - c) - d`'s candidate op token sits INSIDE the
+      // group (depth 1) and stops the descent, keeping the explicit
+      // grouping. For a two-operand rhs the loop stops immediately and the
+      // rebuild below is exactly the old rotation.
+      tail := ArrayList(AstExpr).new();
+      tail_toks := ArrayList(Token).new();
+      tail.push(right_operand);
+      tail_toks.push(rhs_func_tok);
+      (cur : AstExpr) = left_operand;
+      while(true, {
+        // One descent step, computed as a value: when `cur` is a
+        // same-operator infix node whose operator token sits at bracket
+        // depth zero from the rhs's start, adopt (op token, left, right).
+        (step : Option(Tuple(Token, AstExpr, AstExpr))) = .None;
+        match(
+          cur,
+          .FnCall(_, cfb, cargs, cis_infix, _) => {
+            (cand_tok : Option(Token)) = .None;
+            if(cis_infix, {
+              match(
+                cfb,
+                .Atom(_, ft) => {
+                  if((ft.kind != TokenKind.Dot) && (ft.value == op_tok.value), {
+                    cand_tok = Option(Token).Some(ft);
+                  });
+                },
+                .FnCall(_, _, _, _, _) => ()
+              );
+            });
+            at_rhs_level := match(
+              cand_tok,
+              .Some(ct) => self._op_token_at_rhs_depth(rhs_start, ct),
+              .None => false
+            );
+            step = cond(
+              at_rhs_level => match(
+                cargs.get(usize(0)),
+                .Some(l) => match(
+                  cargs.get(usize(1)),
+                  .Some(r) => match(
+                    cand_tok,
+                    .Some(ct2) => Option(Tuple(Token, AstExpr, AstExpr)).Some((ct2, l, r)),
+                    .None => Option(Tuple(Token, AstExpr, AstExpr)).None
+                  ),
+                  .None => Option(Tuple(Token, AstExpr, AstExpr)).None
+                ),
+                .None => Option(Tuple(Token, AstExpr, AstExpr)).None
+              ),
+              true => Option(Tuple(Token, AstExpr, AstExpr)).None
+            );
+          },
+          .Atom(_, _) => ()
+        );
+        match(
+          step,
+          .Some(t) => {
+            tail_toks.push(t.0);
+            tail.push(t.2);
+            cur = t.1;
+          },
+          .None => {
+            break;
+          }
+        );
+      });
+      // Rebuild left-associatively: `primary` in front of the spine's
+      // bottom operand, then the tail from the innermost (last collected)
+      // outward, every level keeping its own operator token.
+      spine_args := ArrayList(AstExpr).new();
+      spine_args.push(primary);
+      spine_args.push(cur);
+      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), spine_args, true, op_tok);
+      i := tail.len();
+      while(i > usize(0), {
+        i = (i - usize(1));
+        lvl_tok := match(tail_toks.get(i), .Some(t) => t, .None => rhs_func_tok);
+        lvl_rhs := match(tail.get(i), .Some(r) => r, .None => right_operand);
+        lvl_args := ArrayList(AstExpr).new();
+        lvl_args.push(acc);
+        lvl_args.push(lvl_rhs);
+        acc = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), lvl_tok), lvl_args, true, lvl_tok);
+      });
+      self.parse_primary_end(acc, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
@@ -1304,7 +1436,7 @@ impl(
     );
     cond(
       // Atom kinds
-      (((((((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator)) || (tok.kind == TokenKind.Bool)) || (tok.kind == TokenKind.Integer)) || (tok.kind == TokenKind.Float)) || (tok.kind == TokenKind.StringLit)) || (tok.kind == TokenKind.CharLit)) =>
+      ((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator) || (tok.kind == TokenKind.Bool) || (tok.kind == TokenKind.Integer) || (tok.kind == TokenKind.Float) || (tok.kind == TokenKind.StringLit) || (tok.kind == TokenKind.CharLit)) =>
         ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
       (tok.kind == TokenKind.LParen) => self.parse_paren_expr(idx, exn),
       (tok.kind == TokenKind.LBracket) => self.parse_array_expr(idx, exn),
@@ -1340,7 +1472,7 @@ impl(
       }
     );
     // Terminators: stop parsing the current expression
-    if(((((tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.Comma)) || (tok.kind == TokenKind.RParen)) || (tok.kind == TokenKind.RBracket)) || (tok.kind == TokenKind.RCurlyBracket), {
+    if((tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.Comma) || (tok.kind == TokenKind.RParen) || (tok.kind == TokenKind.RBracket) || (tok.kind == TokenKind.RCurlyBracket), {
       return(ParseResult(expr : primary_expr, index : idx));
     });
     primary_is_dot := match(
@@ -1356,7 +1488,7 @@ impl(
           .Some(t) => t.kind,
           .None => TokenKind.Whitespace
         );
-        ((next_after_dot_kind != TokenKind.Whitespace) && self.range_has_newline(orig_idx, next_idx)) && self.is_op_at_line_start(idx)
+        (next_after_dot_kind != TokenKind.Whitespace) && self.range_has_newline(orig_idx, next_idx) && self.is_op_at_line_start(idx)
       },
       true => false
     );
@@ -1377,7 +1509,7 @@ impl(
     );
     cond(
       // Dot: field access or enum variant
-      ((primary_is_dot || is_dot_at_line_start) || is_immediate_dot) => {
+      (primary_is_dot || is_dot_at_line_start || is_immediate_dot) => {
         dot_tok := match(
           self.tokens.get(idx),
           .Some(t) => t,
@@ -1469,7 +1601,7 @@ impl(
           );
           cond(
             (tok.value == rhs_op_value) =>
-              self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, exn),
+              self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_start, rhs_end, exn),
             true =>
               exn.throw(
                 dyn(
@@ -1515,7 +1647,7 @@ impl(
       self.tokens.get(idx),
       .None => false,
       .Some(t) => cond(
-        ((((((((((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer)) || (t.kind == TokenKind.Float)) || (t.kind == TokenKind.Bool)) || (t.kind == TokenKind.StringLit)) || (t.kind == TokenKind.CharLit)) || (t.kind == TokenKind.TemplateString)) || (t.kind == TokenKind.LParen)) || (t.kind == TokenKind.LBracket)) || ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot))) => true,
+        ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer) || (t.kind == TokenKind.Float) || (t.kind == TokenKind.Bool) || (t.kind == TokenKind.StringLit) || (t.kind == TokenKind.CharLit) || (t.kind == TokenKind.TemplateString) || (t.kind == TokenKind.LParen) || (t.kind == TokenKind.LBracket) || ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot))) => true,
         true => _is_prefix_op_token(t)
       )
     )
@@ -1548,7 +1680,7 @@ impl(
         .Some(t) => (t.kind == TokenKind.LParen),
         .None => false
       );
-      if(!(nxt_is_immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(cur_idx)), {
+      if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(self.skip_ws_fwd(cur_idx)), {
         op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         inner := self.parse_prefix_operand(cur_idx, exn);
         cur_expr = .FnCall(self.alloc_id(), cur_expr, array_list(inner.expr), false, op_tok);
@@ -1616,7 +1748,7 @@ impl(
         .Some(t) => (t.kind == TokenKind.LParen),
         .None => false
       );
-      if(!(immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(pr.index)), {
+      if(!immediate_lparen && self.token_starts_prefix_operand(self.skip_ws_fwd(pr.index)), {
         op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         operand := self.parse_prefix_operand(pr.index, exn);
         return(self.parse_primary_end(.FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok), operand.index, exn));
@@ -1635,7 +1767,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          is_skip := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.Semicolon)) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || ((tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment)));
+          is_skip := ((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.SingleLineComment) || (tok.kind == TokenKind.MultiLineComment) || (tok.kind == TokenKind.DocLineComment) || (tok.kind == TokenKind.InnerDocLineComment) || ((tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment)));
           if(is_skip, {
             idx = (idx + usize(1));
           }, {
@@ -1801,7 +1933,7 @@ generate_expr_from_code :: (
           .Some(ge) => ast_expr_is_fn_call_of(ge, BK_IMPORT, Option(usize).Some(usize(1))),
           .None => false
         );
-        if(!(gefc_is_imp), {
+        if(!gefc_is_imp, {
           gefc_leading_all_imports = false;
         });
         gefc_li = (gefc_li + usize(1));

@@ -507,7 +507,9 @@ obligations (`div-no-overflow`, `no-overflow`, `neg-no-overflow`), each with
 `"elision_only": true`; they never change a function's `outcome` or `vacuous`.
 
 `--explain <pattern>` narrows the report to functions whose id matches
-(substring — a bare name or a `file:line` both work) and forces the
+(a substring of the id — ids are `fn@<file>:<row>` / `law@<file>:<row>:<col>`,
+so match the file path or `file:line`; a bare function NAME matches nothing,
+the name is not part of the id) and forces the
 detailed rendering: every obligation lists its verdict AND its goal
 term, for `ok` functions too — the VC set of a verified function is
 inspectable, not just the failures:
@@ -678,4 +680,7 @@ yo verify ./tests/spec/verify_straight_line.test.yo
 To make proofs part of a project's build rather than a command someone
 remembers to run, declare a verification step in `build.yo` — see
 [BUILD_SYSTEM.md § Verification steps](BUILD_SYSTEM.md#verification-steps).
-`yo check` never runs the solver; the build step is the project-level switch.
+`yo check` proves the ENTRY files whose own pragma puts them in
+verify/verify+ mode inline — a refuted obligation fails the check with its
+counter-example — but it applies no `--strict` deny set; the build step is
+the project-level switch.

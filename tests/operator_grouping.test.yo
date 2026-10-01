@@ -16,30 +16,35 @@ test("same-operator chains left-associate", {
   // from right grouping and proves the chain is left-associative:
   comptime_assert((10 - 3 - 2) == 5, "(10 - 3) - 2 == 5, not 10 - (3 - 2) == 9");
   comptime_assert((100 / 5 / 2) == 10, "(100 / 5) / 2 == 10, not 100 / (5 / 2) == 50");
-  // FOUR-OPERAND CHAINS ARE NOT LEFT-ASSOCIATIVE TODAY. This pins the value
-  // the parser actually produces, not the one the rule promises. The correct
-  // answer is 8 (`((20 - 5) - 4) - 3`); the parser splices the new left
-  // operand one level too high and produces `(20 - (5 - 4)) - 3` == 16. Three
-  // operands are fine, and explicit parentheses are fine — the assertions
-  // above and below this one pin both.
-  //
-  // Filed as
-  // issues/same-operator-chain-of-four-or-more-is-not-left-associative.md,
-  // with why the fix is not small: the naive left-spine descent regresses
-  // `a - (b - c) - d`, which is correct today, and the AST carries no
-  // "came from a parenthesised group" bit to tell the two apart.
-  //
-  // It stays a LIVE assertion deliberately: when the parser is fixed this goes
-  // red, and that red is the reminder to restore it to 8. It was written as
-  // `== 8` and never ran — `comptime_assert` was inert inside a `test(...)`
-  // body until 2026-09-05
-  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+  // FOUR-OPERAND chains left-associate since the parser fix
+  // (issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md):
+  // the left-associative splice now descends to the BOTTOM of the rhs's left
+  // spine through chain nodes built at the current paren depth. Until
+  // 2026-10-01 the parser spliced one level too high and
+  // `20 - 5 - 4 - 3` evaluated to 16 (`(20 - (5 - 4)) - 3`); this
+  // assertion was the live pin of the bug (comptime_assert was inert inside
+  // a `test(...)` body until 2026-09-05,
+  // issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
   comptime_assert(
-    (20 - 5 - 4 - 3) == 16,
-    "4-operand chain mis-groups as (20 - (5 - 4)) - 3; should be 8"
+    (20 - 5 - 4 - 3) == 8,
+    "4-operand chain left-associates: ((20 - 5) - 4) - 3"
   );
+  comptime_assert((20 - 5 - 4 - 3 - 2) == 6, "5-operand chain is ((((20 - 5) - 4) - 3) - 2)");
+  comptime_assert((20 - 5 - 4 - 3 - 2 - 1) == 5, "6-operand chain left-associates");
+  comptime_assert((1000 / 10 / 5 / 2) == 10, "(((1000 / 10) / 5) / 2) == 10");
+  comptime_assert((200 % 70 % 40 % 6) == 2, "(((200 % 70) % 40) % 6) == 2");
+  // EXPLICIT parentheses keep their grouping — the regression the naive
+  // left-spine descent would cause (`a - (b - c) - d` must stay
+  // `(a - (b - c)) - d`, never re-associated), pinned for every group
+  // position:
+  comptime_assert((20 - (5 - 4) - 3) == 16, "20 - (5 - 4) - 3 is ((20 - 1) - 3) == 16");
+  comptime_assert((20 - 5 - (4 - 3)) == 14, "20 - 5 - (4 - 3) is ((20 - 5) - 1) == 14");
+  comptime_assert((20 - (5 - 4 - 3) - 2) == 20, "the group's own 3-chain stays inside: 20 - (-2) - 2");
+  comptime_assert(((20 - 5 - 4) - 3 - 2) == 6, "a paren group feeding a further chain");
+  // A 4-chain INSIDE a paren group exercises the fix one depth deeper.
+  comptime_assert(((20 - 5 - 4 - 3)) == 8, "4-operand chain inside a group");
   // Explicit parentheses DO left-associate correctly — this is what pins the
-  // defect to the implicit chain rather than to `-` itself.
+  // grouping to the chain rule rather than to `-` itself.
   comptime_assert((((20 - 5) - 4) - 3) == 8, "explicit left grouping is 8");
 });
 

@@ -761,7 +761,7 @@ _build_is_trial :: (
 )({
   (i : usize) = usize(0);
   (trial : bool) = false;
-  while((i < args.len()) && !(trial), {
+  while((i < args.len()) && !trial, {
     match(
       _build_arg_value(args, i, ctx),
       .None => {
@@ -807,7 +807,7 @@ _under_build :: (fn() -> bool)(match(g_build_registry, .Some(_r) => true, .None 
 _build_string_result :: (
   fn(expr : AstExpr, env : Environment, ctx : EvalContext, value : String) -> AstExpr
 )({
-  raw := ((String.from("\"") + value) + String.from("\""));
+  raw := (String.from("\"") + value + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
   info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
@@ -916,7 +916,7 @@ _build_split_ws :: (fn(s : String) -> ArrayList(String))({
   while(i < n, {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     cond(
-      ((((b == u8(32)) || (b == u8(9))) || (b == u8(10))) || (b == u8(13))) => {
+      ((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13))) => {
         if(cur.len() > usize(0), {
           out.push(cur.clone());
           cur = String.new();
@@ -1201,7 +1201,7 @@ evaluate_yo_build_functions :: (
     // rejects ("refers to a control character").
     nul_sep := String.new();
     nul_sep.push_byte(u8(0));
-    encoded := ((dep_name + nul_sep) + mod_name);
+    encoded := (dep_name + nul_sep + mod_name);
     return(_build_string_result(expr, env, ctx, encoded));
   });
   // ── Registry-mutating builtins (all return unit) ────────────────────

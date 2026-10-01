@@ -1,5 +1,16 @@
 # A template string inside another template string's `${…}` fails, and the error points at line 1
 
+> **FIXED — closed 2026-10-01, fixed by the 2026-09-23 interpolation-body
+> rescan** (`issues/fixed/template-interpolation-body-is-not-scanned-as-code.md`;
+> documented at `.github/instructions/yo-syntax.instructions.md` "An
+> interpolation body is code"). Verified 2026-10-01 on yo 0.2.47: the
+> repro's shapes all check clean — `` `outer ${`inner ${x}`} end` ``, a
+> nested template without interpolation, and two nesting levels. The
+> sibling backslash case is a DIFFERENT defect and stays open
+> (`template-string-backslash-before-interpolation-eats-both.md`, reproduced
+> 2026-10-01: `` `path \\${x} end` `` prints `path ${x} end`). Doc frozen
+> below.
+
 **Severity:** S2 — a valid nested template inside `${...}` is rejected with a misleading line-1 `to_string` error
 
 **Status: OPEN.** Found 2026-09-05 while writing a `std/path` reproducer

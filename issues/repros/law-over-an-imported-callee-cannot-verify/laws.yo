@@ -1,0 +1,12 @@
+pragma(Pragma.Verify);
+
+{ abs_value } :: import("./math.yo");
+
+// LAW: doubling an absolute value over the contracted domain stays non-negative.
+abs_doubles_nonneg :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((abs_value(x) + abs_value(x)) >= i64(0))
+  ) -> unit
+);

@@ -8,7 +8,21 @@ It is the sibling of
 [`ZEROLANG_AGENT_FIRST_LESSONS.md`](ZEROLANG_AGENT_FIRST_LESSONS.md): a
 comparison first, and then — because the user asked for it — an
 implementation breakdown another agent can pick up phase by phase
-(§Implementation phases). Nothing here is started.
+(§Implementation phases).
+
+> **Phase status (trued 2026-10-01):** B0 `--strict` LANDED 2026-09-18;
+> B1 `law` LANDED 2026-09-19; B3 SUBSUMED by `yo context`
+> ([`../reference/YO_CONTEXT.md`](../reference/YO_CONTEXT.md), landed
+> 2026-09-23: tasks 1–2 are the pack + API index under one verb; task 3's
+> recipe landed as the context-first `AGENTS.md`, WITHOUT the verify
+> recipe — `issues/init-agentsmd-template-omits-the-verify-recipe.md`);
+> B2's substance moved to
+> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 (slice 1 —
+> recursive `ghost_fn` lemmas + lexicographic `decreases` — LANDED as
+> #1075); B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
+> and are the live remainder of the ROADMAP's Agent-loop item; B6 `par2`
+> unstarted, weakest agent-loop relevance. Known blocker for the `spec/`
+> convention: `issues/law-over-an-imported-callee-cannot-verify.md`.
 
 The one-paragraph verdict: **Bend 2's verification foundation is the road
 Yo deliberately did not take** (dependent types, hand-written inductive
@@ -487,6 +501,14 @@ law proves); cheatsheet + docs updated.
 
 ### B2 — Lemmas: contracted `ghost_fn`s verified by induction
 
+> **2026-10-01: slice 1 of this phase LANDED as #1075** (a recursive
+> `ghost_fn` with `decreases` becomes an uninterpreted function defined by
+> a triggered axiom, its own task proves the measure; lexicographic
+> `decreases(m1, m2, ...)` measures) — designed and owned by
+> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2; its
+> remaining slices live there, not here. This section stays as the
+> original design record.
+
 > **Task 1 (the probe) is DONE — 2026-09-19. Answer: YES, already registered,
 > so task 4 is CONFIRM, not ADD.** A `ghost_fn` whose signature carries
 > contracts is already a `VerifyTask` and its `ensures` is already discharged
@@ -590,6 +612,17 @@ through one unfolding + the IH, without opening any runtime body.
 `std/`/`src/` use only.
 
 ### B3 — `yo guide`, `yo std`, and the `AGENTS.md` recipe
+
+> **Status: SUBSUMED by `yo context`** ([`../reference/YO_CONTEXT.md`](../reference/YO_CONTEXT.md),
+> landed 2026-09-23, #847/#856). Tasks 1–2 (`yo guide`, `yo std`) shipped
+> as the pack (`pack/context.md`, printed by `yo context`) plus the API
+> index/describe/search under the one verb — a strictly larger surface
+> than this phase designed. Task 3 landed as the context-first `AGENTS.md`
+> template (`src/init.yo`); the verify recipe half ("keep laws in `spec/`,
+> run `yo verify --strict ./spec` before committing") did NOT land —
+> `issues/init-agentsmd-template-omits-the-verify-recipe.md` — and waits
+> on `issues/law-over-an-imported-callee-cannot-verify.md` besides, since
+> a `spec/` directory of cross-file laws cannot verify today.
 
 **Scope.** Three small CLI additions; no compiler change.
 

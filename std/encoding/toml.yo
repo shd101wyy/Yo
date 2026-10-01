@@ -1024,7 +1024,7 @@ _clean_decimal :: (fn(src : ArrayList(u8), from : usize, to : usize) -> Option(_
   );
   // --- fraction
   cond(
-    ((!bad && (k < to)) && (src(k) == _DOT)) => {
+    (!bad && (k < to) && (src(k) == _DOT)) => {
       is_float = true;
       out.push(_DOT);
       k = (k + usize(1));
@@ -1070,7 +1070,7 @@ _clean_decimal :: (fn(src : ArrayList(u8), from : usize, to : usize) -> Option(_
   );
   // --- exponent
   cond(
-    ((!bad && (k < to)) && ((src(k) == u8(101)) || (src(k) == u8(69)))) => {
+    (!bad && (k < to) && ((src(k) == u8(101)) || (src(k) == u8(69)))) => {
       is_float = true;
       out.push(u8(101));
       k = (k + usize(1));
@@ -1166,7 +1166,7 @@ _clean_radix :: (fn(src : ArrayList(u8), from : usize, to : usize, radix : u32) 
     );
   });
   cond(
-    (((count == usize(0)) || prev_us) || bad) => Option(String).None,
+    ((count == usize(0)) || prev_us || bad) => Option(String).None,
     true => Option(String).Some(String.from_bytes(out))
   )
 });
@@ -1297,13 +1297,12 @@ _classify_number :: (fn(tok : String, start : usize) -> Result(TomlValue, TomlEr
 // ============================================================================
 /// `YYYY-` at the cursor: the start of a local date or a date-time.
 _looks_like_date :: (fn(p : _Parser) -> bool)(
-  (
-    (_is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1)))) && (_is_digit(p.at(usize(2))) && _is_digit(p.at(usize(3))))
-  ) && (p.at(usize(4)) == _MINUS)
+  _is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1))) && (_is_digit(p.at(usize(2))) && _is_digit(p.at(usize(3))))
+  && (p.at(usize(4)) == _MINUS)
 );
 /// `HH:` at the cursor: the start of a local time.
 _looks_like_time :: (fn(p : _Parser) -> bool)(
-  (_is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1)))) && (p.at(usize(2)) == _COLON)
+  _is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1))) && (p.at(usize(2)) == _COLON)
 );
 /// Exactly `count` digits, as a number. `.None` on any non-digit.
 _read_digits :: (fn(p : _Parser, count : usize) -> Option(i64))({
@@ -1484,10 +1483,10 @@ _parse_datetime :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
       // comes after it really is `HH:` — a trailing space before a comment
       // must not be read as a separator.
       sep := p.cur_byte();
-      sep_ok := (((sep == u8(84)) || (sep == u8(116))) || (sep == _SPACE));
+      sep_ok := ((sep == u8(84)) || (sep == u8(116)) || (sep == _SPACE));
       time_follows := (
         sep_ok && (
-          (_is_digit(p.at(usize(1))) && _is_digit(p.at(usize(2)))) && (p.at(usize(3)) == _COLON)
+          _is_digit(p.at(usize(1))) && _is_digit(p.at(usize(2))) && (p.at(usize(3)) == _COLON)
         )
       );
       cond(
@@ -2353,7 +2352,7 @@ _write_f64 :: (fn(v : f64, out : ArrayList(u8)) -> unit)({
   while(i < b.len(), i = (i + usize(1)), {
     c := b(i);
     cond(
-      (((c == _DOT) || (c == u8(101))) || (c == u8(69))) => {
+      ((c == _DOT) || (c == u8(101)) || (c == u8(69))) => {
         needs_point = false;
       },
       true => ()
@@ -2633,7 +2632,7 @@ _dt_eq :: (fn(a : TomlDateTime, b : TomlDateTime) -> bool)({
   d2 := ((x.day == y.day) && (x.hour == y.hour));
   d3 := ((x.minute == y.minute) && (x.second == y.second));
   d4 := ((x.nanosecond == y.nanosecond) && (x.utc_offset_secs == y.utc_offset_secs));
-  ((a.kind == b.kind) && ((d1 && d2) && (d3 && d4)))
+  (a.kind == b.kind) && (d1 && d2 && (d3 && d4))
 });
 /// Structural equality. Tables compare as MAPS — the same key set with equal
 /// values, whatever order they were parsed in — because TOML table order is

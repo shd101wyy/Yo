@@ -169,7 +169,7 @@ _soft_evaluated_for_verify_inner :: (
 )({
   soft_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         _flag_pred_eval_failed(_err.to_string());
         unwind(Option(AstExpr).None);
       }
@@ -309,7 +309,7 @@ generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
   if(match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
     return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
   });
-  if(!(fv_was), {
+  if(!fv_was, {
     match(
       flow_violation_error(),
       .Some(fv_err) => if(match(fv_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
@@ -350,7 +350,7 @@ _trial_eval_fn_body :: (
   });
   inner_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[swallow] ${_err.to_string()}`);
         });
@@ -499,7 +499,7 @@ _share_def_time_frames :: (fn(env : Environment, strip : bool) -> Environment)({
             frame.variables.get(j),
             .Some(v) => {
               keep := cond(
-                !(strip) => true,
+                !strip => true,
                 (i == usize(0)) => true,
                 v.is_compile_time_only => true,
                 v.is_module_level => true,
@@ -793,7 +793,7 @@ _build_def_time_body_env :: (
       is_param_too := {
         (fp_i : usize) = usize(0);
         (fp_hit : bool) = false;
-        while((fp_i < param_labels.len()) && !(fp_hit), {
+        while((fp_i < param_labels.len()) && !fp_hit, {
           if(match(param_labels.get(fp_i), .Some(l) => (l == fa_name), .None => false), {
             fp_hit = true;
           });
@@ -801,7 +801,7 @@ _build_def_time_body_env :: (
         });
         fp_hit
       };
-      if((fa_name.len() > usize(0)) && !(is_param_too), {
+      if((fa_name.len() > usize(0)) && !is_param_too, {
         fa_val := if(
           is_type_0(fa_ty.clone()),
           _type_binder_env_value(fa_name.clone(), sig_some_ts, where_entries, pf_level),
@@ -941,12 +941,12 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
         rp_failed := (_trial_swallow_pending() && (rp_out.len() == usize(0)));
         cond(
           // The body typed with its forward declarations filled: done.
-          (!(rp_failed) && rp_all_filled) => (),
+          (!rp_failed && rp_all_filled) => (),
           // Still failing with nothing left to wait for: the body's own
           // error, which the first trial could not tell from a forward
           // reference. Reported through the filling assignment's `exn`.
           (rp_failed && rp_all_filled) => {
-            if(rp_failure.is_none() && !(propagate_def_time_errors()), {
+            if(rp_failure.is_none() && !propagate_def_time_errors(), {
               rp_failure = Option(YoError).Some(
                 match(
                   _trial_swallow_diagnostics(),
@@ -1189,8 +1189,8 @@ Result type: ${type_to_string(result_box)}`
                       .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
-                    if((((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_"))) && !(cv_is_extern_fn), {
-                      if((!(has_fwd_comptime_fn_cap)) && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+                    if(cv.is_compile_time_only && cv_unfilled && is_function_type(cv.ty) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
+                      if(!has_fwd_comptime_fn_cap && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });
                       has_fwd_comptime_fn_cap = true;
@@ -1228,7 +1228,7 @@ Result type: ${type_to_string(result_box)}`
       // peak retention is 1x.
       (any_some_param_ft : bool) = false;
       (spi : usize) = usize(0);
-      while((spi < param_types.len()) && (!(any_some_param_ft)), {
+      while((spi < param_types.len()) && !any_some_param_ft, {
         match(
           param_types.get(spi),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
@@ -1268,7 +1268,7 @@ Result type: ${type_to_string(result_box)}`
         .FnCall(_, ct_ft_box, _, _, _) => {
           ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
           (ct_fi : usize) = usize(0);
-          while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
+          while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
               param_types.get(ct_fi),
               .Some(ct_pt) => match(ct_pt, .TypeUni(_) => true, _ => false),
@@ -1276,7 +1276,7 @@ Result type: ${type_to_string(result_box)}`
             );
             match(
               ct_flags_ft.get(ct_fi),
-              .Some(cf) => if(cf && !(ct_is_typeuni), {
+              .Some(cf) => if(cf && !ct_is_typeuni, {
                 ft_has_ct_param = true;
               }),
               .None => ()
@@ -1286,9 +1286,9 @@ Result type: ${type_to_string(result_box)}`
         },
         .Atom(_, _) => ()
       );
-      should_defer_ft := ((((forall_labels.len() > usize(0)) || any_some_param_ft) || self_has_some_ft) || ft_has_ct_param);
+      should_defer_ft := ((forall_labels.len() > usize(0)) || any_some_param_ft || self_has_some_ft || ft_has_ct_param);
       (flow_body : Option(AstExpr)) = if(
-        !(should_defer_ft),
+        !should_defer_ft,
         Option(AstExpr).Some(body_expr.clone()),
         Option(AstExpr).None
       );
@@ -1372,8 +1372,8 @@ Result type: ${type_to_string(result_box)}`
         // claim to prove, and its call sites are verified per instance.
         is_contracted := ((get_func_requires_exprs(fn_val_id.clone()).len() > usize(0)) || (get_func_ensures_exprs(fn_val_id.clone()).len() > usize(0)));
         if(((vmode == "verify") || (vmode == "verify+")) &&
-          !(result_is_comptime_only) &&
-            ((is_assumed || !(should_defer_ft)) || is_contracted), {
+          !result_is_comptime_only &&
+            (is_assumed || !should_defer_ft || is_contracted), {
           // The predicates are diagnostic-EVALUATED here (the plan's "one
           // diagnostic evaluation pass"): the side-table nodes are the
           // original signature AST, but ExprInfo lands on the evaluated
@@ -1481,7 +1481,7 @@ Result type: ${type_to_string(result_box)}`
           // the type variable fails INSIDE the trial's swallow handler
           // (those nodes stay hollow — the WALK reports them loudly as
           // untyped, task 2's loud-failure scope).
-          if(should_defer_ft && !(is_assumed), {
+          if(should_defer_ft && !is_assumed, {
             dg_out := ArrayList(AstExpr).new();
             _trial_eval_fn_body(body_expr_raw.clone(), pred_env, ctx, dg_out);
             ();
@@ -1709,7 +1709,7 @@ Result type: ${type_to_string(result_box)}`
           // there, since a body that did not evaluate has no call sites worth
           // stashing.
           __cs_trial_failed := (_trial_swallow_pending() && (flow_out.len() == usize(0)));
-          if((_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))) && !(__cs_trial_failed), {
+          if(_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+")) && !__cs_trial_failed, {
             prepare_callsite_contracts(body_expr_raw.clone(), caller_env, ctx, exn);
           });
           if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
@@ -1770,7 +1770,7 @@ Result type: ${type_to_string(result_box)}`
           // body eval — its handler flags after the nested entry-clear, and
           // those are discarded). When the outer body itself threw, its
           // own handler flagged LAST, so the message is the outer error.
-          if((_trial_swallow_pending() && (flow_out.len() == usize(0))) && !(has_fwd_comptime_fn_cap), {
+          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && !has_fwd_comptime_fn_cap, {
             ts_fatal_msg := _trial_swallow_message();
             // Read BEFORE the clear — the clear empties both channels.
             ts_fatal_diags := _trial_swallow_diagnostics();
@@ -1827,7 +1827,7 @@ Result type: ${type_to_string(result_box)}`
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
-                if(!(has_any_control_flow(ub_info.control_flow)), {
+                if(!has_any_control_flow(ub_info.control_flow), {
                   // A FUNCTION result's marker traits come from the returned
                   // value (rules D4 + D1, `judge_function_argument_markers`).
                   ub_fam := judge_function_argument_markers(result_box, ub_ty, ub_info.value, flow_env, ctx);
@@ -1848,8 +1848,8 @@ Result type: ${type_to_string(result_box)}`
                     .None => ()
                   );
                 });
-                ub_skip := ((((has_any_control_flow(ub_info.control_flow) || is_void_type(result_box)) || is_type_hierarchy_type(result_box)) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()))) || result_is_ref);
-                if(!(ub_skip) && !(are_types_compatible(ub_ty, result_box)), {
+                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(result_box) || is_type_hierarchy_type(result_box) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new())) || result_is_ref);
+                if(!ub_skip && !are_types_compatible(ub_ty, result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`
@@ -1871,7 +1871,7 @@ Result type: ${type_to_string(result_box)}`
                 // A `comptime_int` body VALUE returned as a fixed-width
                 // integer must fit it — the compatibility above is
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
-                if(!(ub_skip) && is_comptime_int_type(ub_ty), {
+                if(!ub_skip && is_comptime_int_type(ub_ty), {
                   match(
                     match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(ub_raw, result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
@@ -1907,8 +1907,8 @@ Result type: ${type_to_string(result_box)}`
           // (Ref-returning functions are banned at signature evaluation —
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains.)
-          if((type_representation_contains_raw_ptr(result_box) && !(result_is_comptime_only))
-          && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
+          if(type_representation_contains_raw_ptr(result_box) && !result_is_comptime_only
+          && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone())), {
             seb := match(
               flow_out.get(usize(0)),
               .Some(e) => e,
@@ -1920,7 +1920,7 @@ Result type: ${type_to_string(result_box)}`
               allow_comptime_source : true,
               max_local_frame_level : Option(usize).None
             );
-            if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
+            if(!is_flowable_expr(seb, flow_ctx, slice_flow_opts), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -1950,7 +1950,7 @@ Result type: ${type_to_string(result_box)}`
                   .Some(dts_binfo) => {
                     dts_bty := dts_binfo.ty;
                     dts_hidden := cond(
-                      !(is_some_type(dts_bty)) => Option(TypeValue).Some(dts_bty.clone()),
+                      !is_some_type(dts_bty) => Option(TypeValue).Some(dts_bty.clone()),
                       true => some_resolution(dts_bty)
                     );
                     match(
@@ -2098,18 +2098,18 @@ Result type: ${type_to_string(result_box)}`
               (dgcv_i : usize) = usize(0);
               while(dgcv_i < dg_ct_flags.len(), {
                 dgcv_typeuni := match(param_types.get(dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, .TypeUni(_) => true, _ => false), .None => false);
-                if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !(dgcv_typeuni), {
+                if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !dgcv_typeuni, {
                   dg_has_ct_value = true;
                 });
                 dgcv_i = (dgcv_i + usize(1));
               });
             };
-            if(!(propagate_def_time_errors()) && !(dg_has_ct_value), {
+            if(!propagate_def_time_errors() && !dg_has_ct_value, {
               match(
                 generic_trial_independent_error(dg_fv_was),
                 .Some(dg_indep) => {
                   _clear_trial_swallow();
-                  if(!(dg_fv_was), {
+                  if(!dg_fv_was, {
                     clear_flow_violation();
                   });
                   exn.throw(dyn(dg_indep));
@@ -2119,7 +2119,7 @@ Result type: ${type_to_string(result_box)}`
             });
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise.
-            if(!(dg_fv_was) && flow_violation_pending(), {
+            if(!dg_fv_was && flow_violation_pending(), {
               clear_flow_violation();
             });
             if(dg_check_result, {
@@ -2130,7 +2130,7 @@ Result type: ${type_to_string(result_box)}`
                   .Some(dg_info) => {
                     // Pure-unwind bodies are control functions discarding the
                     // continuation — no return type to check.
-                    dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
+                    dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !has_control_flow(dg_info.control_flow, .Return));
                     dg_expected := cond(
                       result_is_ref => t_ptr(result_box),
                       true => result_box
@@ -2149,7 +2149,7 @@ Result type: ${type_to_string(result_box)}`
                           });
                           dg_fi = (dg_fi + usize(1));
                         });
-                        !(dg_found)
+                        !dg_found
                       },
                       _ => false
                     );
@@ -2165,7 +2165,7 @@ Result type: ${type_to_string(result_box)}`
                     // false-fires: std ordered_map.get / imm set.to_list /
                     // imm vec Index, corpus deque_self_cycle).
                     dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
-                    dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
+                    dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !is_unit_type(dg_expected));
                     // Parametricity twin of the anon-path fix (see
                     // values/anonymous_function.yo): an own-forall SomeT return
                     // can never be satisfied by a CONCRETE trial type; the exact
@@ -2179,7 +2179,7 @@ Result type: ${type_to_string(result_box)}`
                     // through unchecked, so `(fn() -> Impl(Foo))(Q(...))` for a
                     // `Q` without `Foo` passed `check` and reached codegen as an
                     // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
-                    if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
+                    if(dg_own_forall_skip && !dg_skip_cf && !dg_trial_abstract && !dg_trial_degenerate, {
                       dg_fam := judge_function_argument_markers(dg_expected, dg_trial_ty, dg_info.value, dg_env, ctx);
                       match(
                         dg_fam.offense,
@@ -2197,7 +2197,7 @@ Result type: ${type_to_string(result_box)}`
                         .None => ()
                       );
                     });
-                    if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_invariant(dg_trial_ty, dg_expected))), {
+                    if(!dg_skip_cf && !dg_own_forall_skip && !dg_trial_abstract && !dg_trial_degenerate && (dg_expected_is_some || !are_types_compatible_invariant(dg_trial_ty, dg_expected)), {
                       dg_exp_str := type_to_string(dg_expected);
                       dg_got_str := type_to_string(dg_trial_ty);
                       // Deliberate user-facing rejection — flagged for the def-time

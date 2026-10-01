@@ -110,17 +110,17 @@ decode_str_lit_escapes :: (fn(raw : String) -> String)({
               // spells an astral code point, and it is JSON's rule.
               (code : u32) = cp;
               (adv : usize) = (usize(1) + consumed);
-              if(((cp >= u32(0xD800)) && (cp <= u32(0xDBFF)))
-              && ((chars.get((k + adv)).unwrap_or(null_rune)).char == u32(0x5C))
-              && ((chars.get(((k + adv) + usize(1))).unwrap_or(null_rune)).char == u32(0x75)), {
+              if((cp >= u32(0xD800)) && (cp <= u32(0xDBFF))
+              && ((chars.get(k + adv).unwrap_or(null_rune)).char == u32(0x5C))
+              && ((chars.get(k + adv + usize(1)).unwrap_or(null_rune)).char == u32(0x75)), {
                 match(
-                  scan_unicode_escape(chars, (k + adv) + usize(1)),
+                  scan_unicode_escape(chars, k + adv + usize(1)),
                   .Ok(lo, lo_consumed) => if((lo >= u32(0xDC00)) && (lo <= u32(0xDFFF)), {
                     code = (
                       u32(0x10000)
                       + (((cp - u32(0xD800)) * u32(1024)) + (lo - u32(0xDC00)))
                     );
-                    adv = ((adv + usize(1)) + lo_consumed);
+                    adv = (adv + usize(1) + lo_consumed);
                   }),
                   .Bad(_) => ()
                 );

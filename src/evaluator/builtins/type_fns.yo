@@ -133,7 +133,7 @@ evaluate_yo_type_to_string :: (
       new_expr_info(env, t_unit())
     }
   );
-  if(!(is_type_hierarchy_type(arg_info.ty)), {
+  if(!is_type_hierarchy_type(arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -162,7 +162,7 @@ evaluate_yo_type_to_string :: (
         // synthesized constructor failed to transpile. Mirrors process.yo's
         // `__yo_process_platform` StrLit construction.
         s := type_to_string(tv);
-        quoted := ((String.from("\"") + s) + String.from("\""));
+        quoted := (String.from("\"") + s + String.from("\""));
         out_info.value = Option(EvalValue).Some(EvalValue.StrLit(quoted));
       },
       _ => ()
@@ -238,7 +238,7 @@ evaluate_yo_are_types_compatible :: (
       new_expr_info(env, t_unit())
     }
   );
-  if(!(is_type_hierarchy_type(info_0.ty)), {
+  if(!is_type_hierarchy_type(info_0.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -274,7 +274,7 @@ evaluate_yo_are_types_compatible :: (
       new_expr_info(cur_env, t_unit())
     }
   );
-  if(!(is_type_hierarchy_type(info_1.ty)), {
+  if(!is_type_hierarchy_type(info_1.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -424,7 +424,7 @@ evaluate_yo_type_contains_rc_type :: (
       new_expr_info(env, t_unit())
     }
   );
-  if(!(is_type_hierarchy_type(arg_info.ty)), {
+  if(!is_type_hierarchy_type(arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -482,7 +482,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
       new_expr_info(env, t_unit())
     }
   );
-  if(!(is_type_hierarchy_type(arg_info.ty)), {
+  if(!is_type_hierarchy_type(arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -549,7 +549,7 @@ evaluate_yo_type_impls :: (
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(info0);
-  if(!(is_type_hierarchy_type(info0.ty)), {
+  if(!is_type_hierarchy_type(info0.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -643,7 +643,7 @@ _ti_escape_str :: (fn(s : String) -> String)({
 format_type_field_info_call :: (
   fn(escaped_label : String, ty_var_name : String) -> String
 )(
-  (((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_var_name) +
+  String.from("TypeFieldInfo(\"") + escaped_label + String.from("\", ") + ty_var_name +
     String.from(")")
 );
 /// Format the Yo source for a `VariantInfo("name", fl, et, usize(idx))` call:
@@ -653,16 +653,12 @@ format_type_field_info_call :: (
 format_variant_info_call :: (
   fn(escaped_name : String, fl_var_name : String, et_var_name : String, idx_str : String) -> String
 )(
-  (
-    (
-      (
-        (
-          (((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_var_name) +
-            String.from(", ")
-        ) + et_var_name
-      ) + String.from(", usize(")
-    ) + idx_str
-  ) + String.from("))")
+  String.from("VariantInfo(\"") + escaped_name + String.from("\", ") + fl_var_name +
+    String.from(", ")
+    + et_var_name
+    + String.from(", usize(")
+    + idx_str
+    + String.from("))")
 );
 /// Bind a TypeValue to a fresh comptime temp variable in the env.
 /// Mutates env in place via pointer; returns the generated variable name.
@@ -1201,10 +1197,10 @@ evaluate_yo_type_get_info :: (
       (signed && (bits == u8(16))) => String.from("TypeInfo.I16"),
       (signed && (bits == u8(32))) => String.from("TypeInfo.I32"),
       (signed && (bits == u8(64))) => String.from("TypeInfo.I64"),
-      (!(signed) && (bits == u8(8))) => String.from("TypeInfo.U8"),
-      (!(signed) && (bits == u8(16))) => String.from("TypeInfo.U16"),
-      (!(signed) && (bits == u8(32))) => String.from("TypeInfo.U32"),
-      (!(signed) && (bits == u8(64))) => String.from("TypeInfo.U64"),
+      (!signed && (bits == u8(8))) => String.from("TypeInfo.U8"),
+      (!signed && (bits == u8(16))) => String.from("TypeInfo.U16"),
+      (!signed && (bits == u8(32))) => String.from("TypeInfo.U32"),
+      (!signed && (bits == u8(64))) => String.from("TypeInfo.U64"),
       true => {
         exn.throw(
           dyn(
@@ -1218,26 +1214,26 @@ evaluate_yo_type_get_info :: (
       }
     ),
     .Float(bits) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
-    .TypeUni(level) => ((String.from("TypeInfo.Type(") + level.to_string()) + String.from(")")),
+    .TypeUni(level) => (String.from("TypeInfo.Type(") + level.to_string() + String.from(")")),
     .Pointer(pointee_box) => {
       cn := _ti_bind_type(local_env, pointee_box, ctx);
-      (String.from("TypeInfo.Ptr(") + cn) + String.from(")")
+      String.from("TypeInfo.Ptr(") + cn + String.from(")")
     },
     .Array(element_box, length, _) => {
       cn := _ti_bind_type(local_env, element_box, ctx);
-      (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
+      String.from("TypeInfo.Array(") + cn + String.from(", ") + length.to_string() + String.from(")")
     },
     .IsoT(child_box) => {
       cn := _ti_bind_type(local_env, child_box, ctx);
-      (String.from("TypeInfo.Iso(") + cn) + String.from(")")
+      String.from("TypeInfo.Iso(") + cn + String.from(")")
     },
     .ComptimeListT(child_box) => {
       cn := _ti_bind_type(local_env, child_box, ctx);
-      (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
+      String.from("TypeInfo.ComptimeList(") + cn + String.from(")")
     },
     .Tuple(labels, types) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
-      (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
+      String.from("TypeInfo.Tuple(") + fl_name + String.from(")")
     },
     .Str => String.from("TypeInfo.Str"),
     .Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) => {
@@ -1248,15 +1244,15 @@ evaluate_yo_type_get_info :: (
         is_ref => String.from("StructKind.Object"),
         true => String.from("StructKind.Struct")
       );
-      (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
+      String.from("TypeInfo.Struct(") + fl_name + String.from(", ") + kind_str + String.from(")")
     },
     .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _) => {
       vl_name := _ti_bind_variant_info_list(local_env, type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
-      (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
+      String.from("TypeInfo.Enum(") + vl_name + String.from(")")
     },
     .Union(_, labels, types) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
-      (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
+      String.from("TypeInfo.Union(") + fl_name + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
     //
@@ -1454,7 +1450,7 @@ evaluate_comptime_eval :: (
   (local_env : Environment) = expr_info_adopt_env(info0);
   // Non-StrLit value (e.g. UnknownVal for SomeType) → return unit silently.
   is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
-  if(!(is_str), {
+  if(!is_str, {
     out := new_expr_info(local_env, t_unit());
     out.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -1551,7 +1547,7 @@ evaluate_comptime_string_to_expr :: (
   (local_env : Environment) = expr_info_adopt_env(info0);
   // If the value is not a StrLit, return UnknownVal(Expr) or throw.
   is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
-  if(!(is_str), {
+  if(!is_str, {
     match(
       info0.value,
       .Some(_) => {
@@ -1660,7 +1656,7 @@ evaluate_type_join_fields :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
     return(expr);
   });
-  if(!(is_struct_type(target_type)), {
+  if(!is_struct_type(target_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1810,7 +1806,7 @@ evaluate_type_join_fields :: (
     // Build FieldInfo("label", type_var).
     ft_name := _ti_bind_type(local_env, field_ty, ctx);
     escaped_label := _ti_escape_str(label);
-    fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
+    fi_code := (String.from("FieldInfo(\"") + escaped_label + String.from("\", ") + ft_name + String.from(")"));
     fi_val_opt := _ti_eval_code(local_env, fi_code, ctx, exn);
     fi_val := match(fi_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
     fi_type := match(fi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(fi_val));
@@ -1827,7 +1823,7 @@ evaluate_type_join_fields :: (
       false,
       synthetic_token(fi_name.clone(), local_env.module_path)
     );
-    call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
+    call_code := (mapper_name + String.from("(") + fi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;
@@ -1955,7 +1951,7 @@ evaluate_type_map_variants :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
     return(expr);
   });
-  if(!(is_enum_type(target_type)), {
+  if(!is_enum_type(target_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -2062,7 +2058,7 @@ evaluate_type_map_variants :: (
       false,
       synthetic_token(vi_name.clone(), local_env.module_path)
     );
-    call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
+    call_code := (mapper_name + String.from("(") + vi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     old_expected := ctx.expected_type;

@@ -1,8 +1,50 @@
 # A same-operator chain of FOUR or more operands is not left-associative — `20 - 5 - 4 - 3` is 16
 
+> **FIXED 2026-10-01 — option 2 of this doc's own fix list (count the
+> top-level occurrences; splice at exactly that depth), as a token scan.**
+> `parse_left_assoc_op` now splices `primary` at the BOTTOM of the rhs's
+> left spine, descending through same-operator infix nodes whose own
+> operator token sits at bracket depth zero over the rhs's token range
+> (`_op_token_at_rhs_depth` scans `self.tokens` from `rhs_start` counting
+> all three bracket kinds — NO new parser state). A parenthesized group's
+> operator token sits inside the group (depth ≥ 1), so
+> `a - (b - c) - d` keeps its explicit grouping — the regression this doc
+> warned about does not happen (pinned in `tests/operator_grouping.test.yo`
+> for group-first, group-middle, group-with-own-3-chain, and
+> group-then-chain shapes). Verified: the repro prints 8/6/5/10 for
+> `-`/`/` chains of 4–6 operands; 278/278 `check ./src`; the full tree
+> passes `fmt --check` after the sweep below; stage-2/3 fixpoint
+> `FIXPOINT_HOLDS` per `scripts/bootstrap/fixpoint_only.sh`.
+>
+> **Implementation history, recorded so the code and this record agree:**
+> the first implementation was option 1 (a `paren_depth` Parser field plus
+> an `infix_chain_node_depths` id→depth HashMap) and was ABANDONED before
+> landing — local LeakSanitizer flagged retained allocations, and the
+> stateless token scan makes both the field and the map unnecessary.
+> Nothing named `paren_depth`/`infix_chain_node_depths` exists in
+> `src/parser.yo`.
+>
+> **Known cost (fine in practice, recorded):** the descent rescans from
+> `rhs_start` for each spine node it visits, so an N-operand chain parses
+> in O(N²) token comparisons (the pre-fix rotation was O(1) per level).
+> Real chains (≤ a few dozen operands) are microseconds; if
+> machine-generated Yo ever produces chains of hundreds-plus terms, collect
+> the depth-zero same-operator offsets in ONE forward scan over
+> `[rhs_start, index)` and test membership per candidate instead.
+>
+> **Consequence that shipped with the fix:** the formatter's D2 flatten
+> rule (`is_left_same_operator_flatten_group`, #386) is gated on a re-parse
+> that must reproduce the original tree — under the old parser the
+> flattened form re-parsed mis-grouped, so long same-op chains could never
+> flatten. The fix unlocks it: 50 files (`src/`, `std/`, `tests/`) carried
+> `(x ⊕ y) ⊕ z …` groups that fmt now flattens; they were reformatted in
+> the same commit (the fmt gate is green again).
+>
+> The doc below is the frozen pre-fix record.
+
 **Severity:** S1 — a 4+-operand same-operator chain parses one level off — `20 - 5 - 4 - 3` silently evaluates to 16
 
-**Status: OPEN. Not fixed — see "Why this is not a small fix".**
+**Status:** OPEN (frozen pre-fix record; see the banner above).
 
 **Severity: language semantics.** Yo has no operator precedence; the rule is
 that a chain of the SAME operator left-associates
