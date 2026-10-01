@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
 **Generated** by `scripts/gen-issue-triage.py` over the 180 open bug
-docs in `issues/` root and the 15 design questions in
+docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -71,7 +71,6 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`stddoc-io-url-empty-host-collapses-to-none.md`](./questions/stddoc-io-url-empty-host-collapses-to-none.md) — empty authority host: `.Some("")` plus an authority bit (Rust's shape) vs keeping `.None`
 - [`stddoc-str-regex-split-emits-the-literal-string-undefined.md`](./questions/stddoc-str-regex-split-emits-the-literal-string-undefined.md) — `Regex.split`: Rust's shape (pieces only) vs Python's shape (`ArrayList(Option(String))`)
 - [`stddoc-sys-signal-handler-data-always-null.md`](./questions/stddoc-sys-signal-handler-data-always-null.md) — carry the `SignalHandler` user data (the `events.yo` precedent) or drop the parameter
-- [`verified-for-loops-need-a-name-for-the-iteration-count.md`](./questions/verified-for-loops-need-a-name-for-the-iteration-count.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`with-lock-and-with-permit-cannot-see-an-unwind.md`](./questions/with-lock-and-with-permit-cannot-see-an-unwind.md) — correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent
 - [`yo-doc-document-private-flag-is-a-no-op.md`](./questions/yo-doc-document-private-flag-is-a-no-op.md) — implement or remove the inert `--document-private` flag
 

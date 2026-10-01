@@ -239,6 +239,7 @@ BF_SEQ_APPEND :: "seq_append";
 BF_SEQ_LEN :: "seq_len";
 BF_SEQ_NTH :: "seq_nth";
 BF_SEQ_OF :: "seq_of";
+BF_PRODUCED :: "produced";
 BF_STR_BYTES :: "str_bytes";
 BF_MS_SINGLE :: "ms_single";
 BF_MS_ADD :: "ms_add";
@@ -724,6 +725,12 @@ evaluate_seq_unit :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
 /// Typed as the list itself, like every Seq carrier here (Seq is an erased
 /// alias); the verifier keeps it in the list domain.
 evaluate_seq_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `produced(xs)` (R2 task 4): inside a `for` over the list `xs`, the prefix
+/// consumed so far. Typed as the list, like `seq_of`; the verifier reads it
+/// from the loop's ghost index.
+evaluate_produced :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_seq_append :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -3239,6 +3246,7 @@ export(
   guard_site_pair_is_proved,
   evaluate_seq_unit,
   evaluate_seq_of,
+  evaluate_produced,
   evaluate_seq_append,
   evaluate_seq_len,
   evaluate_seq_nth,

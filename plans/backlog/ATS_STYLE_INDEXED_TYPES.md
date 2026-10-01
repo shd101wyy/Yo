@@ -233,9 +233,9 @@ seed gate for `std/` and `src/` adoption.
 > under both `yo compile` and `yo test`, and every contracted mutator has
 > edge-case calls in `tests/collections/array_list.test.yo`. **`for` over a
 > list is deferred to R2** (decided 2026-09-30,
-> `issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`):
+> `issues/fixed/verified-for-loops-need-a-name-for-the-iteration-count.md`):
 > its invariants need a ghost of the elements consumed so far, which is
-> R2's sequence layer.
+> R2's sequence layer (landed in R2 slice 3).
 > **Task 4 (2026-10-01, `feat/verifier-recursive-ghost-fn`):** a contracted
 > generic fn is verified abstractly: its type parameter is an uninterpreted
 > sort, and equality and pass-through are the only operations over it
@@ -337,6 +337,21 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 >   which would need Dafny-style well-formedness. Their SMT reading stays total;
 >   a lemma's `requires` is always proved.
 > - **Left: tasks 4 (`produced()`) and 5 (the alias frame condition).**
+>
+> **Slice 3 (2026-10-01, `feat/verifier-for-produced`): task 4 done.**
+> - `for(xs, x => { invariant(...); body })` over an `ArrayList` variable is
+>   the `while` rule over a ghost index (`_loop_core`, shared with `while`).
+>   The condition is `idx < len(xs)`, `x` is `xs[idx]`, and `idx <= len(xs)`
+>   is an implicit invariant. `produced(xs)` is `xs` cut at the index.
+> - The `for` macro hoists a leading `invariant(...)` to the front of the
+>   generated `while` body, where the placement rule wants it.
+> - The walk reads the macro expansion: the source-form call is not typed.
+> - `continue` consumes the element, so the continue site proves the
+>   invariant at `idx + 1`. A body that changes `xs`, an `inout(x)` binding,
+>   and a non-list collection are subset errors.
+> - Fixtures: `valid/for_produced` (copy, `index_of` with `break`,
+>   `count_positive` with `continue`) and its `_false` twin.
+> - **Left: task 5 (the alias frame condition).**
 
 **Goal:** what ATS does with `prfun` over `dataprop` (sortedness, permutation,
 "element `k` occurs in `xs`") for runtime collections. Today `ghost_fn` is
@@ -393,7 +408,7 @@ literals and fixed arrays (`ms_of`).
 4. A verified `for` over a list: a ghost `produced()` (Creusot's name) for
    the elements consumed so far, usable in the loop's invariant, which the
    `for` expansion must also place first
-   (`issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`).
+   (`issues/fixed/verified-for-loops-need-a-name-for-the-iteration-count.md`).
 5. An alias-aware frame condition (e.g. a `distinct(a, b)` requires) to
    lift R1's conservative "no mutation beside a possible alias" rule.
 

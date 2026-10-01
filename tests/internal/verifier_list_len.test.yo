@@ -612,3 +612,31 @@ test("a lexicographic decreases(i, j) proves a recursion no single measure can; 
     `walk_up and walk_single must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
   );
 });
+
+test("a for over a list verifies with produced(xs); a double push, a skipped count and a growing list fail", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/for_produced.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(3),
+    `copy, index_of and count_positive must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/for_produced_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `copy_twice and count_all must refute, got: [${_reports_dump(bad_reports)}]`
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("subset-error")) == usize(1),
+    `grow must be a subset error, got: [${_reports_dump(bad_reports)}]`
+  );
+});

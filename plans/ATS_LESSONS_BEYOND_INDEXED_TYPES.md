@@ -10,7 +10,7 @@ the seed, or a cited file.
 
 | Item | State |
 | --- | --- |
-| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`). **Left:** `produced()` for `for` over lists; the alias frame condition |
+| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`); slice 3: a verified `for` over a list with `produced(xs)` (`feat/verifier-for-produced`). **Left:** the alias frame condition |
 | A2 must-use | done (#1075): E0617, plus the always-exits rule found while landing it |
 | A3 spec-transparent pure fns | slice 1 done (#1075); slice 2 open: recursive callees, a message naming the missing property |
 | A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |

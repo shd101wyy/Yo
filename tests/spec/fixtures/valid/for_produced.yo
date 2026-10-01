@@ -1,0 +1,44 @@
+// R2 task 4 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a verified `for`
+// over a list. `produced(xs)` names the elements the loop has consumed so
+// far (xs cut at a ghost index), so the invariant can say what the loop
+// has built in terms of what it has seen, the way ATS's loop indices do.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// The copy is the elements produced so far, at every iteration.
+copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  for(xs, x => {
+    invariant(out == produced(xs));
+    out.push(x);
+  });
+  out
+});
+
+// break: the exit state is the break site's or the end of the list.
+index_of :: (fn(xs : ArrayList(i32), v : i32, ensures((r < xs.len()) ==> (xs(r) == v))) -> (r : usize))({
+  (found : usize) = xs.len();
+  (i : usize) = usize(0);
+  for(xs, x => {
+    invariant(i == produced(xs).len(), found == xs.len());
+    if(x == v, {
+      found = i;
+      break;
+    });
+    i = (i + usize(1));
+  });
+  found
+});
+
+// continue still consumes the element: the count stays at or below it.
+count_positive :: (fn(xs : ArrayList(i32), ensures(r <= xs.len())) -> (r : usize))({
+  (n : usize) = usize(0);
+  for(xs, x => {
+    invariant(n <= produced(xs).len());
+    if(x <= i32(0), {
+      continue;
+    });
+    n = (n + usize(1));
+  });
+  n
+});

@@ -10012,19 +10012,72 @@ for :: (
               true => {
                 iter_var :: gensym("for_iter_var");
                 temp_var :: gensym("for_temp_var");
-                quote({
-                  unquote(iter_var) := unquote(coll).into_iter();
-                  while(runtime(true), {
-                    unquote(temp_var) := unquote(iter_var).next();
-                    match(
-                      unquote(temp_var),
-                      .Some(unquote(variable)) => unquote(body),
-                      .None => {
-                        break;
-                      }
+                // A leading `invariant(...)` in the body is the LOOP's
+                // (R2 task 4: a verified `for` over a list, with
+                // `produced(xs)` naming the elements consumed so far). It is
+                // hoisted to the front of the generated `while` body, where
+                // an invariant must stand; the rest of the body stays in the
+                // element arm.
+                has_inv :: cond(
+                  body.is_fn_call() => {
+                    b_callee :: body.get_callee();
+                    cond(
+                      (b_callee.is_atom() && (b_callee == quote(begin))) => {
+                        b_args :: body.get_args();
+                        cond(
+                          (b_args.len() > 1) => {
+                            b_first :: b_args.car();
+                            cond(
+                              b_first.is_fn_call() => {
+                                bf_callee :: b_first.get_callee();
+                                (bf_callee.is_atom() && (bf_callee == quote(invariant)))
+                              },
+                              true => false
+                            )
+                          },
+                          true => false
+                        )
+                      },
+                      true => false
                     )
-                  });
-                })
+                  },
+                  true => false
+                );
+                cond(
+                  has_inv => {
+                    inv_stmt :: body.get_args().car();
+                    rest_stmts :: body.get_args().cdr();
+                    quote({
+                      unquote(iter_var) := unquote(coll).into_iter();
+                      while(runtime(true), {
+                        unquote(inv_stmt);
+                        unquote(temp_var) := unquote(iter_var).next();
+                        match(
+                          unquote(temp_var),
+                          .Some(unquote(variable)) => {
+                            unquote_splicing(rest_stmts);
+                          },
+                          .None => {
+                            break;
+                          }
+                        )
+                      });
+                    })
+                  },
+                  true => quote({
+                    unquote(iter_var) := unquote(coll).into_iter();
+                    while(runtime(true), {
+                      unquote(temp_var) := unquote(iter_var).next();
+                      match(
+                        unquote(temp_var),
+                        .Some(unquote(variable)) => unquote(body),
+                        .None => {
+                          break;
+                        }
+                      )
+                    });
+                  })
+                )
               }
             )
           },

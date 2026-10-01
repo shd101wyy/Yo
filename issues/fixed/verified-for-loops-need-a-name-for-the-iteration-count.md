@@ -1,6 +1,6 @@
 # A verified `for` over a list needs a name for how far it has got
 
-**Kind:** design question. **DECIDED 2026-09-30 (the user): option 1 now, option 3 with R2.** The misleading message is fixed: the evaluator's placement error now names `for` and points here, and so does the verifier's subset error. Filed 2026-09-30
+**Kind:** design question. **DECIDED 2026-09-30 (the user): option 1 now, option 3 with R2.** The misleading message is fixed: the evaluator's placement error now names `for` and points here, and so does the verifier's subset error. **Option 3 LANDED 2026-10-01** (R2 slice 3 of `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`): the `for` macro hoists a leading `invariant(...)`, `produced(xs)` names the elements consumed so far, and `for` over an `ArrayList` variable verifies (`tests/spec/fixtures/valid/for_produced.yo` and its negative twin; the test in `tests/internal/verifier_list_len.test.yo`). The spelling is `produced(xs)`, naming the list, so nested loops are unambiguous. Filed 2026-09-30
 by R1 of `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` ("`for` over a list" is
 R1's last shape).
 

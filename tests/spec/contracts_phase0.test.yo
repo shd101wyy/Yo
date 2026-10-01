@@ -120,14 +120,23 @@ test("invariant(...) inside cond branch is rejected", {
   }, "invariant");
 });
 
-test("invariant(...) in a for body is rejected with a hint to use an indexed while", {
+test("invariant(...) leading a for body is the loop's invariant", {
+  (n : i32) = i32(0);
+  for(usize(0) .. usize(3), k => {
+    invariant(n >= i32(0));
+    n = (n + i32(1));
+  });
+  assert(n == i32(3), "the for ran every element");
+});
+
+test("invariant(...) later in a for body is rejected with a hint to lead with it", {
   comptime_expect_error({
     (n : i32) = i32(0);
     for(usize(0) .. usize(3), k => {
-      invariant(n >= i32(0));
       n = (n + i32(1));
+      invariant(n >= i32(0));
     });
-  }, "A 'for(...)' loop cannot carry an invariant");
+  }, "In a 'for(...)' loop it must be the first statement of the body");
 });
 
 test("duplicate requires(...) clauses in a signature are rejected", {
