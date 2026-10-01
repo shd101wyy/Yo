@@ -564,7 +564,7 @@ test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := TypeValue.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false);
+  e := TypeValue.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
   assert(type_representation_contains_raw_ptr(e), "enum(None, Some(*(u8)))");
 });
 test("raw-ptr predicate: enum with only primitive variants is false", {
@@ -580,7 +580,7 @@ test("raw-ptr predicate: enum with only primitive variants is false", {
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false);
+  e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
   assert(!type_representation_contains_raw_ptr(e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {

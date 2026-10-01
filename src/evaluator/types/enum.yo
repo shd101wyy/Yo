@@ -133,7 +133,7 @@ _type_value_cycle_step :: (
 )(
   match(
     t,
-    .EnumT(e_id, _, _, e_vfs, _, _, _, _, _) => cond(
+    .EnumT(e_id, _, _, e_vfs, _, _, _, _, _, _) => cond(
       ((e_id == root) || (e_id == shell)) => true,
       _visited_has(visited, e_id.clone()) => false,
       true => {
@@ -345,7 +345,8 @@ evaluate_enum_type :: (
     ArrayList(ArrayList(String)).new(),
     ArrayList(i64).new(),
     force_reference_semantics,
-    is_atomic_rc
+    is_atomic_rc,
+    ArrayList(TypeValue).new()
   );
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
@@ -776,7 +777,8 @@ evaluate_enum_type :: (
     variant_field_labels,
     variant_discriminants,
     force_reference_semantics,
-    is_atomic_rc
+    is_atomic_rc,
+    ArrayList(TypeValue).new()
   );
   // Patch the SELF SHELL out of the variant fields: during field
   // evaluation `Self` was the empty prelim (same id), and instantiations
@@ -808,7 +810,8 @@ evaluate_enum_type :: (
     variant_field_labels,
     variant_discriminants,
     force_reference_semantics,
-    is_atomic_rc
+    is_atomic_rc,
+    ArrayList(TypeValue).new()
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.

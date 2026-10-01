@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 177 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 178 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -31,13 +31,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 18 | 3 |
-| Evaluator / types | 19 | 2 |
+| Evaluator / types | 20 | 2 |
 | Std library | 52 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 44 | 6 |
-| **Total** | **177** | **27** |
+| **Total** | **178** | **27** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 24 |
-| S2 | 83 |
-| S3 | 68 |
+| S1 | 25 |
+| S2 | 84 |
+| S3 | 67 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -208,7 +208,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | S2 | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | S3 | OPEN | — |
 
-### Evaluator / types (19)
+### Evaluator / types (20)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -227,6 +227,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | S2 | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | S2 | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | S2 | OPEN | — |
+| [`generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md`](./generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md) | S2 | — | — |
 | [`generic-trial-degrades-a-failed-evaluation-to-unit.md`](./generic-trial-degrades-a-failed-evaluation-to-unit.md) | S2 | OPEN | — |
 | [`method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md`](./method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md) | S2 | OPEN | — |
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
@@ -348,6 +349,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-cannot-see-function-bodies-from-other-modules.md`](./check-cannot-see-function-bodies-from-other-modules.md) | S2 | OPEN (root cause measured; fix designed, not | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
+| [`collect-into-a-string-leaks-the-accumulated-buffer.md`](./collect-into-a-string-leaks-the-accumulated-buffer.md) | S1 | — | — |
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
@@ -364,7 +366,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-references-ignore-include-declaration-on-comptime-decl.md`](./lsp-references-ignore-include-declaration-on-comptime-decl.md) | S3 | — | — |
 | [`lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md`](./lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md) | S3 | — | — |
 | [`lsp-strict-handshake-gate-was-not-strict-enough.md`](./lsp-strict-handshake-gate-was-not-strict-enough.md) | — | — | — |
-| [`method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`](./method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md) | S3 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |

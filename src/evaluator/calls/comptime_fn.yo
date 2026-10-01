@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, register_enum_type_arguments, lookup_enum_type_arguments } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
@@ -145,8 +145,8 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
   if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
     return(_ctfe_same_id_type_args_agree(aty, bty, d));
   });
-  a_eid := match(aty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-  b_eid := match(bty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  a_eid := match(aty, .EnumT(x, _, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  b_eid := match(bty, .EnumT(x, _, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
   if((a_eid.len() > usize(0)) && (a_eid == b_eid), {
     return(true);
   });
@@ -180,8 +180,8 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
     a_ecf := lookup_enum_cfid(a_eid);
     b_ecf := lookup_enum_cfid(b_eid);
     if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
-      a_vf := match(aty, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      b_vf := match(bty, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      a_vf := match(aty, .EnumT(_, _, _, vf, _, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      b_vf := match(bty, .EnumT(_, _, _, vf, _, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       if(a_vf.len() == b_vf.len(), {
         (vfi : usize) = usize(0);
         (vf_ok : bool) = true;
@@ -206,8 +206,8 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
         // Era instances of ONE instantiation also agree on its recorded
         // type arguments: `P(i32)` and `P(bool)` of a phantom-indexed enum
         // have identical variant fields and must still be two memo keys.
-        a_eta := lookup_enum_type_arguments(a_eid);
-        b_eta := lookup_enum_type_arguments(b_eid);
+        a_eta := match(aty, .EnumT({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+        b_eta := match(bty, .EnumT({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
         if(vf_ok && (a_eta.len() > usize(0)) && (a_eta.len() == b_eta.len()), {
           (etai : usize) = usize(0);
           while((etai < a_eta.len()) && vf_ok, {
@@ -262,8 +262,8 @@ _ctfe_args_equal :: (
         // traverse/drop machinery cross-corrupted the heap (the
         // recursive-enum Box(Self)+ArrayList(Self) OOM/segv,
         // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
-        a_enum_id := match(aty, .EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-        b_enum_id := match(bty, .EnumT(be_id, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        a_enum_id := match(aty, .EnumT(ae_id, _, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(bty, .EnumT(be_id, _, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(aty, bty, usize(0)),
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
@@ -430,7 +430,14 @@ _arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bo
 /// return the memo's canonical instance for the SAME (ctor, concrete args)
 /// instantiation when one exists; otherwise return the input unchanged.
 /// Struct-only and top-level-only — the demonstrated class is a nominal
-/// struct return. Type arguments carrying SomeTs are excluded (per-call
+/// struct return. An enum needs no era repair here: its C type is keyed by
+/// its payloads and its phantom arguments, so era instances of one instantiation are one C type, and
+/// adopting the memo's instance was measured to be wrong — the memo's
+/// comparator matched `Option(_osf_env)` to an `Option(Self)` entry minted
+/// for ANOTHER ref struct of the same shape, and the caller's local took that
+/// struct's C type
+/// (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+/// Type arguments carrying SomeTs are excluded (per-call
 /// closure families keep their capture identity), and the abstract memo
 /// entry (SomeT args) can never match a concrete key, so only a genuine
 /// concrete instantiation of the same constructor is ever adopted.
@@ -1260,7 +1267,7 @@ evaluate_comptime_fn_call :: (
     .TypeVal(rv_eb) => {
       match(
         rv_eb,
-        .EnumT(eid, _, _, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str.clone()),
+        .EnumT(eid, _, _, _, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str.clone()),
         _ => ()
       );
       // The constructor's own value, for inferring a kind-annotated binder
@@ -1294,20 +1301,6 @@ evaluate_comptime_fn_call :: (
     );
     tai = (tai + usize(1));
   });
-  // Record an enum instantiation's type arguments (the enum analogue of the
-  // `type_arguments` stamped on a Struct below; EnumT has no field for them —
-  // types/creators.yo `register_enum_type_arguments`). Only an enum MINTED in
-  // CTFE is an instantiation of this constructor: a module-level declaration
-  // (`enum_decl_` id) returned by an alias constructor is the same type
-  // whatever the alias's arguments are.
-  match(
-    return_value,
-    .TypeVal(.EnumT({ id : eta_id })) => if(!eta_id.starts_with("enum_decl_"), {
-      register_enum_type_arguments(eta_id, inst_type_args.clone());
-    }),
-    _ => (),
-    _ => ()
-  );
   // Stamp the returned type's display name `Box(arg)` for the prelude `Box`
   // constructor only. Naming every instantiation is NOT possible: the
   // compatibility layer treats the struct NAME as nominal identity
@@ -1374,7 +1367,7 @@ evaluate_comptime_fn_call :: (
         disp_id := match(
           rv_disp,
           .Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns }) => if((d_snm.len() == usize(0)) && !d_ns, d_sid, String.from("")),
-          .EnumT(d_eid, d_enm, _, _, _, _, _, _, _) => if(d_enm.len() == usize(0), d_eid, String.from("")),
+          .EnumT(d_eid, d_enm, _, _, _, _, _, _, _, _) => if(d_enm.len() == usize(0), d_eid, String.from("")),
           _ => String.from("")
         );
         if(disp_id.len() > usize(0), {
@@ -1408,6 +1401,18 @@ evaluate_comptime_fn_call :: (
         EvalValue.TypeVal(
           TypeValue.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
         )
+      }, return_value),
+      // An enum instantiation's type arguments, the twin of the Struct stamp
+      // above. Only an enum MINTED in CTFE is an instantiation of this
+      // constructor: a module-level declaration (`enum_decl_` id) returned by
+      // an alias constructor is the same type whatever the alias's arguments
+      // are. Only when currently empty: the innermost constructor that minted
+      // the enum is the one whose parameters it is indexed by. The enum-final
+      // registry's copy is stamped too, so a leaked self-shell resolves to an
+      // instance that reports the same arguments.
+      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !(eid.starts_with("enum_decl_"))), {
+        stamp_enum_final_type_arguments(eid.clone(), inst_type_args.clone(), ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
+        EvalValue.TypeVal(TypeValue.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, inst_type_args))
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Box(i32))` and `Eq(Box(T))` into ONE bucket.
