@@ -1,6 +1,6 @@
 # Yo Roadmap
 
-**Statuses trued 2026-09-23.** One line per item; the linked doc carries the
+**Statuses trued 2026-10-01.** One line per item; the linked doc carries the
 detail and its own status. History lives in the docs, not here.
 
 ## Positioning
@@ -56,6 +56,13 @@ authorship from day one.
   emitter plus the verifier's subset, exhaustiveness by usefulness with
   integer intervals; an opportunistic adoption sweep continues inline
   ([`reference/MATCH_PATTERN_MATCHING.md`](reference/MATCH_PATTERN_MATCHING.md)).
+- **Debug info.** `#line` directives map the emitted C back to `.yo`
+  sources (`yo compile --line-directives`, off by default): a C debugger
+  steps through Yo, and a failed C compile re-renders its diagnostics as
+  structured ones carrying `.yo` spans — the last unmapped diagnostics in the
+  toolchain. Chunked emission rewrites the restores per translation unit;
+  flipping the default and the `yo build` plumbing are the recorded follow-ups
+  ([`reference/LINE_DIRECTIVES.md`](reference/LINE_DIRECTIVES.md)).
 
 ## Now
 
@@ -89,8 +96,6 @@ authorship from day one.
   measures agents writing Yo
   ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md),
   [`backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md)).
-- **Debug info.** `#line` directives mapping the emitted C back to `.yo`
-  sources, so a C debugger steps through Yo.
 - **Package registry.** A registry and `yo publish` on top of the git and
   path dependencies that exist today; deferred when the build campaign
   closed.

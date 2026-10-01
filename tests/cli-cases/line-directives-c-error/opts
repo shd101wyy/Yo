@@ -1,0 +1,9 @@
+# The first command's emitted C keeps only its `#line` directives for THIS
+# file (std/prelude modules carry sandbox-absolute paths, which the keep
+# drops). The second command fails at the C compile; `--line-directives` makes
+# the C compiler report `main.yo:row:col`, which the wrapper re-renders as a
+# structured diagnostic whose anchor names this file. Numbers are dropped from
+# the kept substrings on purpose: they are compiler- and version-stable only
+# per leg, while the ASSERTION is the mapping itself.
+stdout_keep_match=#line [0-9]+ "main\.yo"|--> main\.yo
+timeout=300
