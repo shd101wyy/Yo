@@ -83,3 +83,12 @@ and it is now a plain `ref` struct, `std/allocator.yo`.
 **Fix.** The async-block types are pre-registered before the type declarations. Pre-registration only forward-declares incomplete structs and registers SomeT-keyed names, and aggregates hold futures by pointer, so the move makes the type declarations agree with the mapping that the prototypes and bodies already used. A self-compile's struct and typedef counts are unchanged.
 
 Test in `tests/async_await.test.yo`: "an io.async future in a generic struct field and in an Option".
+
+#1090 attacked the same split from the other end. It recorded each typedef's member spelling and
+cast at every store and read. It fixed the value and generic-`Dispose` shapes, but the
+`Option(*T)` field still failed at `obj->r = r;`. With the pre-registration all three of its
+shapes compile and run, so the casts are not kept. Its tests are in
+`tests/async/sm_ownership.test.yo`: "an io.async future stored in a generic struct's Option
+field is awaited from it" and "a generic struct with a pointer-to-future field, built beside the
+future it returns". The third shape, the phantom guard, was a separate evaluator bug:
+`issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md`.

@@ -2,7 +2,7 @@
 
 **Severity:** S2 — silent wrong behavior: a guard's `Dispose` does not run, so the cleanup it exists for is skipped, with no diagnostic
 
-**Status: OPEN.** Found 2026-10-01 while fixing
+**Status: FIXED (2026-10-01).** The fix is in the evaluator (below). Found 2026-10-01 while fixing
 `issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.
 That doc's third shape, the phantom guard, failed in the C compiler
 then. On the v0.2.47 seed it compiles, but the guard's dispose is never
@@ -42,7 +42,24 @@ all. The generic `Dispose` impl is never instantiated for
 `_G(Impl(Future(i32, Io)))`. The local is created, decremented at scope end
 and freed with no dispose.
 
-## Likely mechanism (reasoned, not yet traced)
+## Cause
+
+`_bind_forall_from_type_args` (`src/evaluator/values/impl.yo`) recovered no binding for an
+unresolved `Impl(Future(..))` type argument, which has no resolution and is not a concrete type.
+So the impl match reported `all_bound = false`, and no `___dispose` was registered for
+`_G(<future>)`.
+
+## Fix
+
+A future handle binds as itself (`_is_future_handle_slot`). It is a type in its own right:
+`type_key` keys it by its own id, and it lowers to the future handle. So
+`impl(generic(T), _G(T), Dispose)` matches `_G(<future>)`.
+
+Test in `tests/async/sm_ownership.test.yo`: "a generic Dispose impl runs for a guard over a
+future, as over a ref struct". It counts both guards, and it fails on a stage 1 without the fix
+while the two other generic-aggregate shapes pass. Linux, stage 1 from the tree, leak verdicts on.
+
+## Mechanism as first guessed (before the trace)
 
 The earlier doc's partial cause applies: with `T` bound to an unresolved
 future type variable, substitution cannot move `_G(T)` to a concrete
@@ -53,7 +70,7 @@ registration. Where the impl lookup gives up is the next thing to trace:
 the evaluator's dispose-impl resolution for a struct instance whose type
 argument is a `SomeT`.
 
-## Test to add with the fix
+## Test plan (as written before the fix)
 
 The reproducer as a test that counts dispose calls (the
 `tests/async/sm_ownership.test.yo` `g_disposed` pattern): one guard per
