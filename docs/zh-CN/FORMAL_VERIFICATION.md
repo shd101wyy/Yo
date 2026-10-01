@@ -23,7 +23,7 @@ yo verify ./src/my_spec.yo --format json
 —— 没有 `result` 这种魔法标识符。
 
 ```rust
-abs_i32 :: (fn(x : i32, ensures(r >= i32(0))) -> (r : i32))(
+abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
   if(x < i32(0), i32(0) - x, x)
 );
 
@@ -31,6 +31,10 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
   x / y
 );
 ```
+
+`abs_i32` 必须带上 `requires`：当 `x = i32(-2147483648)` 时，`i32(0) - x`
+没有非负结果，而验证器严格按生成的 C 建模。去掉这个前置条件，`yo verify`
+就会驳倒 `ensures`，并给出 `counter-example: x = #x80000000`。
 
 验证是**模块化**的（Dafny 模型）：
 
