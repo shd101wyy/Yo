@@ -1,6 +1,6 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-01. The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-01 ~10:00 CST, handed over (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
 to do next. Move it to `archive/` with a banner once §3 is empty.
 
@@ -44,6 +44,39 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
   it.
 
 ## 3. Open work, in order
+
+### 3.0 Handover to another machine (2026-10-01 ~10:00 CST): every branch and its state
+
+Develop is frozen for v0.2.48 (cut after yo-7a's goldens-only fix). Nothing below merges until
+v0.2.48 is published. All branches are pushed. None of them has a green local battery yet.
+
+| branch | content | state |
+| --- | --- | --- |
+| `fix/sm-dup-temp-leak` | state-machine leaks: dup-result temp, task-abort registry array; tests | built and partially gated earlier; never fully gated on current develop |
+| `fix/join-handle-owning` (stacked on the above; THIS PR) | owning `JoinHandle` (step 2); value-form codegen deleted; handover/plan/issue docs | not gated |
+| `fix/enum-final-name` | §3.4: impl forcing names a recursive type's nameless final by its binding; name-aware forcing guard; tests in `tests/lazy_toplevel_bindings.test.yo` (red before) | not gated; **suspect for the `check ./std` failure below** |
+| `combo/leak-jh-enum` | the three above merged with develop at 7957aa579 | battery aborted at the handover: build rc=0, **`check ./std` rc=1** |
+| `fix/header-macro-prefix` | `__yo_v_` prefix in `sanitize_for_c_identifier`; capture/scope/return-name sites sanitized; test in `tests/basic.test.yo` (red before) | WIP, never built; the stage-2 C will name the remaining raw sites |
+| `fix/check-foreign-bodies` | §3.3 #8: summarize D1 and StrictBorrow memos at module end under `check`; two cli-cases (red before, goldens not recorded) | WIP, never built; measure `check ./src` time |
+
+**`check ./std` on `combo/leak-jh-enum` (measured, not attributed):**
+
+```
+error[E0906]: forward reference to "String" (bound at line 2018) …  --> std/string/string.yo:1600:5
+error[E0616]: The call to "index_in" is ambiguous: trait_string__string_Pattern_r0c11_n0 and Pattern both supply a "index_in" …
+```
+
+The likely cause (reasoned, not tested) is `fix/enum-final-name`'s name-aware guard. It now forces a type's later
+impls on a miss that the in-flight impl does not declare, which reaches `std/string`'s
+`Pattern` impls mid-registration (two trait instances of `Pattern` minted). Bisect by building
+each branch alone. If the guard is the cause, narrow it (for example, force only impls whose
+member list declares the missed name) instead of reverting the binding-name half.
+
+Battery scripts used: `battery6.sh`/`battery7.sh` (a session scratchpad, not in the repo). They
+run, in order: `yo build`, `check ./std`, `check ./src`, `fmt --check`, the fast suite, the
+cli-diff scorecard, `fixpoint_only.sh`, a stage-2 cold `install --locked`, `gates_fast.sh`, and
+the `tests/internal` files matching the change. Follow the heavy-lock protocol
+(`~/Workspace/Yo-wt/.heavy-lock`) with the peers on this machine.
 
 ### 3.1 The owning JoinHandle (step 2) and the state-machine leaks
 
