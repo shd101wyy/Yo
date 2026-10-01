@@ -146,6 +146,17 @@ matches a `SomeT` on **(name, frame_level)** and the declaration's
 matters. Identical `before-ids` and `after-ids` is that bug; identical emitted
 C is the same bug seen later and more expensively.
 
+**A Yo-function callee and an `extern` callee are checked by different code.**
+A `FuncVal` callee goes through the FuncVal arm of `evaluate_function_call`,
+which binds its own parameters (`[abstract-spec]` in a trial). A callee with no
+FuncVal, such as an `extern` or a builtin, goes through
+`try_to_call_function_with_arguments` → `check_if_function_parameter_matches_argument`,
+the only route that prints `YO_DEBUG_PARAMCHECK`'s `[param-check]` lines. So "the
+same call with a Yo callee works" says nothing about the extern route. Compare
+`[param-check] declared=… final=…`: a `final` that still names the callee's
+binder means Step 7's re-evaluation lost a binding that Step 6 made
+(`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+
 ## Pitfalls learned on the explicit-allocators stack (2026-09-30)
 
 - **A struct's `id` does not contain its name.** It is

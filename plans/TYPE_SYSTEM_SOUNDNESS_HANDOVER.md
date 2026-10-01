@@ -113,9 +113,10 @@ Unchanged:
   instance cannot be matched to its generic impl through a `comptime(K) : Type` parameter. The
   fix (a `type_arguments` field that `substitute` rewrites, plus the CTFE canonicalization
   memo) is type identity: gate it on byte identity.
-- **`issues/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (new):
-  the prelude's `GcTracer.visit` fails its definition-time trial on every `check`, and the
-  failure is swallowed. It blocks §3.2 steps 3–4, which would re-raise it.
+- **`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (fixed on `tss/generic-extern-trial`):
+  the prelude's `GcTracer.visit` failed its definition-time trial on every `check` (a nested
+  `*(U)` lost its SomeT-to-SomeT binding in `_resolve_some_types_deep`). It no longer blocks
+  §3.2 steps 3–4.
 
 ### 3.4 Impl ordering
 
