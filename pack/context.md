@@ -1,11 +1,12 @@
 # Yo — context pack for coding agents
 
-pack-version: 2 — shipped with the toolchain; yo context prints this file.
+pack-version: 3 — shipped with the toolchain; yo context prints this file.
 It covers the LANGUAGE only. API listings come from the toolchain, never
 from here: yo context --list (modules), yo context <module> [name]
-(signatures + docs), yo context --search <query>. Code blocks below are
-canonical, `yo fmt`-clean Yo; every example parses, and complete examples
-compile.
+(signatures + docs), yo context --search <query> (match ONE keyword per
+query — a multi-word query is matched as a single literal substring and
+usually hits nothing). Code blocks below are canonical, `yo fmt`-clean Yo;
+every example parses, and complete examples compile.
 
 ## What Yo is
 
@@ -29,9 +30,17 @@ yo fix file.yo            # apply structured repairs from diagnostics
 ```
 
 - `check` is evaluator-only: async state-machine rules fire in codegen, so
-  gate those with `yo compile main.yo --skip-c-compiler`.
-- `yo compile` cannot run on `*.test.yo` files.
-- Errors render as JSON with `--error-format json` (repairs included).
+  gate those with `yo compile main.yo --skip-c-compiler`. `--test-bodies`
+  makes `check` also type-check `test(...)` bodies (without it they are a
+  no-op for `check`).
+- Fast iteration: `yo check <dir> --watch` (or `--watch-once`) re-checks only
+  edited definitions in milliseconds; `yo compile main.yo --emit-chunks auto
+  --jobs 8` recompiles only dirty translation units.
+- Machine-readable output: `--error-format json|sarif` (structured spans +
+  repairs), `yo test --json` (one JSON event per test) and `--list`, `yo
+  effects <path> [--json]` (each exported fn's effect capabilities).
+- `yo compile` on a `*.test.yo` file compiles the Yo side but synthesizes no
+  `main` — the C link fails with `undefined reference to 'main'`.
 - A `-O0` binary that SIGSEGVs on deep recursion is stack exhaustion
   (multi-MB `-O0` frames), not heap corruption: validate deep recursion with
   `--optimize 2`.
@@ -86,8 +95,12 @@ ok := ((x > i32(0)) && (y < i32(9))); // parenthesize comparisons too
 ```
 
 A binary right-hand side must be parenthesized (`E0003`): `x := (a + b);`,
-not `x := a + b;`. The operator set is closed and fixed; `&&`/`||` chains of
-3+ operands need explicit parens.
+not `x := a + b;`. The operator set is closed and fixed. Mixing adjacent
+operators (`a && b || c`) needs explicit parens (`E0003`); a chain of ONE
+operator groups left — but keep same-operator chains to three operands:
+four or more mis-group today (open issue
+`same-operator-chain-of-four-or-more-is-not-left-associative`), so write
+`(((a - b) - c) - d)`.
 
 ## Control flow: calls, not keywords
 
@@ -110,8 +123,9 @@ if(done, println("yes"), println("no")); // sugar over cond
 - `cond(...)` arms are `predicate => value`; `match(...)` arms are
   `pattern => value`. Arms are VALUES: sibling arms must agree in type.
 - `if(a, b)` / `if(a, b, c)` desugar to `cond` at parse time.
-- A block body cannot START with `cond(`/`match(` — bind first:
-  `r := match(...); r`.
+- A bare `cond(p, a, b)` STATEMENT is a parse error — statement-position
+  `cond` takes arms, so bind the value first (`r := cond(p, a, b); r`).
+  `match(...)` and `if(...)` may appear as statements directly.
 - `return(v)` and `unwind(v)` are always called, never bare.
 
 ## Pattern matching (match on values, not just primitives)
@@ -131,7 +145,7 @@ category := match(
 text := match(
   shape,
   .Circle(r) => `r=${r}`,
-  (.Rect(_) | .Unit) => `other`,
+  (.Rect(_, _) | .Unit) => `other`,
   _ => `?`
 );
 ```
@@ -171,10 +185,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
   `(fn(generic(T : Type), x : T, where(T <: ToString)) -> String)`, called
   as `show(x)`. Generic impls pair with a type: `impl(generic(T),
   where(T <: ToString), Box(T), m : ...)`.
-- Derivable: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`, `Default` (Eq/Ord
-  take the type: `Eq(Point)`). The prelude registers Eq/Hash/Clone/Ord/
-  Default; `ToString`'s rule comes with `std/fmt` and `Error`'s with
-  `std/error` — import the module before the `derive`.
+- Derivable: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`, `Debug`, `Default`
+  (Eq/Ord take the type: `Eq(Point)`). The prelude registers Eq/Hash/Clone/
+  Ord/Default; `ToString`'s and `Debug`'s rules come with `std/fmt` and
+  `Error`'s with `std/error` — import the module before the `derive`.
 - NO overloading: not for functions, not for inherent methods. Trait
   methods may share names — dispatch picks by argument types.
 - NO operator precedence (above) and a closed operator set; traits implement
@@ -190,10 +204,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 - No `String + str` operator. Build strings with a `StringBuilder`-style
   buffer or template strings.
 - A real newline inside `"..."` is a parse error. Inside `${...}` write
-  ordinary code: its string literals keep their own escapes, and a brace or
-  backtick inside them is no delimiter. In a template's TEXT a backtick ends
-  the template (write `` \` ``) — never emit a raw markdown fence from code
-  that builds Yo source.
+  ordinary code: its string literals keep their own escapes, and nested
+  backtick templates interpolate (`` `outer ${`inner ${x}`} end` `` works).
+  In a template's TEXT a backtick ends the template (write `` \` ``) — never
+  emit a raw markdown fence from code that builds Yo source.
 - Integer literals are polymorphic and often need a cast or typed binding:
   `x := i32(1);` or `(x : i32) = 1;`. Distinct integer types do not mix
   implicitly: `(i32(1) + usize(1))` is an error.
@@ -206,6 +220,9 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
 ```rust
 (maybe : Option(i32)) = Option(i32).Some(i32(7)); // .Some(v) | .None
+{ String } :: import("std/string");
+{ Path } :: import("std/path");
+{ read_to_string } :: import("std/fs/file");
 { Exception, IoExn } :: import("std/error"); // brings the Error derive rule
 { ToString } :: import("std/fmt"); // Error's derive needs ToString
 DivError :: enum(DivByZero); // recoverable: Error enum
@@ -214,7 +231,7 @@ derive(DivError, Error(.DivByZero => `division by zero`));
 
 // Exception-style: Exception + throw; awaited IO rethrows via an exn
 read :: (fn(p : Path, io : Io) -> String)({
-  swallow := Exception(throw : (_e -> unwind(())));
+  swallow := Exception(throw : (_e -> unwind(String.from(""))));
   io.await(read_to_string(p, io), IoExn(io : io, exn : swallow))
 });
 ```
@@ -226,7 +243,7 @@ read :: (fn(p : Path, io : Io) -> String)({
   `downcast(any, MyError)` recovers (`.None` if not that type).
 - Safe code traps, never UB: array/str indexing is bounds-checked, integer
   `/` `%` by zero and `MIN / -1` abort with a diagnostic, overflow traps
-  (`wrapping_*` methods are the escape hatch), casts saturate.
+  (`wrapping_*` methods are the escape hatch), float→integer casts saturate.
 
 ## Ownership and references
 
@@ -255,9 +272,10 @@ read :: (fn(p : Path, io : Io) -> String)({
 
 - All async I/O runs on ONE event-loop thread. Never add mutexes/atomics to
   async-runtime state; use `spawn_blocking` for CPU/blocking work.
-- `await` inside `cond`/`match` arms has restricted shapes — prefer binding
-  in a statement, then branching. An arm that awaits and uses a novel
-  pattern form is rejected at codegen with a workaround message.
+- Inside an `io.async` body, `io.await(...)` may appear anywhere an
+  expression may — a scrutinee, a condition, an operand, a `while` step, a
+  `cond`/`match` arm — and suspends at that point in source order. Async
+  iteration over a `Stream` is `for_await(stream, io, x => body)`.
 - Effects: a handler's `return(expr)` RESUMES the awaited continuation;
   `unwind(expr)` DISCARDS it and exits the enclosing fn. An unwound async
   task enters the Aborted state. C's `abort()` (panic) is a different,
@@ -276,6 +294,26 @@ read :: (fn(p : Path, io : Io) -> String)({
 - An anonymous module (a file with no exports) evaluates for side effects.
 - Module doc comments are `//!` at the top of the file; item docs are `///`.
 
+## Tests
+
+```rust
+{ assert } :: import("std/assert"); // REQUIRED — assert is not in the prelude
+{ ArrayList } :: import("std/collections/array_list");
+
+test("push then len", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  assert(xs.len() == usize(1));
+});
+```
+
+Tests live in sibling `*.test.yo` files (or `test("name", body)`
+declarations inside them); `{ assert } :: import("std/assert");` at the top
+is required — `assert` is not in the prelude. Iterate one file with
+`yo test file.test.yo --test-name-pattern "Name" --parallel 1 -v`; `--list`
+enumerates and `--json` streams one event per test. (`test(...)` bodies are
+a no-op for `yo check` unless `--test-bodies` is passed.)
+
 ## Threads (separate runtime)
 
 `Thread(T)`, `ThreadPool`, `Channel` with `Send`/`Acyclic` bounds live in
@@ -284,15 +322,29 @@ reach for it to parallelize I/O; that's the event loop's job.
 
 ## Verification (optional, gradual)
 
-`requires(...)`/`ensures(...)` clauses, `invariant`/`decreases` loops,
-ghost values, `yo verify` with a Z3 backend. `assumed()` marks a contract
-whose body is outside the verified subset — a green `yo verify` is not
-"everything proved"; read per-function outcomes.
+- `requires(...)`/`ensures(...)` clauses (name the return to use it in
+  `ensures`: `-> (result : i32)`), `invariant(...)`/`decreases(...)` loops,
+  ghost values, `yo verify` with a Z3 backend and concrete counter-examples
+  on refutation. `pragma(Pragma.Verify);` selects the mode per file;
+  `yo verify --explain <id-substring>` prints every obligation's goal
+  term — ids are `fn@<file>:<row>`, so match the file path or line.
+- `name :: law(fn(x : T, requires(p), ensures(q)) -> unit);` states a claim
+  OUTSIDE the code, proved from the callee's CONTRACT alone (never its
+  body). Laws verify only when the callee lives in the SAME file today (an
+  imported callee reports `cannot verify: untyped expression`), so keep
+  laws beside the contracted code for now.
+- `assumed()` marks a contract whose body is outside the verified subset —
+  a plain `yo verify` PASSES on `assumed`/`outside-subset`/`unproven`, so a
+  green run is not "everything proved". Gate specs with
+  `yo verify ./spec --strict`, which fails on those outcomes and always
+  prints the seven-outcome summary line.
 
 ## Naming and sharp edges (rapid fire)
 
-- `type` is a reserved word — never a field/param name. Avoid Windows macro
-  names (`near`, `far`, `IN`, `OUT`) as locals.
+- Grammar words are NOT reserved as binding names (`type` works as a field
+  or local); what rejects is the builtin-dispatch set (`unwind`, `recur`,
+  `consume`, ...) and `for`. Avoid Windows macro names (`near`, `far`,
+  `IN`, `OUT`) in FFI-facing code.
 - `impl(...)` blocks need the trailing semicolon.
 - ArrayList indexing is CALL syntax: `xs(i)` reads, `xs(i) = v` writes,
   `xs.get(i)` is the checked form.

@@ -113,6 +113,27 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 - Use `--test-batch-size N` if a large `.test.yo` file generates C that compiles slowly or looks stuck
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
 
+## Machine-readable output (for agents and tooling)
+
+```bash
+yo check main.yo --error-format json    # diagnostics as JSON: code, span, notes, repair
+yo check main.yo --error-format sarif   # SARIF 2.1.0 (CI scanners, editors)
+yo test ./tests --list                  # file<TAB>name per selected test; compiles nothing
+yo test ./tests --json                  # one JSON event per test + a closing summary event
+yo effects src/main.yo --json           # each exported fn's effect capabilities (ctl/io/row)
+yo verify ./src --format json           # summary (7 outcomes, strict, denied) + per-fn obligations
+```
+
+- A `repair` field in `--error-format json` is what `yo fix` applies —
+  apply it mechanically instead of re-typing the edit.
+- Exit codes: `yo check`/`yo verify` are non-zero on any failure;
+  `--strict` (a `yo verify` flag) additionally makes
+  `assumed`/`outside-subset`/`unproven` fail the verify run.
+- After editing compiler sources, confirm `yo build` actually recompiled
+  (a stale artifact can be served with exit 0 —
+  `issues/yo-build-artifact-cache-serves-a-stale-binary.md`): compare the
+  binary's build stamp or `yo --version` output before trusting a gate run.
+
 ## Incremental loop
 
 ```bash
@@ -275,7 +296,10 @@ install.depend_on(proofs);
 ```
 
 Then run: `yo build install` (runs `yo verify ./src` in the child; a refuted
-obligation fails the build). `yo check` never runs the solver.
+obligation fails the build). `yo check` proves the entry files whose own
+pragma puts them in verify/verify+ mode inline — a refuted obligation fails
+the check with its counter-example — but it applies no `--strict` deny set;
+the build step is the project-level switch (see the yo-verification skill).
 
 ### Doc comments
 

@@ -253,6 +253,7 @@ Two Windows-specific facts remain:
 - Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
 - Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
 - **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
+- **`test(...)` bodies are a NO-OP for `check` unless `--test-bodies` is passed.** `yo check file.test.yo` green with a broken test body is the default (that is exactly how #717's four private-member reaches escaped `check`; `src/evaluator/exprs/test.yo`). When you edit a `*.test.yo` file, gate the edit with `yo check <file> --test-bodies`.
 
 ### The incremental loop: `check --watch`, `build --watch`, chunks, in-process tests
 
@@ -808,10 +809,10 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 
 - They import `src/` internals via `../../src/...`, so every file
   that reaches `evaluator/index.yo` pays a full compiler-sized Yo compile.
-- **MEASURED 2026-08-05, M4, `--parallel 1`, 58 files:** 22.2 min under the
-  self-hosted binary. (The same sweep took 40.5 min under the since-deleted TS
-  compiler, and 63 min as a both-compilers differential — historical, no longer
-  runnable.)
+- **MEASURED 2026-09-21, M4, `--parallel 1`, whole directory:** ~78 min,
+  peaking at 8.8 GB resident. (An older 2026-08-05 figure of 22.2 min was
+  over 58 files and predates most of the current corpus; the 40.5 min /
+  63 min TS-era numbers are historical, no longer runnable.)
 - **Use `--parallel 1`, and run one at a time.** `macro_expansion` alone
   peaks at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
   swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
@@ -992,7 +993,12 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 
 ## Important constraints
 
-- You **cannot** `yo compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export(main);` at the end.
+- `yo compile` on a `*.test.yo` file runs the Yo side fine (and
+  `--skip-c-compiler` succeeds outright), but the runner's batch shape
+  synthesizes no `main`, so a full compile stops at the C link with
+  `undefined reference to 'main'`. To iterate on a failing test with the
+  compiler, extract the case into a separate `.yo` file with a `main`
+  function and `export(main);` at the end.
 - Always save test log output: `yo test ./tests/XXX.test.yo --bail --verbose &> test_output.txt`
 - If a `main` linker error appears (`undefined reference to 'main'`), add `export(main);` at the end of the `.yo` file.
 

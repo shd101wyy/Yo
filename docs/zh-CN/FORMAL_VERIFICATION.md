@@ -412,8 +412,9 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 `folded`、`goal`（按 SMT-LIB 渲染的义务本体 —— 求解器被问的东西）
 与 `model`（反例绑定，仅 `refuted`），以及 `site`。对应运行期守卫（`divisor-nonzero`、`shift-in-width`、`index-in-bounds`）的义务会给出该守卫：`"site": {"module", "row", "column", "class"}`，与守卫自身的 `(at file:row:col)` 消息一样从 1 开始计数。契约、循环与 assert 义务为 `"site": null`。义务名在函数内唯一：守卫义务带上其位置（`…/divisor-nonzero@12:9`），仍然重复的名字（同一被调用方的 `requires#0` 被调用两次）按遍历顺序加上 `~2`、`~3`……加 `--elision` 时，报告还会列出溢出义务（`div-no-overflow`、`no-overflow`、`neg-no-overflow`），每条都带 `"elision_only": true`；它们从不改变函数的 `outcome` 或 `vacuous`。
 
-`--explain <模式>` 把报告收窄到 id 匹配（子串 —— 裸函数名或
-`文件:行号` 皆可）的函数，并强制输出明细：每个义务列出判定**及其目标
+`--explain <模式>` 把报告收窄到 id 匹配（id 的子串 —— id 形如
+`fn@<文件>:<行>` / `law@<文件>:<行>:<列>`，因此匹配文件路径或
+`文件:行号`；裸函数名匹配不到任何东西，函数名不在 id 里）的函数，并强制输出明细：每个义务列出判定**及其目标
 项**，`ok` 的函数也一样 —— 已验证函数的 VC 集合是可检视的，而不只是
 失败才可见：
 
@@ -559,4 +560,6 @@ yo verify ./tests/spec/verify_straight_line.test.yo
 
 要让证明成为项目构建的一部分、而不是靠人记得去跑的命令，在 `build.yo` 里声明
 一个验证步骤 —— 见 [BUILD_SYSTEM.md § 验证步骤](BUILD_SYSTEM.md#验证步骤)。
-`yo check` 从不运行求解器；构建步骤才是项目级开关。
+`yo check` 会对自身 pragma 声明为 verify/verify+ 模式的入口文件就地求证 ——
+被反驳的义务会带着反例让 check 失败 —— 但它不施加任何 `--strict` 拒绝集；
+构建步骤才是项目级开关。

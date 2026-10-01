@@ -16,7 +16,10 @@ Export C-compatible functions that operate on linear memory:
 
 ```rust
 // src/wasm_api.yo
+pragma(Pragma.AllowUnsafe); // raw pointers across the boundary
+
 { String } :: import("std/string");
+{ malloc, free } :: import("std/allocator");
 
 // Allocate WASM memory for the caller
 wasm_alloc :: (fn(size : usize) -> *(u8))(
@@ -37,9 +40,9 @@ render :: (fn(input_ptr : *(u8), input_len : usize, flags : i32) -> *(u8))({
   result_ptr
 });
 
-export wasm_alloc;
-export wasm_free;
-export render;
+export(wasm_alloc);
+export(wasm_free);
+export(render);
 ```
 
 Key rules:
@@ -85,7 +88,7 @@ function buildFlags(options) {
 
 ## build.yo WASM target
 
-The `Executable` struct accepts: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`.
+The `Executable` struct accepts: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`, `emit_c_to`, `emit_chunks`, `heap_size`.
 Emscripten-specific flags go in `add_c_flags(...)` after creating the step.
 
 ```rust
@@ -106,7 +109,7 @@ install.depend_on(wasm_api);
 
 Available targets: `Wasm32_Unknown_Emscripten`, `Wasm32_Wasip1`, `X86_64_Unknown_Linux_Gnu`, `Aarch64_Apple_Darwin`, etc.
 Available optimizations: `Debug`, `ReleaseSafe`, `ReleaseFast`, `ReleaseSmall`.
-Available allocators: `Mimalloc` (default), `System`.
+Available allocators: `System` (default), `Mimalloc`, `Fixed` (TLSF over one static region sized by `heap_size`, default 16 MiB).
 
 ## npm package structure
 

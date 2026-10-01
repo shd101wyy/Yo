@@ -32,7 +32,7 @@ Use this skill when you need to:
 
 - `cond(...)` and `match(...)` always require parentheses.
 - `{ expr }` is a struct literal; `{ expr; }` is a begin block.
-- Yo has no operator precedence. A chain of the SAME operator left-associates (no parens needed: `a + b + c`); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`).
+- Yo has no operator precedence. Adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`); a chain of the SAME operator left-associates for 2–3 operands (`a + b + c`) — but FOUR or more same-operator operands mis-group today (`issues/same-operator-chain-of-four-or-more-is-not-left-associative.md`), so keep explicit parens there (`(((a - b) - c) - d)`).
 - Use `func(arg)` with no space before `(` for every call; `func arg` and `func (arg)` are invalid.
 - Use `return(value)` / `return()` and `unwind(value)` / `unwind()`; bare control-flow arguments are invalid.
 - Use `recur(...)` for self-recursion instead of the function name.

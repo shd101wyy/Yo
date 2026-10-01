@@ -1,5 +1,12 @@
 # Tier-1 `check ./std` gate now requires a Z3 solver — `std/async/stream.yo` carries verify-mode contracts and the job has none
 
+> **FIXED — closed 2026-10-01, resolved by #760/#762 without a CI change.**
+> A missing Z3 became a skip-with-hint for `check` (it ships nothing), and
+> the FV CI job owns the proofs; `check ./std` is a hard solver failure
+> only for `compile`/verify-mode binaries. Verified 2026-10-01 on the
+> working tree: `yo check ./std --std-path ./std` passes `177/177` (and a
+> solver-less `check` no longer fails the gate). The doc is frozen below.
+
 **Severity:** S3 — the tier-1 `check ./std` gate goes red on pristine develop — the job lacks the Z3 the stream contracts require
 
 **Status: OPEN.** Found 2026-09-17 on PR #755's full battery (run

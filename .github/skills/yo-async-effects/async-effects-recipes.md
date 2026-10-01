@@ -8,7 +8,7 @@ These patterns cover normal Yo async code and algebraic effects.
 | -------------------------- | ------------------------------------------------------ |
 | Sequential async work      | `result := io.await(task, io)`                         |
 | Start work and wait later  | `handle := io.spawn(task, io)` then `handle.await(io)` |
-| Yield to other ready tasks | `io.await(yield(), io)`                                |
+| Yield to other ready tasks | `io.await(yield(io), io)`                                |
 | True multithreading        | Use thread or parallelism APIs, not `io.async` alone   |
 
 ## Minimal async function
@@ -18,7 +18,7 @@ These patterns cover normal Yo async code and algebraic effects.
 
 pause_then_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i32(42)
   })
 );
@@ -35,7 +35,7 @@ pause_then_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 
 main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i32(1)
   });
 
@@ -53,11 +53,11 @@ export(main);
 
 main :: (fn(io : Io) -> unit)({
   task1 := io.async((io : Io) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i32(1)
   });
   task2 := io.async((io : Io) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i32(2)
   });
 
@@ -132,7 +132,7 @@ TaskCtx :: struct(io : Io, raise : Raise);
 
 work :: (fn(ctx : TaskCtx) -> Impl(Future(i32, TaskCtx)))(
   io.async((ctx : TaskCtx) => {
-    ctx.io.await(yield(), ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     safe_divide(i32(10), i32(2), ctx.raise)
   })
 );
@@ -228,11 +228,12 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   while(i < handles.len(), { outs.push(handles(i).await(io)); i = (i + usize(1)); });
   ```
 
-  Keep the `while` CONDITION a plain `fn` — an `io.await` nested inside a
-  larger condition expression is one of the rejected shapes above. Gate any
-  `src/` code that spawns with a cli-case carrying `env=YO_ASYNC_STRICT=1`;
-  nothing else makes the nesting visible
-  (`issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`).
+  The `join_all`-style nesting above is the restriction that still stands
+  (it re-enters the event loop, `issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`);
+  ordinary await PLACEMENT no longer is — since #1018 an `io.await` may sit
+  directly in (or nested inside) a `while` condition, a `cond` condition or
+  a `match` scrutinee. Gate any `src/` code that spawns with a cli-case
+  carrying `env=YO_ASYNC_STRICT=1`; nothing else makes the nesting visible.
 - **Build a combinator chain OUTSIDE the `io.async` body that awaits it.** An
   `=>` closure passed to a generic callback parameter INSIDE an async body
   leaves the enclosing future's result type unresolved, and the error lands on
@@ -315,7 +316,7 @@ waker will do: that is the millisecond floor this exists to remove.
 
 ```rust
 { Exception } :: import("std/error");
-{ println } :: import("std/fmt");
+{ ToString, println } :: import("std/fmt");
 
 DivError :: enum(DivByZero);
 derive(DivError, Error(.DivByZero => `division by zero`));
@@ -377,8 +378,9 @@ Key: the `return` inside the handler resumes the _effect invocation site_ with t
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
 ```rust
-{ Exception } :: import("std/error");
-{ println } :: import("std/fmt");
+{ Exception, ResumableException } :: import("std/error");
+{ ToString, println } :: import("std/fmt");
+{ assert } :: import("std/assert");
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(

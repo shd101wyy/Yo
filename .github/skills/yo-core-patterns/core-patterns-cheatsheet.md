@@ -271,6 +271,8 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 ## Impl blocks and generics
 
 ```rust
+{ sqrt } :: import("std/libc/math");
+
 impl(Point,
   distance : (fn(self : Self, other : Point) -> f64)({
     dx := f64((self.x - other.x));
@@ -436,7 +438,8 @@ if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
 ## Error handling
 
 ```rust
-{ Exception } :: import("std/error");
+{ Exception } :: import("std/error"); // brings the Error derive rule
+{ ToString } :: import("std/fmt");    // Error's derive needs ToString
 
 DivError :: enum(DivByZero);
 // `derive(Error)` emits ToString AND Error from one message per variant, in
@@ -536,19 +539,24 @@ inc :: (fn() -> unit)({
 - Cannot be exported; only compile-time values can be exported
 - Not allowed inside `impl` blocks; use `::` for constants there
 
-## Anonymous modules
+## Namespaces: one module per file (there is no inline `impl { ... }`)
+
+A module IS a file. To group names under a namespace, put them in their own
+file and import it; `export(...)` makes a name public, destructuring picks
+members. Compile-time-only static members of a `struct` (`name :: value`
+fields) cover the "namespace of helpers" case inside one type:
 
 ```rust
-my_module :: impl {
-  helper :: (fn(x : i32) -> i32)((x + i32(1)));
-  export helper;
-};
+// math_helpers.yo
+helper :: (fn(x : i32) -> i32)((x + i32(1)));
+export(helper);
 
-result := my_module.helper(i32(5));
+// user.yo
+{ helper } :: import("./math_helpers.yo");
+result := helper(i32(5));
 ```
 
-- `impl { ... }` creates a module namespace
-- Only `::` (compile-time) bindings are allowed inside
+(The old `impl { ... }` "anonymous module" spelling does not parse.)
 
 ## yo-self API: String vs str parameter gotchas
 

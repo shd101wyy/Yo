@@ -151,7 +151,7 @@ yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out
 yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test
 ```
 
-`yo compile` cannot be used on `*.test.yo` files: extract the failing case into a standalone `.yo` file with a `main` function and `export(main);`.
+`yo compile` on a `*.test.yo` file compiles the Yo side but synthesizes no `main`, so the C link fails (`undefined reference to 'main'`; `--skip-c-compiler` succeeds). To iterate on a failing test, extract the case into a standalone `.yo` file with a `main` function and `export(main);`.
 
 Build-system and CLI subsystems (`build_runner`, `fetch`, `lock_file`, `install_command`, `cache`, `init`, `version`, `pkg_config`, …) are tested under `tests/internal/`.
 
