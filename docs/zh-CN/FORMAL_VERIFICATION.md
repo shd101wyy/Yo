@@ -218,6 +218,24 @@ copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : Array
 
 `produced(xs).len() <= xs.len()` 是隐式不变式。`break` 以 break 处的状态退出。`continue` 仍会消费当前元素，因此不变式在多产出一个元素的状态上证明。改变所遍历列表的循环体、`inout(x)` 绑定，以及对列表变量以外之物的 `for` 都是子集错误。
 
+### 两个列表：`distinct`
+
+列表模型让每个名字各自拥有一个列表。`ArrayList` 是引用类型，因此变更两个同列表类型参数之一的函数体是子集错误：调用方可能把同一个列表同时传给两者。`requires(distinct(a, b))` 排除了这种情况：
+
+```rust
+append_all :: (
+  fn(src : ArrayList(i32), dst : ArrayList(i32),
+     requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
+     ensures(dst.len() == (old(dst.len()) + src.len()))) -> unit
+)({ ... dst.push(src(i)) ... });
+```
+
+调用处根据两个实参的来源证明它：两者必须是不同的名字，且都不能从已有列表绑定而来；其中一个必须是新建的 `ArrayList(T).new()` 局部变量，或者调用方自身的 requires 为这对名字写明了 `distinct`。`append_all(xs, xs)` 会被反驳。`distinct` 只能出现在 `requires` 中，运行时从不检查。
+
+### 规约中的纯函数
+
+没有契约、函数体可被验证器表达、且不改变任何实参的函数是透明的：规约可以调用它，调用的含义就是其函数体。因此对 `sq :: (fn(x : i32) -> i32)(x * x)`，`r = x * x` 时 `ensures(r == sq(x))` 能证出，无需把 `sq` 重写成 `ghost_fn`。递归函数只有带 `decreases(...)` 时才透明：其自身任务证明度量递减，因此其定义会终止。其他函数保持不透明，子集错误会指出缺少的性质（"not spec-transparent: it changes an argument"、"... its body is outside the verifier subset (...)"、"... it calls itself without decreases(...)"）。
+
 ### 精化类型 —— `refine(T, p)`
 
 `refine(T, p)` 注解"满足谓词 `p` 的 `T`"。注解求值为 `T` —— 已擦除、
@@ -466,7 +484,7 @@ refuted  fn@src/math.yo:8 [verify]
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
 | `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
-| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数（`issues/fixed/verifier-list-model-ignores-aliasing.md`）。带契约的泛型函数被抽象验证：其类型参数是只支持相等与透传的未解释排序。带 `decreases` 的 `ghost_fn` 可以递归：它成为由带触发器的公理定义的未解释函数，其自身任务证明度量递减（R2 第 1 片）。返回 `unit` 且带 `ensures` 的 `ghost_fn` 是引理：它被归纳证明，并通过 `ghost(lemma(...))` 使用（§引理）。列表相等是外延的，`seq_of(xs)` 给出以列表为载体的 Seq（§列表上的序列）。在 `a ==> b` 中，以及循环不变式靠后的合取项中，遍历 `b`（或靠后的合取项）时产生的义务只在 `a`（前面的合取项）成立处才需证明。嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片、R2） |
+| 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数，除非 requires 为这对参数写明了 `distinct`（`issues/fixed/verifier-list-model-ignores-aliasing.md`，§两个列表）。带契约的泛型函数被抽象验证：其类型参数是只支持相等与透传的未解释排序。带 `decreases` 的 `ghost_fn` 可以递归：它成为由带触发器的公理定义的未解释函数，其自身任务证明度量递减（R2 第 1 片）。返回 `unit` 且带 `ensures` 的 `ghost_fn` 是引理：它被归纳证明，并通过 `ghost(lemma(...))` 使用（§引理）。列表相等是外延的，`seq_of(xs)` 给出以列表为载体的 Seq（§列表上的序列）。在 `a ==> b` 中，以及循环不变式靠后的合取项中，遍历 `b`（或靠后的合取项）时产生的义务只在 `a`（前面的合取项）成立处才需证明。嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片、R2） |
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
 | 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |

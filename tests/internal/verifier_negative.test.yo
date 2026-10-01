@@ -384,3 +384,27 @@ test("call actuals are the caller's values even when they share the callee's par
   bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/call_arg_swap_false.yo"), io);
   assert(_count_outcome(bad_reports, String.from("refuted")) == usize(1), "differ's same(b, a) must refute");
 });
+
+test("an uncontracted pure fn is transparent to specs; one that prints is refused by name", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/transparent_pure_fn.yo"), io);
+  assert(_count_outcome(ok_reports, String.from("ok")) == usize(4), "sq, clamp, square_small and clamped must verify");
+  bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/transparent_pure_fn_false.yo"), io);
+  assert(_count_outcome(bad_reports, String.from("refuted")) == usize(1), "square_off must refute");
+  rp := _first_outcome(bad_reports, String.from("subset-error"), String.from("uses_noisy"));
+  assert(rp.subset_construct.contains("not spec-transparent: its body is outside the verifier subset"), `uses_noisy must name why noisy is opaque, got: ${rp.subset_construct}`);
+});
+
+test("a recursive transparent callee needs decreases: is_even unfolds, spin is refused by name", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/transparent_recursive.yo"), io);
+  assert(_count_outcome(ok_reports, String.from("ok")) == usize(2), "is_even and six_is_even must verify");
+  bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/transparent_recursive_false.yo"), io);
+  assert(_count_outcome(bad_reports, String.from("ok")) == usize(1), "only is_even may verify (liar used to, through spin's inconsistent axiom)");
+  rp := _first_outcome(bad_reports, String.from("subset-error"), String.from("liar"));
+  assert(rp.subset_construct.contains("calls itself without decreases"), `liar must name spin's missing decreases, got: ${rp.subset_construct}`);
+});

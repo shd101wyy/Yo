@@ -240,6 +240,7 @@ BF_SEQ_LEN :: "seq_len";
 BF_SEQ_NTH :: "seq_nth";
 BF_SEQ_OF :: "seq_of";
 BF_PRODUCED :: "produced";
+BF_DISTINCT :: "distinct";
 BF_STR_BYTES :: "str_bytes";
 BF_MS_SINGLE :: "ms_single";
 BF_MS_ADD :: "ms_add";
@@ -701,7 +702,7 @@ _evaluate_spec_collection :: (
   );
   res_ty := cond(
     ((head == "seq_len") || (head == "ms_count")) => t_i64(),
-    (head == "set_contains") => t_bool(),
+    ((head == "set_contains") || (head == "distinct")) => t_bool(),
     // A list-backed Seq's element is the list's (R2 task 2); a str's is u8.
     (head == "seq_nth") => match(
       t_refine_inner(arg1_ty),
@@ -731,6 +732,12 @@ evaluate_seq_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn
 /// consumed so far. Typed as the list, like `seq_of`; the verifier reads it
 /// from the loop's ghost index.
 evaluate_produced :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `distinct(a, b)` (R2 task 5): in a `requires`, the two list arguments are
+/// different lists. It lets a body mutate one beside the other; the verifier
+/// proves it at each call from where the arguments came from.
+evaluate_distinct :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_seq_append :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -2679,7 +2686,7 @@ _contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : 
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
-        if(((hn == BF_OLD) && !(allow_old)) || (((hn == BF_FORALL) || (hn == BF_EXISTS)) || (hn == BF_GHOST)), {
+        if(((hn == BF_OLD) && !(allow_old)) || (((hn == BF_FORALL) || (hn == BF_EXISTS)) || ((hn == BF_GHOST) || (hn == BF_DISTINCT))), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
@@ -3250,6 +3257,7 @@ export(
   evaluate_seq_unit,
   evaluate_seq_of,
   evaluate_produced,
+  evaluate_distinct,
   evaluate_seq_append,
   evaluate_seq_len,
   evaluate_seq_nth,

@@ -1,0 +1,15 @@
+// A3 slice 2 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a RECURSIVE
+// uncontracted function is transparent to specs when it carries
+// decreases(...). Its own task proves the measure drops, which keeps the
+// defining axiom consistent; a spec unfolds it once per call.
+pragma(Pragma.Verify);
+
+is_even :: (fn(n : u32, decreases(n)) -> bool)(
+  cond(
+    (n == u32(0)) => true,
+    (n == u32(1)) => false,
+    true => is_even(n - u32(2))
+  )
+);
+
+six_is_even :: (fn(ensures(r == is_even(u32(6)))) -> (r : bool))(true);

@@ -640,3 +640,31 @@ test("a for over a list verifies with produced(xs); a double push, a skipped cou
     `grow must be a subset error, got: [${_reports_dump(bad_reports)}]`
   );
 });
+
+test("distinct(a, b) lets a body mutate one of two same-typed lists; one list passed as both refutes", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/list_distinct.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(3),
+    `append_all, into_fresh and forward must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/list_distinct_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
+    `onto_itself must refute, got: [${_reports_dump(bad_reports)}]`
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("subset-error")) == usize(1),
+    `append_unchecked must be a subset error, got: [${_reports_dump(bad_reports)}]`
+  );
+});
