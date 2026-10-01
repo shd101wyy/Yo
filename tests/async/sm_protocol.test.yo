@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { Error, Exception, IoExn } :: import("std/error");
 { ToString } :: import("std/fmt");
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { yield, timeout } :: import("std/async");
 { sleep } :: import("std/sys/timer");
 { Duration } :: import("std/time/duration");
@@ -338,4 +339,86 @@ test("an escape inside a reassignment's await releases the old value once", {
   };
   assert(escaped, "the task escaped");
   assert(g_disposed == (before + i32(1)), `the old Thing was released exactly once, disposed ${g_disposed - before}`);
+});
+
+// issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md
+// An index result passed to an async call inside a task is a retained temp.
+// It was declared as a C local while its release named the hoisted field,
+// which was never assigned, so every call leaked one reference.
+_sm_hold :: (fn(t : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    t.n
+  })
+);
+_sm_pass_indexed :: (fn(keep : ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (i : usize) = usize(0);
+    (sum : i32) = i32(0);
+    while(runtime(i < keep.len()), {
+      cond(
+        (i < keep.len()) => {
+          v := e.io.await(_sm_hold(keep(i), e.io), e);
+          sum = (sum + v);
+        },
+        true => ()
+      );
+      i = (i + usize(1));
+    });
+    sum
+  })
+);
+test("an index result passed to an async call in a task is released", {
+  keep := ArrayList(Thing).new();
+  // Pushed in their own block: a pushed temporary holds its reference until
+  // the scope it was made in ends.
+  {
+    keep.push(Thing(n : i32(5)));
+    keep.push(Thing(n : i32(6)));
+  };
+  {
+    h := io.spawn(_sm_pass_indexed(keep, io), IoExn(io : io, exn : Exception(throw : (err -> unwind(())))));
+    got := h.await(io);
+    assert(match(got, .Some(v) => (v == i32(11)), .None => false), "the task summed both");
+  };
+  t0 := keep(usize(0));
+  assert(rc(t0) == usize(2), `only keep and t0 hold Thing(5), rc ${rc(t0)}`);
+});
+
+// issues/fixed/a-dyn-temp-in-a-state-machine-is-never-stored-to-its-field.md
+// The error a task throws after an await is a `dyn` temp the state machine
+// hoists; the escape sweep releases its field, which was never assigned, so
+// the error leaked.
+_SmErr :: ref(struct(n : i32));
+impl(
+  _SmErr,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      return(String.from("sm error"));
+    })
+  )
+);
+impl(_SmErr, Error());
+impl(
+  _SmErr,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+_sm_throw_after_await :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    e.io.await(yield(e.io), e.io);
+    e.exn.throw(dyn(_SmErr(n : i32(1))));
+    i32(1)
+  })
+);
+test("an error a task throws after an await is released", {
+  before := g_disposed;
+  {
+    h := io.spawn(_sm_throw_after_await(io), IoExn(io : io, exn : Exception(throw : (err -> unwind(())))));
+    assert(h.await(io).is_none(), "the task unwound");
+  };
+  assert(g_disposed == (before + i32(1)), `the thrown error was disposed, ${g_disposed - before} times`);
 });
