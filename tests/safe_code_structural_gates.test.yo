@@ -146,3 +146,22 @@ comptime_expect_error({
   zero := i32(0);
   unchecked_non_zero(zero)
 });
+// The gate must NOT fire on a managed container with a public-by-accident
+// pointer field: HashMap's `ctrl : ?(*(u8))` is interior state behind the
+// RC-managed ref(struct) — reading the FIELD is an enum-wrapping-a-pointer
+// expression and separately gated (the fix's first cut surfaced it and broke
+// 238 of the compiler's own src files).
+comptime_expect_error({
+  // the FIELD READ stays gated —
+  { HashMap } :: import("std/collections/hash_map");
+  m := HashMap(i32, i32).new();
+  c := m.ctrl;
+  c
+});
+// — while HOLDING the container is fine.
+{
+  { HashMap } :: import("std/collections/hash_map");
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(2));
+  assert(m.len() == usize(1), "a HashMap is safe to hold and use");
+}

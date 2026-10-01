@@ -1434,19 +1434,26 @@ _evaluate_expression_wrapper :: (
 /// instead of recoverable errors.
 /// Does a value of this type carry a raw pointer at its surface — a pointer;
 /// an enum one of whose PUBLIC variant payload fields surfaces one
-/// (`Option(*(T))`, what a pointer iterator's `next` yields); or a struct
-/// with a PUBLIC field that surfaces one (`RawSlice(T)`, the bare ptr+len
-/// view)? `_`-prefixed fields are private to their declaring module, and std
-/// hands safe code value structs that wrap a pointer behind such a field
-/// (`JoinHandle`, iterators): the field read is itself a pointer-typed
-/// expression and is gated, and no public function takes the whole struct
-/// and reaches the pointer for you. A PUBLIC pointer field is the different,
-/// dangerous shape — safe code can pass the whole struct to a function that
-/// uses the pointer inside (measured: `random_bytes(s.raw_bytes())` after the
-/// string reallocated is a heap-use-after-free WRITE,
+/// (`Option(*(T))`, what a pointer iterator's `next` yields); or a PLAIN
+/// (value) struct with a PUBLIC field that surfaces one (`RawSlice(T)`, the
+/// bare ptr+len view)? Two exemptions carry the safe-container story, both
+/// the same call `type_representation_contains_raw_ptr` makes:
+/// - reference-semantics structs are RC-MANAGED: the runtime owns the
+///   lifetime and pointer-bearing fields are interior state reached through
+///   the type's own methods (HashMap's `ctrl : ?(*(u8))` is public BY
+///   ACCIDENT — its read is an enum-wrapping-a-pointer expression and gated).
+/// - `_`-prefixed fields are private to their declaring module: std hands
+///   safe code value structs that wrap a pointer behind one (iterators), the
+///   field read is itself gated, and no public function takes the whole
+///   struct and reaches the pointer for you.
+/// A PUBLIC pointer field on a PLAIN struct is the different, dangerous
+/// shape — the struct IS a view, and safe code can pass it whole to a
+/// function that uses the pointer inside (measured:
+/// `random_bytes(s.raw_bytes())` after the string reallocated is a
+/// heap-use-after-free WRITE,
 /// issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md), so it
-/// surfaces. Recursion is depth-capped, not memoized: the shapes it walks are
-/// shallow and this runs per struct-typed expression in safe files.
+/// surfaces. Recursion is depth-capped, not memoized: the shapes it walks
+/// are shallow and this runs per struct-typed expression in safe files.
 _surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)(
   _surfaces_raw_pointer_at(ty, usize(8))
 );
@@ -1487,16 +1494,18 @@ _surfaces_raw_pointer_at :: (fn(ty : TypeValue, depth : usize) -> bool)({
       });
       found
     },
-    .Struct({ field_labels : labels, field_types : fts }) => {
+    .Struct({ field_labels : labels, field_types : fts, is_reference_semantics : is_ref }) => {
       (found : bool) = false;
-      (fi : usize) = usize(0);
-      while((fi < fts.len()) && !found, {
-        ft := match(fts.get(fi), .Some(t) => t, .None => t_unit());
-        fl := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-        if(!is_private_member_name(fl) && recur(ft, depth - usize(1)), {
-          found = true;
+      if(!is_ref, {
+        (fi : usize) = usize(0);
+        while((fi < fts.len()) && !found, {
+          ft := match(fts.get(fi), .Some(t) => t, .None => t_unit());
+          fl := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+          if(!is_private_member_name(fl) && recur(ft, depth - usize(1)), {
+            found = true;
+          });
+          fi = (fi + usize(1));
         });
-        fi = (fi + usize(1));
       });
       found
     },

@@ -80,6 +80,19 @@ error: Raw pointer values are not available in safe code: '(s.raw_bytes)()' has 
 privileged plumbing (`std/path.yo`, `std/log.yo` use them inside pragma'd
 files). Nothing else in std produces a `RawSlice` or takes one as a parameter.
 
+**Design note — the fix's first cut broke 238 of the compiler's own src
+files.** Keying the struct walk on field visibility alone surfaced
+`HashMap(String, String).new()` in every file without `AllowUnsafe`:
+HashMap's `ctrl : ?(*(u8))` field is PUBLIC BY ACCIDENT (its own Stability
+note says so), and an enum wrapping a pointer is one of the shapes that
+surfaces. The distinction that holds: reference-semantics structs
+(`ref(struct(...))`, every RC-managed container) are exempt — the same call
+`type_representation_contains_raw_ptr` makes — because the runtime owns the
+lifetime and pointer fields are interior state behind the type's methods
+(reading `m.ctrl` is itself gated). The bare-view handout is always a PLAIN
+struct: a view is copied, not RC-managed. `tests/safe_code_structural_gates.test.yo`
+pins both sides (holding a HashMap is fine; reading `m.ctrl` is not).
+
 ## Verification
 
 - `tests/safe_code_structural_gates.test.yo` (a pragma-LESS file) pins
