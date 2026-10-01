@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 189 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 187 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 50 | 9 |
-| **Total** | **189** | **33** |
+| Other | 48 | 9 |
+| **Total** | **187** | **33** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 32 |
 | S2 | 90 |
-| S3 | 65 |
+| S3 | 63 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -337,7 +337,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (50)
+### Other (48)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -345,7 +345,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
-| [`a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md`](./a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md) | S3 | — | — |
 | [`a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`](./a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md) | S2 | OPEN (filed 2026-09-30) | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md`](./a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md) | S1 | open | yes |
@@ -363,7 +362,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
-| [`linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md`](./linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
 | [`lsp-document-symbol-shape-ignores-the-client-capability.md`](./lsp-document-symbol-shape-ignores-the-client-capability.md) | S3 | — | — |
