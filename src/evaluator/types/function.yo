@@ -5003,7 +5003,8 @@ _resolve_some_types_deep :: (
     // return type concretize `T` to the spawned future's actual output so the
     // `handle.await` generic-impl match can bind it. See
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
-    if(_env_rebound_to_another_some(st, resolved), {
+    (rebound_to_some : bool) = _env_rebound_to_another_some(st, resolved);
+    if(rebound_to_some, {
       match(
         some_resolution(resolved),
         .Some(c) => {
@@ -5018,7 +5019,16 @@ _resolve_some_types_deep :: (
     if(is_bound_closure_identity(resolved), {
       resolved = resolve_cell_chain(resolved);
     });
-    if(!is_some_type(resolved), {
+    // A slot the env rebound to ANOTHER SomeType with no concrete resolution
+    // (the callee's `U := T` when the argument's type carries the CALLER's
+    // unresolved binder) substitutes to that SomeType at every depth, as the
+    // bare-SomeT branch above already does by returning `r`. Keeping only
+    // concrete resolutions here left `slot : *(U)` re-evaluating to `*(U)`
+    // while a bare `slot : U` became `T`, and Step 8 of the parameter check
+    // then rejected `*(T)` against `*(U)` — the prelude's `GcTracer.visit`
+    // failed its definition-time trial on every `check`
+    // (issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md).
+    if(!is_some_type(resolved) || rebound_to_some, {
       match(
         st,
         .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {

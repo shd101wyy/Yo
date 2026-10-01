@@ -777,6 +777,12 @@ The largest and last phase, because Phases 1–5 shrink it.
    (a failing one silently accepts ANY error — a test-soundness hole).
 3. A swallowed error that *is* SomeT-pending is recorded against the specialization and
    re-raised when the specialization with concrete types fails, with the call site as a note.
+   The trial does not treat distinct binders as rigid. A body that unifies `T` with `S`, for
+   example by passing `*T` and `*S` to one callee binder `U`, or by returning `a : *T` as `*S`,
+   records no error at all. Only a concrete specialization with `T != S` rejects it (measured
+   2026-10-01,
+   `issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+   This matches the monomorphizing model in §1, and this step adds nothing for that case.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.
 
 Exit: the Phase 0 swallow census for real type errors is zero on `./std` and `./src`; FTT

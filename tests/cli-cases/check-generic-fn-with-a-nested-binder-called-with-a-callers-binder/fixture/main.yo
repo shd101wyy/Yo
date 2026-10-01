@@ -1,0 +1,17 @@
+//! A generic Yo fn whose binder is nested in a parameter type (`a : *U`),
+//! called with an argument whose type nests the CALLER's unresolved binder
+//! (`*T`), must bind `U := T` in the caller's definition-time trial, as a
+//! whole-type parameter (`a : U`) already does
+//! (issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md).
+pragma(Pragma.AllowUnsafe);
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(struct(a : A, b : B));
+id_ptr :: (fn(generic(U : Type), a : *U) -> *U)(a);
+both :: (fn(generic(U : Type), a : *U) -> Pair(*U, *U))(Pair(*U, *U)(a : a, b : a));
+forward :: (fn(generic(T : Type), a : *T) -> *T)(id_ptr(a));
+forward_pair :: (fn(generic(T : Type), a : *T) -> Pair(*T, *T))(both(a));
+// The generic impl member shape of the prelude's `GcTracer.visit`, with a Yo
+// callee whose result mentions its binder.
+Tr :: newtype(_cb : *u8);
+take_same :: (fn(generic(T : Type), tracer : Tr, slot : *T) -> *T)(slot);
+impl(Tr, visit : (fn(generic(T : Type), self : Self, slot : *T) -> *T)(take_same(self, slot)));
+export(Tr, forward, forward_pair);

@@ -52,10 +52,10 @@ work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
 
 | branch | content | state |
 | --- | --- | --- |
-| `tss/docs` | this doc, the plan's Phase 3 step 9, and the type-system issue docs carried over from #1084 | docs only |
-| `tss/enum-final-name` (on `tss/docs`) | §3.4: both impl-ordering fixes, plus the fix for the branch's own `check ./std` regression | `check ./std` green (177/177); full battery running |
+| `tss/docs` | this doc, the plan's Phase 3 step 9, and the type-system issue docs carried over from #1084 | merged (#1088) |
+| `tss/enum-final-name` | §3.4: both impl-ordering fixes, plus the fix for the branch's own `check ./std` regression and the parked-importer force | merged (#1094) |
 | `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
-| `tss/generic-extern-trial` | §3.3: the generic-extern trial failure | in progress |
+| `tss/generic-extern-trial` | §3.3: the generic-extern trial failure, plus its Yo-fn twin found in review | fixed; both cli-cases red on the seed |
 | `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
 | `fix/header-macro-prefix` | §3.5 | parked: it edits the async codegen that `async-triage` rewrites |
 
@@ -113,9 +113,23 @@ Unchanged:
   instance cannot be matched to its generic impl through a `comptime(K) : Type` parameter. The
   fix (a `type_arguments` field that `substitute` rewrites, plus the CTFE canonicalization
   memo) is type identity: gate it on byte identity.
-- **`issues/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (new):
-  the prelude's `GcTracer.visit` fails its definition-time trial on every `check`, and the
-  failure is swallowed. It blocks §3.2 steps 3–4, which would re-raise it.
+- **`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (fixed on `tss/generic-extern-trial`):
+  the prelude's `GcTracer.visit` failed its definition-time trial on every `check` (a nested
+  `*(U)` lost its SomeT-to-SomeT binding in `_resolve_some_types_deep`). It no longer blocks
+  §3.2 steps 3–4. Do not expect step 3 to catch a body that mixes two distinct binders
+  (`*T` passed where the callee's one `U` already took `*S`). The trial treats unresolved
+  binders leniently, so no error is recorded, and the concrete specialization reports the
+  mismatch (the issue doc's "What the trial does not catch").
+- **`issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md`**
+  (found in review, fixed on `tss/generic-extern-trial`): the same false trial error on
+  the Yo-fn route. `_funcval_bind_foralls`'s structural fallback did not bind `U` from
+  `a : *U` given the caller's rigid `*T`, so a `-> *U` or `-> Pair(*U, *U)` callee failed
+  its caller's trial with a swallowed E0613. Without the fix this blocks step 3 for user code.
+- **`issues/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md`**
+  (S2, open, found in the same review): `wrap(y)` with `y` from another `wrap` call returns a
+  second C type for `Option(Option(i32))`. This is type identity (the enum key's
+  `g_tk_visited` cycle guard is the unconfirmed suspect) and belongs with
+  `tss/phantom-enum-type-args`.
 
 ### 3.4 Impl ordering
 
