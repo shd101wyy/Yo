@@ -1558,7 +1558,12 @@ FusedAwaitSite :: struct(
   wrapper_body : AstExpr,
   prologue : ArrayList(AstExpr),
   io_async_call : AstExpr,
-  block : DeferredAsyncBlock
+  block : DeferredAsyncBlock,
+  /// The block's locals that live across one of its suspensions, by the same
+  /// analysis the wrapper's own state machine uses (`_block_cross_boundary`).
+  /// Only these get fields; the rest stay C locals of the site's C block, as
+  /// they are in the wrapper's own resume function.
+  cross_ids : HashSet(String)
 );
 /// Report why a fusable site is not lowered (`YO_DEBUG_FUSION`), and give up.
 _fusion_not_lowered :: (fn(await_expr : AstExpr, why : String, report : bool) -> Option(FusedAwaitSite))({
@@ -1671,7 +1676,8 @@ fused_await_site :: (fn(await_expr : AstExpr, report : bool, context : FunctionG
       wrapper_body : wrapper_body,
       prologue : prologue,
       io_async_call : io_call,
-      block : block
+      block : block,
+      cross_ids : _block_cross_boundary(block, context).cross_boundary_ids
     )
   )
 });
@@ -1718,11 +1724,13 @@ fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGener
   });
   out
 });
-/// A fused block's local variables: every `Local` of its analysis gets a
-/// field in the caller (no cross-boundary filtering: a field is always
-/// correct), under the stable name the naming registry gives the binding
-/// (`var_<name>_<decl-site hash>`, unique in the program, so it cannot clash
-/// with the caller's own). Every emitter that reads `sm_local_field_name`
+/// A fused block's cross-boundary locals (`FusedAwaitSite.cross_ids`): each
+/// gets a field in the caller under the stable name the naming registry gives
+/// the binding (`var_<name>_<decl-site hash>`, unique in the program, so it
+/// cannot clash with the caller's own). Every other local is a C local, as in
+/// the wrapper's own resume function: an await's future temp, for one, goes
+/// straight into the await slot, and a field for it would only be dropped and
+/// zeroed, never written. Every emitter that reads `sm_local_field_name`
 /// then finds it. Returns (variable id, field name, type).
 FusedLocalField :: struct(id : String, field_name : String, ty : TypeValue);
 _fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))({
@@ -1733,7 +1741,7 @@ _fused_local_fields :: (fn(site : FusedAwaitSite) -> ArrayList(FusedLocalField))
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
       cvs.get(i),
-      .Some(v) => if(match(v.kind, .Local => true, _ => false), {
+      .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         out.push(FusedLocalField(id : v.base.id.to_string(), field_name : sm_local_field_name(v.base.id.to_string()), ty : v.base.ty));
       }),
       .None => ()
@@ -1834,7 +1842,7 @@ _fused_sm_variables :: (fn(site : FusedAwaitSite) -> HashMap(String, CapturedVar
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
       cvs.get(i),
-      .Some(v) => if(match(v.kind, .Local => true, _ => false), {
+      .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         vars.insert(v.base.id.to_string(), v);
       }),
       .None => ()

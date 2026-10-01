@@ -16,12 +16,14 @@ pragma(Pragma.AllowUnsafe);
 { Instant } :: import("std/time/instant");
 { env } :: import("std/env");
 IO_tcp :: import("std/sys/tcp");
+{ MSG_NOSIGNAL } :: import("std/sys/socket");
 { GlobalAllocator } :: import("std/allocator");
 { malloc } :: GlobalAllocator;
 
-// The raw ops pass exactly the flags std's stream writes pass on this tree,
-// so the two modes make the same syscalls and differ only in the wrapper.
-STD_SEND_FLAGS :: i32(0);
+// The raw ops pass exactly the flags std's stream writes pass on this tree
+// (`MSG_NOSIGNAL`), so the two modes make the same syscalls and differ only in
+// the wrapper.
+STD_SEND_FLAGS :: MSG_NOSIGNAL;
 ROUNDS :: i64(40000);
 K :: usize(8);
 WRITES :: i64(100000);
