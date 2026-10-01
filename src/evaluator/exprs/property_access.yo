@@ -25,7 +25,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin_type,
   lookup_io_builtin_struct_field,
   ComptimeRef,
-  expr_info_set_comptime_ref
+  expr_info_set_comptime_ref,
+  scope_release_note_query
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -588,6 +589,9 @@ evaluate_property_access :: (
     .Some(a) => a,
     .None => make_err_expr()
   );
+  if(ast_expr_is_atom(property_expr), {
+    scope_release_note_query(ast_expr_id(property_expr), ast_expr_token(property_expr).value);
+  });
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
