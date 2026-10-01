@@ -109,7 +109,7 @@ test("broadcast releases every waiter", {
     handles.push(
       Thread(unit).spawn(io => {
         m.with_lock(_v => {
-          parked.send(i32(1));
+          _ := parked.send(i32(1));
           while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {
             cv.wait_with(m);
           });

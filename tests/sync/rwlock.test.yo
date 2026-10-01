@@ -412,7 +412,7 @@ test("try_with_write fails while a reader holds the lock", {
   release := Channel(i32).new(usize(1));
   reader := Thread(unit).spawn(io => {
     lock.with_read(v => {
-      reading.send(i32(1));
+      _ := reading.send(i32(1));
       release.recv();
     });
   });
@@ -430,7 +430,7 @@ test("try_with_read fails while a writer holds the lock", {
   release := Channel(i32).new(usize(1));
   writer := Thread(unit).spawn(io => {
     lock.with_write(v => {
-      writing.send(i32(1));
+      _ := writing.send(i32(1));
       release.recv();
       v = i64(42);
     });
@@ -450,7 +450,7 @@ test("a failed try_with_read leaves the reader count untouched", {
   release := Channel(i32).new(usize(1));
   writer := Thread(unit).spawn(io => {
     lock.with_write(v => {
-      writing.send(i32(1));
+      _ := writing.send(i32(1));
       release.recv();
     });
   });

@@ -198,7 +198,7 @@ test("Channel single producer single consumer with Thread", {
   producer := Thread(unit).spawn(io => {
     i := i32(0);
     while(runtime(i < i32(5)), {
-      ch.send(i);
+      _ := ch.send(i);
       i = (i + i32(1));
     });
   });
@@ -225,7 +225,7 @@ test("Channel thread producer sends many values", {
   t := Thread(unit).spawn(io => {
     i := i32(0);
     while(runtime(i < i32(10)), {
-      ch.send(i);
+      _ := ch.send(i);
       i = (i + i32(1));
     });
   });
@@ -256,7 +256,7 @@ test("Channel consumer thread blocks until producer sends", {
   });
   // Sleep briefly so consumer has time to block on recv
   sleep_blocking(Duration.from_millis(i64(50)));
-  ch.send(i32(999));
+  _ := ch.send(i32(999));
   consumer.join();
 });
 test("Channel close wakes blocked consumer Thread", {
@@ -278,12 +278,12 @@ test("Channel bounded capacity blocks producer", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(2));
   // Fill the channel
-  ch.send(i32(1));
-  ch.send(i32(2));
+  _ := ch.send(i32(1));
+  _ := ch.send(i32(2));
   // Channel is now full
   // Producer thread will block because channel is full
   producer := Thread(unit).spawn(io => {
-    ch.send(i32(3)); // Blocks until consumer drains
+    _ := ch.send(i32(3)); // Blocks until consumer drains
   });
   // Sleep briefly to let producer block
   sleep_blocking(Duration.from_millis(i64(50)));
@@ -303,8 +303,8 @@ test("Channel capacity 1 works as rendezvous", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
   t := Thread(unit).spawn(io => {
-    ch.send(i32(100));
-    ch.send(i32(200));
+    _ := ch.send(i32(100));
+    _ := ch.send(i32(200));
   });
   // Small delay to let first send complete
   sleep_blocking(Duration.from_millis(i64(50)));
@@ -324,7 +324,7 @@ test("Channel send from pool task recv from main", {
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
   spawn(pool, io => {
-    ch.send(i32(42));
+    _ := ch.send(i32(42));
     wg.done();
   });
   wg.wait();
@@ -339,9 +339,9 @@ test("Channel pool task sends multiple values", {
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
   spawn(pool, io => {
-    ch.send(i32(10));
-    ch.send(i32(20));
-    ch.send(i32(30));
+    _ := ch.send(i32(10));
+    _ := ch.send(i32(20));
+    _ := ch.send(i32(30));
     wg.done();
   });
   wg.wait();
