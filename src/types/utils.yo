@@ -1656,6 +1656,8 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     .Array({ element : el }) => recur(el),
     // str: pointer-aligned (fat pointer {ptr,len})
     .Str => .Some(usize(get_target_pointer_size_bytes())),
+    // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
+    .DynT({}) => .Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
@@ -1868,6 +1870,13 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     ),
     // str: fat pointer (pointer + length) = 2 × pointer size
     .Str => .Some(usize(u32(2) * get_target_pointer_size_bits())),
+    // Dyn(Trait...): a fat pointer `{ void* data; const vtable* vtable; }`
+    // whatever the traits (codegen/types/generation.yo emits exactly that
+    // struct) = 2 × pointer size. Unknown here, `x :: sizeof(Dyn(Error))` and
+    // `size_would_overflow(Dyn(Error), n)` emitted a reference to an
+    // undeclared `x` / `type_size`
+    // (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
+    .DynT({}) => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size. Value structs get
     // the same cycle backstop as value enums (see `g_size_walk_stack`).

@@ -311,6 +311,19 @@ mm_resolve_entry_abs :: (fn(input_path : String, std_path : String) -> String)(
     .Unavailable(_, _) => input_path
   )
 );
+/// Resolve an import-path string the way the demand loader would, relative
+/// to `base_dir` (the importing document's directory) — the LSP's
+/// documentLink target computation. Same fallbacks as
+/// `mm_resolve_entry_abs`: unresolvable input comes back verbatim.
+mm_resolve_import_abs :: (fn(input_path : String, base_dir : String, std_path : String) -> String)(
+  match(
+    resolve_module_path_ex(input_path.clone(), base_dir.clone(), std_path, false),
+    .Found(p) => p,
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone(),
+    .Unavailable(_, _) => input_path
+  )
+);
 // Open-document text overlay (Phase B1): the LSP holds newer text for open
 // buffers than the disk does. `_load_module_at_abs` consults this AFTER its
 // disk read, so an importing document's analysis sees the editor's version
@@ -2619,6 +2632,7 @@ export(
   mm_shared_expr_info_table,
   mm_fresh_module_env,
   mm_resolve_entry_abs,
+  mm_resolve_import_abs,
   mm_invalidate_document,
   mm_set_open_document,
   mm_forget_open_document,

@@ -20,7 +20,7 @@
 { classify_atom_roles, AtomRoles } :: import("./hover.yo");
 { keyword_names } :: import("./completion.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, jnum } :: import("./protocol.yo");
+{ jb, jstr, jnum, line_at, rune_col_to_client } :: import("./protocol.yo");
 
 _push_fold :: (
   fn(out : ArrayList(JsonValue), seen : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
@@ -89,7 +89,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
 export(handle_folding_ranges, handle_semantic_tokens);
 
 // ---------------------------------------------------------------------------
-// textDocument/semanticTokens (plans/LSP_AUDIT_2026-09-29.md §3) — a
+// textDocument/semanticTokens (plans/archive/LSP_AUDIT_2026-09-29.md §3) — a
 // syntactic first cut: what a TextMate grammar cannot know (which
 // identifiers are types, functions, members/labels vs plain variables),
 // read off the ExprInfo side table and the atom roles; literals, comments
@@ -181,11 +181,57 @@ _semantic_walk :: (
   );
 });
 
+/// The delta-encoding cursor for the semantic-tuples below: the last emitted
+/// token's (line, WIRE character). Passed through and returned by
+/// `_emit_sem_segment` — a struct, the house shape for a multi-value return.
+SemCursor :: struct(
+  prev_line : usize,
+  prev_char : usize
+);
+
+/// Append one token's 5-tuple, converting the segment's start column AND
+/// width to the negotiated wire encoding against the segment's own line
+/// (`rune_col_to_client` is monotonic, so the width is the difference of the
+/// two converted columns). Returns the advanced cursor.
+_emit_sem_segment :: (
+  fn(
+    lines : ArrayList(String),
+    data : ArrayList(JsonValue),
+    row : usize,
+    col : usize,
+    width : usize,
+    kind : usize,
+    cur : SemCursor
+  ) -> SemCursor
+)({
+  line := line_at(lines, row);
+  wire_col := rune_col_to_client(line.clone(), col);
+  wire_end := rune_col_to_client(line.clone(), col + width);
+  delta_line := (row - cur.prev_line);
+  delta_char := cond((row == cur.prev_line) => (wire_col - cur.prev_char), true => wire_col);
+  data.push(jnum(delta_line));
+  data.push(jnum(delta_char));
+  data.push(jnum(wire_end - wire_col));
+  data.push(jnum(kind));
+  data.push(jnum(usize(0)));
+  SemCursor(prev_line : row, prev_char : wire_col)
+});
+
 /// `textDocument/semanticTokens/full`: the whole document's tokens,
 /// delta-encoded 5-tuples (deltaLine, deltaStartChar, length, tokenType,
 /// tokenModifiers — always 0, no modifiers in the legend). Identifiers the
 /// analysis could not classify (a stale token match) are SKIPPED rather
 /// than guessed; keywords are classified from the token itself.
+///
+/// Positions and lengths are WIRE-encoded (utf-16 by default), like every
+/// other emitted column, and a token spanning lines (a block comment, a
+/// multi-line template string) is split into one segment per line — the
+/// protocol has no multi-line token. Both come from the token's exact
+/// SOURCE span — `t.byte_offset` up to the next token's `byte_offset`,
+/// trimmed back over whitespace — never from `t.value`: template-string
+/// values are escape-DECODED (a `\uXXXX` escape is six source runes but one
+/// value rune), so a value-derived length undercounts
+/// (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
 handle_semantic_tokens :: (
   fn(text : String, doc_abs : String, exprs : ArrayList(AstExpr), info_table : ExprInfoTable) -> JsonValue
 )({
@@ -207,9 +253,9 @@ handle_semantic_tokens :: (
     wi = (wi + usize(1));
   });
   kws := keyword_names();
+  lines := text.split(String.from("\n"));
   data := ArrayList(JsonValue).new();
-  (prev_line : usize) = usize(0);
-  (prev_char : usize) = usize(0);
+  cursor := SemCursor(prev_line : usize(0), prev_char : usize(0));
   (ti : usize) = usize(0);
   while(ti < tokens.len(), {
     t := match(
@@ -266,18 +312,58 @@ handle_semantic_tokens :: (
     if(kind == usize(999), {
       continue;
     });
-    row := usize(t.row);
-    col := usize(t.column);
-    delta_line := (row - prev_line);
-    delta_char := cond((row == prev_line) => (col - prev_char), true => col);
-    length := t.value.chars().count();
-    data.push(jnum(delta_line));
-    data.push(jnum(delta_char));
-    data.push(jnum(length));
-    data.push(jnum(kind));
-    data.push(jnum(usize(0)));
-    prev_line = row;
-    prev_char = col;
+    // The token's source span ends where the NEXT token begins (EOF for the
+    // last one), trimmed back over whitespace between the two — a gap
+    // between consecutive tokens is whitespace by construction, and the
+    // token's own text never ends in whitespace except a trailing-space
+    // comment, where one lost space is cosmetic.
+    (end_byte : usize) = text.len();
+    match(
+      tokens.get(ti),
+      .Some(nx) => {
+        end_byte = usize(nx.byte_offset);
+      },
+      .None => ()
+    );
+    start_byte := usize(t.byte_offset);
+    while((end_byte > start_byte) && _sem_is_ws_byte(text.byte_at(end_byte - usize(1))), {
+      end_byte = (end_byte - usize(1));
+    });
+    if(end_byte <= start_byte, {
+      continue;
+    });
+    // Walk the span's bytes, closing one segment per newline; rune columns
+    // advance on UTF-8 LEAD bytes only (ASCII or >= 0xC0), never on
+    // continuation bytes.
+    (seg_row : usize) = usize(t.row);
+    (seg_start : usize) = usize(t.column);
+    (cur_col : usize) = usize(t.column);
+    (bi : usize) = start_byte;
+    while(bi < end_byte, {
+      b := text.byte_at(bi);
+      if(b == u8(0x0A), {
+        if((cur_col - seg_start) > usize(0), {
+          cursor = _emit_sem_segment(lines, data, seg_row, seg_start, cur_col - seg_start, kind, cursor);
+        });
+        seg_row = (seg_row + usize(1));
+        cur_col = usize(0);
+        seg_start = usize(0);
+      }, {
+        if((b < u8(0x80)) || (b >= u8(0xC0)), {
+          cur_col = (cur_col + usize(1));
+        });
+      });
+      bi = (bi + usize(1));
+    });
+    if((cur_col - seg_start) > usize(0), {
+      cursor = _emit_sem_segment(lines, data, seg_row, seg_start, cur_col - seg_start, kind, cursor);
+    });
   });
   jb().put("data", JsonValue.Array(items : data)).obj()
 });
+
+/// The whitespace bytes that can separate two consecutive tokens: space,
+/// tab, newline, carriage return.
+_sem_is_ws_byte :: (fn(b : u8) -> bool)(
+  (b == u8(0x20)) || (b == u8(0x09)) || ((b == u8(0x0A)) || (b == u8(0x0D)))
+);
