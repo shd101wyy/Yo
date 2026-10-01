@@ -2,7 +2,7 @@
 
 **Severity:** S1 — derived Eq on a ref(enum) with a Self payload is a hollow stub — the first runtime `==` FATALs
 
-**Status: OPEN (surfaced by the V5 task-6 verifier work, 2026-09-13).**
+**Status:** FIXED by #1062 (2026-09-30): a `ref(enum)` never takes the nullable-pointer layout, and a concrete impl's trait-constructor members are pending inner fields, so the derived `==` binds a real callee. Re-verified 2026-10-01: the reproducer below prints `eq=true` / `ne=false` on develop after #1062, and fails in the C compiler on #996's build. Regression: `tests/ref_enum.test.yo` (derived `Eq` on `Self`-payload ref enums). Surfaced by the V5 task-6 verifier work, 2026-09-13.
 
 ## Summary
 
