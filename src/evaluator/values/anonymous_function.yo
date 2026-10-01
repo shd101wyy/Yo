@@ -438,7 +438,7 @@ _collect_resume_args :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)(
         return(());
       });
       is_branchy := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
-      if(!(is_branchy) && is_function_boundary_arrow(e), {
+      if(!is_branchy && is_function_boundary_arrow(e), {
         return(());
       });
       recur(func_box, out);
@@ -466,7 +466,7 @@ _collect_resume_args :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)(
 /// A resume value no throw site can receive from a plain `ctl` handler: a
 /// concrete type, neither `()` nor a diverging one, with no type variable.
 _is_concrete_resume_type :: (fn(t : TypeValue) -> bool)(
-  ((!(is_unit_type(t)) && !(is_never_type(t))) && !(is_void_type(t))) && (get_all_some_types(t).len() == usize(0))
+  !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
 );
 _trial_eval_anon_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
@@ -1805,7 +1805,7 @@ Result type: ${type_to_string(decl_result_ty)}`
           },
           _ => false
         );
-        if((ctl_force && !(is_creating_closure)) && rv_generic, {
+        if(ctl_force && !is_creating_closure && rv_generic, {
           rv_values := ArrayList(AstExpr).new();
           _collect_resume_args(anon_eb, rv_values);
           // The tail resumes too, unless it unwinds.
@@ -1814,7 +1814,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             .FnCall(_, _, rv_targs, _, _) => if(ast_expr_is_fn_call_of(anon_eb, BK_BEGIN, .None), match(rv_targs.last(), .Some(t) => t, .None => anon_eb), anon_eb),
             .Atom(_, _) => anon_eb
           );
-          if(!(evaluated_body_contains_unwind(rv_tail)) && !(ast_expr_is_fn_call_of(rv_tail, BK_RETURN, .None)), {
+          if(!evaluated_body_contains_unwind(rv_tail) && !ast_expr_is_fn_call_of(rv_tail, BK_RETURN, .None), {
             rv_values.push(rv_tail);
           });
           (rv_k : usize) = usize(0);
