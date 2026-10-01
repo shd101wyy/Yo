@@ -29,7 +29,7 @@
 } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
-{ some_resolution } :: import("../../expr_info.yo");
+{ some_resolution, scope_release_note_hard } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
   extract_future_trait_from_type,
@@ -131,6 +131,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
       match(context.base.get_expr_info(func_expr), .Some(fei) => fei.env, .None => return(Option(String).None))
     }
   );
+  scope_release_note_hard(String.from("evidence-await"), ast_expr_id(expr));
   implicit_vars := get_variables_from_env_by_filter(call_env, (v : Variable) => true);
   // Reverse iteration: innermost (most-recently bound) given binding first.
   n := implicit_vars.len();

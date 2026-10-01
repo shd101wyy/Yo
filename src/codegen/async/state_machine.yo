@@ -10,7 +10,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
@@ -1192,6 +1192,7 @@ emit_effect_record_injection_for_sm :: (
         match(
           context.base.get_expr_info(expr),
           .Some(ei) => {
+            scope_release_note_hard(String.from("evidence-sm"), ast_expr_id(expr));
             implicit_vars := get_variables_from_env_by_filter(ei.env, (v : Variable) => true);
             (k : usize) = implicit_vars.len();
             while((k > usize(0)) && member_code.is_none(), {

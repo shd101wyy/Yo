@@ -29,7 +29,7 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  scope_release_note_name,
+  scope_release_note_binding,
   expr_info_table_get,
   has_any_control_flow,
   path_collection_new,
@@ -409,7 +409,7 @@ _evaluate_inout_local_binding :: (
   name_info := new_expr_info(env, place_type);
   name_info.path_collection = path_collection_new();
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(name_expr), name_info);
-  scope_release_note_name(ast_expr_id(name_expr), var_name.clone());
+  scope_release_note_binding(ast_expr_id(name_expr), env, var_name.clone());
   lhs_info := new_expr_info(env, t_unit());
   lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   match(
@@ -1235,7 +1235,7 @@ Use \`::\` for compile-time definitions inside impl.`
     );
     ali_final.env = env;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), ali_final);
-    scope_release_note_name(ast_expr_id(actual_lhs), var_name.clone());
+    scope_release_note_binding(ast_expr_id(actual_lhs), env, var_name.clone());
     // If name := handler, set ExprInfo on the outer given(...) wrapper.
     if(is_implicit, {
       lhs_info := new_expr_info(env, t_unit());
