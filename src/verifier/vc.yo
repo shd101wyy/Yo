@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ExprId,
   BK_TUPLE,
+  BF_DECREASES,
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_fn_call,
@@ -288,10 +289,27 @@ _int_is_signed :: (fn(t : TypeValue) -> bool)(
 /// (issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md).
 /// No ExprInfo (untyped measure) defaults to signed, like `_binop_of_ctx`.
 _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
+  cond(
+    _is_lex_measure(e) => false,
+    true => match(
+      expr_info_table_get(ctx.table, ast_expr_id(e)),
+      .Some(mi) => _int_is_signed(mi.ty),
+      .None => true
+    )
+  )
+);
+/// A lexicographic measure `decreases(m1, m2, ...)` (A5 of
+/// plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md; ATS `.<m, n>.`): the signature
+/// stores the `decreases(...)` call itself when it has more than one
+/// component. Its term is the bit-vector CONCATENATION m1 ++ m2 ++ ...;
+/// with every component proved non-negative on entry, unsigned order on the
+/// concatenation IS the lexicographic order on the components.
+_is_lex_measure :: (fn(e : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None));
+_lex_components :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(
-    expr_info_table_get(ctx.table, ast_expr_id(e)),
-    .Some(mi) => _int_is_signed(mi.ty),
-    .None => true
+    e,
+    .FnCall(_, _, ca, _, _) => ca,
+    .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
 (g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
@@ -1785,6 +1803,28 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
     },
     .None => ()
   );
+  if(_is_lex_measure(e), {
+    comps := _lex_components(e);
+    (lex_t : Option(VcTerm)) = Option(VcTerm).None;
+    (lci : usize) = usize(0);
+    while(lci < comps.len(), {
+      ct := _expr_term(ctx, comps.get(lci).unwrap());
+      if(ct.is_none(), {
+        return(Option(VcTerm).None);
+      });
+      if(_term_width(ct.unwrap()) <= usize(1), {
+        _fail_subset(ctx, String.from("a lexicographic decreases component must be an integer"), comps.get(lci).unwrap());
+        return(Option(VcTerm).None);
+      });
+      lex_t = match(
+        lex_t,
+        .Some(acc) => Option(VcTerm).Some(_app2(VcOp.ConcatOp, acc, ct.unwrap())),
+        .None => ct
+      );
+      lci = (lci + usize(1));
+    });
+    return(lex_t);
+  });
   info := match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(i) => i,
@@ -5911,6 +5951,7 @@ _app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
     .ZeroExtendOp(ze) => (_arg_width(args, usize(0)) + ze),
     .ExtractOp(eh, el) => ((eh - el) + usize(1)),
     .IntToBvOp(iw) => iw,
+    .ConcatOp => (_arg_width(args, usize(0)) + _arg_width(args, usize(1))),
     .SelectOp => match(
       args.get(usize(0)),
       .Some(arr) => _array_elem_width(arr),
@@ -6143,20 +6184,34 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   // under the assumed requires, where it is actually provable.
   match(
     ctx.decreases,
-    .Some(dm) => {
-      m := _expr_term(ctx, dm);
-      match(
-        m,
-        .Some(mt) => {
-          zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
-          nonneg_op := cond(
-            _measure_is_signed(ctx, dm) => VcOp.BvSge,
-            true => VcOp.BvUge
-          );
-          _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
-        },
-        .None => ()
+    .Some(dm0) => {
+      // A lexicographic measure proves each COMPONENT non-negative.
+      parts := cond(
+        _is_lex_measure(dm0) => _lex_components(dm0),
+        true => {
+          one := ArrayList(AstExpr).new();
+          one.push(dm0);
+          one
+        }
       );
+      (npi : usize) = usize(0);
+      while(npi < parts.len(), {
+        dm := parts.get(npi).unwrap();
+        m := _expr_term(ctx, dm);
+        match(
+          m,
+          .Some(mt) => {
+            zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
+            nonneg_op := cond(
+              _measure_is_signed(ctx, dm) => VcOp.BvSge,
+              true => VcOp.BvUge
+            );
+            _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
+          },
+          .None => ()
+        );
+        npi = (npi + usize(1));
+      });
     },
     .None => ()
   );

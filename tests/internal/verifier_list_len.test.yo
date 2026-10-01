@@ -479,3 +479,27 @@ test("a recursive ghost_fn is an axiomatized function: a loop invariant over it 
     `spin must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
   );
 });
+
+test("a lexicographic decreases(i, j) proves a recursion no single measure can; a raising call and the single measure refute", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/decreases_lexicographic.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(ok_reports, String.from("ok")) == usize(1),
+    `walk must verify, got: [${_reports_dump(ok_reports)}]`
+  );
+  bad_reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/decreases_lexicographic_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
+    `walk_up and walk_single must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
+  );
+});

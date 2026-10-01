@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ ast_expr_to_string } :: import("../../expr.yo");
+{ ast_expr_to_string, ast_expr_is_fn_call_of, BF_DECREASES } :: import("../../expr.yo");
 {
   EvalContext,
   set_rerun_pending_def_evals_fn,
@@ -99,6 +99,29 @@ pragma(Pragma.AllowUnsafe);
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
 
+/// The diagnostic evaluation of a `decreases` measure. A lexicographic
+/// measure is the `decreases(M1, M2, ...)` call itself (see the signature
+/// parser): each component is evaluated for its ExprInfo and the call node
+/// is kept, so the verifier reads the components back.
+_evaluated_measure_for_verify :: (fn(dm : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
+      match(
+        dm,
+        .FnCall(_, _, comps, _, _) => {
+          (mci : usize) = usize(0);
+          while(mci < comps.len(), {
+            _ := evaluated_for_verify(comps.get(mci).unwrap(), env, ctx, exn);
+            mci = (mci + usize(1));
+          });
+        },
+        .Atom(_, _) => ()
+      );
+      dm
+    },
+    true => evaluated_for_verify(dm, env, ctx, exn)
+  )
+);
 // V6 task 2: the per-clause predicate-evaluation swallow flag (the
 // capture-free-handler pattern — the handler cannot close over locals, so
 // the outcome rides a module global; reset before each clause).
@@ -1467,7 +1490,7 @@ Result type: ${type_to_string(result_box)}`
               ensures_exprs : evd_enss,
               decreases_expr : match(
                 get_func_decreases_expr(fn_val_id.clone()),
-                .Some(dm) => Option(AstExpr).Some(evaluated_for_verify(dm.clone(), pred_env, ctx, exn)),
+                .Some(dm) => Option(AstExpr).Some(_evaluated_measure_for_verify(dm.clone(), pred_env, ctx, exn)),
                 .None => Option(AstExpr).None
               ),
               return_label : get_func_return_label(fn_val_id.clone()),

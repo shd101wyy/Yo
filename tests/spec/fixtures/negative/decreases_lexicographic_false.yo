@@ -1,0 +1,21 @@
+// The false twins of valid/decreases_lexicographic.yo.
+pragma(Pragma.Verify);
+
+// Keeps i and RAISES j: not lexicographically smaller.
+walk_up :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
+  cond(
+    (i == u32(0)) => u32(0),
+    (j < u32(5)) => walk_up(i, j + u32(1)),
+    true => walk_up(i - u32(1), u32(0))
+  )
+);
+
+// The terminating body of `walk` with only the first component: the
+// call that keeps i fails the single measure.
+walk_single :: (fn(i : u32, j : u32, decreases(i)) -> u32)(
+  cond(
+    ((i == u32(0)) && (j == u32(0))) => u32(0),
+    (j == u32(0)) => walk_single(i - u32(1), u32(100)),
+    true => walk_single(i, j - u32(1))
+  )
+);
