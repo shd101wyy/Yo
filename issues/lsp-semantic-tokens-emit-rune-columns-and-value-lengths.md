@@ -4,7 +4,7 @@
 position encoding (utf-16 by default) and emits lengths that undercount
 escape-bearing strings and overflow the line for multi-line tokens. Found
 2026-09-30 by the closeout review of the 2026-09-29 audit's §3 item 5
-(`plans/LSP_AUDIT_2026-09-29.md`), which landed in #1020.
+(`plans/archive/LSP_AUDIT_2026-09-29.md`), which landed in #1020.
 
 ## Reproduction
 

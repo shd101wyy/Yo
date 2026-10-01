@@ -8,7 +8,10 @@
 //! evaluation errors.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Token } :: import("../token.yo");
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ Exception } :: import("std/error");
+{ _find_token_at } :: import("./hover.yo");
 { AstExpr, ast_expr_token, ast_expr_is_fn_call_of, ast_expr_is_atom } :: import("../expr.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum, j_range_in } :: import("./protocol.yo");
@@ -362,7 +365,7 @@ WorkspaceDoc :: struct(
   exprs : ArrayList(AstExpr),
   lines : ArrayList(String)
 );
-/// `textDocument/workspaceSymbol` (plans/LSP_AUDIT_2026-09-29.md §3): the
+/// `textDocument/workspaceSymbol` (plans/archive/LSP_AUDIT_2026-09-29.md §3): the
 /// top-level symbols of every OPEN document whose name matches `query`
 /// (case-insensitive substring; an empty query lists everything), as
 /// SymbolInformation items pointing into their document.
@@ -398,4 +401,122 @@ handle_workspace_symbols :: (fn(query : String, docs : ArrayList(WorkspaceDoc)) 
   });
   JsonValue.Array(items : out)
 });
-export(handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, SymbolEntry, WorkspaceDoc);
+
+/// Does impl-argument `e` (a Self type or a trait) name `name`? A bare
+/// atom, or an instantiated head — `ArrayList(T)` for a cursor on
+/// `ArrayList`, `ToString(...)` for a cursor on the trait.
+_impl_arg_is :: (fn(e : AstExpr, name : String) -> bool)(
+  match(
+    e,
+    .Atom(_, t) => (t.value == name),
+    .FnCall(_, func_box, _, _, _) => match(
+      func_box,
+      .Atom(_, ht) => (ht.value == name),
+      .FnCall(_, _, _, _, _) => false
+    )
+  )
+);
+/// `args.get(a)` is a `generic(...)` clause (the leading clauses of
+/// `impl(generic(T : Type), ArrayList(T), ...)`); false past the end.
+_impl_arg_is_generic :: (fn(args : ArrayList(AstExpr), a : usize) -> bool)(
+  match(
+    args.get(a),
+    .Some(arg) => ast_expr_is_fn_call_of(arg, "generic", .None),
+    .None => false
+  )
+);
+/// `textDocument/implementation` — a syntactic, SAME-FILE first cut (the
+/// same-file stance of references/rename; scanning every loaded module
+/// wants an index shape first). The cursor names a type or a trait: every
+/// top-level `impl(...)` block of this document that implements it answers
+/// a Location at the impl block's head token — the Self argument for a
+/// type cursor (`impl(Point, ...)`, `impl(generic(...), ArrayList(T), ...)`),
+/// the trait argument for a trait cursor (`impl(Point, ToString(...))`).
+handle_implementations :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    uri : String,
+    lines : ArrayList(String),
+    exprs : ArrayList(AstExpr),
+    line : usize,
+    character : usize
+  ) -> JsonValue
+)({
+  out := ArrayList(JsonValue).new();
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(JsonValue.Array(items : out));
+    }
+  );
+  if(target.kind != TokenKind.Identifier, {
+    return(JsonValue.Array(items : out));
+  });
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => {
+        if(ast_expr_is_fn_call_of(e, "impl", .None), {
+          match(
+            e,
+            .FnCall(_, _, args, _, itok) => {
+              // Skip the leading generic(...) clauses; the first remaining
+              // argument is the Self type, the second (when present) the
+              // trait.
+              (a : usize) = usize(0);
+              while(_impl_arg_is_generic(args, a), {
+                a = (a + usize(1));
+              });
+              self_matches := match(
+                args.get(a),
+                .Some(self_expr) => _impl_arg_is(self_expr, target.value.clone()),
+                .None => false
+              );
+              trait_matches := match(
+                args.get(a + usize(1)),
+                .Some(trait_expr) => _impl_arg_is(trait_expr, target.value.clone()),
+                .None => false
+              );
+              if(self_matches || trait_matches, {
+                out.push(
+                  jb().put("uri", jstr(uri.clone())).put(
+                    "range",
+                    j_range_in(
+                      lines,
+                      usize(itok.row),
+                      usize(itok.column),
+                      usize(itok.row),
+                      usize(itok.column) + itok.value.chars().count()
+                    )
+                  ).obj()
+                );
+              });
+            },
+            .Atom(_, _) => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : out)
+});
+
+export(
+  handle_document_symbols,
+  handle_document_symbols_flat,
+  handle_workspace_symbols,
+  handle_implementations,
+  SymbolEntry,
+  WorkspaceDoc
+);

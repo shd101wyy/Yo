@@ -110,16 +110,25 @@ Instantiated generics render as written — `ArrayList(i32)`, `Option(String)`,
   (`Poi` offers `Point`, not `JoinHandle`); dot completion matches the same
   way.
 
-### 4. Go to Definition
+### 4. Go to Definition / Declaration / Implementation
 
-Jumps to the declaration of a variable, function, type or imported name —
-across files when the name was imported — and of members: a field access or
-struct-literal label (`p.x`, `Point(x : …)`) lands on the field inside
-`struct(...)`, a variant (`Color.Red`, a `.Red` pattern) on the variant inside
-`enum(...)`, a method (`p.dist()`, `list.push`) on its `label : value` pair in
-the declaring `impl(...)` block (inherent, trait or generic, in this file or in
-the standard library), and `mod.f` on the `f ::` binding of the imported
-module.
+**Definition** jumps to the declaration of a variable, function, type or
+imported name — across files when the name was imported — and of members: a
+field access or struct-literal label (`p.x`, `Point(x : …)`) lands on the
+field inside `struct(...)`, a variant (`Color.Red`, a `.Red` pattern) on the
+variant inside `enum(...)`, a method (`p.dist()`, `list.push`) on its
+`label : value` pair in the declaring `impl(...)` block (inherent, trait or
+generic, in this file or in the standard library), and `mod.f` on the
+`f ::` binding of the imported module.
+
+**Declaration** answers exactly what definition does — in yo a binding has
+one site, no separate header shape — so editors that map "go to declaration"
+to its own request keep working.
+
+**Implementation** (`textDocument/implementation`) lists this file's
+`impl(...)` blocks for the type or trait under the cursor: a trait name
+offers every impl of it in the file, a type name offers its inherent and
+trait impls (same-file today, like references and rename).
 
 ### 5. Document Symbols
 
@@ -190,7 +199,15 @@ names and primitives answer nothing.
 (case-insensitive substring; an empty query lists them all). Closed files are
 not indexed — cross-module search wants an index-shape decision first.
 
-### 14. Semantic Tokens
+### 14. Document Links
+
+`textDocument/documentLink` turns every `import("path")` string literal into
+a link to the file it names — `std/…` paths through the standard library,
+`./…`/`../…` through the importing document's directory. Only links whose
+target exists are answered; a dependency name (resolved through the nearest
+manifest by the compiler) carries no link.
+
+### 15. Semantic Tokens
 
 `textDocument/semanticTokens/full` colors the document beyond what a TextMate
 grammar can know: keywords, strings, numbers and comments from the lexer, and
@@ -212,7 +229,11 @@ program and every type the evaluator recorded before the error.
 Edits to an open imported file are visible to the next analysis of any
 document that imports it (the server overlays open buffers on the module
 loader and invalidates the dependents). Edits to an imported file made
-**outside** the editor, and edits to `std/prelude.yo`, need a server restart.
+**outside** the editor arrive as `workspace/didChangeWatchedFiles` (editors
+watch the workspace): the module is purged from the cache and every open
+document is re-analyzed — the VS Code extension watches `**/*.yo`. Edits to
+`std/prelude.yo` still need a server restart (the prelude environment is
+cached once).
 
 ## Position encoding
 
@@ -245,10 +266,10 @@ without one.
 | `src/lsp/diagnostics.yo`      | document analysis and `publishDiagnostics`; diagnostics carry the `Repair` that `textDocument/codeAction` (in `server.yo`) serves |
 | `src/lsp/hover.yo`            | hover, shared token/candidate helpers, atom roles    |
 | `src/lsp/completion.yo`       | `textDocument/completion`                            |
-| `src/lsp/definition.yo`       | `textDocument/definition` and `typeDefinition`       |
+| `src/lsp/definition.yo`       | `textDocument/definition`, `typeDefinition`, `declaration` and `documentLink` |
 | `src/lsp/references.yo`       | `textDocument/references`, `documentHighlight` and the occurrence walker |
 | `src/lsp/rename.yo`           | `textDocument/rename` and `prepareRename`            |
-| `src/lsp/symbols.yo`          | `textDocument/documentSymbol` and `workspace/symbol` |
+| `src/lsp/symbols.yo`          | `textDocument/documentSymbol`, `workspace/symbol` and `implementation` |
 | `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                         |
 | `src/lsp/folding.yo`          | `textDocument/foldingRange` and `semanticTokens`     |
 

@@ -35,6 +35,13 @@ async function startClient() {
     documentSelector: [{ scheme: "file", language: "yo" }],
     // Full-document sync is what the server advertises; the client library
     // follows the server's capabilities automatically.
+    synchronize: {
+      // workspace/didChangeWatchedFiles: a .yo file edited outside the
+      // editor (git checkout, yo fix, another editor) purges the module
+      // cache and republishes diagnostics for open documents that import
+      // it — no server restart needed.
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.yo"),
+    },
   };
 
   client = new LanguageClient("yo", "Yo Language Server", serverOptions(), clientOptions);

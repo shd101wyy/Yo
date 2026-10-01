@@ -4,7 +4,7 @@
 then misbehaves silently (`begin`/`tuple`: the definition never runs and calls
 evaluate to unit) or fails later with a hard-to-read error (`array`: the
 evaluator reads the call as an array literal). Found 2026-09-30 while closing
-out the LSP audit (`plans/LSP_AUDIT_2026-09-29.md`): `textDocument/rename`
+out the LSP audit (`plans/archive/LSP_AUDIT_2026-09-29.md`): `textDocument/rename`
 validates `newName` against `is_reserved_builtin_binding_name`
 (`src/lsp/rename.yo`), so the hole also let rename splice `begin` into a buffer
 whose binding would never run.
