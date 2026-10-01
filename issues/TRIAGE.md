@@ -65,7 +65,6 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`httpmethod-from-string-returns-option-not-result.md`](./questions/httpmethod-from-string-returns-option-not-result.md) — `HttpMethod.from_string` should be a `FromString` impl — with which error type
 - [`lsp-completion-substring-matching.md`](./questions/lsp-completion-substring-matching.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./questions/manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) — how the `[package] yo` MSRV field is enforced: error vs warning, `>=` or range, checked where
-- [`may-a-plain-exception-handler-resume-the-throw-with-a-value.md`](./questions/may-a-plain-exception-handler-resume-the-throw-with-a-value.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`modifies-clause-for-callee-side-effects.md`](./questions/modifies-clause-for-callee-side-effects.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`no-volatile-so-black-box-needs-inline-asm.md`](./questions/no-volatile-so-black-box-needs-inline-asm.md) — `volatile` qualifier, volatile builtins, or a per-target `__yo_black_box` builtin
 - [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./questions/spawn-blocking-degrades-to-inline-on-a-threadless-target.md) — how a caller learns `spawn_blocking` degrades to inline on a threadless target

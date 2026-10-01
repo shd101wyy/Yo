@@ -2,7 +2,7 @@
 
 **Severity:** S1 — silently wrong value: the program compiles and the throw expression evaluates to 0, not the handler's value
 
-**Status:** open. It waits on the language decision in `issues/questions/may-a-plain-exception-handler-resume-the-throw-with-a-value.md`, whose recommendation is to reject such a handler at compile time. Re-verified 2026-10-01 on develop `29bf728b4`: `err -> i32(7)` and `err -> { return(i32(7)); }` both pass `yo check`, and the throw sites read 0.
+**Status:** open
 **Found:** 2026-09-30, writing `tests/async/fusion.test.yo` for the await-site
 fusion (`plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`).
 **Reproducer:** `issues/repros/a-plain-exception-handler-that-returns-a-value.yo`
