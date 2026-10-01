@@ -221,7 +221,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | S2 | OPEN | — |
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | S2 | — | — |
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | S2 | open (found 2026-09-09 while adding `Encoding | yes |
-| [`derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md`](./derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md) | S2 | — | yes |
 | [`derived-eq-ref-enum-self-payload-hollow-at-runtime.md`](./derived-eq-ref-enum-self-payload-hollow-at-runtime.md) | S1 | — | — |
 | [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | S3 | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | S2 | OPEN | — |

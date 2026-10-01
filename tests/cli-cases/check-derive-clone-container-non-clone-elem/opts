@@ -1,0 +1,8 @@
+# derive(S, Clone) where the field is ArrayList(R) and R has no Clone:
+# check stayed green and the hollow clone shipped (abort at the first
+# clone call) when the missing-method failure surfaced inside STD's Clone
+# impl rather than directly in the auto-generated body
+# (issues/fixed/derive-clone-over-an-arraylist-field-emits-a-hollow-clone.md
+# — fixed by #968's per-node re-raise, which reaches this shape too; this
+# case pins it). The positive canary (derive(R, Clone) first: deep clone,
+# fresh container) is in tests/derive.test.yo.
