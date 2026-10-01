@@ -565,14 +565,14 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_COMPTIME_RUNTIME_BINDING,
       "runtime variable in a compile-time context",
       "编译期上下文中的运行时变量",
-      "A `:=` declares a runtime variable, but this function body runs only at compile time.",
-      "`:=` 声明的是运行时变量，但这个函数体只在编译期执行。",
-      "`:=` declares a runtime variable and `::` a compile-time one. The body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) has no runtime, so its locals are declared with `::`. A `::` variable is still mutable: reassign it with `=` in a loop as usual. A function literal nested inside such a body is judged by its own return type, so a runtime method or closure defined there keeps its `:=`. `yo fix` rewrites the `:=`.",
-      "`:=` 声明运行时变量，`::` 声明编译期变量。声明为返回编译期值的函数（`-> comptime(T)`、`-> Type`、`-> Expr` 等）的函数体没有运行时，因此其局部变量要用 `::` 声明。`::` 变量依然可变：可以像平常一样在循环中用 `=` 重新赋值。嵌套在这种函数体内的函数字面量按它自己的返回类型判断，所以在其中定义的运行时方法或闭包可以继续使用 `:=`。`yo fix` 会改写这里的 `:=`。",
-      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc := i32(0);\n  acc\n});\n",
-      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  acc\n});\n",
-      "`acc` is a local of a compile-time function body, so it is declared with `::`.",
-      "`acc` 是编译期函数体的局部变量，因此用 `::` 声明。"
+      "A local is declared with a runtime form, but this function body runs only at compile time.",
+      "局部变量用运行时形式声明，但这个函数体只在编译期执行。",
+      "`:=` and `(name : T) = …` (or a bare `name : T`) declare runtime variables, and `inout(name) := place` binds a reference to runtime storage. The body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) has no runtime, so its locals use the compile-time forms: `name :: value`, `(comptime(name) : T) = value`, `comptime(name) := value` or `comptime(name) : T`. They are still mutable: reassign them with `=` in a loop as usual. A function literal nested inside such a body is judged by its own return type, so a runtime method or closure defined there keeps its runtime locals. `yo fix` rewrites `:=` to `::` and `name` to `comptime(name)`.",
+      "`:=` 与 `(name : T) = …`（以及单独的 `name : T`）声明运行时变量，`inout(name) := place` 绑定指向运行时存储的引用。声明为返回编译期值的函数（`-> comptime(T)`、`-> Type`、`-> Expr` 等）的函数体没有运行时，因此其局部变量要用编译期形式：`name :: value`、`(comptime(name) : T) = value`、`comptime(name) := value` 或 `comptime(name) : T`。它们依然可变：可以像平常一样在循环中用 `=` 重新赋值。嵌套在这种函数体内的函数字面量按它自己的返回类型判断，所以在其中定义的运行时方法或闭包可以保留运行时局部变量。`yo fix` 会把 `:=` 改写为 `::`，把 `name` 改写为 `comptime(name)`。",
+      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc := i32(0);\n  (step : i32) = n;\n  (acc + step)\n});\n",
+      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  (comptime(step) : i32) = n;\n  (acc + step)\n});\n",
+      "`acc` and `step` are locals of a compile-time function body, so they use the compile-time forms `::` and `comptime(step)`.",
+      "`acc` 与 `step` 是编译期函数体的局部变量，因此使用编译期形式 `::` 与 `comptime(step)`。"
     )
   );
   out.push(

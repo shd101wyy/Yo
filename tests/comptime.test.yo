@@ -3563,10 +3563,12 @@ comptime_assert(CFG_JSON.get("port").as_int(0) == CFG_TOML.get("port").as_int(-1
 // A malformed document is a compile error at the call site, not a runtime one.
 comptime_expect_error(BAD_JSON :: comptime_json_parse("{ not json"));
 comptime_expect_error(BAD_TOML :: comptime_toml_parse("= no key"));
-// `:=` declares a RUNTIME variable, so the body of a function declared to
-// return a compile-time value rejects it (E1104); its locals are `::`, which
-// stay mutable. A runtime function literal nested in such a body, and a
-// runtime function evaluated at compile time, keep their `:=`
+// Runtime declarations (`:=`, `(x : T) = v`, `x : T`, `inout(y) := x`) are
+// rejected in the body of a function declared to return a compile-time value
+// (E1104); the compile-time forms (`::`, `(comptime(x) : T) = v`,
+// `comptime(x) := v`, `comptime(x) : T`) stay legal and mutable. A runtime
+// function literal nested in such a body, and a runtime function evaluated at
+// compile time, keep their runtime locals
 // (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
 _ct_doubler :: (fn(comptime(T) : Type) -> comptime(Type))({
   S :: struct(value : T);
@@ -3574,7 +3576,8 @@ _ct_doubler :: (fn(comptime(T) : Type) -> comptime(Type))({
     S,
     doubled : (fn(self : Self) -> T)({
       twice := (self.value + self.value);
-      twice
+      (copy : T) = twice;
+      copy
     })
   );
   S
@@ -3586,9 +3589,12 @@ _rt_factorial :: (fn(x : i32) -> i32)({
     true => (x * recur(x - step))
   )
 });
-test("`:=` in a compile-time function body is E1104; `::` locals stay mutable", {
+// `comptime(name) := v` is a compile-time binding at module level too.
+comptime(_ct_module_seven) := 7;
+comptime_assert(_ct_module_seven == 7);
+test("runtime declarations in a compile-time function body are E1104", {
   comptime_expect_error({
-    bad_factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
+    bad_walrus :: (fn(comptime(n) : i32) -> comptime(i32))({
       result := i32(1);
       i := i32(1);
       while(comptime(i <= n), {
@@ -3598,7 +3604,29 @@ test("`:=` in a compile-time function body is E1104; `::` locals stay mutable", 
       return(result);
     });
   }, "`:=` declares a runtime variable");
-  good_factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
+  comptime_expect_error({
+    bad_typed :: (fn(comptime(n) : i32) -> comptime(i32))({
+      (i : i32) = i32(0);
+      (i + n)
+    });
+  }, "declares a runtime variable");
+  comptime_expect_error({
+    bad_bare :: (fn(comptime(n) : i32) -> comptime(i32))({
+      i : i32;
+      i = n;
+      i
+    });
+  }, "declares a runtime variable");
+  comptime_expect_error({
+    bad_inout :: (fn(comptime(n) : i32) -> comptime(i32))({
+      x :: n;
+      inout(y) := x;
+      y
+    });
+  }, "binds a reference to runtime storage");
+});
+test("compile-time locals in a compile-time function body stay mutable", {
+  with_colon_colon :: (fn(comptime(n) : i32) -> comptime(i32))({
     result :: i32(1);
     i :: i32(1);
     while(comptime(i <= n), {
@@ -3607,10 +3635,28 @@ test("`:=` in a compile-time function body is E1104; `::` locals stay mutable", 
     });
     return(result);
   });
-  comptime_assert(good_factorial(10) == i32(3628800));
-  // A runtime method defined inside a compile-time body keeps its `:=`.
+  comptime_assert(with_colon_colon(10) == i32(3628800));
+  with_typed :: (fn(comptime(n) : i32) -> comptime(i32))({
+    (comptime(i) : i32) = i32(0);
+    i = (i + n);
+    i
+  });
+  comptime_assert(with_typed(5) == i32(5));
+  with_wrapped_walrus :: (fn(comptime(n) : i32) -> comptime(i32))({
+    comptime(i) := i32(2);
+    i = (i * n);
+    i
+  });
+  comptime_assert(with_wrapped_walrus(4) == i32(8));
+  with_bare :: (fn(comptime(n) : i32) -> comptime(i32))({
+    comptime(i) : i32;
+    i = (n + i32(1));
+    i
+  });
+  comptime_assert(with_bare(4) == i32(5));
+  // A runtime method defined inside a compile-time body keeps its runtime locals.
   d := _ct_doubler(i32)(value : i32(21));
-  assert(d.doubled() == i32(42), "nested runtime `:=` still works");
+  assert(d.doubled() == i32(42), "nested runtime locals still work");
   // So does a runtime function evaluated at compile time.
   ct_factorial :: comptime_fn(_rt_factorial);
   comptime_assert(ct_factorial(i32(5)) == 120);

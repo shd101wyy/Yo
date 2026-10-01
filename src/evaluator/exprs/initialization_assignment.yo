@@ -20,6 +20,7 @@
   BK_CONST,
   BK_INIT_ASSIGN,
   BK_GIVEN,
+  BK_COMPTIME,
   BK_INOUT,
   BK_THREAD_LOCAL,
   BF_DOT,
@@ -72,16 +73,15 @@
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
-{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
-{ get_func_type, is_fn_ctfe_clone } :: import("../../function_value.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -445,52 +445,6 @@ _rhs_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
     )
   )
 });
-/// True when the innermost function body under evaluation belongs to a
-/// function DECLARED to return a compile-time value (`-> comptime(T)`,
-/// `-> Type`, `-> Expr`, …): a compile-time context, where a `:=` (a runtime
-/// variable) cannot appear.
-///
-/// The declared type is the one registered for the function value, not the
-/// context's `func_type`: CTFE capability analysis evaluates a RUNTIME
-/// function under a synthesized comptime type with the runtime function as
-/// its value, and a `comptime_fn` clone carries a comptime type over the
-/// runtime body the user wrote. Neither is a compile-time context. A function
-/// literal nested in a compile-time body opens its own function-body context,
-/// so a runtime method or closure defined there keeps its `:=`.
-_in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
-  match(
-    ctx.is_evaluating_function_body_or_async_block,
-    .Some(fctx) => match(
-      fctx.kind,
-      .FunctionBody => match(
-        fctx.func_value,
-        .Some(fv) => match(
-          fv,
-          .FuncVal(fvd, _) => {
-            fid := fvd.*.func_id;
-            declared := get_func_type(fid.clone());
-            cond(
-              is_fn_ctfe_clone(fid) => false,
-              is_function_type_and_returns_comptime_value(declared) => true,
-              // Unregistered value: fall back to the context's type, which is
-              // the declared one for every site that evaluates a user body.
-              is_unit_type(declared) => match(
-                fctx.func_type,
-                .Some(ft) => is_function_type_and_returns_comptime_value(ft),
-                .None => false
-              ),
-              true => false
-            )
-          },
-          _ => false
-        ),
-        .None => false
-      ),
-      _ => false
-    ),
-    .None => false
-  )
-);
 evaluate_initialization_assignment :: (
   fn(
     expr : AstExpr,
@@ -513,13 +467,40 @@ evaluate_initialization_assignment :: (
       )
     );
   });
-  // `:=` declares a RUNTIME variable, so it cannot appear in a compile-time
-  // context: the body of a function declared to return a compile-time value
-  // (E1104, issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
-  // Checked before `force_compile_time_bindings` is consulted, because that
-  // flag is set for every compile-time body evaluation and used to turn the
-  // `:=` into a `::` silently.
-  if(is_init_assign && _in_compile_time_fn_body(ctx), {
+  // Extract lhs and rhs from args.
+  (lhs : AstExpr) = match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  (rhs : AstExpr) = match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  // `name := rhs` and `inout(name) := place` declare RUNTIME storage, so
+  // neither can appear in a compile-time context: the body of a function
+  // declared to return a compile-time value (E1104,
+  // issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+  // `comptime(name) := rhs` and `given(name) := rhs` are compile-time forms
+  // and stay legal. Checked before `force_compile_time_bindings` is consulted:
+  // that flag is set for every compile-time body evaluation and used to turn
+  // the `:=` into a `::` silently.
+  is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
+  if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
+    if(ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("`inout(name) := ...` binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
+            ),
+            E_COMPTIME_RUNTIME_BINDING
+          )
+        )
+      );
+    });
     exn.throw(
       dyn(
         with_code(
@@ -542,20 +523,23 @@ evaluate_initialization_assignment :: (
   // For type conversion purposes, only `::` suppresses comptime→runtime
   // conversion; `:=` with forceCompileTimeBindings still converts.
   should_convert_to_runtime_type := !is_const;
-  // Extract lhs and rhs from args.
-  (lhs : AstExpr) = match(
-    expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
-  );
-  (rhs : AstExpr) = match(
-    expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
-  );
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
+  // `comptime(name) := rhs` is the compile-time spelling of `:=` (DESIGN.md
+  // "Variables"): it binds `name` exactly like `name :: rhs`. It used to fall
+  // through to the destructuring branch and fail with "Destructuring
+  // assignment not supported for the right-hand type"
+  // (issues/fixed/comptime-name-colon-equals-is-parsed-as-destructuring.md).
+  if(is_comptime_wrapped, {
+    is_compile_time_only = true;
+    should_convert_to_runtime_type = false;
+    actual_lhs = match(
+      lhs,
+      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+  });
   // `inout(name) := place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
@@ -1282,8 +1266,8 @@ Use \`::\` for compile-time definitions inside impl.`
     );
     ali_final.env = env;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), ali_final);
-    // If name := handler, set ExprInfo on the outer given(...) wrapper.
-    if(is_implicit, {
+    // Set ExprInfo on the outer given(...) / comptime(...) wrapper.
+    if(is_implicit || is_comptime_wrapped, {
       lhs_info := new_expr_info(env, t_unit());
       lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);

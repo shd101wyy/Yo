@@ -246,12 +246,17 @@ Yo's CTFE is more flexible than Rust's `const fn` in several ways:
 
 During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
 
-1. Evaluates the body's `::` locals as compile-time values. Every Yo variable
-   is mutable, so a `::` accumulator is reassigned in a loop like any other
-   (`result = (result * i)`). `:=` declares a *runtime* variable and is not
-   allowed in a compile-time context; the evaluator still accepts it there
-   today and treats it like `::`, which is a bug
-   ([`issues/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/colon-equals-is-accepted-in-a-compile-time-context.md)).
+1. Evaluates the body's compile-time locals as compile-time values. Every Yo
+   variable is mutable, so a `::` accumulator is reassigned in a loop like any
+   other (`result = (result * i)`). The compile-time forms are `x :: v`,
+   `(comptime(x) : T) = v`, `comptime(x) := v` and `comptime(x) : T`. The
+   runtime forms (`x := v`, `(x : T) = v`, `x : T`, `inout(y) := x`) are
+   error E1104 in the body of a function declared to return a compile-time
+   value; `yo explain E1104` has the details and `yo fix` rewrites `:=` to
+   `::` and `x` to `comptime(x)`. A runtime function literal nested in such a
+   body keeps its runtime locals, and so does a runtime function evaluated at
+   compile time (`comptime_fn(f)`)
+   ([`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only
 
