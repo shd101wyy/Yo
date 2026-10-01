@@ -734,6 +734,23 @@ test("Test 'struct'", {
     assert(p4.x == 14);
     assert(p4.y == 12);
   };
+  // A runtime CALL as a ?= default is REJECTED (maintainer verdict
+  // 2026-10-01: ?= stays compile-time known values, per DESIGN.md) — it used
+  // to slip the known-value gate as a FuncVal thunk and die at the C stage
+  // (issues/fixed/a-call-default-for-a-struct-field-emits-broken-c.md).
+  {
+    mk :: (fn() -> i32)(i32(9));
+    P2 :: struct(x : i32, (y : i32) ?= 12);
+    comptime_expect_error(P2bad :: struct(x : i32, (y : i32) ?= mk()), "runtime call");
+  };
+  {
+    // A GENUINE function value against an fn-typed field is a real
+    // compile-time value and stays legal.
+    dbl :: (fn(v : i32) -> i32)(v + i32(1));
+    FnHolder :: struct(n : i32, (f : (fn(v : i32) -> i32)) ?= dbl);
+    fh := FnHolder(n : i32(2));
+    assert(fh.f(i32(5)) == i32(6), "a function VALUE default on an fn-typed field stays legal");
+  };
   // curly brackets
   {
     Point :: struct(x : i32, y : bool);

@@ -337,7 +337,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
-| [`a-call-default-for-a-struct-field-emits-broken-c.md`](./a-call-default-for-a-struct-field-emits-broken-c.md) | S2 | — | yes |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
