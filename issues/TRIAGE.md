@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 180 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 182 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 11 | 2 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 22 | 4 |
-| Std library | 53 | 12 |
+| Std library | 52 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 38 | 9 |
-| **Total** | **180** | **34** |
+| Other | 41 | 9 |
+| **Total** | **182** | **34** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 35 |
-| S2 | 88 |
-| S3 | 57 |
+| S1 | 36 |
+| S2 | 90 |
+| S3 | 56 |
 
 ## Design questions (issues/questions/)
 
@@ -236,7 +236,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (53)
+### Std library (52)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -265,7 +265,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | S3 | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | S3 | — | yes |
 | [`std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`](./std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md) | S3 | — | — |
-| [`std-net-stream-writes-take-send-where-write-is-cheaper.md`](./std-net-stream-writes-take-send-where-write-is-cheaper.md) | S3 | — | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | S1 | OPEN — | yes |
@@ -335,15 +334,17 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (38)
+### Other (41)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-call-default-for-a-struct-field-emits-broken-c.md`](./a-call-default-for-a-struct-field-emits-broken-c.md) | S2 | — | yes |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
+| [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md`](./a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md) | S3 | — | — |
 | [`a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`](./a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md) | S2 | OPEN (filed 2026-09-30) | — |
+| [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md`](./a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md) | S1 | open | yes |
 | [`a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md`](./a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md) | S3 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
@@ -368,6 +369,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`](./ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md) | S1 | — | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
+| [`safe-code-reaches-freed-memory-through-arraylist-set-len.md`](./safe-code-reaches-freed-memory-through-arraylist-set-len.md) | S1 | — | — |
 | [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | S2 | — | — |
