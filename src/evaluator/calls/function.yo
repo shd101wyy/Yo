@@ -3873,7 +3873,12 @@ _evaluate_funcval_runtime_call :: (
   // family, issues/retired/yo-self-69-red-list-map.md). Fire when the callee has a
   // comptime-flagged param and every flagged arg's value is compile-time
   // KNOWN with no unresolved SomeT (a validation-pass SomeT TypeVal must not
-  // mint — it would cache-key junk); control fns stay excluded.
+  // mint — it would cache-key junk); control fns stay excluded. A SomeT whose
+  // resolution chain ends in a concrete type is KNOWN: `IoFuture ::
+  // Impl(Concrete(__yo_io_future_t), Future(i32))` (and every struct holding
+  // one, e.g. std/async/waker's `Park`) never specialized, so the call kept
+  // the unspecialized original and codegen dropped it
+  // (issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md).
   ou_ct_flags := get_func_param_comptime(func_id_fv.clone());
   (ou_spec_comptime_params : bool) = false;
   {
@@ -3888,7 +3893,7 @@ _evaluate_funcval_runtime_call :: (
           evaled_arg_infos.get(ou_cti),
           .Some(ou_ainfo) => match(
             ou_ainfo.value,
-            .Some(.TypeVal(ou_tv)) => if(get_all_some_types(ou_tv).len() > usize(0), {
+            .Some(.TypeVal(ou_tv)) => if((get_all_some_types(ou_tv).len() > usize(0)) && !(type_somes_all_resolve_concrete(ou_tv)), {
               ou_all_known = false;
             }),
             .Some(.UnknownVal(_, _)) => {
