@@ -1,0 +1,27 @@
+// Imported by tests/lazy_toplevel_bindings.test.yo: a member and a free
+// function call `copy_of`, which only the LATER impl declares. Forcing that
+// impl must not also force the importer's pending impls of `LaterS`, whose
+// walk is still parked on the import of this module
+// (issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md).
+LaterS :: struct(n : i32);
+later_twice_free :: (fn(s : LaterS) -> i32)(s.copy_of().n + s.n);
+impl(
+  LaterS,
+  twice : (fn(self : Self) -> i32)({
+    c := self.copy_of();
+    c.n + self.n
+  })
+);
+impl(LaterS, copy_of : (fn(self : Self) -> Self)(LaterS(n : self.n)));
+// A free function calling a trait DEFAULT that only the later impl supplies:
+// no impl declares `bumped`, so the miss forces the type's impls — never the
+// importer's, whose walk is parked on this import
+// (issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md).
+LaterBump :: trait(
+  base : (fn(self : Self) -> i32),
+  (bumped : (fn(self : Self) -> i32)) ?= (self -> (self.base() + i32(1)))
+);
+LaterT :: struct(n : i32);
+later_bumped :: (fn(t : LaterT) -> i32)(t.bumped());
+impl(LaterT, LaterBump(base : (fn(self : Self) -> i32)(self.n)));
+export(LaterS, later_twice_free, LaterT, later_bumped);

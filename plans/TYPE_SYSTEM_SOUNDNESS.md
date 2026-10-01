@@ -136,7 +136,7 @@ headline is ICE + COMPILE_RED + CC_RED + FTT + RUN_FTT):
 
 Transitions: 7 fixed repros OK → CHECK_RED (they compiled and printed the wrong value),
 3 CC_RED → CHECK_RED, 4 ICE → CHECK_RED, 1 RUN_FTT → CHECK_RED (the mutual-recursion repro, now a
-wrong check-time error, see `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
+wrong check-time error, see `issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
 and the 1.5 canary CHECK_RED → OK. No OK program regressed except fixed-issue repros.
 
 Swallow census (`YO_DEBUG_SWALLOW=1 yo check`, all channels):

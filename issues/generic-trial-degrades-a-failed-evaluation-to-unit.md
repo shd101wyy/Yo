@@ -75,7 +75,7 @@ in a later impl of the same type, which `force_pending_impls_for_type_name` refu
 mid-registration, so the lookup misses and degrades to `unit`. A user trait behaves the same.
 With the `Clone` impl first, the program checks. The non-generic version of the same member
 fails outright on develop:
-`issues/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`.
+`issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md`.
 
 So the exclusion can go only after both fallbacks report or defer instead of producing `unit`.
 

@@ -615,7 +615,7 @@ _try_find_receiver_method :: (
   // (or a hollow) today, so order-correct programs never reach this branch.
   if(hits.len() == usize(0), {
     match(
-      force_pending_impls_for_type_name(type_head_name_for_impl_forcing(lookup_ty)),
+      force_pending_impls_for_type_name(type_head_name_for_impl_forcing(lookup_ty), Option(String).Some(method_name.clone())),
       .Forced => {
         hits = cond(
           is_static => get_type_trait_methods_by_name_from_env(env, method_name.clone(), lookup_ty),
@@ -4706,7 +4706,7 @@ _evaluate_function_call_unanchored :: (
     // on `a(i) != b(i)` (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
     if(op_methods.len() == usize(0), {
       match(
-        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty)),
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty), Option(String).Some(op_name.clone())),
         .Forced => {
           op_methods = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
         },

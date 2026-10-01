@@ -866,6 +866,29 @@ resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
   )
 );
 
+/// The name a `X :: struct(...)` / `X :: enum(...)` binding gave a declared
+/// type, keyed by the type's id (and an enum's `__self_shell` id). The
+/// binding stamps the name on ITS copy only: the finals registered above are
+/// nameless, so a type resolved from a self-referential declaration's shell
+/// (an element of `ArrayList(Self)`) has no name, and impl forcing
+/// (`type_head_name_for_impl_forcing`) could not select the type's later impls
+/// for it (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
+/// Selection only: identity stays with the id. The first binding wins (an
+/// alias `Y :: X` does not rename X).
+(g_type_binding_names : HashMap(String, String)) = HashMap(String, String).new();
+register_type_binding_name :: (fn(type_id : String, name : String) -> unit)({
+  if((type_id.len() > usize(0)) && g_type_binding_names.get(type_id).is_none(), {
+    g_type_binding_names.insert(type_id, name);
+  });
+});
+type_binding_name :: (fn(type_id : String) -> Option(String))(
+  g_type_binding_names.get(type_id)
+);
+/// Drop every binding name (a reset of the evaluator universe).
+clear_type_binding_names :: (fn() -> unit)({
+  g_type_binding_names = HashMap(String, String).new();
+});
+
 /// Impl-level generic VALUE-binder kinds (`N : usize` in
 /// `impl(generic(T : Type, N : usize), ...)`), registered SYNTACTICALLY at
 /// impl evaluation (evaluator/values/impl.yo) and consumed by
@@ -931,6 +954,7 @@ export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
 export(register_enum_type_arguments, lookup_enum_type_arguments);
 export(register_struct_final, resolve_struct_shell);
+export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,
   t_unit,
