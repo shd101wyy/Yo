@@ -55,7 +55,7 @@ work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
 | `tss/docs` | this doc, the plan's Phase 3 step 9, and the type-system issue docs carried over from #1084 | docs only |
 | `tss/enum-final-name` (on `tss/docs`) | §3.4: both impl-ordering fixes, plus the fix for the branch's own `check ./std` regression | `check ./std` green (177/177); full battery running |
 | `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
-| `tss/generic-extern-trial` | §3.3: the generic-extern trial failure | in progress |
+| `tss/generic-extern-trial` (on `tss/docs`) | §3.3: the generic-extern trial failure | fixed; `check ./std` and `check ./src` green, cli-case red on the seed |
 | `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
 | `fix/header-macro-prefix` | §3.5 | parked: it edits the async codegen that `async-triage` rewrites |
 
@@ -116,7 +116,10 @@ Unchanged:
 - **`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`** (fixed on `tss/generic-extern-trial`):
   the prelude's `GcTracer.visit` failed its definition-time trial on every `check` (a nested
   `*(U)` lost its SomeT-to-SomeT binding in `_resolve_some_types_deep`). It no longer blocks
-  §3.2 steps 3–4.
+  §3.2 steps 3–4. Do not expect step 3 to catch a body that mixes two distinct binders
+  (`*T` passed where the callee's one `U` already took `*S`). The trial treats unresolved
+  binders leniently, so no error is recorded, and the concrete specialization reports the
+  mismatch (the issue doc's "What the trial does not catch").
 
 ### 3.4 Impl ordering
 

@@ -73,6 +73,31 @@ was dropped. `*(U)` therefore stayed `*(U)` and Step 8 compared it against the a
 one. When the env rebinds a nested slot to a different SomeT, the slot is substituted with that
 SomeT even when it has no concrete resolution. No caller or callee is special-cased.
 
+## What the trial does not catch
+
+The trial treats distinct unresolved binders leniently, and this fix does not change that.
+`synthesize_types` lets a later argument rebind the callee's binder, so a body that unifies two
+of the caller's binders passes its trial with no swallowed error:
+
+```rust
+pragma(Pragma.AllowUnsafe);
+extern("Yo", __yo_two : (fn(generic(U : Type), a : *U, b : *U) -> unit));
+extern("Yo", __yo_id : (fn(generic(U : Type), a : *U) -> *U));
+two_diff :: (fn(generic(T : Type, S : Type), a : *T, b : *S) -> unit)(__yo_two(a, b));
+conv :: (fn(generic(T : Type, S : Type), a : *T, b : *S) -> *S)(__yo_id(a));
+```
+
+Measured 2026-10-01 with `YO_DEBUG_SWALLOW=1 check`. On the seed, both bodies swallowed `Type
+mismatch for parameter "a": Expected *(U) Got *(T)`. That was the false error this doc fixes,
+reached here only by accident. After the fix, neither body records an error. The seed already
+behaved this way for the same shapes without a pointer: a bare `U` extern called with `T` and
+`S`, and a direct `(a)` returned as `*S` from `fn(generic(T, S), a : *T, b : *S) -> *S`, both
+pass the trial with no swallow on the seed and on the fixed build. Instantiation still rejects a
+concrete mismatch: the same bodies called with `i32` and `i64` fail with E0601 `Cannot unify
+incompatible types` on both binaries. That fits the monomorphizing model
+(`plans/TYPE_SYSTEM_SOUNDNESS.md` §1): Phase 6 step 3 cannot re-raise a rigid-binder mismatch,
+because the trial never records one. A concrete specialization reports it.
+
 ## Verification
 
 - `tests/cli-cases/check-generic-extern-called-with-a-callers-binder`: `check` under
