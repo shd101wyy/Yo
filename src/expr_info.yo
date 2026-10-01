@@ -35,8 +35,9 @@ pragma(Pragma.AllowUnsafe);
 // direct call as env.yo / std/string/string.yo).
 { TypeValue } :: import("./types/definitions.yo");
 { type_intern_probe_record, type_intern_probe_report } :: import("./types/intern.yo");
-{ get_all_some_types } :: import("./types/utils.yo");
-{ is_some_type } :: import("./types/guards.yo");
+{ get_all_some_types, type_is_control_bound } :: import("./types/utils.yo");
+{ is_some_type, is_function_type } :: import("./types/guards.yo");
+{ is_control_fn, is_effect_record_member, get_func_type } :: import("./function_value.yo");
 { type_to_string } :: import("./types/string.yo");
 { EvalValue } :: import("./value.yo");
 {
@@ -968,6 +969,8 @@ SCOPE_HUSK_MARK :: usize(987654321);
 _is_scope_husk :: (fn(env : Environment) -> bool)(
   match(env.function_declaration_frame_level, .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
 );
+/// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
+(g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 (g_scope_mode : usize) = match(
   debug_knob(`YO_SCOPE_RELEASE`),
   .Some(v) => cond((v == "shadow") => usize(1), (v == "release") => usize(2), true => usize(0)),
@@ -1082,13 +1085,53 @@ _scope_same_ids :: (fn(a : ArrayList(Variable), b : ArrayList(Variable)) -> bool
 });
 /// Release the ExprInfos logged since `mark` (an outermost body just ended;
 /// `entry` is the env it was evaluated in).
+/// A call through `t` asks codegen's handler-installation test, which scans
+/// the callee's whole env for the innermost frame binding the handler: a
+/// control fn, or a fn- or control-typed parameter.
+_scope_type_installs :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Func({ param_types : pts, meta : m }) => {
+      if(m.*.is_control, {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < pts.len(), {
+        pt := pts.get(i).unwrap();
+        if(is_function_type(pt) || type_is_control_bound(pt), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    _ => false
+  )
+);
+_scope_value_installs :: (fn(v : Option(EvalValue)) -> bool)(
+  match(
+    v,
+    .Some(fv) => match(
+      fv,
+      .FuncVal(d, _) => ((is_control_fn(d.*.func_id) || is_effect_record_member(d.*.func_id)) || _scope_type_installs(get_func_type(d.*.func_id))),
+      _ => false
+    ),
+    .None => false
+  )
+);
+/// `id`'s env is read whole by the handler-installation test, so it is kept:
+/// a callee whose type or value installs a handler, or a method call whose
+/// resolved method does.
+_scope_keeps_env :: (fn(id : ExprId, info : ExprInfo) -> bool)(
+  (_scope_type_installs(info.ty) || _scope_value_installs(info.value)) || _scope_value_installs(lookup_method_callee_value(id))
+);
 scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
   husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
     info := g_scope_log_infos.get(i).unwrap();
-    if(!(info.env.module_path == entry.module_path), {
+    if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info), {
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
       match(
@@ -1107,14 +1150,16 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       _scope_target_names(info.deferred_drop_expressions, names);
       _scope_target_names(expr_info_deferred_dup_expressions(info), names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(info), names);
+      // The binding's own record first: the names below resolve in the
+      // atom's pre-binding env.
       recs := ArrayList(ScopeNameRecord).new();
+      match(g_scope_bound.remove(id), .Some(br) => recs.push(br), .None => ());
       (ni : usize) = usize(0);
       while(ni < names.len(), {
         nm := names.get(ni).unwrap();
         recs.push(ScopeNameRecord(name : nm.clone(), vars : get_variables_from_env(info.env, nm)));
         ni = (ni + usize(1));
       });
-      match(g_scope_bound.remove(id), .Some(br) => recs.push(br), .None => ());
       if(recs.len() > usize(0), {
         g_scope_names.insert(id, recs);
       });
@@ -1412,7 +1457,7 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 // — regressed std). This non-destructive table carries the resolved/specialized
 // method FuncVal, keyed by the CALL expr id, so codegen can emit
 // `<specialized_c_name>(args)`.
-(g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+// (`g_method_callee_values` is declared above the scope-release block, which reads it.)
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
   record_owned_expr_id(call_id);

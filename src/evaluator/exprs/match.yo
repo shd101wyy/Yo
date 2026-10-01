@@ -45,7 +45,8 @@ pragma(Pragma.AllowUnsafe);
   branch_group_stack_len,
   truncate_branch_group_stack,
   push_arm_init_range,
-  branch_init_log_len
+  branch_init_log_len,
+  scope_release_note_binding
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -550,6 +551,7 @@ evaluate_match :: (
             ast_expr_token(b.atom)
           );
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(b.atom), new_expr_info(env, b.ty));
+          scope_release_note_binding(ast_expr_id(b.atom), env, b.name.clone());
         },
         .None => ()
       );

@@ -486,7 +486,8 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       });
     }, {
       // Non-array scalar initialization.
-      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(lhs), var_name.clone(), Option(Environment).Some(lhs_ei.env));
+      // The `:=` node's env: the lhs atom's predates the binding.
+      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(lhs), var_name.clone(), Option(Environment).Some(ei.env));
       // A STATIC-dispatch call whose callee's prototype returns `void` has no
       // value, whatever this binding's own types say. They can disagree: a
       // generic `Impl(Fn(...) -> T)` callee specialised at `T = unit` emits a
