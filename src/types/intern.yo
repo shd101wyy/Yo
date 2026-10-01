@@ -131,6 +131,46 @@ _append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
 // O(visited) String comparisons per named type on every key render
 // (`sample`-profiled: `_contains` 3731 + memcmp 1562, ahead of __yo_decr_rc).
 // ---------------------------------------------------------------------------
+/// A struct's cycle token for the intern key: `S:` + its id + the identities of
+/// its type arguments (a nominal argument by its id and, for a generic
+/// instantiation, its own arguments; a SomeT by its id and its resolution's
+/// end; anything else by its tag). A true self-reference repeats all of it;
+/// two instantiations sharing a def-era id do not.
+_ik_node_token :: (fn(sid : String, tas : ArrayList(TypeValue), depth : usize) -> String)({
+  tok := String.from("S:");
+  tok.push_string(sid);
+  (i : usize) = usize(0);
+  while(i < tas.len(), {
+    match(
+      tas.get(i),
+      .Some(ta) => {
+        tok.push_str("|");
+        tok.push_string(_ik_arg_id(ta, depth));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  tok
+});
+_ik_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
+  match(
+    t,
+    .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {
+      o := _ik_node_token(a_sid, a_tas, depth + usize(1));
+      o.push_str(")");
+      o
+    }, `S:${a_sid}`),
+    .EnumT(a_eid, _, _, _, _, _, _, _, _) => `E:${a_eid}`,
+    .SomeT({ id : a_tid, resolution : a_res }) => match(
+      a_res,
+      .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(a_r, depth + usize(1))}`, `T:${a_tid}`),
+      .None => `T:${a_tid}`
+    ),
+    _ => type_intern_key(t, usize(0), HashSet(String).new())
+  )
+);
+
 _intern_key_into :: (
   fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : HashSet(String)) -> unit
 )(
@@ -254,8 +294,13 @@ _intern_key_into :: (
         sb.write_str("]");
       },
       .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
-        tok := String.from("S:");
-        tok.push_string(sid);
+        // The cycle token is the id AND the type arguments' identities: a
+        // substituted instance keeps its def-era id, so `StreamMap(StreamMap(
+        // …))` nests two instances under one id, and an id-only token cut the
+        // inner one short. Two different outer instantiations then keyed
+        // alike and interned to ONE type, so a third `map` in a chain returned
+        // the second's type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
+        tok := _ik_node_token(sid, sta, usize(0));
         if(visited.contains(tok), {
           sb.write_string(tok);
         }, {

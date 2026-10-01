@@ -1648,9 +1648,19 @@ _find_specialization_cache :: (
                           // type arguments).
                           // Require type_key equality — the exact identity the
                           // emitted C is keyed by — before reusing the spec.
+                          //
+                          // The same holds for any instantiation with type
+                          // arguments: substitution keeps an instance's
+                          // def-era struct id, and `are_types_compatible_exact`
+                          // judges two instances of one id equal without
+                          // their arguments, so `StreamMap(StreamMap(…), …)`
+                          // reused the spec built for `StreamMap(Channel, …)`
+                          // and a third `map` in a chain returned the second's
+                          // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
                           ck_tyargs := ArrayList(TypeValue).new();
                           _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
-                          if(ck_tyargs.len() > usize(0), {
+                          ck_has_args := match(cached_ty, .Struct({ type_arguments : ck_tas }) => (ck_tas.len() > usize(0)), _ => false);
+                          if((ck_tyargs.len() > usize(0)) || ck_has_args, {
                             if(!(type_key(cached_ty) == type_key(current_ty)), {
                               rt_match = false;
                             });
@@ -4795,15 +4805,14 @@ evaluate_ctl_function_body_inline :: (
 /// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
 /// the default-args side table).
 ///
-/// DOCUMENTED DIVERGENCE: only MARKER-trait constraints
-/// (traits without methods — Send/Acyclic/user markers) are enforced, and only
-/// against FULLY CONCRETE bound types (no SomeT anywhere in the type) —
-/// `type_implements_trait` still has gaps for (a) method-trait satisfaction
-/// on concrete
-/// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
-/// through generic-instantiation fields that still carry constraint-bearing
-/// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
-/// Widen as the trait checker closes those gaps.
+/// Scope: this is the MARKER channel — traits without methods (Send/Acyclic/
+/// user markers), decided for function values by their captures and reach
+/// (rules D1/D4) and otherwise against fully concrete bound types. Method and
+/// composite bounds (`K <: (Eq(K), Hash)`) are enforced where the callee's
+/// function type is evaluated with its parameters bound
+/// (`apply_single_trait_constraint` → `validate_concrete_type_constraints`,
+/// types/function.yo); a bound type still carrying a SomeT is decided there
+/// at instantiation (issues/fixed/yo-self-where-clause-full-enforcement.md).
 validate_where_constraints_for_call :: (
   fn(
     func_id : String,

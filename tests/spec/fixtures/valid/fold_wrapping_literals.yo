@@ -1,0 +1,15 @@
+// The verifier's literal folder models wrapping bit-vector arithmetic. It
+// used to compute `a - b` as `a + (~b + 1)` and `-a` as `~a + 1` in CHECKED
+// u64 arithmetic, so a zero operand overflowed and aborted `yo verify`
+// (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
+pragma(Pragma.Verify);
+
+sub_zero :: (fn(a : i32, ensures(result == i32(5))) -> (result : i32))({
+  x := i32(0);
+  i32(5) - x
+});
+
+neg_zero :: (fn(a : i32, ensures(result == i32(0))) -> (result : i32))({
+  y := i32(0);
+  -y
+});

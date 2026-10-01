@@ -1,62 +1,92 @@
 //! evaluator/builtins/var_fns — variable introspection builtin functions.
 //!
 //! Implements:
-//!   __yo_var_print_info(var)           — print debug info about a variable (no-op in self-hosted)
 //!   __yo_var_is_owning_the_rc_value(v) — returns bool: is var the RC owner?
 //!   __yo_var_has_other_aliases(v)      — returns bool: does var share an RC alias?
+//!
+//! Both answer a question about a VARIABLE (the `^` iso sugar asks them about
+//! the value it isolates), so an argument that is not a variable is an error,
+//! and the argument's own evaluation error propagates. Before, the argument was
+//! evaluated under the swallowing 3-argument `evaluate_expression` and anything
+//! that was not a variable answered `false` — a silent wrong answer
+//! (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6, site #16 residue).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{
-  ExprInfo,
-  new_expr_info,
-  expr_info_table_set,
-  expr_info_table_get,
-  expr_info_adopt_env
-} :: import("../../expr_info.yo");
-{
-  Variable,
-  Frame,
-  Environment,
-  get_variables_from_env,
-  snapshot_env
-} :: import("../../env.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
-{ t_bool, t_unit } :: import("../../types/creators.yo");
+{ t_bool } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
-evaluate_yo_var_print_info :: (
+/// The variable a `Var.*` introspection call is about, with the env after
+/// evaluating the argument.
+_VarArg :: struct(env : Environment, variable : Variable);
+/// Evaluate the call's one argument (its errors propagate) and resolve the
+/// variable it names. Throws when there is no argument or the argument is not
+/// an identifier: a constructor call or any other expression is bound to a
+/// compiler temp, which is a variable too, so resolving the evaluated
+/// argument alone would answer about the temp.
+_introspected_variable :: (
   fn(
     expr : AstExpr,
+    builtin_name : String,
     env : Environment,
     ctx : EvalContext,
     exn : Exception
-  ) -> AstExpr
+  ) -> Option(_VarArg)
 )({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
   var_arg := match(
-    args.get(usize(0)),
+    match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
     .Some(a) => a,
     .None => {
-      return(expr);
+      exn.throw(dyn(format_error_message(ast_expr_token(expr), `"${builtin_name}" expects one argument: a variable.`)));
+      return(Option(_VarArg).None);
     }
   );
-  eval_var_arg := evaluate_expression(var_arg, env, ctx);
+  if(!(ast_expr_is_atom(var_arg) && (ast_expr_token(var_arg).kind == TokenKind.Identifier)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(var_arg),
+          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(var_arg)}`
+        )
+      )
+    );
+    return(Option(_VarArg).None);
+  });
+  eval_var_arg := evaluate_expression_raw(var_arg, env, ctx, exn);
   var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
   (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
-  // Note: debug printing of variable info is a no-op in the self-hosted compiler.
-  out_info := new_expr_info(cur_env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  variables := match(
+    match(var_info_opt, .Some(i) => i.variable_name, .None => Option(String).None),
+    .Some(vname) => get_variables_from_env(cur_env, vname),
+    .None => ArrayList(Variable).new()
+  );
+  if(variables.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(var_arg),
+          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(var_arg)}`
+        )
+      )
+    );
+    return(Option(_VarArg).None);
+  });
+  match(
+    variables.get(variables.len() - usize(1)),
+    .Some(v) => Option(_VarArg).Some(_VarArg(env : cur_env, variable : v)),
+    .None => Option(_VarArg).None
+  )
+});
+_set_bool_result :: (fn(expr : AstExpr, env : Environment, b : bool, ctx : EvalContext) -> AstExpr)({
+  out_info := new_expr_info(env, t_bool());
+  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(b));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
@@ -67,48 +97,46 @@ evaluate_yo_var_is_owning_the_rc_value :: (
     ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
-)({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
-  var_arg := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
-  eval_var_arg := evaluate_expression(var_arg, env, ctx);
-  var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
-  (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
-  variable_name_opt := match(var_info_opt, .Some(i) => i.variable_name, .None => Option(String).None);
-  (is_owning : bool) = false;
+)(
   match(
-    variable_name_opt,
-    .Some(vname) => {
-      variables := get_variables_from_env(cur_env, vname);
-      n_vars := variables.len();
-      if(n_vars > usize(0), {
-        variable := match(
-          variables.get(n_vars - usize(1)),
-          .Some(v) => v,
-          .None => {
-            return(expr);
-          }
-        );
-        is_owning = variable.is_owning_the_rc_value;
-      });
-    },
-    .None => ()
-  );
-  out_info := new_expr_info(cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(is_owning));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  expr
+    _introspected_variable(expr, String.from("Var.is_owning_the_rc_value"), env, ctx, exn),
+    .Some(va) => _set_bool_result(expr, va.env, va.variable.is_owning_the_rc_value, ctx),
+    .None => expr
+  )
+);
+/// True when `variable` shares its RC value with another binding: it points
+/// at one, or a variable in scope points at it.
+_has_other_aliases :: (fn(variable : Variable, cur_env : Environment) -> bool)({
+  if(variable.is_owning_the_same_rc_value_as.is_some(), {
+    return(true);
+  });
+  target_id := variable.id;
+  (fi : usize) = usize(0);
+  while(fi < cur_env.frames.len(), {
+    match(
+      cur_env.frames.get(fi),
+      .Some(frame) => {
+        (fj : usize) = usize(0);
+        while(fj < frame.variables.len(), {
+          match(
+            frame.variables.get(fj),
+            .Some(fvar) => match(
+              fvar.is_owning_the_same_rc_value_as,
+              .Some(aliased_box) => if(aliased_box.*.id == target_id, {
+                return(true);
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+          fj = (fj + usize(1));
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  false
 });
 evaluate_yo_var_has_other_aliases :: (
   fn(
@@ -117,92 +145,14 @@ evaluate_yo_var_has_other_aliases :: (
     ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
-)({
-  args := match(
-    expr,
-    .FnCall(_, _, a, _, _) => a,
-    _ => {
-      return(expr);
-    }
-  );
-  var_arg := match(
-    args.get(usize(0)),
-    .Some(a) => a,
-    .None => {
-      return(expr);
-    }
-  );
-  eval_var_arg := evaluate_expression(var_arg, env, ctx);
-  var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
-  (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
-  variable_name_opt := match(var_info_opt, .Some(i) => i.variable_name, .None => Option(String).None);
-  (has_aliases : bool) = false;
+)(
   match(
-    variable_name_opt,
-    .Some(vname) => {
-      variables := get_variables_from_env(cur_env, vname);
-      n_vars := variables.len();
-      if(n_vars > usize(0), {
-        variable := match(
-          variables.get(n_vars - usize(1)),
-          .Some(v) => v,
-          .None => {
-            return(expr);
-          }
-        );
-        match(
-          variable.is_owning_the_same_rc_value_as,
-          .Some(_) => {
-            has_aliases = true;
-          },
-          .None => {
-            // Check if any frame variable points to this variable as its RC alias.
-            target_id := variable.id;
-            (fi : usize) = cur_env.frames.len();
-            while(fi > usize(0), {
-              fi = (fi - usize(1));
-              frame := match(
-                cur_env.frames.get(fi),
-                .Some(f) => f,
-                .None => {
-                  return(expr);
-                }
-              );
-              n_fvars := frame.variables.len();
-              (fj : usize) = usize(0);
-              while(fj < n_fvars, {
-                fvar := match(
-                  frame.variables.get(fj),
-                  .Some(v) => v,
-                  .None => {
-                    return(expr);
-                  }
-                );
-                match(
-                  fvar.is_owning_the_same_rc_value_as,
-                  .Some(aliased_box) => {
-                    if(aliased_box.*.id == target_id, {
-                      has_aliases = true;
-                    });
-                  },
-                  .None => ()
-                );
-                fj = (fj + usize(1));
-              });
-            });
-          }
-        );
-      });
-    },
-    .None => ()
-  );
-  out_info := new_expr_info(cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(has_aliases));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  expr
-});
+    _introspected_variable(expr, String.from("Var.has_other_aliases"), env, ctx, exn),
+    .Some(va) => _set_bool_result(expr, va.env, _has_other_aliases(va.variable, va.env), ctx),
+    .None => expr
+  )
+);
 export(
   evaluate_yo_var_has_other_aliases,
-  evaluate_yo_var_is_owning_the_rc_value,
-  evaluate_yo_var_print_info
+  evaluate_yo_var_is_owning_the_rc_value
 );

@@ -2,7 +2,14 @@
 
 **Severity:** S3 — a false unused-variable warning for a forward-declared comptime fn used only from another function's body
 
-**Status:** OPEN
+**Status:** RETIRED 2026-09-29 — does not reproduce. The reproducer below, run exactly as
+written, prints no warning on the 0.2.44 release (`yo version install 0.2.44`, its bundled
+std), on 0.2.41, 0.2.42, 0.2.45, or develop `c52ce152c`. A control that adds a third comptime fn
+nobody calls warns `unused variable \`never_used\`` on every one of them, so the channel is
+live. The warning was most likely observed on an intermediate state of the repro being written
+at the time (one whose body failed). The guard is now
+`tests/cli-cases/check-no-unused-warning-for-a-forward-declared-comptime-fn`, whose keep-match
+keeps the variable NAME: it fails if `is_even`/`is_odd` ever warn or `never_used` stops.
 **Found:** 2026-09-27, writing the repro for
 `issues/fixed/a-forward-comptime-fn-body-error-is-dropped-by-the-pending-rerun.md`.
 **Measured:** yo 0.2.44 seed.

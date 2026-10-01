@@ -52,7 +52,7 @@ two flags and the macro-call dispatch — nothing else.
 | 3 | `for` | `std/prelude.yo:7690-7785` | destructures the `(x) => body` lambda as AST; caller-frame `break`/`continue` | 1 in src/ (`suspension_analysis.yo:454`), 82 in tests/ |
 | 4 | `(^)` iso sugar | `std/prelude.yo:7448-7500` | needs the caller's **variable identity** (`Var.*` intrinsics), not its value | 3, all in tests/ |
 | 5 | `unsafe.drop` | `std/prelude.yo:175` | none — 1-line forwarder to `___drop` | 37, all in std/ |
-| 6 | `Var.print_info` | `std/prelude.yo:6311-6318` | none — forwarder to `__yo_var_print_info` | **0 anywhere** |
+| 6 | ~~`Var.print_info`~~ | removed 2026-09-29 | none — forwarder to `__yo_var_print_info`, a builtin that did nothing (Phase 6 site #16 residue) | **0 anywhere** |
 | 7 | `Var.is_owning_the_rc_value` | `std/prelude.yo:6320-6324` | none — forwarder | 2 (inside `^`) |
 | 8 | `Var.has_other_aliases` | `std/prelude.yo:6325-6329` | none — forwarder | 1 (inside `^`) |
 | 9 | `array_list` | `std/collections/array_list.yo:859-876` | variadic unevaluated args + `typeof` on unevaluated first element + statement splicing | 5, all in `src/parser.yo` |

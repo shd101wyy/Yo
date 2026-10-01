@@ -118,6 +118,14 @@ of the ~0.5 µs std gap is `send` over `write`, kept for the reason below, and
 the rest is std's per-operation wrapper work
 (`issues/std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`).
 
+Both halves have a fix underway. For `send` over `write`, std owns its stream
+sockets, so it can make them non-blocking and `SO_NOSIGPIPE` and then write
+them with `write(2)`, as libuv does. The runtime op exists (stage 1), and std
+adopts it once the seed carries it
+(`issues/std-net-stream-writes-take-send-where-write-is-cheaper.md`;
+prototyped on the emitted C: 3,582 → 3,450 ns a round trip on the std
+8-connection row). The wrapper half is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
+
 Reading the rows:
 
 - **Syscalls per round trip now equal libuv's** on every socket row: 2

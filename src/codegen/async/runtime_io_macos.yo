@@ -2196,6 +2196,33 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   return future;
 }
 
+// Stream write: write(2) on a connected stream socket that std/net owns.
+// std makes its sockets non-blocking and sets SO_NOSIGPIPE on them when it
+// creates them, so write() can neither block the loop nor raise SIGPIPE, and
+// it is the cheaper entry point: 1.40 us a call against 1.46-1.51 us for
+// send(2) on TCP loopback (plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md).
+// That precondition is the caller's; __yo_async_send_start is the op for a
+// socket nobody configured. A would-block write parks as a WRITE, which
+// retries with write() too, behind any write already parked on the socket.
+static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {
+  __yo_io_init();
+  uint32_t size = (len > (size_t)UINT32_MAX) ? UINT32_MAX : (uint32_t)len;
+  if (!__yo_kq_dir_busy(sockfd, 1)) {
+    ssize_t r = write(sockfd, buf, (size_t)size);
+    if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+      return __yo_kq_done_future((r < 0) ? -errno : (int32_t)r);
+    }
+  }
+  __yo_io_future_t* future = __yo_kq_new_future();
+  __yo_io_pending_op_t* p = __yo_kq_park_or_fail(__YO_IO_OP_WRITE, future, sockfd, EVFILT_WRITE);
+  if (p) {
+    p->write.fd = sockfd;
+    p->write.buf = buf;
+    p->write.size = size;
+  }
+  return future;
+}
+
 // Async send - send data on socket using kqueue for true async. Inline first,
 // unless a send is already parked on the socket: that one is owed the buffer
 // space first.

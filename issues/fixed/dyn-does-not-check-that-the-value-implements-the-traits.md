@@ -171,7 +171,7 @@ Rejecting would break every `dyn(v)` written under a `where(T <: Trait)`. Such a
 site is re-evaluated with the binding in place at specialization, which is where
 the bound is enforced instead. (Same conservative scoping as
 `validate_where_constraints_for_call`'s no-SomeT guard —
-`issues/yo-self-where-clause-full-enforcement.md`.) A `SomeT` that carries its
+`issues/fixed/yo-self-where-clause-full-enforcement.md`.) A `SomeT` that carries its
 concrete on the per-object `resolved_concrete` cell (closures/futures) is
 followed to that concrete rather than skipped.
 
@@ -194,7 +194,7 @@ the throw directly).
 
 ## Why `type_implements_trait`'s known incompleteness did not block this
 
-`issues/yo-self-where-clause-full-enforcement.md` records that yo-self cannot
+`issues/fixed/yo-self-where-clause-full-enforcement.md` records that yo-self cannot
 prove *composed/anonymous method-trait* satisfaction on concrete types
 (`String <: (Eq, Hash)`), which is why call-site where-clause enforcement is
 scoped to marker traits. That gap does not reach here: a `Dyn`'s

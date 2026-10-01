@@ -2,8 +2,9 @@
 
 **Severity:** S2 — where-clause bounds are under-enforced at call sites (marker-trait subset) — programs violating method-trait or SomeT-derived bounds can be accepted
 
-**Status:** partially implemented (marker-trait subset live since `7a67b961`); the
-remainder is blocked on two `type_implements_trait` gaps documented below.
+**Status:** FIXED — closed 2026-09-29 after re-measurement (develop `c52ce152c` and the
+Phase 3 step 7 branch). Every class below is enforced at the call site, and the two
+"blocking" gaps no longer reject valid code. See **Closure 2026-09-29** at the end.
 
 ## Context
 
@@ -75,3 +76,32 @@ a method trait and a `Q` lacking `Foo` is rejected with
 `error[E0602]: Type Q does not implement required trait Foo.`, and `where(T <: (Foo, Bar))` with
 `Q` implementing only `Foo` reports `... required trait Bar.` The "marker traits only" scope
 above is therefore partly stale. The `String <: (Eq, Hash)` residual was not re-measured.
+
+## Closure 2026-09-29 (measured)
+
+The enforcement this issue asked for runs in the function-TYPE evaluation, not in the
+marker-only side channel it describes: a generic callee's type is re-evaluated with its
+parameters bound, and `apply_single_trait_constraint` → `validate_concrete_type_constraints`
+(`src/evaluator/types/function.yo`, the port of TS's `applyWhereClauseConstraints` /
+`validateSingleTraitOnConcreteType`) checks every bound whose LHS resolved to a concrete type.
+`validate_where_constraints_for_call` (`src/evaluator/calls/helper.yo`) stays as the marker
+channel (function-value markers, rules D1/D4); its comment now says so.
+
+Measured with a tree-built compiler, each rejected with `error[E0602]`:
+
+| Bound | Call | Verdict |
+| --- | --- | --- |
+| composite method traits `where(T <: (Foo, Bar))` | a type implementing only `Foo` | `does not implement required trait Bar` |
+| a type constructor's `where(T <: Bar)` | `Box(Q)`, `Q` lacking `Bar` | rejected |
+| `where(T <: Send)` reached through an unconstrained generic forwarder, on `Pair(U)` | `U = ArrayList(i32)` | `Pair(ArrayList(i32)) does not implement required trait Send` |
+| `HashMap`'s `where(K <: (Eq(K), Hash))` | a key with `Eq` only | `does not implement required trait Hash` |
+
+and accepted, compiled and run: both traits present, the constructor's bound met, the
+forwarder at `U = i32`, and `HashMap(String, i32)` — gap (1) above (`String <: (Eq, Hash)`) no
+longer rejects, and gap (2) (a marker bound on a type carrying the forwarder's SomeT) is decided
+correctly at instantiation.
+
+Regression tests: `tests/where_clause_fn_inference.test.yo`, "where-clause bounds are enforced
+at the call site" and "where-clause bounds accept the types that satisfy them". Flipping the
+first negative to a satisfying type turns the batch red, so the `comptime_expect_error`s are
+not vacuous.

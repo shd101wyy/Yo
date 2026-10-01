@@ -142,3 +142,16 @@ test("^ does not descend into an atomic object: sharing one is fine", {
 comptime_expect_error({
   _IsoScalar :: Iso(i32);
 });
+
+// `Var.is_owning_the_rc_value` / `Var.has_other_aliases` (the `^` sugar's
+// compile-time checks) answer a question about a VARIABLE: a non-variable
+// argument is an error, not `false`, and the argument's own error propagates.
+_VarProbe :: ref(struct(n : i32));
+test("Var introspection answers about a variable and rejects anything else", {
+  p := _VarProbe(n : i32(1));
+  assert(Var.is_owning_the_rc_value(p), "a fresh local owns its object");
+  assert(!Var.has_other_aliases(p), "nothing aliases it yet");
+  comptime_expect_error(Var.is_owning_the_rc_value(_VarProbe(n : i32(2))), "expects a variable");
+  comptime_expect_error(Var.has_other_aliases(i32(1) + i32(2)), "expects a variable");
+  comptime_expect_error(Var.is_owning_the_rc_value(_no_such_variable), "not found");
+});

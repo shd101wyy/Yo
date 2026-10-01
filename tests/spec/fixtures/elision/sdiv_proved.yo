@@ -1,0 +1,14 @@
+// expect-elided: 1
+// 5b Phase 2 twin: a positive divisor rules out both traps of a signed `/`,
+// divide by zero and `MIN / -1`, so the one signed guard elides.
+pragma(Pragma.VerifyOrAssert);
+{ println } :: import("std/fmt");
+
+sdiv :: (fn(a : i32, b : i32, requires(b > i32(0))) -> i32)(
+  a / b
+);
+
+main :: (fn() -> unit)({
+  println(sdiv(i32(-10), i32(3)));
+});
+export(main);
