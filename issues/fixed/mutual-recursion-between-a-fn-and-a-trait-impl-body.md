@@ -2,7 +2,9 @@
 
 **Severity:** S2 — fn ↔ trait-impl mutual recursion is wrongly rejected (E0610 on a valid recursive-tree `Eq`)
 
-**Status: OPEN.** Re-measured 2026-10-01 on develop after #1062, which was expected to fix it
+**Status: FIXED** on `tss/enum-final-name` (2026-10-01). The mechanism below was confirmed: impl forcing now names a self-referential type's nameless final by its binding (`type_binding_name`, `src/types/creators.yo`), so an element of `ArrayList(Self)` forces the later `Eq` impl. `issues/repros/mutual-recursion-through-a-trait-impl-operator.yo` checks clean. Regressions: `tests/lazy_toplevel_bindings.test.yo` (the recursive enum and recursive struct list-element tests).
+
+Re-measured 2026-10-01 on develop after #1062, which was expected to fix it
 and does not. The mutual recursion is NOT the trigger. An earlier note here said a non-recursive
 helper checks fine; that was measured on a different shape and is wrong. Measured with v0.2.47
 `yo check`, one file per row, the helper `_h` placed above `impl(E, Eq(E)(…))`:

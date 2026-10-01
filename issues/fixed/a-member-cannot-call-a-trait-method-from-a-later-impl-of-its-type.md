@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `impl` registration is documented as order-independent within a module (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`), but a member that calls a method of a LATER `impl` on the same type is rejected
 
-**Status:** OPEN (filed 2026-09-30).
+**Status:** FIXED on `tss/enum-final-name` (2026-10-01): the impl-forcing guard is name-aware. A miss on a member the in-flight impl declares still belongs to that impl; any other named miss forces the pending impls that declare it (`force_pending_impls_for_type_name`, `src/evaluator/context.yo`). Regression: `tests/lazy_toplevel_bindings.test.yo` ("an impl member calls a trait method defined in a later impl of its type"). Filed 2026-09-30.
 **Found:** diagnosing `issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`'s second case.
 
 ## Measured
