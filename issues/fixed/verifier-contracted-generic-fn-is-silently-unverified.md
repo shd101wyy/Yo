@@ -2,6 +2,25 @@
 
 **Severity:** S2 — `yo verify` exits green on a contracted generic fn with no verification task registered — obligations silently unproven
 
+- **Status:** FIXED on `feat/verifier-recursive-ghost-fn` (2026-10-01; R1 task 4 of
+  `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`). The abstract machinery (the
+  diagnostic body trial, uninterpreted sorts, soft predicate evaluation)
+  landed in #697, but the task-registration gate,
+  `(is_assumed || !(should_defer_ft))`, still excluded every deferred,
+  non-`assumed()` fn. That made the trial inside the gate dead code. Measured
+  on develop `6f5dec5db`: `identity`, a false `wrong_id`, `pick` and a generic
+  `Array(i32, N)` reader registered no task, and the file was green.
+- **Fix:** a CONTRACTED generic fn registers (`is_contracted` in
+  `src/evaluator/calls/function_type.yo`). In its contracts, `x == y` over an
+  opaque `T` has no `==` to dispatch to, so the predicate pass leaves those
+  nodes untyped. The walk accepts two ExprInfo-free forms: a name it already
+  bound, and `==` / `!=` over two terms of one uninterpreted sort
+  (`_untyped_opaque_term`). Pinned by `tests/spec/fixtures/valid/generic_body_abstract.yo`
+  (3 ok) and its false twin (2 refuted).
+- **Still open, but loud now:** a generic LENGTH (`Array(T, N)` with `generic(N
+  : usize)`) is a subset error ("parameter outside the integer/bool/array
+  subset"), not a silent pass.
+
 Found 2026-09-17 while scoping task 2's abstract-verification slice
 (plans/backlog/FORMAL_VERIFICATION.md §680). This is the SILENT GAP the
 V5-era "honest diagnostics over silent skips" principle forbids, and it

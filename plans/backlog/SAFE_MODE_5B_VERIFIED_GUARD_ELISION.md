@@ -367,7 +367,7 @@ or not. No id has to cross a unit.
    | loop invariant after havoc | `_while_term` | yes, given rule 2 |
    | own `requires` | `verify_function_body` | verify+: yes (the entry assert is spliced); verify: **no** until the §2.7 issue is fixed |
    | own `refine(T, p)` parameters | `verify_function_body` | **no**: the predicate erases at runtime (§2.7) |
-   | callee `ensures` | `_callee_call_term` | yes if the callee's ensures are runtime-asserted (runtime / verify+ unproven) or proved in this compile; **no** for an `assumed()` callee in a `verify` target (its splice is suppressed and its body never walked) and for a contracted generic callee (`issues/verifier-contracted-generic-fn-is-silently-unverified.md`) |
+   | callee `ensures` | `_callee_call_term` | yes if the callee's ensures are runtime-asserted (runtime / verify+ unproven) or proved in this compile; **no** for an `assumed()` callee in a `verify` target (its splice is suppressed and its body never walked) and for a contracted generic callee (`issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`) |
 
    This rule is what "`assumed()` must never elide a guard" means in
    practice. An assumed function has no obligations of its own, and a
