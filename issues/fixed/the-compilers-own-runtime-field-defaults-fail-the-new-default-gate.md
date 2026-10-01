@@ -49,6 +49,7 @@ The defaults are removed, and every construction site writes the field, as the e
   `tests/internal/type_trait_methods.test.yo`) gain `owner : String.new()`.
 - 3 `VerifyTask(…)` sites gain `requires_enforced`.
 - The `VerifyFnInput`/`VerifyFnObligation` constructions in `tests/internal/verifier*.test.yo` (6 sites) gain theirs.
-- The `src/` constructions of `Manifest`, `VerifyFnInput` and `VerifyFnObligation` already set their fields. Function-parameter defaults (`(x : String) ?=
-String.new()` in a `fn(...)` signature) are a different construct, and the gate does not
-cover them.
+- The `src/` constructions of `Manifest`, `VerifyFnInput` and `VerifyFnObligation` already set their fields.
+
+Function-parameter defaults (`(x : String) ?= String.new()` in a `fn(...)` signature) are a
+different construct, and the gate does not cover them.
