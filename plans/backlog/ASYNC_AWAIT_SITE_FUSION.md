@@ -367,9 +367,9 @@ is emitted by the same function, keyed by (node id, site) (§2.1). Exit:
 - `yo.c` size and the compiler's own `check ./src` time recorded, since fusion
   duplicates tails per site. Both must not grow by more than 2%.
 
-**Status (2026-10-01): implemented behind `YO_ASYNC_FUSION=1`; the fast
-suite passes with it on. The fixpoint with it on, the size numbers and the
-default flip are still to do.** `emit_fused_await` and its helpers are in
+**Status (2026-10-01): DONE, on by default; `YO_ASYNC_FUSION=0` turns it
+off.** Every exit criterion is measured below: the corpus, the benchmark, the
+sizes, and the fixpoint with the lowering on. `emit_fused_await` and its helpers are in
 `src/codegen/exprs/async.yo`, reached from `emit_inline_await` through a
 registered hook (`src/codegen/async/_fsm.yo`).
 
@@ -449,14 +449,34 @@ on unless noted:
 | `gates_fast.sh`: corpus, `check ./std`, `check ./src`, init, fmt, embedded Yo | all pass (156, 177, 278 files) |
 | `gates_fast.sh`: CLI cases | 323 pass. Diffs: 3 are #1018's rc 139 crash (fixed separately by #1072), and `async-await-fusion-verdicts`, whose golden is the lowering-off output. With the lowering on it prints `fused`, the case `async-await-fusion-lowered` pins. |
 
-Ping-pong is at raw, inside the 2% exit. Inline send is 13 ns an op over raw
-against the 5 ns exit; the remaining cost is not yet accounted for. Still to
-do:
+On the rebased tree (develop after #1018, v0.2.47 seed, 2026-10-01), the
+F2 exit criteria:
 
-- the fixpoint with the lowering on (`fixpoint_only.sh`: the compiler built
-  with fusion compiles itself to the same C);
-- the `yo.c` size and `check ./src` numbers;
-- then the default flips on, with `YO_ASYNC_FUSION=0` as the switch.
+- **Fixpoint with the lowering on**, `fixpoint_only.sh`: stage 2 has 0 hollow
+  bodies, clang passes, and `FIXPOINT_HOLDS`.
+- **`yo.c` size**, the compiler's own self-emit: 131,540,918 bytes off and
+  131,938,013 on, +0.30%. `check ./src` is unchanged, since the knob does not
+  reach `check` (138 s).
+- **The benchmark**, `scripts/bench-std-vs-raw.sh`, 7 rounds, medians, std/raw:
+
+  | Row | raw | std, off | std, on |
+  | --- | ---: | ---: | ---: |
+  | 8-connection ping-pong (ns per round trip) | 3,396–3,407 | 3,523 (1.03) | 3,415 (1.01) |
+  | inline send (ns per op) | 1,364–1,377 | 1,382 (1.01) | 1,374 (1.00) |
+
+  Ping-pong is inside the 2% exit, and inline send is at raw.
+
+The 13 ns inline-send gap measured on the #1002 base had two causes, both
+read from the emitted C and both fixed:
+
+- **The bench's raw side passed `send` flags 0** where std passes
+  `MSG_NOSIGNAL`, so the two columns did not make the same syscall.
+- **A fused site gave every wrapper local a field.** That included the
+  await's future temp, which goes straight into the await slot and is never
+  written. Each op paid a NULL-checked drop and two `memset`s of that field,
+  and the dispose swept it. The site's fields are now the block's
+  cross-boundary locals only, by the analysis the wrapper's own state machine
+  uses (`_block_cross_boundary`), and the bench's structs carry 0 such fields.
 
 ### F3: nested fusion
 
