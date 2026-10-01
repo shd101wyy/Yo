@@ -179,15 +179,12 @@ Manifest :: ref(
     /// `workspace_members` (the function) expands them; the raw patterns are
     /// kept so a diagnostic can name what the author wrote.
     ///
-    /// DEFAULTED to empty, which is what the field's own doc line above already
-    /// says the empty value MEANS, and what `expand_workspace_members` and
-    /// `run_build` both test for. Added without a default in #646, which left
-    /// `tests/internal/manifest.test.yo` constructing a Manifest the type no
-    /// longer accepts — the SECOND time in one day that a new field with no
-    /// default took an internal test file out (see #637 for the first three).
-    /// A default fixes every construction site at once instead of one per
-    /// field addition.
-    (workspace_members : ArrayList(String)) ?= ArrayList(String).new()
+    /// Empty means no workspace, which is what `expand_workspace_members` and
+    /// `run_build` both test for. Every construction site writes it: a `?=`
+    /// default must be a compile-time known value, and `ArrayList(String).new()`
+    /// is a runtime call (#1098). `tests/internal/manifest.test.yo` constructs
+    /// a Manifest too, so a new field here must be added there as well.
+    workspace_members : ArrayList(String)
   )
 );
 impl(
