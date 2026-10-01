@@ -367,6 +367,22 @@ is_fn_unemittable :: (fn(func_id : String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
 );
 // ---------------------------------------------------------------------------
+// CTFE-clone side-table
+// ---------------------------------------------------------------------------
+/// fids of the compile-time clones that CTFE capability analysis builds from
+/// a RUNTIME function (`comptime_fn(f)`, a runtime fn called with all-comptime
+/// arguments). A clone carries a comptime-returning type, but its body is the
+/// runtime function's body as the user wrote it, so it is not a compile-time
+/// context: a `:=` in it stays legal
+/// (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+(g_ctfe_clone_fns : HashSet(String)) = HashSet(String).new();
+mark_fn_ctfe_clone :: (fn(func_id : String) -> unit)({
+  g_ctfe_clone_fns.insert(func_id.clone());
+});
+is_fn_ctfe_clone :: (fn(func_id : String) -> bool)(
+  g_ctfe_clone_fns.contains(func_id.clone())
+);
+// ---------------------------------------------------------------------------
 // Specialized-original side-table
 // ---------------------------------------------------------------------------
 /// Original (def-era) func_ids from which create_specialized_function_inline
@@ -440,7 +456,7 @@ purge_function_value_tables :: (fn(ids : ArrayList(String)) -> unit)({
     i = (i + usize(1));
   });
 });
-export(mark_fn_unemittable, is_fn_unemittable, mark_fn_specialized, fn_has_specializations);
+export(mark_fn_unemittable, is_fn_unemittable, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
 export(purge_function_value_tables);
 export(
   registered_func_type_count,

@@ -84,7 +84,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ is_never_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value } :: import("../types/guards.yo");
+{ get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
@@ -2196,6 +2197,53 @@ export(
   expect_expr_to_have_been_evaluated,
   adopt_never_type
 );
+/// True when the innermost function body under evaluation belongs to a
+/// function DECLARED to return a compile-time value (`-> comptime(T)`,
+/// `-> Type`, `-> Expr`, …): a compile-time context, where a `:=` (a runtime
+/// variable) cannot appear.
+///
+/// The declared type is the one registered for the function value, not the
+/// context's `func_type`: CTFE capability analysis evaluates a RUNTIME
+/// function under a synthesized comptime type with the runtime function as
+/// its value, and a `comptime_fn` clone carries a comptime type over the
+/// runtime body the user wrote. Neither is a compile-time context. A function
+/// literal nested in a compile-time body opens its own function-body context,
+/// so a runtime method or closure defined there keeps its `:=`.
+in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fctx) => match(
+      fctx.kind,
+      .FunctionBody => match(
+        fctx.func_value,
+        .Some(fv) => match(
+          fv,
+          .FuncVal(fvd, _) => {
+            fid := fvd.*.func_id;
+            declared := get_func_type(fid.clone());
+            cond(
+              is_fn_ctfe_clone(fid) => false,
+              is_function_type_and_returns_comptime_value(declared) => true,
+              // Unregistered value: fall back to the context's type, which is
+              // the declared one for every site that evaluates a user body.
+              is_unit_type(declared) => match(
+                fctx.func_type,
+                .Some(ft) => is_function_type_and_returns_comptime_value(ft),
+                .None => false
+              ),
+              true => false
+            )
+          },
+          _ => false
+        ),
+        .None => false
+      ),
+      _ => false
+    ),
+    .None => false
+  )
+);
+export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);

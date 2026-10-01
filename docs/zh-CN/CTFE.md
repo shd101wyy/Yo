@@ -235,11 +235,15 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
 
 在 CTFE 期间，Yo 设置一个特殊的上下文标志（`forceCompileTimeBindings`），该标志会：
 
-1. 把函数体中的 `::` 局部变量作为编译期值求值。Yo 的变量都是可变的，所以
+1. 把函数体中的编译期局部变量作为编译期值求值。Yo 的变量都是可变的，所以
    `::` 累加器可以像其他变量一样在循环中重新赋值（`result = (result * i)`）。
-   `:=` 声明的是*运行时*变量，不允许出现在编译期上下文中；目前求值器仍然接受它，
-   并把它当作 `::` 处理，这是一个 bug
-   （[`issues/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/colon-equals-is-accepted-in-a-compile-time-context.md)）。
+   编译期形式有 `x :: v`、`(comptime(x) : T) = v`、`comptime(x) := v` 与
+   `comptime(x) : T`。运行时形式（`x := v`、`(x : T) = v`、`x : T`、
+   `inout(y) := x`）出现在声明为返回编译期值的函数体中时是错误 E1104；
+   详见 `yo explain E1104`，`yo fix` 会把 `:=` 改写为 `::`、把 `x` 改写为
+   `comptime(x)`。嵌套在这种函数体内的运行时函数字面量可以保留运行时局部变量，
+   在编译期求值的运行时函数（`comptime_fn(f)`）也一样
+   （[`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)）。
 2. 保留函数参数值用于编译期求值
 3. 将参数标记为仅编译期使用
 

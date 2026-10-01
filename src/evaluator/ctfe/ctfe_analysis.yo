@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   FuncOrAsyncBlockKind
 } :: import("../context.yo");
 { EvalValue, FuncValData, create_unknown_val } :: import("../../value.yo");
-{ register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
+{ register_func_type, mark_fn_unemittable, mark_fn_ctfe_clone } :: import("../../function_value.yo");
 {
   copy_func_param_defaults,
   copy_func_param_default_exprs,
@@ -356,6 +356,7 @@ _build_comptime_clone :: (
     );
     register_func_type(ct_new_id.clone(), comptime_func_type.clone());
     mark_fn_unemittable(ct_new_id.clone());
+    mark_fn_ctfe_clone(ct_new_id.clone());
     // Per-fn metadata lives in SIDE TABLES keyed by fid — the comptime clone
     // needs the full set or
     // evaluate_comptime_fn_call executes it as a metadata-less fn (params not

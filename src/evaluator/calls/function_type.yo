@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
-{ Diagnostic } :: import("../../diagnostics.yo");
+{ Diagnostic, E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
 { Exception, AnyError } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
@@ -2066,6 +2066,20 @@ Result type: ${type_to_string(result_box)}`
             truncate_forcing_depths(dg_depths);
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
+            // A `:=` in a compile-time body (E1104) is wrong whatever the call's
+            // arguments are, so it is raised now, at its own span and with its
+            // `yo fix` repair, even for a body that otherwise waits for its
+            // calls (a `comptime(x)` value parameter, below). Without this a
+            // never-called compile-time fn kept its `:=`
+            // (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+            if(_trial_swallow_pending() && match(_trial_swallow_code(), .Some(dg_code) => (dg_code == String.from(E_COMPTIME_RUNTIME_BINDING)), .None => false), {
+              dg_ct_diags := match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+              _clear_trial_swallow();
+              if(!(dg_fv_was), {
+                clear_flow_violation();
+              });
+              exn.throw(dyn(yo_error_from_diagnostics(dg_ct_diags)));
+            });
             // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
             // swallow — but an unbound name that
             // is bound LATER in this module is a forward reference, and
