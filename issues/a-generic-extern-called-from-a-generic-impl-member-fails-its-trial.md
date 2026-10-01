@@ -33,11 +33,18 @@ These are two different declarations with the same name.
 | generic impl member | generic Yo fn with the same signature | passes |
 | generic free fn | generic `extern("Yo")` fn | passes |
 
-## Where (reasoned, not yet measured)
+## Where (measured with `YO_DEBUG_PARAMCHECK=1`, v0.2.47)
 
-The callee's own binder `T` is not instantiated at the call: the argument's type `*(T)` (the
-member's `T`) is compared against the extern's declared `*(T)` (the extern's own `T`), two
-different SomeTs that print alike. The Yo-function path freshens the callee's forall binders
-before matching; the extern path apparently does not when the caller is an impl member's trial.
-Next: compare the call paths for a FuncVal callee and an extern callee under
-`ctx.is_in_function_call_checking_phase` in a member trial.
+```
+extern callee, binder T:  [param-check] label=slot declared=*(T) final=*(T) arg=*(T) compat=false
+extern callee, binder U:  [param-check] label=slot declared=*(U) final=*(U) arg=*(T) compat=false
+Yo callee,     binder T:  [param-check] label=slot declared=*(T) final=*(T) arg=*(T) compat=false
+```
+
+So it is not a name collision: renaming the extern's binder to `U` still leaves `final=*(U)`.
+Step 6 of the parameter check (`synthesize_types`, `calls/helper.yo`) does not bind the
+callee's binder from an argument whose type is the caller's unresolved SomeT, in either case.
+The Yo-function callee fails the same compatibility check but is not reported, so some path
+defers or retries a generic Yo callee in a trial, and the extern path lacks it. Next, with a
+debug build: find what absorbs the Yo callee's failed Step 8, and give the extern call the same
+treatment, or make Step 6 bind a callee binder to the caller's SomeT.
