@@ -71,7 +71,10 @@ Errors in an imported file surface at the top of the importing document with
 the location in the message.
 
 The evaluator stops at the first error, so a document shows at most one primary
-diagnostic (plus its notes) at a time.
+diagnostic (plus its notes) at a time. A diagnostic's notes and helps point
+elsewhere — into the standard library for a failed `where` clause, at the
+other end of a mismatch — as `relatedInformation` entries, so the Problems
+panel shows them as working links on the primary, not as separate 0:0 rows.
 
 ### 2. Hover
 
@@ -103,7 +106,9 @@ Instantiated generics render as written — `ArrayList(i32)`, `Option(String)`,
   declaration or the subject of the enclosing `match`.
 - **Identifiers**: names already used in the document, everything visible in
   the deepest enclosing scope (prelude types such as `Option` and `Result`,
-  imports), and keywords.
+  imports), and keywords. Identifier and import-list matching is by PREFIX
+  (`Poi` offers `Point`, not `JoinHandle`); dot completion matches the same
+  way.
 
 ### 4. Go to Definition
 
@@ -119,8 +124,11 @@ module.
 ### 5. Document Symbols
 
 Every top-level `name :: value` binding, classified by the value's shape
-(function, struct, enum, trait, impl, constant). Works while the document has
-evaluation errors.
+(function, struct, enum, trait, impl, constant), plus the declaration forms
+`(name : T) = value`, `name := value;` and `thread_local(name) := init;`,
+listed as variables. Works while the document has evaluation errors. Clients
+that did not declare `hierarchicalDocumentSymbolSupport` receive the flat
+`SymbolInformation[]` shape instead of the hierarchical one.
 
 ### 6. Find References and Rename
 
@@ -129,6 +137,13 @@ local `x` leaves a struct field `x`, the label in `Point(x : …)` and the acces
 `p.x` untouched. Inside a `generic(...)` function body that has not been
 specialized, occurrences are matched by name (the evaluator has not visited
 them). References and rename are same-file.
+
+`context.includeDeclaration` is honored (a request from the declaration
+itself — right-click a definition — still drops it when false). Rename
+validates the new name first: an identifier that is not a legal binding name,
+a keyword, or a name reserved for a compiler builtin is refused with an error
+message in the rename box instead of splicing broken text into the buffer;
+`prepareRename` answers only on symbols that can actually be renamed.
 
 ### 7. Signature Help
 
@@ -155,6 +170,36 @@ byte-for-byte the CLI's, so the editor and `yo fix` never disagree. A
 diagnostic whose message names two possible fixes carries no repair and
 therefore no action.
 
+### 11. Document Highlights
+
+Selecting an identifier highlights every occurrence of its **binding** in the
+file — the declaration is highlighted as a write, every use as plain text;
+members and labels highlight nothing (same identity rule as references and
+rename).
+
+### 12. Go to Type Definition
+
+On a value, jumps to the declaration of its type (`p` in `p := Point(…)` lands
+on `Point :: struct(…)`; an instantiated generic lands on its binding, shown
+as written — `ArrayList(usize)` jumps to `ArrayList`). Labels, function-typed
+names and primitives answer nothing.
+
+### 13. Workspace Symbols
+
+`workspace/symbol` searches the top-level symbols of every OPEN document
+(case-insensitive substring; an empty query lists them all). Closed files are
+not indexed — cross-module search wants an index-shape decision first.
+
+### 14. Semantic Tokens
+
+`textDocument/semanticTokens/full` colors the document beyond what a TextMate
+grammar can know: keywords, strings, numbers and comments from the lexer, and
+identifiers classified by the analysis — types, functions, plain variables,
+and struct fields / labels / variants as properties. Identifiers the current
+analysis cannot classify keep their fallback coloring rather than being
+guessed. Positions and lengths are in the negotiated position encoding, and a
+token spanning lines (a block comment) is emitted as one segment per line.
+
 ## Behaviour while editing
 
 Most keystrokes leave a document that does not parse. The server keeps the
@@ -172,11 +217,23 @@ loader and invalidates the dependents). Edits to an imported file made
 ## Position encoding
 
 The compiler's columns are Unicode scalar values (one column per rune). At
-`initialize` the server negotiates the wire encoding: when the client lists
-`utf-32` in `general.positionEncodings` the server picks it and columns pass
-through unchanged; otherwise it uses the protocol default `utf-16` and converts
-every column it sends or receives — an emoji or other astral-plane character
-occupies two UTF-16 units, one rune.
+`initialize` the server negotiates the wire encoding against the client's
+offered `general.positionEncodings`: `utf-32` when offered (the server's
+native unit, so nothing is converted), else `utf-16` (the protocol default),
+else `utf-8` — never an encoding the client did not offer. Under `utf-16` or
+`utf-8` every column the server sends or receives is converted — an emoji or
+other astral-plane character occupies two UTF-16 units, one rune (and up to
+four UTF-8 bytes).
+
+## Protocol behavior
+
+The server follows the JSON-RPC 2.0 / LSP 3.17 lifecycle: requests before
+`initialize` are refused with `ServerNotInitialized`, a second `initialize`
+and anything after `shutdown` with `InvalidRequest`, unknown `$/` requests
+with `MethodNotFound` (so clients can feature-probe) while `$/` notifications
+are ignored, and an unparseable body is answered with `-32700` under a null
+id. `exit` terminates the process — exit code 0 after a `shutdown`, 1
+without one.
 
 ## Source layout
 
@@ -188,18 +245,23 @@ occupies two UTF-16 units, one rune.
 | `src/lsp/diagnostics.yo`      | document analysis and `publishDiagnostics`; diagnostics carry the `Repair` that `textDocument/codeAction` (in `server.yo`) serves |
 | `src/lsp/hover.yo`            | hover, shared token/candidate helpers, atom roles    |
 | `src/lsp/completion.yo`       | `textDocument/completion`                            |
-| `src/lsp/definition.yo`       | `textDocument/definition`                            |
-| `src/lsp/references.yo`       | `textDocument/references` and the occurrence walker  |
-| `src/lsp/rename.yo`           | `textDocument/rename`                                |
-| `src/lsp/symbols.yo`          | `textDocument/documentSymbol`                        |
+| `src/lsp/definition.yo`       | `textDocument/definition` and `typeDefinition`       |
+| `src/lsp/references.yo`       | `textDocument/references`, `documentHighlight` and the occurrence walker |
+| `src/lsp/rename.yo`           | `textDocument/rename` and `prepareRename`            |
+| `src/lsp/symbols.yo`          | `textDocument/documentSymbol` and `workspace/symbol` |
 | `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                         |
-| `src/lsp/folding.yo`          | `textDocument/foldingRange`                          |
+| `src/lsp/folding.yo`          | `textDocument/foldingRange` and `semanticTokens`     |
 
 ## Testing
 
 The server is driven exactly as an editor drives it: the `lsp-*` cases under
 `tests/cli-cases/` feed framed JSON-RPC to `yo lsp` over stdin and compare the
-framed replies against recorded goldens (`scripts/cli-diff-test.sh`). The pure
-helpers (URI conversion, position encoding) and the analysis-state guarantees
-are covered by `tests/internal/lsp_protocol.test.yo`; module invalidation by
-`tests/internal/module_invalidation.test.yo`.
+framed replies against recorded goldens (`scripts/cli-diff-test.sh`) — and
+assert the RAW stream's framing is strictly `Content-Length: N` + exactly
+`CRLF CRLF` + N body bytes (`framing=strict` in each case's `opts`), the
+class of bug that once killed every Windows client.
+`scripts/lsp-strict-handshake.py` drives the same strict session against any
+`yo` binary and runs in the release workflow's Windows bundle smoke legs.
+The pure helpers (URI conversion, position encoding) and the analysis-state
+guarantees are covered by `tests/internal/lsp_protocol.test.yo`; module
+invalidation by `tests/internal/module_invalidation.test.yo`.

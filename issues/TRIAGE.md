@@ -45,7 +45,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 35 |
+| S1 | 34 |
 | S2 | 88 |
 | S3 | 57 |
 
@@ -362,7 +362,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
 | [`lsp-per-keystroke-full-reanalysis-limits-responsiveness.md`](./lsp-per-keystroke-full-reanalysis-limits-responsiveness.md) | S3 | — | — |
-| [`lsp-windows-text-mode-framing-breaks-every-client.md`](./lsp-windows-text-mode-framing-breaks-every-client.md) | S1 | — | — |
+| [`lsp-windows-text-mode-framing-breaks-every-client.md`](./fixed/lsp-windows-text-mode-framing-breaks-every-client.md) | fixed | — | — |
 | [`method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`](./method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md) | S3 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |

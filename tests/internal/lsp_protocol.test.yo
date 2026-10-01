@@ -33,14 +33,16 @@ json :: import("std/encoding/json");
   fs_path_to_uri,
   module_path_to_uri,
   rune_col_to_utf16_col,
-  utf16_col_to_rune_col
+  utf16_col_to_rune_col,
+  rune_col_to_utf8_col,
+  utf8_col_to_rune_col
 } :: import("../../src/lsp/protocol.yo");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { handle_hover } :: import("../../src/lsp/hover.yo");
 { handle_type_definition } :: import("../../src/lsp/definition.yo");
 { handle_references, handle_document_highlight } :: import("../../src/lsp/references.yo");
 { handle_rename, handle_prepare_rename, rename_rejection } :: import("../../src/lsp/rename.yo");
-{ handle_document_symbols, handle_workspace_symbols, WorkspaceDoc } :: import("../../src/lsp/symbols.yo");
+{ handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, WorkspaceDoc } :: import("../../src/lsp/symbols.yo");
 { handle_semantic_tokens } :: import("../../src/lsp/folding.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
 { is_any_temp_variable_name, generate_new_temp_variable_name } :: import("../../src/utils.yo");
@@ -328,6 +330,10 @@ test("hover shows contracts + verification status for a contracted function", {
 _TYPED_DECL :: "Point :: struct(x : i32, y : i32);\n(p : Point) = Point(x : 1, y : 2);\nanswer :: (fn() -> i32)({ return(((p.x) + (p.y))); });\n";
 _MISSING_TOSTRING :: "{ println } :: import(\"std/fmt\");\nP2 :: struct(x : i32);\nmain :: (fn() -> unit)({\n  p := P2(x : i32(1));\n  println(p);\n  ()\n});\nexport(main);\n";
 _SEM_DOC :: "{ String } :: import(\"std/string\");\ns := String.from(\"hi\");\nn := i32(41);\n// a note\n";
+_ASTRAL_DOC :: "emoji := \"🎉\"; n := 1;\n";
+_ML_COMMENT_DOC :: "/* one\n   two */\nx := 1;\n";
+_FN_DECL_DOC :: "answer :: (fn() -> i32)(i32(42));\nmain :: (fn() -> unit)({ answer(); });\nexport(main);\n";
+_RUNTIME_DECL_DOC :: "(c : i32) = i32(3);\nx := i32(4);\nthread_local(t) := i32(5);\n(thread_local(u) : i32) = i32(6);\n";
 
 test("rename_rejection: only legal binding names pass", {
   // Legal identifiers (including single-underscore-private ones).
@@ -741,5 +747,215 @@ test("semanticTokens: string literals and numbers classify from the token", {
       assert(toks.contains(",1,0,9,7,0"), "// a note is a 9-rune comment token");
     },
     .None => assert(false, "semantic-token document: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The 2026-09-30 closeout review of the audit stack
+// (plans/LSP_AUDIT_2026-09-29.md): semanticTokens wire encoding and source
+// spans, the ::-declaration fallback, the reserved call-head names, the flat
+// documentSymbol shape, the runtime declaration forms, utf-8 positions.
+// ---------------------------------------------------------------------------
+test("rune <-> utf-8 columns around an astral-plane rune", {
+  line := `ab😀cd`;
+  assert_eq(rune_col_to_utf8_col(line.clone(), usize(0)), usize(0), "start");
+  assert_eq(rune_col_to_utf8_col(line.clone(), usize(2)), usize(2), "before the emoji");
+  assert_eq(rune_col_to_utf8_col(line.clone(), usize(3)), usize(6), "after the emoji: +4 bytes");
+  assert_eq(rune_col_to_utf8_col(line.clone(), usize(5)), usize(8), "end");
+  assert_eq(rune_col_to_utf8_col(line.clone(), usize(99)), usize(8), "past the end clamps");
+  assert_eq(utf8_col_to_rune_col(line.clone(), usize(2)), usize(2), "before the emoji");
+  assert_eq(utf8_col_to_rune_col(line.clone(), usize(4)), usize(3), "inside the emoji belongs to the emoji");
+  assert_eq(utf8_col_to_rune_col(line.clone(), usize(6)), usize(3), "after the emoji");
+  assert_eq(utf8_col_to_rune_col(line.clone(), usize(8)), usize(5), "end");
+  assert_eq(utf8_col_to_rune_col(line.clone(), usize(99)), usize(5), "past the end clamps");
+});
+
+test("semanticTokens columns and lengths are wire-encoded and source-exact", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_astral.yo`;
+  text := String.from(_ASTRAL_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the astral document analyzes ok");
+      // Line 0 runes: emoji(0-4) := "🎉"(9-11) n(14) 1(19). Under the
+      // DEFAULT utf-16 negotiation the emoji inside the string is two
+      // units, so n sits at wire column 15 (delta 6 from the string's
+      // start at 9), and the string token's length is 4 WIRE units — its
+      // 3 source runes with the astral one counting twice — not the
+      // 1-rune decoded value
+      // (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      assert(toks.contains("[0,0,5,3,0"), "emoji is a 5-rune variable token");
+      assert(toks.contains(",0,9,4,5,0"), "the string token counts the astral rune as two utf-16 units");
+      assert(toks.contains(",0,6,1,3,0"), "n starts 6 utf-16 units after the string start (rune math would say 5)");
+      assert(toks.contains(",0,5,1,6,0"), "1 follows n at the utf-16 delta 5");
+    },
+    .None => assert(false, "astral document: no outcome")
+  );
+});
+
+test("semanticTokens splits a multi-line comment into per-line segments", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_mlcomment.yo`;
+  text := String.from(_ML_COMMENT_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the multi-line-comment document analyzes ok");
+      // A token may not span lines: the comment becomes one segment per
+      // line — `/* one` (6 runes) on line 0, `   two */` (9 runes) on
+      // line 1 — never one 16-rune token at line 0
+      // (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      assert(toks.contains("[0,0,6,7,0"), "line 0 carries the 6-rune comment segment");
+      assert(toks.contains(",1,0,9,7,0"), "line 1 carries its own 9-rune comment segment");
+      assert(!toks.contains(",16,"), "no 16-rune single token");
+      assert(toks.contains(",1,0,1,3,0"), "x on line 2 is a variable token");
+    },
+    .None => assert(false, "multi-line-comment document: no outcome")
+  );
+});
+
+test("includeDeclaration=false drops a :: declaration from the declaration itself", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_fndecl.yo`;
+  text := String.from(_FN_DECL_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the fn-decl document analyzes ok");
+      lines := text.split(String.from("\n"));
+      // FROM the declaration (0,0): the `::` declaration atom's env predates
+      // the binding, so the env-based decl lookup answers None exactly here —
+      // the syntactic fallback must still identify it
+      // (issues/lsp-references-ignore-include-declaration-on-comptime-decl.md).
+      with_decl := json.stringify(
+        handle_references(text.clone(), doc_path.clone(), lines, `file:///virtual/doc_fndecl.yo`, oc.exprs, oc.info_table, usize(0), usize(0), true)
+      );
+      without_decl := json.stringify(
+        handle_references(text.clone(), doc_path.clone(), lines, `file:///virtual/doc_fndecl.yo`, oc.exprs, oc.info_table, usize(0), usize(0), false)
+      );
+      assert(with_decl.contains("\"start\":{\"line\":0,\"character\":0}"), "includeDeclaration=true has the :: declaration");
+      assert(!without_decl.contains("\"start\":{\"line\":0,\"character\":0}"), "includeDeclaration=false drops the :: declaration when asked from it");
+      assert(without_decl.contains("\"start\":{\"line\":1,\"character\":25}"), "the use stays");
+      // documentHighlight gets the Write kind back on the same fallback.
+      hl := json.stringify(
+        handle_document_highlight(text.clone(), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(0), usize(0))
+      );
+      assert(hl.contains("\"kind\":3"), "the :: declaration highlights as Write");
+    },
+    .None => assert(false, "fn-decl document: no outcome")
+  );
+});
+
+test("rename_rejection reserves the identifier-spelled call-heads", {
+  // issues/begin-tuple-array-bindings-are-silently-hijacked.md: begin/tuple
+  // bindings compiled to calls that evaluate to unit, array() parsed as the
+  // array-literal builtin — the names are reserved now, so rename refuses
+  // to create one.
+  assert(rename_rejection(String.from("begin")).is_some(), "begin is refused");
+  assert(rename_rejection(String.from("tuple")).is_some(), "tuple is refused");
+  assert(rename_rejection(String.from("array")).is_some(), "array is refused");
+  assert(rename_rejection(String.from("beginning")).is_none(), "a longer name starting with one is fine");
+  assert(rename_rejection(String.from("threads")).is_none(), "thread_local stays bindable (only special in the LHS position)");
+});
+
+test("documentSymbol: flat SymbolInformation for non-hierarchical clients", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_typed.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TYPED_DECL), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
+    .Some(oc) => {
+      lines := String.from(_TYPED_DECL).split(String.from("\n"));
+      flat := json.stringify(handle_document_symbols_flat(oc.exprs, lines, `file:///virtual/doc_typed.yo`));
+      assert(flat.contains("\"location\":{\"uri\":\"file:///virtual/doc_typed.yo\""), "flat items carry a location with the document uri");
+      assert(flat.contains("\"name\":\"Point\",\"kind\":23"), "the symbols and kinds are the same entries");
+      assert(!flat.contains("selectionRange"), "no hierarchical-only field in the flat shape");
+    },
+    .None => assert(false, "typed-decl document: no outcome")
+  );
+});
+
+test("documentSymbol lists runtime and thread_local declarations", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc_runtime.yo`;
+  text := String.from(_RUNTIME_DECL_DOC);
+  io.await(write_string(Path.new(doc_path.clone()), text.clone(), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
+    .Some(oc) => {
+      lines := text.split(String.from("\n"));
+      syms := json.stringify(handle_document_symbols(oc.exprs, lines));
+      assert(syms.contains("\"name\":\"c\",\"kind\":13"), "the typed module constant is a Variable");
+      assert(syms.contains("\"name\":\"x\",\"kind\":13"), "a top-level := runtime static is a Variable");
+      assert(syms.contains("\"name\":\"t\",\"kind\":13"), "thread_local(name) := init is a Variable");
+      assert(syms.contains("\"name\":\"u\",\"kind\":13"), "(thread_local(name) : T) = init is a Variable");
+    },
+    .None => assert(false, "runtime-decl document: no outcome")
   );
 });
