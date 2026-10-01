@@ -2324,6 +2324,49 @@ _scratch_len_binding :: (fn(se : Environment, name : String) -> Option(String))(
     .None => Option(String).None
   )
 });
+/// Is every type variable still unresolved in `t` (in the
+/// `type_contains_some_type` sense) a `generic(...)` binder the CALLER has in
+/// scope and has not bound: its name is a variable of `env` whose value is
+/// that very SomeT (same id)? Inside a generic caller's definition-time trial
+/// such a binder is rigid. Binding the callee's binder to it is what the
+/// name-match arm already does for a whole-type parameter (`v : U` with a `T`
+/// argument binds `U := T`). A fresh placeholder (a `.None` literal's
+/// payload variable, a callee's own binder) is not a caller binder, so it is
+/// still left to the later fallbacks.
+_fv_type_vars_are_callers_binders :: (fn(env : Environment, t : TypeValue) -> bool)({
+  somes := get_all_some_types(t);
+  match(t, .SomeT({ id : _ }) => somes.push(t), _ => ());
+  (any_open : bool) = false;
+  (si : usize) = usize(0);
+  while(si < somes.len(), {
+    st := match(somes.get(si), .Some(s) => s, .None => t_unit());
+    si = (si + usize(1));
+    if(!(type_contains_some_type(st)), {
+      continue;
+    });
+    any_open = true;
+    (is_caller_binder : bool) = match(
+      st,
+      .SomeT({ id : st_id, name : st_name }) => {
+        vars := get_variables_from_env(env, st_name);
+        match(
+          vars.last(),
+          .Some(v) => match(
+            v.value.get(usize(0)),
+            .Some(.TypeVal(.SomeT({ id : bound_id, resolution : bound_res }))) => ((bound_id == st_id) && bound_res.is_none()),
+            _ => false
+          ),
+          .None => false
+        )
+      },
+      _ => false
+    );
+    if(!(is_caller_binder), {
+      return(false);
+    });
+  });
+  any_open
+});
 /// A binder's CONCRETE binding in a structural-inference scratch env, or
 /// `.None` while it is unbound or still a type variable.
 _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(TypeValue))({
@@ -2955,8 +2998,13 @@ _funcval_bind_foralls :: (
                 // (`T_inner := T_outer` when a generic caller forwards its
                 // `f : Impl(Fn() -> T_outer)`) is read through the caller's env:
                 // inside the caller's specialization it has a value there. In a
-                // definition-time trial it is unbound, resolves to itself, and
-                // is rejected below as before.
+                // definition-time trial it is unbound and resolves to itself;
+                // it still binds (`_fv_type_vars_are_callers_binders`), as the
+                // name-match arm binds `v : U` from a `T` argument. Leaving
+                // `U` unbound only because it sat under a pointer (`a : *U`
+                // given `*T`) failed the caller's trial of a `-> *U` callee
+                // with E0613
+                // (issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md).
                 se_tb := get_value_of_some_type_from_env(env, se_tb_raw);
                 // Concrete the way codegen means it: a type variable carrying
                 // an `io.async` body's `Future` or a closure's `Fn` lowers to its
@@ -2965,7 +3013,7 @@ _funcval_bind_foralls :: (
                 // `call_it(() => io.async(...))` with
                 // `fn(generic(T), f : Impl(Fn() -> T)) -> T` reported E0613
                 // (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
-                if(!type_contains_some_type_deep(se_tb), {
+                if(!type_contains_some_type_deep(se_tb) || _fv_type_vars_are_callers_binders(env, se_tb), {
                   fa_bound_names.push(fa_name.clone());
                   fa_bound_types.push(se_tb.clone());
                   _add_forall_sy := add_variable_to_env(
