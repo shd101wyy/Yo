@@ -677,21 +677,25 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
       top.push(ExternCallee(callee : remaining(best).clone(), count : best_count));
       _removed := remaining.remove(best);
     });
+    // The totals read the lists before the report stores them: a v0.2.47
+    // build read a stored local as NULL
+    // (issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
+    totals := UnsafeTotals(
+      files_scanned : yo_files.len(),
+      privileged : privileged_files.len(),
+      unsafe_sites : n_unsafe,
+      unsafe_extern_call : n_extern_call,
+      unsafe_deref : n_deref,
+      unsafe_arith : n_arith,
+      unsafe_addr_of : n_addr_of,
+      unsafe_other : n_other,
+      asm_sites : n_asm,
+      extern_sites : n_extern
+    );
     UnsafeReport(
       privileged_files : privileged_files,
       findings : findings,
-      totals : UnsafeTotals(
-        files_scanned : yo_files.len(),
-        privileged : privileged_files.len(),
-        unsafe_sites : n_unsafe,
-        unsafe_extern_call : n_extern_call,
-        unsafe_deref : n_deref,
-        unsafe_arith : n_arith,
-        unsafe_addr_of : n_addr_of,
-        unsafe_other : n_other,
-        asm_sites : n_asm,
-        extern_sites : n_extern
-      ),
+      totals : totals,
       top_extern_callees : top
     )
   })
