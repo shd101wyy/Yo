@@ -1,0 +1,82 @@
+{ println } :: import("std/fmt");
+// No await in the block.
+leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+// Fusable: a straight-line prologue, then one block whose single await is a
+// top-level binding.
+one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32)))({
+  m := (n + i32(1));
+  io.async((e : Io) => {
+    r := e.await(leaf(e, m), e);
+    (r + i32(1))
+  })
+});
+// Two awaiting statements.
+two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    a := e.await(leaf(e, n), e);
+    b := e.await(leaf(e, a), e);
+    (a + b)
+  })
+);
+// The await is an operand, not a statement.
+await_operand :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => (e.await(leaf(e, n), e) + i32(1)))
+);
+// An early return from the block.
+early_return :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, n), e);
+    if(r > i32(100), {
+      return(i32(0));
+    });
+    r
+  })
+);
+// Rejected: a closure in the block captures the bundle.
+captures_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(leaf(e, n), e);
+    (f : Impl(Fn(v : i32) -> i32)) = (
+      v => {
+        _io := e;
+        v
+      }
+    );
+    f(r)
+  })
+);
+// Fusable: an untyped bundle parameter, mentioned only in a `cond` arm
+// (an arm is not a closure).
+arm_mentions_bundle :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
+  io.async(e => {
+    r := e.await(leaf(e, n), e);
+    cond(
+      (r > i32(100)) => {
+        _io := e;
+        i32(0)
+      },
+      true => r
+    )
+  })
+);
+// No io.async at all: a delegation.
+delegate :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(one_await(io, n));
+driver :: (fn(io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    a := e.await(one_await(e, i32(1)), e);
+    b := e.await(two_awaits(e, i32(2)), e);
+    c := e.await(await_operand(e, i32(3)), e);
+    d := e.await(delegate(e, i32(4)), e);
+    h := e.await(early_return(e, i32(6)), e);
+    k := e.await(captures_bundle(e, i32(7)), e);
+    m := e.await(arm_mentions_bundle(e, i32(8)), e);
+    f := leaf(e, i32(5));
+    g := e.await(f, e);
+    ((((((((a + b) + c) + d) + g) + h) + k) + m) + h)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  v := io.await(driver(io), io);
+  println(`result: ${v}`);
+});
+export(main);

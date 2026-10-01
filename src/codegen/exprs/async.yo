@@ -1542,9 +1542,10 @@ _build_async_capture_struct_literal :: (
 // construction at the await, then its block in the caller's resume function,
 // in fields of its own in the caller's state machine. The wrapper's future is
 // never built, started, woken or released.
-/// Is F2's lowering on? `YO_ASYNC_FUSION=1` while the lowering is new.
+/// Is the fused lowering on? It is the default; `YO_ASYNC_FUSION=0` turns it
+/// off (the ordinary path: each wrapper runs as its own task).
 _async_fusion_enabled :: (fn() -> bool)(
-  match(debug_knob(String.from("YO_ASYNC_FUSION")), .Some(v) => (v == "1"), .None => false)
+  match(debug_knob(String.from("YO_ASYNC_FUSION")), .Some(v) => (v != "0"), .None => true)
 );
 /// One fused await. `block` is the state machine the wrapper's `io.async`
 /// lowers to, registered when the wrapper itself was emitted. `prefix` names
