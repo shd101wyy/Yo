@@ -30,6 +30,11 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   ast_expr_to_string,
   BK_TUPLE,
+  BK_BEGIN,
+  BK_RETURN,
+  BK_COND,
+  BK_MATCH,
+  is_function_boundary_arrow,
   clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
@@ -118,7 +123,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-{ is_some_type, is_unit_type, is_void_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
@@ -420,6 +425,49 @@ _anon_swallow_message :: (fn() -> String)(
 /// the swallowing exception unwinds THIS helper (returning unit, `out` stays
 /// empty). A deliberate gate rejection inside the body flags
 /// `flow_violation_pending()` before throwing; the caller re-raises it.
+/// The `return(v)` arguments of a body, outside any nested function or
+/// closure: the values a `ctl` handler resumes with. A cond/match arm's `=>`
+/// is a branch, not a boundary.
+_collect_resume_args :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
+        match(args.get(usize(0)), .Some(ra) => out.push(ra), .None => ());
+        return(());
+      });
+      is_branchy := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
+      if(!(is_branchy) && is_function_boundary_arrow(e), {
+        return(());
+      });
+      recur(func_box, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        if(is_branchy && ast_expr_is_fn_call_of(arg, "=>", .None), {
+          match(
+            arg,
+            .FnCall(_, _, arm_parts, _, _) => {
+              (j : usize) = usize(0);
+              while(j < arm_parts.len(), {
+                match(arm_parts.get(j), .Some(ap) => recur(ap, out), .None => ());
+                j = (j + usize(1));
+              });
+            },
+            .Atom(_, _) => ()
+          );
+        }, recur(arg, out));
+        i = (i + usize(1));
+      });
+    }
+  )
+);
+/// A resume value no throw site can receive from a plain `ctl` handler: a
+/// concrete type, neither `()` nor a diverging one, with no type variable.
+_is_concrete_resume_type :: (fn(t : TypeValue) -> bool)(
+  ((!(is_unit_type(t)) && !(is_never_type(t))) && !(is_void_type(t))) && (get_all_some_types(t).len() == usize(0))
+);
 _trial_eval_anon_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
@@ -1732,6 +1780,64 @@ Result type: ${type_to_string(decl_result_ty)}`
           },
           .None => ()
         );
+        // A `ctl` handler bound to a `ctl(generic(ResumeType), …) ->
+        // ResumeType` (`Exception.throw`) inherits that type variable as its
+        // result: each throw site picks it. Only a body that diverges, falls
+        // through with `()`, or resumes with a value typed by the variable
+        // itself works for every choice; a concrete resume value has nowhere
+        // to go (the lowering erases the result, and the throw site read 0).
+        // That is parametricity, as the deferred trial checks for a closure
+        // against its own forall
+        // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
+        rv_ret := match(function_type, .Func({ result : rv_r }) => rv_r, _ => t_unit());
+        rv_generic := match(
+          rv_ret,
+          .SomeT({ name : rv_name }) => {
+            (rv_found : bool) = false;
+            (rv_i : usize) = usize(0);
+            while(rv_i < forall_labels.len(), {
+              if(match(forall_labels.get(rv_i), .Some(l) => (l == rv_name), .None => false), {
+                rv_found = true;
+              });
+              rv_i = (rv_i + usize(1));
+            });
+            rv_found
+          },
+          _ => false
+        );
+        if((ctl_force && !(is_creating_closure)) && rv_generic, {
+          rv_values := ArrayList(AstExpr).new();
+          _collect_resume_args(anon_eb, rv_values);
+          // The tail resumes too, unless it unwinds.
+          rv_tail := match(
+            anon_eb,
+            .FnCall(_, _, rv_targs, _, _) => if(ast_expr_is_fn_call_of(anon_eb, BK_BEGIN, .None), match(rv_targs.last(), .Some(t) => t, .None => anon_eb), anon_eb),
+            .Atom(_, _) => anon_eb
+          );
+          if(!(evaluated_body_contains_unwind(rv_tail)) && !(ast_expr_is_fn_call_of(rv_tail, BK_RETURN, .None)), {
+            rv_values.push(rv_tail);
+          });
+          (rv_k : usize) = usize(0);
+          while(rv_k < rv_values.len(), {
+            rv_e := match(rv_values.get(rv_k), .Some(x) => x, .None => make_err_expr());
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(rv_e)),
+              .Some(rv_info) => if(_is_concrete_resume_type(rv_info.ty), {
+                exn.throw(
+                  dyn(
+                    format_error_message_with_help(
+                      ast_expr_token(rv_e),
+                      `This handler resumes the throw with a value of type \`${type_to_string(rv_info.ty)}\`, but its resume type \`${type_to_string(rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
+                      Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
+                    )
+                  )
+                );
+              }),
+              .None => ()
+            );
+            rv_k = (rv_k + usize(1));
+          });
+        });
         // When the declared return type CONTAINS SomeTypes but is not itself
         // one (`Option(B)`) and the body evaluated to a fully concrete type,
         // synthesize the declared return against the body type so every
