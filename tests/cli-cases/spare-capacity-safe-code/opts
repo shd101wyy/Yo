@@ -1,7 +1,8 @@
 # issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md:
 # growing an ArrayList over memory it did not write needs the spare-capacity
 # token, and a SAFE file (no pragma(Pragma.AllowUnsafe)) cannot hold it: the
-# Option(RawSlice(T)) carries a raw pointer. The kept substring is the
-# safe-mode gate's own diagnostic.
-stdout_keep_match=Raw-pointer-carrying types \('Option\(RawSlice\(i64\)\)'\) are not available in safe code
+# token is an Option(*(T)), a raw pointer VALUE, which the safe-mode value gate
+# rejects even when it is discarded (`_ := ...`). The kept substring is that
+# gate's own diagnostic, naming the token's type.
+stdout_keep_match=Raw pointer values are not available in safe code: '[^']*' has type '[^']*'
 timeout=120

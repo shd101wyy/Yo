@@ -35,7 +35,7 @@ proving**, and **linear types with views**.
   - a result you must not silently drop (`Result`, an unawaited `Future`);
   - a proof token that gates claiming memory initialized. Its absence is a
     live S1: safe code reaches freed memory through `ArrayList.set_len`
-    (`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md`).
+    (`issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md`).
 
   Both can be had without linear types.
 - **The rest ATS is known for, Yo already has:** exhaustive matching,
@@ -148,13 +148,15 @@ naming the missing property. Depends on A1's axiom machinery.
 
 ### A4. A proof token for initialization (ATS `T?` + views): fixes an S1
 
-`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md`.
+`issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md`.
 ATS claims a region is initialized only by presenting its view. Yo can
 get the same with the gate it already has, which is type-based: a
 value that carries a raw pointer is unavailable in safe code. Growth
 needs a token only unsafe code can hold:
-- `spare_capacity(self) -> RawSlice(T)`;
-- `assume_init(self, n, spare : RawSlice(T))`;
+- `spare_capacity(self) -> Option(*(T))`, not `RawSlice(T)`: the value gate
+  catches a pointer and an enum wrapping one, but not a struct that contains
+  one. A `RawSlice` token was measured passing through safe code;
+- `assume_init(self, n, spare : *(T))`;
 - `set_len` goes away in favor of the safe `truncate`;
 - `std/io/index.yo` (the only caller) switches.
 
