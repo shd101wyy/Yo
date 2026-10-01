@@ -767,6 +767,18 @@ VcCtx :: ref(
     /// reference type, so such a local may be the same list as another
     /// name, and the model (one value per name) cannot follow the alias.
     list_alias_locals : ArrayList(String),
+    /// List-typed locals last bound from `ArrayList(T).new()` /
+    /// `with_capacity(n)`: no other name can be the same list (R2 task 5).
+    fresh_list_locals : ArrayList(String),
+    /// Where a `distinct(a, b)` is being walked: 0 = elsewhere (a subset
+    /// error), 1 = the fn's own requires (assumed; the pair is recorded),
+    /// 2 = a callee's requires at a call (proved from the arguments).
+    requires_phase : usize,
+    /// At a call (phase 2): callee parameter -> the caller's argument name
+    /// ("" when the argument is not a plain name).
+    call_arg_names : HashMap(String, String),
+    /// The `distinct(a, b)` pairs of the fn's own requires, both orders.
+    distinct_pairs : ArrayList(String),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -827,6 +839,10 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     call_pre : Option(HashMap(String, VcTerm)).None,
     mutated_names : ArrayList(String).new(),
     list_alias_locals : ArrayList(String).new(),
+    fresh_list_locals : ArrayList(String).new(),
+    requires_phase : usize(0),
+    call_arg_names : HashMap(String, String).new(),
+    distinct_pairs : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
@@ -3932,6 +3948,37 @@ _call_term :: (
   if(head == "for", {
     return(_for_term(ctx, e, args));
   });
+  // `distinct(a, b)` (R2 task 5): two list parameters are different lists.
+  // The fn's own requires assume it (and record the pair); a call proves it
+  // from where the arguments came from (`_lists_distinct`).
+  if((head == "distinct") && (n == usize(2)), {
+    da := args.get(usize(0)).unwrap();
+    db := args.get(usize(1)).unwrap();
+    if(!ast_expr_is_atom(da) || !ast_expr_is_atom(db), {
+      _fail_subset(ctx, String.from("distinct(...) over something other than two parameter names"), e);
+      return(Option(VcTerm).None);
+    });
+    an := ast_expr_token(da).value;
+    bn := ast_expr_token(db).value;
+    return(
+      cond(
+        (ctx.requires_phase == usize(1)) => {
+          ctx.distinct_pairs.push(`${an}|${bn}`);
+          ctx.distinct_pairs.push(`${bn}|${an}`);
+          Option(VcTerm).Some(VcTerm.BoolLit(true))
+        },
+        (ctx.requires_phase == usize(2)) => {
+          xn := match(ctx.call_arg_names.get(an.clone()), .Some(x) => x, .None => String.new());
+          yn := match(ctx.call_arg_names.get(bn.clone()), .Some(y) => y, .None => String.new());
+          Option(VcTerm).Some(VcTerm.BoolLit(_lists_distinct(ctx, xn, yn)))
+        },
+        true => {
+          _fail_subset(ctx, String.from("distinct(...) outside a requires"), e);
+          Option(VcTerm).None
+        }
+      )
+    );
+  });
   // `produced(xs)` (R2 task 4): the elements of xs a `for` over it has
   // consumed so far — the list cut at the loop's ghost index.
   if((head == "produced") && (n == usize(1)), {
@@ -5187,14 +5234,54 @@ _note_ms_of :: (
 _note_list_alias :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(rhs)),
-    .Some(ri) => if(_list_elem_type(ri.ty).is_some() && !_is_fresh_list_ctor(rhs), {
-      if(!ctx.list_alias_locals.contains(name.clone()), {
-        ctx.list_alias_locals.push(name);
+    .Some(ri) => if(_list_elem_type(ri.ty).is_some(), {
+      if(_is_fresh_list_ctor(rhs), {
+        if(!ctx.fresh_list_locals.contains(name.clone()), {
+          ctx.fresh_list_locals.push(name.clone());
+        });
+      }, {
+        if(!ctx.list_alias_locals.contains(name.clone()), {
+          ctx.list_alias_locals.push(name);
+        });
       });
     }),
     .None => ()
   )
 );
+/// `distinct(x, y)` at a call, from where the caller's two arguments came
+/// from: two different plain names, neither ever bound from an existing
+/// list, and one of them a fresh local or the pair stated by the caller's
+/// own requires.
+_lists_distinct :: (fn(ctx : VcCtx, x : String, y : String) -> bool)(
+  cond(
+    ((x == "") || (y == "")) => false,
+    (x == y) => false,
+    (ctx.list_alias_locals.contains(x.clone()) || ctx.list_alias_locals.contains(y.clone())) => false,
+    (ctx.fresh_list_locals.contains(x.clone()) || ctx.fresh_list_locals.contains(y.clone())) => true,
+    true => ctx.distinct_pairs.contains(`${x}|${y}`)
+  )
+);
+/// True when one of `reqs` is `distinct(a, b)` or `distinct(b, a)`.
+_requires_state_distinct :: (fn(reqs : ArrayList(AstExpr), a : String, b : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    r := reqs.get(i).unwrap();
+    if(ast_expr_is_fn_call_of(r, "distinct", Option(usize).Some(usize(2))), {
+      ra := _fn_call_args(r);
+      p := ra.get(usize(0)).unwrap();
+      q := ra.get(usize(1)).unwrap();
+      if(ast_expr_is_atom(p) && ast_expr_is_atom(q), {
+        pn := ast_expr_token(p).value;
+        qn := ast_expr_token(q).value;
+        if(((pn == a) && (qn == b)) || ((pn == b) && (qn == a)), {
+          return(true);
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// `ArrayList(T).new()` / `ArrayList(T).with_capacity(n)`: a list no other
 /// name can refer to yet.
 _is_fresh_list_ctor :: (fn(rhs : AstExpr) -> bool)(
@@ -6094,12 +6181,32 @@ _callee_call_term :: (
       .None => ()
     );
   });
+  // `distinct(p, q)` in the callee's requires is proved from the caller's
+  // argument names (R2 task 5).
+  saved_arg_names := ctx.call_arg_names;
+  saved_phase := ctx.requires_phase;
+  ctx.call_arg_names = HashMap(String, String).new();
+  (ani : usize) = usize(0);
+  while(ani < eff_args.len(), {
+    match(
+      callee_params.get(ani),
+      .Some(acp) => {
+        aa := eff_args.get(ani).unwrap();
+        ctx.call_arg_names.insert(acp.clone(), cond(ast_expr_is_atom(aa) => ast_expr_token(aa).value, true => String.new()));
+        ()
+      },
+      .None => ()
+    );
+    ani = (ani + usize(1));
+  });
   (ri : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
       reqs.get(ri),
       .Some(req) => {
+        ctx.requires_phase = usize(2);
         rt := _expr_term(ctx, req);
+        ctx.requires_phase = saved_phase;
         match(
           rt,
           .Some(rtt) => {
@@ -6112,6 +6219,7 @@ _callee_call_term :: (
     );
     ri = (ri + usize(1));
   });
+  ctx.call_arg_names = saved_arg_names;
   // V6 task 3: the caller PROVES each refined argument satisfies its
   // predicate (`refine#N`) — the other half of the callee's entry assume.
   // The obligation is the predicate inlined over the ARGUMENT's term.
@@ -6694,7 +6802,9 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     match(
       input.requires_exprs.get(ri),
       .Some(r) => {
+        ctx.requires_phase = usize(1);
         rt := _expr_term(ctx, r);
+        ctx.requires_phase = usize(0);
         match(
           rt,
           .Some(rtt) => {
@@ -6796,10 +6906,12 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
         (apj : usize) = usize(0);
         while(apj < input.param_names.len(), {
           bdt := match(input.param_types.get(apj), .Some(bpt) => _list_dt_of_type(bpt), .None => Option(String).None);
-          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())), {
+          // `requires(distinct(a, b))` says the caller passes two lists
+          // (R2 task 5), so the pair is safe to model separately.
+          if((apj != api) && (bdt.is_some() && (bdt.unwrap() == adt.clone().unwrap())) && !_requires_state_distinct(input.requires_exprs, apn.clone(), input.param_names.get(apj).unwrap()), {
             _fail_subset(
               ctx,
-              `the body mutates list parameter '${apn}' and '${input.param_names.get(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases`,
+              `the body mutates list parameter '${apn}' and '${input.param_names.get(apj).unwrap()}' has the same list type — a caller may pass one list as both, and the list model cannot follow aliases (state requires(distinct(${apn}, ${input.param_names.get(apj).unwrap()})) to rule that out)`,
               input.body
             );
           });

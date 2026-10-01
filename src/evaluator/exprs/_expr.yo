@@ -80,6 +80,7 @@ import("std/fmt");
   BF_SEQ_UNIT,
   BF_SEQ_OF,
   BF_PRODUCED,
+  BF_DISTINCT,
   BF_SEQ_APPEND,
   BF_SEQ_LEN,
   BF_SEQ_NTH,
@@ -414,6 +415,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
   evaluate_seq_unit,
   evaluate_seq_of,
   evaluate_produced,
+  evaluate_distinct,
   evaluate_seq_append,
   evaluate_seq_len,
   evaluate_seq_nth,
@@ -1026,6 +1028,8 @@ _evaluate_expression :: (
           evaluate_seq_of(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_PRODUCED, .None)) =>
           evaluate_produced(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DISTINCT, .None)) =>
+          evaluate_distinct(expr, env, ctx, exn),
         ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SEQ_APPEND, .None)) =>
           evaluate_seq_append(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SEQ_LEN, .None)) =>

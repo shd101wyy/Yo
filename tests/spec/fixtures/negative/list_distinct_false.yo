@@ -1,0 +1,42 @@
+// The negative twin of valid/list_distinct.yo.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+append_all :: (
+  fn(
+    src : ArrayList(i32),
+    dst : ArrayList(i32),
+    requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
+    ensures(dst.len() == (old(dst.len()) + src.len()))
+  ) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    invariant(i <= src.len(), dst.len() == (old(dst.len()) + i));
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});
+
+// REFUTED at the call: one list passed as both.
+onto_itself :: (fn(xs : ArrayList(i32), requires((xs.len() + xs.len()) >= xs.len()), ensures(xs.len() >= old(xs.len()))) -> unit)({
+  append_all(xs, xs);
+});
+
+// SUBSET ERROR: without distinct, a body mutating one of two same-typed
+// list parameters is rejected.
+append_unchecked :: (
+  fn(
+    src : ArrayList(i32),
+    dst : ArrayList(i32),
+    requires((dst.len() + src.len()) >= dst.len()),
+    ensures(dst.len() == (old(dst.len()) + src.len()))
+  ) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    invariant(i <= src.len(), dst.len() == (old(dst.len()) + i));
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});
