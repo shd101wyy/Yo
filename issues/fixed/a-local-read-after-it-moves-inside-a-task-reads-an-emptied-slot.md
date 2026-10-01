@@ -4,6 +4,8 @@
 
 **Status: FIXED (2026-10-01).** This is a regression of #1002's consuming read (`issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md`), shipped in #1018 and v0.2.47. It is the third of the three CLI cases that went rc=139 once `SEED_VERSION` became v0.2.47. The other two are `issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md`.
 
+#1072 (`issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md`) fixed the container-store shape in the evaluator: in an awaiting block, a local's move into a field is no longer cancelled. It worked around this alias shape by respelling `run_install` to read through `current`. The alias elision still marks `(cur : T) = t` as `t`'s consumption, so a user program with the shape kept crashing. This fix is the compiler side.
+
 ## Symptom
 
 `_bump_ranges_to_latest`'s caller in `src/install_command.yo`:
@@ -50,4 +52,4 @@ Tests in `tests/async/sm_ownership.test.yo`:
 - "an aborted task releases a value moved to another name once";
 - "an aborted task releases a local re-bound after its previous value moved" (the store-side clear).
 
-`yo update --latest` passes its CLI case on a stage 2 built from this tree.
+The first test fails (exit code 256) under a stage 1 built before this fix and passes after it.
