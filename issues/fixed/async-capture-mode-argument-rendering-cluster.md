@@ -2,7 +2,7 @@
 
 **Severity:** S2 — an unbound name inside io.async leaves check green but compile ICEs (swallowed not-found error)
 
-**Status: OPEN** (split 2026-09-09 out of
+**Status: FIXED** (all three findings, verified 2026-10-01; last section). Split 2026-09-09 out of
 `issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md`,
 whose PRIMARY bug — the illegal aggregate call-arg cast — is fixed).
 
@@ -65,3 +65,19 @@ finding:
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 Finding 1 (missing-name soft fallbacks) is **FIXED**: an unbound name in a direct `io.async` body now fails `yo check` with `E0401 Variable "nosuchfn" not found`. Finding 2's probe is still cleanly rejected (E0904). Finding 3 runs clean (prints 80, no UAF). The seed leaks 24 B from `__yo_async_enqueue_continuation` (the continuation pool, freed at thread exit since #970), and the tree build is LSan-clean.
+
+## Verified fixed 2026-10-01 (v0.2.47 seed, the single-pass lowering)
+
+**Measured.** The two committed probes needed one update: `main` now takes
+only `io : Io` (the main-signature rule), so each builds its `Exception`
+locally. Both are built with `--sanitize address --allocator system`.
+
+- **Finding 1:** stays fixed (E0401 at `yo check`, the 2026-09-28 audit).
+- **Finding 2** (`cond_arm_io_projection_probe.yo`): the await as a later
+  `cond` arm's condition with a ref local held across it was rejected with
+  E0904 until #1018 retired that restriction. It now compiles and prints
+  `v=7` / `7`, with no ASan report. The regression test is
+  `tests/async/cond_multi_await.test.yo`'s "an await as a later cond arm's
+  condition, with a ref local held across it".
+- **Finding 3** (`uaf_ref_capture_probe.yo`): prints `80`, with no
+  use-after-free and no leak report.
