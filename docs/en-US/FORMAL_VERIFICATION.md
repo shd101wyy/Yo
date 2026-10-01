@@ -108,8 +108,9 @@ pick :: (
   fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
 )(if(flag, a, b));
 
-// The caller's own post-condition is provable only THROUGH the assumed
-// generic ensures — the verifier never opens the pick body.
+// The caller's own post-condition is proved THROUGH pick's ensures. The
+// pick body is verified once, abstractly (T is an opaque sort), in its own
+// task.
 caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
   pick(true, i32(1), i32(2))
 );
@@ -119,12 +120,33 @@ A caller that violates the generic's `requires` (passing `flag = false`
 to a `requires(flag)` callee) is refuted at the call site with a
 counter-example.
 
+### Lexicographic measures
+
+`decreases(M1, M2, ...)` is a lexicographic measure (ATS's `.<m, n>.`): each
+recursive call must lower `M1`, or keep `M1` and lower `M2`, and so on.
+Every component must be a non-negative integer on entry. It proves recursions
+no single measure can, such as a call that lowers `i` while it resets `j`:
+
+```rust
+walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
+  cond(
+    ((i == u32(0)) && (j == u32(0))) => u32(0),
+    (j == u32(0)) => walk(i - u32(1), u32(100)),
+    true => walk(i, j - u32(1))
+  )
+);
+```
+
+The verifier encodes the tuple as the bit-vector concatenation of its
+components, so the step obligation is a single unsigned comparison. A `while`
+loop's `decreases(M)` still takes one measure.
+
 ### Mutual recursion
 
 Mutually recursive functions terminate when every member carries
 `decreases(M)` and every call **between clique members** proves the
 callee's measure at the actuals strictly below the caller's current
-measure — one shared well-founded domain, no lexicographic tuples. The
+measure — one shared well-founded domain (lexicographic measures included, when every member's measure has the same components). The
 cliques are derived automatically from the task set's call graph, so an
 edge without a decrease (passing `n` unchanged) is refuted:
 
