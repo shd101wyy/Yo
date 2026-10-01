@@ -36,6 +36,13 @@
 #                relative path, e.g. `./yo-out/*`).
 #     opts       OPTIONAL. KEY=VALUE lines:
 #                  stdout=strict|ignore   (default strict)
+#                  framing=strict|refit   (default refit; strict validates the
+#                                          RAW LSP stream's framing — exact
+#                                          CRLFCRLF header terminators and
+#                                          exact Content-Length — before any
+#                                          normalization; refit recomputes
+#                                          headers after path substitution
+#                                          and tolerates loose terminators)
 #                  stdout_keep=<ERE>      keep ONLY stdout lines matching this
 #                                         extended regex before comparing. For
 #                                         cases whose output legitimately cannot
@@ -241,6 +248,46 @@ refit_lsp_frames() {
   perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |rc=\d+\n\z|\z)/"Content-Length: " . length($2) . $1 . $2/gse'
 }
 
+# framing=strict (plans/archive/LSP_AUDIT_2026-09-29.md §6.3): validate the RAW
+# stream's LSP framing BEFORE any normalization. The refit above recomputes
+# every Content-Length from its (substituted) body and tolerates loose
+# \r?\n\r?\n terminators by design — the body is the review surface — which
+# means it cannot catch a server that frames sloppily (the Windows
+# text-mode CRLF-doubling class, issues/fixed/
+# lsp-windows-text-mode-framing-breaks-every-client.md). This can: every
+# header block must be exactly one `Content-Length: <digits>` line
+# terminated by exactly CRLF CRLF, the declared length must be exactly the
+# bytes that follow, and the stream must end clean (only the harness's own
+# `rc=N` trailer may trail).
+check_strict_lsp_framing() {
+  perl -e '
+    my $file = $ARGV[0];
+    open(my $h, "<", $file) or die "open $file: $!\n";
+    binmode($h);
+    my $s = do { local $/; <$h> };
+    # The harness echoes the command line ("$ yo lsp") into the stream
+    # before the child output begins; it is not part of the LSP stream.
+    $s =~ s/\A\$ [^\n]*\n//;
+    my $off = 0;
+    my $frames = 0;
+    while ($off < length($s)) {
+      my $rest = substr($s, $off);
+      last if $rest =~ /\Arc=\d+\n?\z/;
+      my $term = index($s, "\r\n\r\n", $off);
+      die "framing=strict: no exact \\r\\n\\r\\n terminator after byte $off\n" if $term < 0;
+      my $head = substr($s, $off, $term - $off);
+      die "framing=strict: header block at byte $off is not exactly one Content-Length line (hex head: " . unpack("H*", substr($head, 0, 40)) . ")\n"
+        unless $head =~ /\AContent-Length: (\d+)\z/;
+      my $len = $1;
+      my $remaining = length($s) - ($term + 4);
+      die "framing=strict: byte $off declares Content-Length $len but only $remaining bytes remain\n" if $len > $remaining;
+      $off = ($term + 4) + $len;
+      $frames++;
+    }
+    print STDERR "framing=strict: $frames frames strictly framed\n";
+  ' "$1"
+}
+
 # Emit "<relpath>\t<sha>" for every regular file under $1, skipping ignored
 # paths. Symlinks are recorded by their target rather than followed.
 # $1 = root, $2 = newline-separated extra ignore globs
@@ -389,7 +436,7 @@ run_case() {
 }
 
 # ── main loop ───────────────────────────────────────────────────────────────
-declare -A COUNT=( [PASS]=0 [SKIP]=0 [GOLDEN-DIFF]=0 [NO-GOLDEN]=0 [RECORDED]=0 )
+declare -A COUNT=( [PASS]=0 [SKIP]=0 [GOLDEN-DIFF]=0 [NO-GOLDEN]=0 [RECORDED]=0 [FRAMING]=0 )
 declare -a REPORT=()
 total=0
 
@@ -420,6 +467,18 @@ for cdir in "${CASES[@]}"; do
   work="$(cd "$(mktemp -d)" && pwd -P)"
 
   run_rc="$(run_case "$cdir" "$work/run" "$tmo")"
+  # framing=strict gate on the RAW stream (see check_strict_lsp_framing) —
+  # a sloppily framed stream must fail even when the normalized golden
+  # comparison would pass.
+  if [[ "$(opt "$cdir" framing refit)" == "strict" && -f "$work/run/stdout.raw" ]]; then
+    if ! check_strict_lsp_framing "$work/run/stdout.raw"; then
+      COUNT[FRAMING]=$(( COUNT[FRAMING] + 1 ))
+      REPORT+=("FRAMING|$name|strict LSP framing check failed on the raw stream")
+      echo "── FRAMING  $name  (strict LSP framing check failed on the raw stream)" >&2
+      if [[ $KEEP -eq 1 ]]; then echo "  kept sandbox: $work" >&2; else rm -rf "$work"; fi
+      continue
+    fi
+  fi
   normalize_stream "$work/run/proj" "$work/run/home" < "$work/run/stdout.raw" > "$work/run.out"
   apply_stdout_filters "$work/run.out"
   snapshot_tree "$work/run/proj" "$extra_ignores" > "$work/run.proj.manifest"
@@ -517,12 +576,12 @@ if [[ $RECORD -eq 1 ]]; then
 else
   # Keep this line's shape: gates_fast.sh GATE 7 greps it for `GOLDEN-DIFF 0`
   # and `NO-GOLDEN 0` as defence-in-depth behind the exit code.
-  printf 'PASS %d  GOLDEN-DIFF %d  NO-GOLDEN %d  SKIP %d  (total %d)\n' \
-    "${COUNT[PASS]}" "${COUNT[GOLDEN-DIFF]}" "${COUNT[NO-GOLDEN]}" "${COUNT[SKIP]}" "$total"
+  printf 'PASS %d  GOLDEN-DIFF %d  NO-GOLDEN %d  FRAMING %d  SKIP %d  (total %d)\n' \
+    "${COUNT[PASS]}" "${COUNT[GOLDEN-DIFF]}" "${COUNT[NO-GOLDEN]}" "${COUNT[FRAMING]}" "${COUNT[SKIP]}" "$total"
 fi
 
 # NO-GOLDEN counts as a failure: an unscored case is indistinguishable from a
 # passing one, so a missing golden must never be a silent skip.
-FAILED=$(( COUNT[GOLDEN-DIFF] + COUNT[NO-GOLDEN] ))
+FAILED=$(( COUNT[GOLDEN-DIFF] + COUNT[NO-GOLDEN] + COUNT[FRAMING] ))
 [[ $FAILED -gt 0 ]] && exit 1
 exit 0

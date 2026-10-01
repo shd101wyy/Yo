@@ -1,0 +1,12 @@
+# UTF-8 negotiation (issues/lsp-position-encoding-is-negotiated-against-the-clients-list.md):
+# the client offers ONLY utf-8 in general.positionEncodings, so the server
+# answers positionEncoding: utf-8 (never an encoding the client did not
+# offer) and converts every column to/from BYTE offsets. Line 1 of the
+# document carries an astral-plane rune (the emoji is four UTF-8 bytes, two
+# UTF-16 units, one rune) before the identifiers: hover at the BYTE column
+# of y (19) answers, at 18 it does not (compare lsp-position-encoding-utf16,
+# same shape at UTF-16 columns 17/16). documentSymbol answers the FLAT
+# SymbolInformation shape - this client declares no
+# hierarchicalDocumentSymbolSupport.
+timeout=240
+framing=strict

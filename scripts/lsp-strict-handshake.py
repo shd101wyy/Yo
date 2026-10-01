@@ -9,7 +9,7 @@ exactly that many bytes of JSON.
 
 Why strict: `yo lsp` on Windows used to emit `\\r\\r\\n\\r\\n`-terminated
 headers (libc text-mode newline translation on top of the explicit CRLF —
-issues/lsp-windows-text-mode-framing-breaks-every-client.md). vscode-jsonrpc's
+issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md). vscode-jsonrpc's
 header state machine scans for exactly CR LF CR LF and never terminates on
 that byte run, so no LSP client could even complete `initialize`. A tolerant
 reader (readline + strip) cannot catch this class of bug; this parser can:
@@ -32,7 +32,7 @@ import sys
 import threading
 import time
 
-TIMEOUT_S = 120.0  # first analysis pays the prelude evaluation
+TIMEOUT_S = 240.0  # first analysis pays the prelude evaluation — the same budget the lsp cli-cases allow
 
 PROC = [None]
 
@@ -100,9 +100,16 @@ class StrictReader:
             if not line:
                 continue
             name, sep, value = line.partition(b":")
-            if sep and name.strip().lower() == b"content-length":
+            # Header names match WITHOUT stripping leading whitespace: a
+            # stray byte before a header line (an inter-frame \n, a doubled
+            # terminator) corrupts that line and must FAIL the gate, not be
+            # stripped into a pass — vscode-jsonrpc splits on \r\n and
+            # exact-matches the name, so it would reject the stream. Only
+            # spaces/tabs around the VALUE are tolerated, like the spec's
+            # `Content-Length: 123` spelling.
+            if sep and name.rstrip() == b"Content-Length" and name == name.lstrip(b" \t"):
                 try:
-                    length = int(value.strip())
+                    length = int(value.strip(b" \t"))
                 except ValueError:
                     die(f"Content-Length {value!r} does not parse")
         if length is None:
@@ -131,10 +138,21 @@ def main():
 
     reader = StrictReader(proc.stdout)
 
+    def await_reply(expect_id, what):
+        # Wait for the REPLY with the expected id, skipping anything the
+        # server emits first (notifications, other replies) — assuming the
+        # very next frame is the reply made the gate brittle against any
+        # future window/logMessage.
+        deadline = time.time() + TIMEOUT_S
+        while True:
+            frame = reader.read_frame(timeout=max(1.0, deadline - time.time()))
+            if frame.get("id") == expect_id:
+                if "result" in frame:
+                    return frame
+                die(f"{what} was not answered with a result: {frame!r}")
+
     send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "processId": None, "rootUri": None}})
-    reply = reader.read_frame()
-    if reply.get("id") != 1 or "result" not in reply:
-        die(f"initialize was not answered with a result: {reply!r}")
+    await_reply(1, "initialize")
     send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
     send({
         "jsonrpc": "2.0",
@@ -149,9 +167,7 @@ def main():
         if note.get("method") == "textDocument/publishDiagnostics":
             published = True
     send({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
-    reply = reader.read_frame()
-    if reply.get("id") != 2 or "result" not in reply:
-        die(f"shutdown was not answered with a result: {reply!r}")
+    await_reply(2, "shutdown")
     send({"jsonrpc": "2.0", "method": "exit"})
     try:
         rc = proc.wait(timeout=30)
