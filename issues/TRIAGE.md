@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 182 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 191 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 41 | 9 |
-| **Total** | **182** | **34** |
+| Other | 50 | 9 |
+| **Total** | **191** | **34** |
 
 ## Counts by severity
 
@@ -45,9 +45,14 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 36 |
+| S1 | 35 |
 | S2 | 90 |
-| S3 | 56 |
+| S3 | 64 |
+| (missing) | 2 |
+
+- MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
+
+- MISSING SEVERITY: `lsp-strict-handshake-gate-was-not-strict-enough.md`
 
 ## Design questions (issues/questions/)
 
@@ -334,7 +339,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (41)
+### Other (50)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -354,6 +359,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
+| [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-cannot-see-function-bodies-from-other-modules.md`](./check-cannot-see-function-bodies-from-other-modules.md) | S2 | OPEN (root cause measured; fix designed, not | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
@@ -361,9 +367,16 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
 | [`linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md`](./linux-recv-parks-hint-is-cleared-on-every-ping-pong-hop.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
+| [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
+| [`lsp-document-symbol-shape-ignores-the-client-capability.md`](./lsp-document-symbol-shape-ignores-the-client-capability.md) | S3 | — | — |
+| [`lsp-hover-claims-markdown-without-the-capability.md`](./lsp-hover-claims-markdown-without-the-capability.md) | — | — | — |
+| [`lsp-jsonrpc-message-class-and-parse-error-handling.md`](./lsp-jsonrpc-message-class-and-parse-error-handling.md) | S3 | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
 | [`lsp-per-keystroke-full-reanalysis-limits-responsiveness.md`](./lsp-per-keystroke-full-reanalysis-limits-responsiveness.md) | S3 | — | — |
-| [`lsp-windows-text-mode-framing-breaks-every-client.md`](./lsp-windows-text-mode-framing-breaks-every-client.md) | S1 | — | — |
+| [`lsp-position-encoding-is-negotiated-against-the-clients-list.md`](./lsp-position-encoding-is-negotiated-against-the-clients-list.md) | S3 | — | — |
+| [`lsp-references-ignore-include-declaration-on-comptime-decl.md`](./lsp-references-ignore-include-declaration-on-comptime-decl.md) | S3 | — | — |
+| [`lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md`](./lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md) | S3 | — | — |
+| [`lsp-strict-handshake-gate-was-not-strict-enough.md`](./lsp-strict-handshake-gate-was-not-strict-enough.md) | — | — | — |
 | [`method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`](./method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md) | S3 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
@@ -374,6 +387,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | S3 | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | S2 | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |
+| [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |

@@ -48,7 +48,7 @@
 } :: import("../evaluator/values/type_trait_methods.yo");
 { is_ghost_fn, resolve_verify_mode } :: import("../evaluator/builtins/contracts.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, j_range_in } :: import("./protocol.yo");
+{ jb, jstr, j_range_in, hover_markdown } :: import("./protocol.yo");
 
 /// The contracts + verification-status block for a function-valued hover
 /// (FORMAL_VERIFICATION.md V7 task 1). Sources are deliberately the FRESH
@@ -136,7 +136,7 @@ _render_contract_block :: (
 /// A cursor at an IDENTIFIER's end column still names it (keyboard
 /// navigation parks right after a word); operators keep the exclusive end
 /// so the identifier after them wins the boundary
-/// (plans/LSP_AUDIT_2026-09-29.md §4).
+/// (plans/archive/LSP_AUDIT_2026-09-29.md §4).
 _find_token_at :: (
   fn(tokens : ArrayList(Token), line : usize, character : usize) -> Option(Token)
 )({
@@ -650,7 +650,13 @@ handle_hover :: (
   Option(JsonValue).Some(
     jb().put(
       "contents",
-      jb().put("kind", jstr(String.from("markdown"))).put("value", jstr(content)).obj()
+      // The MarkupContent kind follows the client's `hover.contentFormat`
+      // capability — markdown unless the client listed formats that exclude
+      // it (issues/lsp-hover-claims-markdown-without-the-capability.md).
+      jb().put("kind", jstr(cond(hover_markdown() => String.from("markdown"), true => String.from("plaintext")))).put(
+        "value",
+        jstr(content)
+      ).obj()
     ).put(
       "range",
       j_range_in(lines, usize(target.row), usize(target.column), usize(target.row), usize(target.column) + target.value.chars().count())

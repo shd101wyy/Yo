@@ -22,7 +22,7 @@
 { Exception } :: import("std/error");
 { Token, TokenKind } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr, ast_expr_id } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { get_variables_from_env } :: import("../env.yo");
 { JsonValue } :: import("std/encoding/json");
@@ -69,6 +69,80 @@ _same_declaration :: (fn(a : Token, b : Token) -> bool)(
   (a.row == b.row) && (a.column == b.column) &&
     (uri_to_fs_path(a.module_path.clone()) == uri_to_fs_path(b.module_path.clone()))
 );
+
+/// The declaration token of a TOP-LEVEL binding of `name`, found
+/// syntactically: `name :: value`, `name := value` or the typed
+/// `(name : T) = value` form (the shapes `symbols.yo` walks). The env-based
+/// `_binding_token_of` answers `.None` on the `::` declaration atom itself
+/// (its ExprInfo env predates the binding), so without this fallback
+/// `context.includeDeclaration == false` kept the declaration whenever the
+/// cursor sat ON it, and documentHighlight called it Text instead of Write
+/// (issues/lsp-references-ignore-include-declaration-on-comptime-decl.md).
+/// Position-only labeling: an occurrence is only dropped where it SITS on
+/// the returned token, so same-spelled locals in deferred bodies are
+/// unaffected.
+_top_level_decl_token :: (fn(exprs : ArrayList(AstExpr), name : String) -> Option(Token))({
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => {
+        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))) || ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
+          match(
+            e,
+            .FnCall(_, _, args, _, _) => match(
+              args.get(usize(0)),
+              .Some(lhs) => match(
+                lhs,
+                .Atom(_, t) => {
+                  if(t.value == name, {
+                    return(Option(Token).Some(t));
+                  });
+                },
+                .FnCall(_, _, _, _, _) => ()
+              ),
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        });
+        if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
+          match(
+            e,
+            .FnCall(_, _, args, _, _) => match(
+              args.get(usize(0)),
+              .Some(lhs) => {
+                if(ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+                  match(
+                    lhs,
+                    .FnCall(_, _, pair, _, _) => match(
+                      pair.get(usize(0)),
+                      .Some(name_expr) => {
+                        if(ast_expr_is_atom(name_expr), {
+                          name_tok := ast_expr_token(name_expr);
+                          if(name_tok.value == name, {
+                            return(Option(Token).Some(name_tok));
+                          });
+                        });
+                      },
+                      .None => ()
+                    ),
+                    .Atom(_, _) => ()
+                  );
+                });
+              },
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
 
 /// The occurrences of `target`'s binding in the program (see the module
 /// header), as tokens, deduplicated by position — the same Atom can be
@@ -118,6 +192,16 @@ collect_symbol_occurrences_with_decl :: (
       def = _binding_token_of(best, target, info_table);
     },
     .None => ()
+  );
+  // The `::` declaration atom resolves to no declaration through its env —
+  // fall back to the syntactic top-level walk so the declaration occurrence
+  // is still identified (includeDeclaration, documentHighlight's Write).
+  match(
+    def,
+    .None => {
+      def = _top_level_decl_token(exprs, target.value.clone());
+    },
+    .Some(_) => ()
   );
   match(
     def,
@@ -247,7 +331,7 @@ handle_references :: (
   });
   JsonValue.Array(items : out)
 });
-/// `textDocument/documentHighlight` (plans/LSP_AUDIT_2026-09-29.md §3):
+/// `textDocument/documentHighlight` (plans/archive/LSP_AUDIT_2026-09-29.md §3):
 /// the same binding-identity occurrences `handle_references` computes, as
 /// DocumentHighlight items — the declaration occurrence is a Write (3),
 /// every other occurrence a Text (1). Members and labels highlight
