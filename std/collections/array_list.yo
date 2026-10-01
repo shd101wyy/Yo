@@ -121,6 +121,39 @@ impl(
   ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
+  /// Generation A of the fix for
+  /// issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md:
+  /// `set_len` stays until the dependency that calls it (`markdown_yo`)
+  /// moves to `spare_capacity` + `assume_init`, which needs a seed carrying
+  /// them (plans/backlog/SEED_VERSION_AUTOMATION.md). Then it goes.
+  /// Declare that the first `new_len` slots of the buffer are live — Rust's
+  /// `Vec::set_len`, and just as unsafe.
+  ///
+  /// Nothing is initialized and nothing is dropped: growing the length exposes
+  /// whatever bytes the buffer already held, and shrinking it leaks the
+  /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
+  /// Reach for it only after filling the buffer through `ptr()` or
+  /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
+  /// The capacity clause is a true fact, and it is also what tells the
+  /// verifier this call changes `self`: a contract that never mentions
+  /// `old(self)` promises `self` unchanged at every call site
+  /// (issues/questions/modifies-clause-for-callee-side-effects.md).
+  set_len : (
+    fn(
+      self : Self,
+      new_len : usize,
+      requires(new_len <= self.capacity()),
+      ensures(self.len() == new_len, self.capacity() == old(self.capacity())),
+      assumed()
+    ) -> unit
+  )({
+    cond(
+      (new_len <= self._cap()) => {
+        self._length = new_len;
+      },
+      true => __yo_panic("set_len: new length exceeds capacity")
+    );
+  }),
   /// The uninitialized tail of the buffer, `[len, capacity)`, as a raw slice:
   /// the region a reader fills before `assume_init` commits it. `.None` when
   /// nothing is allocated yet (`reserve` first).
