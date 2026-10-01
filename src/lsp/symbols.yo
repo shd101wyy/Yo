@@ -125,8 +125,126 @@ SymbolEntry :: struct(
   kind : usize,
   range : JsonValue
 );
+/// The bound-name token of a declaration left side: the atom itself
+/// (`name :=`), or the atom inside `thread_local(name)`.
+_decl_name_tok :: (fn(lhs : AstExpr) -> Option(Token))(
+  match(
+    lhs,
+    .Atom(
+      _,
+      t
+    ) => Option(Token).Some(t),
+    .FnCall(
+      _,
+      _,
+      targs,
+      _,
+      _
+    ) => {
+      (tl_name : Option(Token)) = Option(Token).None;
+      if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))), {
+        match(
+          targs.get(usize(0)),
+          .Some(.Atom(_, t)) => {
+            tl_name = Option(Token).Some(t);
+          },
+          .Some(_) => (),
+          .None => ()
+        );
+      });
+      tl_name
+    }
+  )
+);
+
+/// A top-level RUNTIME declaration — `name := value;` (a module static),
+/// `thread_local(name) := init;` or `(thread_local(name) : T) = init;` —
+/// reported as a Variable (13): the binding is a mutable slot regardless of
+/// the initializer's shape, like the typed module constant
+/// (issues/lsp-document-symbol-misses-runtime-and-thread-local-declarations.md).
+_runtime_decl_symbol :: (fn(e : AstExpr, lines : ArrayList(String)) -> Option(SymbolEntry))({
+  // `name := value` and `thread_local(name) := init`.
+  if(ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
+    match(
+      e,
+      .FnCall(_, _, args, _, _) =>
+        match(
+          args.get(usize(0)),
+          .Some(lhs) => {
+            match(
+              _decl_name_tok(lhs),
+              .Some(t) => {
+                rng := j_range_in(
+                  lines,
+                  usize(t.row),
+                  usize(t.column),
+                  usize(t.row),
+                  // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+                  usize(t.column) + t.value.chars().count()
+                );
+                return(
+                  Option(SymbolEntry).Some(SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng))
+                );
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        ),
+      .Atom(_, _) => ()
+    );
+  });
+  // `(thread_local(name) : T) = init` — the typed thread-local form.
+  if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
+    match(
+      e,
+      .FnCall(_, _, args, _, _) =>
+        match(
+          args.get(usize(0)),
+          .Some(lhs) => {
+            if(ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+              match(
+                lhs,
+                .FnCall(_, _, pair, _, _) =>
+                  match(
+                    pair.get(usize(0)),
+                    .Some(name_expr) => {
+                      match(
+                        _decl_name_tok(name_expr),
+                        .Some(t) => {
+                          rng := j_range_in(
+                            lines,
+                            usize(t.row),
+                            usize(t.column),
+                            usize(t.row),
+                            usize(t.column) + t.value.chars().count()
+                          );
+                          return(
+                            Option(SymbolEntry).Some(
+                              SymbolEntry(name : t.value.clone(), kind : usize(13), range : rng)
+                            )
+                          );
+                        },
+                        .None => ()
+                      );
+                    },
+                    .None => ()
+                  ),
+                .Atom(_, _) => ()
+              );
+            });
+          },
+          .None => ()
+        ),
+      .Atom(_, _) => ()
+    );
+  });
+  Option(SymbolEntry).None
+});
+
 /// Collect the top-level symbols of one document (see the module header):
-/// `name :: value` bindings and typed `(name : T) = value` declarations.
+/// `name :: value` bindings, typed `(name : T) = value` declarations and the
+/// runtime `:=` / `thread_local(...)` declaration forms.
 collect_document_symbols :: (
   fn(exprs : ArrayList(AstExpr), lines : ArrayList(String), out : ArrayList(SymbolEntry)) -> unit
 )({
@@ -168,7 +286,15 @@ collect_document_symbols :: (
         .Some(sym) => {
           out.push(sym);
         },
-        .None => ()
+        .None => {
+          match(
+            _runtime_decl_symbol(e, lines),
+            .Some(sym) => {
+              out.push(sym);
+            },
+            .None => ()
+          );
+        }
       );
     });
     i = (i + usize(1));
@@ -189,6 +315,37 @@ handle_document_symbols :: (
       .Some(en) => {
         items.push(
           jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("range", en.range).put("selectionRange", en.range).obj()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : items)
+});
+/// `textDocument/documentSymbol` for clients WITHOUT
+/// `hierarchicalDocumentSymbolSupport`: the same entries as FLAT
+/// `SymbolInformation` items — `{name, kind, location : {uri, range}}` —
+/// which is the only shape such clients can render. The hierarchical
+/// DocumentSymbol reply assumes the capability; VS Code's client always
+/// declares it, the bare cli-case driver does not
+/// (issues/lsp-document-symbol-shape-ignores-the-client-capability.md).
+handle_document_symbols_flat :: (
+  fn(exprs : ArrayList(AstExpr), lines : ArrayList(String), uri : String) -> JsonValue
+)({
+  entries := ArrayList(SymbolEntry).new();
+  collect_document_symbols(exprs, lines, entries);
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(en) => {
+        items.push(
+          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put(
+            "location",
+            jb().put("uri", jstr(uri.clone())).put("range", en.range).obj()
+          ).obj()
         );
       },
       .None => ()
@@ -241,4 +398,4 @@ handle_workspace_symbols :: (fn(query : String, docs : ArrayList(WorkspaceDoc)) 
   });
   JsonValue.Array(items : out)
 });
-export(handle_document_symbols, handle_workspace_symbols, SymbolEntry, WorkspaceDoc);
+export(handle_document_symbols, handle_document_symbols_flat, handle_workspace_symbols, SymbolEntry, WorkspaceDoc);
