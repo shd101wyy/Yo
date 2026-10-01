@@ -110,6 +110,22 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+## Seed-gated follow-up (2026-10-01): delete `ArrayList.set_len`
+
+`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md` (S1).
+**Generation A** adds `ArrayList.spare_capacity() -> Option(RawSlice(T))` and
+`assume_init(n, spare)`, the token API safe code cannot reach, and keeps
+`set_len`, because `markdown_yo` v0.0.8 calls it and the compiler builds
+against the seed's std. **Generation B, once `SEED_VERSION` carries the token
+API:**
+1. In `markdown_yo`, replace `out.*.set_len(wp)` in `src/common/utils.yo` with
+   writes through `out.*.spare_capacity()` + `out.*.assume_init(...)`, and tag
+   a release.
+2. Bump the compiler's `yo.toml` range to it and run `yo update markdown_yo`.
+3. Delete `set_len` from `std/collections/array_list.yo` (no other caller:
+   `grep -rn '\.set_len(' std src tests` finds only `File.set_len`), and move
+   the issue to `issues/fixed/`.
+
 ## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
 
 **Generation A DONE 2026-09-30** (issues/fixed/verify-by-default-for-a-project.md):

@@ -2,6 +2,18 @@
 
 **Severity:** S1 — a file WITHOUT `Pragma.AllowUnsafe` reads uninitialized slots and use-after-freed RC elements; under Guard Malloc with the system allocator the program segfaults (rc=139).
 
+- **Status:** IN PROGRESS, in two generations because the fix is seed-gated.
+  **Generation A** (`fix/arraylist-init-token`): `spare_capacity()` +
+  `assume_init(n, spare)` land in std, `std/io/index.yo` uses them, and a
+  cli-case pins that safe code cannot obtain the token. `set_len` STAYS:
+  `markdown_yo` v0.0.8, the compiler's own dependency, calls it
+  (`src/common/utils.yo:282`, measured: `yo check ./src` fails E0610 without
+  it), and the compiler builds against the seed's std, so the dependency
+  cannot switch until a released seed carries the new API. **Generation B**
+  (after that release): `markdown_yo` moves to the token API in a new tag, the
+  compiler bumps the dependency, `set_len` is deleted, and this doc moves to
+  `issues/fixed/`. Tracked in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+
 - **Found:** 2026-09-30 by the ATS audit (`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`
   §3, ATS's `T?` uninitialized-type row).
 - **Component:** `std/collections/array_list.yo` — `set_len` (public, no
