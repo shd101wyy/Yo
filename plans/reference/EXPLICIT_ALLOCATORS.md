@@ -1,6 +1,6 @@
 # Explicit Allocators — the landed decisions
 
-> **Status: LANDED** (#1015 … #1042 on 2026-09-30; P3c #1034 once v0.2.48 was the seed). The
+> **Status: LANDED** (#1015 … #1042 on 2026-09-30; P3c #1034 on 2026-10-02, once v0.2.48 was the seed). The
 > phase-by-phase record, measurements and corrections are in the closed plan
 > [`plans/archive/EXPLICIT_ALLOCATORS.md`](../archive/EXPLICIT_ALLOCATORS.md).
 > This page is the short authoritative list of what was decided.

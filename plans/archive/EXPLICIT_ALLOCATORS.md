@@ -1,9 +1,9 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: CLOSED — every phase landed.** P0–P5 on 2026-09-30
+> **Status: CLOSED 2026-10-02 — every phase landed.** P0–P5 on 2026-09-30
 > (#1015, #1021, #1023, #1027, #1029, #1032, #1033, #1035, #1042); P3c
 > (default mutable-container constructors follow the scope, #1034) once
-> v0.2.48 was the seed: it carries P3's runtime hooks (v0.2.47) and the three
+> v0.2.48 was the seed (2026-10-02): it carries P3's runtime hooks (v0.2.47) and the three
 > codegen fixes the P3c std needs to compile (#1066). The async
 > state-machine pools (#1018) pool only on the global allocator and never
 > recycle a tagged block. Authoritative summary:
@@ -918,7 +918,7 @@ the arena, and each release routes back there. The compiler does not import
 
 ### P3c — default mutable containers follow the scope (std; landed once v0.2.48 was the seed)
 
-**Status: landed** (#1034), after v0.2.48 became the seed. The
+**Status: landed 2026-10-02** (#1034), after v0.2.48 became the seed. The
 merge kept develop's verification contract on `ArrayList.new`
 (`ensures(r.len() == usize(0))`, `assumed()`); both branches of the scoped body
 return an empty list. The rebase also met #1041's lazy `HashMap.new` (no
@@ -954,6 +954,34 @@ P3c cases included), ArrayList 126, HashMap 86, Deque 41.
 When it lands, the docs' "mutable containers take their allocator through
 `_in`" sentences (MEMORY_SAFETY, DESIGN, the cheatsheet) change with it, and a
 self-compile A/B measures the scope check on the compiler's own containers.
+
+**Self-compile A/B (2026-10-02, Linux x64, stage-2 binaries from the fixpoint
+of develop `2d9437775` and of P3c on it; both check develop's `./src` with
+develop's std, so only the compiler's own containers differ).** Five rounds,
+the first three baseline-first and the last two P3c-first, on a machine shared
+with other sessions' builds (load 5.5–8.4):
+
+| round | baseline user s | P3c user s | Δ |
+| --- | --- | --- | --- |
+| 1 | 473.0 | 485.2 | +2.6% |
+| 2 | 486.1 | 554.9 | +14.2% |
+| 3 | 550.6 | 561.9 | +2.0% |
+| 4 | 538.0 | 564.0 | +4.8% |
+| 5 | 443.4 | 445.8 | +0.5% |
+
+Peak RSS is identical on both sides: 1,016.8–1,017.8 MB in all ten runs. The
+baseline alone ranged 443–551 s with load, which is wider than any P3c-vs-baseline gap.
+The median paired difference is +2.6%, and the one load-matched pair (round 5,
+load 5.75 vs 5.52) is +0.5%. So the scope check is within noise, as the design
+predicts: the compiler never enters a scope, so `current_allocator()` is one
+relaxed load of `__yo_scopes_ever_entered` and a branch.
+
+**Bug found while landing.** P3c's scoped `ArrayList(Park).new()` routes
+through `with_capacity_in` and `size_would_overflow(T, …)`, which exposed an
+S1 on develop: a call whose `comptime(T) : Type` argument holds a resolved
+`Impl` (`IoFuture`, std/async/waker's `Park`) never specialized
+(`issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md`,
+fixed in #1109 before P3c merged).
 
 ### P4 — hardening and tooling
 
