@@ -1,0 +1,11 @@
+// The negative twin of valid/call_arg_swap.yo. With the callee's `a` bound
+// before the second actual `a` was walked, that actual read the callee's
+// binding (the caller's `b`), so `same(b, a)` proved `b == b`.
+pragma(Pragma.Verify);
+
+same :: (fn(a : i32, b : i32, requires(a == b), ensures(true)) -> unit)(());
+
+// REFUTED at the call: the requires says the two differ.
+differ :: (fn(a : i32, b : i32, requires(a != b), ensures(true)) -> unit)({
+  same(b, a);
+});

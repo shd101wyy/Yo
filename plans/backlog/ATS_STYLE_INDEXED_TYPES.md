@@ -325,8 +325,10 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 > - **Fixtures.** `dml_append_seq`, `dml_member` and `dml_sorted_insert` prove,
 >   and their `_false` twins fail.
 > - **What the fixtures needed:**
->   - `push`'s contract states its elements. It sits inside a `forall`, so it is
->     proof-only and never spliced.
+>   - `push` states its elements inside a `forall`, which is proof-only and
+>     never spliced. The released seed still splices it, so std waits for the
+>     next seed and the fixtures use an `assumed()` wrapper meanwhile
+>     (`SEED_VERSION_AUTOMATION.md`, Generation B).
 >   - A contract clause that quantifies or calls a `ghost_fn` is no longer
 >     spliced as a runtime assert.
 >   - `old(xs)(k)` reads a list.

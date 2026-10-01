@@ -5756,27 +5756,22 @@ _ghost_fn_inline_term :: (
     _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
     return(Option(VcTerm).None);
   });
-  // Walk the actuals, bind the spec params, walk the body, restore.
+  // Walk every actual, THEN bind the spec params (binding one before the
+  // next actual is walked lets a param named like a caller variable capture
+  // it: issues/fixed/verifier-call-arguments-see-the-callees-own-params.md),
+  // walk the body, restore.
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
+  inl_terms := ArrayList(VcTerm).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(
       args.get(i),
       .Some(a) => {
-        v := _expr_term(ctx, a);
         match(
-          v,
+          _expr_term(ctx, a),
           .Some(vt) => {
-            match(
-              params.get(i),
-              .Some(cp) => {
-                saved_names.push(cp.clone());
-                saved_vals.push(ctx.vars.get(cp.clone()));
-                ctx.vars.insert(cp.clone(), vt);
-              },
-              .None => ()
-            );
+            inl_terms.push(vt);
           },
           .None => {
             return(Option(VcTerm).None);
@@ -5786,6 +5781,19 @@ _ghost_fn_inline_term :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  (bi : usize) = usize(0);
+  while(bi < inl_terms.len(), {
+    match(
+      params.get(bi),
+      .Some(cp) => {
+        saved_names.push(cp.clone());
+        saved_vals.push(ctx.vars.get(cp.clone()));
+        ctx.vars.insert(cp.clone(), inl_terms.get(bi).unwrap());
+      },
+      .None => ()
+    );
+    bi = (bi + usize(1));
   });
   g_ghost_inline_stack.push(fid.clone());
   out := _expr_term(ctx, body);
@@ -6022,25 +6030,19 @@ _callee_call_term :: (
       .None => fid
     ).clone()
   );
+  // Walk every actual in the caller's scope first, then bind the callee's
+  // params to them: a param bound mid-walk would capture a later actual
+  // that names a caller variable of the same name
+  // (issues/fixed/verifier-call-arguments-see-the-callees-own-params.md).
   (i : usize) = usize(0);
   while(i < eff_args.len(), {
     match(
       eff_args.get(i),
       .Some(a) => {
-        v := _expr_term(ctx, a);
         match(
-          v,
+          _expr_term(ctx, a),
           .Some(vt) => {
             arg_terms.push(vt);
-            match(
-              callee_params.get(i),
-              .Some(cp) => {
-                saved_names.push(cp.clone());
-                saved_vals.push(ctx.vars.get(cp.clone()));
-                ctx.vars.insert(cp.clone(), vt);
-              },
-              .None => ()
-            );
           },
           .None => {
             return(Option(VcTerm).None);
@@ -6050,6 +6052,19 @@ _callee_call_term :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  (pbi : usize) = usize(0);
+  while(pbi < arg_terms.len(), {
+    match(
+      callee_params.get(pbi),
+      .Some(cp) => {
+        saved_names.push(cp.clone());
+        saved_vals.push(ctx.vars.get(cp.clone()));
+        ctx.vars.insert(cp.clone(), arg_terms.get(pbi).unwrap());
+      },
+      .None => ()
+    );
+    pbi = (pbi + usize(1));
   });
   if((is_self_recursion || is_clique_recursion) && m_current.is_some(), {
     // SELF: my own measure re-evaluated over the rebound (actual)

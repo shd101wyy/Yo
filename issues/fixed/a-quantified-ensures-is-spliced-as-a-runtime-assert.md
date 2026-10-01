@@ -31,7 +31,9 @@ A quantifier evaluated in runtime code is the ghost-only error.
 are spliced, in every mode. A quantified clause is proof-only, as a quantified
 `requires` already was.
 
-This is what lets std state `ArrayList.push`'s elements inside a `forall`
+This is what will let std state `ArrayList.push`'s elements inside a `forall`
+once the seed carries the filter (the seed still splices every `ensures` of
+std, so the clause waits: `plans/backlog/SEED_VERSION_AUTOMATION.md`)
 (R2 slice 2). Spelled as a plain `==` on `T`, the clause was spliced and failed
 for every `T` without that `==`.
 

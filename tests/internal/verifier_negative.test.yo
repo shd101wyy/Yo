@@ -374,3 +374,13 @@ test("obligation names are unique and guard obligations carry their site", {
     }
   );
 });
+
+test("call actuals are the caller's values even when they share the callee's parameter names", {
+  if(!_have_z3(), {
+    return(());
+  });
+  ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/call_arg_swap.yo"), io);
+  assert(_count_outcome(ok_reports, String.from("ok")) == usize(2), "one_more and swapped (one_more(b, a)) must verify");
+  bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/call_arg_swap_false.yo"), io);
+  assert(_count_outcome(bad_reports, String.from("refuted")) == usize(1), "differ's same(b, a) must refute");
+});
