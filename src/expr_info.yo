@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, get_variables_from_env, husk_binding_counts, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, get_variables_from_env, get_variables_from_env_after, env_frames_extend, husk_binding_counts, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -986,6 +986,13 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_names : HashMap(ExprId, ArrayList(ScopeNameRecord))) = HashMap(ExprId, ArrayList(ScopeNameRecord)).new();
 (g_scope_husks : HashMap(ExprId, Environment)) = HashMap(ExprId, Environment).new();
 (g_scope_bound : HashMap(ExprId, ScopeNameRecord)) = HashMap(ExprId, ScopeNameRecord).new();
+/// Compact records: the variables of a released info's names that live in
+/// frames its body pushed (beyond the husk's), one-variable lists unboxed.
+/// The husk lookup supplies the rest of each answer.
+(g_scope_one : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
+(g_scope_inner : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
+(g_scope_prefix_bad : usize) = usize(0);
+(g_scope_kept_live : usize) = usize(0);
 (g_scope_released : usize) = usize(0);
 (g_scope_kept : usize) = usize(0);
 (g_scope_mismatch : usize) = usize(0);
@@ -1142,7 +1149,12 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
     info := g_scope_log_infos.get(i).unwrap();
-    if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info), {
+    // A live env (`frozen == false`: `ali_final.env = env`, an adopted env)
+    // is still the evaluator's working env and changes after this point.
+    if(!(info.env.frozen), {
+      g_scope_kept_live = (g_scope_kept_live + usize(1));
+    });
+    if((!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info)) || !(info.env.frozen), {
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
       match(
@@ -1157,22 +1169,55 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
         .None => ()
       );
       names := ArrayList(String).new();
+      sv_name := match(info.source_variable, .Some(sv) => sv.name, .None => String.new());
       match(info.variable_name, .Some(vn) => names.push(vn.clone()), .None => ());
       _scope_target_names(info.deferred_drop_expressions, names);
       _scope_target_names(expr_info_deferred_dup_expressions(info), names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(info), names);
-      // The binding's own record first: the names below resolve in the
-      // atom's pre-binding env.
-      recs := ArrayList(ScopeNameRecord).new();
-      match(g_scope_bound.remove(id), .Some(br) => recs.push(br), .None => ());
-      (ni : usize) = usize(0);
-      while(ni < names.len(), {
-        nm := names.get(ni).unwrap();
-        recs.push(ScopeNameRecord(name : nm.clone(), vars : get_variables_from_env(info.env, nm)));
-        ni = (ni + usize(1));
-      });
-      if(recs.len() > usize(0), {
-        g_scope_names.insert(id, recs);
+      bound := g_scope_bound.remove(id);
+      bound_name := match(bound, .Some(br) => br.name, .None => String.new());
+      if(env_frames_extend(info.env, husk), {
+        // The answer for a name is the husk lookup followed by its variables
+        // in the body's own frames: record only the latter.
+        inner := ArrayList(Variable).new();
+        match(bound, .Some(br) => match(br.vars.last(), .Some(bv) => inner.push(bv), .None => ()), .None => ());
+        seen := ArrayList(String).new();
+        (ni : usize) = usize(0);
+        while(ni < names.len(), {
+          nm := names.get(ni).unwrap();
+          if(!(nm == sv_name) && (!(nm == bound_name) && !(seen.contains(nm.clone()))), {
+            seen.push(nm.clone());
+            got := get_variables_from_env_after(info.env, husk.frames.len(), nm);
+            (gi : usize) = usize(0);
+            while(gi < got.len(), {
+              inner.push(got.get(gi).unwrap());
+              gi = (gi + usize(1));
+            });
+          });
+          ni = (ni + usize(1));
+        });
+        cond(
+          (inner.len() == usize(1)) => {
+            g_scope_one.insert(id, inner.get(usize(0)).unwrap());
+          },
+          (inner.len() > usize(1)) => {
+            g_scope_inner.insert(id, inner);
+          },
+          true => ()
+        );
+      }, {
+        g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
+        recs := ArrayList(ScopeNameRecord).new();
+        match(bound, .Some(br) => recs.push(br), .None => ());
+        (ni : usize) = usize(0);
+        while(ni < names.len(), {
+          nm := names.get(ni).unwrap();
+          recs.push(ScopeNameRecord(name : nm.clone(), vars : get_variables_from_env(info.env, nm)));
+          ni = (ni + usize(1));
+        });
+        if(recs.len() > usize(0), {
+          g_scope_names.insert(id, recs);
+        });
       });
       if(g_scope_mode == usize(2), {
         info.env = husk;
@@ -1229,7 +1274,31 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
     .None => ()
   );
   g_scope_path = usize(4);
-  get_variables_from_env(husk, name)
+  base := get_variables_from_env(husk, name);
+  match(
+    g_scope_one.get(key),
+    .Some(v) => if(v.name == name, {
+      g_scope_path = usize(3);
+      base.push(v);
+    }),
+    .None => ()
+  );
+  match(
+    g_scope_inner.get(key),
+    .Some(vs) => {
+      (vi : usize) = usize(0);
+      while(vi < vs.len(), {
+        v := vs.get(vi).unwrap();
+        if(v.name == name, {
+          g_scope_path = usize(3);
+          base.push(v);
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  base
 });
 type_to_string_short :: (fn(ki : Option(ExprInfo)) -> String)(
   match(ki, .Some(k) => match(k.value, .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
@@ -1278,7 +1347,7 @@ scope_release_report :: (fn() -> unit)(
     while(runtime(true), {
       match(hbi.next(), .Some(hkv) => eprintln(`[scope-husk-binding] ${hkv.value.to_string()} ${hkv.key}`), .None => break);
     });
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} kept_live=${g_scope_kept_live.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
     kit := g_scope_mm_kinds.into_iter();
     while(runtime(true), {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
