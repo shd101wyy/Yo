@@ -204,11 +204,11 @@ test("B2: re-analysis keeps the memo and trait-default registries flat", {
   io.await(write_string(Path.new(doc_path.clone()), String.from(_TRAIT_DOC), io), ioexn);
   std_path := resolve_std_path();
   assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 1 should analyze clean");
-  total1 := (((ifc_memo_entry_count() + trait_default_entry_count()) + type_intern_entry_count()) + mutation_summary_entry_count());
+  total1 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count() + mutation_summary_entry_count());
   assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 2 should analyze clean");
-  total2 := (((ifc_memo_entry_count() + trait_default_entry_count()) + type_intern_entry_count()) + mutation_summary_entry_count());
+  total2 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count() + mutation_summary_entry_count());
   assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 3 should analyze clean");
-  total3 := (((ifc_memo_entry_count() + trait_default_entry_count()) + type_intern_entry_count()) + mutation_summary_entry_count());
+  total3 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count() + mutation_summary_entry_count());
   // Every round re-mints the doc's trait and types, so without the owner
   // purges each round added its defaults, memo entries and interned shapes.
   // The D1 / StrictBorrow memos (`check` summarizes every loaded module's
