@@ -771,3 +771,30 @@ test("an aborted task releases a local re-bound after its previous value moved",
   g_kept_things.clear();
   assert(g_disposed == i32(2), "the first iteration's Thing, by its new owner");
 });
+// A generic `Dispose` impl over a type-function instance runs for the
+// instance at a future, as it does at a ref struct: the impl matcher binds
+// the future handle itself
+// (issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md).
+(g_guards : i32) = i32(0);
+_Guard :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(n : u8)));
+impl(
+  generic(T : Type),
+  _Guard(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_guards = (g_guards + i32(1));
+    })
+  )
+);
+_guarded :: (fn(generic(T : Type), f : Impl(Fn() -> T)) -> T)({
+  _g := _Guard(T)(n : u8(1));
+  f()
+});
+test("a generic Dispose impl runs for a guard over a future, as over a ref struct", {
+  g_guards = i32(0);
+  t := _guarded(() => Thing(n : i32(1)));
+  task := _guarded(() => io.async((io2 : Io) => i32(8)));
+  assert(io.await(task, io) == i32(8), "the future's value");
+  assert(t.n == i32(1), "the ref struct's value");
+  assert(g_guards == i32(2), "both guards disposed");
+});
