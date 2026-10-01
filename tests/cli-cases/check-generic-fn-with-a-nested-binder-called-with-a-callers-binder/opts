@@ -1,0 +1,11 @@
+# A generic Yo fn whose binder sits under a pointer (`a : *U`) called with the
+# CALLER's unresolved binder (`*T`) left `U` unbound in the caller's
+# definition-time trial, so a callee result that mentions `U` (`-> *U`,
+# `-> Pair(*U, *U)`) failed the trial with a swallowed E0613 "Cannot infer the
+# type parameter"
+# (issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md).
+# The trial failure is swallowed, so the only observable is YO_DEBUG_SWALLOW: the
+# golden pins that no swallowed error points into main.yo, and that main.yo checks.
+env=YO_DEBUG_SWALLOW=1
+stdout_keep_match=--> main\.yo:[0-9]+:[0-9]+|check: main\.yo — evaluator OK
+timeout=120

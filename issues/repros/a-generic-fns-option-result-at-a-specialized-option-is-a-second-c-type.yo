@@ -1,0 +1,14 @@
+//! issues/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md
+//! `wrap(y)` with `y : Option(i32)` taken from another `wrap` call returns a C
+//! type that is not the declared `Option(Option(i32))`. Expected: prints 9.
+//! Actual (v0.2.48): clang rejects the `return` in `wrap2`.
+{ println } :: import("std/fmt");
+wrap :: (fn(generic(U : Type), x : U) -> Option(U))(.Some(x));
+wrap2 :: (fn(x : i32) -> Option(Option(i32)))({
+  y := wrap(x);
+  wrap(y)
+});
+main :: (fn() -> unit)({
+  match(wrap2(i32(9)), .Some(a) => match(a, .Some(v) => println(v), .None => println("inner none")), .None => println("none"));
+});
+export(main);

@@ -40,13 +40,18 @@ pointer-nested binder. Whether the caller is an impl member does not matter:
 | generic free fn, binder `T` | extern `slot : *(U)` | `final=*(U) arg=*(T) compat=false` | fails |
 | generic free fn, binder `T` | extern `slot : U` | `final=T arg=T compat=true` | passes |
 | generic free fn, binder `T` | extern `slot : *(T)` | `final=*(T) arg=*(T) compat=true` | passes only because both `T`s have the same name and frame level, so they compare equal |
-| generic impl member, binder `T` | generic Yo fn `slot : *(T)` | no `[param-check]` line | passes |
+| generic impl member, binder `T` | generic Yo fn `slot : *(T)` returning `unit` | no `[param-check]` line | passes |
+| generic impl member, binder `T` | generic Yo fn `slot : *(T)` returning `*(T)` | no `[param-check]` line | fails with E0613 (a separate defect, below) |
 
 The Yo-function callee never reaches this check. A `FuncVal` callee goes through the
 `evaluate_function_call` FuncVal arm, which binds the parameters itself and specializes on the
 abstract `T` (`[abstract-spec] … trial=true`). Only a callee without a FuncVal goes through
 `try_to_call_function_with_arguments` → `check_if_function_parameter_matches_argument`, and
-an `extern` is one.
+an `extern` is one. The Yo-fn route has its own form of this bug. Its structural fallback
+did not bind a pointer-nested `U` from the caller's rigid `T`, so a callee whose result
+mentions `U` (`-> *U`) failed the trial with a swallowed E0613. That was found in review and
+fixed separately
+(`issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md`).
 
 ## Root cause
 
