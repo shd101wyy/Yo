@@ -1,12 +1,21 @@
 # What else Yo can take from ATS: beyond indexed types
 
-**Status:** BACKLOG — audit done 2026-09-30 (develop `c0c8ab6af`, seed
-`yo 0.2.46`). The companion of
-[`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md), which covered
-ATS's dependent (indexed) types and existentials; its R1 phase landed the
-same day. This doc covers the rest of ATS. Every "Yo today" claim is a
-probe run with the seed, or a cited file; nothing here is implemented yet
-except the issue this audit filed.
+**Status:** ACTIVE (2026-10-01): implementation started, in the §6 order
+(A4 first: it fixes a live S1). Audit done 2026-09-30 (develop `c0c8ab6af`,
+seed `yo 0.2.46`). The companion of
+[`backlog/ATS_STYLE_INDEXED_TYPES.md`](backlog/ATS_STYLE_INDEXED_TYPES.md), which covered
+ATS's dependent (indexed) types and existentials; its R1 phase is complete.
+This doc covers the rest of ATS. Every "Yo today" claim is a probe run with
+the seed, or a cited file.
+
+| Item | State |
+| --- | --- |
+| A1 lemma layer (= R2) | slice 1 (recursive `ghost_fn` as an axiomatized function) on `feat/verifier-recursive-ghost-fn` |
+| A2 must-use | not started |
+| A3 spec-transparent pure fns | not started (needs A1's axioms) |
+| A4 init proof token (S1) | next |
+| A5 lexicographic `decreases` | not started |
+| A6 typestate idiom | not started |
 
 ## 0. The verdict
 
@@ -56,7 +65,7 @@ scratch directory (its bundled std), 2026-09-30.
 | `unsafe.drop(s)` then `println(s)` in a safe file | **rejected**, E0901 |
 
 The R2 encoding measurement (Z3 5.1.0, the verifier's preamble) is in
-`ATS_STYLE_INDEXED_TYPES.md` R2 task 1. In short:
+`backlog/ATS_STYLE_INDEXED_TYPES.md` R2 task 1. In short:
 - both `define-fun-rec` and axiom + trigger prove one-step unfoldings;
 - both return `unknown` on push / frame / swap until a lemma is supplied;
 - with the lemmas, the axiom encoding proves all of them, `swap` included,
@@ -66,7 +75,7 @@ The R2 encoding measurement (Z3 5.1.0, the verifier's preamble) is in
 
 | ATS | Yo today | Verdict |
 | --- | --- | --- |
-| Indexed types, `{n:nat}`, existentials | comptime `generic(N : usize)`, `refine`, the verifier (R1 landed) | done: `ATS_STYLE_INDEXED_TYPES.md` |
+| Indexed types, `{n:nat}`, existentials | comptime `generic(N : usize)`, `refine`, the verifier (R1 landed) | done: `backlog/ATS_STYLE_INDEXED_TYPES.md` |
 | `prfun` / `praxi` / `dataprop` (proofs as erased values) | `ghost`, `ghost_fn` (inlined; a recursive one is a subset error), `law`, `assumed()`, ghost `Seq`/`Multiset`/`Set` | **take the lemma layer** (§3 A1) |
 | Termination metrics `.<n>.` and `.<m, n>.` | `decreases(M)` on functions and loops, mutual-recursion cliques (V6 task 4); one measure, no tuples | **take lexicographic measures** (§3 A5) |
 | Effects on function types (`<>` pure, `<!ntm>` total) | spec calls see only a callee's `ensures`; the effects analysis exists (`src/evaluator/effects/`) but specs cannot use a function's body | **take spec-transparent pure functions** (§3 A3) |
@@ -227,7 +236,7 @@ A4's token is exactly the view that model would reason about.
   kinds.
 - Zhu, Xi, *Safe Programming with Pointers through Stateful Views*
   (PADL 2005): at-views as proofs of memory ownership.
-- In-tree: `ATS_STYLE_INDEXED_TYPES.md`, `DEPENDENT_TYPES_POSITION.md`,
+- In-tree: `backlog/ATS_STYLE_INDEXED_TYPES.md`, `DEPENDENT_TYPES_POSITION.md`,
   `FORMAL_VERIFICATION.md`, `plans/reference/MEMORY_SAFETY.md`,
   `plans/backlog/FUTURE_ORIGINS.md`, `plans/reference/MATCH_PATTERN_MATCHING.md`,
   `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`,

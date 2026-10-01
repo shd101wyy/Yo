@@ -2,7 +2,7 @@
 
 **Severity:** S1 — a file WITHOUT `Pragma.AllowUnsafe` reads uninitialized slots and use-after-freed RC elements; under Guard Malloc with the system allocator the program segfaults (rc=139).
 
-- **Found:** 2026-09-30 by the ATS audit (`plans/backlog/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`
+- **Found:** 2026-09-30 by the ATS audit (`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`
   §3, ATS's `T?` uninitialized-type row).
 - **Component:** `std/collections/array_list.yo` — `set_len` (public, no
   pointer in its type, so the safe-mode gate never sees it).
