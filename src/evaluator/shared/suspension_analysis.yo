@@ -37,8 +37,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
+{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { type_requires_comptime_modifier } :: import("../../types/utils.yo");
@@ -150,7 +150,7 @@ extract_target_variable_id :: (
   match(
     get_info(pe.clone()),
     .Some(pinfo) => {
-      pvars := get_variables_from_env(pinfo.env, var_name.clone());
+      pvars := scope_variables(ast_expr_id(var_expr), pinfo.env, var_name.clone());
       pn := pvars.len();
       if(pn > usize(0), {
         match(
@@ -170,7 +170,7 @@ extract_target_variable_id :: (
     get_info(var_expr.clone()),
     .None => Option(String).None,
     .Some(info) => {
-      variables := get_variables_from_env(info.env, var_name.clone());
+      variables := scope_variables(ast_expr_id(var_expr), info.env, var_name.clone());
       n := variables.len();
       if(n == usize(0), {
         return(Option(String).None);
@@ -200,6 +200,7 @@ extract_target_variable_id :: (
 /// its ExprInfo type, preserving the original behavior exactly).
 _capture_env_variable :: (
   fn(
+    key : ExprId,
     var_name : String,
     env : Environment,
     ty_override : Option(TypeValue),
@@ -232,7 +233,7 @@ _capture_env_variable :: (
   if(is_module_level_global(env.module_path, var_name.clone()), {
     return(());
   });
-  variables := get_variables_from_env(env, var_name.clone());
+  variables := scope_variables(key, env, var_name.clone());
   n_vars := variables.len();
   if(n_vars > usize(0), {
     variable := match(
@@ -373,14 +374,14 @@ _capture_pattern_bindings :: (
       match(
         get_info(pat),
         .Some(info) => {
-          vars := get_variables_from_env(info.env, tok.value.clone());
+          vars := scope_variables(ast_expr_id(pat), info.env, tok.value.clone());
           at_decl := match(
             vars.last(),
             .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),
             .None => false
           );
           if(at_decl, {
-            _capture_env_variable(tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(pat), tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           });
         },
         .None => ()
@@ -437,7 +438,7 @@ walk_expr_ :: (
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(expr_cloned), var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -462,7 +463,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(ast_expr_id(lhs_e), lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );
@@ -479,7 +480,7 @@ walk_expr_ :: (
                     inout_args.get(usize(0)),
                     .Some(ref_name) => match(
                       ref_name,
-                      .Atom(_, ref_tok) => _capture_env_variable(ref_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(ref_name), ref_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .FnCall(_, _, _, _, _) => ()
                     ),
                     .None => ()
@@ -488,7 +489,7 @@ walk_expr_ :: (
                     get_info(lhs_e.clone()),
                     .Some(linfo) => match(
                       linfo.source_variable,
-                      .Some(pin) => _capture_env_variable(pin.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Some(pin) => _capture_env_variable(ast_expr_id(lhs_e), pin.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .None => ()
                     ),
                     .None => ()

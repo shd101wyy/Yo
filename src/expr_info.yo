@@ -1149,12 +1149,12 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
     info := g_scope_log_infos.get(i).unwrap();
-    // A live env (`frozen == false`: `ali_final.env = env`, an adopted env)
-    // is still the evaluator's working env and changes after this point.
+    // Counted, not kept: a live env (`frozen == false`: `ali_final.env = env`,
+    // an adopted env) is the common case.
     if(!(info.env.frozen), {
       g_scope_kept_live = (g_scope_kept_live + usize(1));
     });
-    if((!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info)) || !(info.env.frozen), {
+    if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info), {
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
       match(
