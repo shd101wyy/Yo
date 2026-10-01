@@ -174,12 +174,7 @@ read_yo_version :: (
         content := e.io.await(read_to_string(path, e.io), e);
         match(
           parse_yo_version(content),
-          // msg.clone(): the abort-dispose of this state machine replays the
-          // scrutinee slot's drop without seeing the payload move into the
-          // thrown dyn — throwing the ORIGINAL double-frees the message
-          // (Linux/ASan UAF). See
-          // issues/async-abort-dispose-double-drops-moved-enum-payload.md.
-          .Err(msg) => e.exn.throw(dyn(msg.clone())),
+          .Err(msg) => e.exn.throw(dyn(msg)),
           .Ok(version) => .Some(version)
         )
       }
