@@ -79,3 +79,23 @@ fails outright on develop:
 
 So the exclusion can go only after both fallbacks report or defer instead of producing `unit`.
 
+
+## Narrowed 2026-10-01 (measured with `YO_DEBUG_SWALLOW=1`, v0.2.47)
+
+In a generic impl member's trial:
+
+| the length | `(out : Array(u8, L)) = Array(u8, L).fill(u8(0))` |
+| --- | --- |
+| `usize(4)` | types as the array |
+| `T.BYTES` | `unit` |
+| a type alias `A :: Array(u8, T.BYTES)`, `A.fill(…)` | `unit` |
+| a local `n :: T.BYTES`, `Array(u8, n)` | `unit` |
+
+No error is swallowed before the final mismatch: the `fill` lookup falls back to `unit` without
+throwing, because `impl(generic(T, U : usize), Array(T, U), …)` cannot bind `U` to a
+value-dependent length. Why the reverted `N := VarRef("T.BYTES")` binding broke
+`tests/array.test.yo` (REASONED): the symbolic expression names the OUTER `T`, but it is read
+inside `fill`'s own impl, whose `T` is the element type, so `while(i < U, …)` saw `T.BYTES` of
+the wrong `T` ("usize and Type"). Binding `U` to an unknown `usize` value names nothing. The
+call's `Self` must still be the receiver's own type, so the result is `Array(u8, T.BYTES)`
+rather than `Array(u8, <unknown>)`.
