@@ -42,6 +42,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+    - [Associated constants](#associated-constants)
   - [Private members](#private-members)
   - [recur](#recur)
   - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
@@ -91,12 +92,15 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [Static trait methods](#static-trait-methods)
+  - [Associated types in a trait's `where` clause](#associated-types-in-a-traits-where-clause)
   - [Coherence: one impl per type and trait](#coherence-one-impl-per-type-and-trait)
 - [Pattern Matching](#pattern-matching)
   - [Pattern forms](#pattern-forms)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
+    - [Writing through a copy of a `String`](#writing-through-a-copy-of-a-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
       - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
@@ -138,6 +142,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
+    - [Importing a name twice](#importing-a-name-twice)
     - [Trait impls are visible through your imports](#trait-impls-are-visible-through-your-imports)
   - [Anonymous module](#anonymous-module)
   - [Module-level mutable variables](#module-level-mutable-variables)
@@ -293,6 +298,28 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
 `yo fmt` is intentionally not configurable, following the same philosophy as `go fmt`: all Yo projects share one compact, consistent style with 2-space indentation.
 
 `yo fmt` elides provably-redundant parentheses (a re-parse must reproduce the original tree, so a group is only removed when grouping cannot change) and keeps every load-bearing one. That includes the redundant LEFT groups of a same-operator chain at any operand count — `(((20 - 5) - 4) - 3)` formats to `20 - 5 - 4 - 3` — while a parenthesized right operand is always kept: `20 - (5 - 4) - 3` is left untouched.
+
+The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:
+
+```rust
+// before
+s1 := (((a - b) - c) - x);
+s2 := (a + (b + c));
+s3 := f((a + b));
+s4 := -(x);
+s5 := -(x + x);
+s6 := ((a * b) + c);
+ok := !(done);
+
+// after `yo fmt`
+s1 := (a - b - c - x);
+s2 := (a + (b + c));
+s3 := f(a + b);
+s4 := -x;
+s5 := -(x + x);
+s6 := ((a * b) + c);
+ok := !done;
+```
 
 ## Syntax
 
@@ -909,6 +936,37 @@ impl(
 
 p := Point(x : 3, y : 4);
 p.set_x(10); // No `&(p)` required — the compiler inserts it
+```
+
+#### Associated constants
+
+An `impl` may declare a plain value member beside its methods. It is read off the type, and a generic body can read it off a type parameter. The integer types carry `MIN`, `MAX` and `BITS` this way (`u8.MAX`, `i16.MIN`, `u64.BITS`).
+
+A constant declared as a TRAIT member can also appear in a type position of a signature, such as an `Array` length, computed or bare; the projection is resolved for each instantiation. An inherent constant does not resolve in that position yet (`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`), which is why the prelude declares `BYTES`, the length behind `to_be_bytes`, through its `ByteWidth` trait.
+
+```rust
+{ println } :: import("std/fmt");
+
+Grid :: struct(w : i32, h : i32);
+impl(Grid, CELL_PX : i32(16)); // a value member beside the methods
+
+// A generic body reads the constant off a type parameter.
+bits_of :: (fn(generic(T : Type), x : T, where(T <: Integer)) -> u32)(T.BITS);
+
+// Declared through a trait, a constant can also size an `Array`.
+Width :: trait(WIDTH : usize);
+impl(u8, Width(WIDTH : usize(1)));
+impl(u32, Width(WIDTH : usize(4)));
+pad :: (fn(generic(T : Type), x : T, where(T <: Width)) -> Array(u8, T.WIDTH * usize(2)))(
+  Array(u8, T.WIDTH * usize(2)).fill(u8(0))
+);
+
+main :: (fn() -> unit)({
+  println(Grid.CELL_PX); // 16
+  println(`${u8.MAX} ${i16.MIN} ${bits_of(u64(0))}`); // 255 -32768 64
+  println(pad(u32(7)).len()); // 8
+});
+export(main);
 ```
 
 ### Private members
@@ -2109,6 +2167,68 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 });
 ```
 
+### Static trait methods
+
+A trait method with no `self` parameter is a static method. Call it on an implementing type (`Point.make(...)`), or on a type parameter the trait constrains (`T.make(...)`). Constructor-style traits are written this way; `FromJson`'s `from_json(v)` is one.
+
+```rust
+{ println } :: import("std/fmt");
+
+// A trait method without `self` is a static (constructor-style) method.
+Make :: trait(make : (fn(n : i32) -> Self));
+
+Point :: struct(x : i32, y : i32);
+impl(Point, Make(make : (n -> Point(x : n, y : n))));
+
+Meters :: struct(v : i32);
+impl(Meters, Make(make : (n -> Meters(v : (n * i32(1000))))));
+
+// Called on the type, or on a type parameter in a generic body.
+build :: (fn(comptime(T) : Type, n : i32, where(T <: Make)) -> T)(T.make(n));
+
+main :: (fn() -> unit)({
+  p := Point.make(i32(3));
+  m := build(Meters, i32(2));
+  println(`${p.x} ${p.y} ${m.v}`); // 3 3 2000
+});
+export(main);
+```
+
+### Associated types in a trait's `where` clause
+
+A trait declares an associated type before the members that name it (`Item : Type` first, then `next : (fn(...) -> Option(Self.Item))`). Its `where` clause may use its own projections to constrain a DIFFERENT type, as `IntoIterator` does with `where(Self.IntoIter <: Iterator(Item := Self.Item))`. It may not bind an associated type of `Self` itself to one of `Self`'s own projections:
+
+```rust
+Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+
+// error: Expected type for associated type constraint "Item", got: (Self.Item)
+Peekable :: trait(
+  Item : Type,
+  peek : (fn(self : Self) -> Option(Self.Item)),
+  where(Self <: Source(Item := Self.Item))
+);
+```
+
+Both of these are accepted:
+
+```rust
+Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+
+// Constrain `Self` without binding its associated type...
+Rewindable :: trait(
+  rewind : (fn(inout(self) : Self) -> unit),
+  where(Self <: Source)
+);
+
+// ...or constrain a different associated type through `Self.Item`.
+Pullable :: trait(
+  Item : Type,
+  Iter : Type,
+  source : (fn(self : Self) -> Self.Iter),
+  where(Self.Iter <: Source(Item := Self.Item))
+);
+```
+
 ### Coherence: one impl per type and trait
 
 A type implements a trait at most once, in the whole program
@@ -2301,6 +2421,61 @@ threads, see `std/imm/string`, whose "modification" methods all return a new val
 s := String.new();
 s2 := String.from("Hello World!");
 s3 := (s + s2); // Create a new string.
+```
+
+#### Writing through a copy of a `String`
+
+`String` has reference semantics: a copy shares the original's buffer
+(§Type inference), whether the copy comes from an assignment, a parameter,
+a collection read (`xs(i)`) or a `for` loop element. A write through the copy
+is visible through the original.
+
+**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).** An empty `String` has no buffer yet; none is
+allocated until the first write. A write through a copy of an empty `String`
+therefore allocates a buffer in the copy alone, and the original never sees
+it. Nothing reports the lost write.
+
+Until that is fixed, do not rely on a write through a copy. Take the string as
+`inout(out) : String`, return the result, or call `.clone()` when you want an
+independent string. The example shows both the shared and the lost write:
+
+```rust
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+
+// A plain `String` parameter is a copy of the caller's handle.
+append_copy :: (fn(out : String) -> unit)({
+  out.push_str("!");
+});
+
+// `inout` passes the caller's variable itself.
+append_inout :: (fn(inout(out) : String) -> unit)({
+  out.push_str("!");
+});
+
+main :: (fn() -> unit)({
+  a := String.new();
+  append_copy(a); // lost (the defect): `a` had no buffer, the write allocated one in the copy
+  b := String.from("hi");
+  append_copy(b); // visible: the copy shares `b`'s buffer
+  println(`"${a}" "${b}"`); // "" "hi!"
+
+  c := String.new();
+  append_inout(c);
+  d := b.clone();
+  d.push_str("?"); // an independent buffer
+  println(`"${c}" "${b}" "${d}"`); // "!" "hi!" "hi!?"
+
+  names := ArrayList(String).new();
+  names.push(String.new());
+  names.push(String.from("n"));
+  for(names, s => {
+    s.push_str("!");
+  });
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "" "n!"
+});
+export(main);
 ```
 
 #### Template string interpolation with `${}` syntax:
@@ -3405,6 +3580,17 @@ test_module :: import("./test.yo"); // Import everything from test.yo and put it
 { test } :: import("./test.yo"); // Import test function from test.yo
 { test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
 { Option } :: import("./test.yo"); // Import Option type from test.yo
+```
+
+#### Importing a name twice
+
+Every imported name is a binding, so the no-shadowing rule applies to imports: binding the same name twice is an error (`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`), whether both lines name it or a `{ ... }` glob already brought it in. Several import lines from one path are fine as long as each binds different names, and a name may be imported again under a new one:
+
+```rust
+{ ArrayList } :: import("std/collections/array_list");
+{ ArrayListIter } :: import("std/collections/array_list"); // fine: a different name
+{ ArrayList : List } :: import("std/collections/array_list"); // fine: bound under a new name
+xs := List(i32).new();
 ```
 
 #### Trait impls are visible through your imports
