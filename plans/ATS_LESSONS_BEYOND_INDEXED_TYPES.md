@@ -251,7 +251,7 @@ What landed, item by item:
 | A3 spec-transparent pure fns | #1075, #1107 | an uncontracted pure function can be named in a spec; a recursive one needs `decreases`; the error names the missing property |
 | A4 init proof token | #1075 | `set_len` gone; `spare_capacity` + `assume_init` |
 | A5 lexicographic `decreases` | #1075 | `decreases(a, b)` |
-| A6 typestate idiom | #1075 (docs), `fix/enum-type-arguments` (its S3) | phantom state on `ref(struct)` or `enum`; a generic impl's methods are found on both |
+| A6 typestate idiom | #1075 (docs), #1112 (its S3) | phantom state on `ref(struct)` or `enum`; a generic impl's methods are found on both |
 | §4 verified unsafe std | decided 2026-10-02: not now | std's `ArrayList` contracts stay trusted (`assumed()`), documented in `docs/*/FORMAL_VERIFICATION.md` |
 
 Bugs found and fixed on the way, each with a regression test (`issues/fixed/`):
@@ -271,6 +271,11 @@ Left, by design:
   Until then the fixtures state it through a local `assumed()` `push_at_end`
   (`backlog/SEED_VERSION_AUTOMATION.md`, Generation B).
 - **Revisit trigger for §4:** a std bug traced to a wrong `assumed()` clause.
+- **#1112's follow-up:** impl matching must bind an enum parameter from type
+  arguments only at a phantom position. Otherwise an `Option` of an io.async
+  future is judged comptime-only
+  (`issues/fixed/an-option-of-an-io-async-future-is-judged-comptime-only.md`,
+  branch `fix/enum-bind-only-phantom-positions`).
 
 ## 7. Sources
 
