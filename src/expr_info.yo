@@ -1173,7 +1173,14 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
     k := env_common_prefix_len_by_id(info.env, husk);
-    shares_husk := (k > usize(0));
+    // A call-time capture env (`capture_env_for`: the callee's def scope
+    // flattened into frame 0, the call's frames after it) shares no frame
+    // with the husk, but frame 0 holds the same global `Variable` handles
+    // the husk's outer frames do: the husk answers for it, and the record
+    // covers the frames after it.
+    capture_shaped := ((k == usize(0)) && (info.env.frames.len() > usize(0)));
+    inner_from := if(capture_shaped, usize(1), k);
+    shares_husk := ((k > usize(0)) || capture_shaped);
     if(_is_scope_husk(info.env), {
       // This info object was released by an earlier body (logged again
       // there): its records stand.
@@ -1181,6 +1188,9 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     }, if((!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info)) || !(shares_husk), {
       if(!(shares_husk), {
         g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
+        if((g_scope_debug == "prefix") && (g_scope_prefix_bad < usize(25)), {
+          eprintln(`[scope-prefix] id=${id.to_string()} mod=${info.env.module_path} env=${_scope_frames_str(info.env)} husk=${_scope_frames_str(husk)} fdfl=${match(info.env.function_declaration_frame_level, .Some(l) => l.to_string(), .None => String.from("-"))} vn=${match(info.variable_name, .Some(v) => v, .None => String.from("-"))}`);
+        });
       });
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
@@ -1188,7 +1198,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       // in a later body): its earlier variables stay, joined by this one's.
       prev := _scope_take_inner(id);
       _r_k := g_scope_klen.remove(id);
-      if(k < husk.frames.len(), {
+      if(!(capture_shaped) && (k < husk.frames.len()), {
         g_scope_klen.insert(id, k);
       });
       match(
@@ -1221,8 +1231,8 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
           // The bound name's variables in the env's own frames first (an
           // outer same-named binding added after this one), then the
           // binding's own lookup.
-          _scope_push_new(inner, get_variables_from_env_after(info.env, k, br.name));
-          shared := get_variables_from_env_before(husk, k, br.name);
+          _scope_push_new(inner, get_variables_from_env_after(info.env, inner_from, br.name));
+          shared := if(capture_shaped, get_variables_from_env(husk, br.name), get_variables_from_env_before(husk, k, br.name));
           (bi : usize) = usize(0);
           while(bi < br.vars.len(), {
             bv := br.vars.get(bi).unwrap();
@@ -1240,7 +1250,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
         nm := names.get(ni).unwrap();
         if(!(nm == sv_name) && (!(nm == bound_name) && !(seen.contains(nm.clone()))), {
           seen.push(nm.clone());
-          _scope_push_new(inner, get_variables_from_env_after(info.env, k, nm));
+          _scope_push_new(inner, get_variables_from_env_after(info.env, inner_from, nm));
         });
         ni = (ni + usize(1));
       });
@@ -1267,6 +1277,16 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
   });
   g_scope_log_infos.truncate(mark);
   g_scope_log_ids.truncate(mark);
+});
+_scope_frames_str :: (fn(e : Environment) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < e.frames.len(), {
+    f := e.frames.get(i).unwrap();
+    out.push_string(`${f.id.to_string()}/${f.variables.len().to_string()}${if(f.is_begin_block, "b", "")},`);
+    i = (i + usize(1));
+  });
+  out
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
