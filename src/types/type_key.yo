@@ -13,6 +13,8 @@
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked } :: import("./utils.yo");
+{ debug_knob } :: import("../utils.yo");
+{ eprintln } :: import("std/fmt");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -140,6 +142,19 @@ _tk_somes_have_id :: (fn(somes : ArrayList(TypeValue), id : String) -> bool)({
   });
   found
 });
+(g_tk_probe_on : bool) = debug_knob(`YO_DEBUG_TK_ENUM_CYCLE`).is_some();
+/// Probe only: true when a path node is `id` or starts with `id|`.
+_tk_seen_id_prefix :: (fn(id : String) -> bool)({
+  pfx := id.clone();
+  pfx.push_str("|");
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_tk_visited.len()) && !found, {
+    found = match(g_tk_visited.get(i), .Some(e) => ((e == id) || e.starts_with(pfx)), .None => false);
+    i = (i + usize(1));
+  });
+  found
+});
 _tk_seen :: (fn(id : String) -> bool)({
   n := g_tk_visited.len();
   (i : usize) = usize(0);
@@ -187,7 +202,7 @@ _tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT(sh_eid, _, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
+    .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, sh_etas, depth + usize(1)), `e:${sh_eid}`),
     .SomeT({ id : sh_tid }) => {
       sh_end := resolve_cell_chain(t);
       match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
@@ -403,13 +418,25 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       evds := match(rs, .EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
       evfls := match(rs, .EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
-      // Cycle guard (see g_tk_visited): an enum id already on the expansion
-      // path renders id-only rather than re-expanding its variant fields.
-      if((eid.len() > usize(0)) && _tk_seen(eid), {
+      // Cycle guard (see g_tk_visited): an enum already on the expansion
+      // path renders id-only rather than re-expanding its variant fields. The
+      // node is the id AND its type arguments' identities, as the Struct arm's:
+      // substitution keeps an instance's def-era id, so a generic fn applied
+      // to its own result (`wrap(wrap(x))`, `wrap : fn(U) -> Option(U)`) nests
+      // one `Option(U)` instance inside another under ONE id, and an id-only
+      // guard cut the inner one to its bare id. That gave the outer instance a
+      // second C type beside the declared `Option(Option(i32))`
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node_targs := match(rs, .EnumT({ type_arguments : nd_tas }) => nd_tas, _ => ArrayList(TypeValue).new());
+      e_node := _tk_node_id(eid, e_node_targs);
+      if((eid.len() > usize(0)) && _tk_seen(e_node), {
         return(eid.clone());
       });
+      if(g_tk_probe_on && (eid.len() > usize(0)) && _tk_seen_id_prefix(eid), {
+        eprintln(`[tk-enum-cycle] id-only guard would cut ${eid}; node ${e_node} expands`);
+      });
       if(eid.len() > usize(0), {
-        g_tk_visited.push(eid.clone());
+        g_tk_visited.push(e_node);
       });
       // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
       // below), not by `type_to_string` — the name alone drops the payload, so
