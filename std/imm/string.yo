@@ -111,8 +111,14 @@ impl(
       return(Self(_ptr : .None, _len : usize(0), _capw : usize(0)));
     });
     ptr := _alloc_bytes(slen);
-    rb := s.raw_bytes();
-    unsafe(memcpy((*void)(ptr), (*void)(rb.ptr), slen));
+    match(
+      s.ptr(),
+      .Some(sp) => {
+        unsafe(memcpy((*void)(ptr), (*void)(sp), slen));
+        ()
+      },
+      .None => ()
+    );
     return(Self(_ptr : .Some(ptr), _len : slen, _capw : (slen | _scope_tag())));
   }),
   /// Number of BYTES in this string's UTF-8 encoding — O(1).

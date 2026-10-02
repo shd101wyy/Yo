@@ -579,7 +579,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
+Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A struct WRAPPING a pointer is not automatically gated (public pointer field does not decide safety: `HashMap`'s `ctrl` is public by accident and safe; `Allocator` is a public function-pointer table and safe), so the std rule is per-API: anything that hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()` — the gate rejects that in safe files), never a ptr+len struct — a `RawSlice` handout was measured passing through safe code into `random_bytes`, a UAF WRITE (2026-10-01). A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
 
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
@@ -802,7 +802,7 @@ Rules:
 
 Every public top-level `fn(...)` in `std/` should take and return value or `inout`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `inout(name) : T` for in-place mutation, or a higher-level safe type (`RawSlice(T)` for pragma'd internals).
 
-Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public_safe_report.yo`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
+Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public_safe_report.yo`. Keep the finding count from growing when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 

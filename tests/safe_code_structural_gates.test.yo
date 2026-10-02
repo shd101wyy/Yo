@@ -1,4 +1,6 @@
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ unchecked_non_zero } :: import("std/spec/refine");
 /// Phase C structural gates for safe code (per plans/reference/MEMORY_SAFETY.md).
 ///
 /// The previous gates required `unsafe(...)` to wrap pointer ops but
@@ -113,3 +115,52 @@ comptime_expect_error({
   impl(PlainStruct3, Send());
   impl(PlainStruct3, Acyclic());
 });
+
+// ============================================================================
+// Pointer-free APIs with unsafe semantics (the safe-mode handover §3.2
+// audit). Each of these compiled cleanly in safe code before its gate; the
+// tests pin the error the fix produces.
+// ============================================================================
+// `String.ptr()` hands out the heap buffer: the POINTER result is a raw
+// pointer value, which safe code may not hold. Before the fix this was
+// `raw_bytes() -> RawSlice(u8)` — a struct wrapping the pointer, which
+// passed the gate and reached `random_bytes`: a heap-use-after-free WRITE
+// once the string reallocated.
+// issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md
+comptime_expect_error({
+  s := String.from("hi");
+  s.ptr()
+});
+// `MaybeUninit.assume_init` reads the uninitialized slot: it now takes the
+// `as_ptr()` result as a witness, a pointer safe code cannot hold. The
+// one-argument spelling no longer exists, so the call is an arity error.
+// issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md
+comptime_expect_error({
+  m := MaybeUninit(i64).new();
+  m.assume_init()
+});
+// `std/spec/refine`'s trusted casts forge a refinement with no check and no
+// proof; they now take a `*(T)` witness (`&(x)`), which safe code cannot
+// produce. The two-argument spelling no longer exists.
+// issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md
+comptime_expect_error({
+  zero := i32(0);
+  unchecked_non_zero(zero)
+});
+// The struct-wrapping-a-pointer class is NOT structurally detectable, so
+// these stay as boundary pins: HOLDING a managed container whose pointer
+// field is public by accident (HashMap's `ctrl : ?(*(u8))`) is fine —
+// while READING that field is an enum-wrapping-a-pointer expression and
+// stays gated.
+comptime_expect_error({
+  { HashMap } :: import("std/collections/hash_map");
+  m := HashMap(i32, i32).new();
+  c := m.ctrl;
+  c
+});
+{
+  { HashMap } :: import("std/collections/hash_map");
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(2));
+  assert(m.len() == usize(1), "a HashMap is safe to hold and use");
+}

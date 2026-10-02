@@ -24,6 +24,11 @@
 //! unstable — outside the std stability promise entirely; the verification
 //! campaign is still shaping this surface (expect the `.check`/`.unchecked`
 //! spellings and the family set to move).
+//!
+//! The module is unsafe-capable because the trusted casts name a `*(T)`
+//! witness parameter — a privilege token a safe file cannot produce
+//! (issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md).
+pragma(Pragma.AllowUnsafe);
 /// The general refinement constructor — `Refine(T, p)` is "a `T` that
 /// satisfies the one-parameter ghost predicate `p`". The predicate is a
 /// COMPTIME value parameter (a one-parameter `ghost_fn` over `T` — plain
@@ -77,15 +82,20 @@ export(NonEmpty);
 // inline (the verifier discharges the `Some` arm from the branch condition
 // either way); a predicate-parameterized check needs a comptime→runtime
 // predicate bridge and is tracked with the task-3 follow-ups.
-/// `unchecked(p, x)` — the TRUSTED cast: returns `x` as `Refine(T, p)`
+/// `unchecked(p, x, &(x))` — the TRUSTED cast: returns `x` as `Refine(T, p)`
 /// without any check and without any proof obligation. Callers take
-/// responsibility for `p(x)` holding; pair the call site with
-/// `pragma(Pragma.AllowUnsafe)`.
+/// responsibility for `p(x)` holding. The `witness` parameter is how that
+/// responsibility is enforced: it is a raw pointer, which only an
+/// unsafe-capable file can produce (`&(x)` at the call site), so a safe file
+/// cannot forge a refinement the verifier never discharged
+/// (issues/fixed/safe-code-forges-refinement-proofs-through-unchecked-casts.md).
+/// The witness is not inspected.
 unchecked :: (
   fn(
     generic(T : Type),
     comptime(p) : (fn(v : T) -> bool),
-    x : T
+    x : T,
+    witness : *T
   ) -> Refine(T, p)
 )(x);
 export(unchecked);
@@ -105,9 +115,10 @@ check_non_zero :: (
 );
 export(check_non_zero);
 
-/// `unchecked_non_zero(x)` — the `NonZero` family's trusted cast.
+/// `unchecked_non_zero(x, &(x))` — the `NonZero` family's trusted cast. The
+/// `witness` pointer is the privilege token; see `unchecked`.
 unchecked_non_zero :: (
-  fn(generic(T : Type), x : T) -> NonZero(T)
+  fn(generic(T : Type), x : T, witness : *T) -> NonZero(T)
 )(x);
 export(unchecked_non_zero);
 
@@ -128,13 +139,15 @@ check_bounded :: (
 );
 export(check_bounded);
 
-/// `unchecked_bounded(x, lo, hi)` — the `Bounded` family's trusted cast.
+/// `unchecked_bounded(x, lo, hi, &(x))` — the `Bounded` family's trusted
+/// cast. The `witness` pointer is the privilege token; see `unchecked`.
 unchecked_bounded :: (
   fn(
     generic(T : Type),
     x : T,
     comptime(lo) : T,
-    comptime(hi) : T
+    comptime(hi) : T,
+    witness : *T
   ) -> Bounded(T, lo, hi)
 )(x);
 export(unchecked_bounded);

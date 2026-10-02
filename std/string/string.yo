@@ -215,23 +215,22 @@ impl(
   //   return self._bytes;
   // }),
   /// Get a str view into the string's UTF-8 bytes
-  /// Returns a fat pointer (pointer + length) without copying
-  /// PRIVILEGED raw view of the heap buffer (ptr + byte length) for C
-  /// interop and pragma'd std internals. Naming RawSlice requires
-  /// pragma(Pragma.AllowUnsafe); the view dangles if the String mutates
-  /// or dies — callers must not let it escape the borrow site.
-  /// (This replaces the deleted `as_str()`: heap bytes can no longer be
-  /// viewed as `str`, which is the STATIC string view.
-  /// See plans/archive/SLICE_REWORK.md.)
-  raw_bytes : (fn(self : Self) -> RawSlice(u8))(
+  /// PRIVILEGED raw pointer to the heap buffer for C interop and pragma'd
+  /// std internals — `ArrayList.ptr()`'s shape: `.None` before the first
+  /// allocation. The POINTER result (not a ptr+len struct) is what gates it:
+  /// a raw pointer value is a compile error in safe code, so a safe file
+  /// cannot hold the buffer at all — a `RawSlice` handout was measured
+  /// passing through safe code and into `random_bytes`, a use-after-free
+  /// WRITE after the string reallocated
+  /// (issues/fixed/safe-code-holds-a-use-after-free-through-rawslice.md).
+  /// The pointer dangles if the String mutates or dies — callers must not
+  /// let it escape the borrow site; pair it with `.len()` at the same
+  /// single-threaded instant.
+  ptr : (fn(self : Self) -> ?*u8)(
     match(
       self._bytes,
-      .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0)),
-      .Some(al) => match(
-        al.ptr(),
-        .Some(p) => RawSlice(u8)(ptr : p, len : al.len()),
-        .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
-      )
+      .None => Option(*u8).None,
+      .Some(al) => al.ptr()
     )
   ),
   /// Decode a UTF-8 encoded rune starting at the given byte index

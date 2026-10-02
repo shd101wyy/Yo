@@ -6971,13 +6971,14 @@ impl(
   // it replaces had refused the same program at COMPILE time.
   fill : (fn(val : T, where(T <: Comptime)) -> Self)({
     mu := MaybeUninit(Self).new();
-    p := (*T)(mu.as_ptr());
+    raw := mu.as_ptr();
+    p := (*T)(raw);
     (i : usize) = usize(0);
     while(i < U, {
       (p.add(i)).* = val;
       i = (i + usize(1));
     });
-    mu.assume_init()
+    mu.assume_init(raw)
   })
 );
 /// Array Index impls
@@ -9558,13 +9559,20 @@ extern(
     (fn(comptime(_Self) : Type) -> _Self),
   __yo_maybe_uninit_as_ptr :
     (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : *(_Self)) -> *(BaseType)),
+  /// The `witness` parameter is the safe-mode privilege token
+  /// (`MaybeUninit.assume_init` passes its `written` argument through); the
+  /// inline alias that lowers this builtin ignores it, and no runtime symbol
+  /// exists — the call is always inlined.
   __yo_maybe_uninit_assume_init :
-    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : _Self) -> BaseType)
+    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : _Self, witness : *(BaseType)) -> BaseType)
 );
 /// MaybeUninit — a wrapper that allows holding an uninitialized value.
 ///
 /// Useful for FFI or low-level patterns where a value must be
 /// allocated first and initialized later (e.g., by a C function).
+/// `assume_init` takes the `as_ptr()` result as a witness — a pointer only
+/// unsafe-capable code can hold — so safe code cannot read the uninitialized
+/// slot (issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md).
 ///
 /// ## Example
 /// ```yo
@@ -9577,7 +9585,7 @@ extern(
 /// uninitialized_timer := MaybeUninit(time_t).new();
 /// ptr := uninitialized_timer.as_ptr();
 /// time(.Some(ptr));
-/// timer := uninitialized_timer.assume_init();
+/// timer := uninitialized_timer.assume_init(ptr);
 /// ```
 MaybeUninit :: (fn(comptime(BaseType) : Type) -> comptime(Type))(
   newtype(
@@ -9593,9 +9601,12 @@ impl(
   as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
     __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
-  /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
-  assume_init : (fn(own(self) : Self) -> BaseType)(
-    __yo_maybe_uninit_assume_init(Self, BaseType, self)
+  /// Assume the value is initialized and extract it. **Undefined behavior if
+  /// not initialized.** The `written` witness is the `as_ptr()` result you
+  /// initialized through: a raw pointer only unsafe-capable code can hold, so
+  /// safe code cannot reach the uninitialized read. It is not inspected.
+  assume_init : (fn(own(self) : Self, written : *(BaseType)) -> BaseType)(
+    __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
   )
 );
 export(MaybeUninit);
