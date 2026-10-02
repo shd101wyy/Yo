@@ -1,0 +1,559 @@
+// issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md:
+// each vtable resolves its method's on-demand Future type while codegen walks
+// the type table, so these traits grow it under the walk. The trait count puts
+// a table resize inside that walk; walking the live map then revisited the
+// relocated entries and defined their vtables twice.
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+P0 :: struct(v : i32);
+T0 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P0, IoExn))));
+S0 :: ref(struct(n : i32));
+impl(
+  S0,
+  T0(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P0, IoExn)))(
+      io.async(e => {
+        return(P0(v : self.n));
+      })
+    )
+  )
+);
+P1 :: struct(v : i32);
+T1 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P1, IoExn))));
+S1 :: ref(struct(n : i32));
+impl(
+  S1,
+  T1(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P1, IoExn)))(
+      io.async(e => {
+        return(P1(v : self.n));
+      })
+    )
+  )
+);
+P2 :: struct(v : i32);
+T2 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P2, IoExn))));
+S2 :: ref(struct(n : i32));
+impl(
+  S2,
+  T2(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P2, IoExn)))(
+      io.async(e => {
+        return(P2(v : self.n));
+      })
+    )
+  )
+);
+P3 :: struct(v : i32);
+T3 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P3, IoExn))));
+S3 :: ref(struct(n : i32));
+impl(
+  S3,
+  T3(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P3, IoExn)))(
+      io.async(e => {
+        return(P3(v : self.n));
+      })
+    )
+  )
+);
+P4 :: struct(v : i32);
+T4 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P4, IoExn))));
+S4 :: ref(struct(n : i32));
+impl(
+  S4,
+  T4(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P4, IoExn)))(
+      io.async(e => {
+        return(P4(v : self.n));
+      })
+    )
+  )
+);
+P5 :: struct(v : i32);
+T5 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P5, IoExn))));
+S5 :: ref(struct(n : i32));
+impl(
+  S5,
+  T5(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P5, IoExn)))(
+      io.async(e => {
+        return(P5(v : self.n));
+      })
+    )
+  )
+);
+P6 :: struct(v : i32);
+T6 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P6, IoExn))));
+S6 :: ref(struct(n : i32));
+impl(
+  S6,
+  T6(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P6, IoExn)))(
+      io.async(e => {
+        return(P6(v : self.n));
+      })
+    )
+  )
+);
+P7 :: struct(v : i32);
+T7 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P7, IoExn))));
+S7 :: ref(struct(n : i32));
+impl(
+  S7,
+  T7(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P7, IoExn)))(
+      io.async(e => {
+        return(P7(v : self.n));
+      })
+    )
+  )
+);
+P8 :: struct(v : i32);
+T8 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P8, IoExn))));
+S8 :: ref(struct(n : i32));
+impl(
+  S8,
+  T8(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P8, IoExn)))(
+      io.async(e => {
+        return(P8(v : self.n));
+      })
+    )
+  )
+);
+P9 :: struct(v : i32);
+T9 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P9, IoExn))));
+S9 :: ref(struct(n : i32));
+impl(
+  S9,
+  T9(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P9, IoExn)))(
+      io.async(e => {
+        return(P9(v : self.n));
+      })
+    )
+  )
+);
+P10 :: struct(v : i32);
+T10 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P10, IoExn))));
+S10 :: ref(struct(n : i32));
+impl(
+  S10,
+  T10(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P10, IoExn)))(
+      io.async(e => {
+        return(P10(v : self.n));
+      })
+    )
+  )
+);
+P11 :: struct(v : i32);
+T11 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P11, IoExn))));
+S11 :: ref(struct(n : i32));
+impl(
+  S11,
+  T11(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P11, IoExn)))(
+      io.async(e => {
+        return(P11(v : self.n));
+      })
+    )
+  )
+);
+P12 :: struct(v : i32);
+T12 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P12, IoExn))));
+S12 :: ref(struct(n : i32));
+impl(
+  S12,
+  T12(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P12, IoExn)))(
+      io.async(e => {
+        return(P12(v : self.n));
+      })
+    )
+  )
+);
+P13 :: struct(v : i32);
+T13 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P13, IoExn))));
+S13 :: ref(struct(n : i32));
+impl(
+  S13,
+  T13(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P13, IoExn)))(
+      io.async(e => {
+        return(P13(v : self.n));
+      })
+    )
+  )
+);
+P14 :: struct(v : i32);
+T14 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P14, IoExn))));
+S14 :: ref(struct(n : i32));
+impl(
+  S14,
+  T14(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P14, IoExn)))(
+      io.async(e => {
+        return(P14(v : self.n));
+      })
+    )
+  )
+);
+P15 :: struct(v : i32);
+T15 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P15, IoExn))));
+S15 :: ref(struct(n : i32));
+impl(
+  S15,
+  T15(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P15, IoExn)))(
+      io.async(e => {
+        return(P15(v : self.n));
+      })
+    )
+  )
+);
+P16 :: struct(v : i32);
+T16 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P16, IoExn))));
+S16 :: ref(struct(n : i32));
+impl(
+  S16,
+  T16(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P16, IoExn)))(
+      io.async(e => {
+        return(P16(v : self.n));
+      })
+    )
+  )
+);
+P17 :: struct(v : i32);
+T17 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P17, IoExn))));
+S17 :: ref(struct(n : i32));
+impl(
+  S17,
+  T17(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P17, IoExn)))(
+      io.async(e => {
+        return(P17(v : self.n));
+      })
+    )
+  )
+);
+P18 :: struct(v : i32);
+T18 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P18, IoExn))));
+S18 :: ref(struct(n : i32));
+impl(
+  S18,
+  T18(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P18, IoExn)))(
+      io.async(e => {
+        return(P18(v : self.n));
+      })
+    )
+  )
+);
+P19 :: struct(v : i32);
+T19 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P19, IoExn))));
+S19 :: ref(struct(n : i32));
+impl(
+  S19,
+  T19(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P19, IoExn)))(
+      io.async(e => {
+        return(P19(v : self.n));
+      })
+    )
+  )
+);
+P20 :: struct(v : i32);
+T20 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P20, IoExn))));
+S20 :: ref(struct(n : i32));
+impl(
+  S20,
+  T20(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P20, IoExn)))(
+      io.async(e => {
+        return(P20(v : self.n));
+      })
+    )
+  )
+);
+P21 :: struct(v : i32);
+T21 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P21, IoExn))));
+S21 :: ref(struct(n : i32));
+impl(
+  S21,
+  T21(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P21, IoExn)))(
+      io.async(e => {
+        return(P21(v : self.n));
+      })
+    )
+  )
+);
+P22 :: struct(v : i32);
+T22 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P22, IoExn))));
+S22 :: ref(struct(n : i32));
+impl(
+  S22,
+  T22(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P22, IoExn)))(
+      io.async(e => {
+        return(P22(v : self.n));
+      })
+    )
+  )
+);
+P23 :: struct(v : i32);
+T23 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P23, IoExn))));
+S23 :: ref(struct(n : i32));
+impl(
+  S23,
+  T23(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P23, IoExn)))(
+      io.async(e => {
+        return(P23(v : self.n));
+      })
+    )
+  )
+);
+P24 :: struct(v : i32);
+T24 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P24, IoExn))));
+S24 :: ref(struct(n : i32));
+impl(
+  S24,
+  T24(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P24, IoExn)))(
+      io.async(e => {
+        return(P24(v : self.n));
+      })
+    )
+  )
+);
+P25 :: struct(v : i32);
+T25 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P25, IoExn))));
+S25 :: ref(struct(n : i32));
+impl(
+  S25,
+  T25(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P25, IoExn)))(
+      io.async(e => {
+        return(P25(v : self.n));
+      })
+    )
+  )
+);
+P26 :: struct(v : i32);
+T26 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P26, IoExn))));
+S26 :: ref(struct(n : i32));
+impl(
+  S26,
+  T26(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P26, IoExn)))(
+      io.async(e => {
+        return(P26(v : self.n));
+      })
+    )
+  )
+);
+P27 :: struct(v : i32);
+T27 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P27, IoExn))));
+S27 :: ref(struct(n : i32));
+impl(
+  S27,
+  T27(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P27, IoExn)))(
+      io.async(e => {
+        return(P27(v : self.n));
+      })
+    )
+  )
+);
+P28 :: struct(v : i32);
+T28 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P28, IoExn))));
+S28 :: ref(struct(n : i32));
+impl(
+  S28,
+  T28(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P28, IoExn)))(
+      io.async(e => {
+        return(P28(v : self.n));
+      })
+    )
+  )
+);
+P29 :: struct(v : i32);
+T29 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P29, IoExn))));
+S29 :: ref(struct(n : i32));
+impl(
+  S29,
+  T29(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P29, IoExn)))(
+      io.async(e => {
+        return(P29(v : self.n));
+      })
+    )
+  )
+);
+P30 :: struct(v : i32);
+T30 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P30, IoExn))));
+S30 :: ref(struct(n : i32));
+impl(
+  S30,
+  T30(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P30, IoExn)))(
+      io.async(e => {
+        return(P30(v : self.n));
+      })
+    )
+  )
+);
+P31 :: struct(v : i32);
+T31 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P31, IoExn))));
+S31 :: ref(struct(n : i32));
+impl(
+  S31,
+  T31(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P31, IoExn)))(
+      io.async(e => {
+        return(P31(v : self.n));
+      })
+    )
+  )
+);
+P32 :: struct(v : i32);
+T32 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P32, IoExn))));
+S32 :: ref(struct(n : i32));
+impl(
+  S32,
+  T32(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P32, IoExn)))(
+      io.async(e => {
+        return(P32(v : self.n));
+      })
+    )
+  )
+);
+P33 :: struct(v : i32);
+T33 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P33, IoExn))));
+S33 :: ref(struct(n : i32));
+impl(
+  S33,
+  T33(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P33, IoExn)))(
+      io.async(e => {
+        return(P33(v : self.n));
+      })
+    )
+  )
+);
+P34 :: struct(v : i32);
+T34 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P34, IoExn))));
+S34 :: ref(struct(n : i32));
+impl(
+  S34,
+  T34(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P34, IoExn)))(
+      io.async(e => {
+        return(P34(v : self.n));
+      })
+    )
+  )
+);
+P35 :: struct(v : i32);
+T35 :: trait(get : (fn(self : Self, io : Io) -> Impl(Future(P35, IoExn))));
+S35 :: ref(struct(n : i32));
+impl(
+  S35,
+  T35(
+    get : (fn(self : Self, io : Io) -> Impl(Future(P35, IoExn)))(
+      io.async(e => {
+        return(P35(v : self.n));
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  (total : i32) = i32(0);
+  (d0 : Dyn(T0)) = dyn(S0(n : i32(0)));
+  total = (total + io.await(d0.get(io), IoExn(io : io, exn : exn)).v);
+  (d1 : Dyn(T1)) = dyn(S1(n : i32(1)));
+  total = (total + io.await(d1.get(io), IoExn(io : io, exn : exn)).v);
+  (d2 : Dyn(T2)) = dyn(S2(n : i32(2)));
+  total = (total + io.await(d2.get(io), IoExn(io : io, exn : exn)).v);
+  (d3 : Dyn(T3)) = dyn(S3(n : i32(3)));
+  total = (total + io.await(d3.get(io), IoExn(io : io, exn : exn)).v);
+  (d4 : Dyn(T4)) = dyn(S4(n : i32(4)));
+  total = (total + io.await(d4.get(io), IoExn(io : io, exn : exn)).v);
+  (d5 : Dyn(T5)) = dyn(S5(n : i32(5)));
+  total = (total + io.await(d5.get(io), IoExn(io : io, exn : exn)).v);
+  (d6 : Dyn(T6)) = dyn(S6(n : i32(6)));
+  total = (total + io.await(d6.get(io), IoExn(io : io, exn : exn)).v);
+  (d7 : Dyn(T7)) = dyn(S7(n : i32(7)));
+  total = (total + io.await(d7.get(io), IoExn(io : io, exn : exn)).v);
+  (d8 : Dyn(T8)) = dyn(S8(n : i32(8)));
+  total = (total + io.await(d8.get(io), IoExn(io : io, exn : exn)).v);
+  (d9 : Dyn(T9)) = dyn(S9(n : i32(9)));
+  total = (total + io.await(d9.get(io), IoExn(io : io, exn : exn)).v);
+  (d10 : Dyn(T10)) = dyn(S10(n : i32(10)));
+  total = (total + io.await(d10.get(io), IoExn(io : io, exn : exn)).v);
+  (d11 : Dyn(T11)) = dyn(S11(n : i32(11)));
+  total = (total + io.await(d11.get(io), IoExn(io : io, exn : exn)).v);
+  (d12 : Dyn(T12)) = dyn(S12(n : i32(12)));
+  total = (total + io.await(d12.get(io), IoExn(io : io, exn : exn)).v);
+  (d13 : Dyn(T13)) = dyn(S13(n : i32(13)));
+  total = (total + io.await(d13.get(io), IoExn(io : io, exn : exn)).v);
+  (d14 : Dyn(T14)) = dyn(S14(n : i32(14)));
+  total = (total + io.await(d14.get(io), IoExn(io : io, exn : exn)).v);
+  (d15 : Dyn(T15)) = dyn(S15(n : i32(15)));
+  total = (total + io.await(d15.get(io), IoExn(io : io, exn : exn)).v);
+  (d16 : Dyn(T16)) = dyn(S16(n : i32(16)));
+  total = (total + io.await(d16.get(io), IoExn(io : io, exn : exn)).v);
+  (d17 : Dyn(T17)) = dyn(S17(n : i32(17)));
+  total = (total + io.await(d17.get(io), IoExn(io : io, exn : exn)).v);
+  (d18 : Dyn(T18)) = dyn(S18(n : i32(18)));
+  total = (total + io.await(d18.get(io), IoExn(io : io, exn : exn)).v);
+  (d19 : Dyn(T19)) = dyn(S19(n : i32(19)));
+  total = (total + io.await(d19.get(io), IoExn(io : io, exn : exn)).v);
+  (d20 : Dyn(T20)) = dyn(S20(n : i32(20)));
+  total = (total + io.await(d20.get(io), IoExn(io : io, exn : exn)).v);
+  (d21 : Dyn(T21)) = dyn(S21(n : i32(21)));
+  total = (total + io.await(d21.get(io), IoExn(io : io, exn : exn)).v);
+  (d22 : Dyn(T22)) = dyn(S22(n : i32(22)));
+  total = (total + io.await(d22.get(io), IoExn(io : io, exn : exn)).v);
+  (d23 : Dyn(T23)) = dyn(S23(n : i32(23)));
+  total = (total + io.await(d23.get(io), IoExn(io : io, exn : exn)).v);
+  (d24 : Dyn(T24)) = dyn(S24(n : i32(24)));
+  total = (total + io.await(d24.get(io), IoExn(io : io, exn : exn)).v);
+  (d25 : Dyn(T25)) = dyn(S25(n : i32(25)));
+  total = (total + io.await(d25.get(io), IoExn(io : io, exn : exn)).v);
+  (d26 : Dyn(T26)) = dyn(S26(n : i32(26)));
+  total = (total + io.await(d26.get(io), IoExn(io : io, exn : exn)).v);
+  (d27 : Dyn(T27)) = dyn(S27(n : i32(27)));
+  total = (total + io.await(d27.get(io), IoExn(io : io, exn : exn)).v);
+  (d28 : Dyn(T28)) = dyn(S28(n : i32(28)));
+  total = (total + io.await(d28.get(io), IoExn(io : io, exn : exn)).v);
+  (d29 : Dyn(T29)) = dyn(S29(n : i32(29)));
+  total = (total + io.await(d29.get(io), IoExn(io : io, exn : exn)).v);
+  (d30 : Dyn(T30)) = dyn(S30(n : i32(30)));
+  total = (total + io.await(d30.get(io), IoExn(io : io, exn : exn)).v);
+  (d31 : Dyn(T31)) = dyn(S31(n : i32(31)));
+  total = (total + io.await(d31.get(io), IoExn(io : io, exn : exn)).v);
+  (d32 : Dyn(T32)) = dyn(S32(n : i32(32)));
+  total = (total + io.await(d32.get(io), IoExn(io : io, exn : exn)).v);
+  (d33 : Dyn(T33)) = dyn(S33(n : i32(33)));
+  total = (total + io.await(d33.get(io), IoExn(io : io, exn : exn)).v);
+  (d34 : Dyn(T34)) = dyn(S34(n : i32(34)));
+  total = (total + io.await(d34.get(io), IoExn(io : io, exn : exn)).v);
+  (d35 : Dyn(T35)) = dyn(S35(n : i32(35)));
+  total = (total + io.await(d35.get(io), IoExn(io : io, exn : exn)).v);
+  println(`total: ${total}`);
+});
+export(main);
