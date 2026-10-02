@@ -1160,9 +1160,6 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     eprintln(`[scope-debug] body mark=${mark.to_string()} logged=${(g_scope_log_ids.len() - mark).to_string()} entry_frames=${entry.frames.len().to_string()}`);
   });
   husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
-  // One husk per call-time capture frame (frame 0 of a `capture_env_for`
-  // env), shared by every info evaluated under it.
-  cap_husks := HashMap(usize, Environment).new();
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
@@ -1178,12 +1175,13 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     k := env_common_prefix_len_by_id(info.env, husk);
     // A call-time capture env (`capture_env_for`: the callee's def scope
     // flattened into frame 0, the call's frames after it) shares no frame
-    // with the body's husk. Its own husk is that capture frame, which may
-    // be another module's scope (a call passes the CALLER's module path);
-    // the record covers the frames after it.
+    // with the body's husk. Keeping its capture frame alive costs more than
+    // its record: the record covers all its frames, capture frame included
+    // (another module's scope when the callee is imported — a call passes
+    // the CALLER's module path), and the husk answers the rest.
     capture_shaped := ((k == usize(0)) && (info.env.frames.len() > usize(0)));
-    info_husk := if(capture_shaped, _scope_capture_husk(cap_husks, info.env), husk);
-    inner_from := if(capture_shaped, usize(1), k);
+    info_husk := husk;
+    inner_from := k;
     shares_husk := ((k > usize(0)) || capture_shaped);
     if(_is_scope_husk(info.env), {
       // This info object was released by an earlier body (logged again
@@ -1236,7 +1234,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
           // outer same-named binding added after this one), then the
           // binding's own lookup.
           _scope_push_new(inner, get_variables_from_env_after(info.env, inner_from, br.name));
-          shared := if(capture_shaped, get_variables_from_env(info_husk, br.name), get_variables_from_env_before(husk, k, br.name));
+          shared := if(capture_shaped, get_variables_from_env(husk, br.name), get_variables_from_env_before(husk, k, br.name));
           (bi : usize) = usize(0);
           while(bi < br.vars.len(), {
             bv := br.vars.get(bi).unwrap();
@@ -1291,21 +1289,6 @@ _scope_frames_str :: (fn(e : Environment) -> String)({
     i = (i + usize(1));
   });
   out
-});
-/// The husk for a capture env: its frame 0 alone, memoised per frame.
-_scope_capture_husk :: (fn(memo : HashMap(usize, Environment), env : Environment) -> Environment)({
-  f0 := env.frames.get(usize(0)).unwrap();
-  match(
-    memo.get(f0.index_key),
-    .Some(h) => h,
-    .None => {
-      frames := ArrayList(Frame).new();
-      frames.push(f0);
-      h := Environment(frames : frames, module_path : env.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : env.input_string.clone(), frozen : true);
-      memo.insert(f0.index_key, h);
-      h
-    }
-  )
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
