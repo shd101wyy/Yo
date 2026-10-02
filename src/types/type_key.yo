@@ -13,8 +13,6 @@
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked } :: import("./utils.yo");
-{ debug_knob } :: import("../utils.yo");
-{ eprintln } :: import("std/fmt");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -138,19 +136,6 @@ _tk_somes_have_id :: (fn(somes : ArrayList(TypeValue), id : String) -> bool)({
   (i : usize) = usize(0);
   while((i < somes.len()) && !found, {
     found = match(somes.get(i), .Some(.SomeT({ id : sid })) => (sid == id), _ => false);
-    i = (i + usize(1));
-  });
-  found
-});
-(g_tk_probe_on : bool) = debug_knob(`YO_DEBUG_TK_ENUM_CYCLE`).is_some();
-/// Probe only: true when a path node is `id` or starts with `id|`.
-_tk_seen_id_prefix :: (fn(id : String) -> bool)({
-  pfx := id.clone();
-  pfx.push_str("|");
-  (found : bool) = false;
-  (i : usize) = usize(0);
-  while((i < g_tk_visited.len()) && !found, {
-    found = match(g_tk_visited.get(i), .Some(e) => ((e == id) || e.starts_with(pfx)), .None => false);
     i = (i + usize(1));
   });
   found
@@ -431,9 +416,6 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       e_node := _tk_node_id(eid, e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(e_node), {
         return(eid.clone());
-      });
-      if(g_tk_probe_on && (eid.len() > usize(0)) && _tk_seen_id_prefix(eid), {
-        eprintln(`[tk-enum-cycle] id-only guard would cut ${eid}; node ${e_node} expands`);
       });
       if(eid.len() > usize(0), {
         g_tk_visited.push(e_node);

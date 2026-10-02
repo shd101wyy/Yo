@@ -584,6 +584,157 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    every concrete array is unchanged. After it lands, `mark_generic_independent` can drop its
    `unit` exclusion.
 
+   **Design (written 2026-10-02 on `tss/option-of-generic-option-identity`; not implemented).**
+
+   *Today.* `Array(element : Self, length : usize, length_var : String)`. `length_var` takes five
+   shapes, told apart by spelling:
+
+   | shape | written | example | minted by |
+   | --- | --- | --- | --- |
+   | concrete | `""` | `Array(u8, 4)` | `t_array` |
+   | binder | the binder's name | `"U"` in `impl(generic(T, U : usize), Array(T, U), …)`; `"n"` for `fn(comptime(n) : usize) -> Array(i32, n)` | `evaluate_array_type`, atom branch |
+   | projection | `"<recv>.<label>"` | `"T.BYTES"` | `_length_projection_text` |
+   | computed | `COMPUTED_ARRAY_LEN_PREFIX` + the expression text | `"__yo_len_expr:(N + usize(1))"` | `evaluate_array_type`, fallthrough |
+   | inferred | `"_array_length_<stable id>"` | `Array(i32, _)(1, 2, 3)` | `evaluate_array_type`, `_` branch |
+
+   Four mechanisms resolve the binder and projection shapes by NAME. Each of them can be captured
+   by another binder of the same spelling:
+   - The synthesizer's `Array + Array` case (`evaluator/types/synthesizer.yo`, "Array LENGTH
+     synthesis") binds `exp_lvar` in the expected env with `get_variables_from_env(ee, exp_lvar)` /
+     `add_variable_to_env(ee, exp_lvar, …)`. It binds only when the given length is concrete, so an
+     abstract receiver (`Array(u8, T.BYTES)`) leaves the impl's `U` unbound. That is the `unit`
+     degrade of `issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`.
+   - `Substitution.len_var_names/len_var_values` (`types/substitution.yo`), filled by
+     `subst_add_len_var` from the match's IntLit side channel (`values/impl.yo`,
+     `g_last_match_binding_vals`). `_mask_func_own_binders` masks by name.
+   - `_subst_resolve_len_projection` looks the receiver up with `_subst_lookup_by_name`, which
+     ignores the frame level ("first match wins"). That is the capture that broke
+     `tests/array.test.yo` when `N := VarRef("T.BYTES")` was tried.
+   - The comptime-return resolver `_rlv` (`calls/function.yo`, "Resolve remaining ARRAY LENGTH
+     VARIABLES") matches `rl_var` against the callee's parameter labels.
+
+   *Representation.* A new enum in `types/definitions.yo`. It holds no `TypeValue`, so
+   `TypeValue` does not become mutually recursive with it:
+
+   ```rust
+   ArrayLen :: enum(
+     Count(n : usize),
+     // A const binder (`generic(N : usize)`, `comptime(n) : usize`), by identity.
+     Binder(id : String, name : String, level : usize),
+     // `T.BYTES`: the SomeT `T` by identity, plus the constant's name.
+     Projection(recv_id : String, recv_name : String, recv_level : usize, label : String),
+     // Result types only. Re-evaluated in the callee's own env, never substituted.
+     Computed(text : String),
+     // `Array(T, _)`. Bound from the value at construction.
+     Infer(id : String)
+   );
+   Array(element : Self, length : ArrayLen)
+   ```
+
+   - `id` is the binder's SomeT id. An impl-level value binder already has one: it is bound
+     `TypeVal(SomeT)` in the impl's forall env, which is the "Family B re-kind" in
+     `calls/function_type.yo`. In a def-time body env the binder is re-kinded to an unknown
+     `usize` (the shadow binding in `_build_def_time_body_env`, and the fn-level `generic(N :
+     usize)` loop beside it). That shadow binding records the binder with `variable_set_bound_some_id`, the
+     mechanism #939 added for type binders, so `evaluate_array_type` reads the identity from the
+     variable rather than from the token. A `comptime(n) : usize` parameter is not a forall
+     binder. It gets the parameter's anchored declaration id (`_anchored_position`, Phase 3.3),
+     recorded the same way.
+   - `name`/`recv_name` are for display and diagnostics only. `type_to_string` keeps printing
+     `Array(u8, T.BYTES)`, so every message and golden is unchanged.
+   - `level` is what `subst_lookup` keys a SomeT by. A projection resolves exactly as a type
+     variable is substituted, by (name, level) or the SomeT's own resolution.
+
+   *Every site that reads or writes `length_var` today.* Positional `.Array(_, _, _)` patterns
+   that ignore the length change mechanically. They are listed in step 1 below. The sites that
+   interpret it:
+
+   | site | today | after |
+   | --- | --- | --- |
+   | `types/creators.yo` `t_array`, `t_array_var` | `""` / a name | `Count(n)` / one constructor per variant |
+   | `types/creators.yo` `COMPUTED_ARRAY_LEN_PREFIX`, `is_computed_array_len_var`, `_type_has_computed_array_len_d` | prefix test | `.Computed` |
+   | `types/creators.yo` shell rewrite (`.Array(el, n, lv) => .Array(recur(…), n, lv)`) | pass-through | pass-through |
+   | `types/substitution.yo` `.Array` arm, `subst_add_len_var`, `subst_lookup_len_var`, `_without_len_vars`, `_mask_func_own_binders` length half, `_subst_lookup_by_name`, `_subst_resolve_len_projection` | name-keyed | id-keyed (below); `_subst_lookup_by_name` deleted |
+   | `types/string.yo` `.Array` arm | prints `lv` or `n` | prints `name` / `recv_name.label` / `n` |
+   | `types/intern.yo` `.Array` arm | `A<el>#n#lv` | `A<el>#n`, `#B:<id>`, `#P:<recv_id>.<label>`, `#C:<text>`, `#I:<id>` |
+   | `types/compatibility.yo` `.Array` arm | any variable length is compatible with anything | identity mode: equal `ArrayLen`; flow and lenient modes unchanged in this step |
+   | `types/guards.yo` hard-generic classification | `hg_lvar.len() > 0` | not `.Count` |
+   | `types/utils.yo` `_type_mentions_generic_length` | `lv.len() > 0` | not `.Count` |
+   | `evaluator/types/array.yo` `evaluate_array_type`, `_length_projection_text` | mints the strings | mints the variants from the evaluated length (the binder's variable, the receiver's SomeT) |
+   | `evaluator/types/synthesizer.yo` `Array + Array` | binds `exp_lvar` by name when the given length is concrete | see below |
+   | `evaluator/values/impl.yo` spec binding (`subst_add_len_var(spec_s, sb_name, n)`) | by forall label | by the forall SomeT's id |
+   | `evaluator/calls/function.yo` `_resolve_array_length_vars_from_self` | positional adopt | unchanged (positional) |
+   | `evaluator/calls/function.yo` `_rlv` | label match | `Binder.id` match against the parameter's id |
+   | `evaluator/calls/function.yo` `(alv.len() == 0)` concreteness test (~3385) | string test | `.Count` |
+   | `evaluator/calls/helper.yo` `_type_has_array_len_var_d` | `alv_var.len() > 0` | not `.Count` |
+   | `evaluator/calls/array_type.yo` (3 readers, 1 constructor) | string | variant |
+   | `evaluator/exprs/binding.yo` the `_` annotation rejection | `starts_with("_array_length_")` | `.Infer` |
+   | `evaluator/builtins/dup.yo`, `builtins/type_fns.yo` (`TypeInfo.Array`) | skip a non-concrete length | `.Count` |
+   | `codegen/utils/index.yo` (C type of an array, and the length text ~2100) | `length_var.len() == 0` | `.Count(n)` |
+   | `codegen/functions/declarations.yo` `_ret_has_len_var` | string | not `.Count` |
+   | `codegen/exprs/drop_dup.yo` (2), `codegen/exprs/rc_fns.yo` (2), `codegen/exprs/array_fns.yo` fill | string | `.Count` |
+   | `verifier/vc.yo` array sort | `lv.len() == 0` | `.Count` |
+
+   *Substitution.* `len_var_names : ArrayList(String)` becomes `len_binder_ids : ArrayList(String)`,
+   with `len_values : ArrayList(ArrayLen)`. The values are not only counts, so a trial can bind `U`
+   to the receiver's abstract length (below). The `.Array` arm:
+   - `Count` and `Computed` are left alone.
+   - `Binder(id)` takes the bound value by id.
+   - `Projection(recv_id, recv_name, recv_level, label)` substitutes the receiver as a SomeT would
+     be substituted: `recur(s, <the SomeT>)` keyed by (name, level) or its own resolution. It
+     reads the constant only when the result is concrete (`g_lookup_assoc_const`). If the result
+     is another SomeT, the receiver is rewritten (`T.BYTES` becomes `T'.BYTES`). A wrong `T` is
+     no longer reachable, because the lookup is the one every type variable already uses and it
+     is level-aware. `_subst_lookup_by_name` is deleted.
+   - `_mask_func_own_binders` masks length bindings by the nested fn's forall ids, not labels.
+   - `_without_len_vars` is unchanged in meaning: nominal field types own their spelling, which
+     is the `_ArrayIter` split it records.
+
+   *Synthesis.* In the `Array + Array` case:
+   - If the expected length is `Binder(id)` and `id` is one of the impl's or callee's forall
+     binders, bind it. A concrete given length binds the count, as today. An abstract given length
+     (`Binder`, `Projection`) binds the symbolic `ArrayLen`, and the binder's env variable stays
+     an unknown `usize`, so the body's `while(i < U, …)` types.
+   - The receiver's `Self` still comes from the receiver, so `Array(u8, T.BYTES).fill(u8(0))`
+     types as `Array(u8, T.BYTES)` in the trial.
+   - An expected binder that is not this match's own binder is left alone. That is the capture
+     the name-keyed bind could not see.
+
+   The value side (`g_last_match_binding_vals`) carries only concrete `IntLit`s. A symbolic
+   binding goes into the substitution and never into an env value.
+
+   *Migration order.* Each step builds, runs the fixpoint, and is gated on byte identity of the
+   self-compile C. Only `Count` reaches codegen, and its rendering does not change.
+   0. Measure. Count the distinct `length_var` values by shape over `check ./src`, `check ./std`
+      and the fast suite (a `YO_DEBUG_*` probe in `t_array_var`). Confirm that every binder
+      occurrence in a def-time body env is the re-kind shadow. If one is not, find its binding
+      site before step 2.
+   1. Change the representation, keeping name-keyed behaviour. Add `ArrayLen`. `Binder` and
+      `Projection` carry the names, plus ids where the minting site has them. Rewrite every site
+      in the table, plus the positional pass-throughs (`types/hierarchy.yo`,
+      `types/utils.yo` walkers, `evaluator/types/enum.yo`, `trait_checking.yo`,
+      `values/anonymous_function.yo`, `values/array.yo`, `calls/index_trait.yo`,
+      `builtins/comptime_index_fns.yo`, `builtins/array_fns.yo`, `builtins/rc_fns.yo`,
+      `effects/mutation_summary.yo`, `codegen/types/*`, `codegen/functions/constructors.yo`,
+      `codegen/exprs/other_fn_call.yo`, `codegen/exprs/comptime_value.yo`,
+      `evaluator/types/function.yo`). This is a pure refactor: identical C, identical goldens.
+   2. Mint ids. Record the binder id on the re-kind shadow and on comptime value parameters, and
+      mint `Binder(id)` and `Projection(recv_id)` in `evaluate_array_type`. Still byte-identical,
+      since only the intern key's text changes.
+   3. Make substitution id-keyed: the `.Array` arm, `subst_add_len_var` called with the forall
+      SomeT's id in `values/impl.yo`, the masking by id, and `_subst_lookup_by_name` deleted. Run
+      the reverted `tests/array.test.yo` `_Widthy` shape as the canary.
+   4. Change synthesis: bind only the match's own binders, and bind an abstract given length
+      symbolically. Exit test: `(out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0))` in a
+      generic impl member checks in its definition-time trial (the table in the issue: `T.BYTES`,
+      the alias `A`, and the local `n :: T.BYTES` rows). It also needs a two-binder canary: an
+      outer impl `T` and `fill`'s own `T` in one call chain, at two different widths.
+   5. Identity mode compares `ArrayLen`s in `compatibility.yo`, and `Type.eq` of
+      `Array(u8, T.BYTES)` against `Array(u8, U.BYTES)` answers false. Then retry dropping the
+      `unit` exclusion in `mark_generic_independent`. The later-impl degrade is fixed on
+      `fix/enum-final-name`, so after this step the remaining blocker is whatever
+      `check ./std` reports.
+
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
 (`an-extern-opaque-type-unifies-with-every-dyn`) is replaced by a nominal opaque variant.

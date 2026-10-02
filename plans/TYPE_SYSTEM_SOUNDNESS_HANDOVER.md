@@ -1,6 +1,6 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-02 (Phase 6 step 3, §3.2). Earlier: 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-03 (`wrap(wrap(x))` identity, §3.0/§3.3; Phase 6 step 3, §3.2). Earlier: 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
 to do next. Move it to `archive/` with a banner once §3 is empty.
 
@@ -57,6 +57,7 @@ work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
 | `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
 | `tss/generic-extern-trial` | §3.3: the generic-extern trial failure, plus its Yo-fn twin found in review | fixed; both cli-cases red on the seed |
 | `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
+| `tss/option-of-generic-option-identity` (#1116) | §3.3: `wrap(wrap(x))` type identity; the Phase 3 step 9 design | rebased onto develop; local gates in its PR |
 | `fix/header-macro-prefix` | §3.5 | rebased onto develop after `async-triage` (#1093); fixed, draft PR on develop (fixpoint holds) |
 
 **#1084 is superseded.** Its JoinHandle step 2 and both state-machine leak fixes are also on
@@ -213,6 +214,19 @@ definitions in 31 of them:
   captured by any other binder called `T` (that is why the symbolic binding broke
   `tests/array.test.yo`). A length variable has to refer to its type variable by identity.
   The later-impl case is fixed on `fix/enum-final-name` (§3.4).
+- **`wrap(wrap(x))` (fixed on `tss/option-of-generic-option-identity`).** Substitution keeps an
+  instance's definition-era id, so `Option(Option(i32))` built by a generic fn applied to its own
+  result nests two `Option` instances under one id. Four guards keyed by the id alone read that
+  as a cycle: `type_key`'s path, `stable_type_identity`'s path, the intern token and step 4b's
+  marker re-derivation guard. Each now keys a generic enum instance by its id plus its type
+  arguments (`_tk_node_id`, `enum_instance_node_id`), as the Struct arm already did for the
+  stream combinators. The self-compile C is a pure renaming (74 types), with no merge or split.
+  `issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md`,
+  `issues/fixed/a-nested-generic-enum-instance-reads-as-comptime-only.md`. Any other guard
+  keyed by a nominal id alone (the step-8 `g_trait_check_recursion_guard`, the struct arm of
+  `stable_type_identity`) has the same shape. No reproducer was found for those.
+- **Phase 3 step 9 (array lengths by identity)** has a written design in the plan (the
+  `ArrayLen` sum, the site table, a five-step migration). Not started.
 - **`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`**
   (S3, handed over by a peer 2026-10-01): `EnumT` has no `type_arguments`, so a phantom enum
   instance cannot be matched to its generic impl through a `comptime(K) : Type` parameter. The

@@ -123,3 +123,13 @@ test("a generic fn applied to its own Option result is the declared Option(Optio
   assert(match(s, .Some(.Some(v)) => (v == String.from("str")), _ => false), "generic caller at String");
   assert(match(_ww_thrice(i32(6)), .Some(.Some(.Some(v))) => (v == i32(6)), _ => false), "three deep");
 });
+// issues/fixed/a-nested-generic-enum-instance-reads-as-comptime-only.md: the
+// same nesting cut `Option(i32) <: Runtime` inside `Option(Option(i32))` as a
+// cycle, so the outer type read as comptime-only and `:=` demanded `::`.
+_ww_bind :: (fn(n : i32) -> i32)({
+  a := _ww_wrap(_ww_wrap(n));
+  _ww_inner(a)
+});
+test("a nested generic enum instance is a runtime type", {
+  assert(_ww_bind(i32(5)) == i32(5), "bound with :=");
+});
