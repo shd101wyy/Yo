@@ -999,6 +999,7 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 /// A released info whose env shares only its first `k` frames with the husk.
 (g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
 (g_scope_kept_live : usize) = usize(0);
+(g_scope_rereleased : usize) = usize(0);
 (g_scope_released : usize) = usize(0);
 (g_scope_kept : usize) = usize(0);
 (g_scope_mismatch : usize) = usize(0);
@@ -1040,11 +1041,11 @@ scope_release_debug :: (fn(module_path : String, msg : String) -> unit)(
   })
 );
 scope_env_is_husk :: (fn(env : Environment) -> bool)(_is_scope_husk(env));
-/// Codegen will look `name` up through atom `key`, whose info names nothing
-/// (a property atom reading an extern C global: `c.stdout`, `a.realloc`), so
-/// the release records it.
+/// Codegen looks a property atom's own token up through it (an extern C
+/// global read as `c.stdout`, the state-machine liveness walk over every
+/// atom), and its info names nothing, so the release records that name.
 scope_release_note_query :: (fn(key : ExprId, name : String) -> unit)(
-  if((g_scope_mode != usize(0)) && is_extern_c_global(name.clone()), {
+  if(g_scope_mode != usize(0), {
     g_scope_queried.insert(key, name);
   })
 );
@@ -1168,9 +1169,23 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     if(!(info.env.frozen), {
       g_scope_kept_live = (g_scope_kept_live + usize(1));
     });
-    if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info), {
+    // An env that does not extend the husk (a module-level binding forced
+    // inside the body, a nested evaluation's own env) has frames the husk
+    // cannot stand in for: kept.
+    shares_husk := (env_common_prefix_len(info.env, husk) == husk.frames.len());
+    if(_is_scope_husk(info.env), {
+      // This info object was released by an earlier body (logged again
+      // there): its records stand.
+      g_scope_rereleased = (g_scope_rereleased + usize(1));
+    }, if((!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info)) || !(shares_husk), {
+      if(!(shares_husk), {
+        g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
+      });
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
+      // An id can be released again (a nested or repeated evaluation logged
+      // in a later body): this release replaces the earlier records.
+      _scope_clear_records(id);
       match(
         info.source_variable,
         .Some(sv) => {
@@ -1194,11 +1209,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).
-      k := env_common_prefix_len(info.env, husk);
-      if(k < husk.frames.len(), {
-        g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
-        g_scope_klen.insert(id, k);
-      });
+      k := husk.frames.len();
       inner := ArrayList(Variable).new();
       match(
         bound,
@@ -1248,11 +1259,18 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
         eprintln(`[scope-debug] release id=${id.to_string()} mark=${mark.to_string()} vn=${match(info.variable_name, .Some(v) => v, .None => String.from("-"))} sv=${match(info.source_variable, .Some(v) => v.name, .None => String.from("-"))} recs=${match(g_scope_names.get(id), .Some(rs) => rs.len().to_string(), .None => String.from("0"))}`);
       });
       g_scope_released = (g_scope_released + usize(1));
-    });
+    }));
     i = (i + usize(1));
   });
   g_scope_log_infos.truncate(mark);
   g_scope_log_ids.truncate(mark);
+});
+_scope_clear_records :: (fn(id : ExprId) -> unit)({
+  _r1 := g_scope_one.remove(id);
+  _r2 := g_scope_inner.remove(id);
+  _r3 := g_scope_klen.remove(id);
+  _r4 := g_scope_atom_exc.remove(id);
+  _r5 := g_scope_husks.remove(id);
 });
 _scope_has_id :: (fn(vs : ArrayList(Variable), id : usize) -> bool)({
   (i : usize) = usize(0);
@@ -1377,7 +1395,7 @@ scope_release_report :: (fn() -> unit)(
     while(runtime(true), {
       match(hbi.next(), .Some(hkv) => eprintln(`[scope-husk-binding] ${hkv.value.to_string()} ${hkv.key}`), .None => break);
     });
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} kept_live=${g_scope_kept_live.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} kept_live=${g_scope_kept_live.to_string()} rereleased=${g_scope_rereleased.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
     kit := g_scope_mm_kinds.into_iter();
     while(runtime(true), {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);

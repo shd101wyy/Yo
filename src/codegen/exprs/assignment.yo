@@ -45,18 +45,22 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
-/// The atom a place expression is rooted at (`a` of `a.b.c`, `a.*`, `a(i)`)
-/// when its token is `name`, else `lhs` itself: the node whose record
-/// resolves the place's base variable (scope-exit release,
-/// plans/CODEGEN_MEMORY_REDUCTION.md §6).
-_lhs_root_atom :: (fn(lhs : AstExpr, name : String) -> AstExpr)({
+/// The node of a place expression (`a.b.c`, `a.*`, `a(i)`, `f().x`) that
+/// binds `name`: the root atom when its token is `name`, or the node whose
+/// recorded `variable_name` is `name` (a temp holding a call result), else
+/// `lhs` itself. Its record resolves the place's base variable (scope-exit
+/// release, plans/CODEGEN_MEMORY_REDUCTION.md §6).
+_lhs_root_binder :: (fn(lhs : AstExpr, name : String, context : FunctionGenerationContext) -> AstExpr)({
   (cur : AstExpr) = lhs;
-  (go : bool) = true;
-  while(go, {
+  while(runtime(true), {
+    binds := match(context.base.get_expr_info(cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
+    if(binds, {
+      return(cur);
+    });
     match(
       cur,
       .Atom(_, _) => {
-        go = false;
+        return(if(ast_expr_token(cur).value == name, cur, lhs));
       },
       .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).None), {
         cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
@@ -65,7 +69,7 @@ _lhs_root_atom :: (fn(lhs : AstExpr, name : String) -> AstExpr)({
       })
     );
   });
-  if(ast_expr_token(cur).value == name, cur, lhs)
+  lhs
 });
 /// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -108,7 +112,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       .Some(path) => if(path.len() >= usize(2), {
         match(
           path.get(usize(0)),
-          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_atom(lhs, base_var.clone())), lhs_ei.env, base_var.clone()), {
+          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(lhs, base_var.clone(), context)), lhs_ei.env, base_var.clone()), {
             return(String.from(""));
           }),
           .None => ()
