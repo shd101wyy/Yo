@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 190 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 189 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 56 | 6 |
-| **Total** | **190** | **27** |
+| Other | 55 | 6 |
+| **Total** | **189** | **27** |
 
 ## Counts by severity
 
@@ -46,7 +46,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 25 |
-| S2 | 87 |
+| S2 | 86 |
 | S3 | 76 |
 | (missing) | 2 |
 
@@ -332,7 +332,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (56)
+### Other (55)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -362,7 +362,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`init-agentsmd-template-omits-the-verify-recipe.md`](./init-agentsmd-template-omits-the-verify-recipe.md) | S3 | — | — |
-| [`law-over-an-imported-callee-cannot-verify.md`](./law-over-an-imported-callee-cannot-verify.md) | S2 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`](./local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md) | S2 | OPEN | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |

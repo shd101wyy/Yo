@@ -161,12 +161,9 @@ abs_doubles_nonneg :: law(
 - Reported as `law@<file>:<row>:<column>`; two laws on one line stay
   distinct. A law's predicates are name-resolved under verification only —
   a dangling name is caught by `yo verify`, not `yo check`.
-- KNOWN LIMITATION (open issue `law-over-an-imported-callee-cannot-verify`):
-  a law whose callee is IMPORTED from another file reports
-  `cannot verify: untyped expression` — laws verify today only when the
-  callee lives in the same file. Keep laws beside the contracted code until
-  it is fixed; the `spec/`-directory convention (`yo verify ./spec
-  --strict`, `docs/en-US/FORMAL_VERIFICATION.md` §Laws) waits on it.
+- A law's callee may be IMPORTED from another file — the `spec/`-directory
+  convention (`yo verify ./spec --strict`, `docs/en-US/FORMAL_VERIFICATION.md`
+  §Laws). So may a callee named in a function's own `requires`/`ensures`.
 - In runtime mode a law is an accepted no-op marker, so specification text
   never breaks an ordinary build.
 

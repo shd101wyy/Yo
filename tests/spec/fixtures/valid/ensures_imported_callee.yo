@@ -1,0 +1,17 @@
+// A function's own `ensures` calls a contracted function imported from
+// another file. The clause's call needs the callee's contract instance just
+// like a call in the body (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
+// Each call is modular — its result is constrained only by `abs_value`'s own
+// `ensures` — so the clause claims what that contract gives, not equality
+// with the body's call.
+pragma(Pragma.Verify);
+{ abs_value } :: import("./law_imported_callee_math.yo");
+
+plus_abs :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(1)) && (abs_value(x) < i64(1000)))
+  ) -> (r : i64)
+)(abs_value(x) + i64(1));
+export(plus_abs);

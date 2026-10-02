@@ -11,9 +11,9 @@ B4–B6; this file adds what no plan owned.
 
 ## Fix-first (filed issues, compiler-side)
 
-1. `issues/law-over-an-imported-callee-cannot-verify.md` (S2) — the
-   `spec/` convention is unusable until cross-file laws verify. Everything
-   below that says "spec/" gates on it.
+1. ~~A law over an imported callee cannot verify (S2)~~ — FIXED
+   2026-10-03 (`issues/fixed/law-over-an-imported-callee-cannot-verify.md`):
+   cross-file laws verify, so the `spec/` convention below is unblocked.
 2. `issues/yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`
    (S3) — tokenize the query, dedup the rows; recall is the surface's whole
    job. Cheap, high leverage.

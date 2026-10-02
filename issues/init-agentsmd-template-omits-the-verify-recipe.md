@@ -44,5 +44,5 @@ yo verify ./spec --strict   # prove the laws in spec/ (fails on assumed)
 and scaffold `spec/README.md` stating the claims/proofs wall in two
 paragraphs (BEND D3). Note: the `spec/`-directory convention itself is
 blocked by
-[`law-over-an-imported-callee-cannot-verify.md`](law-over-an-imported-callee-cannot-verify.md)
+[`law-over-an-imported-callee-cannot-verify.md`](fixed/law-over-an-imported-callee-cannot-verify.md) (fixed 2026-10-03)
 — land that fix first or the recipe teaches a gate that cannot go green.

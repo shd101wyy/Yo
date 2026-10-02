@@ -1,0 +1,13 @@
+// The contracted callee `law_imported_callee.yo` and
+// `ensures_imported_callee.yo` import: a law or a contract clause over a
+// function from ANOTHER file (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
+pragma(Pragma.Verify);
+
+abs_value :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(0)) && (r < i64(1000)))
+  ) -> (r : i64)
+)(cond((x >= i64(0)) => x, true => -x));
+export(abs_value);
