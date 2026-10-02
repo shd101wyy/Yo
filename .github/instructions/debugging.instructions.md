@@ -74,6 +74,15 @@ the fastest way to see which body failed and why:
 | `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function_type.yo` | named `fn`/`ctl` bodies |
 | `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous_function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
 | `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
+| `[reeval-swallow] <err>` | `evaluator/calls/helper.yo` | a closure body re-evaluated at a specialization with its parameter types substituted |
+| `[kept] site=<s> code=<c> owner=<pos>` | each of the above | the swallow above it was NOT re-raised, and why: `dg`/`dgc` (a generic fn/closure trial: the error waits for a call and is recorded against the body), `anon-abstract`/`anon-ct` (a closure with type-variable or `comptime(x)` parameters), `fn-fwd` (a concrete fn waiting for a forward comptime fn), `reeval-concrete`/`reeval-abstract`, `mat-default` |
+| `[ftt-stub] kind=<k> fn=<c name> site=<pos> spec=<b> recorded=<b>` | `codegen/functions/generation.yo` | a body emitted as an abort stub: `superseded` (a dead generic original), `value`/`unit` (live); `spec` = a specialization a call requested, `recorded` = its generic trial kept an error |
+
+A specialization that reaches emission hollow with `spec=true recorded=true`
+fails the compile: codegen reports the recorded error with a note at the call
+that requested the specialization (Phase 6 step 3,
+`plans/TYPE_SYSTEM_SOUNDNESS.md`).
+`scripts/soundness/swallow-census.sh` counts the `[kept]` lines by site.
 
 `YO_DEBUG_LAZY=1` is the companion for out-of-order evaluation: `[force] <def>`
 (`evaluator/context.yo`) for every `::` definition or `impl` forced by a lookup

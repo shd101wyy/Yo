@@ -127,7 +127,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -3812,7 +3812,14 @@ _evaluate_funcval_runtime_call :: (
   });
   // One SomeT-with-resolution level of the body type is unwrapped first,
   // as the async delegation wrappers require.
-  if(is_some_type(resolved_ret), {
+  // Not when the result is the CALLER's own unbound binder (a `-> T` callee
+  // called with the caller's `U`): that binder is rigid in the caller's
+  // definition-time trial, and the callee body's def-time type is no
+  // resolution of it. Stamping it resolved the caller's `U` to whatever that
+  // body typed as, `unit` for an operator on an unconstrained `T`, and the
+  // caller's result check then rejected `U` against `U`
+  // (issues/fixed/a-generic-calling-a-generic-is-rejected-against-its-own-result-binder.md).
+  if(is_some_type(resolved_ret) && !_fv_type_vars_are_callers_binders(env, resolved_ret), {
     match(
       cv,
       .FuncVal(rc_fvd, _) => match(
@@ -4133,7 +4140,7 @@ _evaluate_funcval_runtime_call :: (
       implicit_args : Option(ArrayList(ArgEntry)).None,
       variadic_args : ArrayList(VarArgEntry).new()
     );
-    spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
+    spec_fv := create_specialization_at_call(cv, spec_ct, spec_av, fresh_env, env, ast_expr_token(expr), ast_expr_to_string(func_expr), fa_bound_names.clone(), ctx, exn);
     rt_s1_spec_fv = Option(EvalValue).Some(spec_fv);
     spec_fid := match(spec_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
     // A resolved_ret still carrying an Array LENGTH VAR (a value-generic
@@ -4265,7 +4272,9 @@ _evaluate_funcval_runtime_call :: (
     // the first caller's `->result` read the wrong C type
     // (issues/fixed/future-wrapper-return-shared-across-specializations.md).
     // The spec's body is a fresh-id clone with its own stamp: read that.
-    if(is_some_type(resolved_ret), {
+    // A result that is the caller's own unbound binder takes no resolution
+    // from the body (the bridge above).
+    if(is_some_type(resolved_ret) && !_fv_type_vars_are_callers_binders(env, resolved_ret), {
       match(
         spec_fv,
         .FuncVal(rb_fvd, _) => match(
@@ -4818,7 +4827,22 @@ _evaluate_function_call_unanchored :: (
     // placeholder an unevaluated operand leaves), a type still carrying a
     // SomeT, and a source-namespace struct (an `impl({...})` operator module,
     // resolved by the call-overload expansion).
-    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !is_unit_type(receiver_ty)) || is_type_hierarchy_type(receiver_ty) || _is_concrete_nominal_operand(receiver_ty)), {
+    //
+    // `unit` implements the derivable operator traits (Eq, Ord), so an
+    // operator it has no impl for (`+`) leaves it here. The exemption is for
+    // the placeholder above, and only code that can hold one keeps it: a
+    // generic body's definition-time trial, or a specialization keyed on a
+    // type variable. Concrete code (a concrete fn, a specialization whose
+    // every type is concrete) evaluates its operands raw, so a failed one
+    // throws and a `unit` operand is a real `unit`. There `() + ()`, or
+    // `x + x` with `T = unit`, passed `check` and reached codegen hollow
+    // (issues/fixed/an-operator-unit-does-not-implement-passes-check.md).
+    op_unit_is_placeholder := match(
+      ctx.currently_specializing_function,
+      .Some(op_spec) => !op_spec.is_concrete,
+      .None => in_def_time_trial()
+    );
+    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && (!is_unit_type(receiver_ty) || !op_unit_is_placeholder)) || is_type_hierarchy_type(receiver_ty) || _is_concrete_nominal_operand(receiver_ty)), {
       exn.throw(
         dyn(
           format_error_message(

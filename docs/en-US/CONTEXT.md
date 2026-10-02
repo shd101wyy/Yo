@@ -14,6 +14,8 @@ yo context collections/array_list            # one module's items
 yo context collections/array_list ArrayList.push   # one item's full entry
 yo context push                              # a name across the corpus
 yo context --search hash                     # ranked search
+yo context --docs                            # the bundled manuals
+yo context --doc MEMORY_SAFETY               # one manual, this version's copy
 ```
 
 ## The pack
@@ -55,6 +57,30 @@ yo 0.2.40 — pack-version: 1
 
 If none of them has a pack, the command names the locations it tried and
 exits 2.
+
+## The manuals
+
+The pack points to the in-depth manuals (GRAMMAR, DESIGN, MEMORY_SAFETY,
+ASYNC_AWAIT, …). Release bundles ship them as `docs/en-US/` beside `std/` and
+`pack/`, so `yo context` prints the copy that matches the installed toolchain,
+not whatever the repository's `develop` branch says today:
+
+```bash
+yo context --docs                  # every manual, one line each: NAME — title
+yo context --doc MEMORY_SAFETY     # print one (case-insensitive, .md optional)
+yo context --doc memory_safety.md --format json   # {"name", "title", "citation", "content"}
+```
+
+`--doc` output starts with a citation header (`yo 0.2.49 — doc: MEMORY_SAFETY`),
+like the pack's. An unknown name exits 1 with the closest names. `--docs` and
+`--doc` take no other query; `--format json` is the only option they accept.
+
+The manuals are found like the pack: `$YO_CONTEXT_DOCS` (an explicit directory,
+authoritative when set), then `docs/en-US/` beside the running executable, then
+beside the working directory. A `docs/en-US/` only counts when it holds
+`GRAMMAR.md` and `DESIGN.md`, so a project's own `docs/en-US/` is never mistaken
+for the manuals. The zh-CN translations live in the repository under
+`docs/zh-CN/`.
 
 ## Queries
 

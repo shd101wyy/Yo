@@ -5290,6 +5290,18 @@ evaluate_module_value :: (
                               .None => ()
                             );
                           });
+                          // Census (Phase 6): a default kept for an impl whose
+                          // receiver or signature still has a type variable.
+                          if((d_out.len() == usize(0)) && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+                            match(
+                              g_mat_default_err.get(usize(0)),
+                              .Some(d_kept) => {
+                                d_kept_code := match(d_kept.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
+                                eprintln(`[kept] site=mat-default code=${d_kept_code} owner=${d_label}`);
+                              },
+                              .None => ()
+                            );
+                          });
                           // Only adopt the clone when its body eval SUCCEEDED
                           // (out non-empty); otherwise rebuild the shared
                           // default from its own fields (EvalValue is not

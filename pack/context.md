@@ -367,11 +367,10 @@ reach for it to parallelize I/O; that's the event loop's job.
 - `yo context --list` then `yo context <module>` — the real API surface.
 - `yo explain E0xxx` for any diagnostic; `yo fix` for machine-applicable
   repairs.
-- The in-depth manuals live in the repository (an installed bundle ships
-  no docs/ directory):
-  https://github.com/shd101wyy/Yo/tree/develop/docs/en-US — GRAMMAR, DESIGN,
-  ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS, ALGEBRAIC_EFFECTS,
-  FORMAL_VERIFICATION
-  (zh-CN translations under `docs/zh-CN/`).
+- The in-depth manuals ship with the toolchain, matching its version:
+  `yo context --docs` lists them, `yo context --doc MEMORY_SAFETY` prints one
+  (GRAMMAR, DESIGN, ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS,
+  ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION, …). zh-CN translations live in the
+  repository under `docs/zh-CN/`.
 - The LSP (`yo lsp`, VS Code extension) gives hover/completion/go-to-def in
   editors.

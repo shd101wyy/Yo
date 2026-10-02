@@ -1,6 +1,6 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-02 (Phase 6 step 3, §3.2). Earlier: 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
 to do next. Move it to `archive/` with a banner once §3 is empty.
 
@@ -13,7 +13,7 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 | 3 type identity | Landed, including step 7 part 2, the SomeT registry retirement (#975). |
 | 4 diagnostics | 4.1, 4.3, 4.4, 4.5 landed. **4.2 open** (§3.2), best landed as Phase 6.4. |
 | 5 ownership | Landed (3 and 4 via `archive/PARALLELISM_SOUNDNESS.md`). |
-| 6 swallow policy | Steps 1–2 landed (#968, #1062). Open: site #8 (§3.3), steps 3–4 (§3.2). |
+| 6 swallow policy | Steps 1–2 landed (#968, #1062). Step 3 on `tss/phase6-reraise` (§3.2: census, instantiation notes, the recorded-error backstop). Open: site #8 (§3.3), step 4 (§3.2). |
 | 7 docs | Done; each phase updates its docs as it lands. |
 
 ## 2. Landed in this stretch (2026-09-29 → 2026-10-01)
@@ -80,11 +80,115 @@ Moved to `async-triage` (yo-65), as described in §3.0.
 
 ### 3.2 Phase 6 steps 3–4 and Phase 4.2 (the FTT-stub backstop)
 
-Unchanged:
-1. Measure stubs by kind in the fast suite's kept batches (`YO_KEEP_BATCH=1`).
-2. Step 3: re-raise a SomeT-pending swallowed error when the concrete specialization produces
-   a stub.
-3. Step 4/4.2: a non-superseded stub is a compile error.
+**Step 3 is on branch `tss/phase6-reraise` (2026-10-02).** Census first, then what landed and
+what it found.
+
+**Census (step 1 of this section).** `YO_DEBUG_SWALLOW=1` now prints a `[kept] site=… code=…
+owner=…` line after each swallowed error that is not re-raised, and codegen prints
+`[ftt-stub] kind=… site=… spec=… recorded=…` for each abort stub it writes
+(`.github/instructions/debugging.instructions.md`). `scripts/soundness/swallow-census.sh` pairs
+each `[kept]` line with the error it keeps. Measured with the branch's binary (develop
+`aa772c3c9` plus this branch):
+
+| target | swallowed | kept | `dg` | `dgc` | `anon-abstract` | `anon-ct` | other sites |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `check ./std` | 245 | 243 | 214 | 10 | 18 | 1 | 0 |
+| `check ./src` | 157 | 155 | 135 | 10 | 9 | 1 | 0 |
+| `check` of the fast suite's 311 kept batches, test-owned definitions only | — | 53 | 38 | 6 | 9 | 0 | 0 |
+
+`fn-fwd`, `reeval-*` and `mat-default` kept nothing anywhere. Every swallow in `check ./src` is
+owned by a `std` module that `src/` imports: `src/`'s own definitions keep none. The batch
+row counts only definitions written in the tests; each batch re-checks std, which adds about
+110 std swallows per batch.
+
+The kinds, over `./std` (`./src`'s are the same kinds over fewer std modules):
+
+| kind | count | site | example owner |
+| --- | --- | --- | --- |
+| a mismatch involving a type variable (E0601, unify) | 57 | dg 55, anon-abstract 2 | `std/prelude.yo:5432:53` |
+| a CTFE call with an abstract argument (`Failed to call the function for compile-time`) | 51 | dg 37, anon-abstract 14 | `std/prelude.yo:7402:4` |
+| a degraded `unit` operand fails a pattern, parameter or result | 34 | dg 34 | `std/prelude.yo:4850:4` |
+| an `&&`/`||`/condition operand is a degraded `unit` | 27 | dg 27 | `std/prelude.yo:4726:4` |
+| a type variable called as a constructor (`T(1)`) | 27 | dg 27 | `std/prelude.yo:4813:55` |
+| a `comptime` parameter fed an abstract value | 22 | dg 22 | `std/prelude.yo:8288:91` |
+| a trait default closure calls a method on an abstract `Self` (E0610) | 10 | dgc 10 | `std/prelude.yo:808:19` |
+| a `cond` selecting a compile-time value on an abstract condition | 5 | dg 5 | `std/prelude.yo:8259:134` |
+| no matching call for abstract arguments (E0610) | 3 | dg 3 | `std/prelude.yo:5370:46` |
+| other: a `ref`-argument aliasing check, an inline-`asm` operand, and an expression argument, each of abstract type | 3 | dg 2, anon-ct 1 | `std/prelude.yo:7114:102` |
+| `self.read` on the enum `_Transport` not found in a trait default's `io.async` closure (E0402) | 2 | anon-abstract 2 | `std/io/index.yo:74:22` |
+| an abstract argument not yet known to implement `Future` (E0602) | 2 | dg 2 | `std/io/bufio.yo:255:6` |
+
+Every `dg`/`dgc` keep is, by construction, an error in a body whose type variables are
+abstract that is not `generic_independent`. The kinds say why it waits. An operator on an
+unconstrained binder degrades to `unit`, and the `&&`, pattern and parameter rows are what
+that unit then fails. A binder used as a value or a constructor (`T(1)`) waits too. So do CTFE
+and comptime parameters fed an abstract value, and a trait default on an abstract `Self`.
+The 53 test-owned keeps are the same kinds: 46 in the batches' own source, 6 in
+derive-generated bodies of generic types, 1 in a fixture module. Nine sit inside a
+`comptime_expect_error` argument (the invalid code the test expects to be rejected). The
+others wait on a type variable, for example a `comptime_assert(Type.impls(T, Runtime))` or a
+`comptime_expect_error(self.value == other)` in a generic body, which fires only once `T` is
+known. The batch row was taken with an intermediate build of the branch (before the `unit`
+operator fix; the `./std` and `./src` rows are the final build's, and match the intermediate
+one exactly). The six batches whose `check` fails (E0906 ×4, StrictBorrow ×1, a verify batch)
+fail identically on develop (§3.3 #8).
+
+FTT stubs, from the develop baseline's fast suite with `YO_KEEP_BATCH=1` (4916 passed, 2
+failed: the two known machine failures). There are 311 batch `.c` files and 64 stub
+definitions in 31 of them:
+
+| kind | count | what they are |
+| --- | --- | --- |
+| superseded generic original | 50 | dead by construction: every call dispatches a specialization |
+| live, value-returning | 14 | all 14 are bodies of definitions written inside a `comptime_expect_error(...)` argument, the invalid code the test expects to be rejected; never called |
+| specialization a call requested | 0 | — |
+
+**Landed (step 3):**
+
+1. **Instantiation notes.** A specialization whose body fails for the concrete types a call
+   supplied reports the body's error with a note at each call that instantiated it:
+   ``note: in `f` with T = i32, instantiated here``, chained through generic callers
+   (`create_specialization_at_call`, `calls/helper.yo`). A std callee gets no note, because
+   `evaluate_function_call` already re-anchors a std error at the user's call. A flagged flow
+   violation gets the note too. Gate: `tests/cli-cases/a-failing-specialization-names-the-instantiating-call`
+   (red on develop).
+2. **The recorded-error backstop.** The generic fn and closure trials keep their swallowed
+   error against the body (`record_generic_trial_error`, `expr_info.yo`). Each specialization
+   records the call that first requested it (`record_spec_instantiation`). When codegen finds
+   a specialization a call requested hollow, of a body with a recorded error, it reports that
+   error with a note at the call instead of writing an abort stub. It fires on nothing in the
+   corpus above (0 specialization stubs). It is the backstop the plan asks for, not a fix
+   for a measured case.
+
+**Step 3 found two bugs, both fixed at their cause:**
+
+- `issues/fixed/a-generic-calling-a-generic-is-rejected-against-its-own-result-binder.md` (S2):
+  a never-called valid generic was rejected with `Expected: U / Given: U`. The bridge that
+  gives an opaque `Impl(...)` result its hidden type also stamped the caller's own rigid
+  binder with the callee body's def-time type (`unit`, from the degraded operator).
+- `issues/fixed/an-operator-unit-does-not-implement-passes-check.md` (S2): `() + ()`, or
+  `twice(())` for `twice :: fn(generic(T), x : T) -> T (x + x)`, passed `check` and aborted at
+  run time. This was the one live specialization stub found while probing. The operator
+  rule's `unit` exemption, which exists for a generic trial's degraded placeholder, now
+  applies only where a placeholder can exist (`SpecializingFunctionInfo.is_concrete`).
+
+**What remains:**
+
+1. **Step 4 / 4.2: a non-superseded stub is a compile error.** All 14 live stubs in the corpus
+   are definitions inside `comptime_expect_error` arguments. Step 4 needs those either not
+   emitted, or emitted as superseded, first. Otherwise every test that expects a rejected
+   definition fails to compile. After that the measured class is empty.
+2. **The kept kinds themselves.** By the classification above, none is a real error in
+   `std`/`src`: each waits on a type variable or an abstract comptime value. Several kinds are
+   degrades rather than deferrals, which is
+   `issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`: an operator on an
+   unconstrained binder types as `unit`. That is the likely source of the `&&`/condition and
+   degraded-`unit` rows (not measured). Typing such an operator as an unknown of an abstract
+   result is the next lever on the census.
+3. As before, the trial treats distinct binders leniently
+   (`issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+   A body that unifies `T` with `S` records nothing, and the concrete specialization reports
+   it, now with the instantiation note.
 
 ### 3.3 Phase 6 remaining sites
 

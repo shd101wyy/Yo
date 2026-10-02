@@ -25,6 +25,7 @@ json :: import("std/encoding/json");
 { env, current_exe, cwd } :: import("std/env");
 { exists, read, read_to_string } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
+{ read_dir } :: import("std/fs/dir");
 { tr } :: import("./cli_lang.yo");
 { ExitWith } :: import("./error.yo");
 { CURRENT_YO_VERSION } :: import("./version.yo");
@@ -83,6 +84,26 @@ _find_bundled_context_pack :: (
     });
     return(Option(Path).None);
   });
+  starts := _lookup_starts();
+  (s : usize) = usize(0);
+  while(s < starts.len(), {
+    anc := starts(s).ancestors();
+    (i : usize) = usize(0);
+    while(i < anc.len(), {
+      candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
+      if(_is_file(candidate, io, exn), {
+        return(Option(Path).Some(candidate));
+      });
+      i = (i + usize(1));
+    });
+    s = (s + usize(1));
+  });
+  return(Option(Path).None);
+});
+/// Where the bundled pack and manuals are searched from, in order: the running
+/// executable (a bundle's `bin/yo`, or a checkout's `yo-out/<target>/bin/yo`),
+/// then the working directory. Each start is walked up through its ancestors.
+_lookup_starts :: (fn() -> ArrayList(Path))({
   starts := ArrayList(Path).new();
   match(
     current_exe(),
@@ -98,20 +119,45 @@ _find_bundled_context_pack :: (
     },
     .Err(_) => {}
   );
+  starts
+});
+/// Two manuals every toolchain `docs/en-US/` has. A `docs/en-US/` without
+/// both is some project's own documentation, which the working-directory
+/// walk-up must not mistake for the manuals.
+_DOCS_MARKER_A :: "GRAMMAR.md";
+_DOCS_MARKER_B :: "DESIGN.md";
+/// Locate the bundled manuals directory (`docs/en-US/`), or `.None`.
+///
+/// The lookup mirrors the pack's: `$YO_CONTEXT_DOCS` is AUTHORITATIVE when
+/// set (it must name an existing directory; no fallback), then the running
+/// executable's ancestors, then the working directory's ancestors. Release
+/// bundles ship `docs/en-US/` beside `std/` and `pack/`, so an installed
+/// toolchain finds the manuals of its own version.
+_find_bundled_docs :: (fn(io : Io, exn : Exception) -> Option(Path))({
+  override := env.get(String.from("YO_CONTEXT_DOCS"));
+  if(override.is_some(), {
+    p := Path.new(override.unwrap_or(String.from(".")));
+    if(_is_dir(p, io, exn), {
+      return(Option(Path).Some(p));
+    });
+    return(Option(Path).None);
+  });
+  starts := _lookup_starts();
   (s : usize) = usize(0);
   while(s < starts.len(), {
     anc := starts(s).ancestors();
     (i : usize) = usize(0);
     while(i < anc.len(), {
-      candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
-      if(_is_file(candidate, io, exn), {
+      candidate := anc(i).join(Path.new(String.from("docs"))).join(Path.new(String.from("en-US")));
+      a_ok := _is_file(candidate.join(Path.new(String.from(_DOCS_MARKER_A))), io, exn);
+      if(a_ok && _is_file(candidate.join(Path.new(String.from(_DOCS_MARKER_B))), io, exn), {
         return(Option(Path).Some(candidate));
       });
       i = (i + usize(1));
     });
     s = (s + usize(1));
   });
-  return(Option(Path).None);
+  Option(Path).None
 });
 /// Does `p` exist and name a directory?
 _is_dir :: (
@@ -178,7 +224,7 @@ _pack_version_line :: (fn(content : String) -> Option(String))({
 _EXIT_NO_MATCH :: i32(1);
 _EXIT_USAGE :: i32(2);
 /// The one-line argument grammar every usage error repeats.
-_USAGE :: "yo context [<module> [<name>] | <name>] [--list] [--search <query>] [--deep] [--deps] [--path <dir>] [--refresh] [--verbose] [--format text|json]";
+_USAGE :: "yo context [<module> [<name>] | <name>] [--list] [--search <query>] [--deep] [--deps] [--path <dir>] [--refresh] [--verbose] [--docs] [--doc <name>] [--format text|json]";
 /// Fail with a D4 exit code. `message` goes to stderr through the top-level
 /// handler; an empty one prints nothing (the JSON path already wrote its
 /// error object to stdout).
@@ -208,6 +254,10 @@ ContextQuery :: struct(
   /// `--verbose`: a bare name with several hits prints the full entries of
   /// the top hits, not just the ranked list.
   verbose : bool,
+  /// `--docs`: list the manuals bundled with this toolchain.
+  docs : bool,
+  /// `--doc <name>`: print one bundled manual.
+  doc : String,
   /// First positional: a module path, a module's unique last segment or
   /// suffix, or a bare item name (when it names no module).
   subject : String,
@@ -229,6 +279,8 @@ _parse_context_query :: (
     as_json : false,
     deps : false,
     verbose : false,
+    docs : false,
+    doc : String.new(),
     subject : String.new(),
     item : String.new()
   );
@@ -240,7 +292,7 @@ _parse_context_query :: (
     // `--flag value` and `--flag=value` for the three valued flags.
     (valued : bool) = false;
     (flag : String) = a.clone();
-    if((a == "--search") || ((a == "--path") || (a == "--format")), {
+    if((a == "--search") || ((a == "--path") || ((a == "--format") || (a == "--doc"))), {
       valued = true;
       if((ai + usize(1)) >= argv.len(), {
         _usage_error(`${a} needs an argument`, `${a} 需要一个参数`, exn);
@@ -252,7 +304,7 @@ _parse_context_query :: (
         a.index_of(String.from("="), usize(0)),
         .Some(eq) => {
           head := a.substring(usize(0), eq);
-          if((head == "--search") || ((head == "--path") || (head == "--format")), {
+          if((head == "--search") || ((head == "--path") || ((head == "--format") || (head == "--doc"))), {
             valued = true;
             flag = head;
             value = a.substring(eq + usize(1), a.len());
@@ -271,6 +323,12 @@ _parse_context_query :: (
         },
         (flag == "--path") => {
           q.path = value;
+        },
+        (flag == "--doc") => {
+          if(value.len() == usize(0), {
+            _usage_error(`--doc needs a manual name`, `--doc 需要一个手册名`, exn);
+          });
+          q.doc = value;
         },
         true => cond(
           (value == "json") => {
@@ -296,6 +354,9 @@ _parse_context_query :: (
       },
       (a == "--verbose") => {
         q.verbose = true;
+      },
+      (a == "--docs") => {
+        q.docs = true;
       },
       a.starts_with(String.from("-")) => _usage_error(`unknown option '${a}'`, `未知选项 '${a}'`, exn),
       (q.subject.len() == usize(0)) => {
@@ -1305,6 +1366,146 @@ _run_context_describe_bare :: (fn(q : ContextQuery, world : LoadedWorld, io : Io
   });
 });
 // ---------------------------------------------------------------------------
+// Manuals: `--docs` and `--doc <name>`
+// ---------------------------------------------------------------------------
+/// The manuals in `dir`: every `*.md` file's name without the extension,
+/// sorted.
+_doc_names :: (fn(dir : Path, io : Io, exn : Exception) -> ArrayList(String))({
+  entries := io.await(read_dir(dir.clone(), io), IoExn(io : io, exn : exn));
+  names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    nm := entries(i).name.clone();
+    i = (i + usize(1));
+    if(nm.ends_with(`.md`) && (nm.len() > usize(3)), {
+      names.push(nm.substring(usize(0), nm.len() - usize(3)));
+    });
+  });
+  names.sort();
+  names
+});
+/// A manual's title: its first `# ` heading, or "" when it has none.
+_doc_title :: (fn(content : String) -> String)({
+  lines := content.split(`\n`);
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    l := lines(i);
+    if(l.starts_with(`# `), {
+      return(l.substring(usize(2), l.len()));
+    });
+    i = (i + usize(1));
+  });
+  String.new()
+});
+/// The manuals directory, or a packaging error (exit 2) naming where it was
+/// looked for.
+_require_docs_dir :: (fn(io : Io, exn : Exception) -> Path)(
+  match(
+    _find_bundled_docs(io, exn),
+    .Some(d) => d,
+    .None => {
+      match(
+        env.get(String.from("YO_CONTEXT_DOCS")),
+        .Some(v) => _fail(
+          _EXIT_USAGE,
+          tr(
+            `context: $YO_CONTEXT_DOCS='${v}' names no directory. No fallback is attempted for an explicit pin.`,
+            `context：$YO_CONTEXT_DOCS='${v}' 不是一个目录。显式指定的路径无效时不会回退。`
+          ),
+          exn
+        ),
+        .None => _fail(
+          _EXIT_USAGE,
+          tr(
+            `context: could not locate the bundled manuals (looked for docs/en-US/ beside the executable, then beside the working directory). This is likely a packaging issue — please file a bug report.`,
+            `context：找不到随发行版捆绑的手册（依次查找 docs/en-US/：可执行文件旁、工作目录旁）。这通常是打包问题——请提交 bug 报告。`
+          ),
+          exn
+        )
+      );
+      Path.new(String.new())
+    }
+  )
+);
+/// `yo context --docs`: every bundled manual with its title.
+_run_context_docs_list :: (fn(as_json : bool, io : Io, exn : Exception) -> unit)({
+  dir := _require_docs_dir(io, exn);
+  names := _doc_names(dir.clone(), io, exn);
+  titles := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    content := io.await(read_to_string(dir.join(Path.new(`${names(i)}.md`)), io), IoExn(io : io, exn : exn));
+    titles.push(_doc_title(content));
+    i = (i + usize(1));
+  });
+  if(as_json, {
+    arr := ArrayList(JsonValue).new();
+    (j : usize) = usize(0);
+    while(j < names.len(), {
+      o := JsonValue.object();
+      o.insert(String.from("name"), _jstr(names(j)));
+      o.insert(String.from("title"), _jstr(titles(j)));
+      arr.push(o);
+      j = (j + usize(1));
+    });
+    top := JsonValue.object();
+    top.insert(String.from("docs"), JsonValue.Array(arr));
+    println(json.stringify(top));
+    return(());
+  });
+  (k : usize) = usize(0);
+  while(k < names.len(), {
+    println(`${names(k)} — ${titles(k)}`);
+    k = (k + usize(1));
+  });
+});
+/// `yo context --doc <name>`: print one manual, case-insensitively, with or
+/// without its `.md`. A miss exits 1 with the closest names.
+_run_context_doc :: (fn(query : String, as_json : bool, io : Io, exn : Exception) -> unit)({
+  dir := _require_docs_dir(io, exn);
+  names := _doc_names(dir.clone(), io, exn);
+  want := cond(
+    query.to_lowercase().ends_with(`.md`) => query.substring(usize(0), query.len() - usize(3)),
+    true => query.clone()
+  ).to_lowercase();
+  (found : Option(String)) = Option(String).None;
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(names(i).to_lowercase() == want, {
+      found = Option(String).Some(names(i));
+    });
+    i = (i + usize(1));
+  });
+  name := match(
+    found,
+    .Some(n) => n,
+    .None => {
+      _miss(
+        _EXIT_NO_MATCH,
+        tr(`context: no manual named '${query}' (yo context --docs lists them)`, `context：没有名为 '${query}' 的手册（yo context --docs 列出全部）`),
+        _did_you_mean(names, query.clone()),
+        as_json,
+        exn
+      );
+      String.new()
+    }
+  );
+  content := io.await(read_to_string(dir.join(Path.new(`${name}.md`)), io), IoExn(io : io, exn : exn));
+  if(as_json, {
+    o := JsonValue.object();
+    o.insert(String.from("name"), _jstr(name.clone()));
+    o.insert(String.from("title"), _jstr(_doc_title(content.clone())));
+    // The same citation the text header carries (`yo X.Y.Z — doc: NAME`).
+    o.insert(String.from("citation"), _jstr(`yo ${String.from(CURRENT_YO_VERSION)} — doc: ${name}`));
+    o.insert(String.from("content"), _jstr(content));
+    println(json.stringify(o));
+    return(());
+  });
+  // Citation header, like the pack's: which toolchain's copy this is.
+  println(`yo ${String.from(CURRENT_YO_VERSION)} — doc: ${name}`);
+  println(content);
+});
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 /// Run the `context` subcommand. With no arguments: print the pack (a pure
@@ -1315,6 +1516,20 @@ run_context :: (
   fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit
 )({
   q := _parse_context_query(argv, exn);
+  // The manuals are their own mode: `--format` is the only flag that
+  // qualifies them, and they do not mix with an API query.
+  if(q.docs || (q.doc.len() > usize(0)), {
+    other := (q.list || ((q.search.len() > usize(0)) || ((q.subject.len() > usize(0)) || ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || q.verbose)))))));
+    if(other || (q.docs && (q.doc.len() > usize(0))), {
+      _usage_error(`--docs and --doc <name> take no other query or option except --format`, `--docs 和 --doc <name> 除 --format 外不能与其他查询或选项同时使用`, exn);
+    });
+    if(q.docs, {
+      _run_context_docs_list(q.as_json, io, exn);
+    }, {
+      _run_context_doc(q.doc.clone(), q.as_json, io, exn);
+    });
+    return(());
+  });
   has_query := (q.list || ((q.search.len() > usize(0)) || (q.subject.len() > usize(0))));
   has_query_flag := ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || (q.verbose || q.as_json)))));
   if(!has_query && has_query_flag, {

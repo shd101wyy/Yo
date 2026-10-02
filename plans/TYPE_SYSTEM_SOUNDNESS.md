@@ -783,6 +783,17 @@ The largest and last phase, because Phases 1–5 shrink it.
    2026-10-01,
    `issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
    This matches the monomorphizing model in §1, and this step adds nothing for that case.
+   **Landed 2026-10-02** (branch `tss/phase6-reraise`). The census came first
+   (`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md` §3.2). It found that a concrete specialization's
+   failure is not swallowed: it reaches the caller and is reported. It also found that no
+   specialization a call requested ends up as an FTT stub in the fast suite's 311 batches.
+   Step 3 is therefore two parts. First, the error a failing specialization raises carries a
+   note at each call that instantiated it (``in `f` with T = i32, instantiated here``).
+   Second, a SomeT-pending trial error is recorded against its body, and codegen reports it
+   for a requested specialization that does reach emission hollow, instead of writing a stub.
+   Step 3 surfaced two bugs, both fixed: a generic forwarding its binder to an operator
+   generic was rejected against its own `U`, and an operator `unit` has no impl for passed
+   `check` in concrete code.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.
 
 Exit: the Phase 0 swallow census for real type errors is zero on `./std` and `./src`; FTT
