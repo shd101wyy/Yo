@@ -158,10 +158,10 @@ build it only on a user request, and never as the default.
 
 - `issues/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`
   (S2): a sound program with an unsigned loop `decreases` is falsely refuted.
-- `issues/verifier-contracted-generic-fn-is-silently-unverified.md`: #1075 addresses it
+- `issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`: fixed by #1075
   (abstract generic bodies). A generic body elides nothing today (5b rule 5), and
-  `tests/spec/fixtures/elision/div_generic_kept.yo` pins that. Re-check the fixture
-  once #1075 lands.
+  `tests/spec/fixtures/elision/div_generic_kept.yo` pins that; #1108's
+  guard-elision oracle run (70/70) re-checked it after #1075.
 
 ### 3.8 One setting only the user can change
 
