@@ -4,7 +4,8 @@
 
 **Found:** 2026-09-24, building the compiler with a new helper in `src/evaluator/calls/function.yo`
 (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
-**Status:** OPEN.
+**Status:** FIXED 2026-10-02 (`fix/header-macro-prefix`): every Yo-derived local, parameter,
+field and enum payload member is emitted under the prefix `__yo_v_` (see "Fix" below).
 **Class:** valid Yo, invalid C. `yo check` is green; the C compiler fails, or, worse, compiles a
 different program.
 
@@ -43,13 +44,85 @@ field names, labels) impossible for a header to define: a reserved prefix such a
 defines `__yo_…`). Extern C names (`is_extern_c`) keep their spelling, as today. The deny-list
 then becomes unnecessary. This is a byte-identity event for the emitted C (fixpoint + goldens).
 
-## Test
+## Decision: prefix every Yo name, not a longer deny-list
 
-A cli-case compiling a program whose local, parameter and struct field are named after a macro
-the runtime's headers define on every target (e.g. `EOF`, `BUFSIZ`, `assert`), plus
-`ub_name` behind a `c_include("openssl/asn1.h")` gated on pkg-config.
+A narrower rule (prefix only names that collide with a known macro set) was
+considered and rejected:
 
-## Implementation plan (survey 2026-09-29, every `sanitize_for_c_identifier` site read)
+- The set is not knowable when the C is emitted. The original symptom's macro
+  (`ub_name`) comes from a header the PROGRAM chose (`c_include` of OpenSSL),
+  not from the runtime; any `c_include` brings an arbitrary macro set, and the
+  runtime's own set differs per target and per libc version (glibc, musl,
+  macOS, MinGW, MSVC's `<windows.h>` with its lower-case `near`/`far`/`small`/
+  `interface`). Collecting it would mean preprocessing every included header
+  with each target's compiler (`cc -dM -E`) at compile time.
+- The deny-list was one macro short twice already (Windows, then OpenSSL).
+- A macro that expands to something that still parses compiles a different
+  program, so "the C compiler will tell us" is not a safety net.
+
+A reserved prefix needs no knowledge of any header: identifiers beginning
+with `__` belong to the implementation, and nothing defines `__yo_v_…`.
+
+## Fix
+
+`sanitize_for_c_identifier(name, false)` (`src/codegen/utils/index.yo`) now
+emits a Yo-derived name as `__yo_v_<name>`. Compiler-generated shapes keep
+their spelling, which also makes the rule idempotent (several call sites
+sanitize a name twice): names beginning with `_` (temps, `__yo_*`, the prefix
+itself, Box's `_u42_`), `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…`, `var_…`
+(state-machine locals), and numeric literals (a leading digit: some atom paths
+hand `i32(1)`'s `1` through the variable-name function). Alongside it:
+
+- `c_symbol_name(s)`: the old behaviour (byte mangling plus the C-keyword
+  deny-list, no prefix) for names that are an ABI or a fragment: exported and
+  extern "Yo" function names (`functions/collection.yo`), function ids
+  (`function_c_name`), pieces of type and static names (`Array_<elem>_<n>`,
+  `Iso_<child>`, `__yo_typeid_<type>`).
+- `c_field_name(owner, label)`: a struct ADOPTED from a header
+  (`Point : Type` naming a Yo struct, docs/en-US/FFI.md) keeps the header's
+  member spelling; used by property access, value-struct literals, comptime
+  struct values and struct patterns.
+- `c_variant_member_name(variant)`: an enum's payload member in its `data`
+  union is a Yo name too (`data.__yo_v_Some.__yo_v_value`), at the union
+  declaration and at every access, including the hard-coded `Option` payloads
+  of `downcast` and `JoinHandle.await`.
+- Sites that pasted a raw Yo name next to a sanitized declaration now spell
+  it the same way: closure and `io.async` capture-struct literals, every
+  `sm->__capture.<name>` access, effect-bundle access paths, the `self`
+  reference of the auto borrow assert, `generate_assignment`'s returned name,
+  the await/state/JoinHandle result names.
+- Lookups keyed by emitted names use the emitted spelling: the match shadow
+  set (`local_shadowed_variables`), `already_in_scope` in `_materialize_arg`,
+  and `dyn()`'s value temp (an atom's `variable_name` is the Yo name, so the
+  raw comparison redeclared `T __yo_v_err = __yo_v_err;` and read `.data = err`
+  — the only class the compiler's own stage-2 C surfaced).
+
+The `_c_reserved_words` deny-list now only guards `c_symbol_name` and
+compiler-shaped names (`_Bool`).
+
+The rule for codegen authors is in `.github/instructions/c-codegen.instructions.md`
+("Spelling a Yo name in C").
+
+## Test (red before, green after)
+
+- `tests/basic.test.yo`, "locals, parameters and fields named after header macros are plain
+  names" and "payload fields, object fields and closure captures named after header macros":
+  locals, parameters, struct fields, enum payload fields, a `ref(struct)` field named `obj` (the
+  constructor's own local), a struct destructure and a closure capture named after `<stdio.h>`'s
+  `EOF`/`BUFSIZ`/`FILENAME_MAX` (the runtime includes it on every target) and after the lower-case
+  `ub_name`/`yo_hm_count` that `tests/header_macro_names.h` defines exactly as `<openssl/asn1.h>`
+  does.
+- `tests/async_await.test.yo`, "io.async captures and locals named after header macros": an
+  `io.async` capture and state-machine locals named `EOF`/`BUFSIZ`/`FILENAME_MAX`, sync and across
+  two awaits.
+- `tests/c_include_struct_by_value.test.yo` (existing) pins the adopted-struct exemption: its
+  fields keep the header's spelling.
+
+Red before: both tests, extracted to standalone programs, fail to compile with the v0.2.48 seed
+(`expected member name or ';' after declaration specifiers`, `expected a field designator`,
+`expected ')'`: 20 and 16 clang errors). Green after with the fixed compiler.
+
+## Survey that preceded the fix (2026-09-29, every `sanitize_for_c_identifier` site read)
 
 A blanket prefix inside `sanitize_for_c_identifier` breaks the compiler. About 120 call sites
 pass it three kinds of name, and callers depend on its current behaviour:
