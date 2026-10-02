@@ -103,10 +103,9 @@ match(v,
 //    .FuncVal(_, _, _, _, _, _, _, _, func_id) => …   // count the 8 _'s!
 ```
 
-`{a}` = bind field `a`; `{a: x}` = rename to `x`; `{a: _}` = assert-exists-ignore.
-Empty `{}` and bare `{_}` are rejected. Spec: `tests/match_curly.test.yo`.
-(Full rules: `.github/instructions/yo-syntax.instructions.md` § Match
-destructuring forms.)
+`{a}` = bind field `a`; `{a: x}` = rename to `x`; `{a: _}` = assert-exists-ignore;
+empty `{}` = bind nothing (`.Circle({}) => …`). Bare `{_}` is rejected (E0406:
+`_` is not a field label). Full table: `yo context --doc DESIGN`, § Pattern forms.
 
 ## Collections
 
@@ -368,63 +367,37 @@ assert((p1 == p2), "equal after clone");
 println(p1.to_string());
 ```
 
-- Built-in derivable traits: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`
+- Built-in derivable traits: `Eq`, `Hash`, `Clone`, `Ord`, `Default` (structs only), `ToString`, `Debug`; also `Error` (`std/error`) and `ToJson`/`FromJson` (`std/encoding/json`)
+- Traits with a type parameter take it in the derive: `derive(Point, Eq(Point))`; a bare `derive(Point, Eq)` fails with `derive on "Point" failed: Argument count mismatch`
 - Works for both structs and enums
 - Custom derives can be registered with `derive_rule`; see [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)
 
-### ⚠️ Circular derive trap: recursive enum with `ArrayList`
+### Recursive enum with `ArrayList(Self)`: derive `Eq`, not `Clone`
 
-`derive(T, Eq)` and `derive(T, Clone)` fail when any field's type requires the derived trait to be already registered:
+`derive(Node, Eq(Node))` works on a recursive enum; the derived `==` recurses
+through the list:
 
 ```rust
-// PROBLEM: derive expansion generates `fields_l == fields_r` (ArrayList(Node) needs
-// Eq(Node)), but Eq(Node) isn't registered yet — compile error.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));
-derive(Node, Eq);  // ← ERROR: "No matching call found for __lhs_children == __rhs_children"
+derive(Node, Eq(Node));
+
+main :: (fn() -> unit)({
+  xs := ArrayList(Node).new();
+  xs.push(Node.Leaf);
+  ys := ArrayList(Node).new();
+  ys.push(Node.Leaf);
+  assert(Node.Branch(xs) == Node.Branch(ys), "same shape");
+  assert(Node.Branch(xs) != Node.Branch(ArrayList(Node).new()), "different shape");
+});
+export(main);
 ```
 
-**Fix**: skip `derive`, write a manual recursive equality function with `recur`:
-
-```rust
-node_eq :: (fn(a : Node, b : Node) -> bool)(
-  match(a,
-    .Leaf => match(b, .Leaf => true, _ => false),
-    .Branch(acs) =>
-      match(b,
-        .Branch(bcs) => {
-          cond(
-            (acs.len() != bcs.len()) => false,
-            true => {
-              (i : usize) = usize(0);
-              (ok : bool) = true;
-              while(((i < acs.len()) && ok), {
-                match(acs.get(i),
-                  .Some(ac) => match(bcs.get(i),
-                    .Some(bc) => { ok = recur(ac, bc); },
-                    .None     => { ok = false; }
-                  ),
-                  .None => { ok = false; }
-                );
-                i = (i + usize(1));
-              });
-              ok
-            }
-          )
-        },
-        _ => false
-      )
-  )
-);
-
-impl(Node, Eq(Node)(
-  (==) : (fn(a : Self, b : Self) -> bool)(node_eq(a, b))
-));
-```
-
-Same issue applies to `Clone` when fields contain `ArrayList(Self)`.
-Yo's reference counting handles shallow copies automatically (no `Clone` trait call needed);
-the `Clone` trait is only for deep cloning and has the same circularity problem.
-In practice, passing `EvalValue`-like types by value works fine without a `Clone` impl.
+`derive(Node, Clone)` on the same enum currently passes `yo check` but fails at
+C compile (`unknown type name`), an open compiler bug. Reference counting
+already shares such values by handle, so most code needs no `Clone` impl.
 
 ### Comparing complex enum types
 
@@ -508,9 +481,14 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-// Value form — implicit .into_iter(). The only form.
+// Value form — implicit .into_iter().
 for(list, (value) => {
   println(value);
+});
+
+// Borrowed form — `x` is an `inout` local into the element's storage.
+for(list, inout(x) => {
+  x = (x + i32(10));
 });
 
 // In-place element mutation: index writes.
@@ -524,6 +502,7 @@ while(i < list.len(), {
 | Form                          | Expansion                                 | When to use                                                                 |
 | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
 | `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; reference-semantics elements are handles and mutate in place |
+| `for(coll, inout(x) => …)`    | borrows each element's storage            | In-place element mutation; growing/shrinking `coll` in the body panics      |
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 

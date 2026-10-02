@@ -42,7 +42,7 @@ Use this skill when you need to:
 - Use `derive(Type, Eq(Type), Ord(Type), Hash, Clone, ToString, Default)` to auto-generate common trait impls. `Eq`/`Ord` take the self type as a trait argument (bare `Eq` is rejected: "Argument count mismatch: expected 1, got 0"); `Ord` additionally requires `Eq` in the same call. `ToString`/`Debug` need `std/fmt` imported so their derive rules are registered. `Default` is structs-only (an enum has no canonical default variant).
 - Custom error types implement `ToString` + `Error`; `derive(MyError, Error(...))` needs BOTH `{ Exception } :: import("std/error")` (the rule) and `{ ToString } :: import("std/fmt")` (its dependency) in scope first. Wrap with `dyn(...)` into `AnyError`.
 - Use `(params) => expr` for closures. Two closure TYPES, and they differ at runtime: `Impl(Fn(...) -> T)` is monomorphized — capture struct passed by value, direct call, no allocation or refcount — while `Dyn(Fn(...) -> T)` is type-erased — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer, and wrapped at the value with `dyn(...)`. `Impl(Fn(...))` is REJECTED as a struct/enum/union field type (its size is capture-dependent); use `Dyn(Fn(...))` there, or make the containing type generic over the closure type.
-- Use `for(collection.iter(), (item) => { ... })` for iteration.
+- Use `for(collection, (item) => { ... })` for iteration (value form), or `for(collection, inout(item) => { ... })` to mutate elements in place. `collection.iter()` yields raw pointers and is rejected in safe code.
 - Indexed modules import cleanly as `std/url`, `std/regex`, `std/http`, `std/log`, and `std/glob`; multi-module families use explicit submodules.
 
 ## Resource
