@@ -103,6 +103,24 @@ compiler-shaped names (`_Bool`).
 The rule for codegen authors is in `.github/instructions/c-codegen.instructions.md`
 ("Spelling a Yo name in C").
 
+## Cost (MEASURED 2026-10-02, Linux x86_64, the compiler's own stage-2 C)
+
+The prefix changes the spelling of every Yo name, so every emitted program changes; the
+fixpoint still holds (stage 2 == stage 3, `FIXPOINT_HOLDS`). To isolate the prefix, the stage-2
+C was compared with the same file with every `__yo_v_X` rewritten back to its old spelling
+(`X`, or `__yo_c_reserved_X` for a deny-listed name), which is what develop's codegen emits for
+the same tree:
+
+| | prefixed | old spelling | delta |
+| --- | ---: | ---: | ---: |
+| stage-2 C bytes | 140,813,737 | 133,110,825 | +7,702,912 (+5.8%; 1,100,416 occurrences × 7 bytes) |
+| clang `-fsyntax-only`, user CPU, 3 runs | 30.24 / 31.00 / 30.97 s | 29.32 / 32.14 / 31.02 s | none measurable (means 30.74 vs 30.83 s) |
+| clang `-O2` binary | 12,981,680 B | 12,978,704 B | +2,976 B (+0.02%: global symbol names) |
+
+`-O2` wall time was measured too (640 / 976 s prefixed, 1082 / 1086 s old spelling) but the
+machine was shared with several other builds (load average ~16), so those numbers carry no
+signal beyond "not visibly slower".
+
 ## Test (red before, green after)
 
 - `tests/basic.test.yo`, "locals, parameters and fields named after header macros are plain
