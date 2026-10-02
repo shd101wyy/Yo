@@ -660,7 +660,11 @@ A guard is removed only when all of these hold:
 - the target is 64-bit.
 
 That covers subscripts, `/` and `%`, shifts, `+ - *` and negation, in the
-entry file only. A signed `/` or `%` elides only when both of its traps are
+entry file only. An `ArrayList` subscript `xs(i)` elides too: its bounds
+check lives in std's `Index` body rather than in a codegen guard, so a proved
+site calls the list's `IndexUnchecked` twin (`index` without the length test)
+instead. Safe code cannot call that twin itself, because it returns a raw
+pointer. A signed `/` or `%` elides only when both of its traps are
 ruled out: a zero divisor and `MIN / -1`. The overflow checks (`MIN / -1`,
 `+ - *`, negation) are *elision-only* obligations. When one is not proved,
 its guard simply stays; it never fails the compile or the function's

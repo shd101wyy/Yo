@@ -1,6 +1,8 @@
 # 5b: eliding a std container's own bounds check at a proved call site
 
-**Status:** BACKLOG, design written 2026-10-02, not started. It answers the
+**Status:** option A IMPLEMENTED 2026-10-02 on branch
+`safe-mode-5b-container-elision`, a draft stacked above this design. It waits
+for v0.2.49 to ship. Section 6 records how the build differs from the sketch. It answers the
 second prerequisite of 5b Phase 3
 ([`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 §7, the Phase 3 status note). The same plan's §1 lists std container bounds
@@ -113,3 +115,39 @@ Phase 3's first prerequisite, std bodies the verifier walks rather than
 9 `assumed`, 3 outside-subset and 1 vacuous `ok` on 2026-10-01. This design
 needs no change there: it elides at user call sites in verified files, and
 Phase 3 would later extend the proved-site table to std's own callers.
+
+## 6. As built (2026-10-02)
+
+- **The trait is non-parametric:**
+  `IndexUnchecked :: trait(Output, index_unchecked : (inout(self), usize) -> *(Self.Output))`.
+  A non-parametric trait resolves by name (`get_trait_type_from_env`), and
+  the evaluator accepts only the method whose `source_trait_id` is that
+  trait's id. An unrelated method that merely happens to be named
+  `index_unchecked` never qualifies. Its result must also point at the same
+  `Output` as `index`'s. A container indexed by something other than `usize`
+  would need a parametric version later.
+- **Recording** (`src/evaluator/calls/index_trait.yo`,
+  `_record_index_unchecked_twin`): only in a verify target whose mode is
+  `verify`/`verify+`. Every `yo compile` arms its entry file as a target, so
+  the mode check is what keeps runtime-mode files untouched. The twin is
+  specialized like `index` and kept in a side table keyed by node id
+  (`contracts.yo`, reset when a compile arms its targets), not in
+  `ExprInfo`, which every expression pays for.
+- **Selection** (`src/codegen/exprs/generation.yo`): a subscript with a twin
+  calls it when `guard_site_is_proved(expr, "index-in-bounds")` and `index`
+  otherwise. Each such call carries a site comment, `__yo_cidx_chk("f", r,
+  c)` when checked and `__yo_cidx_elided(...)` when elided. The oracle counts
+  `__yo_cidx_chk` like `__yo_idx_chk`, so each removed check must match a
+  proved site.
+- **The §2 gate claim is verified and stronger than assumed:** safe code
+  cannot even form a pointer-typed expression. `xs.index(i)` and
+  `(xs.index(i)).*` both fail with "Raw pointer values are not available in
+  safe code", so the public trait member needs no private fallback.
+  `tests/safe_code_structural_gates.test.yo` pins `xs.index_unchecked(i)`.
+- **Measured:**
+  - `tests/spec/fixtures/elision/arraylist_index_proved.yo` elides 3
+    (`expect-elided: 3`, 0 with the previous binary);
+  - `arraylist_index_kept.yo` keeps its check, because its bound comes from a
+    callee's `ensures`;
+  - the oracle passes 80/80, `valid/dml_list_get.yo` included;
+  - the ASan run of the proved fixture prints the right values.
