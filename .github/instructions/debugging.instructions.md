@@ -264,6 +264,26 @@ The evaluator uses frame-based environments. Key debugging facts:
 - The check in `src/evaluator/exprs/assignment.yo` (~line 1075) compares `updated_variable.frame_level < eval_env.frames.len()` to detect "variable defined outside the function body"
 - Frame count mismatches between the function type's captured env and the actual evaluation env cause false positives in this check
 
+## A codegen difference that depends on released envs: `YO_SCOPE_RELEASE`
+
+`compile` releases each function body's recorded envs at scope exit and answers
+codegen's name lookups from records (`plans/CODEGEN_MEMORY_REDUCTION.md` §6.1;
+the rules are in `c-codegen.instructions.md`). When generated C looks wrong
+around a variable lookup:
+
+- `YO_SCOPE_RELEASE=off` keeps every env. If the C is right with `off` and
+  wrong by default, a record is missing or wrong.
+- `YO_SCOPE_RELEASE=shadow` keeps every env, but checks each `scope_variables`
+  answer against what the records would have said. It prints
+  `[scope-release] ... mismatch=N` and `[scope-release-kind] <count> <kind>`
+  lines at the end of the compile. A kind reads `<path>/<temp|named>/...`:
+  `sv` (the atom's `source_variable`), `rec` (a recorded list), or `fallback`
+  (the husk answered because no record named it).
+- To find WHICH call site produced a mismatch, branch
+  `wip/scope-release-sitetag` tags every `scope_variables` call with its
+  `file:line` and prints up to six samples per site, with the truth and record
+  variable ids. Rebase its one commit onto the current tree to use it.
+
 ## Test file conventions
 
 Each `.test.yo` file has its own import set. Check whether a test file imports `std/fmt` before using `println`:
