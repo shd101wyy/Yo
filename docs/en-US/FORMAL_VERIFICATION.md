@@ -307,33 +307,19 @@ index, as in Creusot. The copy loop needs no index of its own:
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-// std's `push` states only the new length; this wrapper also states the
-// elements, which the copy's invariant needs.
-push_at_end :: (
-  fn(
-    xs : ArrayList(i32),
-    v : i32,
-    ensures(
-      xs.len() == (old(xs.len()) + usize(1)),
-      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
-    ),
-    assumed()
-  ) -> unit
-)(xs.push(v));
-
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));
-    push_at_end(out, x);
+    out.push(x);
   });
   out
 });
 ```
 
-`copy` proves; `push_at_end` reports `assumed`. With `out.push(x)` in its
-place, `loop-invariant-iterate` is `unproven`: std's `push` does not say
-which element it appended (§Sequences over lists).
+`copy` proves: std's `push` states the element it appends and that the
+old ones stay (§Sequences over lists), which is exactly what the invariant
+needs.
 
 `produced(xs).len() <= xs.len()` is an implicit invariant. `break` exits
 with the state at the break. `continue` still consumes the element, so the
