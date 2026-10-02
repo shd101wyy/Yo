@@ -49,7 +49,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   expr_info_set_is_anonymous_function_definition,
   record_hollow_body_error,
-  clear_hollow_body_error
+  clear_hollow_body_error,
+  trial_body_site,
+  record_generic_trial_error,
+  clear_generic_trial_error
 } :: import("../../expr_info.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 {
@@ -1709,6 +1712,12 @@ Result type: ${type_to_string(decl_result_ty)}`
       });
       exn.throw(dyn(c3_msg));
     });
+    // Census (Phase 6): a closure whose parameters are not all concrete
+    // runtime values keeps its trial's error (a forced body with SomeT
+    // parameters, or a `comptime(x)` value parameter).
+    if(_g_anon_dbg_swallow && _anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
+      eprintln(`[kept] site=${if(body_has_ct_param, String.from("anon-ct"), String.from("anon-abstract"))} code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${hb_site}`);
+    });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
@@ -2139,6 +2148,18 @@ Result type: ${type_to_string(decl_result_ty)}`
           },
           .None => ()
         );
+      });
+      // Phase 6 step 3, the twin of the named-fn deferred trial: keep what
+      // the trial still swallowed against the body, for a specialization
+      // that reaches codegen hollow.
+      dgc_site := trial_body_site(body_for_def_eval);
+      if(_anon_swallow_pending() && (dgc_out.len() == usize(0)), {
+        record_generic_trial_error(dgc_site, _anon_swallow_message(), g_anon_swallow_diags.clone());
+        if(_g_anon_dbg_swallow, {
+          eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${dgc_site}`);
+        });
+      }, {
+        clear_generic_trial_error(dgc_site);
       });
       if(!dgc_fv_was && flow_violation_pending(), {
         clear_flow_violation();

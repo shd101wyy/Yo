@@ -22,6 +22,8 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
+{ YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -43,7 +45,7 @@
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
-{ codegen_fatal } :: import("../constants.yo");
+{ codegen_fatal, codegen_report_error } :: import("../constants.yo");
 
 // Insert `attr_line` on its own line immediately before the FIRST declaration
 // of `c_name` (clang requires the GNU error attribute on the first
@@ -590,6 +592,24 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id
   );
 });
 (g_debug_fn_origin : bool) = debug_knob(`YO_DEBUG_FN_ORIGIN`).is_some();
+/// The error for a hollow specialization (Phase 6 step 3): what the generic
+/// body's definition-time trial swallowed, followed by a note at the call
+/// that requested this specialization.
+_hollow_specialization_error :: (fn(rec : HollowBodyError, si : SpecInstantiation) -> YoError)({
+  entries := rec.diagnostics.clone();
+  if(entries.len() == usize(0), {
+    // A swallow that carried no structured diagnostics (a plain string from
+    // another layer): report its text at the call.
+    return(format_error_message(si.call_token, rec.message.clone()));
+  });
+  entries.push(
+    note_diagnostic_of_token(
+      si.call_token,
+      `required by ${si.description}, called here: the body's definition-time check reported the error above while its type variables were abstract, and these types do not resolve it`
+    )
+  );
+  yo_error_from_diagnostics(entries)
+});
 generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
   match(
     function_value,
@@ -896,6 +916,34 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         .Func({ result : stub_r }) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
         _ => true
       );
+      // Phase 6 step 3 (plans/TYPE_SYSTEM_SOUNDNESS.md): a SPECIALIZATION that
+      // reaches emission hollow, of a generic body whose definition-time trial
+      // swallowed an error while its type variables were abstract, is that
+      // error: the concrete types a call supplied did not resolve it. Report
+      // it, with the call that requested the specialization, instead of
+      // emitting an abort stub. A superseded generic original is dead code
+      // (every call dispatches a specialization) and keeps its stub.
+      if(stub_found_ftt, {
+        stub_site := trial_body_site(body_box);
+        stub_inst := lookup_spec_instantiation(func_id.clone());
+        stub_rec := lookup_generic_trial_error(stub_site.clone());
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(
+            `[ftt-stub] kind=${cond(stub_is_superseded => String.from("superseded"), !stub_ret_unit => String.from("value"), true => String.from("unit"))} fn=${c_function_name.clone()} site=${stub_site} spec=${stub_inst.is_some().to_string()} recorded=${stub_rec.is_some().to_string()}`
+          );
+        });
+        if(!stub_is_superseded, {
+          match(
+            stub_inst,
+            .Some(si) => match(
+              stub_rec,
+              .Some(rec) => codegen_report_error(dyn(_hollow_specialization_error(rec, si))),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      });
       // EVERY marker-bearing body is rewritten, including a unit-returning
       // non-superseded one. That last class used to keep the marker as a C
       // COMMENT, so the C compiler skipped the statement and the function
