@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -277,6 +277,10 @@ _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
   match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.code, .None => Option(String).None)
+);
+/// The code as census text (`-` for an uncoded error).
+_trial_swallow_code_text :: (fn() -> String)(
+  match(_trial_swallow_code(), .Some(c) => c, .None => String.from("-"))
 );
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
@@ -1891,6 +1895,11 @@ Result type: ${type_to_string(result_box)}`
             );
             exn.throw(dyn(ts_fatal_msg));
           });
+          // Census (Phase 6): the one concrete-fn swallow that survives, a
+          // body waiting for a forward-declared comptime fn.
+          if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+            eprintln(`[kept] site=fn-fwd code=${_trial_swallow_code_text()} owner=${trial_body_site(fb)}`);
+          });
           _clear_trial_swallow();
           // Result-type check for a CONCRETE body (the deferred-generic path
           // has its own below, and the specialization cache miss in calls/helper.yo
@@ -2226,6 +2235,20 @@ Result type: ${type_to_string(result_box)}`
                 },
                 .None => ()
               );
+            });
+            // Phase 6 step 3: what the trial still swallowed waits for a call
+            // (a call may resolve it). Keep it against the body, so a
+            // specialization that reaches codegen hollow reports it
+            // (codegen/functions/generation.yo). A non-empty out means the body
+            // itself succeeded and the flag is a nested trial's leftover.
+            dg_site := trial_body_site(body_expr);
+            if(_trial_swallow_pending() && (dg_out.len() == usize(0)), {
+              record_generic_trial_error(dg_site, _trial_swallow_message(), match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()));
+              if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+                eprintln(`[kept] site=dg code=${_trial_swallow_code_text()} owner=${dg_site}`);
+              });
+            }, {
+              clear_generic_trial_error(dg_site);
             });
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise.

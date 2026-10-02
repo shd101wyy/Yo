@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ cloned_expr_node_count } :: import("./expr.yo");
+{ cloned_expr_node_count, ast_expr_token } :: import("./expr.yo");
 { Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
@@ -1902,6 +1902,43 @@ clear_hollow_body_error :: (fn(site : String) -> unit)({
   ()
 });
 lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
+/// The error a GENERIC body's definition-time trial swallowed and kept, keyed
+/// by the body's source position (`module:row:col`): the trial ran with the
+/// type variables abstract, so a call may still resolve it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 3). Every specialization of
+/// the body is a clone with the same tokens, so codegen finds the record when
+/// a specialization reaches emission hollow and reports it instead of an
+/// abort stub (`codegen/functions/generation.yo`).
+/// A body's source position, the key of both tables above.
+trial_body_site :: (fn(body : AstExpr) -> String)({
+  tok := ast_expr_token(body);
+  `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
+});
+(g_generic_trial_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
+record_generic_trial_error :: (fn(site : String, message : String, diagnostics : ArrayList(Diagnostic)) -> unit)({
+  g_generic_trial_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  ()
+});
+/// A later trial of the same generic body succeeded: forget the record.
+clear_generic_trial_error :: (fn(site : String) -> unit)({
+  if(g_generic_trial_errors.len() > usize(0), {
+    _removed := g_generic_trial_errors.remove(site);
+  });
+  ()
+});
+lookup_generic_trial_error :: (fn(site : String) -> Option(HollowBodyError))(g_generic_trial_errors.get(site));
+/// Where a specialization was first requested: the call's position and the
+/// instantiation it asked for (`twice` with T = bool). Keyed by the
+/// specialization's func id; written once, by the first call that minted it.
+SpecInstantiation :: struct(call_token : Token, description : String);
+(g_spec_instantiations : HashMap(String, SpecInstantiation)) = HashMap(String, SpecInstantiation).new();
+record_spec_instantiation :: (fn(spec_fid : String, call_token : Token, description : String) -> unit)({
+  if(g_spec_instantiations.get(spec_fid.clone()).is_none(), {
+    g_spec_instantiations.insert(spec_fid, SpecInstantiation(call_token : call_token, description : description));
+  });
+  ()
+});
+lookup_spec_instantiation :: (fn(spec_fid : String) -> Option(SpecInstantiation))(g_spec_instantiations.get(spec_fid));
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
@@ -2193,6 +2230,8 @@ export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_rep
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
+export(trial_body_site, record_generic_trial_error, clear_generic_trial_error, lookup_generic_trial_error);
+export(SpecInstantiation, record_spec_instantiation, lookup_spec_instantiation);
 /// Drop the given expression ids from this module's ExprId-keyed side tables.
 /// `mm_invalidate_document` passes each removed module's ids
 /// (`take_owned_expr_ids`): the nodes they key died with the module

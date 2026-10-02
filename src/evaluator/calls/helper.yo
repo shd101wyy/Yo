@@ -151,7 +151,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_deferred_dup_expressions,
   has_any_control_flow,
-  some_resolution
+  some_resolution,
+  record_spec_instantiation
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -186,9 +187,10 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
+{ is_std_module_path } :: import("../memory_safety.yo");
 { E_ARGUMENT_LABEL_MISMATCH } :: import("../../diagnostics.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
   is_control_fn,
@@ -204,7 +206,7 @@ pragma(Pragma.AllowUnsafe);
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, alias_closure_some_id, note_closure_for_some_id } :: import("../utils/closure.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
@@ -4155,6 +4157,25 @@ create_specialized_function_inline :: (
                                     }),
                                     .None => ()
                                   );
+                                  // Census (Phase 6): the re-evaluation's error
+                                  // kept, by whether the parameters were concrete.
+                                  if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+                                    match(
+                                      g_reeval_closure_err.get(usize(0)),
+                                      .Some(rk_err) => {
+                                        (rk_some : usize) = usize(0);
+                                        (rk_i : usize) = usize(0);
+                                        while(rk_i < cw_new_pts.len(), {
+                                          rk_some = (rk_some + get_all_some_types(match(cw_new_pts.get(rk_i), .Some(t) => t, .None => t_unit())).len());
+                                          rk_i = (rk_i + usize(1));
+                                        });
+                                        rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
+                                        rk_tok := ast_expr_token(cc_fvd.*.body);
+                                        eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
+                                      },
+                                      .None => ()
+                                    );
+                                  });
                                 });
                               },
                               _ => ()
@@ -4483,6 +4504,128 @@ create_specialized_function_inline :: (
     _ => original_func_val
   );
   result
+});
+/// "`twice` with T = bool": the instantiation a call asked for, for the
+/// note that names it.
+_instantiation_description :: (fn(callee : String, names : ArrayList(String), forall_args : ArrayList(ArgEntry)) -> String)({
+  out := `\`${callee}\``;
+  (n_bound : usize) = usize(0);
+  (i : usize) = usize(0);
+  while((i < names.len()) && (i < forall_args.len()), {
+    match(
+      forall_args.get(i),
+      .Some(fa) => match(
+        fa.value,
+        .Some(fv) => {
+          out.push_str(if(n_bound == usize(0), " with ", ", "));
+          out.push_string(match(names.get(i), .Some(n) => n, .None => String.new()));
+          out.push_str(" = ");
+          out.push_string(value_to_string(fv));
+          n_bound = (n_bound + usize(1));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `create_specialized_function_inline` under a trap that hands the error back;
+/// the specialization goes to `out`.
+_create_specialization_trapped :: (
+  fn(
+    fv : EvalValue,
+    ft : TypeValue,
+    av : ArgValues,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(EvalValue)
+  ) -> Option(AnyError)
+)({
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  out.push(create_specialized_function_inline(fv, ft, av, callee_env, caller_env, ctx, trap));
+  Option(AnyError).None
+});
+/// `err`, raised while specializing a callee's body for a call, with a note
+/// at that call naming the instantiation: the body's error alone does not say
+/// which types it was checked with (Phase 6 step 3). No note when the error is
+/// already reported at the call, or the callee's body is in the standard
+/// library (`evaluate_function_call` reports those at the user's call). A
+/// flagged rejection that is this error gets the note too: the
+/// definition-time re-raise throws the flag, not the error this frame sees.
+_with_instantiation_note :: (fn(err : AnyError, call_tok : Token, description : String, callee_in_std : bool) -> AnyError)({
+  ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
+  prim_at_call := match(
+    ye.diagnostics.get(usize(0)),
+    .Some(d) => ((d.span.path == call_tok.module_path) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),
+    .None => true
+  );
+  if(callee_in_std || prim_at_call, {
+    return(err);
+  });
+  note := `in ${description}, instantiated here`;
+  noted := YoError(diagnostics : ye.diagnostics.clone());
+  noted.diagnostics.push(note_diagnostic_of_token(call_tok, note.clone()));
+  match(
+    flow_violation_error(),
+    .Some(fv) => if(_same_primary_span(fv, ye), {
+      fv_noted := YoError(diagnostics : fv.diagnostics.clone());
+      fv_noted.diagnostics.push(note_diagnostic_of_token(call_tok, note));
+      flag_flow_violation(fv_noted);
+    }),
+    .None => ()
+  );
+  dyn(noted)
+});
+_same_primary_span :: (fn(a : YoError, b : YoError) -> bool)(
+  match(
+    a.diagnostics.get(usize(0)),
+    .Some(da) => match(
+      b.diagnostics.get(usize(0)),
+      .Some(db) => ((da.span.path == db.span.path) && (da.span.row == db.span.row) && (da.span.col == db.span.col) && (da.message == db.message)),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// A specialization requested by the call at `call_tok`. Records where it was
+/// first requested, which codegen's report of a hollow specialization reads
+/// (codegen/functions/generation.yo), and notes the instantiation on an error
+/// its body raises (`_with_instantiation_note`).
+create_specialization_at_call :: (
+  fn(
+    fv : EvalValue,
+    ft : TypeValue,
+    av : ArgValues,
+    callee_env : Environment,
+    caller_env : Environment,
+    call_tok : Token,
+    callee_name : String,
+    names : ArrayList(String),
+    ctx : EvalContext,
+    exn : Exception
+  ) -> EvalValue
+)({
+  callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(ast_expr_token(fvd.*.body).module_path, ctx.std_path.clone()), _ => false);
+  description := _instantiation_description(callee_name, names, av.forall_args);
+  out := ArrayList(EvalValue).new();
+  match(
+    _create_specialization_trapped(fv, ft, av, callee_env, caller_env, ctx, out),
+    .Some(err) => {
+      exn.throw(_with_instantiation_note(err, call_tok, description, callee_in_std));
+      EvalValue.UnitVal
+    },
+    .None => match(
+      out.get(usize(0)),
+      .Some(spec) => {
+        match(spec, .FuncVal(sfvd, _) => record_spec_instantiation(sfvd.*.func_id.clone(), call_tok, description), _ => ());
+        spec
+      },
+      .None => EvalValue.UnitVal
+    )
+  )
 });
 // ---------------------------------------------------------------------------
 // evaluate_ctl_function_body_inline
@@ -8232,12 +8375,15 @@ try_to_call_function_with_arguments :: (
               variadic_args : ArrayList(VarArgEntry).new()
             );
             spec_func_val = Option(EvalValue).Some(
-              create_specialized_function_inline(
+              create_specialization_at_call(
                 fv2,
                 spec_template_type,
                 spec_av,
                 callee_env_m,
                 caller_env_m,
+                tok,
+                ast_expr_to_string(callee_expr),
+                forall_arg_labels.clone(),
                 ctx,
                 exn
               )
@@ -8375,7 +8521,7 @@ export(validate_function_return_type);
 export(generate_deferred_drop_expressions);
 export(value_to_signature_string);
 export(compute_compile_time_signature);
-export(create_specialized_function_inline);
+export(create_specialized_function_inline, create_specialization_at_call);
 export(_type_has_array_len_var);
 export(_trial_eval_ret_type_expr);
 export(evaluate_ctl_function_body_inline);

@@ -969,3 +969,19 @@ test("soundness: std panic types a value arm", {
   first :: (fn(o : Option(i32)) -> i32)(match(o, .Some(v) => v, .None => panic("no value")));
   assert(first(Option(i32).Some(i32(4))) == i32(4), "the match value arm is taken");
 });
+// issues/fixed/a-generic-calling-a-generic-is-rejected-against-its-own-result-binder.md:
+// a generic that forwards its own binder to a generic applying an operator to
+// it type-checks, whether or not anything calls it. On develop the result
+// check rejected `U` against `U` and this whole file failed to check.
+_p6_twice :: (fn(generic(T : Type), x : T) -> T)(x + x);
+_p6_twice_via :: (fn(generic(U : Type), u : U) -> U)(_p6_twice(u));
+_p6_twice_via_let :: (fn(generic(U : Type), u : U) -> U)({
+  (r : U) = _p6_twice(u);
+  r
+});
+_p6_twice_via_never_called :: (fn(generic(U : Type), u : U) -> U)(_p6_twice(u));
+test("soundness: a generic forwarding its binder to an operator generic", {
+  assert(_p6_twice_via(i32(4)) == i32(8), "the i32 instantiation adds");
+  assert(_p6_twice_via_let(i64(5)) == i64(10), "the declared intermediate keeps the binder");
+  assert(_p6_twice_via(f64(1.5)) == f64(3.0), "the f64 instantiation adds");
+});
