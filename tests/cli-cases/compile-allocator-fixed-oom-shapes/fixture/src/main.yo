@@ -11,8 +11,9 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
-{ env, args } :: import("std/env");
+{ args } :: import("std/env");
 { Thread } :: import("std/thread");
+{ sleep } :: import("std/sys/timer");
 
 /// Keeps every spawned thread's handle alive, so the handles accumulate in the
 /// heap instead of being joined and freed.
@@ -23,11 +24,19 @@ ThreadChain :: ref(
   )
 );
 _child_task :: (fn(io : Io) -> unit)({
-  // Spawned tasks do not run until the loop yields, so every task's state
-  // stays allocated.
+  // A spawned task runs eagerly until it first suspends, so each one parks on
+  // a long timer: its state stays allocated. A body that finishes at once
+  // frees its slot, and the heap never fills (it used to fill only through
+  // the slot leak #1093 fixed).
   (i : usize) = usize(0);
   while(i < usize(65536), {
-    io.spawn(io.async((io : Io) => i32(0)), io);
+    io.spawn(
+      io.async((io : Io) => {
+        io.await(sleep(u64(3600000)), io);
+        i32(0)
+      }),
+      io
+    );
     i = (i + usize(1));
   });
 });
@@ -58,8 +67,14 @@ main :: (fn(io : Io) -> unit)({
       }
     )
   );
+  // The shape travels as argv[1], and each child starts with an EMPTY
+  // environment (`env_clear`): inheriting it copies the parent's whole
+  // environment into its 64 KiB heap at every spawn, and a large shell
+  // environment (33 KB on a nix box) exhausted the heap before the first
+  // verdict (issues/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md).
+  argv := args();
   match(
-    env.get(String.from("YO_OOM_SHAPE")),
+    argv.get(usize(1)),
     .Some(shape) => {
       cond(
         (shape == "task") => _child_task(io),
@@ -76,10 +91,8 @@ main :: (fn(io : Io) -> unit)({
   shapes.push(String.from("task"));
   shapes.push(String.from("thread"));
   shapes.push(String.from("string"));
-  argv := args();
   for(shapes, shape => {
-    env.set(String.from("YO_OOM_SHAPE"), shape.clone());
-    out := io.await(Command.new(argv(usize(0))).output(io), IoExn(io : io, exn : exn));
+    out := io.await(Command.new(argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
     text := String.from_bytes(out.stderr);
     (found : bool) = false;
     for(text.split("\n"), line => {
