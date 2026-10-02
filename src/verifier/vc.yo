@@ -1455,6 +1455,48 @@ _emit :: (
   ctx.obligations.push(VcObligation(name : obl_name, query : q, pre : pre, site : site, elidable : elidable, elision_only : elision_only));
   ()
 });
+/// The strict-decrease comparison for a measure, in its own type's order:
+/// `bvslt` for a signed measure, `bvult` for an unsigned or lexicographic one.
+_measure_lt_op :: (fn(ctx : VcCtx, e : AstExpr) -> VcOp)(
+  cond(
+    _measure_is_signed(ctx, e) => VcOp.BvSlt,
+    true => VcOp.BvUlt
+  )
+);
+/// Prove a measure non-negative in its own type's order, each COMPONENT of
+/// a lexicographic measure separately: the well-foundedness ground of
+/// `decreases-nonneg` (recursion) and `loop-variant-nonneg` (loops). The
+/// step obligations must use the same order (`_measure_lt_op`): a signed
+/// step under an unsigned nonneg would read a measure growing across the
+/// high bit as shrinking
+/// (issues/fixed/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md).
+_emit_measure_nonneg :: (fn(inout(ctx) : VcCtx, label : String, dm0 : AstExpr) -> unit)({
+  parts := cond(
+    _is_lex_measure(dm0) => _lex_components(dm0),
+    true => {
+      one := ArrayList(AstExpr).new();
+      one.push(dm0);
+      one
+    }
+  );
+  (npi : usize) = usize(0);
+  while(npi < parts.len(), {
+    dm := parts.get(npi).unwrap();
+    match(
+      _expr_term(ctx, dm),
+      .Some(mt) => {
+        zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
+        nonneg_op := cond(
+          _measure_is_signed(ctx, dm) => VcOp.BvSge,
+          true => VcOp.BvUge
+        );
+        _emit(ctx, label.clone(), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
+      },
+      .None => ()
+    );
+    npi = (npi + usize(1));
+  });
+});
 /// Sort a small string list into a FRESH list (deterministic declaration
 /// order; the std sort API is a comptime trait dance not worth it here).
 _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
@@ -2992,7 +3034,7 @@ _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
         match(
           m_now,
           .Some(mn) => {
-            _emit(ctx, String.from("loop-variant-continue"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, mn, ctx.head_measure.unwrap()));
+            _emit(ctx, String.from("loop-variant-continue"), ArrayList(VcTerm).new(), _app2(_measure_lt_op(ctx, m_ast), mn, ctx.head_measure.unwrap()));
           },
           .None => {
             _fail_subset(ctx, String.from("decreases measure outside the subset at a continue"), at);
@@ -3335,9 +3377,7 @@ _loop_core :: (
     .None => Option(VcTerm).None
   );
   if(m_havoc.is_some(), {
-    m := m_havoc.unwrap();
-    zero := VcTerm.BvLit(value : u64(0), width : _term_width(m));
-    _emit(ctx, String.from("loop-variant-nonneg"), ArrayList(VcTerm).new(), _app2(VcOp.BvSge, m, zero));
+    _emit_measure_nonneg(ctx, String.from("loop-variant-nonneg"), a.decreases.unwrap());
   });
   // 3. Walk the executable body (obligations inside carry the iterate
   //    assumptions via ctx.path). `_begin_term` is the statement walker —
@@ -3427,7 +3467,7 @@ _loop_core :: (
         ctx,
         String.from("loop-variant-decreases"),
         ArrayList(VcTerm).new(),
-        _app2(VcOp.BvSlt, m2.unwrap(), m_havoc.unwrap())
+        _app2(_measure_lt_op(ctx, a.decreases.unwrap()), m2.unwrap(), m_havoc.unwrap())
       );
     });
   });
@@ -5761,11 +5801,7 @@ _ghost_fn_app_term :: (
       .Some(mc) => match(
         m_actual,
         .Some(ma) => {
-          step_op := cond(
-            _measure_is_signed(ctx, dm) => VcOp.BvSlt,
-            true => VcOp.BvUlt
-          );
-          _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(step_op, ma, mc));
+          _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(_measure_lt_op(ctx, dm), ma, mc));
         },
         .None => ()
       ),
@@ -6199,11 +6235,7 @@ _callee_call_term :: (
         match(
           m_actual,
           .Some(ma) => {
-            step_op := cond(
-              _measure_is_signed(ctx, dm) => VcOp.BvSlt,
-              true => VcOp.BvUlt
-            );
-            _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(step_op, ma, m_current.unwrap()));
+            _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(_measure_lt_op(ctx, dm), ma, m_current.unwrap()));
           },
           .None => ()
         );
@@ -6856,33 +6888,7 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   match(
     ctx.decreases,
     .Some(dm0) => {
-      // A lexicographic measure proves each COMPONENT non-negative.
-      parts := cond(
-        _is_lex_measure(dm0) => _lex_components(dm0),
-        true => {
-          one := ArrayList(AstExpr).new();
-          one.push(dm0);
-          one
-        }
-      );
-      (npi : usize) = usize(0);
-      while(npi < parts.len(), {
-        dm := parts.get(npi).unwrap();
-        m := _expr_term(ctx, dm);
-        match(
-          m,
-          .Some(mt) => {
-            zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
-            nonneg_op := cond(
-              _measure_is_signed(ctx, dm) => VcOp.BvSge,
-              true => VcOp.BvUge
-            );
-            _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(nonneg_op, mt, zero));
-          },
-          .None => ()
-        );
-        npi = (npi + usize(1));
-      });
+      _emit_measure_nonneg(ctx, String.from("decreases-nonneg"), dm0);
     },
     .None => ()
   );

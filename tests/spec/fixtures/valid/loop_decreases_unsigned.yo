@@ -1,0 +1,17 @@
+// An UNSIGNED loop measure that genuinely decreases: `n - i` is a usize,
+// non-negative and shrinking in usize's own order. Comparing it signed
+// refuted the nonneg obligation at the high bit (n = 2^63 + k)
+// (issues/fixed/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md).
+pragma(Pragma.Verify);
+
+count_up_usize :: (
+  fn(n : usize, ensures(result == n)) -> (result : usize)
+)({
+  i := usize(0);
+  while(i < n, {
+    invariant(i <= n);
+    decreases(n - i);
+    i = (i + usize(1));
+  });
+  i
+});

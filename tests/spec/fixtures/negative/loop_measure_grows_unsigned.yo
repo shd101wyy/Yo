@@ -1,0 +1,39 @@
+// Negative twin of valid/loop_decreases_unsigned.yo: a u64 measure that
+// GROWS across the high bit, 2^63 - 1 -> 2^63. Read signed, 2^63 is
+// negative and "less" than 2^63 - 1, so a signed step obligation passed
+// it; in u64's own order it grows and both functions must REFUTE — one at
+// the body-end step (`loop-variant-decreases`), one at a continue site
+// (`loop-variant-continue`)
+// (issues/fixed/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md).
+pragma(Pragma.Verify);
+
+grows_at_body_end :: (
+  fn(x0 : u64, requires(x0 == u64(9223372036854775807))) -> (result : u64)
+)({
+  x := x0;
+  while(x < u64(9223372036854775808), {
+    invariant(x >= x0);
+    decreases(x);
+    x = (x + u64(1));
+  });
+  x
+});
+
+grows_at_continue :: (
+  fn(x0 : u64, requires(x0 == u64(9223372036854775807))) -> (result : u64)
+)({
+  x := x0;
+  while(x < u64(9223372036854775808), {
+    invariant(x >= x0);
+    decreases(x);
+    cond(
+      (x == x0) => {
+        x = (x + u64(1));
+        continue;
+      },
+      true => ()
+    );
+    x = (x + u64(1));
+  });
+  x
+});
