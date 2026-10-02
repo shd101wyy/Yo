@@ -48,6 +48,17 @@ test files — none are caused by the tree's own diffs. The two constants:
 every failure is a LeakSanitizer verdict, and CI never sees any of them
 (`YO_TEST_LEAK_VERDICT=0` in every job).
 
+**Also local-only, and predating v0.2.48** (found while gating the safe-mode
+PRs on develop `7d04eb24d`, 2026-10-02):
+`tests/async_while_in_match_arm.test.yo`'s "a spawn of an inline io.async
+block survives in a match arm with an awaiting while" reports
+`Memory leak detected`. It fails the same way on clean develop and was already
+failing in a v0.2.47 leak-verdict-on baseline (tree std at `74fe87715`,
+2026-10-01). `tests/basic.test.yo`'s "a tuple element type inside a generic
+container declares its C name in time" is the other leak verdict in that run.
+It has its own doc:
+`issues/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`.
+
 ## Root cause
 
 Not yet traced. Adjacent open work owns the area: #1093 (task-slot ownership
