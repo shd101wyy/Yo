@@ -100,7 +100,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
   - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
-    - [Copies of a `String` share its buffer](#copies-of-a-string-share-its-buffer)
+    - [Writing through a copy of a `String`](#writing-through-a-copy-of-a-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
       - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
@@ -2423,11 +2423,21 @@ s2 := String.from("Hello World!");
 s3 := (s + s2); // Create a new string.
 ```
 
-#### Copies of a `String` share its buffer
+#### Writing through a copy of a `String`
 
-A `String` is a value that holds its bytes in a reference-counted buffer, and an empty `String` has no buffer: none is allocated until the first write. Copying a `String` copies the handle and shares the buffer, whether the copy comes from an assignment, a parameter, a collection read (`xs(i)`) or a `for` loop element. A write through the copy is therefore visible through the original when the original already held bytes, and lost when it was empty, because the first write allocates a new buffer in the copy alone. Nothing reports the lost write.
+`String` has reference semantics: a copy shares the original's buffer
+(§Type inference), whether the copy comes from an assignment, a parameter,
+a collection read (`xs(i)`) or a `for` loop element. A write through the copy
+is visible through the original.
 
-So a plain `String` parameter does not work as an out-parameter. Take it as `inout(out) : String`, return the result, or call `.clone()` when you want an independent string.
+**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).** An empty `String` has no buffer yet; none is
+allocated until the first write. A write through a copy of an empty `String`
+therefore allocates a buffer in the copy alone, and the original never sees
+it. Nothing reports the lost write.
+
+Until that is fixed, do not rely on a write through a copy. Take the string as
+`inout(out) : String`, return the result, or call `.clone()` when you want an
+independent string. The example shows both the shared and the lost write:
 
 ```rust
 { String } :: import("std/string");
@@ -2446,7 +2456,7 @@ append_inout :: (fn(inout(out) : String) -> unit)({
 
 main :: (fn() -> unit)({
   a := String.new();
-  append_copy(a); // lost: `a` had no buffer, the write allocated one in the copy
+  append_copy(a); // lost (the defect): `a` had no buffer, the write allocated one in the copy
   b := String.from("hi");
   append_copy(b); // visible: the copy shares `b`'s buffer
   println(`"${a}" "${b}"`); // "" "hi!"
