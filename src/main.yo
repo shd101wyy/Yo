@@ -9362,6 +9362,11 @@ Queries:
                                  entry, several print the ranked list
   yo context --search <query>    Ranked search over names, signatures and docs
 
+Manuals (the docs/en-US/ copy shipped with this toolchain):
+  yo context --docs              Every bundled manual, with its title
+  yo context --doc <name>        Print one manual (e.g. MEMORY_SAFETY; case-
+                                 insensitive, .md optional)
+
 Options:
   --deep            With --search, also match the text of each item's docs
   --deps            Add the nearest yo.toml's dependencies (run yo install first)
@@ -9369,20 +9374,22 @@ Options:
   --refresh         Rebuild the index even when it is cached
   --verbose         With a bare <name> that has several hits, print the
                     full entries of the top three
-  --format json     Machine-readable output for every query; a miss prints
-                    {"error": ..., "suggestions": [...]}
+  --format json     Machine-readable output for every query (and for --docs /
+                    --doc); a miss prints {"error": ..., "suggestions": [...]}
 
 Exit codes: 0 results, 1 no match (did-you-mean names on stderr), 2 a usage
 or packaging error.
 
 The pack is located via $YO_CONTEXT_PACK (an explicit file or directory),
-then beside the running executable, then beside the working directory.
+then beside the running executable, then beside the working directory; the
+manuals the same way via $YO_CONTEXT_DOCS and docs/en-US/.
 $YO_CONTEXT_CACHE overrides where the index is cached.
 
 Examples:
   $ yo context
   $ yo context --search hash
   $ yo context collections/array_list ArrayList.push
+  $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`,
         `用法：yo context [<module> [<name>] | <name>] [选项]
 
@@ -9400,24 +9407,31 @@ Examples:
                                  多个命中时输出排序后的列表
   yo context --search <query>    在名字、签名和文档中进行排序搜索
 
+手册（随本工具链附带的 docs/en-US/ 副本）：
+  yo context --docs              列出全部随附手册及其标题
+  yo context --doc <name>        输出某本手册（如 MEMORY_SAFETY；不区分
+                                 大小写，.md 可省略）
+
 选项：
   --deep            与 --search 一起使用，同时匹配每个条目的文档正文
   --deps            加入最近的 yo.toml 声明的依赖（需先运行 yo install）
   --path <dir>      为该目录建立索引，而不是随发行版的标准库
   --refresh         即使已缓存也重建索引
   --verbose         裸 <name> 有多个命中时，输出前三个的完整说明
-  --format json     所有查询输出机器可读格式；未命中时输出
-                    {"error": ..., "suggestions": [...]}
+  --format json     所有查询（以及 --docs / --doc）输出机器可读格式；未命中
+                    时输出 {"error": ..., "suggestions": [...]}
 
 退出码：0 有结果，1 未命中（stderr 上给出“你是否想要”），2 用法或打包错误。
 
 上下文包的查找顺序：$YO_CONTEXT_PACK（显式的文件或目录）、可执行文件旁、
-工作目录旁。$YO_CONTEXT_CACHE 可覆盖索引的缓存位置。
+工作目录旁；手册按同样的顺序通过 $YO_CONTEXT_DOCS 和 docs/en-US/ 查找。
+$YO_CONTEXT_CACHE 可覆盖索引的缓存位置。
 
 示例：
   $ yo context
   $ yo context --search hash
   $ yo context collections/array_list ArrayList.push
+  $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`
       )
     ),
