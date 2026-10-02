@@ -548,12 +548,12 @@ _fv_body :: (fn(v : EvalValue) -> AstExpr)(
 /// facts under its own spec, plans/EVALUATOR_MEMORY_REDUCTION.md Phase 4 Design 1).
 _walk_fv_body :: (fn(v : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)({
   prev := enter_spec(funcval_spec_id(v));
-  _walk_fv_body(v, context, info);
+  _call_find_function_calls_in_expr(_fv_body(v), context, info);
   leave_spec(prev);
 });
 _collect_types_from_fv_body :: (fn(v : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)({
   prev := enter_spec(funcval_spec_id(v));
-  _collect_types_from_fv_body(v, context, info);
+  collect_types_from_expr(_fv_body(v), context, info);
   leave_spec(prev);
 });
 /// Collect types referenced by an expression (its evaluated type, any function
