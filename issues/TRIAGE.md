@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 178 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 177 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 20 | 2 |
-| Std library | 52 | 12 |
+| Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 44 | 6 |
-| **Total** | **178** | **27** |
+| **Total** | **177** | **27** |
 
 ## Counts by severity
 
@@ -46,7 +46,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 25 |
-| S2 | 84 |
+| S2 | 83 |
 | S3 | 67 |
 | (missing) | 2 |
 
@@ -233,7 +233,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (52)
+### Std library (51)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -245,7 +245,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`cli-required-arg-field-is-declared-but-never-enforced.md`](./cli-required-arg-field-is-declared-but-never-enforced.md) | S2 | OPEN | — |
 | [`empty-path-redirect-location-drops-the-base-paths-last-segment.md`](./empty-path-redirect-location-drops-the-base-paths-last-segment.md) | S2 | — | — |
 | [`file-from-fd-metadata-stats-the-current-directory.md`](./file-from-fd-metadata-stats-the-current-directory.md) | S2 | OPEN | — |
-| [`hash-container-capacity-overflow-guard-has-no-regression-test.md`](./hash-container-capacity-overflow-guard-has-no-regression-test.md) | S3 | OPEN | — |
 | [`http-client-omits-the-port-from-the-host-header.md`](./http-client-omits-the-port-from-the-host-header.md) | S2 | — | — |
 | [`http-whitespace-before-header-colon-not-rejected.md`](./http-whitespace-before-header-colon-not-rejected.md) | S2 | — | — |
 | [`json-stringify-renders-numbers-with-percent-g-and-loses-them.md`](./json-stringify-renders-numbers-with-percent-g-and-loses-them.md) | S2 | OPEN — wrong value on a shipped serializer; J | — |
@@ -347,7 +346,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
-| [`check-cannot-see-function-bodies-from-other-modules.md`](./check-cannot-see-function-bodies-from-other-modules.md) | S2 | OPEN (root cause measured; fix designed, not | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`collect-into-a-string-leaks-the-accumulated-buffer.md`](./collect-into-a-string-leaks-the-accumulated-buffer.md) | S1 | — | — |
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
@@ -356,6 +354,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`init-agentsmd-template-omits-the-verify-recipe.md`](./init-agentsmd-template-omits-the-verify-recipe.md) | S3 | — | — |
 | [`law-over-an-imported-callee-cannot-verify.md`](./law-over-an-imported-callee-cannot-verify.md) | S2 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
+| [`local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`](./local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md) | S2 | OPEN | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
 | [`lsp-document-symbol-shape-ignores-the-client-capability.md`](./lsp-document-symbol-shape-ignores-the-client-capability.md) | S3 | — | — |
 | [`lsp-hover-claims-markdown-without-the-capability.md`](./lsp-hover-claims-markdown-without-the-capability.md) | — | — | — |
@@ -369,9 +368,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
+| [`prelude-methods-have-no-visibility-owner.md`](./prelude-methods-have-no-visibility-owner.md) | S3 | OPEN | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
 | [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
-| [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |

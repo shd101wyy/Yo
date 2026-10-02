@@ -21,7 +21,13 @@ on 5b. The 2026-09-29 work also closed a 3a hole: a 64-bit `usize` `+ - *` was
 never trapped (#1024). Its one shared cold overflow trap recovered a measured
 19% self-compile cost across 9933 inlined sites. Doing the same for the index,
 division and shift guards was measured and dropped: a guard-bound microbenchmark
-ran 0.44 s both ways, and the compiler has only ~765 of those sites.**
+ran 0.44 s both ways, and the compiler has only ~765 of those sites. The
+2026-10-02 audit of std for pointer-free public APIs with unsafe semantics
+gated three: `String.raw_bytes` became `String.ptr()`, and
+`MaybeUninit.assume_init` and `refine.unchecked*` now take a pointer witness
+(#1108). The same pass removed `ArrayList.set_len` (#1075) and fixed the
+verifier's signed comparison of unsigned loop measures (#1114). The record is
+[`archive/SAFE_MODE_HANDOVER.md`](archive/SAFE_MODE_HANDOVER.md).**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
 
