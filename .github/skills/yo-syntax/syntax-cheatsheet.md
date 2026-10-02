@@ -54,7 +54,7 @@ total := {
 
 Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
 
-**`yo fmt` is not a syntax gate for this.** It parses `{ single_expr }` happily as a struct literal and pretty-prints it, so a `yo fmt` that says "Formatted 1 Yo file(s)" tells you nothing about whether you wrote the block you meant. Measured 2026-08-25: an `if(cond, { single_expr }, other)` passed `yo fmt` and then failed `yo check` with exactly that struct-literal error. **Run `yo check <file>` on every file you edit — and pass `YO_STD=<worktree>/std` when working in a worktree**, or `check` silently validates against the INSTALLED std instead of yours.
+**`yo fmt` is not a syntax gate for this.** It parses `{ single_expr }` happily as a struct literal and pretty-prints it, so a `yo fmt` that says "Formatted 1 Yo file(s)" tells you nothing about whether you wrote the block you meant. Measured 2026-08-25: an `if(cond, { single_expr }, other)` passed `yo fmt` and then failed `yo check` with exactly that struct-literal error. **Run `yo check <file>` on every file you edit — and pass `--std-path ./std` when working in a Yo checkout**, or `check` silently validates against the INSTALLED std instead of yours.
 
 In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 
@@ -133,9 +133,9 @@ masked := ((A | B) | C);
 - …and on the RIGHT of an arm's `=>` too, in BOTH `cond` and `match`. An arm body that is a bare infix expression mixes the operator with `=>`: `.Some(qv) => qv != u8(34)` is rejected, `.Some(qv) => (qv != u8(34))` is accepted. Same for `+`, `==`, `&&`, … in arm-body position. The SAME applies to a CLOSURE's `=>`: `(m) => a + b` is rejected — wrap the whole body: `(m) => ((a + b) + c)` (even a same-operator chain needs the outer wrap when `=>` is the adjacent operator; measured 2026-09-02).
 - **`yo fmt` does NOT catch either form.** `yo fmt` and `yo fmt --check` both pass on the unparenthesised version; only the evaluator rejects it. A clean `fmt` is not evidence the file parses — run `yo check` on the file after editing arms.
 - Source layout does NOT affect grouping — there is no newline-based associativity
-- Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
+- Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`).
 - Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
-- **Don't write unnecessary parens** — commas already delimit call args: `if(x == y, ...)`, `assert(a == b, "msg")`, NOT `if((x == y), ...)`. Parens stay where grammar needs them: infix arm conditions `(x == y) => a`, mixed-op chains `(a + b) * c`, struct fields `{ x : (1 + 2) }`, prefix INFIX operands `-(1 + 2)`. Bare-primary prefix operands need none (`-1`/`!x`/`?*T` — Rule 1 landed 2026-08-21; src/ and std/ keep parens until the seed catches up). `yo fmt` preserves whatever you write — it never removes parens.
+- **Don't write unnecessary parens** — commas already delimit call args: `if(x == y, ...)`, `assert(a == b, "msg")`, NOT `if((x == y), ...)`. Parens stay where grammar needs them: infix arm conditions `(x == y) => a`, mixed-op chains `(a + b) * c`, struct fields `{ x : (1 + 2) }`, prefix INFIX operands `-(1 + 2)`. Bare-primary prefix operands need none (`-1`/`!x`/`?*T`). `yo fmt` removes the redundant ones (`-(x)` → `-x`, `((a - b) - c)` → `(a - b - c)`, `f((a + b))` → `f(a + b)`) and keeps the rest (see the canonicalization bullet above).
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
@@ -482,7 +482,7 @@ while(i < list.len(), {
 for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 ```
 
-- Use `recur(...)` for self-recursion
+- A `::` function recurses by calling its own name (mutual recursion works too); `recur(...)` names the enclosing function literal, for anonymous functions
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
@@ -528,19 +528,17 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 ## String concatenation pitfall
 
 ```rust
-// WRONG — str + str causes "comptime_str vs str" type unification error:
-content := String.from("line1\n" + "line2\n");
+// Literal + literal folds at compile time:
+a := String.from("line1\n" + "line2\n");
 
-// CORRECT — use .concat() on String objects:
-content := String.from("line1\n").concat(String.from("line2\n"));
-
-// Also CORRECT — single long string literal:
-content := String.from("line1\nline2\n");
+// Runtime concatenation: String + String, a template, or .concat():
+b := (String.from("hi ") + name);
+c := `hi ${name}`;
+d := String.from("hi ").concat(name);
 ```
 
-- `"hello" + "world"` at runtime uses `+` on `str` values, which can cause type mismatches
-- The `str + str` operator can produce a `comptime_str` in some contexts, which is not always compatible with `str`
-- Prefer `.concat()` method on `String` objects when building multi-part strings at runtime
+- `+` on two `"..."` LITERALS is a compile-time concatenation and yields a literal.
+- There is no runtime `str + str`: build a `String` (as above) when either side is a runtime value.
 
 ## Iterator and for loop
 
@@ -551,7 +549,7 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-// Value form — implicit .into_iter(). The only form.
+// Value form — implicit .into_iter(). The borrowed `inout(x)` form is below.
 for(list, (value) => {
   println(value);
 });
@@ -796,35 +794,6 @@ safe_div :: (fn(num : i32, denom : NzI32) -> i32)(i32(100) / denom);
 
 ## Common pitfalls
 
-### `&&` short-circuit with `match`/`cond` on RHS causes C codegen scope bug
-
-Using `&&` where the right-hand side is a `match` or `cond` expression causes
-a C codegen bug: the temp variable for the RHS is declared inside the short-circuit
-`if` block but the cleanup drop is emitted outside it. This produces a C compile
-error ("use of undeclared identifier").
-
-```rust
-// WRONG — triggers codegen scope bug:
-is_ok := (av.is_compile_time_only && match(av.value,
-  .Some(v) => compute(v),
-  .None    => false
-));
-
-// CORRECT — use an explicit if block to scope the match:
-(is_ok : bool) = false;
-if(av.is_compile_time_only, {
-  is_ok = match(av.value,
-    .Some(v) => compute(v),
-    .None    => false
-  );
-});
-```
-
-This only affects `&&`/`||` where the **right-hand side contains a `match`,
-`cond`, or other expression that allocates heap-managed temporaries** (e.g.,
-`String`, `ArrayList`, `Option(HeapType)`). Pure boolean expressions on both
-sides are fine.
-
 ### `:=` / `=` count as operators for E0003 — parenthesize a binary right-hand side
 
 `x := a + b;`, `n := i < len;`, `ok := p && q;` and a struct-literal field
@@ -958,16 +927,6 @@ sum :: (fn(generic(T : Type), a : T, b : T) -> T)((a + b));
 working everywhere. The non-ASCII `∀` / `∃` are rejected with an
 ASCII-spelling hint. Note the INTERNAL identifiers (`forall_labels`,
 `forall_types`, …) deliberately keep the old name — invisible to users.
-
-### `type` is a reserved keyword — avoid as field/param name
-
-```rust
-// WRONG:
-Variable :: ref(struct(name : String, type : TypeValue));
-
-// CORRECT:
-Variable :: ref(struct(name : String, ty : TypeValue));
-```
 
 ### 1-element array literals require a trailing comma
 
@@ -1106,8 +1065,6 @@ One limit: from INSIDE an `impl(T, …)` block, a method defined in a LATER `imp
 
 What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, and the bindings inside an `impl({ ... })` block. A forced definition sees only what precedes the REFERENCE that forced it — keep imports at the top. Cycles between constants/types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while forced reports its own error plus a `note: ... was evaluated here because it is referenced before its definition`.
 
-**SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
-
 **`c_include(...)` / `extern(...)` are MODULE VALUES (2026-09-15,
 `plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md`).** `c :: c_include("<stdio.h>", …)` then
 `c.fputs(...)` / `c.stdout`; `{ strlen : c_strlen } :: c_include(...)` selects and
@@ -1117,37 +1074,17 @@ renames (functions, globals AND opaque types keep their C symbol in the emitted 
 `src/expr.yo`), so existing sources are unchanged and the seed builds them. The
 destructurer now runs the NO-SHADOWING rule (it never did — `{ a : b } :: m` onto an
 existing `b` and the same import twice were silently accepted), so a `c_include` name
-that a Yo binding already uses is an error either way round: qualify or rename. Value
-position forms are seed-gated for `std/` and `src/`; `tests/` may use them now. The
+that a Yo binding already uses is an error either way round: qualify or rename. The
 BARE form is the canonical spelling (user decision 2026-09-15): do NOT migrate existing
 `extern(...)`/`c_include(...)` statements to `{ ... } :: …`; write the explicit forms
 only when you qualify, select or rename.
 
 **`extern("Yo", …)` / `extern("c", …)` blocks are order-independent too
-(fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`),
-but SEED-GATED: the released seed compiles `src/` and `std/` and still lacks
-that fix, so in those two trees declare the `extern(...)` block ABOVE its first
-use until `SEED_VERSION` carries it. The same fix made `dyn(<unknown name>)`
+(fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`).
+The same fix made `dyn(<unknown name>)`
 report its E0401 instead of silently hollowing the function — if `yo check`
 passes a body you expected to fail, an older compiler's `dyn(...)` swallow is
 the first suspect.
-
-**Two more 2026-09-12 codegen fixes are SEED-GATED the same way** (fixed in
-the tree's emitter and pinned by tests, which the tree's own compiler builds;
-`src/` and `std/` are still emitted by the seed, so keep the safe spelling
-there until `SEED_VERSION` carries them):
-
-- In an `io.async` body, a match/cond whose OTHER arm awaits must not hand a
-  BORROWED value out of its non-awaiting arm: `actual := match(opt, .Some(h) =>
-  h, .None => { … e.io.await(…) … })` released the payload twice (the seed
-  emits no dup for the arm value). Write `.Some(h) => h.clone()` in `src/`/`std/`
-  (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
-- A short-circuit operand inside a BARE (non-`{ }`) match/cond arm, a
-  single-expression fn body or a bare loop body that creates an rc temp —
-  `.Ok(c) => assert(c && (f() == "x"), …)` — dropped the temp outside its C
-  block under the seed (`use of undeclared identifier`). In `src/`/`std/` give
-  such an arm a `{ }` block until the seed carries the fix
-  (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
 
 Unknown identifiers inside a closure / `io.async` body now FAIL `yo check`
 (E0401) instead of hollowing the body into codegen's "body was never fully
@@ -1195,14 +1132,13 @@ match(r,
 ```
 
 Bare unary `!` binds one postfix expression (Rule 1, 2026-08-21) — both
-spellings are valid; NEW user code prefers the bare form, while `src/` and
-`std/` keep the call form until a rule-bearing release becomes the seed:
+spellings are valid, and `yo fmt` rewrites the call form to the bare one:
 
 ```rust
-// Preferred in new user code:
+// Canonical:
 if(!cond, { do_thing(); });
 
-// Call form — required inside src/ and std/ this generation:
+// Also valid; `yo fmt` turns it into `!cond`:
 if(!(cond), { do_thing(); });
 ```
 
@@ -1369,21 +1305,23 @@ p1 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
 p2 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
 ```
 
-### `recur(...)` for self-recursive lambdas
+### Self-recursion: call the name; `recur(...)` for anonymous functions
 
-Lambdas defined as `name :: (fn(args) -> T)(body)` cannot call `name` inside `body`.
-Use `recur(...)` instead:
+A function defined as `name :: (fn(args) -> T)(body)` may call `name` inside
+`body`. `recur(...)` names the enclosing function literal, so it is the form
+for an anonymous function (and inside an `io.async` lambda it names the lambda):
 
 ```rust
-// ❌ Would not find `my_fn` inside its own body
-my_fn :: (fn(x : i32) -> i32)({
-  my_fn(x - 1)   // ERROR: `my_fn` not in scope yet
-});
+fact :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * fact(n - i32(1)))
+  )
+);
 
-// ✅ Use recur
-my_fn :: (fn(x : i32) -> i32)({
-  recur(x - 1)
-});
+f := (fn(x : u32, acc : u32) -> u32)(
+  if(x == 1, then: acc, else: recur(x - 1, acc * x))
+);
 ```
 
 ### A brace group is a RECORD unless it has a `;` — in every position
@@ -1588,17 +1526,13 @@ which otherwise surfaces as the misleading
   and blamed Point's next use
   (issues/fixed/bare-derive-form-kills-module-eval.md).
 
-### Template strings cannot be nested inside `${...}` interpolations
+### A backtick in a template's TEXT ends the template
 
-A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.
+Templates nest inside `${...}` (`` `outer ${`inner ${x}`} end` `` works), but a
+backtick in the template's TEXT closes it. Write `` \` `` for a literal backtick:
 
 ```rust
-// ❌ Inner backtick closes the outer template string — parse error
-lines.push(`**Implements:** ${`, `.join(names)}`);
-
-// ✅ Assign the separator to a variable first
-sep := `, `;
-lines.push(`**Implements:** ${sep.join(names)}`);
+println(`a \`quoted\` name`);   // a `quoted` name
 ```
 
 #### The same trap inside EMITTED C — including in its comments
@@ -1642,23 +1576,11 @@ issues/template-string-backslash-before-interpolation-eats-both.md. Until that
 is fixed, reword so no backslash abuts an interpolation, or build the string
 with a separator variable.
 
-### A backtick literal WITHOUT `${...}` interpolation is a `str`, not a `String`
+### A backtick literal is a `String`, with or without `${...}`
 
-`String.from(`` `...` ``)` looks harmless but a backtick literal with no
-interpolation types as a plain `str`, and in some positions (e.g. a
-`format_error_message(tok, msg, ...)` argument chain inside a large fn)
-the def-time check reports a misleading `Cannot unify: Expected "String"
-Given "str"` pointing at the ENCLOSING fn's return type, not the literal.
-Use a double-quoted string (escape inner `"` as `\"`) for constant
-messages; reserve backticks for templates that actually interpolate.
-
-```rust
-// ❌ def-time check fails with a misleading location
-exn.throw(dyn(format_error_message(tok, String.from(`Cannot use "asm" here.`), false, .None)));
-
-// ✅ double-quoted with escapes
-exn.throw(dyn(format_error_message(tok, String.from("Cannot use \"asm\" here."), false, .None)));
-```
+`` `plain` `` is a `String`, so `String.from(`` `plain` ``)` fails with
+`Cannot unify incompatible types: "String" and "str"` (`String.from` takes a
+`str`). Pass the template directly, or `String.from("plain")`.
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
@@ -1674,18 +1596,19 @@ names.push(param.name);
 reproduces. `x.clone()` is the idiomatic replacement for the retired
 `String.from(x.as_str())` roundtrip.
 
-### `.Some(expr)` in expression position is parsed as a 2-arg property access
+### `.Some(expr)` needs an expected type
 
-Using `.Some(x)` as an expression (not inside a match pattern) is parsed by the Yo parser
-as a 2-arg dot property access: `obj.(prop, arg)`. This means `evaluate_property_access` is
-invoked on it at compile time, causing confusing errors like "Failed to infer enum variant type".
+A leading-dot variant infers its enum from the expected type (a typed binding,
+a parameter, a return position). With none, `v := .Some(x);` fails with
+`Failed to infer enum variant type`:
 
 ```rust
-// ❌ Parsed as 2-arg property access — NOT an Option::Some constructor call
-val := .Some(oi.ty);
+// ❌ No expected type
+val := .Some(x);
 
-// ✅ Use the explicit fully-qualified form
-val := Option(TypeValue).Some(oi.ty);
+// ✅ Annotate the binding, or name the enum
+(val : Option(i32)) = .Some(x);
+val2 := Option(i32).Some(x);
 ```
 
 ### Operator chains: one operator groups left at any length
@@ -1720,12 +1643,10 @@ Always merge them into a single destructuring import:
 ### Nested `Option` patterns
 
 `match` supports nested destructuring (`.Some(.TypeVal(x))`) since 2026-09-19;
-the two-stage form below still works and is what `src/`/`std/` use until the
-seed carries the feature (a NEW form may not appear in `src/`/`std/` before
-then — the seed compiles them).
+the two-stage form below still works.
 
 ```rust
-// Both are fine in tests/ and user code:
+// Both are fine:
 match(opt_value,
   .Some(.TypeVal(box)) => { ... },
   _ => { ... }
@@ -1800,7 +1721,7 @@ match(v.get(usize(0)),
   _ => assert(false, "err")
 )
 
-// Equivalent two-level match (seed-safe spelling for src/ and std/):
+// Equivalent two-level match:
 match(v.get(usize(0)),
   .Some(x) => match(x, .IntLit(n) => assert(n == "3", "ok"), _ => assert(false, "err")),
   .None => assert(false, "err")
@@ -1997,13 +1918,13 @@ minimized. Three reconstructions pass, and it is retired with the lowering it
 was seen under. If you meet it again, distill it and file the reproducer
 rather than hoisting around it.
 
-## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
+## Body-statement rules
 
-A function/method body written `({...})` whose FIRST statement is `cond(...)` or
-`match(...)` fails to parse with the misleading "{ ... } without semicolons is
-parsed as a struct literal" error. Lead with any assignment instead — e.g. hoist
-the scrutinee: `(first : Option(usize)) = sep.index_in(self, usize(0));` then
-`match(first, ...)`. Related body rules learned the hard way:
+A body `({ match(...) })` holding ONE expression and no `;` is a one-field
+record, whatever the expression (E0007: "{ ... } without semicolons is parsed
+as a struct literal"). Write `(match(...))` as the body, or end a statement with
+`;` — a block may start with `cond(...)` or `match(...)` like any other
+statement. Related body rules learned the hard way:
 
 - Typed assignments need the whole pair parenthesized: `(x : T) = expr;` — bare
   `x : T = expr` is rejected as "adjacent different operators" (`x := expr` is
@@ -2047,17 +1968,18 @@ the pointer through a local/`match` first (see std/assert.yo's `panic`).
 `{ println } :: import("std/fmt");` — there is no `io.println`. And `join` is
 `separator.join(list : ArrayList(String))`, not `list.join(sep)`.
 
-## Match/cond arms are VALUES — `push` returns `Result`
+## Match/cond arms are VALUES — sibling arms must agree
 
-`ArrayList.push` returns `Result(unit, ArrayListError)`, so a `push(...)`
-call in an arm position mismatches a `()` sibling arm ("Incompatible types:
-Previous: <enum…> / Current: unit"). Discard into a binding first (one `___`
-per block — redeclaring `___` in the same scope is an error):
+`ArrayList.push` returns `unit` (it panics on allocation failure), so
+`.Some(x) => out.push(x)` beside `.None => ()` is fine. A call that returns a
+value — `out.pop()` returns an `Option` — mismatches a `()` sibling arm
+("Incompatible types in match branches"). Discard it into a binding first
+(one `___` per block — redeclaring `___` in the same scope is an error):
 
 ```rust
 match(xs.get(i),
   .Some(x) => {
-    ___ := out.push(x);   // block value is the binding: unit
+    ___ := out.pop();   // block value is the binding: unit
   },
   .None => ()
 );
@@ -2081,12 +2003,11 @@ multiline-double-quoted-string-parse-error-misleading.md). Write `\n` as the
 two-character escape — and beware tools that materialize real newlines when
 writing source. Backtick templates span lines fine.
 
-## No nested backtick templates inside `${…}`; `push_str` takes static `str`
+## `push_str` takes static `str`
 
-`f(\`outer ${g(\`inner\`)}\`)` fails to evaluate ("Module field … not found").
-Precompute the inner template into a local first. And `push_str` on the
-emitter/string-builder wants a static `str` literal — anything interpolated
-(runtime `String`) goes through `push_string`.
+`push_str` on the emitter/string-builder wants a static `str` literal —
+anything interpolated (runtime `String`) goes through `push_string`. (Nested
+templates inside `${…}` work: `` `outer ${g(`inner`)}` ``.)
 
 ## A backtick inside a template string ENDS it — never markdown-quote in emitted C
 
@@ -2106,27 +2027,3 @@ error[E0008]: paren-less function and operator calls are not supported; use pare
 Worse, `yo fmt` will then "format" the accidental Yo fragment — inserting the
 spaces you see inside those backticks — so the file no longer matches what you
 typed. Inside any emitted-C template, write `struct stat`, not the quoted form.
-
-## Async value-position `cond` after an await: seed-gated in `src/` and `std/`
-
-Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) AFTER
-an await, where one arm's value is a plain variable read, failed in clang with
-`use of undeclared identifier '_file____User_temp_N'`
-(issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
-The single-pass lowering fixes it, but the seed still has the bug, so in
-`src/` and `std/` keep the statement form until `SEED_VERSION` carries the
-fix: predeclare, then assign from statement-form `cond`s:
-
-```rust
-(q : i32) = r;                              // predeclared, mutable
-cond(
-  (k == i32(5)) => {
-    q = (r + i32(100));
-  },
-  true => ()
-);
-```
-
-The same gating applies to `std/fs/dir.yo`'s `read_dir`, which keeps the
-statement form for the seed's cond-in-while bug
-(issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md).

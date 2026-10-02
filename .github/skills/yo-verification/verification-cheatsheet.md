@@ -242,8 +242,11 @@ a recursion no single measure can.
 ## Not available yet
 
 - Proving the overflow trap never taken; string-content reasoning; `for`
-  loops. If a spec needs them, mark the fn `assumed()` deliberately and say
-  so — never silently.
+  loops over anything but an `ArrayList` variable (a `for` over a list
+  variable verifies, with `produced(xs)` in a leading `invariant(...)`:
+  `yo context --doc FORMAL_VERIFICATION`, § Verified `for` loops). If a spec
+  needs them, mark the fn `assumed()` deliberately and say so — never
+  silently.
 
 ## Recipes
 

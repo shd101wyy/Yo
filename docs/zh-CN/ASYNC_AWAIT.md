@@ -563,6 +563,167 @@ while(c, { t := io.await(f, io); i = t; }, { ... });        // 三参数 while �
 这些都是真正的挂起：在一个被 await 的条件之前 spawn 的任务，会在进行 await 的任务挂起
 期间运行。
 
+## 编写 `io.async` 体：递归与等待任务
+
+### 递归：按名字调用外层函数
+
+在 `io.async` 的 lambda 内部，`recur` 指的是**这个 lambda**，而不是返回它的那个函数。
+lambda 的签名是 `(io : Io) => …`，所以在那里写 `recur(n, io)` 会得到
+`E0603: Argument count mismatch: expected 1 arguments, got 2`。应当按名字调用外层的
+`::` 函数：
+
+```rust
+{ println } :: import("std/fmt");
+
+count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) =>
+    cond(
+      (n == i32(0)) => i32(0),
+      true => (io.await(count_down(n - i32(1), io), io) + i32(1))
+    )
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  r := io.await(count_down(i32(10), io), io);
+  println(`count_down(10) = ${r}`); // count_down(10) = 10
+});
+export(main);
+```
+
+每一层都是一个独立的 future，并且所有 future 都要存活到最内层那个完成为止，所以内存随深度
+线性增长。在 Linux x86-64 上用 v0.2.49 实测：100,000 层的峰值是 35 MB，1,000,000 层是
+316 MB（每层约 310 字节；不会栈溢出，因为 future 分配在堆上）。
+
+当深度取决于数据时（目录树、图），改用显式的工作列表（worklist）：总共只有一个 future，
+待处理的工作放在一个 `ArrayList` 里。
+
+```rust
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+
+// 把 `n` 不断对半拆分，直到每块都是 1；每处理一块 await 一次。
+count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    stack := ArrayList(i32).new();
+    stack.push(n);
+    (leaves : i32) = i32(0);
+    while(stack.len() > usize(0), {
+      cur := match(stack.pop(), .Some(k) => k, .None => i32(0));
+      io.await(yield(io), io); // 代表每一项的 I/O
+      cond(
+        (cur > i32(1)) => {
+          half := (cur / i32(2));
+          stack.push(half);
+          stack.push(cur - half);
+        },
+        true => {
+          leaves = (leaves + i32(1));
+        }
+      );
+    });
+    leaves
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  r := io.await(count_leaves(i32(1000), io), io);
+  println(`leaves = ${r}`); // leaves = 1000
+});
+export(main);
+```
+
+同样的遍历处理 100,000 块时，峰值只有 4 MB。
+
+### 在任务内部等待 spawn 出来的任务
+
+`handle.await(io)` 以及 `std/async` 的组合器（`join_all`、`race`、`race_first`、`any`、
+`any_first`、`timeout`）都是**阻塞等待**：它们会反复驱动事件循环，直到对应的 handle 完成。
+在 `main` 或任何普通 `fn` 里这正是你想要的。但在 `io.async` 体内部，它会**嵌套事件循环**：
+正在等待的任务仍留在 C 栈上，由内层循环去运行其他任务；栈上位于它下面的任务在这次等待返回
+之前都无法恢复执行，如果被等待的工作恰好依赖其中某个任务，程序就会死锁。
+
+默认情况下嵌套的等待照常运行，所以这个错误很容易被忽略。设置 `YO_ASYNC_STRICT=1` 后，
+任务内部第一个需要驱动事件循环的等待会确定性地 panic；`yo test` 在默认的 address
+sanitizer 下运行每个测试二进制时都会设置这个变量：
+
+```rust
+run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    handles := ArrayList(JoinHandle(i32)).new();
+    handles.push(io.spawn(work(i32(1), io), io));
+    handles.push(io.spawn(work(i32(2), io), io));
+    outs := join_all(handles, io); // ✗ 在任务内部进行阻塞等待
+    i32(outs.len())
+  })
+);
+```
+
+```
+panic: a blocking await ran inside an async task: an io.await in a non-io.async function,
+JoinHandle.await, or a std/async combinator (join_all/race/any/timeout) was called from a
+spawned or awaited task. That nests the event loop and can deadlock. ...
+```
+
+把 `join_all` 换成直接调用 `handles(i).await(io)` 也会同样 panic。要在任务内部收集 spawn
+出去的工作，先挂起直到每个 handle 都进入终态（`is_finished()` 不会阻塞；await `yield`
+让事件循环去运行其他任务），然后再读取结果。已完成的 handle 的 `await` 会立即返回，不会
+驱动事件循环：
+
+```rust
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+
+work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    (k : i32) = i32(0);
+    while(k < i32(3), {
+      io.await(yield(io), io);
+      k = (k + i32(1));
+    });
+    id
+  })
+);
+
+all_finished :: (fn(handles : ArrayList(JoinHandle(i32))) -> bool)({
+  (i : usize) = usize(0);
+  (done : bool) = true;
+  while(i < handles.len(), {
+    if(!handles(i).is_finished(), { done = false; });
+    i = (i + usize(1));
+  });
+  done
+});
+
+run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    handles := ArrayList(JoinHandle(i32)).new();
+    handles.push(io.spawn(work(i32(1), io), io));
+    handles.push(io.spawn(work(i32(2), io), io));
+    // ✓ 挂起，直到每个 handle 都进入终态
+    while(!all_finished(handles), { io.await(yield(io), io); });
+    // 每个 handle 都已完成，所以 `await` 直接读出结果，不再等待
+    (sum : i32) = i32(0);
+    (i : usize) = usize(0);
+    while(i < handles.len(), {
+      match(handles(i).await(io), .Some(v) => { sum = (sum + v); }, .None => ());
+      i = (i + usize(1));
+    });
+    sum
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  n := io.await(run_all(io), io);
+  println(`sum ${n}`); // sum 3，在 YO_ASYNC_STRICT=1 下也是如此
+});
+export(main);
+```
+
 ## 事件循环
 
 异步运行时使用简单的**单线程事件循环**：

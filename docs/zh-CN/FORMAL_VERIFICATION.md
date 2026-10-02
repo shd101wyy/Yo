@@ -110,6 +110,58 @@ caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
 违反泛型 `requires` 的调用方（给 `requires(flag)` 的被调方传
 `flag = false`）会在调用点被以反例驳倒。
 
+### 循环不变式
+
+`while` 循环通过不变式来验证。`invariant(...)` 是循环体的第一条语句，接受以逗号
+分隔的谓词；其后可以跟一个只含单个测度的 `decreases(M)`：
+
+```rust
+pragma(Pragma.Verify);
+
+sum_to :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(r == ((n * (n + i32(1))) / i32(2)))
+  ) -> (r : i32)
+)({
+  i := i32(0);
+  acc := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
+    decreases(n - i);
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  acc
+});
+```
+
+验证器先证明不变式在入口处成立（`loop-invariant-entry`），然后**抹除（havoc）**
+循环体赋值的每个变量，这里是 `i` 与 `acc`：每个都变成一个新值，除了不变式和
+循环条件之外对它一无所知。它在这个状态上把循环体走一遍，再次证明不变式
+（`loop-invariant-iterate`）。循环结束后，它只知道 `invariant && !(i < n)`。
+循环从不赋值的变量（如 `n`）保留原有的事实。因此，后条件需要的关于循环变量的
+一切，都必须写进不变式：正是 `i <= n` 把 `!(i < n)` 变成了 `i == n`。
+
+`decreases(n - i)` 增加 `loop-variant-nonneg` 与 `loop-variant-decreases` 两个
+义务。去掉它，循环仍能验证，只是终止性没有被证明。
+
+过弱的不变式通常表现为后条件被**驳倒**，而不是循环本身报错。去掉上面关于
+`acc` 的那一项，运行会报告：
+
+```
+    fn@sum_to.yo:7/ensures#0: REFUTED  counter-example: __yo_hv2_acc = #xffffffff, __yo_hv2_i = #x00000000, n = #x00000000
+```
+
+`__yo_hv<N>_<名字>` 这些绑定就是被抹除的循环状态：不变式允许、但循环永远到不了
+的值。落在它们上面的反例指向的是不变式，而不是代码。入口处就不成立、或者无法
+保持的不变式，被驳倒的则是 `loop-invariant-entry` 或 `loop-invariant-iterate`。
+当缺失的事实位于量词之下或非线性算术之中时，求解器回答 `unknown`，该义务的结果
+是 **`unproven`** 而不是被驳倒（§可验证的 `for` 循环中的复制循环调用 std 的
+`push` 时就是这样）；修法相同。`n <= i32(1000)` 这个界是断言的一部分：去掉它，
+迭代步会因 `acc` 溢出而被驳倒。
+
 ### 字典序测度
 
 `decreases(M1, M2, ...)` 是字典序测度（即 ATS 的 `.<m, n>.`）：每次递归调用
@@ -199,13 +251,16 @@ append :: (
 
 以列表为载体的 Seq 留在列表域中，即 contents 数组加长度。两个列表（或两个以列表为载体的 Seq）之间的相等是外延的：长度相等，且长度以内的每个元素相等。Z3 自带的 `Seq` 理论对这个目标给出 `unknown`，换到数组上就能证出。把以列表为载体的 Seq 与字面 Seq 混用（`seq_append(seq_of(xs), seq_unit(x))`）是子集错误。
 
-复制循环的 `forall(k, (k < i) ==> (out(k) == xs(k)))` 不变式需要一个写明新元素、并保持旧元素不变的 `push`。在下一个版本成为种子之前，std 的 `ArrayList.push` 只写明长度（已发布的编译器会在运行时执行带量词的 `ensures`），因此测试夹具使用一个写明元素的 `assumed()` 包装函数（`plans/backlog/SEED_VERSION_AUTOMATION.md`）。
+`ArrayList.push` 的契约写明新元素，并保持旧元素不变。该子句带量词，因此只用于证明，从不作为断言运行。正因如此，复制循环的 `forall(k, (k < i) ==> (out(k) == xs(k)))` 不变式才能证出。
 
 ### 可验证的 `for` 循环：`produced`
 
 对 `ArrayList` 变量的 `for` 像一个幽灵下标上的 `while` 那样验证。循环体开头的 `invariant(...)` 是这个循环的不变式，其中的 `produced(xs)` 表示目前已消费的元素：`xs` 截到该下标为止，与 Creusot 相同。复制循环无需自己的下标：
 
 ```rust
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
@@ -215,6 +270,9 @@ copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : Array
   out
 });
 ```
+
+`copy` 可以证出：std 的 `push` 写明了追加的元素，并保持旧元素不变
+（§列表上的序列），这正是不变式所需要的。
 
 `produced(xs).len() <= xs.len()` 是隐式不变式。`break` 以 break 处的状态退出。`continue` 仍会消费当前元素，因此不变式在多产出一个元素的状态上证明。改变所遍历列表的循环体、`inout(x)` 绑定，以及对列表变量以外之物的 `for` 都是子集错误。
 
@@ -336,6 +394,18 @@ abs_doubles_nonneg :: law(
 `requires`。法则求值为 `unit`，因此 `name :: law(...)` 绑定 unit，代码生成不产出
 任何东西。
 
+**已知限制：被调用者必须与法则位于同一文件。** 对导入的被调用者写法则（如上例）
+目前无法验证，会在法则的 `requires` 上报告子集错误：
+
+```
+  subset   law@laws.yo:4:22 [verify] — cannot verify: untyped expression
+           (x > i64(-(1000))) && (x < i64(1000))
+```
+
+把同一条法则写在同一文件中 `abs_value` 的定义之后，就能证出
+（[`issues/law-over-an-imported-callee-cannot-verify.md`](../../issues/law-over-an-imported-callee-cannot-verify.md)）。
+在这个问题修复之前，请把每条法则放在它所描述的、带契约的代码旁边。
+
 **法则只从被调用者的契约出发证明，绝不打开其函数体。** 这既是要点，也是约束：
 如果 `abs_value` 只承诺 `ensures(r >= 0)`，上面的法则无法证明 —— 两个只知道非负
 的值相加可能溢出。让断言可证的，是被调用者 `ensures` 中的上界。法则以这种方式
@@ -361,7 +431,9 @@ abs_doubles_nonneg :: law(
 
 ### 约定：由人类拥有的 `spec/` 目录
 
-编译器并不知道什么是「法则文件」—— 这是一条约定，而这正是该特性的意义所在：
+编译器并不知道什么是「法则文件」—— 这是一条约定，而这正是该特性的意义所在。
+它有待上面的同文件限制解除（`spec/` 中的法则要导入被调用者，所以目前会报告
+子集错误）：
 
 1. 把法则放在 `spec/`，由决定软件必须做什么的人来写。实现不得修改它们。
 2. 用 `yo verify ./spec --strict` 作为门禁，使得运行不会因为某个契约被
@@ -391,6 +463,22 @@ yo verify ./spec --deny assumed    # 也可以自己指定
 `solver-error`、`subset-error`；`--deny` 中出现未知名称会报用法错误并列出
 全部取值。被拒绝的结果在**所有**模式下都算失败，因此 `--strict` 下的
 `unproven` 即使在 `verify+` 中也会失败，而不会退回运行时断言。
+
+| 结果 | 含义 | 普通运行 |
+| --- | --- | --- |
+| `ok` | 每个义务都已证明 | 通过 |
+| `assumed` | 声明了契约，函数体从未被走查 | 通过 |
+| `outside-subset` | 没有承诺任何东西，走查也进不了函数体 | 通过 |
+| `unproven` | 求解器回答 `unknown`：预算耗尽，或缺少目标所需的事实 | `verify` 下失败；`verify+` 下通过（运行时断言） |
+| `refuted` | 求解器找到了反例 | 失败 |
+| `solver-error` | 求解器无法运行，或回答了错误 | 失败 |
+| `subset-error` | 函数体用到了子集之外的构造（`cannot verify: <构造>`） | 失败 |
+
+`vacuous`（空洞）不是一种结果。它标记的是一个完全没有产生任何义务的 `ok`
+函数：没有 `ensures`，没有 `assert`，也没有除数、移位或下标守卫。什么都没证明，
+因为什么都没问。报告行写作 `ok … — no obligations`，JSON 条目带有
+`"vacuous": true`，而 `--strict` 和 `--deny` 都不会因它失败（`--deny vacuous`
+是用法错误）。请留意汇总行里的 `(N of the ok vacuous)` 计数。
 
 每次运行都会以一行汇总结尾 —— 七种结果的计数（包含 0，便于 grep）、其中
 有多少 `ok` 是**空洞的**（完全没有讨还任何义务）、求解器查询数与缓存
@@ -549,11 +637,35 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 ## 求解器
 
 单一固定版本的 Z3（见 `src/verifier/z3.yo` 的 `Z3_VERSION`；当前为
-5.1.0）。解析顺序：`YO_Z3_PATH` → `~/.cache/yo/solvers/` 下的固定
-安装 → 从 GitHub Releases 自动一次性下载。判定结果按义务缓存在
+5.1.0）。解析顺序：`--solver-path <路径>` → `YO_Z3_PATH` →
+`~/.cache/yo/solvers/` 下的固定安装 → 从 GitHub Releases 自动一次性下载。
+不存在的 `--solver-path` 是硬错误（`verify: solver path '…' does not exist`），
+绝不会退回自动发现。判定结果按义务缓存在
 `~/.cache/yo/verify-cache/`（以查询内容、版本钉扎与运行选项的
 sha256 为键）；传 `--no-cache` 可跳过。确定性来自 `:rlimit` 预算
 （而非墙上时钟）与固定的 `:random-seed 0`。
+
+`--rlimit <n>` 设置每次查询的这一预算（默认 5000000）。预算内得到 `unknown`
+的查询，会先以 20 倍预算自动重试一次，然后才报告为 `unproven`。大目标以
+`UNPROVEN  unknown` 结束时，就调高 `--rlimit`；预算是缓存键的一部分，因此重新
+运行会再次询问求解器。
+
+```bash
+yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
+```
+
+### 故障排查
+
+| 症状 | 第一步 |
+| --- | --- |
+| 带模型的 `refuted` | 读反例；通常是缺了 `requires`，或者断言本身就是错的 |
+| 反例里出现极端值（`#x80000000`、`#xffffffff`） | 算术溢出了：断言需要一个范围 `requires`，而不是更多证明 |
+| 反例落在 `__yo_hv…` 名字上，或循环之后的 `ensures` 为 `unproven` | 循环不变式太弱（§循环不变式） |
+| `UNPROVEN  unknown` | 先确认所需的事实都在，再调高 `--rlimit` |
+| 代码没错，法则或调用方却证不出 | 被调用者的 `ensures` 比断言所需的弱：加强契约 |
+| `ok … — no obligations` | 空洞：补上你本想写的 `ensures` |
+| `cannot verify: <构造>` | 函数体在子集之外：重构它，或改用 `verify+` 退回运行时断言 |
+| 法则上报告 `cannot verify: untyped expression` | 法则的被调用者是导入的（§法则） |
 
 ## 试一试
 

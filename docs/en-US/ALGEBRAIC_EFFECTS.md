@@ -118,6 +118,73 @@ frame of the innermost binding matters. This is what lets middle-tier
 functions stay plain `fn` and lets a single handler be installed once
 at the top, then flow through any number of forwarding layers.
 
+#### An unwind skips the code after the call
+
+On its way out, `unwind` releases the values the frames it leaves own (their
+`Dispose` impls run), and runs no other code. In the install frame, every
+statement after the call that raised is skipped, and so is the rest of every
+propagating frame in between. A save/restore of mutable state around the
+guarded call therefore never restores on the failure path:
+
+```rust
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(msg : String) -> i32);
+Ctx :: ref(struct(depth : i32));
+
+parse :: (fn(n : i32, raise : Raise) -> i32)(
+  cond((n < i32(0)) => raise(`negative`), true => n)
+);
+
+// ✗ the handler is installed HERE, so its unwind exits `try_parse`
+try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  saved := ctx.depth;
+  ctx.depth = (ctx.depth + i32(1));
+  r := parse(n, raise);
+  ctx.depth = saved; // skipped when parse raises
+  r
+});
+
+main :: (fn() -> unit)({
+  ctx := Ctx(depth : i32(0));
+  a := try_parse(i32(5), ctx);
+  println(`ok: r=${a} depth=${ctx.depth}`); // ok: r=5 depth=0
+  b := try_parse(i32(-5), ctx);
+  println(`raised: r=${b} depth=${ctx.depth}`); // raised: r=-1 depth=1
+});
+export(main);
+```
+
+Moving the save/restore into a function that only receives `raise` as a
+parameter does not help: that frame is a propagation site, and the unwind
+passes through it the same way. Put the handler in a helper of its own, so the
+unwind ends at the helper and the code after the helper call always runs:
+
+```rust
+// ✓ the unwind ends `_parse_or`, never the frame that restores
+_parse_or :: (fn(n : i32) -> i32)({
+  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  parse(n, raise)
+});
+
+try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+  saved := ctx.depth;
+  ctx.depth = (ctx.depth + i32(1));
+  r := _parse_or(n);
+  ctx.depth = saved; // always runs
+  r
+});
+// try_parse(i32(-5), ctx) now answers -1 and leaves ctx.depth at 0
+```
+
+The failure is silent where it happens: the stale state surfaces only in
+whatever runs next. That also makes adding a swallowing handler to existing
+code a behaviour change. While the error propagated to the top, the state it
+left behind was never read; once a handler swallows it, the program keeps
+running on that state.
+
 ### Effect row polymorphism
 
 Effect-polymorphic functions use `generic(E : Type.Struct)`. The

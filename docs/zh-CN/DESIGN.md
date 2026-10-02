@@ -42,6 +42,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [Trait 方法消歧义](#trait-方法消歧义)
   - [使用 `_` 进行偏应用（Partial Application）](#使用-_-进行偏应用partial-application)
   - [类型方法](#类型方法)
+    - [关联常量](#关联常量)
   - [私有成员](#私有成员)
   - [recur](#recur)
   - [引用语义类型与内存管理](#引用语义类型与内存管理)
@@ -91,12 +92,15 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
+  - [静态 trait 方法](#静态-trait-方法)
+  - [trait 的 `where` 子句与关联类型](#trait-的-where-子句与关联类型)
   - [一致性：每个类型对每个 trait 只有一个 impl](#一致性每个类型对每个-trait-只有一个-impl)
 - [模式匹配](#模式匹配)
   - [模式的形式](#模式的形式)
 - [字符串](#字符串)
   - [字符串字面量作为 `str` 或 C 字符串指针](#字符串字面量作为-str-或-c-字符串指针)
   - [String（可增长字符串）](#string可增长字符串)
+    - [通过 `String` 的副本写入](#通过-string-的副本写入)
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
       - [格式说明符 —— `${value:spec}`](#格式说明符--valuespec)
 - [集合](#集合)
@@ -138,6 +142,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [隔离类型](#隔离类型)
 - [Arc 类型](#arc-类型)
 - [模块的导入和导出](#模块的导入和导出)
+    - [同一个名字导入两次](#同一个名字导入两次)
     - [trait impl 通过你的导入可见](#trait-impl-通过你的导入可见)
   - [匿名模块](#匿名模块)
   - [模块级可变变量](#模块级可变变量)
@@ -286,6 +291,28 @@ yo fmt --check             # 只检查格式，不写入变更
 `yo fmt` 有意不提供配置，遵循类似 `go fmt` 的理念：所有 Yo 项目共享一种紧凑、一致的风格，固定使用 2 空格缩进。
 
 `yo fmt` 会省略可被证明冗余的括号（省略后必须重新解析出相同的语法树，分组不可能改变才会去掉），并保留所有承载分组的括号。这包括同一运算符链上冗余的左侧括号——无论操作数个数——`(((20 - 5) - 4) - 3)` 会被格式化为 `20 - 5 - 4 - 3`；而显式加括号的右操作数永远保留：`20 - (5 - 4) - 3` 原样不动。
+
+同一条规则还会去掉另外两类括号：包住整个调用参数的括号（`f((a + b))` 变为 `f(a + b)`，因为调用自身的括号已经完成了分组），以及包住单个前缀运算符操作数的括号（`-(x)` 变为 `-x`，`!(done)` 变为 `!done`）。以下括号会保留：加括号的右操作数（`a + (b + c)`）、前缀运算符的复合操作数（`-(x + x)`、`!(a > b)`）、分隔两个不同运算符的括号（`(a * b) + c`），以及 `:=` 或 `=` 右侧二元表达式外的括号——E0003 要求必须有它。`yo fmt` 从不添加括号，所以 E0003 需要的括号要自己写。格式化前后对比：
+
+```rust
+// 格式化前
+s1 := (((a - b) - c) - x);
+s2 := (a + (b + c));
+s3 := f((a + b));
+s4 := -(x);
+s5 := -(x + x);
+s6 := ((a * b) + c);
+ok := !(done);
+
+// `yo fmt` 之后
+s1 := (a - b - c - x);
+s2 := (a + (b + c));
+s3 := f(a + b);
+s4 := -x;
+s5 := -(x + x);
+s6 := ((a * b) + c);
+ok := !done;
+```
 
 ## 语法
 
@@ -890,6 +917,37 @@ p := Point(x : 3, y : 4);
 p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 ```
 
+#### 关联常量
+
+`impl` 里除了方法，还可以声明普通的值成员。它可以直接从类型上读取，泛型函数体也可以从类型参数上读取。整数类型的 `MIN`、`MAX` 和 `BITS` 就是这样提供的（`u8.MAX`、`i16.MIN`、`u64.BITS`）。
+
+声明为 **trait 成员**的常量还可以出现在签名的类型位置，例如作为 `Array` 的长度，无论是直接投影还是参与计算；这个投影会针对每次实例化分别求值。固有（inherent）常量目前还不能用在这个位置（`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`），所以 prelude 把 `to_be_bytes` 所用的长度 `BYTES` 放在 `ByteWidth` trait 里声明。
+
+```rust
+{ println } :: import("std/fmt");
+
+Grid :: struct(w : i32, h : i32);
+impl(Grid, CELL_PX : i32(16)); // 与方法并列的值成员
+
+// 泛型函数体从类型参数上读取常量。
+bits_of :: (fn(generic(T : Type), x : T, where(T <: Integer)) -> u32)(T.BITS);
+
+// 通过 trait 声明的常量还可以决定 `Array` 的长度。
+Width :: trait(WIDTH : usize);
+impl(u8, Width(WIDTH : usize(1)));
+impl(u32, Width(WIDTH : usize(4)));
+pad :: (fn(generic(T : Type), x : T, where(T <: Width)) -> Array(u8, T.WIDTH * usize(2)))(
+  Array(u8, T.WIDTH * usize(2)).fill(u8(0))
+);
+
+main :: (fn() -> unit)({
+  println(Grid.CELL_PX); // 16
+  println(`${u8.MAX} ${i16.MIN} ${bits_of(u64(0))}`); // 255 -32768 64
+  println(pad(u32(7)).len()); // 8
+});
+export(main);
+```
+
 ### 私有成员
 
 名称以 `_` 开头的结构体字段或 impl 方法是**私有的**，并由编译器强制执行。这样的成员只能在声明该类型（或该 impl）的模块以及该模块的**同目录兄弟模块**中读取、写入、调用、构造或解构。其余成员都是公开的。没有新的关键字：下划线约定*就是*可见性规则。
@@ -933,33 +991,30 @@ Counter(_count : i32(9), label : c.label); // error[E0405]: Cannot construct Cou
 
 ### recur
 
-使用 `recur` 来递归调用函数。
-这对匿名函数很有用。
-如果 `recur` 是最后一个表达式，将应用尾调用优化。
+`::` 函数按名字调用自身或同一模块的其他函数，这就是普通递归，不需要特殊形式：
 
-- 带尾调用优化
+```rust
+fact :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * fact(n - i32(1)))
+  )
+);
+```
 
-  ```rust
-  (fn(x : u32, acc : u32) -> u32)(
-    if(x == 1,
-      then: acc,
-      else:
-        recur(x - 1, acc * x)
-    )
-  );
-  ```
+`recur` 指代外层的函数字面量本身，用于没有名字可调用的匿名函数。在 `io.async`
+lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一次普通调用，
+不做尾调用优化。
 
-- 不带尾调用优化
-
-  ```rust
-  (fn(x : u32) -> u32)(
-    if(x == 1,
-      then: 1,
-      else:
-        x * recur(x - 1)
-    )
-  );
-  ```
+```rust
+(fn(x : u32, acc : u32) -> u32)(
+  if(x == 1,
+    then: acc,
+    else:
+      recur(x - 1, acc * x)
+  )
+);
+```
 
 ### 引用语义类型与内存管理
 
@@ -2052,6 +2107,68 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 });
 ```
 
+### 静态 trait 方法
+
+没有 `self` 参数的 trait 方法就是静态方法。可以在实现了该 trait 的类型上调用（`Point.make(...)`），也可以在受该 trait 约束的类型参数上调用（`T.make(...)`）。构造器风格的 trait 就是这样写的，`FromJson` 的 `from_json(v)` 即是一例。
+
+```rust
+{ println } :: import("std/fmt");
+
+// 没有 `self` 的 trait 方法是静态（构造器风格）方法。
+Make :: trait(make : (fn(n : i32) -> Self));
+
+Point :: struct(x : i32, y : i32);
+impl(Point, Make(make : (n -> Point(x : n, y : n))));
+
+Meters :: struct(v : i32);
+impl(Meters, Make(make : (n -> Meters(v : (n * i32(1000))))));
+
+// 在类型上调用，或在泛型函数体中通过类型参数调用。
+build :: (fn(comptime(T) : Type, n : i32, where(T <: Make)) -> T)(T.make(n));
+
+main :: (fn() -> unit)({
+  p := Point.make(i32(3));
+  m := build(Meters, i32(2));
+  println(`${p.x} ${p.y} ${m.v}`); // 3 3 2000
+});
+export(main);
+```
+
+### trait 的 `where` 子句与关联类型
+
+trait 要先声明关联类型，再声明引用它的成员（先写 `Item : Type`，再写 `next : (fn(...) -> Option(Self.Item))`）。它的 `where` 子句可以借助自身的投影去约束**另一个**类型，`IntoIterator` 的 `where(Self.IntoIter <: Iterator(Item := Self.Item))` 就是如此。但不能把 `Self` 本身的关联类型绑定到 `Self` 自己的投影上：
+
+```rust
+Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+
+// 错误：Expected type for associated type constraint "Item", got: (Self.Item)
+Peekable :: trait(
+  Item : Type,
+  peek : (fn(self : Self) -> Option(Self.Item)),
+  where(Self <: Source(Item := Self.Item))
+);
+```
+
+下面两种写法都可以：
+
+```rust
+Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+
+// 约束 `Self`，但不绑定它的关联类型……
+Rewindable :: trait(
+  rewind : (fn(inout(self) : Self) -> unit),
+  where(Self <: Source)
+);
+
+// ……或者借助 `Self.Item` 约束另一个关联类型。
+Pullable :: trait(
+  Item : Type,
+  Iter : Type,
+  source : (fn(self : Self) -> Self.Iter),
+  where(Self.Iter <: Source(Item := Self.Item))
+);
+```
+
 ### 一致性：每个类型对每个 trait 只有一个 impl
 
 在整个程序中，一个类型最多实现某个 trait 一次（`plans/reference/TRAIT_COHERENCE.md`）。以下情况都是错误 E0612：
@@ -2217,6 +2334,58 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 s := String.new();
 s2 := String.from("Hello World!");
 s3 := (s + s2); // 创建一个新字符串。
+```
+
+#### 通过 `String` 的副本写入
+
+`String` 具有引用语义：副本与原字符串共享同一个缓冲区（见 §类型推断），
+无论副本来自赋值、参数传递、从集合读取（`xs(i)`）还是 `for` 循环的元素。
+通过副本写入，对原字符串可见。
+
+**已知缺陷（S1，`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。** 空 `String` 还没有缓冲区，第一次写入时才会分配。
+因此通过空 `String` 的副本写入，只会在副本里分配缓冲区，原字符串永远看不到这次写入，
+而且不会有任何报告。
+
+在修复之前，不要依赖通过副本的写入：把字符串作为 `inout(out) : String` 传入、
+返回结果，或在需要独立字符串时调用 `.clone()`。下面的例子同时展示了共享的写入和丢失的写入：
+
+```rust
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+
+// 普通的 `String` 参数是调用方句柄的副本。
+append_copy :: (fn(out : String) -> unit)({
+  out.push_str("!");
+});
+
+// `inout` 传入的是调用方的变量本身。
+append_inout :: (fn(inout(out) : String) -> unit)({
+  out.push_str("!");
+});
+
+main :: (fn() -> unit)({
+  a := String.new();
+  append_copy(a); // 丢失（缺陷）：`a` 没有缓冲区，写入在副本里分配了一个
+  b := String.from("hi");
+  append_copy(b); // 可见：副本与 `b` 共享缓冲区
+  println(`"${a}" "${b}"`); // "" "hi!"
+
+  c := String.new();
+  append_inout(c);
+  d := b.clone();
+  d.push_str("?"); // 独立的缓冲区
+  println(`"${c}" "${b}" "${d}"`); // "!" "hi!" "hi!?"
+
+  names := ArrayList(String).new();
+  names.push(String.new());
+  names.push(String.from("n"));
+  for(names, s => {
+    s.push_str("!");
+  });
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "" "n!"
+});
+export(main);
 ```
 
 #### 使用 `${}` 语法的模板字符串插值：
@@ -3286,6 +3455,17 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 { test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
 { test : test2 } :: import("./test.yo"); // 从 test.yo 导入 test 函数并重命名为 test2
 { Option } :: import("./test.yo"); // 从 test.yo 导入 Option 类型
+```
+
+#### 同一个名字导入两次
+
+每个导入的名字都是一个绑定，所以"禁止变量遮蔽"的规则同样适用于导入：同一个名字绑定两次是错误（`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`），无论是两行都写了这个名字，还是 `{ ... }` 通配导入已经引入了它。同一路径写多行导入没有问题，只要每行绑定的名字不同；同一个名字也可以换个新名字再导入一次：
+
+```rust
+{ ArrayList } :: import("std/collections/array_list");
+{ ArrayListIter } :: import("std/collections/array_list"); // 可以：名字不同
+{ ArrayList : List } :: import("std/collections/array_list"); // 可以：绑定为新名字
+xs := List(i32).new();
 ```
 
 #### trait impl 通过你的导入可见

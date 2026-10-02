@@ -19,16 +19,19 @@ Export C-compatible functions that operate on linear memory:
 pragma(Pragma.AllowUnsafe); // raw pointers across the boundary
 
 { String } :: import("std/string");
-{ malloc, free } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 
-// Allocate WASM memory for the caller
-wasm_alloc :: (fn(size : usize) -> *(u8))(
-  malloc(size)
+// Allocate WASM memory for the caller (`.None` = NULL on failure)
+wasm_alloc :: (fn(size : usize) -> ?*(u8))(
+  match(unsafe(GlobalAllocator.malloc(size)),
+    .Some(p) => .Some((*(u8))(p)),
+    .None => .None
+  )
 );
 
 // Free WASM memory
 wasm_free :: (fn(ptr : *(u8)) -> unit)(
-  free(ptr)
+  unsafe(GlobalAllocator.free(.Some((*(void))(ptr))))
 );
 
 // Process input and return result pointer + length

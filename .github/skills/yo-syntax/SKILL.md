@@ -35,7 +35,7 @@ Use this skill when you need to:
 - Yo has no operator precedence. Adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`); a chain of the SAME operator left-associates at any length (`a + b + c`, `a - b - c - d` is `(((a - b) - c) - d)`).
 - Use `func(arg)` with no space before `(` for every call; `func arg` and `func (arg)` are invalid.
 - Use `return(value)` / `return()` and `unwind(value)` / `unwind()`; bare control-flow arguments are invalid.
-- Use `recur(...)` for self-recursion instead of the function name.
+- A `::` function recurses by calling its own name; `recur(...)` names the enclosing function literal (anonymous functions; inside `io.async` it names the lambda).
 - Use `generic(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
 - Use `where(T <: Trait)` to constrain type parameters.
 - Effect parameters are explicit: name them in the function signature (e.g. `raise : Raise`, `exn : Exception`) and pass them at the call site. Install a handler locally with `name := Constructor(...)` for struct effects, or `(name : EffectType) = ((args) -> { ... })` when the RHS is a bare lambda that needs the `ctl(...) -> R` annotation.
