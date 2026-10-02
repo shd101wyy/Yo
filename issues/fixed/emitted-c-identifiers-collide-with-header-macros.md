@@ -97,6 +97,14 @@ hand `i32(1)`'s `1` through the variable-name function). Alongside it:
   raw comparison redeclared `T __yo_v_err = __yo_v_err;` and read `.data = err`
   — the only class the compiler's own stage-2 C surfaced).
 
+Residual gap (open, S3): a user's own name that begins with `_` is treated as compiler-shaped
+and stays bare, so `_LP64`/`_NSIG` (glibc) or newlib's one-letter `<ctype.h>` macros (`_N`, `_L`)
+still collide: `issues/yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`.
+
+LSP, `yo doc` and diagnostics never print emitted C names (no `src/lsp/`, `src/doc/` or
+diagnostics path calls the spelling functions), so they are unaffected. A debugger shows a Yo
+local as `__yo_v_<name>`.
+
 The `_c_reserved_words` deny-list now only guards `c_symbol_name` and
 compiler-shaped names (`_Bool`).
 
