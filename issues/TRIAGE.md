@@ -388,4 +388,5 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
 | [`yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`](./yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md) | S3 | — | — |
+| [`yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`](./yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md) | S3 | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | S2 | — | — |
