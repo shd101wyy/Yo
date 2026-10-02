@@ -305,3 +305,33 @@ test("t_dyn: required + negative traits", {
   );
   assert(ok, "DynT should carry 1 required + 1 negative trait");
 });
+// A TypeValue is a shared DAG: each level's two fields are the SAME node. A
+// tree walk visits 2^40 paths; `substitute` must visit each node once
+// (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md).
+_dag_level :: (fn(i : usize, child : TypeValue) -> TypeValue)({
+  labels := ArrayList(String).new();
+  labels.push(`a`);
+  labels.push(`b`);
+  types := ArrayList(TypeValue).new();
+  types.push(child);
+  types.push(child);
+  TypeValue.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false)
+});
+test("substitute: a shared struct DAG is substituted once per node", {
+  (ty : TypeValue) = t_some_t(`T`, usize(0));
+  (i : usize) = usize(0);
+  while(i < usize(40), {
+    ty = _dag_level(i, ty);
+    i = (i + usize(1));
+  });
+  s := subst_new();
+  subst_add(s, `T`, usize(0), t_i32());
+  (cur : TypeValue) = substitute(s, ty);
+  (depth : usize) = usize(0);
+  while(match(cur, .Struct({ id : _ }) => true, _ => false), {
+    cur = match(cur, .Struct({ field_types : fts }) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
+    depth = (depth + usize(1));
+  });
+  assert(depth == usize(40), "every level survives");
+  assert(are_types_compatible(cur, t_i32()), "the leaf T is substituted");
+});
