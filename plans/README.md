@@ -28,6 +28,7 @@ doc.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
 - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](AGENT_KNOWLEDGE_CONSOLIDATION.md) — one home per fact across the pack, the skills and the manuals: fix the cheatsheets' stale and self-contradicting rules, move unique facts into manuals, slim each skill to a trigger plus `yo context` pointers, make `yo skills install` prune, and compile documentation code blocks.
+- [`STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md) — `String` becomes a copy-on-write value: copies are independent whether or not the string was empty, mutators take `inout(self)`, and `as_bytes` splits into `to_bytes`/`into_bytes`. A dead-write warning finds the code that relied on shared writes, and the count-accuracy tests come first. The collections follow as the next campaign.
 
 ## Reference (`reference/`)
 
