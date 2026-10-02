@@ -21,6 +21,7 @@ log :: import("std/log");
 { bench, BenchResult } :: import("std/testing/bench");
 { DEFAULT_KEY_0, DEFAULT_KEY_1, hash_one_with_keys, hash_one } :: import("std/hash");
 { DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, FetchOptions } :: import("std/http/client");
+{ Waker } :: import("std/async/waker");
 // --- crypto/hmac: the named-algorithm wrappers (RFC 2202 / RFC 4231 style
 // vectors, key "key", message "The quick brown fox jumps over the lazy dog").
 test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
@@ -164,4 +165,14 @@ test("FetchOptions defaults match the exported constants", {
   assert(o.max_response_bytes == DEFAULT_MAX_RESPONSE_BYTES, "max_response_bytes default");
   assert(DEFAULT_MAX_REDIRECTS == usize(10), "10 redirects (browsers' ballpark)");
   assert(DEFAULT_MAX_RESPONSE_BYTES == (usize(64) * (usize(1024) * usize(1024))), "64 MiB");
+});
+// --- async/waker: a program that only STORES a `Waker` (no `io.await`) still
+// links. `Waker`'s Dispose calls `__yo_waker_release`, which only the async
+// runtime defines, and a call to it did not turn that runtime on
+// (issues/fixed/a-waker-in-a-program-without-await-calls-an-undeclared-runtime-function.md).
+_WakerSlot :: struct(w : Option(Waker), n : i32);
+test("a struct holding an Option(Waker) links without any await", {
+  s := _WakerSlot(w : .None, n : i32(1));
+  assert(s.n == i32(1), "n");
+  assert(s.w.is_none(), "no waker");
 });
