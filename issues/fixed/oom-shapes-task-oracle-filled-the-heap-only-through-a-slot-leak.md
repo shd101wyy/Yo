@@ -50,7 +50,7 @@ state stays live. The heap now fills in task-spawn allocation:
 in 492 blocks)`. The golden is unchanged.
 
 The same change also fixes the local-only failure of this case, filed in
-`issues/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`. Spawning a
+`issues/fixed/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`. Spawning a
 child that inherits the environment copies the parent's whole environment into
 its 64 KiB heap. The nix box's 33 KB environment exhausted it, while 16 KB
 fits. The children now get the shape as `argv[1]` and start with

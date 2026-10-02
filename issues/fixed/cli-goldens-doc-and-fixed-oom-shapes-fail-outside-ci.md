@@ -2,7 +2,7 @@
 
 **Severity:** S3 — local-only. Develop's CI gates are green (run 36570470718), but `gates_fast` GATE 7 is red on the WSL2/nix box for every branch.
 
-**Status: OPEN.** Found 2026-09-30 while gating `mem/codegen-plan`.
+**Status: FIXED 2026-10-03.** Found 2026-09-30 while gating `mem/codegen-plan`. The oom-shapes half was fixed by #1118, the `doc-*` half by the `yo doc` change below.
 
 **The six batteries were a different cause, now fixed.** The same local
 `gates_fast` runs also failed six batteries (iso, rc, walker, basic, file,
@@ -32,7 +32,13 @@ The same box also fails six CLI goldens, identically on both sides:
   same change also fixed a CI-visible break in the case's `task` shape:
   `issues/fixed/oom-shapes-task-oracle-filled-the-heap-only-through-a-slot-leak.md`.
 
-## Next step
+## Outcome
 
-- **`doc-*`:** `yo doc` should not pass its git probe's stderr through, and
-  the goldens should be re-recorded without it.
+- **`doc-*`:** `yo doc`'s git version probe (`_run_git`,
+  `src/doc_command.yo`) now drops git's stderr. The probe is optional
+  version detection that already falls back on failure, so the
+  `fatal: not a git repository …` line was noise, and its wording depends on
+  the filesystem layout. The five goldens are re-recorded without it and pass
+  on this box.
+- **`compile-allocator-fixed-oom-shapes`:** fixed by #1118; see the bullet
+  above.
