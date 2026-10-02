@@ -10,7 +10,7 @@
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
-{ CodeGenContext } :: import("../utils/index.yo");
+{ CodeGenContext, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { SmUnwindCatch } :: import("../exprs/async_completion.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
@@ -148,7 +148,7 @@ FunctionGenerationContext :: ref(
     /// Drops for RC vars consumed by return values (emitted on unwind only).
     consumed_var_pending_drops : Option(ArrayList(AstExpr)),
     /// Variables locally shadowed (e.g. match destructuring) — use the local C
-    /// var, not the SM field.
+    /// var, not the SM field. Keyed by the SANITIZED C name.
     local_shadowed_variables : Option(HashSet(String)),
     /// Single-pass async lowering: the state-machine slot a shadowed name
     /// (a match-arm binding) lives in. A shadowed name renders as that slot,
@@ -347,7 +347,7 @@ resolve_var_name_in_context :: (
               // See issues/fixed/fixpoint-linux-only-capture-field-numeric-name.md.
               result = match(
                 cv.kind,
-                .Outer => `sm->${context.sm_capture_slot}.${cv.base.name.clone()}`,
+                .Outer => `sm->${context.sm_capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
                 .Local => `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`
               );
             })

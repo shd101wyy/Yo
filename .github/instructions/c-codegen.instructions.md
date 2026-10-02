@@ -117,6 +117,33 @@ headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
 link step proves the import libraries you added to `src/main.yo` really export
 every symbol you call.
 
+## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
+
+Every Yo-derived LOCAL, PARAMETER, FIELD and enum VARIANT payload member is
+emitted under the prefix `__yo_v_` (`x` is `__yo_v_x`, `opt.value` is
+`opt.data.__yo_v_Some.__yo_v_value`): a header may define a macro of any
+spelling (`<openssl/asn1.h>`'s lower-case `ub_name`), so no Yo name is ever
+emitted bare (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
+Pick the spelling function by what the name IS:
+
+| Name | Function |
+| --- | --- |
+| Yo local, parameter, capture, field label, union member | `sanitize_for_c_identifier(name, false)` |
+| A field of a struct that may be ADOPTED from a header (`Point : Type`) | `c_field_name(owner_type, label)` (raw header spelling when adopted) |
+| An enum variant's member in the `data` union | `c_variant_member_name(variant)` |
+| A real C symbol (`c_include`/`extern("c")` function or global) | `sanitize_for_c_identifier(name, true)` |
+| An ABI or a fragment: exported/extern "Yo" function names, function ids, pieces of type/static names | `c_symbol_name(s)` (no prefix) |
+
+`sanitize_for_c_identifier(_, false)` is idempotent and leaves
+compiler-generated shapes alone: names beginning with `_` (temps, `__yo_*`,
+`_u42_`), `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…`, `var_…`. So a Yo name
+must go through it at its DECLARATION and at EVERY USE, and any set keyed by
+emitted names (`declared_c_var_names`, `declared_scopes`, the match shadow set
+`local_shadowed_variables`) is queried with the sanitized spelling. A raw Yo
+name pasted into emitted C (`.${label} =`, `closure_context->${name}`,
+`sm->__capture.${name}`, a hard-coded `self` or `.Some`/`.value`) is a C compile
+error; the stage-2 C of the compiler names any that remain.
+
 ## A codegen fix does not license the source form until the seed has it
 
 `yo build` compiles the compiler with the SEED (`SEED_VERSION` in

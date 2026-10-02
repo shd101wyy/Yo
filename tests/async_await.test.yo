@@ -6817,3 +6817,23 @@ test("an io.async future in a generic struct field and in an Option", {
   b := match(o, .Some(task) => io.await(task, io), .None => i32(-1));
   assert((a == i32(8)) && (b == i32(9)), "both held futures are awaited");
 });
+// ---------------------------------------------------------------------------
+// An io.async body's captures are fields of its capture struct and its state
+// machine; one named after a <stdio.h> macro (the runtime includes it on every
+// target) is spelled like any other Yo name
+// (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
+// ---------------------------------------------------------------------------
+_hm_leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+_hm_sync_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32)))(io.async((e : Io) => (EOF * i32(2))));
+_hm_sm_capture :: (fn(io : Io, EOF : i32) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    BUFSIZ := e.await(_hm_leaf(e, EOF), e);
+    FILENAME_MAX := e.await(_hm_leaf(e, BUFSIZ), e);
+    ((EOF + BUFSIZ) + FILENAME_MAX)
+  })
+);
+test("io.async captures and locals named after header macros", {
+  assert(io.await(_hm_sync_capture(io, i32(4)), io) == i32(8), "4 * 2");
+  // BUFSIZ = 5 + 1, FILENAME_MAX = 6 + 1
+  assert(io.await(_hm_sm_capture(io, i32(5)), io) == i32(18), "5 + 6 + 7");
+});

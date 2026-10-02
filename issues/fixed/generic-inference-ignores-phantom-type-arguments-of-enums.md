@@ -1,4 +1,6 @@
-# Generic inference ignores the phantom type arguments of structs and enums
+# Generic inference ignores the phantom type arguments of enums
+
+**Status: FIXED (enums), 2026-10-03.** The struct half stays open as `issues/generic-inference-ignores-phantom-type-arguments-of-structs.md` (see Fix below for why it could not ride along).
 
 **Severity:** S2 — a phantom index stops separating instantiations when it reaches a `generic(T)` function: `_Phantom(i32)` flows into `_Phantom(bool)` through `_pid`, and a body that reads such a `T` (`sizeof(T)`) emits C that does not compile.
 **Found:** 2026-10-01, reviewing `issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. Every case below is accepted by the develop-built compiler too, so none is a regression of that fix, and each has a struct twin that behaves the same way.
@@ -105,3 +107,41 @@ records an enum's phantom positions; a struct's are the type arguments its
 fields do not mention), into the substitution map and the era-repair trigger.
 `type_key` already keys phantom positions, so each binding would reach codegen
 as its own specialization.
+
+## Fix (enums)
+
+Measured on develop `22ae8e452` before the fix: (1) `_pid` accepted, check rc 0;
+(1b) `_ksize` failed C compilation (`sizeof(/* Error: no C type name for K */)`);
+(2) `_pick` accepted, check rc 0. Case (3) was already rejected on develop
+(E0601), fixed by #1112's enum type arguments.
+
+- `_synthesize_phantom_type_args` (`src/evaluator/types/synthesizer.yo`): after
+  the Enum+Enum case unifies payloads, it unifies the type arguments at the
+  enum's phantom positions (`enum_phantom_positions`, falling back to the
+  given instance's id). An unbound `T` binds there: (1) is rejected at the
+  assignment, and (1b) compiles and returns `1` and `8`.
+- `_phantom_binder_args` + a check after `_funcval_bind_foralls`'s name-match
+  loop (`src/evaluator/calls/function.yo`): a binder fixed by one parameter
+  (`y : T`) is compared with every argument's type argument at a phantom
+  position holding it, through the existing per-call conflict message. The
+  synthesizer alone cannot catch (2): a bound `T` recurses into
+  `bool` vs `i32`, two concrete types it leaves to the parameter's
+  compatibility check, and that check never sees the phantom position.
+
+Tests: `tests/type_soundness.test.yo` "a phantom argument binds a generic
+parameter", "a phantom argument is checked against a bound parameter", "a
+body reads a type parameter bound only by a phantom argument". All three fail
+on develop (reproduced with the cases above) and pass with the fix.
+
+### Why structs are not in this fix
+
+Recording a struct constructor's phantom positions (`_record_ctor_phantom_positions`
+returns early for a non-enum body) and unifying them the same way fixed the
+struct twins and broke `tests/type_soundness.test.yo`'s canary "two .map
+chains at different Item types keep their own Item": std's `IterMap(I, A, B, F)`
+mentions `A`/`B` in no field, and two `.map` chains at different `Item` types
+share one substituted instance id, so the second chain's instance carried the
+first chain's `type_arguments` and the unification bound `A := i32` for an
+`i64` chain ("does not implement required trait Fn(i64) -> i64"). An enum's
+type arguments are part of its type key since #1112; a struct's are not yet
+reliable enough to infer from.

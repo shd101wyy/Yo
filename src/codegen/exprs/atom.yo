@@ -53,7 +53,7 @@ _shadowed_name_code :: (fn(var_name : String, context : FunctionGenerationContex
 /// SM-resolvable variable (the caller falls through to the regular path).
 _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
   // Locally-shadowed (match-arm destructure) → the local C variable.
-  if(match(context.local_shadowed_variables, .Some(s) => s.contains(var_name.clone()), .None => false), {
+  if(match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(var_name.clone(), false)), .None => false), {
     return(Option(String).Some(_shadowed_name_code(var_name.clone(), context)));
   });
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
@@ -120,7 +120,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 // Plain SM field: outer → __capture.<name>; local → var_<id>.
                 field_name := match(
                   cv.kind,
-                  .Outer => `${context.sm_capture_slot}.${var_name.clone()}`,
+                  .Outer => `${context.sm_capture_slot}.${sanitize_for_c_identifier(var_name.clone(), false)}`,
                   _ => sm_local_field_name(cv.base.id.to_string())
                 );
                 return(Option(String).Some(`sm->${field_name.clone()}`));
@@ -201,7 +201,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         .Some(cv2) => {
           field_name2 := match(
             cv2.kind,
-            .Outer => `${context.sm_capture_slot}.${var_name.clone()}`,
+            .Outer => `${context.sm_capture_slot}.${sanitize_for_c_identifier(var_name.clone(), false)}`,
             _ => sm_local_field_name(fallback_key.clone())
           );
           return(Option(String).Some(`sm->${field_name2.clone()}`));
@@ -235,7 +235,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                     if(((e3.value.base.name == owner_name) || (e3.key == owner_id)) && !is_outer_owner, {
                       field_name3 := match(
                         e3.value.kind,
-                        .Outer => `${context.sm_capture_slot}.${owner_name.clone()}`,
+                        .Outer => `${context.sm_capture_slot}.${sanitize_for_c_identifier(owner_name.clone(), false)}`,
                         _ => sm_local_field_name(e3.key.clone())
                       );
                       return(Option(String).Some(`sm->${field_name3.clone()}`));
@@ -614,7 +614,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       // not the evaluator's temp `variable_name` (the destructure bind declares `<T> v = ...`
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
-      if(match(context.local_shadowed_variables, .Some(s) => s.contains(tv.clone()), .None => false), {
+      if(match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(tv.clone(), false)), .None => false), {
         return(
           match(
             match(context.shadow_slots, .Some(m) => m.get(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),

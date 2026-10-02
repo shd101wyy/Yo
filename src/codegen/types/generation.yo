@@ -23,6 +23,7 @@
   get_storage_type_string,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
+  c_variant_member_name,
   can_optimize_as_nullable_pointer,
   can_optimize_as_simple_enum,
   type_key
@@ -497,7 +498,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
             );
             fi = (fi + usize(1));
           });
-          context.emitter.emit_declaration_string_line(`  } ${vname};`);
+          context.emitter.emit_declaration_string_line(`  } ${c_variant_member_name(vname.clone())};`);
         });
         vi = (vi + usize(1));
       });

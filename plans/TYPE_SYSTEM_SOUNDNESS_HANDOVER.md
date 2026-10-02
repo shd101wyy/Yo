@@ -57,7 +57,7 @@ work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
 | `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
 | `tss/generic-extern-trial` | §3.3: the generic-extern trial failure, plus its Yo-fn twin found in review | fixed; both cli-cases red on the seed |
 | `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
-| `fix/header-macro-prefix` | §3.5 | parked: it edits the async codegen that `async-triage` rewrites |
+| `fix/header-macro-prefix` | §3.5 | rebased onto develop after `async-triage` (#1093); fixed, draft PR on develop (fixpoint holds) |
 
 **#1084 is superseded.** Its JoinHandle step 2 and both state-machine leak fixes are also on
 yo-65's `async-triage` (an owning `ref` JoinHandle, the value-handle branches deleted, Rule 1's
@@ -258,10 +258,15 @@ on that branch:
 
 ### 3.5 Other issues the plan links
 
-- `emitted-c-identifiers-collide-with-header-macros`: open. A survey of every
-  `sanitize_for_c_identifier` site is done. The rule has to be idempotent and skip
-  compiler-generated shapes (`_…temp_…`, `__yo_*`, `fn_yo_id_`, `yo_id_`, `var_…`). Capture-struct
-  fields are spelled raw at many sites and must move together with the declarations.
+- `emitted-c-identifiers-collide-with-header-macros`: fixed on `fix/header-macro-prefix`
+  (`issues/fixed/emitted-c-identifiers-collide-with-header-macros.md`). Every Yo-derived local,
+  parameter, field and enum payload member is emitted as `__yo_v_<name>`; compiler shapes
+  (`_…`, `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…`, `var_…`, numeric literals) keep their
+  spelling, so the rule is idempotent. ABI names and type/static fragments go through
+  `c_symbol_name` (no prefix), adopted-struct fields through `c_field_name`, union members through
+  `c_variant_member_name`. The rule for codegen authors is in
+  `.github/instructions/c-codegen.instructions.md`. A narrower deny-list rule was rejected: the
+  macro set of a `c_include`d header is not knowable at emit time.
 - Closed in this stretch: `derived-eq-ref-enum-self-payload-hollow-at-runtime`,
   `a-stream-combinator-used-twice-in-one-chain-emits-two-c-types`,
   `yo-self-where-clause-full-enforcement`; retired (no longer reproduce):
