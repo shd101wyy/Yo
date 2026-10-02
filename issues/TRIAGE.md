@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
 **Generated** by `scripts/gen-issue-triage.py` over the 190 open bug
-docs in `issues/` root and the 14 design questions in
+docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -60,6 +60,7 @@ Open decisions, not defects — each doc carries a `## Recommendation`
 awaiting the maintainer's verdict. Not counted in the tables above.
 
 - [`builtin-name-shadows-user-definition.md`](./questions/builtin-name-shadows-user-definition.md) — which name-resolution policy when user definitions collide with builtins: reserve, prefer user bindings, or warn
+- [`collections-value-or-reference-semantics.md`](./questions/collections-value-or-reference-semantics.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md`](./questions/emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md) — grow the emscripten heap, size it from a flag, or make the OOM abort say what happened
 - [`explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`](./questions/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`httpmethod-from-string-returns-option-not-result.md`](./questions/httpmethod-from-string-returns-option-not-result.md) — `HttpMethod.from_string` should be a `FromString` impl — with which error type
