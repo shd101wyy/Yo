@@ -822,6 +822,15 @@ yo test ./tests/internal/parser.test.yo --parallel 1
   CI does the same, and runs `tests/internal` as its own informational job
   (`compiler-internal-tests` in `.github/workflows/test.yml`).
 - Run them whenever modifying `src/` source or these tests.
+- **Two settings separate a real verdict from noise, and CI sets the first** (`YO_TEST_LEAK_VERDICT: "0"`
+  in `test.yml`). Measured 2026-10-01 on a loaded 32-core WSL box (load average around 20):
+  - Run with `YO_TEST_LEAK_VERDICT=0`. Without it, every test in `check_watch.test.yo` (12 of 12) fails
+    as `Memory leak detected:` with no assertion message. The harness evaluates modules in-process,
+    so the process-lifetime evaluator registries leak (`issues/self-hosted-emit-leaks-remaining-classes.md`).
+    ASan crash detection stays armed either way.
+  - Pass `--compile-timeout-ms 2400000` on a busy machine. The batch compile of `check_watch` /
+    `module_invalidation` took about 25 min there and tripped the default 600 s deadline (`Yo compilation
+    exceeded the configured time limit`, `0 of 12 tests in this batch ran`).
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
   host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.

@@ -390,9 +390,12 @@ _require_send_dyn_methods_reach_no_global :: (
                   fv,
                   .FuncVal(fvd, _) => match({
                     reach := function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env);
-                    // A Send dyn's methods may run on another thread.
-                    d1_note_thread_reach(fvd.*.func_id.clone());
-                    reach
+                    // A Send dyn's methods may run on another thread: what
+                    // they read is thread-reached, and already-written is a
+                    // violation now (the verdict may be a memo from before
+                    // the write).
+                    written := d1_note_thread_reach(fvd.*.func_id.clone());
+                    if(reach.is_some(), reach, written)
                   }, .Some(reason) => {
                     mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
                     msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;

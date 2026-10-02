@@ -1,0 +1,10 @@
+# Rule D1's mutable-static half, write-then-read order. `run`'s closure is
+# walked where it is created and memoizes `read_counter` as clean: `counter`
+# is not written yet (`bump`'s body is forced later, at its call). The
+# spawned closure then reached `read_counter` through that memo after the
+# write, and check and compile accepted a program whose thread reads
+# `counter` while main writes it. Publishing a thread closure's reads now
+# checks them against the writes already recorded
+# (issues/fixed/d1-thread-reach-misses-a-write-recorded-after-a-memoized-walk.md).
+stdout_keep_match=global 'counter' [^,]*, which is assigned at
+timeout=120

@@ -1,0 +1,6 @@
+# A StrictBorrow loop calling a read-only method whose own body loops over a
+# std ArrayList. The method's mutation mask is built by walking the iterator
+# methods it calls, whose ExprInfo is in std's table; `check` dropped that
+# table with the module and the mask came out "may mutate" (rejected), while
+# `compile` accepted the program and it printed 1
+# (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
