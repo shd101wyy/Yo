@@ -576,6 +576,173 @@ evaluated.
 These are real suspensions: a task spawned before an awaited condition runs
 while the awaiting task is suspended.
 
+## Writing `io.async` bodies: recursion and waiting on tasks
+
+### Recursion: call the outer function by name
+
+Inside an `io.async` lambda, `recur` names the **lambda**, not the function
+that returns it. The lambda's signature is `(io : Io) => …`, so `recur(n, io)`
+there is `E0603: Argument count mismatch: expected 1 arguments, got 2`. Call
+the outer `::` function by name instead:
+
+```rust
+{ println } :: import("std/fmt");
+
+count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) =>
+    cond(
+      (n == i32(0)) => i32(0),
+      true => (io.await(count_down(n - i32(1), io), io) + i32(1))
+    )
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  r := io.await(count_down(i32(10), io), io);
+  println(`count_down(10) = ${r}`); // count_down(10) = 10
+});
+export(main);
+```
+
+Every level is its own future, and all of them stay alive until the innermost
+one completes, so memory grows linearly with the depth. Measured with v0.2.49
+on Linux x86-64: 100,000 levels peak at 35 MB, 1,000,000 levels at 316 MB
+(about 310 bytes per level; no stack overflow, since the futures live on the
+heap).
+
+When the depth is data-dependent (a directory tree, a graph), keep an explicit
+worklist instead: one future in total, and the pending work is an `ArrayList`.
+
+```rust
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+
+// Split `n` into halves until every piece is 1, awaiting once per piece.
+count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    stack := ArrayList(i32).new();
+    stack.push(n);
+    (leaves : i32) = i32(0);
+    while(stack.len() > usize(0), {
+      cur := match(stack.pop(), .Some(k) => k, .None => i32(0));
+      io.await(yield(io), io); // stands in for the per-item I/O
+      cond(
+        (cur > i32(1)) => {
+          half := (cur / i32(2));
+          stack.push(half);
+          stack.push(cur - half);
+        },
+        true => {
+          leaves = (leaves + i32(1));
+        }
+      );
+    });
+    leaves
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  r := io.await(count_leaves(i32(1000), io), io);
+  println(`leaves = ${r}`); // leaves = 1000
+});
+export(main);
+```
+
+The same walk over 100,000 pieces peaks at 4 MB.
+
+### Waiting for spawned tasks from inside a task
+
+`handle.await(io)` and the `std/async` combinators (`join_all`, `race`,
+`race_first`, `any`, `any_first`, `timeout`) are **blocking waits**: each one
+loops over the event loop until its handles are finished. That is what you
+want in `main` or in any plain `fn`. Inside an `io.async` body it **nests the
+event loop**: the waiting task stays on the C stack while the inner loop runs
+the other tasks, the tasks under it on that stack cannot resume until the wait
+returns, and if the awaited work needs one of them the program deadlocks.
+
+By default the nested wait runs, so the mistake is easy to miss. With
+`YO_ASYNC_STRICT=1` the first wait inside a task that has to drive the loop is
+a deterministic panic, and `yo test` sets that variable for every test binary
+it runs under its default address sanitizer:
+
+```rust
+run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    handles := ArrayList(JoinHandle(i32)).new();
+    handles.push(io.spawn(work(i32(1), io), io));
+    handles.push(io.spawn(work(i32(2), io), io));
+    outs := join_all(handles, io); // ✗ a blocking wait inside a task
+    i32(outs.len())
+  })
+);
+```
+
+```
+panic: a blocking await ran inside an async task: an io.await in a non-io.async function,
+JoinHandle.await, or a std/async combinator (join_all/race/any/timeout) was called from a
+spawned or awaited task. That nests the event loop and can deadlock. ...
+```
+
+Calling `handles(i).await(io)` directly in place of `join_all` panics the same
+way. To collect spawned work from inside a task, suspend until every handle is
+terminal (`is_finished()` does not block; awaiting `yield` lets the loop run the
+other tasks), then read the results. A finished handle's `await` returns at once
+without driving the loop:
+
+```rust
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+
+work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    (k : i32) = i32(0);
+    while(k < i32(3), {
+      io.await(yield(io), io);
+      k = (k + i32(1));
+    });
+    id
+  })
+);
+
+all_finished :: (fn(handles : ArrayList(JoinHandle(i32))) -> bool)({
+  (i : usize) = usize(0);
+  (done : bool) = true;
+  while(i < handles.len(), {
+    if(!handles(i).is_finished(), { done = false; });
+    i = (i + usize(1));
+  });
+  done
+});
+
+run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    handles := ArrayList(JoinHandle(i32)).new();
+    handles.push(io.spawn(work(i32(1), io), io));
+    handles.push(io.spawn(work(i32(2), io), io));
+    // ✓ suspend until every handle is terminal
+    while(!all_finished(handles), { io.await(yield(io), io); });
+    // every handle is finished, so `await` reads the result without waiting
+    (sum : i32) = i32(0);
+    (i : usize) = usize(0);
+    while(i < handles.len(), {
+      match(handles(i).await(io), .Some(v) => { sum = (sum + v); }, .None => ());
+      i = (i + usize(1));
+    });
+    sum
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  n := io.await(run_all(io), io);
+  println(`sum ${n}`); // sum 3, also under YO_ASYNC_STRICT=1
+});
+export(main);
+```
+
 ## Event Loop
 
 The async runtime uses a simple **single-threaded event loop**:
