@@ -1442,6 +1442,31 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
 );
 /// A type collected for topological ordering: (typeId, type, cName, kind).
 _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, kind : String));
+/// The type ids in `context.types` not yet in `seen`, in bucket order, each
+/// added to `seen`. A walk whose body can register a type (an on-demand
+/// typedef resolving a member's C type) must not iterate the live map: a
+/// rehash relocates the entries under the iterator's bucket index and the walk
+/// revisits them, emitting their declaration twice
+/// (issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md).
+/// Call it until it returns nothing to also reach the types the walk registered.
+_unseen_type_ids :: (fn(context : CodeGenContext, seen : HashSet(String)) -> ArrayList(String))({
+  ids := ArrayList(String).new();
+  it := context.types.keys();
+  (done : bool) = false;
+  while(!done, {
+    match(
+      it.next(),
+      .Some(k) => if(!seen.contains(k.clone()), {
+        seen.insert(k.clone());
+        ids.push(k);
+      }),
+      .None => {
+        done = true;
+      }
+    );
+  });
+  ids
+});
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately).
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
@@ -2323,61 +2348,67 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
     _flush_i = (_flush_i + usize(1));
   });
   // Fourth pass: nullable-pointer-optimized enums.
-  nkeys := context.types.keys();
-  (gn : bool) = true;
-  while(gn, {
-    match(
-      nkeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
-          if(!skip && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
-            if(!context.on_demand_body_cnames.contains(entry.c_name.clone()), {
-              generate_enum_declaration(ty, entry.c_name.clone(), context);
+  pass4_seen := HashSet(String).new();
+  nkeys := _unseen_type_ids(context, pass4_seen);
+  while(nkeys.len() > usize(0), {
+    (ni : usize) = usize(0);
+    while(ni < nkeys.len(), {
+      match(
+        nkeys.get(ni),
+        .Some(tid) => match(
+          context.get_type_entry(tid.clone()),
+          .Some(entry) => {
+            ty := entry.ty;
+            skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+            if(!skip && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
+              if(!context.on_demand_body_cnames.contains(entry.c_name.clone()), {
+                generate_enum_declaration(ty, entry.c_name.clone(), context);
+              });
             });
-          });
-        },
+          },
+          .None => ()
+        ),
         .None => ()
-      ),
-      .None => {
-        gn = false;
-      }
-    );
+      );
+      ni = (ni + usize(1));
+    });
+    nkeys = _unseen_type_ids(context, pass4_seen);
   });
   // Fifth pass: dyn / union / future-trait declarations.
   pass5_futures := HashSet(String).new();
-  okeys := context.types.keys();
-  (go : bool) = true;
-  while(go, {
-    match(
-      okeys.next(),
-      .Some(tid) => match(
-        context.get_type_entry(tid.clone()),
-        .Some(entry) => {
-          ty := entry.ty;
-          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
-          od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
-          if(
-            !skip,
-            cond(
-              is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
-              (is_union_type(ty) && !od_done) => generate_union_declaration(ty, entry.c_name.clone(), context),
-              (is_future_trait_type(ty) && !od_done) => {
-                pass5_futures.insert(entry.c_name.clone());
-                generate_future_trait_declaration(ty, entry.c_name.clone(), context);
-              },
-              true => ()
-            )
-          );
-        },
+  pass5_seen := HashSet(String).new();
+  okeys := _unseen_type_ids(context, pass5_seen);
+  while(okeys.len() > usize(0), {
+    (oi : usize) = usize(0);
+    while(oi < okeys.len(), {
+      match(
+        okeys.get(oi),
+        .Some(tid) => match(
+          context.get_type_entry(tid.clone()),
+          .Some(entry) => {
+            ty := entry.ty;
+            skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+            od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
+            if(
+              !skip,
+              cond(
+                is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
+                (is_union_type(ty) && !od_done) => generate_union_declaration(ty, entry.c_name.clone(), context),
+                (is_future_trait_type(ty) && !od_done) => {
+                  pass5_futures.insert(entry.c_name.clone());
+                  generate_future_trait_declaration(ty, entry.c_name.clone(), context);
+                },
+                true => ()
+              )
+            );
+          },
+          .None => ()
+        ),
         .None => ()
-      ),
-      .None => {
-        go = false;
-      }
-    );
+      );
+      oi = (oi + usize(1));
+    });
+    okeys = _unseen_type_ids(context, pass5_seen);
   });
   // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
   // walk did not reach (the hook met them DURING pass 5).
