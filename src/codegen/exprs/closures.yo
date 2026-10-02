@@ -9,6 +9,7 @@
 { expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 { type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ sm_slot_of } :: import("../async/state_machine_naming.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -266,6 +267,24 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     decl.push_str(";");
     em := context.base.emitter;
     em.emit_string_line(decl);
+    // Rule 1: an owning temp with a task slot is dropped through the slot, so
+    // the capture struct goes there too
+    // (issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
+    if(context.in_async_state_machine.is_some(), {
+      match(
+        ei.variable_name,
+        .Some(cvn2) => match(
+          context.state_machine_variables,
+          .Some(smv) => match(
+            sm_slot_of(ei.env, cvn2, smv, context.variable_id_remapping, context.state_machine_field_aliases),
+            .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
     // Register the impl-closure-call mapping (key = concrete capture struct id).
     key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
     context.base.impl_closure_call_map.insert(

@@ -7,8 +7,9 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
-{ Variable } :: import("../../env.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 { fnv1a64 } :: import("../../utils.yo");
 /// The C field
@@ -125,4 +126,62 @@ sm_storage_id :: (fn(v : Variable, smv : HashMap(String, CapturedVariable), rema
     .None => own
   )
 });
-export(sm_storage_id);
+/// The task slot (`sm->…`) of the binding `name` resolves to in `env`, or
+/// `.None` when it is a C local. `smv` is the state machine's captured-variable
+/// map, `remap` and `aliases` the context's id remapping and field aliases.
+/// A local sharing a captured local's RC value is stored in that owner's
+/// slot (`sm_storage_id`).
+sm_slot_of :: (
+  fn(env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+)({
+  vs := get_variables_from_env(env, name);
+  v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
+  id := sm_storage_id(v, smv, remap);
+  if(!smv.get(id.clone()).is_some(), {
+    return(Option(String).None);
+  });
+  field := match(
+    aliases,
+    .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+    .None => sm_local_field_name(id.clone())
+  );
+  Option(String).Some(`sm->${field}`)
+});
+/// The temps an `io.await` consumes: moved into the task's await slot, which
+/// owns and releases them. Filled by `compute_cross_boundary_variables`; read
+/// by the temp-to-slot store, which must not also put one in a local slot
+/// (the abort dispose would then drop it a second time).
+(g_await_consumed_temps : HashSet(String)) = HashSet(String).new();
+note_await_consumed_temp :: (fn(name : String) -> unit)({
+  g_await_consumed_temps.insert(name);
+});
+is_await_consumed_temp :: (fn(name : String) -> bool)(
+  g_await_consumed_temps.contains(name)
+);
+/// The task-slot fields of NAMED locals, each with a move flag
+/// (`uint8_t __yo_mv_<field>`) beside it in its state-machine struct. A move
+/// out of such a slot sets the flag and leaves the value in place: the
+/// language lets the moved-from name still read the value while its new owner
+/// holds it (`current := manifest; … f(manifest)`), so zeroing the slot at the
+/// move read NULL. The abort dispose empties a flagged slot before its drops,
+/// and every store into the slot clears the flag
+/// (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+/// Filled by the struct emitter, which runs before the resume function.
+/// Field names carry the variable id, so a name identifies one struct's field.
+(g_sm_move_flag_fields : HashSet(String)) = HashSet(String).new();
+note_sm_move_flag_field :: (fn(field : String) -> unit)({
+  g_sm_move_flag_fields.insert(field);
+});
+/// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
+/// (`sm-><field>`), or `.None` when the slot has none.
+sm_move_flag_of :: (fn(sm_code : String) -> Option(String))({
+  if(!sm_code.starts_with("sm->"), {
+    return(Option(String).None);
+  });
+  field := sm_code.substring(usize(4), sm_code.len());
+  if(!g_sm_move_flag_fields.contains(field.clone()), {
+    return(Option(String).None);
+  });
+  Option(String).Some(`sm->__yo_mv_${field}`)
+});
+export(sm_storage_id, sm_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);

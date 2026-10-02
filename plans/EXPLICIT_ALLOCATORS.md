@@ -849,7 +849,7 @@ header typedefs, `__yo_alloc_prefix_t`), `src/codegen/functions/gc_runtime.yo`,
 (E0613 for `arena.scoped(() => io.async(...))`, three evaluator sites),
 `issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md`,
 `issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`.
-Filed open: `issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`
+Filed open: `issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`
 (the scope guard no longer stores `T`, so `with_allocator` does not depend on it).
 
 Files: `src/codegen/types/generation.yo` (the scope runtime beside
@@ -877,7 +877,7 @@ future's resume), `src/codegen/async/state_machine.yo`
    `?*T`, which ran into two pre-existing future-in-aggregate codegen bugs once
    `T` could be an `io.async` future. One is fixed,
    `issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`.
-   One is open, `issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.
+   One is open, `issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`.
 5. `tests/explicit_allocators.test.yo`: a ref struct (and `rc()` masking);
    objects outside the scope stay global; ref enum, `box`, `arc`,
    `AtomicBool` (an atomic ref struct — the D5 reversal), `dyn`; an `Iso`

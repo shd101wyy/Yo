@@ -2,12 +2,16 @@
 
 **Severity:** S1 — every discarded statement-level io.spawn leaks its 152-byte state machine (304 KB per 2000 spawns) — fire-and-forget programs grow without bound
 
-**Status: REOPENED 2026-09-29 — waits for the seed.** #991 fixed it with an OWNING JoinHandle
-(a `ref` struct whose Dispose releases the future). The v0.2.45 seed cannot lower that form, and
-it compiles the compiler's own `io.spawn` sites, so develop could not be built; std went back to
-the value JoinHandle, which reintroduces this leak. The owning form stays in the codegen and
-comes back once SEED_VERSION carries it: `issues/join-handle-ownership-waits-for-the-seed.md`.
-The regression test is parked as `issues/repros/statement-level-spawn-detaches-the-task.yo`.
+**Status: FIXED (2026-09-30), again.** std's `JoinHandle` is the owning `ref` struct once more
+(`issues/fixed/join-handle-ownership-waits-for-the-seed.md`, step 2): the v0.2.46 seed already
+carries the type-dispatched lowering, so the seed builds the compiler against it. Re-measured on
+develop `29bf728b4` before the flip: 2000 statement-level spawns lost 192,000 B (96 B each, the
+single-pass state machine) under valgrind; after it, none. The regression test is back in
+`tests/async/sm_protocol.test.yo`: "a statement-level spawn detaches the task, which frees itself".
+
+Between the two fixes (2026-09-29): #991's owning handle could not be lowered by the v0.2.45 seed,
+which compiles the compiler's own `io.spawn` sites, so std went back to the value handle and the
+leak returned.
 
 **Previously: FIXED (2026-09-29, #991).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 

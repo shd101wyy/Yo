@@ -78,4 +78,4 @@ fix, and CI's ASan leg sees the use-after-free. The http test above is the produ
 crashed without any tool.
 
 The same reproducer also shows a separate, older leak on the escape path:
-`issues/an-escaped-task-leaks-references-to-values-it-bound.md`.
+`issues/fixed/an-escaped-task-leaks-references-to-values-it-bound.md`.

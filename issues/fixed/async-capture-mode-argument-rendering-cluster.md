@@ -1,5 +1,10 @@
 # Capture-mode state-machine argument rendering: the still-open cluster
 
+**Status: FIXED** (closed 2026-09-30). Re-verified 2026-09-30 against develop `29bf728b4` and the v0.2.46 seed, using the probes in `issues/repros/async-capture-cluster/`:
+- Finding 1: `check` reports E0401 for an unbound name and for a missing import inside `io.async`. This was already fixed on the seed.
+- Finding 2: the cond-arm await compiles and runs (`v=7`, valgrind clean) since #1018's single-pass lowering. The seed rejects it with E0904.
+- Finding 3: prints `80` on both compilers, with and without ASan, with 0 bytes in use at exit.
+
 **Severity:** S2 — an unbound name inside io.async leaves check green but compile ICEs (swallowed not-found error)
 
 **Status: FIXED** (all three findings, verified 2026-10-01; last section). Split 2026-09-09 out of

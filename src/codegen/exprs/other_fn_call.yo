@@ -14,7 +14,7 @@
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -280,9 +280,11 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : St
     .None => (),
     .Some(cv) => {
       match(cv.kind, .Outer => return(()), .Local => ());
-      // Skip Future-typed temps — their lifecycle is managed by the await
-      // logic (await_future_X fields); storing here would double-free.
-      if(type_implements_future(cv.base.ty), return(()));
+      // A Future temp an await consumes is owned by the task's await slot
+      // from then on; its local slot must stay zero or the abort dispose
+      // drops it twice. Any other Future temp (an `io.spawn` argument) is an
+      // owner like every temp: its scope-end drop reads the slot.
+      if(type_implements_future(cv.base.ty) && is_await_consumed_temp(temp_var.clone()), return(()));
       em := context.base.emitter;
       em.emit_string_line(`${indent}sm->${sm_local_field_name(cv.base.id.to_string())} = ${sanitize_for_c_identifier(temp_var.clone(), false)};`);
     }
@@ -503,6 +505,11 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
           return(String.from(""));
         });
         is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
+        // A slot read, or a consuming read of one (`_sm_consuming_read`
+        // renders the slot plus its move marker): the value is already in
+        // hand, so neither a C local nor a dup applies. Falling back to the
+        // binding's name read a C local that a resumed task never initialized
+        // (issues/fixed/a-pattern-binding-moved-after-an-await-in-its-arm-reads-an-uninitialized-local.md).
         is_sm := arg_code.starts_with("sm->");
         sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
         // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
@@ -2587,54 +2594,63 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // Effect unwind: a fn-pointer call through a `ctl`/handler param may set
   // __yo_effect_escaped. Unlike the inline-expression default, emit the call to
   // a temp + post-call check so the escape propagates.
-  if(ou_may_unwind, {
-    // `is_unit_type` does not walk the SomeT resolution chain, and the
-    // normalization at the top of this function deliberately LEAVES
-    // `result_type` a SomeT whenever the call expression's own type is unit
-    // (the generic-ResumeType `ctl` cast needs the declared spelling). The
-    // registered-callee path above compensates for that by consulting the
-    // SomeT's spelling; this fn-pointer path did not, so a closure call whose
-    // result is a unit-valued generic emitted
-    //     void* tmp = closure_yo_id_N(&body, &self->_value);
-    // against a `void`-returning C function — "initializing 'void *' with an
-    // expression of incompatible type 'void'". That is exactly
-    // `Mutex(T).with_lock((v) => { v = i32(7); })`, the flagship std/sync
-    // form: R binds to unit, the specialization returns void, but the tail
-    // call still declared a `void*` temp. Every shape that reaches here today
-    // emits invalid C (`void`/`void*` temp initialized from a void call), so
-    // widening the test can only turn a C-compile error into working output.
-    //
-    // A generic-ResumeType `ctl` is EXCLUDED: that callee really is emitted as
-    // one `void*`-returning C function (issues/fixed/
-    // ctl-handler-void-signature-vs-sret-cast.md) and its branch below must
-    // still declare the temp the escape-path drops reference.
-    ou_result_is_void := cond(
-      // The callee's own emitted signature wins over the call site's view of
-      // its result whenever this is a static dispatch (see `cc_callee_ret`).
-      match(cc_callee_ret, .Some(ccr) => (ccr == `void`), .None => false) => true,
-      is_unit_type(result_type) => true,
-      ctl_generic_ret => false,
-      is_some_type(result_type) => {
-        ou_rts := get_type_string(result_type, context.base);
-        (ou_rts == `void`) || ((ou_rts == `void*`) && is_unit_type(ei.ty))
-      },
-      true => false
-    );
-    if(ou_result_is_void, {
-      // Interior-`inout` borrow flags around the indirect call (see the
-      // direct-call unit exit).
-      fp_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
-      // Clear __yo_effect_escaped before the indirect call
+  // `is_unit_type` does not walk the SomeT resolution chain, and the
+  // normalization at the top of this function deliberately LEAVES
+  // `result_type` a SomeT whenever the call expression's own type is unit
+  // (the generic-ResumeType `ctl` cast needs the declared spelling). The
+  // registered-callee path above compensates for that by consulting the
+  // SomeT's spelling; this fn-pointer path did not, so a closure call whose
+  // result is a unit-valued generic emitted
+  //     void* tmp = closure_yo_id_N(&body, &self->_value);
+  // against a `void`-returning C function — "initializing 'void *' with an
+  // expression of incompatible type 'void'". That is exactly
+  // `Mutex(T).with_lock((v) => { v = i32(7); })`, the flagship std/sync
+  // form: R binds to unit, the specialization returns void, but the tail
+  // call still declared a `void*` temp. Every shape that reaches here today
+  // emits invalid C (`void`/`void*` temp initialized from a void call), so
+  // widening the test can only turn a C-compile error into working output.
+  //
+  // A generic-ResumeType `ctl` is EXCLUDED: that callee really is emitted as
+  // one `void*`-returning C function (issues/fixed/
+  // ctl-handler-void-signature-vs-sret-cast.md) and its branch below must
+  // still declare the temp the escape-path drops reference.
+  ou_result_is_void := cond(
+    // The callee's own emitted signature wins over the call site's view of
+    // its result whenever this is a static dispatch (see `cc_callee_ret`).
+    match(cc_callee_ret, .Some(ccr) => (ccr == `void`), .None => false) => true,
+    is_unit_type(result_type) => true,
+    ctl_generic_ret => false,
+    is_some_type(result_type) => {
+      ou_rts := get_type_string(result_type, context.base);
+      (ou_rts == `void`) || ((ou_rts == `void*`) && is_unit_type(ei.ty))
+    },
+    true => false
+  );
+  // A unit call through a function pointer is a STATEMENT with its own
+  // post-call flush of the call node's deferred drops — whether or not it may
+  // unwind — exactly as the registered direct-call unit exit above does. The
+  // inline-expression return below leaves those drops to the enclosing
+  // emitter, and a bare unit fn body (`f :: (fn(e : B) -> unit)(e.log(`x`))`)
+  // only flushes its parameter drops after the statement, so the argument
+  // temporaries of such a call were never released.
+  if(ou_result_is_void, {
+    // Interior-`inout` borrow flags around the indirect call (see the
+    // direct-call unit exit).
+    fp_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
+    // Clear __yo_effect_escaped before an indirect call that may unwind.
+    if(ou_may_unwind, {
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-      ucall := indent.clone();
-      ucall.push_string(out.clone());
-      ucall.push_str(";");
-      em.emit_string_line(ucall);
-      _emit_borrow_releases(fp_bc, indent.clone(), context);
-      generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-      emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
-      return(Option(String).Some(String.from("")));
     });
+    ucall := indent.clone();
+    ucall.push_string(out.clone());
+    ucall.push_str(";");
+    em.emit_string_line(ucall);
+    _emit_borrow_releases(fp_bc, indent.clone(), context);
+    generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+    if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
+    return(Option(String).Some(String.from("")));
+  });
+  if(ou_may_unwind, {
     fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${ast_expr_id(expr).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {

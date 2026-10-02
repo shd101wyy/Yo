@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 184 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 178 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -29,15 +29,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
-| Async / effects | 7 | 1 |
+| Async / effects | 6 | 0 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 19 | 2 |
 | Std library | 52 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 50 | 9 |
-| **Total** | **184** | **31** |
+| Other | 45 | 7 |
+| **Total** | **178** | **28** |
 
 ## Counts by severity
 
@@ -45,8 +45,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 29 |
-| S2 | 85 |
+| S1 | 25 |
+| S2 | 83 |
 | S3 | 68 |
 | (missing) | 2 |
 
@@ -150,7 +150,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
 - [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
-- [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) — 10 KB
+- [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) — 11 KB
 
 ---
 
@@ -174,13 +174,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (7)
+### Async / effects (6)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) | S1 | OPEN — an inner | — |
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | S2 | OPEN | — |
-| [`impl-method-self-receiver-hollows-forwarded-spawn-closures.md`](./impl-method-self-receiver-hollows-forwarded-spawn-closures.md) | S1 | OPEN — worked around in `std/thread | yes |
 | [`io-async-variant-inference-passes-check-but-fails-compile.md`](./io-async-variant-inference-passes-check-but-fails-compile.md) | S3 | — | — |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
@@ -331,33 +330,29 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (50)
+### Other (45)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
-| [`a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`](./a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md) | S3 | OPEN | — |
+| [`a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md`](./a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md) | S2 | — | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md`](./a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md) | S1 | open | yes |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
-| [`an-escaped-task-leaks-references-to-values-it-bound.md`](./an-escaped-task-leaks-references-to-values-it-bound.md) | S2 | OPEN (measured; not yet diagnosed) | yes |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
-| [`an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`](./an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md) | S2 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-cannot-see-function-bodies-from-other-modules.md`](./check-cannot-see-function-bodies-from-other-modules.md) | S2 | OPEN (root cause measured; fix designed, not | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
-| [`colon-equals-is-accepted-in-a-compile-time-context.md`](./colon-equals-is-accepted-in-a-compile-time-context.md) | S2 | — | — |
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`init-agentsmd-template-omits-the-verify-recipe.md`](./init-agentsmd-template-omits-the-verify-recipe.md) | S3 | — | — |
-| [`join-handle-ownership-waits-for-the-seed.md`](./join-handle-ownership-waits-for-the-seed.md) | S1 | OPEN — tracker for a two-step landing forced | yes |
 | [`law-over-an-imported-callee-cannot-verify.md`](./law-over-an-imported-callee-cannot-verify.md) | S2 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
@@ -374,9 +369,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
-| [`ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md`](./ref-joinhandle-rewrites-left-value-shape-emitters-linux-stage1-red.md) | S1 | — | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
-| [`statement-level-io-spawn-leaks-the-state-machine.md`](./statement-level-io-spawn-leaks-the-state-machine.md) | S1 | — | yes |
+| [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | S2 | open | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
