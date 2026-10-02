@@ -152,7 +152,7 @@ xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`；arena 的每个操作都持有自己的锁，所以一个 arena 可以服务多个线程。`Arena` 句柄本身是引用计数的，不是 `Send`。
 - **泄漏检测能看到 arena。** 在 `--allocator fixed --debug-heap` 下，退出报告会列出每个从未 deinit 的 arena 和每个被 abandon 的 arena，以及它的活跃块数和已用字节数。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。设计文档：`plans/archive/EXPLICIT_ALLOCATORS.md`。
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。完整指南（`Arena` API、编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 

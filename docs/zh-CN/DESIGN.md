@@ -1016,7 +1016,7 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
 p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 ```
 
-不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)。
+不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
 ## 指针
 
