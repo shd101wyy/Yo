@@ -7,7 +7,7 @@
 //!   - `--format html` renders through doc/render_html.yo (markdown via the
 //!     vendored markdown_yo source — see that file's header).
 { String } :: import("std/string");
-{ println, eprintln, eprint } :: import("std/fmt");
+{ println, eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { Exception, IoExn } :: import("std/error");
@@ -88,13 +88,12 @@ _run_git :: (
     ai = (ai + usize(1));
   });
   out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
-  // The child inherits stderr, so git's own diagnostics (e.g.
-  // `fatal: not a git repository`) reach the terminal. Pass the captured
-  // stderr through verbatim to match.
-  stderr_text := String.from_bytes(out.stderr);
-  if(stderr_text.len() > usize(0), {
-    eprint(stderr_text);
-  });
+  // git's stderr is dropped. The probe is optional version detection, and a
+  // failure (outside a repository, no tag, no git) simply falls back to the
+  // next source. Passing `fatal: not a git repository` through was noise,
+  // and its wording depends on the filesystem layout, so it made the `doc-*`
+  // goldens machine-dependent
+  // (issues/fixed/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md).
   if(!out.status.success(), {
     return(Option(String).None);
   });
