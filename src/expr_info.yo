@@ -1000,6 +1000,9 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
 (g_scope_kept_live : usize) = usize(0);
 (g_scope_rereleased : usize) = usize(0);
+/// Shadow mode: the info object each id was released with (release mode
+/// tells a re-logged object by its husk env).
+(g_scope_shadow_objs : HashMap(ExprId, ExprInfo)) = HashMap(ExprId, ExprInfo).new();
 (g_scope_released : usize) = usize(0);
 (g_scope_kept : usize) = usize(0);
 (g_scope_mismatch : usize) = usize(0);
@@ -1172,7 +1175,9 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     // An env that shares no frame with the husk (a module-level binding
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
-    k := env_common_prefix_len_by_id(info.env, husk);
+    // The shared prefix is matched by `Frame.index_key`, the frame object
+    // itself: a `clone_env` rebuild keeps `id` but its variables can differ.
+    k := env_common_prefix_len(info.env, husk);
     // A call-time capture env (`capture_env_for`: the callee's def scope
     // flattened into frame 0, the call's frames after it) shares no frame
     // with the body's husk. Keeping its capture frame alive costs more than
@@ -1183,7 +1188,11 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     info_husk := husk;
     inner_from := k;
     shares_husk := ((k > usize(0)) || capture_shaped);
-    if(_is_scope_husk(info.env), {
+    already := cond(
+      (g_scope_mode == usize(2)) => _is_scope_husk(info.env),
+      true => match(g_scope_shadow_objs.get(id), .Some(o) => unsafe(__yo_ptr_eq(o, info)), .None => false)
+    );
+    if(already, {
       // This info object was released by an earlier body (logged again
       // there): its records stand.
       g_scope_rereleased = (g_scope_rereleased + usize(1));
@@ -1196,9 +1205,13 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       });
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
-      // An id can be released again (a nested or repeated evaluation logged
-      // in a later body): its earlier variables stay, joined by this one's.
-      prev := _scope_take_inner(id);
+      // An id can be released again with a NEW info (a nested or repeated
+      // evaluation logged in a later body): this release replaces the
+      // earlier records.
+      _r_prev := _scope_take_inner(id);
+      if(g_scope_mode == usize(1), {
+        g_scope_shadow_objs.insert(id, info);
+      });
       _r_k := g_scope_klen.remove(id);
       if(!(capture_shaped) && (k < husk.frames.len()), {
         g_scope_klen.insert(id, k);
@@ -1226,7 +1239,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).
-      inner := prev;
+      inner := ArrayList(Variable).new();
       match(
         bound,
         .Some(br) => {
