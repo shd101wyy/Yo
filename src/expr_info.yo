@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, get_variables_from_env_before, husk_binding_counts, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, husk_binding_counts, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1172,7 +1172,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     // An env that shares no frame with the husk (a module-level binding
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
-    k := env_common_prefix_len(info.env, husk);
+    k := env_common_prefix_len_by_id(info.env, husk);
     shares_husk := (k > usize(0));
     if(_is_scope_husk(info.env), {
       // This info object was released by an earlier body (logged again
