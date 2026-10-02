@@ -81,7 +81,7 @@ pragma(Pragma.AllowUnsafe);
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -851,14 +851,39 @@ _bind_forall_from_type_args :: (
     });
     eprintln(`[bfta] fa=${fa_name} fa_lvl=${fa_lvl.to_string()} pat_ta=${bfta_p} con_ta=${bfta_s}`);
   });
+  // For an enum only a PHANTOM position binds from the arguments
+  // (`enum_phantom_positions`, decided from the constructor's trial). A
+  // parameter that a payload mentions is bound, or deliberately left open,
+  // by field synthesis. Binding `Option(T)`'s `T` from an `Impl(Future(...))`
+  // argument made `Option(typeof(fut)).Some(fut)` comptime-only and failed a
+  // 61-test batch of tests/async_await.test.yo
+  // (issues/fixed/an-option-of-an-io-async-future-is-judged-comptime-only.md).
+  enum_phantom := match(
+    pattern,
+    .EnumT({ id : pat_eid }) => {
+      pf := enum_phantom_positions(pat_eid);
+      cond(
+        (pf.len() > usize(0)) => Option(ArrayList(bool)).Some(pf),
+        true => Option(ArrayList(bool)).Some(match(concrete, .EnumT({ id : con_eid }) => enum_phantom_positions(con_eid), _ => ArrayList(bool).new()))
+      )
+    },
+    _ => Option(ArrayList(bool)).None
+  );
   (j : usize) = usize(0);
   (n : usize) = pat_ta.len();
   while(j < n, {
     pj := match(pat_ta.get(j), .Some(t) => t, .None => t_unit());
-    is_match := match(
-      pj,
-      .SomeT({ name : pn, frame_level : pl }) => ((pn == fa_name) && (pl == fa_lvl)),
-      _ => false
+    position_ok := match(
+      enum_phantom,
+      .Some(flags) => match(flags.get(j), .Some(f) => f, .None => false),
+      .None => true
+    );
+    is_match := (
+      position_ok && match(
+        pj,
+        .SomeT({ name : pn, frame_level : pl }) => ((pn == fa_name) && (pl == fa_lvl)),
+        _ => false
+      )
     );
     if(is_match, {
       match(
