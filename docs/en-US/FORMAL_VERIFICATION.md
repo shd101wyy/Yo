@@ -125,6 +125,65 @@ A caller that violates the generic's `requires` (passing `flag = false`
 to a `requires(flag)` callee) is refuted at the call site with a
 counter-example.
 
+### Loop invariants
+
+A `while` loop is verified through an invariant. `invariant(...)` is the
+loop body's first statement and takes comma-separated predicates;
+`decreases(M)` may follow it with one measure:
+
+```rust
+pragma(Pragma.Verify);
+
+sum_to :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(r == ((n * (n + i32(1))) / i32(2)))
+  ) -> (r : i32)
+)({
+  i := i32(0);
+  acc := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
+    decreases(n - i);
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  acc
+});
+```
+
+The verifier proves the invariant on entry (`loop-invariant-entry`). It then
+**havocs** every variable the body assigns, here `i` and `acc`: each becomes
+a fresh value about which nothing is known except the invariant and the loop
+condition. It walks the body once over that state and proves the invariant
+again (`loop-invariant-iterate`). After the loop it knows only
+`invariant && !(i < n)`. A variable the loop never assigns, such as `n`,
+keeps its facts. So the invariant must state everything the post-condition
+needs about the loop's variables: `i <= n` is what turns `!(i < n)` into
+`i == n`.
+
+`decreases(n - i)` adds `loop-variant-nonneg` and `loop-variant-decreases`.
+Without it the loop still verifies, but its termination is not proved.
+
+A too-weak invariant usually shows up as a **refuted** post-condition, not as
+a loop error. Drop the `acc` conjunct above and the run reports:
+
+```
+    fn@sum_to.yo:7/ensures#0: REFUTED  counter-example: __yo_hv2_acc = #xffffffff, __yo_hv2_i = #x00000000, n = #x00000000
+```
+
+The `__yo_hv<N>_<name>` bindings are the havoced loop state: values the
+invariant allows but the loop never reaches. A model over them points at
+the invariant, not at the code. An invariant that fails on entry or is not
+preserved refutes `loop-invariant-entry` or `loop-invariant-iterate`
+instead. When the missing fact sits under a quantifier or in non-linear
+arithmetic, the solver answers `unknown` and the obligation is
+**`unproven`** rather than refuted (the copy loop in §Verified `for` loops
+does this when it calls std's `push`); the fix is the same. The
+`n <= i32(1000)` bound is part of the claim: drop it and the iterate step
+is refuted with an overflowing `acc`.
+
 ### Lexicographic measures
 
 `decreases(M1, M2, ...)` is a lexicographic measure (ATS's `.<m, n>.`): each
@@ -247,15 +306,36 @@ index. A leading `invariant(...)` in the body is the loop's, and
 index, as in Creusot. The copy loop needs no index of its own:
 
 ```rust
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// std's `push` states only the new length; this wrapper also states the
+// elements, which the copy's invariant needs.
+push_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    v : i32,
+    ensures(
+      xs.len() == (old(xs.len()) + usize(1)),
+      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
+    ),
+    assumed()
+  ) -> unit
+)(xs.push(v));
+
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));
-    out.push(x);
+    push_at_end(out, x);
   });
   out
 });
 ```
+
+`copy` proves; `push_at_end` reports `assumed`. With `out.push(x)` in its
+place, `loop-invariant-iterate` is `unproven`: std's `push` does not say
+which element it appended (§Sequences over lists).
 
 `produced(xs).len() <= xs.len()` is an implicit invariant. `break` exits
 with the state at the break. `continue` still consumes the element, so the
@@ -423,6 +503,19 @@ The argument is a function **type** with contract clauses and no body. Its
 and are what discharge the callees' own `requires` at each call site. A law
 evaluates to `unit`, so `name :: law(...)` binds unit and codegen emits nothing.
 
+**Known limitation: the callee must be in the law's own file.** A law over an
+imported callee, as in the example above, does not verify today. It reports a
+subset error on the law's `requires`:
+
+```
+  subset   law@laws.yo:4:22 [verify] — cannot verify: untyped expression
+           (x > i64(-(1000))) && (x < i64(1000))
+```
+
+The same law placed after `abs_value`'s definition in one file proves
+([`issues/law-over-an-imported-callee-cannot-verify.md`](../../issues/law-over-an-imported-callee-cannot-verify.md)).
+Until that issue is fixed, keep each law beside the contracted code it talks about.
+
 **A law is proved from the callee's contract, never from its body.** That is the
 point, and it is also the constraint: if `abs_value` promises only
 `ensures(r >= 0)`, the law above cannot be proved, because two values known only
@@ -452,7 +545,8 @@ one line stay distinct:
 ### The convention: a `spec/` directory the humans own
 
 Nothing in the compiler knows what a "law file" is — this is a convention, and
-it is the point of the feature:
+it is the point of the feature. It waits on the same-file limitation above (a
+law in `spec/` imports its callee, so today it reports a subset error):
 
 1. Keep laws in `spec/`, written by the people who decide what the software must
    do. The implementation may not edit them.
@@ -486,6 +580,23 @@ The outcome vocabulary is `ok`, `assumed`, `outside-subset`, `unproven`,
 a usage error that lists the set. A denied outcome fails in **every**
 mode, so `unproven` under `--strict` fails even in `verify+`, where it
 would otherwise fall back to a runtime assert.
+
+| Outcome | Meaning | A plain run |
+| --- | --- | --- |
+| `ok` | every obligation proved | passes |
+| `assumed` | contracts declared, body never walked | passes |
+| `outside-subset` | promised nothing, and the walk could not enter the body | passes |
+| `unproven` | the solver answered `unknown`: the budget ran out, or a fact the goal needs is missing | fails in `verify`; passes in `verify+` (runtime assert) |
+| `refuted` | the solver found a counter-example | fails |
+| `solver-error` | the solver could not run or answered with an error | fails |
+| `subset-error` | the body uses a construct outside the subset (`cannot verify: <construct>`) | fails |
+
+`vacuous` is not an outcome. It marks an `ok` function that generated no
+obligation at all: no `ensures`, no `assert`, no divisor, shift or index
+guard. Nothing was proved because nothing was asked. The report line reads
+`ok … — no obligations`, the JSON entry carries `"vacuous": true`, and
+neither `--strict` nor `--deny` fails on it (`--deny vacuous` is a usage
+error). Watch the summary's `(N of the ok vacuous)` count instead.
 
 Every run ends with a summary line — counts for all seven outcomes (zeros
 included, so it is greppable), how many of the `ok` results were
@@ -678,12 +789,37 @@ invariants — is `tests/spec/fixtures/valid/spec_insertion_sort.yo`.
 ## The solver
 
 One pinned Z3 (see `Z3_VERSION` in `src/verifier/z3.yo`; currently
-5.1.0). Resolution order: `YO_Z3_PATH` → the pinned install under
-`~/.cache/yo/solvers/` → automatic one-time download from GitHub
-Releases. Verdicts are cached per-obligation under
+5.1.0). Resolution order: `--solver-path <path>` → `YO_Z3_PATH` → the
+pinned install under `~/.cache/yo/solvers/` → automatic one-time download
+from GitHub Releases. A `--solver-path` that does not exist is a hard
+error (`verify: solver path '…' does not exist`), never a fallback to
+discovery. Verdicts are cached per-obligation under
 `~/.cache/yo/verify-cache/` (keyed by the sha256 of the query, the pin,
 and the run options); pass `--no-cache` to bypass. Determinism comes
 from `:rlimit` budgets (not wall-clock) and a fixed `:random-seed 0`.
+
+`--rlimit <n>` sets that budget per query (default 5000000). A query the
+budget leaves `unknown` gets one automatic retry at 20× the budget before
+it is reported `unproven`. Raise `--rlimit` for a large goal that ends
+`UNPROVEN  unknown`; the budget is part of the cache key, so the re-run
+asks the solver again.
+
+```bash
+yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
+```
+
+### Troubleshooting
+
+| Symptom | First move |
+| --- | --- |
+| `refuted` with a model | read the counter-example; it is usually the missing `requires`, or the claim is wrong |
+| a counter-example with an extreme value (`#x80000000`, `#xffffffff`) | the arithmetic overflows: the claim needs a range `requires`, not more proof |
+| a model over `__yo_hv…` names, or `unproven` on an `ensures` after a loop | the loop invariant is too weak (§Loop invariants) |
+| `UNPROVEN  unknown` | check that the facts are there first, then raise `--rlimit` |
+| a law, or a caller, cannot prove though the code is right | the callee's `ensures` is weaker than the claim needs: strengthen the contract |
+| `ok … — no obligations` | vacuous: add the `ensures` you meant |
+| `cannot verify: <construct>` | the body is outside the subset: restructure it, or use `verify+` to fall back to the runtime assert |
+| `cannot verify: untyped expression` on a law | the law's callee is imported (§Laws) |
 
 ## Try it
 
