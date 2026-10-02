@@ -41,6 +41,15 @@
 > the same commit (the fmt gate is green again).
 >
 > The doc below is the frozen pre-fix record.
+>
+> **Erratum (2026-10-02, found by the post-fix audit):** the frozen table's
+> `100%30%7%3 = 0 want 3` row was an arithmetic slip on the "want" side —
+> left-association gives `((100 % 30) % 7) % 3 = (10 % 7) % 3 = 0`, so the
+> measured 0 was already the CORRECT value and that row was never evidence
+> of the bug (the pre-fix mis-grouping `100 % (30 % 7) % 3` also gives 0,
+> verified on the v0.2.48 seed). The `-` and `/` rows carry the real signal;
+> `tests/operator_grouping.test.yo` pins the correctly-computed
+> `(200 % 70 % 40 % 6) == 2` instead.
 
 **Severity:** S1 — a 4+-operand same-operator chain parses one level off — `20 - 5 - 4 - 3` silently evaluates to 16
 

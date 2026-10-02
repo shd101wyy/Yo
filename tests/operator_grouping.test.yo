@@ -4,7 +4,8 @@
 //! Yo has no operator precedence: a chain of the SAME operator is
 //! left-associative (no parentheses needed), while adjacent DIFFERENT operators
 //! require explicit parentheses (otherwise a parse error — that rejection is
-//! exercised by the parser-level test in `src/tests/operator-grouping.test.ts`).
+//! exercised by "Reject adjacent different operators without parentheses" in
+//! tests/internal/parser.test.yo).
 import("std/string");
 { assert } :: import("std/assert");
 
@@ -58,8 +59,8 @@ test("comparison chaining is rejected", {
   // `1 < 2 < 3` left-associates to `(1 < 2) < 3`; `(1 < 2)` is a `bool`, so
   // `bool < 3` is a type error. (Adjacent DIFFERENT operators without parens —
   // e.g. `1 + 2 * 3` — are rejected at PARSE time, which `comptime_expect_error`
-  // cannot observe; that rejection is covered by the std/tests/yo-self migration
-  // itself, where every such site now requires explicit parentheses.)
+  // cannot observe; that rejection is pinned by "Reject adjacent different
+  // operators without parentheses" in tests/internal/parser.test.yo.)
   comptime_expect_error(1 < 2 < 3);
 });
 

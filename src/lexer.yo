@@ -6,7 +6,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue, intern_token_str } :: import("./token.yo");
 { format_lexer_error } :: import("./error.yo");
-{ UnicodeEscape, scan_unicode_escape, interpolation_body_end } :: import("./utils.yo");
+{ UnicodeEscape, scan_unicode_escape, surrogate_escape_error_message, interpolation_body_end } :: import("./utils.yo");
 /// One shared value String per fixed punctuation token. A backtick literal
 /// builds a fresh String per evaluation, so each `(`, `,`, `}` … token held
 /// its own one-byte buffer: with the unshared `.` and number tokens, the
@@ -154,17 +154,39 @@ tokenize_span :: (
           dot_sb.write_rune(cj);
           j = (j + usize(1));
         });
+        // Dots consumed by the loop above, BEFORE a suffix ('=' / '#')
+        // widens j - i: `...#` legitimately consumes four characters.
+        dot_run_len := (j - i);
         // Check for trailing '=' to form '..=' (inclusive range)
         next_after_dots := chars.get(j).unwrap_or(null_rune);
-        if(((j - i) == usize(2)) && (next_after_dots.char == u32(0x3D)), {
+        if((dot_run_len == usize(2)) && (next_after_dots.char == u32(0x3D)), {
           dot_sb.write_rune(next_after_dots);
           j = (j + usize(1));
         });
         // Check for trailing '#' to form '...#' (unquote_splicing).
         // Only the 3-dot form gets the `#` suffix; `..#` is two tokens.
-        if(((j - i) == usize(3)) && (next_after_dots.char == u32(0x23)), {
+        if((dot_run_len == usize(3)) && (next_after_dots.char == u32(0x23)), {
           dot_sb.write_rune(next_after_dots);
           j = (j + usize(1));
+        });
+        // A run of four or more dots is not in the closed set: without this
+        // check the whole run became ONE Operator token that bypassed the
+        // table validation below and surfaced much later as an evaluator
+        // "No matching call found for operator ...."
+        // (issues/fixed/a-run-of-four-dots-lexes-as-one-operator-bypassing-the-closed-set-check.md).
+        if(dot_run_len > usize(3), {
+          dot_str := dot_sb.to_string();
+          exn.throw(
+            dyn(
+              format_lexer_error(
+                module_path,
+                input,
+                line,
+                col,
+                `unknown operator in '${dot_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+              )
+            )
+          );
         });
         dot_str := dot_sb.to_string();
         kind := cond(((j - i) == usize(1)) => TokenKind.Dot, true => TokenKind.Operator);
@@ -410,6 +432,16 @@ tokenize_span :: (
         val_sb := StringBuilder.new();
         val_sb.write_byte(u8(0x22));
         str_closed := false;
+        // True right after a `\uXXXX` escape named a HIGH surrogate half: the
+        // LOW half of a legal pair validates in its own loop iteration, and
+        // only this state tells it the HIGH is directly behind it.
+        prev_escape_high := false;
+        // Characters of a `\u` escape still to be copied by the default arm
+        // below (digits, and for the braced form the braces). While positive
+        // they are part of the escape, NOT text between two surrogate halves:
+        // the digits of a HIGH half must not clear `prev_escape_high` before
+        // the LOW half's own iteration reads it.
+        (u_escape_pending : usize) = usize(0);
         while(k < n, {
           ck := chars.get(k).unwrap_or(null_rune);
           cond(
@@ -427,8 +459,50 @@ tokenize_span :: (
                   .Bad(msg) => exn.throw(
                     dyn(format_lexer_error(module_path, input, line, col, msg))
                   ),
-                  .Ok(_, _) => ()
+                  // A LONE surrogate half is rejected exactly like the braced
+                  // form's: the four-digit form spells an astral code point
+                  // only as a HIGH half followed by a LOW half, and a half
+                  // alone is not a character. Before this check the escape
+                  // sailed through validation and the evaluator's decoder
+                  // encoded the half as CESU-8 — invalid UTF-8, silently.
+                  // A HIGH half pairs with the `\uXXXX` LOW half directly
+                  // after it (lookahead); a LOW half pairs with the HIGH
+                  // half directly before it (`prev_escape_high` — each half
+                  // validates in its own iteration of this loop).
+                  .Ok(cp, consumed) => {
+                    if((cp >= u32(0xD800)) && (cp <= u32(0xDFFF)), {
+                      paired := false;
+                      if(cp <= u32(0xDBFF), {
+                        if(((chars.get(k + usize(1) + consumed).unwrap_or(null_rune)).char == u32(0x5C))
+                        && ((chars.get(k + usize(2) + consumed).unwrap_or(null_rune)).char == u32(0x75)), {
+                          match(
+                            scan_unicode_escape(chars, k + usize(2) + consumed),
+                            .Ok(lo, _) => if((lo >= u32(0xDC00)) && (lo <= u32(0xDFFF)), {
+                              paired = true;
+                            }),
+                            .Bad(_) => ()
+                          );
+                        });
+                      }, {
+                        paired = prev_escape_high;
+                      });
+                      if(!paired, {
+                        exn.throw(
+                          dyn(format_lexer_error(module_path, input, line, col, surrogate_escape_error_message()))
+                        );
+                      });
+                    });
+                    prev_escape_high = ((cp >= u32(0xD800)) && (cp <= u32(0xDBFF)));
+                    // consumed counts from the `u`; the escape's remaining
+                    // characters (four digits, or braces + digits) are copied
+                    // by the default arm and must not read as text.
+                    u_escape_pending = (consumed - usize(1));
+                  }
                 );
+              }, {
+                // Any other escape (`\n`, `\\`, …) between two `\uXXXX`
+                // halves breaks their adjacency exactly like literal text.
+                prev_escape_high = false;
               });
               val_sb.write_rune(ck);
               k = (k + usize(1));
@@ -451,6 +525,13 @@ tokenize_span :: (
               k = n;
             },
             true => {
+              if(u_escape_pending > usize(0), {
+                u_escape_pending = (u_escape_pending - usize(1));
+              }, {
+                // Literal text between two `\uXXXX` halves breaks their
+                // adjacency: `"\uD83Dx\uDE00"` is two lone halves.
+                prev_escape_high = false;
+              });
               val_sb.write_rune(ck);
               k = (k + usize(1));
             }
@@ -485,6 +566,15 @@ tokenize_span :: (
       },
       // Template string: `...`
       (c.char == u32(0x60)) => {
+        // The token (and its diagnostics) anchor at the OPENING backtick,
+        // like the block-comment branch's bc_start_ln: `line` advances with
+        // every newline inside the template, and pushing the END line with
+        // the START column mispointed every later diagnostic, and shifted
+        // each interpolation body's origin row
+        // (src/parser.yo `_template_body_origins` seeds from tok.row), by
+        // the template's newline count
+        // (issues/fixed/a-multiline-template-string-token-carries-the-end-row-and-start-column.md).
+        tpl_start_ln := line;
         k := (i + usize(1));
         ts_sb := StringBuilder.new();
         template_closed := false;
@@ -580,6 +670,18 @@ tokenize_span :: (
                           .Bad(_) => ()
                         );
                       });
+                      // A LONE surrogate half is rejected like the braced
+                      // form's: the pair is the only legal spelling of an
+                      // astral code point here, and a half alone used to
+                      // encode as CESU-8 (invalid UTF-8) — worse, the
+                      // parser re-split the decoded bytes into a synthetic
+                      // StringLit that re-decoded to the EMPTY string,
+                      // losing the whole literal part around it.
+                      if((code >= u32(0xD800)) && (code <= u32(0xDFFF)), {
+                        exn.throw(
+                          dyn(format_lexer_error(module_path, input, line, col, surrogate_escape_error_message()))
+                        );
+                      });
                       ts_sb.write_rune(rune(code));
                       k = (k + adv);
                     }
@@ -635,10 +737,10 @@ tokenize_span :: (
           );
         });
         if(!template_closed, {
-          exn.throw(dyn(format_lexer_error(module_path, input, line, col, `unterminated template string`)));
+          exn.throw(dyn(format_lexer_error(module_path, input, tpl_start_ln, col, `unterminated template string`)));
         });
         ts_val := ts_sb.to_string();
-        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : u32(tpl_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Comma and semicolon

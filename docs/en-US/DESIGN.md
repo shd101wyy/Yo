@@ -292,6 +292,8 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
 
 `yo fmt` is intentionally not configurable, following the same philosophy as `go fmt`: all Yo projects share one compact, consistent style with 2-space indentation.
 
+`yo fmt` elides provably-redundant parentheses (a re-parse must reproduce the original tree, so a group is only removed when grouping cannot change) and keeps every load-bearing one. That includes the redundant LEFT groups of a same-operator chain at any operand count — `(((20 - 5) - 4) - 3)` formats to `20 - 5 - 4 - 3` — while a parenthesized right operand is always kept: `20 - (5 - 4) - 3` is left untouched.
+
 ## Syntax
 
 ```rust
