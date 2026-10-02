@@ -152,7 +152,7 @@ xs := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`; every arena operation takes the arena's own lock, so one arena may serve several threads. The `Arena` handle itself is reference counted and not `Send`.
 - **The leak oracle sees arenas.** Under `--allocator fixed --debug-heap`, the exit report lists every arena that was never deinit and every abandoned one, with its live blocks and bytes in use.
 
-Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. Design: `plans/archive/EXPLICIT_ALLOCATORS.md`.
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `_in` constructors and the scope do not. The full guide (the `Arena` API, writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
 
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
