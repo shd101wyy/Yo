@@ -22,7 +22,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { DynImplEntry } :: import("../utils/index.yo");
-{ type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -144,18 +144,24 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   });
   // Declare the inner value's temp if the evaluator assigned one (deferred
   // drops may reference it).
+  // The name is compared and used in its C spelling: an atom's
+  // `variable_name` is the Yo name itself, whose rendering is already that
+  // variable (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
   match(
     value_ei.variable_name,
-    .Some(vn) => if(!(value_code == vn), {
-      var_type_and_name := get_variable_type_string(value_type, vn.clone(), context.base);
-      line := indent.clone();
-      line.push_string(var_type_and_name);
-      line.push_str(" = ");
-      line.push_string(value_code.clone());
-      line.push_str(";");
-      em.emit_string_line(line);
-      value_code = vn;
-    }),
+    .Some(vn) => {
+      vn_c := sanitize_for_c_identifier(vn.clone(), false);
+      if(!(value_code == vn_c), {
+        var_type_and_name := get_variable_type_string(value_type, vn.clone(), context.base);
+        line := indent.clone();
+        line.push_string(var_type_and_name);
+        line.push_str(" = ");
+        line.push_string(value_code.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+        value_code = vn_c;
+      });
+    },
     .None => ()
   );
   // Dup the inner value (Dyn wrapper holds a reference too).

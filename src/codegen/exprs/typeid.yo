@@ -3,7 +3,7 @@
 { AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ type_key, get_type_string, c_symbol_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// `typeid(T)` → a stable `(uintptr_t)&<static>` runtime type id. Registers a
 /// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
@@ -19,7 +19,7 @@ generate_typeid :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   type_id := type_key(ty);
   type_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => get_type_string(ty, context.base));
   static_var_name := String.from("__yo_typeid_");
-  static_var_name.push_string(sanitize_for_c_identifier(type_c_name, false));
+  static_var_name.push_string(c_symbol_name(type_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
     context.base.type_id_static_names.insert(static_var_name.clone());
     context.base.type_id_statics.insert(type_id.clone(), static_var_name.clone());

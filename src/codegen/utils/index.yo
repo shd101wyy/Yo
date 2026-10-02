@@ -1025,8 +1025,8 @@ _mangle_c_identifier_bytes :: (fn(s : String) -> String)({
 /// idempotent (several call sites sanitize a name twice): names beginning
 /// with `_` (temps `_<n>_temp_<n>`, `__yo_*`, this prefix itself, `_u42_`)
 /// and `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…`, `var_…` (state-machine
-/// locals). Such a name that is a C keyword (`_Bool`) still gets the
-/// `__yo_c_reserved_` prefix.
+/// locals), and numeric literals (a leading digit). Such a name that is a C
+/// keyword (`_Bool`) still gets the `__yo_c_reserved_` prefix.
 ///
 /// `is_extern_c`: a real C symbol (a `c_include`/`extern("c")` function or
 /// global, a member of a struct adopted from a header) keeps its spelling.
@@ -1074,8 +1074,10 @@ c_variant_member_name :: (fn(variant : String) -> String)(
   sanitize_for_c_identifier(variant, false)
 );
 /// A name the compiler generated, emitted as is (see sanitize_for_c_identifier).
+/// A leading digit is a numeric literal some atom paths hand over (`i32(1)`'s
+/// `1`); no Yo identifier starts with one.
 _is_compiler_shaped_identifier :: (fn(s : String) -> bool)(
-  s.starts_with("_") || (s.starts_with("fn_yo_id_") || (s.starts_with("yo_id_") || (s.starts_with("closure_yo_id_") || s.starts_with("var_"))))
+  s.starts_with("_") || s.starts_with("fn_yo_id_") || s.starts_with("yo_id_") || s.starts_with("closure_yo_id_") || s.starts_with("var_") || ((s.len() > usize(0)) && (s.byte_at(usize(0)) >= u8(48)) && (s.byte_at(usize(0)) <= u8(57)))
 );
 /// Check if a type should avoid the `const` qualifier even when not mutable.
 /// Object types need this so reference-counting operations remain legal.
