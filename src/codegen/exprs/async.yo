@@ -528,7 +528,8 @@ _join_names :: (fn(names : ArrayList(String)) -> String)({
   });
   out
 });
-/// Join path segments with "." (for `__capture.a.b` evidence access paths).
+/// Join path segments with "." (for `__capture.a.b` evidence access paths),
+/// each one a field label spelled as its struct declares it.
 _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
   out := String.from("");
   (i : usize) = usize(0);
@@ -536,7 +537,7 @@ _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(".");
     });
-    match(parts.get(i), .Some(n) => out.push_string(n.clone()), .None => ());
+    match(parts.get(i), .Some(n) => out.push_string(sanitize_for_c_identifier(n.clone(), false)), .None => ());
     i = (i + usize(1));
   });
   out
@@ -1434,7 +1435,7 @@ _build_async_capture_struct_literal :: (
                   dup_code := _call_generate_expr(dup_expr, indent.clone(), context);
                   vname_c := sanitize_for_c_identifier(vname.clone(), false);
                   declared := (context.base.declared_c_var_names.contains(vname.clone()) || scope_stack_contains(context.base.declared_scopes, vname_c));
-                  parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname, dup_code)}`);
+                  parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                 },
                 .None => {
                   code := _call_generate_expr(dup_expr, indent.clone(), context);
@@ -2013,7 +2014,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     }
   );
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := match(ei.variable_name, .Some(n) => n, .None => String.from("async_result"));
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -2993,7 +2994,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);

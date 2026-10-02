@@ -48,7 +48,8 @@
   can_optimize_as_nullable_pointer,
   get_deferred_drop_target_atom_name,
   fresh_local_name,
-  sanitize_for_c_identifier
+  sanitize_for_c_identifier,
+  c_variant_member_name
 } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -663,7 +664,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   // `Option(T)` of a pointer or reference handle is the bare pointer (NULL =
   // `.None`, `can_optimize_as_nullable_pointer`): `.Some(v)` is `v` itself.
   jh_nullable := can_optimize_as_nullable_pointer(option_type).is_some();
-  some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
+  some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
   unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));

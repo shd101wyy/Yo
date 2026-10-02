@@ -36,7 +36,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -1345,7 +1345,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                         init := matched_value_code.clone();
                         init.push_str(access);
                         init.push_str("data.");
-                        init.push_string(cvariant.clone());
+                        init.push_string(c_variant_member_name(cvariant.clone()));
                         init.push_str(".");
                         init.push_string(sanitize_for_c_identifier(label.clone(), false));
                         _emit_pattern_binding_decl(
@@ -1380,7 +1380,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                   init := matched_value_code.clone();
                   init.push_str(access);
                   init.push_str("data.");
-                  init.push_string(cvariant.clone());
+                  init.push_string(c_variant_member_name(cvariant.clone()));
                   init.push_str(".");
                   init.push_string(sanitize_for_c_identifier(field_label, false));
                   _emit_pattern_binding_decl(
@@ -1763,7 +1763,7 @@ _variant_field_code :: (fn(enum_ty : TypeValue, vname : String, label : String, 
   f := path.clone();
   f.push_str(cond(ptrish => "->", true => "."));
   f.push_str("data.");
-  f.push_string(vname.clone());
+  f.push_string(c_variant_member_name(vname.clone()));
   f.push_str(".");
   f.push_string(sanitize_for_c_identifier(label.clone(), false));
   f
@@ -2119,7 +2119,7 @@ _emit_pattern_chain :: (
         fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
         fcode := path.clone();
         fcode.push_str(cond(ptrish => "->", true => "."));
-        fcode.push_string(sanitize_for_c_identifier(flabel.clone(), false));
+        fcode.push_string(c_field_name(struct_ty, flabel.clone()));
         match(
           subs.get(i),
           .Some(sub) => {

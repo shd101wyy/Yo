@@ -35,7 +35,8 @@
   is_pointer_type,
   is_struct_type,
   is_enum_type,
-  can_optimize_as_nullable_pointer
+  can_optimize_as_nullable_pointer,
+  get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -936,7 +937,7 @@ pattern_literal_arm_guards :: (
                 out.push_string(matched_value_code.clone());
                 out.push_str(access);
                 out.push_str("data.");
-                out.push_string(cvariant.clone());
+                out.push_string(c_variant_member_name(cvariant.clone()));
                 out.push_str(".");
                 out.push_string(sanitize_for_c_identifier(field_label.clone(), false));
                 out.push_str(" == ");
@@ -968,13 +969,9 @@ pattern_literal_arm_guards :: (
 function_c_name :: (fn(func_id : String) -> String)(
   cond(
     (func_id.len() > usize(160)) => `__yo_fs_${fnv1a64(func_id.clone()).to_string()}`,
-    true => sanitize_for_c_identifier(func_id.clone(), false)
+    true => c_symbol_name(func_id.clone())
   )
 );
-/// Sanitize a string to be a valid C identifier. Replaces any byte that is
-/// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
-/// identifiers are ASCII). If the result is a C reserved word/macro and not
-/// extern-C, it is prefixed with `__yo_c_reserved_`.
 /// True when a binding named `name` with resolved type `ty` IS one of the
 /// extern-C globals declared under that name: the registry is name-keyed and
 /// holds EVERY declaration's type, so a local that merely shares the name
@@ -996,7 +993,8 @@ extern_c_global_matches :: (fn(name : String, ty : TypeValue) -> bool)({
   });
   false
 });
-sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
+/// `s` with every byte that is not `[a-zA-Z0-9_]` spelled `_u<byte>_`.
+_mangle_c_identifier_bytes :: (fn(s : String) -> String)({
   sanitized := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
@@ -1013,22 +1011,48 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
     });
     i = (i + usize(1));
   });
+  sanitized
+});
+/// The C spelling of a Yo-derived LOCAL, PARAMETER or FIELD name.
+///
+/// A Yo name is emitted under the prefix `__yo_v_`, which no header defines:
+/// any header a program or the runtime includes may define a macro of any
+/// spelling (`<openssl/asn1.h>`'s lower-case `ub_name`, `<stdio.h>`'s `EOF`,
+/// windef.h's `near`), and a deny-list of them was one macro short twice
+/// (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
+///
+/// Compiler-generated shapes keep their spelling, which also makes the rule
+/// idempotent (several call sites sanitize a name twice): names beginning
+/// with `_` (temps `_<n>_temp_<n>`, `__yo_*`, this prefix itself, `_u42_`)
+/// and `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…`, `var_…` (state-machine
+/// locals). Such a name that is a C keyword (`_Bool`) still gets the
+/// `__yo_c_reserved_` prefix.
+///
+/// `is_extern_c`: a real C symbol (a `c_include`/`extern("c")` function or
+/// global, a member of a struct adopted from a header) keeps its spelling.
+/// Symbols with an ABI of their own (exported library functions, extern
+/// "Yo" imports, function ids) go through `c_symbol_name` instead.
+sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
+  sanitized := _mangle_c_identifier_bytes(s);
   if(is_extern_c, {
     return(sanitized);
   });
-  // A Yo-derived name is emitted under the reserved prefix `__yo_v_`, which no
-  // header defines: any header a program or the runtime includes may define a
-  // lower-case macro (`<openssl/asn1.h>`'s `ub_name`), and a deny-list of them
-  // was one macro short twice
-  // (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
-  // Compiler-generated shapes keep their spelling, which also makes this
-  // idempotent: they begin with `_` (temps, `__yo_*`, this prefix) or are
-  // `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…` or a state-machine `var_…`.
   if(!_is_compiler_shaped_identifier(sanitized), {
     prefixed := String.from("__yo_v_");
     prefixed.push_string(sanitized);
     return(prefixed);
   });
+  _avoid_c_reserved_word(sanitized)
+});
+/// The C spelling of a symbol whose name is an ABI or a compiler-generated
+/// fragment rather than a Yo local: an exported or extern "Yo" function's
+/// name, a function id, a piece of a type or static's name. Byte-mangled,
+/// and moved off the C keywords and the macros in `_c_reserved_words`, but
+/// never given the `__yo_v_` prefix.
+c_symbol_name :: (fn(s : String) -> String)(
+  _avoid_c_reserved_word(_mangle_c_identifier_bytes(s))
+);
+_avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
   if(_c_reserved_words.contains(sanitized), {
     prefixed := String.from("__yo_c_reserved_");
     prefixed.push_string(sanitized);
@@ -1036,6 +1060,19 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
   });
   sanitized
 });
+/// The C member name of field `label` of the struct type `owner`. A struct
+/// ADOPTED by a `c_include` (`Point : Type` naming a Yo struct) is laid out
+/// by its header, so its members keep the header's spelling; every other
+/// field is a Yo name (sanitize_for_c_identifier).
+c_field_name :: (fn(owner : TypeValue, label : String) -> String)(
+  sanitize_for_c_identifier(label, get_adopted_extern_c_type(owner).is_some())
+);
+/// The C member name of variant `variant`'s payload in an enum's `data` union:
+/// a Yo name like any field (`data.__yo_v_Some.__yo_v_value`), so a variant
+/// named after a header macro (`EOF`) cannot collide either.
+c_variant_member_name :: (fn(variant : String) -> String)(
+  sanitize_for_c_identifier(variant, false)
+);
 /// A name the compiler generated, emitted as is (see sanitize_for_c_identifier).
 _is_compiler_shaped_identifier :: (fn(s : String) -> bool)(
   s.starts_with("_") || (s.starts_with("fn_yo_id_") || (s.starts_with("yo_id_") || (s.starts_with("closure_yo_id_") || s.starts_with("var_"))))
@@ -1579,7 +1616,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       (length_var.len() == usize(0)) => {
         element_type_string := recur(element, context);
         array_type_name := String.from("Array_");
-        array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
+        array_type_name.push_string(c_symbol_name(element_type_string.clone()));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
         if(!context.has_array_struct_type(array_type_name.clone()), {
@@ -1693,7 +1730,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       child_c_name := recur(c, context);
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
-      iso_name.push_string(sanitize_for_c_identifier(clean, false));
+      iso_name.push_string(c_symbol_name(clean));
       if(!context.has_iso_type(iso_name.clone()), {
         context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
       });
@@ -2180,6 +2217,9 @@ export(
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
+  c_symbol_name,
+  c_field_name,
+  c_variant_member_name,
   extern_c_global_matches,
   scope_stack_contains,
   should_avoid_const,

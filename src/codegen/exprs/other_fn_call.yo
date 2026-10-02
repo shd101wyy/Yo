@@ -15,7 +15,7 @@
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -414,8 +414,10 @@ _current_self_param_is_ref :: (fn(context : FunctionGenerationContext) -> bool)(
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
+    // `self` is the method's Yo parameter, spelled as every parameter is.
+    self_c := sanitize_for_c_identifier(String.from("self"), false);
     line := indent.clone();
-    line.push_str(if(_current_self_param_is_ref(context), "__yo_borrow_assert_unborrowed((void*)(*self));", "__yo_borrow_assert_unborrowed((void*)self);"));
+    line.push_string(if(_current_self_param_is_ref(context), `__yo_borrow_assert_unborrowed((void*)(*${self_c}));`, `__yo_borrow_assert_unborrowed((void*)${self_c});`));
     em.emit_string_line(line);
   })
 );
@@ -964,7 +966,7 @@ _generate_runtime_enum_construct :: (
           out.push_string(variant_tag);
           if(any_field, {
             out.push_str(", .data = { .");
-            out.push_string(variant.clone());
+            out.push_string(c_variant_member_name(variant.clone()));
             out.push_str(" = { ");
             out.push_string(inits);
             out.push_str(" } }");
@@ -1950,7 +1952,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                   any_init = true;
                   flabel := match(rt_fields.get(rfi), .Some(f) => f.label, .None => String.from(""));
                   cl_out.push_str(".");
-                  cl_out.push_string(sanitize_for_c_identifier(flabel, false));
+                  cl_out.push_string(c_field_name(wrapped, flabel));
                   cl_out.push_str(" = ");
                   // RC-managed args: the EVALUATOR attached a deferred `___dup`
                   // to shared (non-owning / named) args and CONSUMED owning

@@ -221,7 +221,7 @@ _drop_target_is_state_machine_field :: (fn(v : Variable, var_name : String, cont
   if(context.in_async_state_machine.is_none(), {
     return(false);
   });
-  if(match(context.local_shadowed_variables, .Some(ls) => ls.contains(var_name), .None => false), {
+  if(match(context.local_shadowed_variables, .Some(ls) => ls.contains(sanitize_for_c_identifier(var_name, false)), .None => false), {
     return(false);
   });
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(false));
