@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 192 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 191 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 21 | 2 |
-| Std library | 51 | 12 |
+| Std library | 50 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 58 | 10 |
-| **Total** | **192** | **31** |
+| **Total** | **191** | **31** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 27 |
 | S2 | 87 |
-| S3 | 76 |
+| S3 | 75 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -234,11 +234,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (51)
+### Std library (50)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
-| [`cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`](./cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md) | S3 | — | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | S2 | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | S2 | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | S2 | OPEN | — |
