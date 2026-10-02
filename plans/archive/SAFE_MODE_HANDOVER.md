@@ -179,10 +179,12 @@ detail.
 It is Phase 5b plus a flag that turns "guard emitted" into "error reported". Deferred;
 build it only on a user request, and never as the default.
 
-### 3.7 Adjacent (not safe mode, but the verifier 5b depends on)
+### 3.7 Adjacent (not safe mode, but the verifier 5b depends on) — DONE
 
-- `issues/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`
-  (S2): a sound program with an unsigned loop `decreases` is falsely refuted.
+- `issues/fixed/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`
+  (S2), fixed by #1114: a sound program with an unsigned loop `decreases`
+  was falsely refuted, and a u64 measure growing across the high bit
+  verified. All three sites now use the measure's own order.
 - `issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`: fixed by #1075
   (abstract generic bodies). A generic body elides nothing today (5b rule 5), and
   `tests/spec/fixtures/elision/div_generic_kept.yo` pins that; #1108's
