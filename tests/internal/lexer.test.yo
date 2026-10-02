@@ -1299,3 +1299,194 @@ test("Well-formed unicode escapes lex, and a template decodes them", {
     "a surrogate PAIR combines into the same code point"
   );
 });
+test("A lone surrogate escape in a template is a lex error", {
+  // A HIGH half without its LOW (or a LOW without its HIGH) is not a
+  // character; the PAIR test above is the legal spelling. Before the
+  // rejection the decoded half reached the parser as CESU-8, whose re-split
+  // synthetic StringLit re-decoded to the EMPTY string — `x\uD800y`
+  // silently became "" and lost the whole literal part around it
+  // (issues/fixed/a-lone-surrogate-unicode-escape-is-silently-accepted.md).
+  cases := ArrayList(String).new();
+  cases.push(String.from("s :: `x\\uD800y`;"));
+  cases.push(String.from("s :: `x\\uDC00y`;"));
+  for(cases, src => {
+    exn := Exception(
+      throw : (
+        err -> {
+          match(
+            downcast(err, YoError),
+            .Some(ye) => assert(
+              ye.to_string().contains(`unicode escape names a surrogate`),
+              "wrong error message"
+            ),
+            .None => assert(false, "expected a YoError diagnostic")
+          );
+          unwind(());
+        }
+      )
+    );
+    tokenize(src, `test.yo`, exn);
+    assert(false, "expected a lexer error to be raised");
+  });
+});
+test("A lone surrogate escape in a double-quoted literal is a lex error", {
+  // Same rule as the template form: the braced `\u{D800}` spelling was
+  // already rejected; the four-digit lone half used to pass validation and
+  // the evaluator's decoder then encoded it as CESU-8 — invalid UTF-8.
+  // Text (or another escape) between two halves makes BOTH halves lone:
+  // `"\uD83Dx\uDE00"` is two rejects, not one pair.
+  cases := ArrayList(String).new();
+  cases.push(String.from("s :: \"x\\uD800y\";"));
+  cases.push(String.from("s :: \"x\\uDC00y\";"));
+  cases.push(String.from("s :: \"\\uD83Dx\\uDE00\";"));
+  cases.push(String.from("s :: \"\\uD800\\n\\uDC00\";"));
+  for(cases, src => {
+    exn := Exception(
+      throw : (
+        err -> {
+          match(
+            downcast(err, YoError),
+            .Some(ye) => assert(
+              ye.to_string().contains(`unicode escape names a surrogate`),
+              "wrong error message"
+            ),
+            .None => assert(false, "expected a YoError diagnostic")
+          );
+          unwind(());
+        }
+      )
+    );
+    tokenize(src, `test.yo`, exn);
+    assert(false, "expected a lexer error to be raised");
+  });
+});
+test("A surrogate PAIR in a double-quoted literal keeps lexing", {
+  // The positive control for the rejection above: a HIGH half directly
+  // followed by its LOW half is the legal astral spelling (each half
+  // validates in its own loop iteration, so the LOW half must recognize the
+  // HIGH behind it). tests/string/string.test.yo decodes such pairs.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(String.from("s :: \"x\\uD83D\\uDE00y\";"), exn));
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no string token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.StringLit, "expected StringLit");
+      assert(tok.value == String.from("\"x\\uD83D\\uDE00y\""), "raw text preserved, delimiters included");
+    }
+  );
+});
+test("A run of four dots is a closed-set lex error", {
+  // The dot branch consumed the whole run and pushed ONE Operator token,
+  // bypassing the closed-set table validation the operator-run branch does;
+  // `....` then surfaced as an evaluator "No matching call found for
+  // operator ...." instead of a lex error
+  // (issues/fixed/a-run-of-four-dots-lexes-as-one-operator-bypassing-the-closed-set-check.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`unknown operator in '....'`), "names the run");
+            assert(s.contains(`closed operator set`), "carries the closed-set guidance");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("f(x .... y);"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A multiline template token carries its START row", {
+  // The token used to be pushed with the END line and the START column, so
+  // its own diagnostics mispointed and every interpolation-body origin
+  // (seeded from tok.row in src/parser.yo) shifted by the template's
+  // newline count
+  // (issues/fixed/a-multiline-template-string-token-carries-the-end-row-and-start-column.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // The template OPENS on row 2 and closes on row 4.
+  toks := non_ws(lex_or_panic(String.from("\ns :: `a\n${b}\nc`;"), exn));
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no template token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.row == u32(1), "row is the OPENING backtick's 0-based line, not the end line 3");
+    }
+  );
+});
+test("A comment inside an interpolation does not close the body", {
+  // interpolation_body_end had no comment mode: the commented `}` ended the
+  // body early and the re-lex died on an unterminated comment, while an
+  // apostrophe inside a line comment opened a phantom char literal that
+  // swallowed the real closing brace
+  // (issues/fixed/a-brace-or-quote-inside-a-comment-inside-an-interpolation-miscuts-the-body.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  block := non_ws(lex_or_panic(String.from("s :: `a ${x /* } */} b`;"), exn));
+  match(
+    block.get(usize(2)),
+    .None => assert(false, "no template token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.value.contains(`/* } */`), "the commented brace stayed inside the body");
+      assert(tok.value.contains(`} b`), "the real closing brace and tail survived");
+    }
+  );
+  line := non_ws(lex_or_panic(String.from("s :: `c ${x // don't}\n} d`;"), exn));
+  match(
+    line.get(usize(2)),
+    .None => assert(false, "no template token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.TemplateString, "expected the template token");
+      assert(tok.value.contains(`// don't`), "the line comment stayed inside the body");
+      assert(tok.value.contains(`} d`), "the brace after the newline closed the body");
+    }
+  );
+});
+test("Float with underscore separators is one Float token", {
+  // Token level: the raw text (underscores and all) is what reaches
+  // `parse_raw_float`; the VALUE semantics live in the language test
+  // (tests/float_non_finite_constants.test.yo).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(String.from("x := 1_000.5;"), exn));
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no float token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Float, "expected Float");
+      assert(tok.value == `1_000.5`, "the raw separator text is preserved");
+    }
+  );
+});

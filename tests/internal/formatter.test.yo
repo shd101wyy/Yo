@@ -6,7 +6,8 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { Exception, IoExn } :: import("std/error");
-{ format_yo_source } :: import("../../src/formatter.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ format_yo_source, collect_yo_files } :: import("../../src/formatter.yo");
 { assert, panic } :: import("std/assert");
 _fmt :: (fn(src : String) -> String)({
   exn := Exception(
@@ -327,4 +328,42 @@ test("fmt D4: multi-arg and infix-operand funcs keep their call parens", {
   // via the pre-existing rules (same output the seed produced), and the
   // operator keeps its call paren.
   assert(out.contains(String.from("*(a + b)(y)")), "non-atom operand is not canonicalized by D4");
+});
+test("collect_yo_files skips dot-prefixed files in a directory walk", {
+  // The walk collected EVERY `*.yo` including gitignored dot-files the
+  // toolchain generates beside sources (`.yo_selftest_batch_*`,
+  // src/main.yo's batch writer), so `fmt --check ./tests` false-red an
+  // otherwise clean checkout
+  // (issues/fixed/fmt-check-walks-gitignored-generated-dot-files.md).
+  // `.fmt_walk_ignored.yo` below is the committed probe: canonical content,
+  // so even a walker that regresses cannot reformat it — only this list
+  // membership check can see the skip.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected io error");
+        unwind(());
+      }
+    )
+  );
+  files := ArrayList(String).new();
+  collect_yo_files(Path.new(String.from("tests/internal/formatter_fixtures")), files, io, exn);
+  (saw_dot_file : bool) = false;
+  (i : usize) = usize(0);
+  while(i < files.len(), {
+    if(files.get(i).unwrap().contains(String.from(".fmt_walk_ignored")), {
+      saw_dot_file = true;
+    });
+    i = (i + usize(1));
+  });
+  assert(!saw_dot_file, "the dot-prefixed probe must be skipped by the walk");
+  // Explicit intent still formats a dot file handed to the walker directly.
+  direct := ArrayList(String).new();
+  collect_yo_files(
+    Path.new(String.from("tests/internal/formatter_fixtures/.fmt_walk_ignored.yo")),
+    direct,
+    io,
+    exn
+  );
+  assert(direct.len() == usize(1), "an explicitly-passed dot file is still collected");
 });

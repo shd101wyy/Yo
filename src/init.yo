@@ -135,7 +135,8 @@ generate_test_file :: (fn() -> str)(
 /// path.
 generate_lib_test_file :: (fn(name : String) -> String)(
   `{ add } :: import("${name}");
-` + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert(add(2, 3) == 5, \"add(2, 3) should be 5\");\n});\n")
+`
+  + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert(add(2, 3) == 5, \"add(2, 3) should be 5\");\n});\n")
 );
 /// Generate the content of `.gitignore`.
 generate_gitignore :: (fn() -> str)(
@@ -149,7 +150,8 @@ generate_readme :: (fn(name : String) -> String)(
 
 A project written in Yo programming language.
 
-` + String.from("## Project layout\n\n| Path | What it is |\n| ---- | ---------- |\n| `yo.toml` | The package manifest — name, version, `[modules]` (what importers get) and `[dependencies]`. |\n| `yo.lock` | Written by `yo install`. Commit it. |\n| `build.yo` | The build definition: artifacts and steps, written in Yo. |\n| `src/main.yo` | The executable's entry point. |\n| `src/lib.yo` | The library root. Importers get it under the package name, through the `[modules] default` entry — which is how `tests/lib.test.yo` imports it. |\n| `tests/*.test.yo` | Tests. `yo build test` runs every file in `tests/`. |\n\n## Build\n\n```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n\n## Dependencies\n\nDependencies are declared in `yo.toml` and resolved by Yo's own package manager:\n\n```bash\nyo add user/repo       # latest release tag, recorded as a semver range\nyo add user/repo@^1.2  # an explicit range\nyo add ./path          # a local path dependency\nyo remove name\nyo install             # fetch what yo.toml declares, write yo.lock\n```\n\n`yo build` fetches for you. The other commands — `yo check`, `yo test`,\n`yo compile`, `yo doc` — resolve imports but never fetch, so run `yo install`\nonce after cloning.\n")
+`
+  + String.from("## Project layout\n\n| Path | What it is |\n| ---- | ---------- |\n| `yo.toml` | The package manifest — name, version, `[modules]` (what importers get) and `[dependencies]`. |\n| `yo.lock` | Written by `yo install`. Commit it. |\n| `build.yo` | The build definition: artifacts and steps, written in Yo. |\n| `src/main.yo` | The executable's entry point. |\n| `src/lib.yo` | The library root. Importers get it under the package name, through the `[modules] default` entry — which is how `tests/lib.test.yo` imports it. |\n| `tests/*.test.yo` | Tests. `yo build test` runs every file in `tests/`. |\n\n## Build\n\n```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n\n## Dependencies\n\nDependencies are declared in `yo.toml` and resolved by Yo's own package manager:\n\n```bash\nyo add user/repo       # latest release tag, recorded as a semver range\nyo add user/repo@^1.2  # an explicit range\nyo add ./path          # a local path dependency\nyo remove name\nyo install             # fetch what yo.toml declares, write yo.lock\n```\n\n`yo build` fetches for you. The other commands — `yo check`, `yo test`,\n`yo compile`, `yo doc` — resolve imports but never fetch, so run `yo install`\nonce after cloning.\n")
 );
 /// Generate the content of `AGENTS.md` — the agent-facing entry point
 /// listing the installed Yo skill files. `targets` are the agent config
@@ -202,7 +204,8 @@ Version-matched Yo skill files are installed under ${locations} — one
 subdirectory per skill, each with a SKILL.md file. Read the relevant skill
 before writing or reviewing Yo code:
 
-` + bullets
+`
+      + bullets
     ),
     true =>
       `## Yo agent skills

@@ -3272,7 +3272,13 @@ collect_yo_files :: (
               skip := match(
                 entry.file_type,
                 .Directory => is_ignored_format_dir(entry_name.clone()),
-                _ => false
+                // Dot-prefixed FILES are generated artifacts the toolchain
+                // writes beside sources (`.yo_selftest_batch_*`, src/main.yo)
+                // and are gitignored; walking them made `fmt --check ./tests`
+                // false-red an otherwise clean checkout. A dot file passed
+                // EXPLICITLY as the target is still formatted — intent wins.
+                // (issues/fixed/fmt-check-walks-gitignored-generated-dot-files.md)
+                _ => entry_name.starts_with(String.from("."))
               );
               if(!skip, {
                 child_path := target_path.join(Path.new(entry_name.clone()));

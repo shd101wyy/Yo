@@ -115,9 +115,7 @@ scan_unicode_escape :: (fn(runes : ArrayList(rune), at : usize) -> UnicodeEscape
             String.from("unicode escape is out of range: the largest code point is 10FFFF")
           ),
           ((v >= u32(0xD800)) && (v <= u32(0xDFFF))) => UnicodeEscape.Bad(
-            String.from(
-              "unicode escape names a surrogate, which is not a character; write the astral code point itself"
-            )
+            surrogate_escape_error_message()
           ),
           // `u` + `{` + digits + `}`
           true => UnicodeEscape.Ok(v, digits + usize(3))
@@ -153,6 +151,14 @@ scan_unicode_escape :: (fn(runes : ArrayList(rune), at : usize) -> UnicodeEscape
     }
   )
 });
+/// The diagnostic every `\u` surrogate rejection shares: the braced form
+/// rejects a half outright (inside `scan_unicode_escape` above), and the
+/// lexer rejects a LONE half of the four-digit form — a HIGH half followed
+/// by a LOW half is the only legal way that form spells an astral code
+/// point.
+surrogate_escape_error_message :: (fn() -> String)(
+  String.from("unicode escape names a surrogate, which is not a character; write the astral code point itself")
+);
 // ---------------------------------------------------------------------------
 // Position-stable IDs and temp variable name generation (Phase 2,
 // plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5)
@@ -1065,6 +1071,38 @@ interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
       ((b == u8(0x22)) || (b == u8(0x27))) => {
         i = _skip_quoted_literal(bytes, i);
       },
+      // A comment is not code: a `}`, quote or backtick inside one must not
+      // end the body or open a literal. Without these arms `${x /* } */}` was
+      // cut at the commented `}` and re-lexed as an unterminated comment, and
+      // the apostrophe in `${x // don't}` opened a phantom char literal that
+      // swallowed the real closing brace
+      // (issues/fixed/a-brace-or-quote-inside-a-comment-inside-an-interpolation-miscuts-the-body.md).
+      ((b == u8(0x2F)) && (nb == u8(0x2F))) => {
+        (j : usize) = i;
+        while((j < n) && (bytes(j) != u8(0x0A)), {
+          j = (j + usize(1));
+        });
+        i = j;
+      },
+      ((b == u8(0x2F)) && (nb == u8(0x2A))) => {
+        // Block comments nest in Yo, so count depth like the lexer does.
+        (depth : usize) = usize(1);
+        (j : usize) = (i + usize(2));
+        while((j < n) && (depth > usize(0)), {
+          if((bytes(j) == u8(0x2F)) && (((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2A))), {
+            depth = (depth + usize(1));
+            j = (j + usize(2));
+          }, {
+            if((bytes(j) == u8(0x2A)) && (((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2F))), {
+              depth = (depth - usize(1));
+              j = (j + usize(2));
+            }, {
+              j = (j + usize(1));
+            });
+          });
+        });
+        i = j;
+      },
       (b == u8(0x60)) => {
         modes.push(_TS_TEXT);
         i = (i + usize(1));
@@ -1196,7 +1234,7 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
   )
 });
 export(parse_raw_int);
-export(hex_digit_value, UnicodeEscape, scan_unicode_escape, interpolation_body_end);
+export(hex_digit_value, UnicodeEscape, scan_unicode_escape, surrogate_escape_error_message, interpolation_body_end);
 export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,

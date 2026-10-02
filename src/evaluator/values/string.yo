@@ -125,8 +125,21 @@ decode_str_lit_escapes :: (fn(raw : String) -> String)({
                   .Bad(_) => ()
                 );
               });
-              sb.write_rune(rune(code));
-              k = (k + adv);
+              if((code >= u32(0xD800)) && (code <= u32(0xDFFF)), {
+                // UNREACHABLE from source: the lexer rejects a lone
+                // surrogate half with a positioned diagnostic before the
+                // token ever gets here. Copying the escape text through —
+                // exactly what the .Bad arm above does — beats encoding a
+                // surrogate half, which `write_rune` would write as CESU-8:
+                // not UTF-8 at all, and the reason this decoder used to
+                // hand back invalid bytes.
+                sb.write_rune(ck);
+                sb.write_rune(nck);
+                k = (k + usize(2));
+              }, {
+                sb.write_rune(rune(code));
+                k = (k + adv);
+              });
             }
           );
         },

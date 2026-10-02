@@ -181,6 +181,20 @@ filtered := iter.filter(pred);
 filtered := iter.filter((fn(x : *(i32)) -> bool)(x.* > i32(2)));
 ```
 
+**Nested `=>` needs explicit right parens.** An unparenthesized `(p1) => (p2) => body`
+is a SAME-operator chain and left-associates — `((p1) => (p2)) => body` — which
+then fails with a confusing evaluator error ("Expected a function type…") long
+after parsing. A closure returning a closure (in any slot whose expected type
+supplies the signature) is written with the right group, which fmt keeps:
+
+```rust
+// CORRECT — the inner closure is the RIGHT operand, grouped:
+(x : i32) => ((y : i32) => ((x + y)))
+
+// WRONG — parses as ((x) => (y)) => (x + y), an error at evaluation:
+(x : i32) => (y : i32) => ((x + y))
+```
+
 ## Return value rules
 
 - The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.

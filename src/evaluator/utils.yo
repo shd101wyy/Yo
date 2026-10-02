@@ -2136,7 +2136,12 @@ are_values_equal :: (
 /// Uses `atof` from the C standard library.
 /// Returns `None` if the string has no valid C-string representation.
 parse_raw_float :: (fn(raw : String) -> Option(f64))({
-  cs := raw.to_cstr();
+  // The lexer's float loops accept `_` separators exactly like the integer
+  // loops, but C `atof` stops at the first `_` — strip them the way
+  // `parse_raw_int` does (src/utils.yo), or `1_000.5` parses as `1.0`
+  // (issues/fixed/an-underscore-in-a-float-literal-silently-truncates-the-value.md).
+  stripped := raw.replace_all(`_`, ``);
+  cs := stripped.to_cstr();
   match(
     cs.ptr(),
     .Some(ptr) => .Some(unsafe(atof((*char)(ptr)))),
