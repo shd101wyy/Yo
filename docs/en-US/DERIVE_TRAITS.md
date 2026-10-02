@@ -185,6 +185,34 @@ For fieldless enums, equality and ordering are based on the variant discriminant
 
 Each field type in the struct or enum must already implement the trait being derived. For example, to `derive(Point, Eq(Point))`, the types `i32` (used for `x` and `y`) must implement `Eq`. Built-in types (`i32`, `u8`, `bool`, `str`, `String`, etc.) implement all standard traits.
 
+## Recursive types
+
+A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Box(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
+
+```rust
+{ ArrayList } :: import("std/collections/array_list");
+{ println, ToString } :: import("std/fmt");
+
+Node :: enum(Leaf, Branch(children : ArrayList(Self)));
+derive(Node, Eq(Node), ToString);
+
+main :: (fn() -> unit)({
+  xs := ArrayList(Node).new();
+  xs.push(Node.Leaf);
+  ys := ArrayList(Node).new();
+  ys.push(Node.Leaf);
+  a := Node.Branch(xs);
+  println(a == Node.Branch(ys)); // true
+  println(a == Node.Branch(ArrayList(Node).new())); // false
+  println(a.to_string()); // Node.Branch([Node.Leaf])
+});
+export(main);
+```
+
+The requirement above applies to the container as well. `ArrayList` implements `Eq`, `Clone` and `ToString` but not `Hash`, `Ord` or `Debug`, so those three cannot be derived for `Node`: `Ord` and `Debug` fail at the `derive` line, while `Hash` is accepted there and fails at the first `hash` call (`No method "hash" on ArrayList(Self)`).
+
+`Clone` on this shape is an open bug. For a value `enum` with a payload-less variant and an `ArrayList(Self)` field, `derive(Node, Clone)` passes `yo check` and then fails in the C compiler with `unknown type name` (`issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`). The same derive works on a `ref(enum(...))`, on an enum whose every variant carries a payload, and through `Box(Self)`. Copying a `Node` already shares its `children` list by handle, so most code needs no `Clone` here.
+
 ## `derive_rule` — User-Registrable Derive Rules
 
 `derive_rule` lets trait authors register how their traits should be derived. Once registered, `derive(Type, MyTrait(Type))` works exactly like the standard traits.
