@@ -663,9 +663,23 @@ test("a spawned future's temp that crosses an await is released", {
 });
 // issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md
 _MvReport :: struct(items : ArrayList(Thing), n : usize, extra : i32);
+// Overwrites the stack the suspended task's resume frame used, so a value
+// the task kept in a C local across the suspension reads garbage, whatever
+// the frame layout (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
+_scrub_stack :: (fn(k : u64) -> u64)({
+  (buf : Array(u64, 512)) = Array(u64, 512).fill(k);
+  (i : usize) = usize(0);
+  (s : u64) = u64(0);
+  while(i < usize(512), {
+    s = (s + buf(i));
+    i = (i + usize(1));
+  });
+  s
+});
 _count_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
+    _ := _scrub_stack(u64(777));
     i32(3)
   })
 );
@@ -821,4 +835,28 @@ test("a generic Dispose impl runs for a guard over a future, as over a ref struc
   assert(io.await(task, io) == i32(8), "the future's value");
   assert(t.n == i32(1), "the ref struct's value");
   assert(g_guards == i32(2), "both guards disposed");
+});
+// issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md
+_LenReport :: struct(items : ArrayList(i32), n : usize, extra : i32);
+_scrubbing_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    _ := _scrub_stack(u64(777));
+    i32(3)
+  })
+);
+_len_then_await :: (fn(io : Io) -> Impl(Future(_LenReport, Io)))(
+  io.async((e : Io) => {
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    xs.push(i32(2));
+    e.await(yield(e), e);
+    _LenReport(items : xs, n : xs.len(), extra : e.await(_scrubbing_later(e), e))
+  })
+);
+test("an earlier argument's value survives a suspension in a later argument", {
+  r := io.await(_len_then_await(io), io);
+  assert(r.n == usize(2), `the length computed before the await, read ${r.n}`);
+  assert(r.items.len() == usize(2), "the moved list");
+  assert(r.extra == i32(3), "the awaited argument");
 });
