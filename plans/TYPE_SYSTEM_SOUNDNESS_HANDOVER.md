@@ -244,11 +244,6 @@ definitions in 31 of them:
   the Yo-fn route. `_funcval_bind_foralls`'s structural fallback did not bind `U` from
   `a : *U` given the caller's rigid `*T`, so a `-> *U` or `-> Pair(*U, *U)` callee failed
   its caller's trial with a swallowed E0613. Without the fix this blocks step 3 for user code.
-- **`issues/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md`**
-  (S2, open, found in the same review): `wrap(y)` with `y` from another `wrap` call returns a
-  second C type for `Option(Option(i32))`. This is type identity (the enum key's
-  `g_tk_visited` cycle guard is the unconfirmed suspect) and belongs with
-  `tss/phantom-enum-type-args`.
 
 ### 3.4 Impl ordering
 
