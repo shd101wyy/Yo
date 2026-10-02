@@ -19,6 +19,8 @@
   get_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
+  c_field_name,
+  c_variant_member_name,
   can_optimize_as_nullable_pointer,
   can_optimize_as_simple_enum
 } :: import("../utils/index.yo");
@@ -387,7 +389,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
               out.push_string(variant_tag);
               if(any_field, {
                 out.push_str(", .data = { .");
-                out.push_string(variant.clone());
+                out.push_string(c_variant_member_name(variant.clone()));
                 out.push_str(" = { ");
                 out.push_string(inits);
                 out.push_str(" } }");
@@ -532,7 +534,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 any = true;
                 flabel := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
                 out.push_str(".");
-                out.push_string(sanitize_for_c_identifier(flabel, false));
+                out.push_string(c_field_name(ty, flabel));
                 out.push_str(" = ");
                 match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
               });
@@ -621,7 +623,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 agg_ty,
                 .Struct({ field_labels : labels }) => match(
                   labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels, elems), agg_ty, `.${sanitize_for_c_identifier(label, false)}`, context),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels, elems), agg_ty, `.${c_field_name(agg_ty, label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
                 .Tuple(_, _) => _static_address(EvalValue.TupleVal(elems), agg_ty, `._${index}`, context),

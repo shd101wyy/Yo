@@ -528,7 +528,8 @@ _join_names :: (fn(names : ArrayList(String)) -> String)({
   });
   out
 });
-/// Join path segments with "." (for `__capture.a.b` evidence access paths).
+/// Join path segments with "." (for `__capture.a.b` evidence access paths),
+/// each one a field label spelled as its struct declares it.
 _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
   out := String.from("");
   (i : usize) = usize(0);
@@ -536,7 +537,7 @@ _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(".");
     });
-    match(parts.get(i), .Some(n) => out.push_string(n.clone()), .None => ());
+    match(parts.get(i), .Some(n) => out.push_string(sanitize_for_c_identifier(n.clone(), false)), .None => ());
     i = (i + usize(1));
   });
   out
@@ -1072,7 +1073,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : Func
     match(
       fields.get(i),
       .Some(field) => if(!field.is_effect_param, {
-        field_ref := `sm->__capture.${field.label.clone()}`;
+        field_ref := `sm->__capture.${sanitize_for_c_identifier(field.label.clone(), false)}`;
         match(
           _rc_field_drop_line(field_ref.clone(), field.ty, String.from("  "), context),
           .Some(line) => em.emit_string_line(line),
@@ -1392,12 +1393,13 @@ _build_async_capture_struct_literal :: (
       fields.get(i),
       .Some(field) => {
         label := field.label.clone();
+        label_c := sanitize_for_c_identifier(label.clone(), false);
         // A unit field is erased from the capture struct, so it takes no
         // initializer (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
         if(is_unit_type(field.ty), {
           ();
         }, if(field.is_effect_param, {
-          parts.push(`.${label} = NULL`);
+          parts.push(`.${label_c} = NULL`);
         }, {
           // Find a matching deferred ___dup expression by variable name.
           (matched : Option(AstExpr)) = Option(AstExpr).None;
@@ -1433,11 +1435,11 @@ _build_async_capture_struct_literal :: (
                   dup_code := _call_generate_expr(dup_expr, indent.clone(), context);
                   vname_c := sanitize_for_c_identifier(vname.clone(), false);
                   declared := (context.base.declared_c_var_names.contains(vname.clone()) || scope_stack_contains(context.base.declared_scopes, vname_c));
-                  parts.push(`.${label} = ${if((declared || (dup_code.len() == usize(0))), vname, dup_code)}`);
+                  parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                 },
                 .None => {
                   code := _call_generate_expr(dup_expr, indent.clone(), context);
-                  parts.push(`.${label} = ${code}`);
+                  parts.push(`.${label_c} = ${code}`);
                 }
               );
             },
@@ -1463,7 +1465,7 @@ _build_async_capture_struct_literal :: (
               match(
                 sm_mapped,
                 .Some(sm_name) => {
-                  parts.push(`.${label} = ${sm_name}`);
+                  parts.push(`.${label_c} = ${sm_name}`);
                 },
                 .None => {
                   // A C local of the enclosing body (phase 6: not live
@@ -1475,7 +1477,7 @@ _build_async_capture_struct_literal :: (
                     cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
                     get_variable_name_for_codegen(label.clone(), cap_env)
                   });
-                  parts.push(`.${label} = ${cname}`);
+                  parts.push(`.${label_c} = ${cname}`);
                 }
               );
             }
@@ -1513,7 +1515,7 @@ _build_async_capture_struct_literal :: (
             fields.get(ri),
             .Some(f) => if(!f.is_effect_param, {
               match(
-                _rc_field_retain_line(`${tmp.clone()}.${f.label.clone()}`, f.ty, indent.clone(), context),
+                _rc_field_retain_line(`${tmp.clone()}.${sanitize_for_c_identifier(f.label.clone(), false)}`, f.ty, indent.clone(), context),
                 .Some(line) => {
                   retain_lines.push(line);
                 },
@@ -2012,7 +2014,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     }
   );
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := match(ei.variable_name, .Some(n) => n, .None => String.from("async_result"));
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -2918,7 +2920,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
               cap_em := Emitter.new();
               cap_saved := context.base.emitter;
               context.base.emitter = cap_em;
-              cap_stmt := generate_drop_code_for_value(`sm->__capture.${cf.label.clone()}`, cf.ty, context);
+              cap_stmt := generate_drop_code_for_value(`sm->__capture.${sanitize_for_c_identifier(cf.label.clone(), false)}`, cf.ty, context);
               context.base.emitter = cap_saved;
               cap_side := cap_em.print().split("\n");
               (csi : usize) = usize(0);
@@ -2992,7 +2994,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(future_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
@@ -3043,8 +3045,9 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       });
       lit_first = false;
       lbl := match(cap_labels.get(cli), .Some(l) => l, .None => String.from(""));
+      lbl_c := sanitize_for_c_identifier(lbl.clone(), false);
       lit.push_str(".");
-      lit.push_string(lbl.clone());
+      lit.push_string(lbl_c.clone());
       lit.push_str(" = ");
       // A captured field is normally the same-named variable in scope at the
       // io.async call site. When the call sits INSIDE another closure whose
@@ -3055,17 +3058,17 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := scope_stack_contains(context.base.declared_scopes, lbl.clone());
+      lbl_in_scope := scope_stack_contains(context.base.declared_scopes, lbl_c.clone());
       lbl_read := cond(
-        lbl_in_scope => lbl.clone(),
+        lbl_in_scope => lbl_c.clone(),
         match(
           context.current_closure_captures,
           .Some(caps9) => caps9.contains(lbl.clone()),
           .None => false
         ) => match(
           context.current_closure_capture_type_c_name,
-          .Some(ecap9) => `((${ecap9}*)closure_context)->${lbl.clone()}`,
-          .None => `closure_context->${lbl.clone()}`
+          .Some(ecap9) => `((${ecap9}*)closure_context)->${sanitize_for_c_identifier(lbl.clone(), false)}`,
+          .None => `closure_context->${sanitize_for_c_identifier(lbl.clone(), false)}`
         ),
         // Inside an ENCLOSING state machine (a sync io.async future built in
         // an async while-loop body), the captured variable is an SM field —
@@ -3075,7 +3078,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         true => match(
           _generate_sm_atom(expr, lbl.clone(), context),
           .Some(sm_lbl) => sm_lbl,
-          .None => lbl.clone()
+          .None => lbl_c.clone()
         )
       );
       lit.push_string(lbl_read);

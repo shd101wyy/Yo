@@ -25,7 +25,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
 { dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
@@ -95,7 +95,7 @@ _enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_n
                     }, {
                       out.push_str(".data.");
                     });
-                    out.push_string(vname);
+                    out.push_string(c_variant_member_name(vname));
                     out.push_str(".");
                     out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
                     return(out);
@@ -213,7 +213,7 @@ _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_na
     if(deref_level > usize(0), if(deref_level == usize(1), {
       out := object_code.clone();
       out.push_str("->");
-      out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      out.push_string(c_field_name(current_type, field_name.clone()));
       out
     }, {
       deref := String.from("(");
@@ -221,12 +221,12 @@ _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_na
       deref.push_string(object_code.clone());
       deref.push_str(")");
       deref.push_str("->");
-      deref.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      deref.push_string(c_field_name(current_type, field_name.clone()));
       deref
     }), {
       out := object_code.clone();
       out.push_str(".");
-      out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      out.push_string(c_field_name(current_type, field_name.clone()));
       out
     })
   })
@@ -387,13 +387,13 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     is_reference_struct_type(object_type) => {
       out := object_code.clone();
       out.push_str("->");
-      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out.push_string(c_field_name(object_type, field_name));
       out
     },
     true => {
       out := object_code.clone();
       out.push_str(".");
-      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out.push_string(c_field_name(object_type, field_name));
       out
     }
   )

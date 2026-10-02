@@ -30,7 +30,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -369,7 +369,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
                   .Some(ft) => if(type_contains_rc_type(ft), {
                     flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                     fname := sanitize_for_c_identifier(flabel, false);
-                    access := `(${value_code.clone()}).data.${vname.clone()}.${fname}`;
+                    access := `(${value_code.clone()}).data.${c_variant_member_name(vname.clone())}.${fname}`;
                     fd := recur(access, ft, context);
                     if(fd.len() > usize(0), {
                       line := String.from("    ");
@@ -757,7 +757,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
                     .Some(ed_ft) => if(type_contains_rc_type(ed_ft), {
                       ed_flabel := match(ed_labels.get(ed_fi), .Some(l) => l, .None => String.from(""));
                       ed_fname := sanitize_for_c_identifier(ed_flabel, false);
-                      ed_access := `(${ed_temp.clone()}).data.${ed_vname.clone()}.${ed_fname}`;
+                      ed_access := `(${ed_temp.clone()}).data.${c_variant_member_name(ed_vname.clone())}.${ed_fname}`;
                       ed_fd := recur(ed_access.clone(), ed_ft, context);
                       if((ed_fd.len() > usize(0)) && !(ed_fd == ed_access), {
                         ed_line := String.from("    ");

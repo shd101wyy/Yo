@@ -904,7 +904,7 @@ emit_future_effect_injection_line :: (
     em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, ${lbl}, (void*)${member_code});`);
     return();
   });
-  em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
+  em.emit_string_line(`${indent}${future_access}->__capture.${sanitize_for_c_identifier(field_label.clone(), false)} = (void*)${member_code};`);
 });
 /// Resolve the C code for an effect-handler field from the surrounding
 /// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
@@ -945,7 +945,7 @@ resolve_effect_field_from_sm_scope :: (
             is_outer := match(cv.kind, .Outer => true, .Local => false);
             if((cv.base.name == field_label) && is_outer, {
               s := String.from("sm->__capture.");
-              s.push_string(field_label.clone());
+              s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
               return(Option(String).Some(s));
             });
           },
@@ -1112,7 +1112,7 @@ emit_effect_record_injection_for_sm :: (
                 is_outer := match(cv.kind, .Outer => true, .Local => false);
                 if((cv.base.name == flabel) && is_outer, {
                   s := String.from("sm->__capture.");
-                  s.push_string(flabel.clone());
+                  s.push_string(sanitize_for_c_identifier(flabel.clone(), false));
                   member_code = Option(String).Some(s);
                 });
               },

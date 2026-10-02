@@ -24,7 +24,7 @@
 { is_dyn_type, is_enum_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -48,7 +48,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   type_id := type_key(target_type);
   type_id_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
-  static_var_name.push_string(sanitize_for_c_identifier(type_id_c_name, false));
+  static_var_name.push_string(c_symbol_name(type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
     context.base.type_id_static_names.insert(static_var_name.clone());
     context.base.type_id_statics.insert(type_id.clone(), static_var_name.clone());
@@ -244,7 +244,11 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       out.push_string(option_c_name.clone());
       out.push_str("){ .tag = ");
       out.push_string(some_tag);
-      out.push_str(", .data = { .Some = { .value = ");
+      out.push_str(", .data = { .");
+      out.push_string(c_variant_member_name(String.from("Some")));
+      out.push_str(" = { .");
+      out.push_string(sanitize_for_c_identifier(String.from("value"), false));
+      out.push_str(" = ");
       out.push_string(cast_expr);
       out.push_str(" } } } : (");
       out.push_string(option_c_name);

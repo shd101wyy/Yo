@@ -2515,6 +2515,39 @@ test("locals named after Windows macros survive codegen", {
   });
   assert(small == i32(5), "windows-macro-named locals must behave as plain locals");
 });
+// issues/fixed/emitted-c-identifiers-collide-with-header-macros.md: a Yo name is
+// emitted under a reserved prefix, so a macro an included header defines
+// (`<stdio.h>`'s `EOF`/`BUFSIZ`/`FILENAME_MAX`, which the runtime includes on
+// every target, and the lower-case `ub_name`/`yo_hm_count` of
+// header_macro_names.h) cannot replace a local, a parameter, a field, a
+// variant payload field or a closure capture.
+{ yo_hm_ub_name } :: c_include("\"header_macro_names.h\"", yo_hm_ub_name : (fn() -> int));
+HeaderMacroNamed :: struct(EOF : i32, BUFSIZ : i32, ub_name : i32);
+HeaderMacroPayload :: enum(Code(ub_name : i32, EOF : i32), Empty);
+HeaderMacroObject :: ref(struct(yo_hm_count : i32, obj : i32));
+_header_macro_param :: (fn(EOF : i32, FILENAME_MAX : i32, ub_name : i32) -> i32)(EOF + FILENAME_MAX + ub_name);
+test("locals, parameters and fields named after header macros are plain names", {
+  EOF := i32(1);
+  (BUFSIZ : i32) = i32(2);
+  ub_name := i32(3);
+  h := HeaderMacroNamed(EOF : EOF, BUFSIZ : BUFSIZ, ub_name : ub_name);
+  assert((h.EOF + h.BUFSIZ + h.ub_name) == i32(6), "fields named EOF, BUFSIZ and ub_name hold their values");
+  assert(_header_macro_param(i32(3), i32(4), i32(5)) == i32(12), "parameters named EOF, FILENAME_MAX and ub_name hold their values");
+  assert(unsafe(yo_hm_ub_name()) == int(32768), "the header's own macro is untouched");
+});
+test("payload fields, object fields and closure captures named after header macros", {
+  yo_hm_count := i32(7);
+  ub_name := i32(8);
+  (add : Impl(Fn(k : i32) -> i32)) = (k => (k + yo_hm_count + ub_name));
+  assert(add(i32(1)) == i32(16), "a closure captures locals named after macros");
+  p := HeaderMacroPayload.Code(ub_name : i32(5), EOF : i32(6));
+  got := match(p, .Code(ub_name, EOF) => (ub_name * EOF), .Empty => i32(0));
+  assert(got == i32(30), "a match binds payload fields named after macros");
+  o := HeaderMacroObject(yo_hm_count : yo_hm_count, obj : i32(9));
+  assert((o.yo_hm_count + o.obj) == i32(16), "a ref struct's fields (one named like its constructor's local) hold their values");
+  { BUFSIZ } := HeaderMacroNamed(EOF : i32(1), BUFSIZ : i32(10), ub_name : i32(2));
+  assert(BUFSIZ == i32(10), "a struct destructure binds a field named after a macro");
+});
 LowAlignPayload :: enum(
   Small(a : u8, b : u8, c : u8, d : u8),
   Wide(segments : Array(u16, 8))
