@@ -933,33 +933,30 @@ Counter(_count : i32(9), label : c.label); // error[E0405]: Cannot construct Cou
 
 ### recur
 
-使用 `recur` 来递归调用函数。
-这对匿名函数很有用。
-如果 `recur` 是最后一个表达式，将应用尾调用优化。
+`::` 函数按名字调用自身或同一模块的其他函数，这就是普通递归，不需要特殊形式：
 
-- 带尾调用优化
+```rust
+fact :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * fact(n - i32(1)))
+  )
+);
+```
 
-  ```rust
-  (fn(x : u32, acc : u32) -> u32)(
-    if(x == 1,
-      then: acc,
-      else:
-        recur(x - 1, acc * x)
-    )
-  );
-  ```
+`recur` 指代外层的函数字面量本身，用于没有名字可调用的匿名函数。在 `io.async`
+lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一次普通调用，
+不做尾调用优化。
 
-- 不带尾调用优化
-
-  ```rust
-  (fn(x : u32) -> u32)(
-    if(x == 1,
-      then: 1,
-      else:
-        x * recur(x - 1)
-    )
-  );
-  ```
+```rust
+(fn(x : u32, acc : u32) -> u32)(
+  if(x == 1,
+    then: acc,
+    else:
+      recur(x - 1, acc * x)
+  )
+);
+```
 
 ### 引用语义类型与内存管理
 
