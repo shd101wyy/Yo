@@ -98,3 +98,28 @@ test("same instantiation stays compatible, and generics with placeholders still 
   first :: (fn(generic(T : Type), xs : ArrayList(T)) -> Option(T))(xs.get(usize(0)));
   assert(first(list).is_some(), "Option(T) result of a generic");
 });
+// issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md:
+// a generic fn applied to its own result nests one `Option(U)` instance in
+// another under one enum id. codegen keyed the outer one apart from a declared
+// `Option(Option(T))` (the C compiler rejected the `return`), and keyed
+// `Option(Option(i32))` and `Option(Option(String))` alike.
+_ww_wrap :: (fn(generic(U : Type), x : U) -> Option(U))(.Some(x));
+_ww_twice :: (fn(x : i32) -> Option(Option(i32)))({
+  y := _ww_wrap(x);
+  _ww_wrap(y)
+});
+_ww_nested :: (fn(x : i32) -> Option(Option(i32)))(_ww_wrap(_ww_wrap(x)));
+_ww_generic :: (fn(generic(T : Type), x : T) -> Option(Option(T)))({
+  y := _ww_wrap(x);
+  _ww_wrap(y)
+});
+_ww_thrice :: (fn(x : i32) -> Option(Option(Option(i32))))(_ww_wrap(_ww_wrap(_ww_wrap(x))));
+_ww_inner :: (fn(o : Option(Option(i32))) -> i32)(match(o, .Some(.Some(v)) => v, _ => i32(-1)));
+test("a generic fn applied to its own Option result is the declared Option(Option(T))", {
+  assert(_ww_inner(_ww_twice(i32(9))) == i32(9), "through a local");
+  assert(_ww_inner(_ww_nested(i32(8))) == i32(8), "nested call");
+  assert(_ww_inner(_ww_generic(i32(7))) == i32(7), "generic caller at i32");
+  s := _ww_generic(String.from("str"));
+  assert(match(s, .Some(.Some(v)) => (v == String.from("str")), _ => false), "generic caller at String");
+  assert(match(_ww_thrice(i32(6)), .Some(.Some(.Some(v))) => (v == i32(6)), _ => false), "three deep");
+});

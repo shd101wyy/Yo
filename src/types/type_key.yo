@@ -890,4 +890,17 @@ stable_type_identity :: (fn(t : TypeValue) -> String)({
   g_sti_visited = ArrayList(String).new();
   _stable_identity_at(t, usize(0))
 });
-export(type_key, stable_type_identity, _tk_resolve_arg_slot);
+/// A generic enum instance's identity for a cycle guard keyed outside codegen:
+/// its id plus its type arguments' identities (`_tk_node_id`, pure: no key
+/// registry is read or written). Substitution keeps an instance's def-era id,
+/// so `Option(Option(i32))` from `wrap(wrap(x))` nests two `Option` instances
+/// under one id; a guard keyed by the id alone reads that nesting as a cycle.
+/// The id alone for a non-generic enum, "" for any other type.
+enum_instance_node_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(ein_id, ein_tas),
+    _ => String.new()
+  )
+);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);

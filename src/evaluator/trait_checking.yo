@@ -20,7 +20,8 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue, FuncMeta } :: import("../types/definitions.yo");
-{ is_function_type, is_some_type, is_pointer_type, is_struct_type } :: import("../types/guards.yo");
+{ is_function_type, is_some_type, is_pointer_type, is_struct_type, is_enum_type } :: import("../types/guards.yo");
+{ enum_instance_node_id } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -839,10 +840,16 @@ type_implements_trait :: (
   // and cannot recurse without going through a NOMINAL type (which keeps its
   // own id in the guard), so keying them by their structural rendering is
   // both terminating and precise.
-  ondemand_key := if(
-    type_id.is_empty(),
-    `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
-    `${type_id}:${_trait_type_id(trait_type)}`
+  // A generic enum instance keys by its id AND its type arguments
+  // (`enum_instance_node_id`): `Option(Option(i32))` built by `wrap(wrap(x))`
+  // nests two `Option` instances under one id, and an id-only key cut the
+  // inner `Option(i32) <: Runtime` as a cycle, so the outer type read as
+  // comptime-only and `a := wrap(wrap(n))` demanded `::`
+  // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+  ondemand_key := cond(
+    type_id.is_empty() => `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
+    is_enum_type(target) => `${enum_instance_node_id(target)}:${_trait_type_id(trait_type)}`,
+    true => `${type_id}:${_trait_type_id(trait_type)}`
   );
   if(!marker_name.is_empty() && !_ondemand_guard_contains(ondemand_key), {
     tn := marker_name.clone();
