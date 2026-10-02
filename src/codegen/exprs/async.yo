@@ -95,9 +95,13 @@
 /// nested bundle fields) and the C access path into the future's capture/bundle.
 EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
-/// async prefixes).
+/// async / waker prefixes). The `__yo_waker_*` family lives in runtime_core:
+/// a program that only stores a `Waker` (its Dispose calls
+/// `__yo_waker_release`) never awaits, so without the prefix the runtime was
+/// not emitted and the call was undeclared
+/// (issues/fixed/a-waker-in-a-program-without-await-calls-an-undeclared-runtime-function.md).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
-  name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_") || name.starts_with("__yo_async_")
+  name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_") || name.starts_with("__yo_async_") || name.starts_with("__yo_waker_")
 );
 /// The FIRST effect type of an io.async call's own recorded Future trait type,
 /// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the
