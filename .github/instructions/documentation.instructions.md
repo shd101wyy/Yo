@@ -60,6 +60,8 @@ yo doc --title "My Project"      # Set doc site title
 yo doc --format html|markdown|json  # Output format (default: html)
 yo doc --version v1.0.0          # Release version (auto-detects from git if omitted)
 yo doc --document-private        # Include non-exported items
+yo doc --logo <path>             # Image shown in the sidebar header
+yo doc --favicon <path>          # Site icon
 yo doc ./std --std-path ./std    # Document THIS TREE's std (see below)
 ```
 

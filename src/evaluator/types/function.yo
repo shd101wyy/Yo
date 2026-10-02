@@ -2027,10 +2027,10 @@ _unmet_trait_message :: (fn(concrete : TypeValue, tv : TypeValue, env : Environm
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
     want := match(wants.get(i), .Some(t) => t, .None => TypeValue.Unit);
     i = (i + usize(1));
-    if(!(is_some_type(want)) && (get_all_some_types(want).len() == usize(0)), {
+    if(!is_some_type(want) && (get_all_some_types(want).len() == usize(0)), {
       match(
         resolve_assoc_type_for_target(concrete, label.clone(), env),
-        .Some(got) => if(!(are_types_compatible(got, want)), {
+        .Some(got) => if(!are_types_compatible(got, want), {
           return(`${base}: its associated type ${label} is ${type_to_string(got)}, not ${type_to_string(want)}.`);
         }),
         .None => ()
@@ -2198,7 +2198,7 @@ validate_concrete_type_constraints :: (
       // in its module may satisfy the bound — force and re-check first.
       if(!tc_res.implemented && !negated, {
         match(
-          force_pending_impls_for_type_name(type_head_name_for_impl_forcing(concrete_type)),
+          force_pending_impls_for_type_name(type_head_name_for_impl_forcing(concrete_type), Option(String).None),
           .Forced => {
             tc_res = type_implements_trait(concrete_type, tv, env_mut);
           },
@@ -3519,12 +3519,12 @@ evaluate_function_parameters :: (
     });
     if(ast_expr_is_fn_call_of(c_expr, BF_DECREASES, Option(usize).None), {
       d_args := _fn_call_args(c_expr);
-      if(d_args.len() != usize(1), {
+      if(d_args.len() == usize(0), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("'decreases(...)' takes exactly one measure expression: decreases(M).")
+              String.from("'decreases(...)' takes a measure: decreases(M), or a lexicographic tuple decreases(M1, M2, ...).")
             )
           )
         );
@@ -3540,7 +3540,13 @@ evaluate_function_parameters :: (
         );
       });
       seen_decreases = true;
-      decreases_expr = d_args.get(usize(0));
+      // One component is the measure itself; several are a LEXICOGRAPHIC
+      // measure, stored as the decreases(...) call, whose components the
+      // verifier reads back (A5 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md).
+      decreases_expr = cond(
+        (d_args.len() == usize(1)) => d_args.get(usize(0)),
+        true => Option(AstExpr).Some(c_expr)
+      );
       continue;
     });
     if(ast_expr_is_fn_call_of(c_expr, BF_ASSUMED, Option(usize).None), {
@@ -4997,7 +5003,8 @@ _resolve_some_types_deep :: (
     // return type concretize `T` to the spawned future's actual output so the
     // `handle.await` generic-impl match can bind it. See
     // issues/fixed/yo-self-async-await-struct-result-eval.md.
-    if(_env_rebound_to_another_some(st, resolved), {
+    (rebound_to_some : bool) = _env_rebound_to_another_some(st, resolved);
+    if(rebound_to_some, {
       match(
         some_resolution(resolved),
         .Some(c) => {
@@ -5012,7 +5019,16 @@ _resolve_some_types_deep :: (
     if(is_bound_closure_identity(resolved), {
       resolved = resolve_cell_chain(resolved);
     });
-    if(!is_some_type(resolved), {
+    // A slot the env rebound to ANOTHER SomeType with no concrete resolution
+    // (the callee's `U := T` when the argument's type carries the CALLER's
+    // unresolved binder) substitutes to that SomeType at every depth, as the
+    // bare-SomeT branch above already does by returning `r`. Keeping only
+    // concrete resolutions here left `slot : *(U)` re-evaluating to `*(U)`
+    // while a bare `slot : U` became `T`, and Step 8 of the parameter check
+    // then rejected `*(T)` against `*(U)` — the prelude's `GcTracer.visit`
+    // failed its definition-time trial on every `check`
+    // (issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md).
+    if(!is_some_type(resolved) || rebound_to_some, {
       match(
         st,
         .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
@@ -5218,7 +5234,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
             some_resolution(tas_r),
             .Some(tas_g) => {
               // The env left the slot as itself: this is its own resolution.
-              if(!(_env_rebound_to_another_some(tas_st, tas_r)), {
+              if(!_env_rebound_to_another_some(tas_st, tas_r), {
                 tas_own = true;
               });
               tas_r = tas_g;
@@ -5329,7 +5345,7 @@ purge_function_side_tables :: (fn(ids : ArrayList(String)) -> unit)({
 });
 export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
-function_side_table_entry_count :: (fn() -> usize)(((((((((((((((((g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len()) + g_func_param_defaults.len()) + g_func_variadic_params.len()) + g_func_param_assigned_values.len()) + g_func_param_comptime.len()) + g_func_return_type_expr.len()) + g_func_param_default_exprs.len()) + g_func_param_type_exprs.len()) + g_func_where_constraints.len()) + g_func_where_clause_exprs.len()) + g_func_requires_exprs.len()) + g_func_ensures_exprs.len()) + g_func_decreases_expr.len()) + g_func_assumed_body.len()) + g_func_refined_params.len()) + g_func_return_label.len()));
+function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len() + g_func_param_defaults.len() + g_func_variadic_params.len() + g_func_param_assigned_values.len() + g_func_param_comptime.len() + g_func_return_type_expr.len() + g_func_param_default_exprs.len() + g_func_param_type_exprs.len() + g_func_where_constraints.len() + g_func_where_clause_exprs.len() + g_func_requires_exprs.len() + g_func_ensures_exprs.len() + g_func_decreases_expr.len() + g_func_assumed_body.len() + g_func_refined_params.len() + g_func_return_label.len());
 export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters);
 export(apply_where_clause_constraints);

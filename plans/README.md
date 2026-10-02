@@ -22,12 +22,12 @@ doc.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
 - [`CODEGEN_MEMORY_REDUCTION.md`](CODEGEN_MEMORY_REDUCTION.md) — cutting what `compile` holds beyond `check`: 3,417 → 2,692 MB so far (#1041, #1054, #1018). Env-free codegen was measured and rejected; the levers left must reduce what evaluation retains.
 - [`ASYNC_STATE_MACHINE_GENERATION.md`](ASYNC_STATE_MACHINE_GENERATION.md) — the async state-machine audit and its phased rewrite: loud failures, ownership/protocol fixes, fast paths, then a single-pass resumable lowering.
+- [`ASYNC_PERFORMANCE_HANDOVER.md`](ASYNC_PERFORMANCE_HANDOVER.md) — macOS async I/O at or above libuv: where the runtime and std rows stand, two open branches (await-site fusion #1073, the generic-aggregate future fix #1090), and the work left in order.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed; §14 lists the open work (the comptime-panic diagnostic, docs debt, oracles, the UBSan acceptance run, verifier-driven elision now that its FV gate is lifted, strict mode).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
 - [`EXPLICIT_ALLOCATORS.md`](EXPLICIT_ALLOCATORS.md) — Zig-style explicit allocators beside reference counting: placement by allocator, lifetime by RC, frees routed by an owner prefix. P0–P5 landed 2026-09-30; P3c (default containers follow the scope) parked on the seed.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
-- [`archive/LSP_AUDIT_2026-09-29.md`](archive/LSP_AUDIT_2026-09-29.md) — the `yo lsp` audit: one S1 (Windows text-mode framing kills the handshake), five smaller verified defects, ranked feature gaps, and the phased fix/sequencing plan. CLOSED 2026-10-01 (#1020, #1064, #1068); see its Closeout section.
 
 ## Reference (`reference/`)
 

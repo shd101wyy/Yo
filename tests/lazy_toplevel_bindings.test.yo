@@ -3,6 +3,8 @@
 // definitions and `impl(...)` registrations are order-independent. Every
 // definition below is deliberately placed AFTER its first use.
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ LaterS, later_twice_free, LaterT, later_bumped } :: import("./fixtures/lazy_impl_later_member.yo");
 import("std/fmt");
 // ---------- caller above callee ----------
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
@@ -125,6 +127,97 @@ export(exported_later);
 exported_later :: (fn() -> i32)(i32(99));
 test("export of a definition that appears after the export", {
   assert(exported_later() == i32(99), "exported_later");
+});
+// ---------- an element of a self-referential type, compared through a later impl ----------
+// issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md — an element
+// read from `ArrayList(Self)` is the declaration's nameless final, so the
+// operator miss forced no impl: E0610 on `a(i) != b(i)`.
+Tree :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+_kids_eq :: (fn(a : ArrayList(Tree), b : ArrayList(Tree)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    if(a(i) != b(i), {
+      return(false);
+    });
+  });
+  true
+});
+impl(
+  Tree,
+  Eq(Tree)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(
+        lhs,
+        .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
+        .Node(a) => match(rhs, .Node(b) => _kids_eq(a, b), _ => false)
+      )
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs == rhs))
+  )
+);
+test("list elements of a recursive enum compare through its later Eq impl", {
+  xs := ArrayList(Tree).new();
+  xs.push(Tree.Leaf(v : i32(1)));
+  ys := ArrayList(Tree).new();
+  ys.push(Tree.Leaf(v : i32(1)));
+  zs := ArrayList(Tree).new();
+  zs.push(Tree.Leaf(v : i32(2)));
+  assert(Tree.Node(kids : xs) == Tree.Node(kids : ys), "equal children");
+  assert(Tree.Node(kids : xs) != Tree.Node(kids : zs), "different children");
+});
+Branch :: ref(struct(v : i32, kids : ArrayList(Self)));
+_first_differs :: (fn(a : ArrayList(Branch), b : ArrayList(Branch)) -> bool)(a(usize(0)) != b(usize(0)));
+impl(
+  Branch,
+  Eq(Branch)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.v == rhs.v),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs == rhs))
+  )
+);
+test("list elements of a recursive struct compare through its later Eq impl", {
+  xs := ArrayList(Branch).new();
+  xs.push(Branch(v : i32(1), kids : ArrayList(Branch).new()));
+  ys := ArrayList(Branch).new();
+  ys.push(Branch(v : i32(2), kids : ArrayList(Branch).new()));
+  assert(_first_differs(xs, ys), "1 != 2");
+  assert(!_first_differs(xs, xs), "1 == 1");
+});
+// ---------- a member calling a trait method from a later impl of its own type ----------
+// issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md
+Pt :: struct(x : i32);
+impl(
+  Pt,
+  dup_via : (fn(self : Self) -> Pt)({
+    (r : Pt) = self.clone();
+    r
+  })
+);
+impl(Pt, Clone(clone : (fn(inout(self) : Self) -> Self)(Pt(x : (self.x + i32(1))))));
+test("an impl member calls a trait method defined in a later impl of its type", {
+  p := Pt(x : i32(3));
+  assert(p.dup_via().x == i32(4), "dup_via goes through the later Clone impl");
+});
+// ---------- a named miss in an imported module forces only the impls declaring it ----------
+// issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md — the
+// fixture's `copy_of` miss forced every pending impl of `LaterS`, this one
+// included, while this module's walk was still on the import: E0906.
+LaterShow :: trait(show : (fn(self : Self) -> i32));
+impl(LaterS, LaterShow(show : (fn(self : Self) -> i32)(self.twice())));
+test("an imported module's member miss does not force the importer's impls", {
+  s := LaterS(n : i32(2));
+  assert(s.show() == i32(4), "show goes through twice and the later copy_of");
+  assert(later_twice_free(s) == i32(4), "the free function reaches the later impl too");
+});
+// issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md —
+// the fixture's `later_bumped` misses a trait default; that forced this impl
+// while this module's walk was parked on the import (E0906 on `LaterT`).
+impl(LaterT, LaterShow(show : (fn(self : Self) -> i32)(later_bumped(self))));
+test("an imported free function's trait-default miss does not force the importer's impls", {
+  t := LaterT(n : i32(2));
+  assert(t.show() == i32(3), "show goes through the later impl's default");
 });
 // ---------- surfaced along the way: unit-valued body vs non-unit result ----------
 // issues/fixed/unit-valued-fn-body-return-type-mismatch-not-reported.md — a

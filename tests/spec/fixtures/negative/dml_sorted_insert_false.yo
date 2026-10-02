@@ -1,0 +1,44 @@
+// The false twin of valid/dml_sorted_insert.yo: appending x at the end does
+// not keep the list sorted.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// std's `push` states only its length until the seed carries the
+// proof-only ensures filter (plans/backlog/SEED_VERSION_AUTOMATION.md,
+// Generation B); this assumed wrapper states its elements meanwhile.
+push_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    v : i32,
+    ensures(
+      xs.len() == (old(xs.len()) + usize(1)),
+      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
+    ),
+    assumed()
+  ) -> unit
+)({
+  xs.push(v);
+});
+
+// REFUTED: x lands at the end whatever its value.
+insert_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    x : i32,
+    requires(
+      xs.len() < usize(1000000),
+      forall(i : usize, ((i < xs.len()) && ((i + usize(1)) < xs.len())) ==> (xs(i) <= xs(i + usize(1))))
+    ),
+    ensures(forall(i : usize, ((i < r.len()) && ((i + usize(1)) < r.len())) ==> (r(i) <= r(i + usize(1)))))
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    invariant(i <= xs.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == xs(k))));
+    push_at_end(out, xs(i));
+    i = (i + usize(1));
+  });
+  push_at_end(out, x);
+  out
+});

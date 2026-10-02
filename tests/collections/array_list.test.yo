@@ -180,7 +180,7 @@ test("ArrayList.shrink_to_fit preserves elements", {
   list := ArrayList(i32).with_capacity(usize(10));
   list.push(i32(100));
   list.push(i32(200));
-  list.shrink_to_fit();
+  assert(list.shrink_to_fit().is_ok(), "shrink");
   assert(list(usize(0)) == i32(100));
   assert(list(usize(1)) == i32(200));
 });
@@ -1483,18 +1483,23 @@ test("clone inside a borrowed for does not trip the flag, for an arena-backed li
 // The std mutators' length contracts (`ensures(... old(self.len()) ...)`) are
 // runtime asserts in this build, so these edge calls check them
 // (issues/fixed/verifier-std-mutators-without-old-self-left-the-list-unchanged.md).
-test("the mutators' length contracts hold at the edges: set_len, a one-element swap_remove, insert into empty", {
+test("the mutators' length contracts hold at the edges: spare_capacity + assume_init, a one-element swap_remove, insert into empty", {
   xs := ArrayList(i32).with_capacity(usize(4));
   xs.insert(usize(0), i32(3));
   assert(xs.len() == usize(1), "insert into an empty list");
   assert(xs.swap_remove(usize(0)) == i32(3), "swap_remove of the only element");
   assert(xs.is_empty(), "swap_remove leaves it empty");
   xs.push(i32(1));
-  xs.push(i32(2));
   cap := xs.capacity();
-  xs.set_len(usize(1));
-  assert(xs.len() == usize(1), "set_len shrinks");
-  assert(xs.capacity() == cap, "set_len never reallocates");
-  xs.set_len(usize(2));
-  assert(xs(usize(1)) == i32(2), "growing back within capacity keeps the bytes");
+  spare := xs.spare_capacity().unwrap();
+  assert(xs.ptr().unwrap().add(usize(1)) == spare, "the spare pointer is ptr() + len()");
+  spare.* = i32(7);
+  xs.assume_init(usize(1), spare);
+  assert(xs.len() == usize(2), "assume_init commits the written slot");
+  assert(xs(usize(1)) == i32(7), "the committed slot holds what was written");
+  assert(xs.capacity() == cap, "no reallocation");
+});
+test("spare_capacity is None before the first allocation", {
+  xs := ArrayList(i32).new();
+  assert(xs.spare_capacity().is_none(), "nothing allocated, no spare region");
 });

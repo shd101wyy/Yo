@@ -1,0 +1,23 @@
+// E0617 judges a statement by its value. A statement every path of which
+// leaves produces no value, even though it types as what it returns: this
+// `cond`, every arm a `return` of a Result, must pass. The dropped Result
+// below it must still be rejected, and must be the FIRST error reported.
+{ println } :: import("std/fmt");
+
+reserve :: (fn(closed : bool, full : bool) -> Result(unit, i32))({
+  cond(
+    closed => return(Result(unit, i32).Err(i32(1))),
+    full => return(Result(unit, i32).Err(i32(2))),
+    true => {
+      println("reserved");
+      return(Result(unit, i32).Ok(()));
+    }
+  );
+  Result(unit, i32).Ok(())
+});
+
+main :: (fn() -> unit)({
+  reserve(false, false);
+  println("done");
+});
+export(main);

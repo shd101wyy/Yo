@@ -155,7 +155,7 @@ is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, en
       (i : usize) = usize(0);
       (found : bool) = false;
       query_id := _trait_type_id(query_trait);
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         reg := match(list.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if(query_id == _trait_type_id(reg), {
           found = true;
@@ -233,7 +233,7 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
 _ondemand_guard_contains :: (fn(key : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < g_ondemand_marker_guard.len()) && !(found), {
+  while((i < g_ondemand_marker_guard.len()) && !found, {
     match(
       g_ondemand_marker_guard.get(i),
       .Some(k) => if(k == key, {
@@ -431,7 +431,7 @@ _assoc_synth_env :: (
 )({
   exn_s := Exception(
     throw : (
-      (err) -> {
+      err -> {
         err;
         unwind(Option(Environment).None);
       }
@@ -573,7 +573,7 @@ _check_associated_type_constraints :: (
         // against resolved `i32` missed the concrete-vs-SomeT wildcard rule
         // and the whole trait check reported "does not implement Iterator"
         // (the tests/closure_capture_rc_leak `any` where-clause).
-        if(!(are_types_compatible(resolved, constraint_ty)), {
+        if(!are_types_compatible(resolved, constraint_ty), {
           ok = false;
         }, {
           // Propagate SomeType bindings from constraint matching
@@ -647,7 +647,7 @@ type_implements_trait :: (
   // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
   if(is_bound_closure_identity(target), {
     cim := _marker_name_of(trait_type, env);
-    if(((cim == "Runtime") || (cim == "Comptime")) || (cim == "Acyclic"), {
+    if((cim == "Runtime") || (cim == "Comptime") || (cim == "Acyclic"), {
       return(type_implements_trait(resolve_cell_chain(target), trait_type, env));
     });
   });
@@ -660,7 +660,7 @@ type_implements_trait :: (
   // would be a blanket impl. Any other trait needs a real impl.
   if(match(target, .ExternOpaqueT(_, _) => true, _ => false), {
     eom := _marker_name_of(trait_type, env);
-    if(((eom == "Runtime") || (eom == "Send")) || (eom == "Acyclic"), {
+    if((eom == "Runtime") || (eom == "Send") || (eom == "Acyclic"), {
       return(TraitCheckResult(implemented : true, env : env));
     });
     if((eom == "Comptime") || (eom == "Rc"), {
@@ -786,7 +786,7 @@ type_implements_trait :: (
         return(TraitCheckResult(implemented : false, env : env));
       }
     );
-    if(!(are_types_compatible(target, fn_trait_call_ty)), {
+    if(!are_types_compatible(target, fn_trait_call_ty), {
       return(TraitCheckResult(implemented : false, env : env));
     });
     // Binding propagation: synthesize the
@@ -807,7 +807,7 @@ type_implements_trait :: (
   // derived trait VALUES; match `trait_type` against them by trait identity
   // (`is_type_registered_as_trait`). No name lookup (trait values are nameless).
   type_id := _type_id_for_trait_check(target);
-  if(!(type_id.is_empty()), {
+  if(!type_id.is_empty(), {
     if(is_type_registered_as_trait(type_id, trait_type, env), {
       // Associated-type constraints (`Iterator(Item := A)`) must hold and
       // their bindings propagate. On failure,
@@ -843,9 +843,9 @@ type_implements_trait :: (
     `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
     `${type_id}:${_trait_type_id(trait_type)}`
   );
-  if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(ondemand_key)), {
+  if(!marker_name.is_empty() && !_ondemand_guard_contains(ondemand_key), {
     tn := marker_name.clone();
-    marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
+    marker_relevant := ((tn == "Send") || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
       (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
@@ -861,16 +861,16 @@ type_implements_trait :: (
           }),
           // Send: value structs + atomic objects need all fields Send; non-atomic
           // objects never auto-derive Send (leave to impls — fall through).
-          (tn == "Send") => if(!(is_ref && !(is_atomic)), {
+          (tn == "Send") => if(!(is_ref && !is_atomic), {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
           }),
           // Comptime: objects never; value structs need all fields Comptime.
-          (tn == "Comptime") => if(!(is_ref), {
+          (tn == "Comptime") => if(!is_ref, {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
           }),
           // Acyclic: value structs need all fields Acyclic; objects defer to the
           // registry (their Acyclic uses can_type_form_rc_cycle at definition).
-          (tn == "Acyclic") => if(!(is_ref), {
+          (tn == "Acyclic") => if(!is_ref, {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
           }),
           true => ()
@@ -893,7 +893,7 @@ type_implements_trait :: (
             vi = (vi + usize(1));
           });
           cond(
-            !(e_is_ref) => {
+            !e_is_ref => {
               fields_opt = Option(ArrayList(TypeValue)).Some(flat);
             },
             (tn == "Runtime") => {
@@ -951,7 +951,7 @@ type_implements_trait :: (
             fty := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             // Self-recurse via `recur` (Yo cannot reference the enclosing
             // function by name inside its own body).
-            if(!(recur(fty, trait_type, env).implemented), {
+            if(!recur(fty, trait_type, env).implemented, {
               all_pass = false;
             });
             fi = (fi + usize(1));
@@ -1116,7 +1116,7 @@ type_implements_trait :: (
         .None => ()
       );
       if(found_req, {
-        return(TraitCheckResult(implemented : !(found_neg), env : env));
+        return(TraitCheckResult(implemented : !found_neg, env : env));
       }, {
         if(found_neg, {
           return(TraitCheckResult(implemented : false, env : env));
@@ -1179,7 +1179,7 @@ type_implements_trait :: (
   // Pop the guard key.
   last_idx := (g_trait_check_recursion_guard.len() - usize(1));
   g_trait_check_recursion_guard.remove(last_idx);
-  if(!(result), {
+  if(!result, {
     return(TraitCheckResult(implemented : false, env : env));
   });
   // Associated-type constraints on the matched trait:
@@ -1235,9 +1235,9 @@ check_self_constraints_violation_msg :: (
         (sc_implemented : bool) = type_implements_trait_bool(target_type, constraint, env);
         // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later
         // impl of the target type before rejecting.
-        if(!(sc_implemented), {
+        if(!sc_implemented, {
           match(
-            force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type)),
+            force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type), Option(String).None),
             .Forced => {
               sc_implemented = type_implements_trait_bool(target_type, constraint, env);
             },
@@ -1247,7 +1247,7 @@ check_self_constraints_violation_msg :: (
             .NoneForced => ()
           );
         });
-        if(!(sc_implemented), {
+        if(!sc_implemented, {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(constraint)).concat(`" from trait "`).concat(name).concat(`"'s where clause.`);
           return(Option(String).Some(msg));
         });
@@ -1446,7 +1446,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(
           t,
@@ -1463,7 +1463,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(
           t,
@@ -1685,15 +1685,15 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
   match(
     param_type,
     .SomeT({ name : ip_nm, required_trait_types : ip_req, is_effects_row : ip_row }) => cond(
-      (((ip_nm != "Impl") || ip_row) || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+      ((ip_nm != "Impl") || ip_row || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
       true => {
         (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
         (ip_i : usize) = usize(0);
         while((ip_i < ip_req.len()) && ip_miss.is_none(), {
           match(
             ip_req.get(ip_i),
-            .Some(ip_t) => if((!(is_fn_trait_type(ip_t)) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Acyclic"))))
-            && !(type_implements_trait_bool(arg_type, ip_t, env)), {
+            .Some(ip_t) => if(!is_fn_trait_type(ip_t) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Acyclic")))
+            && !type_implements_trait_bool(arg_type, ip_t, env), {
               ip_miss = Option(TypeValue).Some(ip_t);
             }),
             .None => ()
@@ -1767,7 +1767,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(
           t,
@@ -1784,7 +1784,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(
           t,
@@ -1829,10 +1829,10 @@ type_contains_some_type_for_codegen_param :: (
     .Union(uname, _, _) => uname,
     _ => String.from("")
   );
-  if(!(nominal_id.is_empty()), {
+  if(!nominal_id.is_empty(), {
     (seen : bool) = false;
     (ci : usize) = usize(0);
-    while((ci < checked_ids.len()) && !(seen), {
+    while((ci < checked_ids.len()) && !seen, {
       match(
         checked_ids.get(ci),
         .Some(k) => if(k == nominal_id, {
@@ -1893,7 +1893,7 @@ type_contains_some_type_for_codegen_param :: (
     .Tuple(_, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < field_types.len()) && !(found), {
+      while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if(recur(ft, checked_ids), {
           found = true;
@@ -1911,15 +1911,15 @@ type_contains_some_type_for_codegen_param :: (
     .Struct({ field_types : field_types, type_arguments : st_targs }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < field_types.len()) && !(found), {
+      while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if((!(is_function_type(ft))) && recur(ft, checked_ids), {
+        if(!is_function_type(ft) && recur(ft, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
       });
       (ti : usize) = usize(0);
-      while((ti < st_targs.len()) && !(found), {
+      while((ti < st_targs.len()) && !found, {
         match(
           st_targs.get(ti),
           .Some(ta) => if(recur(ta, checked_ids), {
@@ -1934,10 +1934,10 @@ type_contains_some_type_for_codegen_param :: (
     .EnumT(_, _, _, variant_fields, _, _, _, _, _) => {
       (found : bool) = false;
       (vi : usize) = usize(0);
-      while((vi < variant_fields.len()) && !(found), {
+      while((vi < variant_fields.len()) && !found, {
         vf := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         (vj : usize) = usize(0);
-        while((vj < vf.len()) && !(found), {
+        while((vj < vf.len()) && !found, {
           ft := match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, checked_ids), {
             found = true;
@@ -1951,7 +1951,7 @@ type_contains_some_type_for_codegen_param :: (
     .Union(_, _, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < field_types.len()) && !(found), {
+      while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if(recur(ft, checked_ids), {
           found = true;
@@ -1964,14 +1964,14 @@ type_contains_some_type_for_codegen_param :: (
       forall_labels := __fm1.*.forall_labels;
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
-      while((i < param_types.len()) && !(found), {
+      while((i < param_types.len()) && !found, {
         pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if(recur(pt, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
       });
-      if(!(found), {
+      if(!found, {
         found = recur(result_box, checked_ids);
       });
       found
@@ -2046,13 +2046,13 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 ///
 ///
 type_is_comptime_only_full :: (fn(ty : TypeValue, env : Environment) -> bool)(
-  type_implements_comptime(ty, env) && !(type_implements_runtime_full(ty, env))
+  type_implements_comptime(ty, env) && !type_implements_runtime_full(ty, env)
 );
 /// Check if a type is runtime-only (!comptime && runtime).
 ///
 ///
 type_is_runtime_only :: (fn(ty : TypeValue, env : Environment) -> bool)(
-  !(type_implements_comptime(ty, env)) && type_implements_runtime_full(ty, env)
+  !type_implements_comptime(ty, env) && type_implements_runtime_full(ty, env)
 );
 // ---------------------------------------------------------------------------
 // validate_type_availability
@@ -2140,7 +2140,7 @@ find_some_type_missing_comptime_constraint :: (
             // the SomeType's own `required_trait_types`, so omitting this step
             // rejected the prelude's own `ComptimeNegate` (whose `neg` returns
             // `comptime(Self.Output)` under exactly that where clause).
-            if(!(has_comptime), {
+            if(!has_comptime, {
               match(
                 get_where_clause_constraints_for_some_type(env, ty.clone()),
                 .Some(wcc) => {
@@ -2160,7 +2160,7 @@ find_some_type_missing_comptime_constraint :: (
                 .None => ()
               );
             });
-            if(!(has_comptime), {
+            if(!has_comptime, {
               return(Option(TypeValue).Some(ty));
             });
           },

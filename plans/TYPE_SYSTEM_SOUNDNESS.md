@@ -136,7 +136,7 @@ headline is ICE + COMPILE_RED + CC_RED + FTT + RUN_FTT):
 
 Transitions: 7 fixed repros OK → CHECK_RED (they compiled and printed the wrong value),
 3 CC_RED → CHECK_RED, 4 ICE → CHECK_RED, 1 RUN_FTT → CHECK_RED (the mutual-recursion repro, now a
-wrong check-time error, see `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
+wrong check-time error, see `issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
 and the 1.5 canary CHECK_RED → OK. No OK program regressed except fixed-issue repros.
 
 Swallow census (`YO_DEBUG_SWALLOW=1 yo check`, all channels):
@@ -570,6 +570,20 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
      `issues/fixed/the-extern-opaque-scalar-coercion-composes-into-compound-types.md`) — fixed by
      moving the coercion to the relation's entry point.
 
+9. **Array lengths by identity** (added 2026-10-01). `TypeValue.Array(element, length,
+   length_var : String)` names a value-dependent length by SPELLING: `length_var = "U"` for an
+   impl's const binder, `"T.BYTES"` for a projection. Substitution, synthesis and
+   `_subst_resolve_len_projection` resolve those strings against whatever binders are current,
+   so a length is captured by any other binder that has the same name. Measured: a
+   `N := "T.BYTES"` binding read inside `fill`'s own impl (whose `T` is the element type) broke
+   `tests/array.test.yo`. As a result `Array(u8, T.BYTES).fill(…)` cannot type in a generic
+   trial and degrades to `unit` (`issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`).
+   Make the length a sum: a concrete count, a const binder by identity (the binder's SomeT
+   lineage, like a type variable), or a projection of a SomeT's associated constant (the SomeT
+   by identity plus the constant's name). Byte identity is expected to hold, since the C type of
+   every concrete array is unchanged. After it lands, `mark_generic_independent` can drop its
+   `unit` exclusion.
+
 Exit: `Type.eq` answers are order-independent (a test runs the Repro 1 pair in both orders); the
 byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
 (`an-extern-opaque-type-unifies-with-every-dyn`) is replaced by a nominal opaque variant.
@@ -763,6 +777,12 @@ The largest and last phase, because Phases 1–5 shrink it.
    (a failing one silently accepts ANY error — a test-soundness hole).
 3. A swallowed error that *is* SomeT-pending is recorded against the specialization and
    re-raised when the specialization with concrete types fails, with the call site as a note.
+   The trial does not treat distinct binders as rigid. A body that unifies `T` with `S`, for
+   example by passing `*T` and `*S` to one callee binder `U`, or by returning `a : *T` as `*S`,
+   records no error at all. Only a concrete specialization with `T != S` rejects it (measured
+   2026-10-01,
+   `issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md`).
+   This matches the monomorphizing model in §1, and this step adds nothing for that case.
 4. Phase 4.2's "any reachable FTT stub is an error" becomes the backstop and should never fire.
 
 Exit: the Phase 0 swallow census for real type errors is zero on `./std` and `./src`; FTT

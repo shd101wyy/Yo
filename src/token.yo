@@ -133,29 +133,28 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
 /// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
 /// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules.
 is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
-  (
-    ((name == "typeof") || ((name == "sizeof") || ((name == "alignof") || (name == "typeid")))) ||
-      ((name == "runtime") || ((name == "unwind") || ((name == "recur") || (name == "consume"))))
-  ) || (
-    ((name == "unsafe") || ((name == "pragma") || ((name == "asm") || (name == "global_asm")))) ||
-      ((name == "macro_expand") || (name == "va_start"))
-  ) || (
-    ((name == "comptime_assert") || ((name == "comptime_fn") || ((name == "comptime_print") || (name == "comptime_eval")))) ||
-      ((name == "comptime_read_file") || ((name == "comptime_json_parse") || (name == "comptime_toml_parse")))
-  ) || (
-    ((name == "requires") || ((name == "ensures") || ((name == "invariant") || (name == "decreases")))) ||
-      ((name == "assumed") || (name == "___drop") || ((name == "___dup") || (name == "dyn")))
-  ) || ((name == "the") || ((name == "as") || ((name == "clone") || (name == "quote")))) ||
-    ((name == "downcast") || (name == "upcast")) ||
-      // The identifier-spelled call-HEADS the evaluator dispatches on
-      // (begin/tuple/array sit in the special-head list of
-      // src/evaluator/effects/mutation_summary.yo beside the reserved
-      // clone/consume/the/as/dyn above): a user binding of the name never
-      // runs — `begin`/`tuple` calls evaluate to unit, `array()` parses as
-      // the array-literal builtin (issues/begin-tuple-array-bindings-are-silently-hijacked.md).
-      // `thread_local` is special only in the
-      // `(thread_local(name) : T) = init;` LHS position, so it stays bindable.
-      (((name == "begin") || (name == "tuple")) || (name == "array"))
+  (name == "typeof") || ((name == "sizeof") || ((name == "alignof") || (name == "typeid"))) ||
+    ((name == "runtime") || ((name == "unwind") || ((name == "recur") || (name == "consume"))))
+    || (
+      (name == "unsafe") || ((name == "pragma") || ((name == "asm") || (name == "global_asm"))) ||
+        ((name == "macro_expand") || (name == "va_start"))
+    ) || (
+      (name == "comptime_assert") || ((name == "comptime_fn") || ((name == "comptime_print") || (name == "comptime_eval"))) ||
+        ((name == "comptime_read_file") || ((name == "comptime_json_parse") || (name == "comptime_toml_parse")))
+    ) || (
+      (name == "requires") || ((name == "ensures") || ((name == "invariant") || (name == "decreases"))) ||
+        ((name == "assumed") || (name == "___drop") || ((name == "___dup") || (name == "dyn")))
+    ) || ((name == "the") || ((name == "as") || ((name == "clone") || (name == "quote")))) ||
+      ((name == "downcast") || (name == "upcast")) ||
+        // The identifier-spelled call-HEADS the evaluator dispatches on
+        // (begin/tuple/array sit in the special-head list of
+        // src/evaluator/effects/mutation_summary.yo beside the reserved
+        // clone/consume/the/as/dyn above): a user binding of the name never
+        // runs — `begin`/`tuple` calls evaluate to unit, `array()` parses as
+        // the array-literal builtin (issues/begin-tuple-array-bindings-are-silently-hijacked.md).
+        // `thread_local` is special only in the
+        // `(thread_local(name) : T) = init;` LHS position, so it stays bindable.
+        ((name == "begin") || (name == "tuple") || (name == "array"))
 );
 is_identifier_start :: (fn(c : rune) -> bool)(
   (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))

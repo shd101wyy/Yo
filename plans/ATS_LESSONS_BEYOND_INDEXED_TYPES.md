@@ -10,12 +10,12 @@ the seed, or a cited file.
 
 | Item | State |
 | --- | --- |
-| A1 lemma layer (= R2) | slice 1 (recursive `ghost_fn` as an axiomatized function) on `feat/verifier-recursive-ghost-fn` |
-| A2 must-use | not started |
-| A3 spec-transparent pure fns | not started (needs A1's axioms) |
-| A4 init proof token (S1) | next |
-| A5 lexicographic `decreases` | not started |
-| A6 typestate idiom | not started |
+| A1 lemma layer (= R2) | slices 1–2: recursive `ghost_fn` as an axiomatized function (#1075); lemmas, `seq_of`, the three DML exit fixtures (`feat/verifier-lemmas`); slice 3: a verified `for` over a list with `produced(xs)` (`feat/verifier-for-produced`); slice 4: `distinct(a, b)` (`feat/verifier-distinct`). **Done** |
+| A2 must-use | done (#1075): E0617, plus the always-exits rule found while landing it |
+| A3 spec-transparent pure fns | done: slice 1 (#1075); slice 2 (`feat/verifier-distinct`): a recursive callee is transparent only with `decreases` (without it, an S1: `issues/fixed/a-transparent-callee-that-recurses-without-decreases-proves-anything.md`), and the subset error names the missing property |
+| A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |
+| A5 lexicographic `decreases` | done (#1075) |
+| A6 typestate idiom | docs done (#1075); its S3 (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |
 
 ## 0. The verdict
 
@@ -35,7 +35,7 @@ proving**, and **linear types with views**.
   - a result you must not silently drop (`Result`, an unawaited `Future`);
   - a proof token that gates claiming memory initialized. Its absence is a
     live S1: safe code reaches freed memory through `ArrayList.set_len`
-    (`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md`).
+    (`issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md`).
 
   Both can be had without linear types.
 - **The rest ATS is known for, Yo already has:** exhaustive matching,
@@ -148,13 +148,15 @@ naming the missing property. Depends on A1's axiom machinery.
 
 ### A4. A proof token for initialization (ATS `T?` + views): fixes an S1
 
-`issues/safe-code-reaches-freed-memory-through-arraylist-set-len.md`.
+`issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md`.
 ATS claims a region is initialized only by presenting its view. Yo can
 get the same with the gate it already has, which is type-based: a
 value that carries a raw pointer is unavailable in safe code. Growth
 needs a token only unsafe code can hold:
-- `spare_capacity(self) -> RawSlice(T)`;
-- `assume_init(self, n, spare : RawSlice(T))`;
+- `spare_capacity(self) -> Option(*(T))`, not `RawSlice(T)`: the value gate
+  catches a pointer and an enum wrapping one, but not a struct that contains
+  one. A `RawSlice` token was measured passing through safe code;
+- `assume_init(self, n, spare : *(T))`;
 - `set_len` goes away in favor of the safe `truncate`;
 - `std/io/index.yo` (the only caller) switches.
 

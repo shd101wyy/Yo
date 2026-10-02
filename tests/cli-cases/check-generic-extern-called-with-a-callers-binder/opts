@@ -1,0 +1,10 @@
+# A generic extern called with the caller's unresolved binder nested in a pointer
+# (`*(T)`) used to fail the caller's definition-time trial with a swallowed E0605
+# "Expected *(T) Got *(T)" — on every `check`, through the prelude's GcTracer.visit
+# (issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md).
+# The trial failure is swallowed, so the only observable is YO_DEBUG_SWALLOW: the
+# golden pins that no "Type mismatch for parameter" swallow is printed, from the
+# prelude or from main.yo, and that main.yo checks.
+env=YO_DEBUG_SWALLOW=1
+stdout_keep_match=Type mismatch for parameter "[a-z_]+"|--> main\.yo:[0-9]+:[0-9]+|check: main\.yo — evaluator OK
+timeout=120

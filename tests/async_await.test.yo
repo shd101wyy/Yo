@@ -6568,6 +6568,19 @@ _unit_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("a unit local read across awaits", {
   assert(io.await(_unit_across_awaits(io), io) == i32(5), "the body runs to its value");
 });
+// A unit PARAMETER captured by the io.async body: the capture struct erases
+// the field, so its literal must not initialize it
+// (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
+_unit_param_captured :: (fn(u : unit, n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    _w := _unit_id(u);
+    (n + i32(1))
+  })
+);
+test("a unit parameter captured by an io.async body", {
+  assert(io.await(_unit_param_captured((), i32(4), io), io) == i32(5), "the capture struct is built without the unit field");
+});
 // ---------------------------------------------------------------------------
 // A non-ASCII field of an effect bundle, injected through a nested await.
 //
@@ -6630,7 +6643,7 @@ _if_relay :: (
     chan := SyncChannel(T).new(usize(1));
     sink := chan;
     _if_run_it(() => {
-      sink.send(cb());
+      _ := sink.send(cb());
       ()
     });
     match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
@@ -6788,4 +6801,19 @@ test("a destructuring of an await result inside a task binds its slots", {
     (i32(a) + b)
   });
   assert(io.await(task, io) == i32(12), "both destructured names read their values after an await");
+});
+// ---------------------------------------------------------------------------
+// An io.async future held in a generic aggregate's field: the aggregate's
+// body and its constructor must spell the future's C type the same way
+// (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
+// ---------------------------------------------------------------------------
+_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_hold_fut :: (fn(generic(T : Type), x : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
+test("an io.async future in a generic struct field and in an Option", {
+  h := _hold_fut(io.async((io : Io) => i32(8)));
+  a := match(h.r, .Some(task) => io.await(task, io), .None => i32(-1));
+  f := io.async((io : Io) => i32(9));
+  o := Option(typeof(f)).Some(f);
+  b := match(o, .Some(task) => io.await(task, io), .None => i32(-1));
+  assert((a == i32(8)) && (b == i32(9)), "both held futures are awaited");
 });

@@ -91,6 +91,12 @@ InlineSmLowering :: ref(
     /// `consumed_at_token` is that read), by atom id: the C temp the value
     /// was taken into when its slot was zeroed.
     moved_reads : HashMap(usize, String),
+    /// A pattern binding's slot (`sm->field`) → the place in another slot it
+    /// was bound from, without a dup (`sm->var_r.data.Err.error`). Moving the
+    /// binding out moves the value out of that place too, so a consuming read
+    /// zeroes both: the abort dispose and the scrutinee's scope-end drop see
+    /// an empty payload instead of releasing the moved value again.
+    binding_sources : HashMap(String, String),
     /// Set while a drop or RC builtin renders its operand: a drop releases
     /// the slot's value where it stands and is emitted again on every exit
     /// path, so its operand is not a move out of the slot.

@@ -49,7 +49,7 @@
 { snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
@@ -238,6 +238,9 @@ BF_SEQ_UNIT :: "seq_unit";
 BF_SEQ_APPEND :: "seq_append";
 BF_SEQ_LEN :: "seq_len";
 BF_SEQ_NTH :: "seq_nth";
+BF_SEQ_OF :: "seq_of";
+BF_PRODUCED :: "produced";
+BF_DISTINCT :: "distinct";
 BF_STR_BYTES :: "str_bytes";
 BF_MS_SINGLE :: "ms_single";
 BF_MS_ADD :: "ms_add";
@@ -699,8 +702,16 @@ _evaluate_spec_collection :: (
   );
   res_ty := cond(
     ((head == "seq_len") || (head == "ms_count")) => t_i64(),
-    (head == "set_contains") => t_bool(),
-    (head == "seq_nth") => t_u8(),
+    ((head == "set_contains") || (head == "distinct")) => t_bool(),
+    // A list-backed Seq's element is the list's (R2 task 2); a str's is u8.
+    (head == "seq_nth") => match(
+      t_refine_inner(arg1_ty),
+      .Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref }) => cond(
+        (sn_ref && (sn_targs.len() == usize(1))) => sn_targs(usize(0)),
+        true => t_u8()
+      ),
+      _ => t_u8()
+    ),
     true => arg1_ty
   );
   out_info := new_expr_info(cur_env, res_ty.clone());
@@ -709,6 +720,24 @@ _evaluate_spec_collection :: (
   expr
 });
 evaluate_seq_unit :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `seq_of(xs)` (R2 task 2): an `ArrayList(T)`'s elements as a ghost Seq.
+/// Typed as the list itself, like every Seq carrier here (Seq is an erased
+/// alias); the verifier keeps it in the list domain.
+evaluate_seq_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `produced(xs)` (R2 task 4): inside a `for` over the list `xs`, the prefix
+/// consumed so far. Typed as the list, like `seq_of`; the verifier reads it
+/// from the loop's ghost index.
+evaluate_produced :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `distinct(a, b)` (R2 task 5): in a `requires`, the two list arguments are
+/// different lists. It lets a body mutate one beside the other; the verifier
+/// proves it at each call from where the arguments came from.
+evaluate_distinct :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_seq_append :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -1354,13 +1383,18 @@ VerifyTask :: ref(
     /// the fn as `assumed` without walking the body (raw-pointer internals
     /// are outside the verifiable subset); its contracts still gate callers.
     (body_assumed : bool) ?= false,
+    /// The body is a GENERIC one verified abstractly (its type parameters are
+    /// uninterpreted sorts). Its proofs remove no guards: guard bounds are
+    /// width-specific and each specialization is a distinct emission
+    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 5).
+    (body_abstract : bool) ?= false,
     /// Per `requires_exprs` entry: whether a runtime entry assert enforces
     /// it (always in `verify+`; in `verify`, only a runtime-checkable one
     /// outside a `ghost_fn`). An unenforced requires is an assumption a
     /// caller the verifier never walks can break, so no guard may be elided
     /// on it (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
     /// Empty = none enforced.
-    (requires_enforced : ArrayList(bool)) ?= ArrayList(bool).new()
+    requires_enforced : ArrayList(bool)
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
@@ -1415,7 +1449,7 @@ _guard_site_recorded :: (fn(expr : AstExpr, class : str) -> bool)(
       (i : usize) = usize(0);
       while(i < sites.len(), {
         gs := sites(i);
-        if((((gs.class == class) && (gs.module == canon)) && (gs.row == usize(tok.row))) && (gs.column == usize(tok.column)), {
+        if((gs.class == class) && (gs.module == canon) && (gs.row == usize(tok.row)) && (gs.column == usize(tok.column)), {
           return(true);
         });
         i = (i + usize(1));
@@ -1703,7 +1737,8 @@ register_impl_inheritance_task :: (
           return_label : __t_ret,
           table : ctx.expr_info_table,
           mode : __mode.clone(),
-          func_val : method_val
+          func_val : method_val,
+          requires_enforced : ArrayList(bool).new()
         )
       );
     },
@@ -2362,7 +2397,8 @@ register_impl_variance_task :: (
       return_label : Option(String).None,
       table : ctx.expr_info_table,
       mode : __mode.clone(),
-      func_val : EvalValue.UnitVal
+      func_val : EvalValue.UnitVal,
+      requires_enforced : ArrayList(bool).new()
     )
   );
   ()
@@ -2626,13 +2662,23 @@ _guard_body_is :: (fn(body : AstExpr, prefix : String) -> bool)(
 /// by its module-level `name :: ghost_fn(...)` definition
 /// (`is_module_ghost_fn_def`), or by a FuncVal value when a node has one.
 requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> bool)(
+  _contract_clause_runs(pred, table, false)
+);
+/// An `ensures` clause that can run as an assert after the body: the
+/// `requires` rule, except that `old(...)` is allowed (the splice snapshots
+/// it at entry). A clause that quantifies or calls a `ghost_fn` is
+/// proof-only: splicing it would put a ghost-only builtin into runtime code.
+ensures_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> bool)(
+  _contract_clause_runs(pred, table, true)
+);
+_contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : bool) -> bool)(
   match(
     pred,
     .Atom(_, _) => match(
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
         ai.value,
-        .Some(.FuncVal(afv, _)) => !(is_ghost_fn(afv.*.func_id.clone())),
+        .Some(.FuncVal(afv, _)) => !is_ghost_fn(afv.*.func_id.clone()),
         _ => true
       ),
       .None => true
@@ -2640,7 +2686,7 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
-        if((((hn == BF_OLD) || (hn == BF_FORALL)) || (hn == BF_EXISTS)) || (hn == BF_GHOST), {
+        if(((hn == BF_OLD) && !allow_old) || ((hn == BF_FORALL) || (hn == BF_EXISTS) || ((hn == BF_GHOST) || (hn == BF_DISTINCT))), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
@@ -2648,14 +2694,14 @@ requires_is_runtime_checkable :: (fn(pred : AstExpr, table : ExprInfoTable) -> b
           return(false);
         });
       });
-      if(!(requires_is_runtime_checkable(head, table)), {
+      if(!_contract_clause_runs(head, table, allow_old), {
         return(false);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(!(requires_is_runtime_checkable(a, table)), {
+          .Some(a) => if(!_contract_clause_runs(a, table, allow_old), {
             return(false);
           }),
           .None => ()
@@ -2698,7 +2744,11 @@ wrap_function_body_with_contracts :: (
     (in_ghost_fn : bool) ?= false,
     /// Per `requires_exprs` entry: whether its predicate can run
     /// (`requires_is_runtime_checkable`). `verify` mode splices only those.
-    (requires_checkable : ArrayList(bool)) ?= ArrayList(bool).new()
+    (requires_checkable : ArrayList(bool)) ?= ArrayList(bool).new(),
+    /// Per `ensures_exprs` entry: whether its predicate can run
+    /// (`ensures_is_runtime_checkable`). Only those are ever spliced: a
+    /// quantified or ghost_fn clause is proof-only in every mode.
+    (ensures_checkable : ArrayList(bool)) ?= ArrayList(bool).new()
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
@@ -2707,7 +2757,14 @@ wrap_function_body_with_contracts :: (
   body_tok := ast_expr_token(body);
   // The ensures clauses that get runtime asserts: all of them, except in
   // `verify` mode (below).
-  (splice_ensures : ArrayList(AstExpr)) = ensures_exprs;
+  (splice_ensures : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (sei : usize) = usize(0);
+  while(sei < ensures_exprs.len(), {
+    if(match(ensures_checkable.get(sei), .Some(c) => c, .None => true), {
+      splice_ensures.push(ensures_exprs(sei));
+    });
+    sei = (sei + usize(1));
+  });
   (splice_requires : ArrayList(AstExpr)) = requires_exprs;
   // Whether the requires-only splice may flatten a block body into its own
   // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
@@ -2741,7 +2798,7 @@ wrap_function_body_with_contracts :: (
       // `ghost_fn` or quantifies stays proof-only, which leaves it unchecked
       // for a caller the verifier never walks, the same as a `refine`.
       kept_requires := ArrayList(AstExpr).new();
-      if(!(in_ghost_fn), {
+      if(!in_ghost_fn, {
         (kri : usize) = usize(0);
         while(kri < requires_exprs.len(), {
           if(match(requires_checkable.get(kri), .Some(c) => c, .None => false), {
@@ -3160,7 +3217,8 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
       return_label : Option(String).None,
       table : ctx.expr_info_table,
       mode : law_mode.clone(),
-      func_val : EvalValue.UnitVal
+      func_val : EvalValue.UnitVal,
+      requires_enforced : ArrayList(bool).new()
     )
   );
   expr
@@ -3188,6 +3246,7 @@ export(
   ghost_fn_def_of,
   is_ghost_fn,
   requires_is_runtime_checkable,
+  ensures_is_runtime_checkable,
   requires_enforced_flags,
   ProvedGuardSite,
   record_proved_guard_site,
@@ -3196,6 +3255,9 @@ export(
   guard_site_is_proved,
   guard_site_pair_is_proved,
   evaluate_seq_unit,
+  evaluate_seq_of,
+  evaluate_produced,
+  evaluate_distinct,
   evaluate_seq_append,
   evaluate_seq_len,
   evaluate_seq_nth,

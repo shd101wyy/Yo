@@ -31,7 +31,7 @@ import("std/fmt");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_set_doc_comment } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_tuple_type, is_struct_type, is_module_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -373,6 +373,22 @@ evaluate_type_field :: (
     });
     assigned_value = av_info.value;
     av_type := av_info.ty;
+    // Same UnknownVal hole as the ?= gate above, for the `name = value`
+    // comptime-field form: a runtime call is not a compile-time value.
+    match(
+      assigned_value,
+      .Some(avv) => if(is_unknown_val(avv), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(av_expr),
+              `An assigned field value must be a compile-time known value: ${ast_expr_to_string(av_expr)} is a runtime call.`
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!are_types_compatible(av_type, ft), {
@@ -448,6 +464,32 @@ evaluate_type_field :: (
     });
     default_value = dv_info.value;
     dv_type := dv_info.ty;
+    // The known-value gate above tests only `.is_none()` — an UnknownVal
+    // ("type known, value not") is `.Some` and slips it: a runtime CALL
+    // default (`(y : i32) ?= mk()`, `(xs : ArrayList(usize)) ?=
+    // ArrayList(usize).new()`, probed: the value renders `<unknown: …>`)
+    // carried no compile-time value, reached codegen, and the C stage died
+    // on `((T (*)())/* no C function name … */)()`
+    // (issues/fixed/a-call-default-for-a-struct-field-emits-broken-c.md —
+    // maintainer verdict 2026-10-01: `?=` stays compile-time-known values,
+    // as DESIGN.md documents). A function VALUE against an fn-typed field
+    // is a real compile-time value and stays legal (a FuncVal against a
+    // MISMATCHED declared type is already rejected by the compatibility
+    // check below).
+    match(
+      default_value,
+      .Some(dvv) => if(is_unknown_val(dvv), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(dv_expr),
+              `A ?= default must be a compile-time known value: ${ast_expr_to_string(dv_expr)} is a runtime call. Write the field explicitly at each construction site instead.`
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!are_types_compatible(dv_type, ft), {

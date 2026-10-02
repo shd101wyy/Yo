@@ -1,0 +1,19 @@
+// issues/a-call-default-for-a-struct-field-emits-broken-c.md
+// A CALL as a ?= struct-field default: the def-time evaluation yields the
+// CALLEE as a FuncVal thunk (the recorded type is the return type), so the
+// "compile-time known value" gate passed while carrying no value — the C
+// stage then died on `((T (*)())/* no C function name … */)()`. DESIGN.md:
+// defaults are compile-time known values. Expected: a clear check error at
+// the default expression.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+mk :: (fn() -> i32)(i32(9));
+S :: struct(x : usize, (xs : ArrayList(usize)) ?= ArrayList(usize).new());
+P :: struct(x : i32, (y : i32) ?= mk());
+main :: (fn() -> unit)({
+  s := S(x : usize(7));
+  p := P(3);
+  println(s.x.to_string() + p.y.to_string());
+  ()
+});
+export(main);

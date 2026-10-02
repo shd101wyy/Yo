@@ -235,7 +235,7 @@ _alpha_pair_active :: (fn(a_name : String, a_level : usize, e_name : String, e_l
     i = (i - usize(1));
     match(
       g_alpha_pairs.get(i),
-      .Some(p) => if((((p.a_name == a_name) && (p.a_level == a_level)) && (p.e_name == e_name)) && (p.e_level == e_level), {
+      .Some(p) => if((p.a_name == a_name) && (p.a_level == a_level) && (p.e_name == e_name) && (p.e_level == e_level), {
         return(true);
       }),
       .None => ()
@@ -342,7 +342,7 @@ _compat_impl :: (
   // identity it is only itself, and nothing else flows into it
   // (plans/reference/TYPE_IDENTITY.md, Phase 3.6).
   if(is_never_type(actual), {
-    return(!(require_exact) || is_never_type(expected));
+    return(!require_exact || is_never_type(expected));
   });
   // --- ComptimeInt widening -------------------------------------------------
   if(is_comptime_int_type(actual), {
@@ -415,7 +415,7 @@ _compat_impl :: (
   });
   // --- C-compatible types ---------------------------------------------------
   if(is_c_compatible_type(actual), {
-    if(!(is_c_compatible_type(expected)), {
+    if(!is_c_compatible_type(expected), {
       return(false);
     });
     return(type_value_tag(actual) == type_value_tag(expected));
@@ -431,7 +431,7 @@ _compat_impl :: (
   // `ExternOpaqueT`), so it never meets these rules: a `*(Dyn(Clone))` is not
   // a libc `*(FILE)`
   // (issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md).
-  if((!(identity) && is_some_type(actual)) && is_dyn_type(expected), {
+  if(!identity && is_some_type(actual) && is_dyn_type(expected), {
     artt := match(
       actual,
       .SomeT(required_trait_types : rtt) => rtt,
@@ -457,7 +457,7 @@ _compat_impl :: (
         });
         j = (j + usize(1));
       });
-      if(!(satisfied), {
+      if(!satisfied, {
         return(false);
       });
       i = (i + usize(1));
@@ -473,7 +473,7 @@ _compat_impl :: (
   // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
   // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
   // tag-mismatch guard (tests/dyn.test.yo).
-  if((!(identity) && is_dyn_type(actual)) && is_some_type(expected), {
+  if(!identity && is_dyn_type(actual) && is_some_type(expected), {
     erts := match(
       expected,
       .SomeT(required_trait_types : rtt) => rtt,
@@ -499,7 +499,7 @@ _compat_impl :: (
         });
         j = (j + usize(1));
       });
-      if(!(satisfied), {
+      if(!satisfied, {
         return(false);
       });
       i = (i + usize(1));
@@ -526,7 +526,7 @@ _compat_impl :: (
   // type with expected type", and a throw-arm's free `ResumeType` refused to
   // unify with a concrete sibling arm — both def-time body-eval halts (stage-2
   // "Failed to transpile" holes).
-  if(((!(require_exact)) && is_some_type(expected)) && !(is_some_type(actual)), {
+  if(!require_exact && is_some_type(expected) && !is_some_type(actual), {
     erts2 := match(
       expected,
       .SomeT(required_trait_types : rtt2) => rtt2,
@@ -542,7 +542,7 @@ _compat_impl :: (
         (ri2 : usize) = usize(0);
         while((ri2 < erts2.len()) && all_ok, {
           req2 := match(erts2.get(ri2), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(_bound_mentions_some(req2, expected)) && !(impl_check(actual, req2)), {
+          if(!_bound_mentions_some(req2, expected) && !impl_check(actual, req2), {
             all_ok = false;
           });
           ri2 = (ri2 + usize(1));
@@ -564,7 +564,7 @@ _compat_impl :: (
   // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
   // Exact compatibility (cache keys) stays strict (different tags). See
   // issues/fixed/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
-  if(!(require_exact), {
+  if(!require_exact, {
     unit_empty_struct := match(
       actual,
       .Unit => match(expected, .Struct({ field_types : eft }) => (eft.len() == usize(0)), _ => false),
@@ -583,7 +583,7 @@ _compat_impl :: (
   // both route here). require_exact passes through,
   // so the pointer-children exact recursion also benefits. Reads the SomeT's
   // own `resolution`, then the id-keyed registry.
-  if(is_some_type(actual) && !(is_some_type(expected)), {
+  if(is_some_type(actual) && !is_some_type(expected), {
     match(
       actual,
       .SomeT({ resolution : a_res_cell }) => {
@@ -605,7 +605,7 @@ _compat_impl :: (
           // SomeType itself. The empty-name struct wildcard used to accept
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
-          .None => if(!(require_exact), {
+          .None => if(!require_exact, {
             a_reqs := match(actual, .SomeT(required_trait_types : a_rq) => a_rq, _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
@@ -617,7 +617,7 @@ _compat_impl :: (
                 (a_ri : usize) = usize(0);
                 while((a_ri < a_reqs.len()) && a_all_ok, {
                   a_req := match(a_reqs.get(a_ri), .Some(v) => v, .None => TypeValue.Unit);
-                  if(!(_bound_mentions_some(a_req, actual)) && !(a_impl_check(expected, a_req)), {
+                  if(!_bound_mentions_some(a_req, actual) && !a_impl_check(expected, a_req), {
                     a_all_ok = false;
                   });
                   a_ri = (a_ri + usize(1));
@@ -638,7 +638,7 @@ _compat_impl :: (
   // SomeT in the EXPECTED slot (e.g. helper.yo Step 8's self-param check:
   // expected = `Impl(RetI32)` receiver arg... or the roles reversed). A
   // resolved SomeT stands for its concrete either way.
-  if(is_some_type(expected) && !(is_some_type(actual)), {
+  if(is_some_type(expected) && !is_some_type(actual), {
     match(
       expected,
       .SomeT({ resolution : e_res_cell }) => {
@@ -739,7 +739,7 @@ _compat_impl :: (
           if(require_exact && (match(alabels.get(i), .Some(l) => l, .None => ``) != match(elabels.get(i), .Some(l) => l, .None => ``)), {
             return(false);
           });
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             return(false);
           });
           i = (i + usize(1));
@@ -790,7 +790,7 @@ _compat_impl :: (
           if(require_exact && (match(ameta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``) != match(emeta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``)), {
             return(false);
           });
-          if(!(recur(match(aits.get(ii), .Some(v) => v, .None => TypeValue.Unit), match(eits.get(ii), .Some(v) => v, .None => TypeValue.Unit), mode, visited)), {
+          if(!recur(match(aits.get(ii), .Some(v) => v, .None => TypeValue.Unit), match(eits.get(ii), .Some(v) => v, .None => TypeValue.Unit), mode, visited), {
             return(false);
           });
           ii = (ii + usize(1));
@@ -799,7 +799,7 @@ _compat_impl :: (
         while(i < afts.len(), {
           at := match(afts.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(efts.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             return(false);
           });
           i = (i + usize(1));
@@ -820,7 +820,7 @@ _compat_impl :: (
         while((i < apts.len()) && func_ok, {
           at := match(apts.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(epts.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             func_ok = false;
           });
           i = (i + usize(1));
@@ -845,273 +845,269 @@ _compat_impl :: (
     .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid, type_arguments : ata }) => match(
       expected,
       .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew, constructor_func_id : ecfid, type_arguments : eta }) => cond(
-        // Lenient: name equality, with EMPTY names as wildcards — types
-        // reconstructed from values (type_of_eval_value) and pre-stamping
-        // instantiations carry "" while `::`-bound types are now STAMPED
-        // ("ArgParser" vs ""), and the mixed pair must stay compatible
-        // (previously everything was "" so this never arose).
-        //
-        // Non-exact struct compat: NO name-only
-        // shortcut for structs. Reject only on field-count / nominal-distinctness
-        // and otherwise recurse field types — a pure name-only rule rejected
-        // two instantiations of the SAME constructor whose STAMPED names differ —
-        // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
-        // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
-        // even though their fields are compatible. Accept the
-        // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
-        // nominals (different non-empty names, NO SomeT either side, DIFFERENT
-        // constructor_func_id), and otherwise
-        // recurse field types (which resolves `__self_shell`s via the EnumT arm and
-        // treats a generic SomeT as compatible). See
-        // issues/fixed/yo-self-recursive-enum-nested-member-shell.md.
-        !(require_exact) => cond(
-          // Two instantiations of one constructor whose CONCRETE recorded type
-          // arguments disagree are different types even under the lenient rule — `Carrier(AErr)`
-          // was assignable to `Carrier(BErr)` through the equal-name fast
-          // accept below (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
-          // A SomeT on either side of a position keeps it a wildcard (a
-          // def-time placeholder, an unresolved instantiation), so
-          // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
-          // that are not themselves non-exact-compatible disagree. The
-          // placeholder is NOT read through its resolution: a SomeT's
-          // resolution can carry an EARLIER call's binding
-          // (a first cut did, and two eras of one iterator instantiation
-          // "disagreed"); substitution already rewrites an instantiation's
-          // payloads concretely where it can.
-          ({
-            (pay_differ : bool) = false;
-            pa := ata;
-            pe := eta;
-            // Cycle guard: a recursive instantiation (`Node(T)` holding
-            // `Node(T)`) re-enters this comparison through its own type
-            // arguments — an already-open pair is not a disagreement.
-            vkey_pay := ((aid + String.from("=>pay")) + eid);
-            if(((pa.len() > usize(0)) && (pa.len() == pe.len())) && !(_visited_contains(visited, vkey_pay)), {
-              visited.push(vkey_pay);
-              (pi : usize) = usize(0);
-              while((pi < pa.len()) && !(pay_differ), {
-                pat := match(pa.get(pi), .Some(v) => v, .None => TypeValue.Unit);
-                pet := match(pe.get(pi), .Some(v) => v, .None => TypeValue.Unit);
-                // A `Type` kind marker in an argument slot is a comptime
-                // VALUE binder's bookkeeping (recorded as `Type` in one era
-                // and `unit` in another — tests/iterator_combinators
-                // `__ii_sum`), never a payload type: skip the position.
-                pa_kind := (match(pat, .TypeUni(_) => true, _ => false) || match(pet, .TypeUni(_) => true, _ => false));
-                if(((!(pa_kind)) && !(type_contains_some_type(pat))) && !(type_contains_some_type(pet)), {
-                  if(!(recur(pat, pet, _CompatMode.Flow, visited)), {
-                    pay_differ = true;
-                  });
-                });
-                pi = (pi + usize(1));
-              });
-            });
-            pay_differ
-          }) => false,
-          // An empty name is a wildcard only between types that could be the
-          // SAME declaration. A generic instantiation (a constructor id) is
-          // never a declared non-generic struct (a non-empty name, no
-          // constructor id), and two instantiations of DIFFERENT constructors
-          // are never one type — `String` flowed into an
-          // `ArrayList(String)` payload through the wildcard, because the
-          // instantiation's name is empty
-          // (issues/fixed/enum-variant-payload-type-is-not-checked-at-construction.md).
-          // Types that still carry a SomeT keep the old rule (a def-time
-          // placeholder may be either).
-          (
-            (((aid != eid) && (get_all_some_types(actual).len() == usize(0))) && (get_all_some_types(expected).len() == usize(0))) && (
-              ((((acfid.len() > usize(0)) && (ecfid.len() > usize(0))) && (acfid != ecfid)) || (((acfid.len() > usize(0)) && (ecfid.len() == usize(0))) && (ename.len() > usize(0))))
-              || (((ecfid.len() > usize(0)) && (acfid.len() == usize(0))) && (aname.len() > usize(0)))
-            )
-          ) => false,
-          // One declaration (or an era of it): the type-argument check above
-          // already told its instantiations apart.
-          ((aid.len() > usize(0)) && (aid == eid)) => true,
-          // Two instantiations of ONE generic constructor where a side is
-          // still generic: its fields are the constructor's fields at the
-          // type arguments, and the type-argument check above already
-          // rejected every concrete disagreement, so the fields have nothing
-          // left to say. Comparing them anyway sent each open SomeT to a
-          // leaf comparison against the other side's type parameter at
-          // another frame (`MapLeaf(K, V)` from `_branch_child_at` against
-          // `_all_entries_match`'s own `MapLeaf(K, V)` in std/imm/map.yo),
-          // which a placeholder cannot answer. The empty-name wildcard this
-          // replaces accepted such pairs by accident; this accepts them
-          // because the constructor says so (plans/reference/TYPE_IDENTITY.md).
-          ((((acfid.len() > usize(0)) && (acfid == ecfid)) && (ata.len() == eta.len())) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
-          // Two DIFFERENT declarations are one type under the lenient rule
-          // only when their shapes agree. An empty name used to be a
-          // wildcard and an equal name a pass, so an anonymous record with
-          // other fields flowed into a named struct, and two modules' `P`
-          // with different fields were interchangeable
-          // (issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md).
-          // The kind is part of the shape: a value struct, a `ref` object, an
-          // atomic object and a `newtype` are four different things. A side
-          // still carrying a SomeT is a def-time placeholder and keeps the
-          // structural comparison below.
-          ((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) && (((aref != eref) || (aatomic != eatomic)) || (anew != enew))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
-          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && ((((aname != ename) && (aname.len() > usize(0))) && (ename.len() > usize(0))) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
-          (alabels.len() != elabels.len()) => false,
-          true => {
-            vkey_ne := ((aid + String.from("=>ne")) + eid);
-            cond(
-              _visited_contains(visited, vkey_ne) => true,
-              true => {
-                visited.push(vkey_ne);
-                (ok_ne : bool) = true;
-                (si_ne : usize) = usize(0);
-                while((si_ne < alabels.len()) && ok_ne, {
-                  al_ne := match(alabels.get(si_ne), .Some(v) => v, .None => ``);
-                  el_ne := match(elabels.get(si_ne), .Some(v) => v, .None => ``);
-                  at_ne := match(atypes.get(si_ne), .Some(v) => v, .None => TypeValue.Unit);
-                  et_ne := match(etypes.get(si_ne), .Some(v) => v, .None => TypeValue.Unit);
-                  if((al_ne != el_ne) || !(recur(at_ne, et_ne, _CompatMode.Flow, visited)), {
-                    ok_ne = false;
-                  });
-                  si_ne = (si_ne + usize(1));
-                });
-                ok_ne
-              }
-            )
-          }
-        ),
-        // DISTINCT generic instantiations: two structs whose concrete
-        // `type_arguments` differ are DIFFERENT types even when they share a
-        // base `id` (ids churn) and their `field_types` are still the
-        // generic placeholder (`SomeT(T)` in both, so the field comparison below
-        // wrongly matches). e.g. `Iter(usize)` vs `Iter(String)` collapsed the
-        // specialization cache → one `.next()` served both, its return baked to
-        // whichever registered first → "incompatible type". Only fires when BOTH
-        // carry non-empty type_arguments of equal length and some arg is
-        // exact-incompatible; same-args (same instantiation) falls through to the
-        // id/field checks unchanged, so non-generic and identical structs are
-        // untouched.
+      // Lenient: name equality, with EMPTY names as wildcards — types
+      // reconstructed from values (type_of_eval_value) and pre-stamping
+      // instantiations carry "" while `::`-bound types are now STAMPED
+      // ("ArgParser" vs ""), and the mixed pair must stay compatible
+      // (previously everything was "" so this never arose).
+      //
+      // Non-exact struct compat: NO name-only
+      // shortcut for structs. Reject only on field-count / nominal-distinctness
+      // and otherwise recurse field types — a pure name-only rule rejected
+      // two instantiations of the SAME constructor whose STAMPED names differ —
+      // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
+      // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
+      // even though their fields are compatible. Accept the
+      // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
+      // nominals (different non-empty names, NO SomeT either side, DIFFERENT
+      // constructor_func_id), and otherwise
+      // recurse field types (which resolves `__self_shell`s via the EnumT arm and
+      // treats a generic SomeT as compatible). See
+      // issues/fixed/yo-self-recursive-enum-nested-member-shell.md.
+      !require_exact => cond(
+        // Two instantiations of one constructor whose CONCRETE recorded type
+        // arguments disagree are different types even under the lenient rule — `Carrier(AErr)`
+        // was assignable to `Carrier(BErr)` through the equal-name fast
+        // accept below (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
+        // A SomeT on either side of a position keeps it a wildcard (a
+        // def-time placeholder, an unresolved instantiation), so
+        // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
+        // that are not themselves non-exact-compatible disagree. The
+        // placeholder is NOT read through its resolution: a SomeT's
+        // resolution can carry an EARLIER call's binding
+        // (a first cut did, and two eras of one iterator instantiation
+        // "disagreed"); substitution already rewrites an instantiation's
+        // payloads concretely where it can.
         ({
-          (ta_differ : bool) = false;
-          if((ata.len() > usize(0)) && (ata.len() == eta.len()), {
-            (tai : usize) = usize(0);
-            while((tai < ata.len()) && !(ta_differ), {
-              at2 := match(ata.get(tai), .Some(v) => v, .None => TypeValue.Unit);
-              et2 := match(eta.get(tai), .Some(v) => v, .None => TypeValue.Unit);
-              if(!(recur(at2, et2, _exact_mode(mode), visited)), {
-                ta_differ = true;
+          (pay_differ : bool) = false;
+          pa := ata;
+          pe := eta;
+          // Cycle guard: a recursive instantiation (`Node(T)` holding
+          // `Node(T)`) re-enters this comparison through its own type
+          // arguments — an already-open pair is not a disagreement.
+          vkey_pay := (aid + String.from("=>pay") + eid);
+          if((pa.len() > usize(0)) && (pa.len() == pe.len()) && !_visited_contains(visited, vkey_pay), {
+            visited.push(vkey_pay);
+            (pi : usize) = usize(0);
+            while((pi < pa.len()) && !pay_differ, {
+              pat := match(pa.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+              pet := match(pe.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+              // A `Type` kind marker in an argument slot is a comptime
+              // VALUE binder's bookkeeping (recorded as `Type` in one era
+              // and `unit` in another — tests/iterator_combinators
+              // `__ii_sum`), never a payload type: skip the position.
+              pa_kind := (match(pat, .TypeUni(_) => true, _ => false) || match(pet, .TypeUni(_) => true, _ => false));
+              if(!pa_kind && !type_contains_some_type(pat) && !type_contains_some_type(pet), {
+                if(!recur(pat, pet, _CompatMode.Flow, visited), {
+                  pay_differ = true;
+                });
               });
-              tai = (tai + usize(1));
+              pi = (pi + usize(1));
             });
           });
-          ta_differ
+          pay_differ
         }) => false,
+        // An empty name is a wildcard only between types that could be the
+        // SAME declaration. A generic instantiation (a constructor id) is
+        // never a declared non-generic struct (a non-empty name, no
+        // constructor id), and two instantiations of DIFFERENT constructors
+        // are never one type — `String` flowed into an
+        // `ArrayList(String)` payload through the wildcard, because the
+        // instantiation's name is empty
+        // (issues/fixed/enum-variant-payload-type-is-not-checked-at-construction.md).
+        // Types that still carry a SomeT keep the old rule (a def-time
+        // placeholder may be either).
+        (
+          (aid != eid) && (get_all_some_types(actual).len() == usize(0)) && (get_all_some_types(expected).len() == usize(0)) && (
+            ((acfid.len() > usize(0)) && (ecfid.len() > usize(0)) && (acfid != ecfid)) || ((acfid.len() > usize(0)) && (ecfid.len() == usize(0)) && (ename.len() > usize(0)))
+            || ((ecfid.len() > usize(0)) && (acfid.len() == usize(0)) && (aname.len() > usize(0)))
+          )
+        ) => false,
+        // One declaration (or an era of it): the type-argument check above
+        // already told its instantiations apart.
         ((aid.len() > usize(0)) && (aid == eid)) => true,
-        // Self-SHELL identity (exact only): a struct self-shell is an
-        // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
-        // (struct.yo:76-95) — "distinguished from the final purely by its
-        // empty field list". Under exact comparison an empty-fields side must
-        // therefore compare by ID ONLY: two different structs' shells are both
-        // 0-field ""-named and would wrongly compare STRUCTURALLY EQUAL,
-        // colliding the comptime-fn CTFE cache — `Box(Self)` inside the
-        // SECOND `ref(struct(... : Option(Box(Self))))` hit the FIRST struct's
-        // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
-        // `is_owning_the_same_rc_value_as` field emitted as
-        // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
-        // incompatible-type cluster). Shells exist because TypeValue is
-        // value-semantic (no shared in-place-mutated `Self` object that
-        // "grows" into the final); comparing them by id only is the
-        // value-semantic equivalent of object identity.
-        // (aid == eid already returned true above, so
-        // reaching here with an empty side means different ids → distinct.)
-        ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false,
-        // Exact, different ids → structural. But the SEMANTICS KIND must match
-        // first: a value `struct`, a reference `object`, an `atomic object`, and
-        // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
-        // comptime-fn CTFE cache (keyed via `are_types_compatible_exact`) collides
-        // them — e.g. `Type.impls(AtomicPoint, Send)` and
-        // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
-        // entry, so the second query returns the first's result.
-        (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
-        // NOMINAL distinctness by CONSTRUCTOR (the same signal the non-exact
-        // arm above already uses): two instantiations stamped with DIFFERENT non-empty
-        // constructor_func_ids come from DIFFERENT generic declarations and are
-        // DISTINCT under exact match even when their FIELD LAYOUTS are identical
-        // and their names are empty (instantiation copies don't stamp names).
-        // Without this, `DequeIterPtr(i32)` compared exact-equal to
-        // `DequeIter(i32)` (same `{_deque,_pos,_remaining}` layout, same
-        // type_arguments [i32]) and the shared Iterator-trait DEFAULT
-        // `into_iter : Self -> Self` served ONE spec for both — the second
-        // receiver passed its own C type into the first's param type
-        // ("passing __yo_t32 to __yo_t28", the collections identity-split;
-        // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
-        // cfid-empty copies fall through exactly as before.
-        (((((acfid.len() != usize(0)) && (ecfid.len() != usize(0))) && (acfid != ecfid)) && (!(type_contains_some_type(actual)))) && (!(type_contains_some_type(expected)))) => false,
-        // NOMINAL distinctness: two structs
-        // with DIFFERENT non-empty names are DISTINCT types under exact match,
-        // UNLESS either contains a SomeT (a specialization placeholder). The
-        // struct `id` churns across generic instantiations (no stable funcId), so
-        // the stamped NAME is the nominal identity here — same-named instantiations
-        // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
-        // to the structural field comparison below. Without this, CodegenTypeEntry
-        // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
-        // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
-        // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
-        ((((aname.len() != usize(0)) && (ename.len() != usize(0))) && (aname != ename)) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
-        // SAME-NAMED DISTINCT DECLARATIONS: reaching here means
-        // aid != eid (the id-equality arm above returned true otherwise). Two
-        // structs with the SAME non-empty stamped name, different ids, no
-        // SomeT on either side and NO type_arguments are DISTINCT
-        // declarations — e.g. per-test local `Counter :: struct(...)` in a
-        // batched test file. Falling through to the structural tail collided
-        // the specialization cache: ONE `ident(T)` spec served both Counters,
-        // its param C type from the first and its return from the second
-        // (arc.test.yo class). Generic instantiations/copies are untouched:
-        // instantiations carry type_arguments, and cfid-empty copies SHARE
-        // their original's id (caught by the id-equality arm). See
-        // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
-        (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
-        // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
-        // struct is minted ONCE under a deterministic `capture_<id>` struct id
-        // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
-        // id-churned copy, so different capture ids ARE different types — the
-        // value-semantic equivalent of per-closure object identity.
-        // Capture structs carry empty names and empty cfids, so the
-        // nominal arms above never fire for them; without this rule two
-        // same-shaped captures (`{a : i32}` from two different closures)
-        // compare exact-equal and collide the comptime-fn CTFE cache — the
-        // second `box(<closure>)`'s `Box(V)(value)` ctor hit the FIRST
-        // closure's cached Box instantiation ("passing __yo_t32 to parameter
-        // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
-        (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid),
-        // A NAMED declaration is never the same type as a different,
-        // anonymous one, however alike their fields: `A :: struct(x : i32)`
-        // and a `struct(x : i32)` expression. Treating them as one let the
-        // CTFE memo answer `Type.eq(A, B)` from an earlier
-        // `Type.eq(struct(x : i32), struct(x : i32))`, and hand `Wrap(A)` the
-        // `Wrap(struct(x : i32))` instance
-        // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
-        // Limited to non-generic declarations: an instantiation's unstamped
-        // copy may legitimately be nameless.
-        (((((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0)))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0)))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
+        // Two instantiations of ONE generic constructor where a side is
+        // still generic: its fields are the constructor's fields at the
+        // type arguments, and the type-argument check above already
+        // rejected every concrete disagreement, so the fields have nothing
+        // left to say. Comparing them anyway sent each open SomeT to a
+        // leaf comparison against the other side's type parameter at
+        // another frame (`MapLeaf(K, V)` from `_branch_child_at` against
+        // `_all_entries_match`'s own `MapLeaf(K, V)` in std/imm/map.yo),
+        // which a placeholder cannot answer. The empty-name wildcard this
+        // replaces accepted such pairs by accident; this accepts them
+        // because the constructor says so (plans/reference/TYPE_IDENTITY.md).
+        ((acfid.len() > usize(0)) && (acfid == ecfid) && (ata.len() == eta.len()) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
+        // Two DIFFERENT declarations are one type under the lenient rule
+        // only when their shapes agree. An empty name used to be a
+        // wildcard and an equal name a pass, so an anonymous record with
+        // other fields flowed into a named struct, and two modules' `P`
+        // with different fields were interchangeable
+        // (issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md).
+        // The kind is part of the shape: a value struct, a `ref` object, an
+        // atomic object and a `newtype` are four different things. A side
+        // still carrying a SomeT is a def-time placeholder and keeps the
+        // structural comparison below.
+        (((aname == ename) || (aname.len() == usize(0)) || (ename.len() == usize(0))) && ((aref != eref) || (aatomic != eatomic) || (anew != enew))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
+        (!type_contains_some_type(actual) && !type_contains_some_type(expected) && ((aname != ename) && (aname.len() > usize(0)) && (ename.len() > usize(0)) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
-          vkey := ((aid + String.from("=>")) + eid);
+          vkey_ne := (aid + String.from("=>ne") + eid);
           cond(
-            _visited_contains(visited, vkey) => true,
+            _visited_contains(visited, vkey_ne) => true,
             true => {
-              visited.push(vkey);
-              (ok : bool) = true;
-              (si : usize) = usize(0);
-              while((si < alabels.len()) && ok, {
-                al := match(alabels.get(si), .Some(v) => v, .None => ``);
-                el := match(elabels.get(si), .Some(v) => v, .None => ``);
-                at := match(atypes.get(si), .Some(v) => v, .None => TypeValue.Unit);
-                et := match(etypes.get(si), .Some(v) => v, .None => TypeValue.Unit);
-                if((al != el) || !(recur(at, et, _exact_mode(mode), visited)), {
-                  ok = false;
+              visited.push(vkey_ne);
+              (ok_ne : bool) = true;
+              (si_ne : usize) = usize(0);
+              while((si_ne < alabels.len()) && ok_ne, {
+                al_ne := match(alabels.get(si_ne), .Some(v) => v, .None => ``);
+                el_ne := match(elabels.get(si_ne), .Some(v) => v, .None => ``);
+                at_ne := match(atypes.get(si_ne), .Some(v) => v, .None => TypeValue.Unit);
+                et_ne := match(etypes.get(si_ne), .Some(v) => v, .None => TypeValue.Unit);
+                if((al_ne != el_ne) || !recur(at_ne, et_ne, _CompatMode.Flow, visited), {
+                  ok_ne = false;
                 });
-                si = (si + usize(1));
+                si_ne = (si_ne + usize(1));
               });
-              ok
+              ok_ne
             }
           )
         }
-      ),
+      ), 
+      // DISTINCT generic instantiations: two structs whose concrete
+      // `type_arguments` differ are DIFFERENT types even when they share a
+      // base `id` (ids churn) and their `field_types` are still the
+      // generic placeholder (`SomeT(T)` in both, so the field comparison below
+      // wrongly matches). e.g. `Iter(usize)` vs `Iter(String)` collapsed the
+      // specialization cache → one `.next()` served both, its return baked to
+      // whichever registered first → "incompatible type". Only fires when BOTH
+      // carry non-empty type_arguments of equal length and some arg is
+      // exact-incompatible; same-args (same instantiation) falls through to the
+      // id/field checks unchanged, so non-generic and identical structs are
+      // untouched.
+      {
+        (ta_differ : bool) = false;
+        if((ata.len() > usize(0)) && (ata.len() == eta.len()), {
+          (tai : usize) = usize(0);
+          while((tai < ata.len()) && !ta_differ, {
+            at2 := match(ata.get(tai), .Some(v) => v, .None => TypeValue.Unit);
+            et2 := match(eta.get(tai), .Some(v) => v, .None => TypeValue.Unit);
+            if(!recur(at2, et2, _exact_mode(mode), visited), {
+              ta_differ = true;
+            });
+            tai = (tai + usize(1));
+          });
+        });
+        ta_differ
+      } => false, ((aid.len() > usize(0)) && (aid == eid)) => true, 
+      // Self-SHELL identity (exact only): a struct self-shell is an
+      // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
+      // (struct.yo:76-95) — "distinguished from the final purely by its
+      // empty field list". Under exact comparison an empty-fields side must
+      // therefore compare by ID ONLY: two different structs' shells are both
+      // 0-field ""-named and would wrongly compare STRUCTURALLY EQUAL,
+      // colliding the comptime-fn CTFE cache — `Box(Self)` inside the
+      // SECOND `ref(struct(... : Option(Box(Self))))` hit the FIRST struct's
+      // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
+      // `is_owning_the_same_rc_value_as` field emitted as
+      // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
+      // incompatible-type cluster). Shells exist because TypeValue is
+      // value-semantic (no shared in-place-mutated `Self` object that
+      // "grows" into the final); comparing them by id only is the
+      // value-semantic equivalent of object identity.
+      // (aid == eid already returned true above, so
+      // reaching here with an empty side means different ids → distinct.)
+      ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false, 
+      // Exact, different ids → structural. But the SEMANTICS KIND must match
+      // first: a value `struct`, a reference `object`, an `atomic object`, and
+      // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
+      // comptime-fn CTFE cache (keyed via `are_types_compatible_exact`) collides
+      // them — e.g. `Type.impls(AtomicPoint, Send)` and
+      // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
+      // entry, so the second query returns the first's result.
+      ((aref != eref) || (aatomic != eatomic) || (anew != enew)) => false, 
+      // NOMINAL distinctness by CONSTRUCTOR (the same signal the non-exact
+      // arm above already uses): two instantiations stamped with DIFFERENT non-empty
+      // constructor_func_ids come from DIFFERENT generic declarations and are
+      // DISTINCT under exact match even when their FIELD LAYOUTS are identical
+      // and their names are empty (instantiation copies don't stamp names).
+      // Without this, `DequeIterPtr(i32)` compared exact-equal to
+      // `DequeIter(i32)` (same `{_deque,_pos,_remaining}` layout, same
+      // type_arguments [i32]) and the shared Iterator-trait DEFAULT
+      // `into_iter : Self -> Self` served ONE spec for both — the second
+      // receiver passed its own C type into the first's param type
+      // ("passing __yo_t32 to __yo_t28", the collections identity-split;
+      // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
+      // cfid-empty copies fall through exactly as before.
+      ((acfid.len() != usize(0)) && (ecfid.len() != usize(0)) && (acfid != ecfid) && !type_contains_some_type(actual) && !type_contains_some_type(expected)) => false, 
+      // NOMINAL distinctness: two structs
+      // with DIFFERENT non-empty names are DISTINCT types under exact match,
+      // UNLESS either contains a SomeT (a specialization placeholder). The
+      // struct `id` churns across generic instantiations (no stable funcId), so
+      // the stamped NAME is the nominal identity here — same-named instantiations
+      // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
+      // to the structural field comparison below. Without this, CodegenTypeEntry
+      // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
+      // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
+      // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
+      ((aname.len() != usize(0)) && (ename.len() != usize(0)) && (aname != ename) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
+      // SAME-NAMED DISTINCT DECLARATIONS: reaching here means
+      // aid != eid (the id-equality arm above returned true otherwise). Two
+      // structs with the SAME non-empty stamped name, different ids, no
+      // SomeT on either side and NO type_arguments are DISTINCT
+      // declarations — e.g. per-test local `Counter :: struct(...)` in a
+      // batched test file. Falling through to the structural tail collided
+      // the specialization cache: ONE `ident(T)` spec served both Counters,
+      // its param C type from the first and its return from the second
+      // (arc.test.yo class). Generic instantiations/copies are untouched:
+      // instantiations carry type_arguments, and cfid-empty copies SHARE
+      // their original's id (caught by the id-equality arm). See
+      // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
+      ((aname.len() != usize(0)) && (aname == ename) && ((ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected)))) => false, 
+      // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
+      // struct is minted ONCE under a deterministic `capture_<id>` struct id
+      // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
+      // id-churned copy, so different capture ids ARE different types — the
+      // value-semantic equivalent of per-closure object identity.
+      // Capture structs carry empty names and empty cfids, so the
+      // nominal arms above never fire for them; without this rule two
+      // same-shaped captures (`{a : i32}` from two different closures)
+      // compare exact-equal and collide the comptime-fn CTFE cache — the
+      // second `box(<closure>)`'s `Box(V)(value)` ctor hit the FIRST
+      // closure's cached Box instantiation ("passing __yo_t32 to parameter
+      // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
+      (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid), 
+      // A NAMED declaration is never the same type as a different,
+      // anonymous one, however alike their fields: `A :: struct(x : i32)`
+      // and a `struct(x : i32)` expression. Treating them as one let the
+      // CTFE memo answer `Type.eq(A, B)` from an earlier
+      // `Type.eq(struct(x : i32), struct(x : i32))`, and hand `Wrap(A)` the
+      // `Wrap(struct(x : i32))` instance
+      // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
+      // Limited to non-generic declarations: an instantiation's unstamped
+      // copy may legitimately be nameless.
+      (((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0))) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
+        vkey := (aid + String.from("=>") + eid);
+        cond(
+          _visited_contains(visited, vkey) => true,
+          true => {
+            visited.push(vkey);
+            (ok : bool) = true;
+            (si : usize) = usize(0);
+            while((si < alabels.len()) && ok, {
+              al := match(alabels.get(si), .Some(v) => v, .None => ``);
+              el := match(elabels.get(si), .Some(v) => v, .None => ``);
+              at := match(atypes.get(si), .Some(v) => v, .None => TypeValue.Unit);
+              et := match(etypes.get(si), .Some(v) => v, .None => TypeValue.Unit);
+              if((al != el) || !recur(at, et, _exact_mode(mode), visited), {
+                ok = false;
+              });
+              si = (si + usize(1));
+            });
+            ok
+          }
+        )
+      }),
       _ => false
     ),
     .EnumT(_, _, _, _, _, _, _, _, _) => match(
@@ -1141,151 +1137,143 @@ _compat_impl :: (
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
         .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
-          // Lenient mode: equal (or empty) names, EXCEPT when the variant
-          // payloads disagree concretely — `Result(i32, AErr)` and
-          // `Result(i32, BErr)` are both "Result" but carry different error
-          // enums (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
-          // SomeT-bearing positions stay wildcards; variant lists of different
-          // length are left to the old rule (an empty-name reconstruction may
-          // be partial).
-          // Two instantiations of one generic enum whose recorded type
-          // arguments disagree are different types, even when no variant
-          // payload mentions the parameter — a phantom index, or a GADT
-          // index named only by `-> recur(...)`: `Value(i32)` is not a
-          // `Value(bool)` (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-          // The enum twin of the Struct arms' `type_arguments` checks, with
-          // one difference: the arguments live in a side table keyed by id
-          // (types/creators.yo), and substitution rewrites an instance's
-          // variant fields but keeps its id, so a substituted instance still
-          // reports its DEFINITION-era arguments (`*(T)` where the fields
-          // already say `*(u8)`). A position that mentions a SomeT anywhere
-          // (the deep scan — `*(T)` is not a top-level SomeT) is therefore a
-          // wildcard under both rules, as is a `Type`-kind position; the
-          // exact rule then compares the remaining positions exactly.
-          ({
-            (eta_differ : bool) = false;
-            a_eta := lookup_enum_type_arguments(aid);
-            e_eta := lookup_enum_type_arguments(eid);
-            vkey_eta := ((aid + String.from("=>eta")) + eid);
-            if((((aid != eid) && (a_eta.len() > usize(0))) && (a_eta.len() == e_eta.len())) && !(_visited_contains(visited, vkey_eta)), {
-              visited.push(vkey_eta);
-              (etai : usize) = usize(0);
-              while((etai < a_eta.len()) && !(eta_differ), {
-                aet := match(a_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
-                eet := match(e_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
-                eta_kind := (match(aet, .TypeUni(_) => true, _ => false) || match(eet, .TypeUni(_) => true, _ => false));
-                eta_open := ((get_all_some_types(aet).len() > usize(0)) || (get_all_some_types(eet).len() > usize(0)));
-                if(((!(eta_kind)) && !(eta_open)) && !(recur(aet, eet, mode, visited)), {
-                  eta_differ = true;
-                });
-                etai = (etai + usize(1));
+        // Lenient mode: equal (or empty) names, EXCEPT when the variant
+        // payloads disagree concretely — `Result(i32, AErr)` and
+        // `Result(i32, BErr)` are both "Result" but carry different error
+        // enums (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
+        // SomeT-bearing positions stay wildcards; variant lists of different
+        // length are left to the old rule (an empty-name reconstruction may
+        // be partial).
+        // Two instantiations of one generic enum whose recorded type
+        // arguments disagree are different types, even when no variant
+        // payload mentions the parameter — a phantom index, or a GADT
+        // index named only by `-> recur(...)`: `Value(i32)` is not a
+        // `Value(bool)` (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
+        // The enum twin of the Struct arms' `type_arguments` checks, with
+        // one difference: the arguments live in a side table keyed by id
+        // (types/creators.yo), and substitution rewrites an instance's
+        // variant fields but keeps its id, so a substituted instance still
+        // reports its DEFINITION-era arguments (`*(T)` where the fields
+        // already say `*(u8)`). A position that mentions a SomeT anywhere
+        // (the deep scan — `*(T)` is not a top-level SomeT) is therefore a
+        // wildcard under both rules, as is a `Type`-kind position; the
+        // exact rule then compares the remaining positions exactly.
+        {
+          (eta_differ : bool) = false;
+          a_eta := lookup_enum_type_arguments(aid);
+          e_eta := lookup_enum_type_arguments(eid);
+          vkey_eta := (aid + String.from("=>eta") + eid);
+          if((aid != eid) && (a_eta.len() > usize(0)) && (a_eta.len() == e_eta.len()) && !_visited_contains(visited, vkey_eta), {
+            visited.push(vkey_eta);
+            (etai : usize) = usize(0);
+            while((etai < a_eta.len()) && !eta_differ, {
+              aet := match(a_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
+              eet := match(e_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
+              eta_kind := (match(aet, .TypeUni(_) => true, _ => false) || match(eet, .TypeUni(_) => true, _ => false));
+              eta_open := ((get_all_some_types(aet).len() > usize(0)) || (get_all_some_types(eet).len() > usize(0)));
+              if(!eta_kind && !eta_open && !recur(aet, eet, mode, visited), {
+                eta_differ = true;
               });
+              etai = (etai + usize(1));
             });
-            eta_differ
-          }) => false,
-          !(require_exact) => cond(
-            ({
-              (vp_differ : bool) = false;
-              vkey_vp := ((aid + String.from("=>vp")) + eid);
-              if((avns.len() == evns.len()) && !(_visited_contains(visited, vkey_vp)), {
-                visited.push(vkey_vp);
-                (vpi : usize) = usize(0);
-                while((vpi < avfs.len()) && !(vp_differ), {
-                  vafl := match(avfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  vefl := match(evfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  if(vafl.len() == vefl.len(), {
-                    (vfi : usize) = usize(0);
-                    while((vfi < vafl.len()) && !(vp_differ), {
-                      vat := match(vafl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
-                      vet := match(vefl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
-                      va_kind := (match(vat, .TypeUni(_) => true, _ => false) || match(vet, .TypeUni(_) => true, _ => false));
-                      if(((!(va_kind)) && !(type_contains_some_type(vat))) && !(type_contains_some_type(vet)), {
-                        if(!(recur(vat, vet, _CompatMode.Flow, visited)), {
-                          vp_differ = true;
-                        });
-                      });
-                      vfi = (vfi + usize(1));
+          });
+          eta_differ
+        } => false, !require_exact => cond({
+          (vp_differ : bool) = false;
+          vkey_vp := (aid + String.from("=>vp") + eid);
+          if((avns.len() == evns.len()) && !_visited_contains(visited, vkey_vp), {
+            visited.push(vkey_vp);
+            (vpi : usize) = usize(0);
+            while((vpi < avfs.len()) && !vp_differ, {
+              vafl := match(avfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+              vefl := match(evfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+              if(vafl.len() == vefl.len(), {
+                (vfi : usize) = usize(0);
+                while((vfi < vafl.len()) && !vp_differ, {
+                  vat := match(vafl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                  vet := match(vefl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                  va_kind := (match(vat, .TypeUni(_) => true, _ => false) || match(vet, .TypeUni(_) => true, _ => false));
+                  if(!va_kind && !type_contains_some_type(vat) && !type_contains_some_type(vet), {
+                    if(!recur(vat, vet, _CompatMode.Flow, visited), {
+                      vp_differ = true;
                     });
                   });
-                  vpi = (vpi + usize(1));
+                  vfi = (vfi + usize(1));
                 });
               });
-              vp_differ
-            }) => false,
-            // One declaration, or two with the same shape: an empty name is
-            // no longer a wildcard — `enum(Blue)` is not an `E1 :: enum(Red,
-            // Green)` — so different declarations must agree on their variant
-            // names (payloads were compared just above).
-            ((aid.len() > usize(0)) && (aid == eid)) => true,
-            (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
-            true => ({
-              (vn_same : bool) = (avns.len() == evns.len());
-              (vni : usize) = usize(0);
-              while((vni < avns.len()) && vn_same, {
-                if(match(avns.get(vni), .Some(a) => a, .None => ``) != match(evns.get(vni), .Some(e) => e, .None => ``), {
-                  vn_same = false;
+              vpi = (vpi + usize(1));
+            });
+          });
+          vp_differ
+        } => false, 
+        // One declaration, or two with the same shape: an empty name is
+        // no longer a wildcard — `enum(Blue)` is not an `E1 :: enum(Red,
+        // Green)` — so different declarations must agree on their variant
+        // names (payloads were compared just above).
+        ((aid.len() > usize(0)) && (aid == eid)) => true, ((aname.len() > usize(0)) && (ename.len() > usize(0)) && (aname != ename)) => false, true => {
+          (vn_same : bool) = (avns.len() == evns.len());
+          (vni : usize) = usize(0);
+          while((vni < avns.len()) && vn_same, {
+            if(match(avns.get(vni), .Some(a) => a, .None => ``) != match(evns.get(vni), .Some(e) => e, .None => ``), {
+              vn_same = false;
+            });
+            vni = (vni + usize(1));
+          });
+          vn_same
+        }), 
+        // Nominal REJECT (exact only): two DECLARED enums with different
+        // names are different types however alike their variants are. The
+        // name is stamped by the `Name :: enum(...)` binding
+        // (initialization_assignment.yo), so re-registered eras of ONE
+        // declaration still share it and keep converging structurally,
+        // and generic instantiations (`Option(i32)`/`Option(String)`)
+        // share "Option" and are still told apart by the field compare
+        // below. Without this, `HashMapError` and `HashSetError` reduced
+        // to the same single variant became ONE type to the CTFE memo —
+        // `Result(unit, HashSetError)` was served the
+        // `Result(unit, HashMapError)` instance
+        // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
+        ((aname.len() > usize(0)) && (ename.len() > usize(0)) && (aname != ename)) => false, (avns.len() != evns.len()) => false, true => {
+          vkey := (aid + String.from("=>") + eid);
+          cond(
+            _visited_contains(visited, vkey) => true,
+            true => {
+              visited.push(vkey);
+              (ok : bool) = true;
+              (vi : usize) = usize(0);
+              while((vi < avns.len()) && ok, {
+                avn := match(avns.get(vi), .Some(v) => v, .None => ``);
+                evn := match(evns.get(vi), .Some(v) => v, .None => ``);
+                if(avn != evn, {
+                  ok = false;
                 });
-                vni = (vni + usize(1));
-              });
-              vn_same
-            })
-          ),
-          // Nominal REJECT (exact only): two DECLARED enums with different
-          // names are different types however alike their variants are. The
-          // name is stamped by the `Name :: enum(...)` binding
-          // (initialization_assignment.yo), so re-registered eras of ONE
-          // declaration still share it and keep converging structurally,
-          // and generic instantiations (`Option(i32)`/`Option(String)`)
-          // share "Option" and are still told apart by the field compare
-          // below. Without this, `HashMapError` and `HashSetError` reduced
-          // to the same single variant became ONE type to the CTFE memo —
-          // `Result(unit, HashSetError)` was served the
-          // `Result(unit, HashMapError)` instance
-          // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
-          (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
-          (avns.len() != evns.len()) => false,
-          true => {
-            vkey := ((aid + String.from("=>")) + eid);
-            cond(
-              _visited_contains(visited, vkey) => true,
-              true => {
-                visited.push(vkey);
-                (ok : bool) = true;
-                (vi : usize) = usize(0);
-                while((vi < avns.len()) && ok, {
-                  avn := match(avns.get(vi), .Some(v) => v, .None => ``);
-                  evn := match(evns.get(vi), .Some(v) => v, .None => ``);
-                  if(avn != evn, {
+                if(ok, {
+                  afl := match(avfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+                  efl := match(evfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+                  all := match(avls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
+                  ell := match(evls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
+                  if(afl.len() != efl.len(), {
                     ok = false;
-                  });
-                  if(ok, {
-                    afl := match(avfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                    efl := match(evfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                    all := match(avls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
-                    ell := match(evls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
-                    if(afl.len() != efl.len(), {
-                      ok = false;
-                    }, {
-                      (fi : usize) = usize(0);
-                      while((fi < afl.len()) && ok, {
-                        at := match(afl.get(fi), .Some(v) => v, .None => TypeValue.Unit);
-                        et := match(efl.get(fi), .Some(v) => v, .None => TypeValue.Unit);
-                        al := match(all.get(fi), .Some(v) => v, .None => ``);
-                        el := match(ell.get(fi), .Some(v) => v, .None => ``);
-                        if((al != el) || !(recur(at, et, _exact_mode(mode), visited)), {
-                          ok = false;
-                        });
-                        fi = (fi + usize(1));
+                  }, {
+                    (fi : usize) = usize(0);
+                    while((fi < afl.len()) && ok, {
+                      at := match(afl.get(fi), .Some(v) => v, .None => TypeValue.Unit);
+                      et := match(efl.get(fi), .Some(v) => v, .None => TypeValue.Unit);
+                      al := match(all.get(fi), .Some(v) => v, .None => ``);
+                      el := match(ell.get(fi), .Some(v) => v, .None => ``);
+                      if((al != el) || !recur(at, et, _exact_mode(mode), visited), {
+                        ok = false;
                       });
+                      fi = (fi + usize(1));
                     });
                   });
-                  vi = (vi + usize(1));
                 });
-                ok
-              }
-            )
-          }
-        ),
+                vi = (vi + usize(1));
+              });
+              ok
+            }
+          )
+        }),
         _ => false
       ),
       _ => false
@@ -1296,7 +1284,7 @@ _compat_impl :: (
     .Union(aname, alabels, atypes) => match(
       expected,
       .Union(ename, elabels, etypes) => cond(
-        !((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))) => false,
+        !((aname == ename) || (aname.len() == usize(0)) || (ename.len() == usize(0))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           (u_ok : bool) = true;
@@ -1305,7 +1293,7 @@ _compat_impl :: (
             if(match(alabels.get(ui), .Some(a) => a, .None => ``) != match(elabels.get(ui), .Some(e) => e, .None => ``), {
               u_ok = false;
             }, {
-              if(!(recur(match(atypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), match(etypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), mode, visited)), {
+              if(!recur(match(atypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), match(etypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), mode, visited), {
                 u_ok = false;
               });
             });
@@ -1337,8 +1325,8 @@ _compat_impl :: (
       expected,
       .TraitT(name : ename, id : eid) => if(
         (aid.len() > usize(0)) && (eid.len() > usize(0)),
-        (aid == eid),
-        (aname == ename)
+        aid == eid,
+        aname == ename
       ),
       _ => false
     ),
@@ -1384,10 +1372,10 @@ _compat_impl :: (
         // stricter name+level rule regress. EMPTY expected-constraint lists
         // only: a trait-SUBSET
         // walk on non-empty lists can self-recurse unboundedly.
-        (((!(require_exact)) && trial_flag_get()) && (ertt.len() == usize(0))) => true,
+        (!require_exact && trial_flag_get() && (ertt.len() == usize(0))) => true,
         true => {
           (xw_ok : bool) = (
-            ((aname == ename) && (artt.len() == ertt.len()))
+            (aname == ename) && (artt.len() == ertt.len())
             && (
               (artt.len() > usize(0))
               && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
@@ -1398,7 +1386,7 @@ _compat_impl :: (
           while((xw_i < artt.len()) && xw_ok, {
             xa := match(artt.get(xw_i), .Some(t) => t, .None => TypeValue.Unit);
             xe := match(ertt.get(xw_i), .Some(t) => t, .None => TypeValue.Unit);
-            if(!(recur(xa, xe, mode, visited)), {
+            if(!recur(xa, xe, mode, visited), {
               xw_ok = false;
             });
             xw_i = (xw_i + usize(1));
@@ -1435,7 +1423,7 @@ _compat_impl :: (
           if(al != el, {
             return(false);
           });
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             return(false);
           });
           i = (i + usize(1));
@@ -1450,7 +1438,7 @@ _compat_impl :: (
         // Both constructors must be SomeT and share the same unique ID
         acid_valid := match(acon, .SomeT(id : _) => true, _ => false);
         ecid_valid := match(econ, .SomeT(id : _) => true, _ => false);
-        if((!(acid_valid)) || (!(ecid_valid)), {
+        if(!acid_valid || !ecid_valid, {
           return(false);
         });
         acid := match(acon, .SomeT(id : cid) => cid, _ => ``);
@@ -1465,7 +1453,7 @@ _compat_impl :: (
         while(i < aargs.len(), {
           at := match(aargs.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(eargs.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             return(false);
           });
           i = (i + usize(1));
@@ -1500,7 +1488,7 @@ _compat_impl :: (
               });
               j = (j + usize(1));
             });
-            if(!(found), {
+            if(!found, {
               return(false);
             });
             i = (i + usize(1));
@@ -1533,13 +1521,13 @@ _compat_impl :: (
               xat := match(artt.get(xi), .Some(v) => v, .None => TypeValue.Unit);
               (xfound : bool) = false;
               (xj : usize) = usize(0);
-              while((xj < ertt.len()) && !(xfound), {
+              while((xj < ertt.len()) && !xfound, {
                 if(recur(match(ertt.get(xj), .Some(v) => v, .None => TypeValue.Unit), xat, rev_mode, visited), {
                   xfound = true;
                 });
                 xj = (xj + usize(1));
               });
-              if(!(xfound), {
+              if(!xfound, {
                 return(false);
               });
               xi = (xi + usize(1));
@@ -1563,7 +1551,7 @@ _compat_impl :: (
         while(i < apts.len(), {
           at := match(apts.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(epts.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(recur(at, et, mode, visited)), {
+          if(!recur(at, et, mode, visited), {
             return(false);
           });
           i = (i + usize(1));
@@ -1580,7 +1568,7 @@ _compat_impl :: (
           if(abn != ebn, {
             return(false);
           });
-          if(!(recur(aout, eout, mode, visited)), {
+          if(!recur(aout, eout, mode, visited), {
             return(false);
           });
           flat_a_labels := ArrayList(String).new();
@@ -1610,7 +1598,7 @@ _compat_impl :: (
             found := false;
             ai := usize(0);
             while(ai < flat_a_types.len(), {
-              if(!(_is_in_used(used, ai)), {
+              if(!_is_in_used(used, ai), {
                 at := match(flat_a_types.get(ai), .Some(v) => v, .None => TypeValue.Unit);
                 if(recur(resolve_cell_chain(et), resolve_cell_chain(at), mode, visited), {
                   used.push(ai);
@@ -1622,7 +1610,7 @@ _compat_impl :: (
               });
               ai = (ai + usize(1));
             });
-            if(!(found), {
+            if(!found, {
               return(false);
             });
             ei = (ei + usize(1));
@@ -1657,7 +1645,7 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
   (a_top : TypeValue) = t_refine_inner(actual);
   (e_top : TypeValue) = t_refine_inner(expected);
   if(match(e_top, .ExternOpaqueT(_, _) => true, _ => false), {
-    if((is_numeric_type(a_top) || is_bool_type(a_top)) || (is_c_compatible_type(a_top) || (is_comptime_int_type(a_top) || is_comptime_float_type(a_top))), {
+    if(is_numeric_type(a_top) || is_bool_type(a_top) || (is_c_compatible_type(a_top) || (is_comptime_int_type(a_top) || is_comptime_float_type(a_top))), {
       return(true);
     });
   });

@@ -45,10 +45,10 @@ _open_mode_to_flags :: (fn(mode : OpenMode) -> i32)(
   match(
     mode,
     .Read => (O_RDONLY | O_CLOEXEC),
-    .Write => (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC),
-    .Append => (((O_WRONLY | O_CREAT) | O_APPEND) | O_CLOEXEC),
+    .Write => (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC),
+    .Append => (O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC),
     .ReadWrite => (O_RDWR | O_CLOEXEC),
-    .CreateNew => (((O_WRONLY | O_CREAT) | O_EXCL) | O_CLOEXEC)
+    .CreateNew => (O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC)
   )
 );
 // Returns the POSIX mode for an OpenMode.
@@ -214,7 +214,7 @@ impl(
   /// True when this combination can create the file, so the caller knows
   /// whether the permission argument is consulted.
   creates : (fn(self : Self) -> bool)(
-    (self._create || self._create_new)
+    self._create || self._create_new
   ),
   /// The POSIX flag set, or `.Err` naming the contradiction.
   ///
@@ -230,7 +230,7 @@ impl(
   /// - `create` without write access: there is nothing to create the file for.
   to_flags : (fn(self : Self) -> Result(i32, String))(
     cond(
-      ((!self._read && !self._write) && !self._append) =>
+      (!self._read && !self._write && !self._append) =>
         Result(i32, String).Err(
           String.from("OpenOptions: set at least one of read, write or append")
         ),
@@ -271,7 +271,7 @@ impl(
           self._create_new => (with_create | O_EXCL),
           true => with_create
         );
-        Result(i32, String).Ok((with_excl | O_CLOEXEC))
+        Result(i32, String).Ok(with_excl | O_CLOEXEC)
       }
     )
   )

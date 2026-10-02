@@ -14,7 +14,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
-{ trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
+{ trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
@@ -2371,9 +2371,24 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue
   match(
     current_forcing_def(),
     .Some(def) => if((!(def.is_impl) && def.phase_a_value.is_none()), {
+      // `f :: ghost_fn((fn(...) -> R)(body))` defines a function too: the
+      // wrapper evaluates the SAME literal node and returns its FuncVal, so
+      // the literal inside it may publish, and a recursive ghost_fn (R2, it
+      // carries `decreases`) can name itself.
       def_rhs_id := match(
         def.expr,
-        .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(1)), .Some(r) => ast_expr_id(r), .None => usize(0)),
+        .FnCall(_, _, cargs, _, _) => match(
+          cargs.get(usize(1)),
+          .Some(r) => cond(
+            ast_expr_is_fn_call_of(r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
+              r,
+              .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(gl), .None => usize(0)),
+              .Atom(_, _) => usize(0)
+            ),
+            true => ast_expr_id(r)
+          ),
+          .None => usize(0)
+        ),
         .Atom(_, _) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
@@ -2737,47 +2752,149 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
 );
 /// Outcome of a method/trait-miss impl forcing (§4.4).
 PendingImplOutcome :: enum(NoneForced, Forced, Error(msg : String));
+/// Does the `impl(...)` statement `expr` declare a member labelled `label`:
+/// a direct `label : value` pair, or one inside a trait constructor
+/// (`Eq(E)((==) : …)`)? The labels are read as impl.yo's field loop reads them.
+_impl_expr_declares :: (fn(expr : AstExpr, label : String) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => {
+      (found : bool) = false;
+      (i : usize) = usize(1);
+      while((i < args.len()) && !found, {
+        match(
+          args.get(i),
+          .Some(a) => match(
+            a,
+            .FnCall(_, _, inner, _, _) => cond(
+              ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) => {
+                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(l).value == label), .None => false);
+              },
+              true => {
+                (j : usize) = usize(0);
+                while((j < inner.len()) && !found, {
+                  match(
+                    inner.get(j),
+                    .Some(m) => match(
+                      m,
+                      .FnCall(_, _, pair, _, _) => if(ast_expr_is_fn_call_of(m, BK_COLON, Option(usize).Some(usize(2))), {
+                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(l).value == label), .None => false);
+                      }),
+                      .Atom(_, _) => ()
+                    ),
+                    .None => ()
+                  );
+                  j = (j + usize(1));
+                });
+              }
+            ),
+            .Atom(_, _) => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .Atom(_, _) => false
+  )
+);
 /// Force every Unforced pending `impl` whose receiver head is `type_name`, plus
-/// the un-nameable ones, across the active walks (innermost first). `.Forced`
+/// the un-nameable ones, across the active walks (innermost first) — only
+/// the ones that declare `missed` when that answers the miss. `.Forced`
 /// tells the caller to retry its lookup; `.Error` carries the first failure.
-force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutcome)({
+/// `missed` is the method or operator name whose lookup missed, when the
+/// caller has one (a trait-satisfaction check passes `.None`).
+force_pending_impls_for_type_name :: (fn(type_name : String, missed : Option(String)) -> PendingImplOutcome)({
   // An unnamed receiver (SomeT, primitive, tuple, …) cannot select an impl.
   if(type_name.len() == usize(0), {
     return(PendingImplOutcome.NoneForced);
   });
-  // While an impl of THIS type is itself being evaluated, a method miss on the
-  // type is the in-block sibling forward reference that impl.yo's shell
-  // pre-pass and in-flight registry own — forcing a LATER impl of the same
-  // type in the middle of that registration evaluated `impl(Sha1, Digest(update
+  if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
+    (m : String) = match(missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
+    (stack : String) = String.new();
+    (si : usize) = usize(0);
+    while(si < g_forcing_stack.len(), {
+      match(g_forcing_stack.get(si), .Some(fd) => stack.push_string(cond(fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+      si = (si + usize(1));
+    });
+    eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
+  });
+  // While an impl of THIS type is itself being evaluated, a miss on a member
+  // that impl declares is the in-block sibling forward reference that impl.yo's
+  // in-flight registry owns — forcing a LATER impl of the same type in the
+  // middle of that registration evaluated `impl(Sha1, Digest(update
   // self.update(data)))` against a half-registered Sha1 and left its trait
   // methods resolving through the trait record (`__yo_t18.update`,
-  // tests/crypto/digest.test.yo). Cross-block references still force from
-  // free functions, generic bodies and other types' impls.
+  // tests/crypto/digest.test.yo). A miss on a name the in-flight impl does NOT
+  // declare can only be answered by another impl, and forces the impls that
+  // DECLARE it: a member calling `self.clone()` from an impl above
+  // `impl(S, Clone(...))` was E0610
+  // (issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md).
+  // A trait-satisfaction check names no member and keeps the guard.
+  (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
   while(fi < g_forcing_stack.len(), {
     match(
       g_forcing_stack.get(fi),
       .Some(fd) => if(fd.is_impl && (fd.name == type_name), {
-        return(PendingImplOutcome.NoneForced);
+        if(match(missed, .Some(m) => _impl_expr_declares(fd.expr, m), .None => true), {
+          return(PendingImplOutcome.NoneForced);
+        });
+        in_own_impl = true;
       }),
       .None => ()
     );
     fi = (fi + usize(1));
   });
+  // A named miss forces only the impls that declare the name. Forcing every
+  // impl of the type reached the IMPORTER's impls too: `std/string`'s
+  // `splitn` calling `self.clone()` forced `impl(String, ToString(…))` in
+  // `std/fmt/to_string.yo`, whose walk was still parked on
+  // `import("../string")` — E0906 on `String`, then one fresh `Pattern` trait
+  // per re-entry (issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md).
+  // Outside an impl of the type, a name no pending impl declares (a trait
+  // default, a derive) falls back to forcing them all, as before.
+  match(
+    missed,
+    .Some(m) => {
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m));
+      cond(
+        in_own_impl => declaring,
+        true => match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None), _ => declaring)
+      )
+    },
+    .None => _force_pending_impls_pass(type_name, Option(String).None)
+  )
+});
+/// One forcing pass over the active walks (innermost first): every Unforced
+/// impl whose receiver head is `type_name` (or is un-nameable), restricted to
+/// the impls that declare `declaring` when it is given.
+///
+/// Walks nest strictly, so every walk below the innermost is parked on the
+/// import that is running now, and none of its imported names is bound yet.
+/// An impl there of a type imported FROM the running module cannot be
+/// evaluated: forcing it was E0906 on a valid program
+/// (issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md).
+/// An outer walk is searched only when it declares `type_name` itself, which
+/// is the import-cycle case (the running module reached back into a module
+/// still loading, whose own type's impl is pending).
+_force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.len();
+  (innermost : usize) = wi;
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
       g_module_walks.get(wi),
-      .Some(walk) => {
+      .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := ((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0))));
+              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(walk, def),
@@ -2794,7 +2911,7 @@ force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutco
           );
           di = (di + usize(1));
         });
-      },
+      }),
       .None => ()
     );
   });
@@ -2807,13 +2924,21 @@ force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutco
 /// The nominal head name of a type for impl forcing — the `name` of a
 /// struct/enum/union/trait (a generic instantiation's `Name(args)` spelling
 /// is cut at the paren), looked up through pointers (method dispatch
-/// auto-derefs the receiver). Empty for anything unnamed (SomeT, primitives,
-/// tuples, …) — no impl is forced for those.
+/// auto-derefs the receiver). A declared type resolved from its self-shell
+/// is nameless and answers with its binding's name (`type_binding_name`).
+/// Empty for anything unnamed (SomeT, primitives, tuples, …) — no impl is
+/// forced for those.
 type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
   raw := match(
     ty,
-    .Struct({ name : sn }) => sn.clone(),
-    .EnumT(_, en, _, _, _, _, _, _, _) => en.clone(),
+    .Struct({ id : sid, name : sn }) => cond(
+      (sn.len() > usize(0)) => sn.clone(),
+      true => match(type_binding_name(sid), .Some(b) => b, .None => String.new())
+    ),
+    .EnumT(eid, en, _, _, _, _, _, _, _) => cond(
+      (en.len() > usize(0)) => en.clone(),
+      true => match(type_binding_name(eid), .Some(b) => b, .None => String.new())
+    ),
     .Union(un, _, _) => un.clone(),
     .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
     .Pointer(pointee) => recur(pointee),
@@ -3131,7 +3256,8 @@ create_function_body_evaluation_context :: (
     // closure written INSIDE an io.async block look like the io.async closure
     // itself, which skips binding its `Impl(Fn)` to the capture type (the
     // local lowered to `void*` and was called as a bare fn pointer) and its
-    // capture-owning temp (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md).
+    // capture-owning temp (issues/fixed/a-closure-bound-to-a-local-inside-an-io-async-body-emits-invalid-c.md,
+    // issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
     // A nested `io.async(...)` call sets it again for its own argument.
     is_inside_io_async_call : false,
     is_inside_given_handler : ctx.is_inside_given_handler,

@@ -1,0 +1,41 @@
+// R2 task 5 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: `distinct(a, b)`
+// in a requires says two list parameters are different lists. That lets a
+// body mutate one beside the other (R1 rejects it: a caller could pass one
+// list as both), and each call proves it from where its arguments came from.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+append_all :: (
+  fn(
+    src : ArrayList(i32),
+    dst : ArrayList(i32),
+    requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
+    ensures(dst.len() == (old(dst.len()) + src.len()))
+  ) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    invariant(i <= src.len(), dst.len() == (old(dst.len()) + i));
+    dst.push(src(i));
+    i = (i + usize(1));
+  });
+});
+
+// A fresh local is distinct from every other list.
+into_fresh :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  append_all(xs, out);
+  out
+});
+
+// The caller's own distinct passes on.
+forward :: (
+  fn(
+    a : ArrayList(i32),
+    b : ArrayList(i32),
+    requires(distinct(a, b), (b.len() + a.len()) >= b.len()),
+    ensures(b.len() == (old(b.len()) + a.len()))
+  ) -> unit
+)({
+  append_all(a, b);
+});

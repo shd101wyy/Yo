@@ -27,7 +27,7 @@
 // drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
 // eval :388); this emits it.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { expr_info_is_compile_time_only_assignment } :: import("../../expr_info.yo");
@@ -286,6 +286,8 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");
       em.emit_string_line(line);
+      // The slot owns its new value: clear a move out of the old one.
+      if(is_sm_var, match(sm_move_flag_of(lhs_code.clone()), .Some(flag) => em.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
     });
   });
   context.current_assignment_save_temp = prev_save_temp;

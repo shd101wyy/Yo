@@ -128,7 +128,7 @@ impl(
 impl(
   SipHasher13,
   Hasher(
-    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+    write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit)({
       self.length = (self.length + size);
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
@@ -194,7 +194,7 @@ impl(
       s._round();
       s._round();
       s._round();
-      ((s.v0 ^ s.v1) ^ s.v2) ^ s.v3
+      s.v0 ^ s.v1 ^ s.v2 ^ s.v3
     })
   )
 );
@@ -211,7 +211,7 @@ impl(
 impl(
   Fnv1aHasher,
   Hasher(
-    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+    write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         // SAFETY: `size` readable bytes at `buf`, `i < size`.

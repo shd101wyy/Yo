@@ -87,6 +87,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Mixed GADT and regular variants](#mixed-gadt-and-regular-variants)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
+- [Typestate](#typestate)
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
@@ -1966,6 +1967,48 @@ UserId :: newtype(value : i32);
 // In C: just an i32, no struct wrapper at runtime
 ```
 
+## Typestate
+
+A protocol state can live in a type, as in ATS's indexed resources
+(`FILEptr(mode)`): a phantom comptime parameter that no field mentions, and
+functions that accept only the state they need. A wrong-state call is a type
+error (E0601).
+
+```rust
+Open :: struct();
+Closed :: struct();
+Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
+
+open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
+read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
+close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+
+main :: (fn() -> unit)({
+  h := open_h(i32(3));
+  c := close_h(h);
+  // read_h(c);   // E0601: expected Handle(Open), given Handle(Closed)
+  // read_h(h);   // E0901: use of moved value `h`
+});
+export(main);
+```
+
+The pattern is only sound when the old state CANNOT be used after a
+transition, so two rules apply:
+
+- **The handle is a `ref` type and the transition takes it with `own(...)`.**
+  The move makes the old name unusable (E0901). A plain value struct is
+  COPIED into the call, so the closed handle and its `Open` copy would both
+  stay usable.
+- **No other alias keeps the old state.** A `ref` handle copied into a second
+  name before the transition still has the old type. Keep a typestate handle
+  in one name, the way `Iso(T)` keeps a uniquely owned value.
+
+The phantom parameter must currently be on a `ref(struct(...))`. A method on
+a phantom generic ENUM is not yet found through a `comptime(K) : Type`
+parameter (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+std's `File` and sockets keep their state at run time instead: they are
+shared RC handles by design.
+
 ## C union
 
 ```rust
@@ -3227,6 +3270,12 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 result := safe_divide(6, 3, exn); // result = 2
 safe_divide(10, 0, exn); // handler fires, unwinds — code after this is unreached
 ```
+
+An `Exception` handler cannot resume the throw with a value. `throw`'s
+resume type is a type variable that each throw site picks, so a handler
+must `unwind`, diverge, or fall through with `()`. A handler that
+returns a value of a fixed type, such as `err -> { return(i32(7)); }`,
+is a compile error that points at `ResumableException`:
 
 ### ResumableException
 

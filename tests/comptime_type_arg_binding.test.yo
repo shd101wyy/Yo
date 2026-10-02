@@ -1,6 +1,11 @@
 { assert } :: import("std/assert");
 import("std/string");
 import("std/fmt");
+{ IoFuture } :: import("std/sys/future");
+{ Park } :: import("std/async/waker");
+{ size_would_overflow } :: import("std/allocator");
+{ Arena } :: import("std/arena");
+{ ArrayList } :: import("std/collections/array_list");
 // A function whose type parameter is pinned ONLY by an explicit
 // `comptime(C) : Type` argument used to be routed into the CTFE
 // type-constructor path (every argument was a type), which cannot resolve a
@@ -63,4 +68,21 @@ test("A method on a phantom generic struct resolves through a comptime type para
   assert(_phantom_size(i32, i32, x) == u8(3), "struct");
   y := _Phantom(bool, u8)(n : u8(7));
   assert(_phantom_size(bool, u8, y) == u8(7), "a second instantiation");
+});
+// A `comptime(T) : Type` argument that is (or holds) a SomeT already resolved
+// to a concrete type — `IoFuture :: Impl(Concrete(__yo_io_future_t),
+// Future(i32))`, std/async/waker's `Park` — was treated as an unresolved
+// placeholder, so the call never specialized and codegen dropped it: an
+// internal compiler error in `main`, an abort stub anywhere else.
+// issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md
+_FutHolder :: ref(struct(f : IoFuture));
+_ignore_t :: (fn(comptime(T) : Type, n : usize) -> usize)(n);
+test("A comptime type argument holding a resolved Impl specializes", {
+  (m : usize) = usize(4);
+  assert(_ignore_t(IoFuture, m) == usize(4), "the Impl itself");
+  assert(_ignore_t(_FutHolder, m) == usize(4), "a struct holding one");
+  assert(!size_would_overflow(Park, usize(4)), "std's Park");
+  arena := Arena.new(usize(4096));
+  xs := ArrayList(Park).with_capacity_in(arena.allocator(), usize(0));
+  assert(xs.len() == usize(0), "an ArrayList of Park in an explicit allocator");
 });

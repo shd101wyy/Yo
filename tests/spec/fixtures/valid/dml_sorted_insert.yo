@@ -1,0 +1,71 @@
+// R2 task 3: inserting into a sorted list keeps it sorted, and the inserted
+// value is a member of the result. Sortedness is the pairwise adjacent form
+// (guarded by `i < len` too: spec arithmetic is modular, so `i + 1 < len`
+// alone also holds at i = MAX). Each loop keeps `out` sorted and relates its
+// LAST element to the next one pushed; push_at_end's element contract does the rest.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+// std's `push` states only its length until the seed carries the
+// proof-only ensures filter (plans/backlog/SEED_VERSION_AUTOMATION.md,
+// Generation B); this assumed wrapper states its elements meanwhile.
+push_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    v : i32,
+    ensures(
+      xs.len() == (old(xs.len()) + usize(1)),
+      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
+    ),
+    assumed()
+  ) -> unit
+)({
+  xs.push(v);
+});
+
+sorted_insert :: (
+  fn(
+    xs : ArrayList(i32),
+    x : i32,
+    requires(
+      xs.len() < usize(1000000),
+      forall(i : usize, ((i < xs.len()) && ((i + usize(1)) < xs.len())) ==> (xs(i) <= xs(i + usize(1))))
+    ),
+    ensures(
+      r.len() == (xs.len() + usize(1)),
+      forall(i : usize, ((i < r.len()) && ((i + usize(1)) < r.len())) ==> (r(i) <= r(i + usize(1)))),
+      exists(k : usize, (k < r.len()) && (r(k) == x))
+    )
+  ) -> (r : ArrayList(i32))
+)({
+  out := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  // Copy the elements below x.
+  while((i < xs.len()) && (xs(i) < x), {
+    invariant(
+      i <= xs.len(),
+      out.len() == i,
+      forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
+      (i > usize(0)) ==> ((out(i - usize(1)) == xs(i - usize(1))) && (out(i - usize(1)) < x))
+    );
+    push_at_end(out, xs(i));
+    i = (i + usize(1));
+  });
+  at := i;
+  push_at_end(out, x);
+  // Copy the rest.
+  while(i < xs.len(), {
+    invariant(
+      at <= i,
+      i <= xs.len(),
+      out.len() == (i + usize(1)),
+      at < out.len(),
+      out(at) == x,
+      forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
+      (i < xs.len()) ==> (out(i) <= xs(i))
+    );
+    push_at_end(out, xs(i));
+    i = (i + usize(1));
+  });
+  out
+});

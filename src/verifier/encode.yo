@@ -16,7 +16,7 @@ pragma(Pragma.AllowUnsafe);
 
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ VcSort, VcOp, VcTerm, VcQuantKind, VcQuery } :: import("./terms.yo");
+{ VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, VcFunDecl } :: import("./terms.yo");
 // ============================================================================
 // Name mangling
 // ============================================================================
@@ -71,6 +71,7 @@ _op_name :: (fn(op : VcOp) -> String)(
   match(
     op,
     .BvAdd => String.from("bvadd"),
+    .ConcatOp => String.from("concat"),
     .BvSub => String.from("bvsub"),
     .BvMul => String.from("bvmul"),
     .BvSdiv => String.from("bvsdiv"),
@@ -120,6 +121,21 @@ _op_name :: (fn(op : VcOp) -> String)(
 /// `__yo_msof_<key>`; Ctor renders `(<name> <args...>)` — the shape of an
 /// uninterpreted application — so VcOp needs no String-payload variant,
 /// which the plain enum's derived Eq cannot carry).
+/// `(declare-fun <name> (<arg sorts>) <result sort>)`.
+encode_fun_decl :: (fn(d : VcFunDecl) -> String)({
+  sb := StringBuilder.new();
+  sb.write_string(`(declare-fun ${d.name} (`);
+  (ai : usize) = usize(0);
+  while(ai < d.args.len(), {
+    if(ai > usize(0), {
+      sb.write_byte(u8(0x20));
+    });
+    sb.write_string(encode_sort(d.args.get(ai).unwrap()));
+    ai = (ai + usize(1));
+  });
+  sb.write_string(`) ${encode_sort(d.result)})`);
+  sb.to_string()
+});
 encode_fundecl :: (fn(elem : VcSort) -> String)(
   `(declare-fun __yo_msof_${_msof_key(elem)} ((Array (_ BitVec 64) ${encode_sort(elem)})) (Array ${encode_sort(elem)} (_ BitVec 64)))`
 );
@@ -479,6 +495,17 @@ encode_content :: (fn(q : VcQuery) -> String)({
     );
     fi = (fi + usize(1));
   });
+  (ufi : usize) = usize(0);
+  while(ufi < q.fun_decls.len(), {
+    match(
+      q.fun_decls.get(ufi),
+      .Some(ufd) => {
+        sb.write_string(`${encode_fun_decl(ufd)}\n`);
+      },
+      .None => ()
+    );
+    ufi = (ufi + usize(1));
+  });
   (xi : usize) = usize(0);
   while(xi < q.axioms.len(), {
     match(
@@ -585,6 +612,7 @@ export(
   encode_content,
   encode_script,
   encode_fundecl,
+  encode_fun_decl,
   _msof_key,
   EncodeOptions,
   default_encode_options

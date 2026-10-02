@@ -213,16 +213,26 @@ source order.
   `return(x)` argument is one); skipping them silently made a local a C local
   across the await that reads it.
 - **Slot sharing** (`compute_overlapping_slots`): locals of the same C type
-  whose ranges do not overlap share `sm->slot_<k>`, heap-owning ones
-  included. That is sound because a slot is non-zero exactly while it owns
-  its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
-  (`generate_drop`), every consuming read zeroes it (`_sm_consuming_read`),
-  and the dispose drops a shared RC slot once. Pattern bindings (they borrow
-  the scrutinee) and both sides of `is_owning_the_same_rc_value_as` never
+  whose ranges do not overlap share `sm->slot_<k>`, heap-owning temporaries
+  included. That is sound because a temp's slot is non-zero exactly while it
+  owns its member's value: every drop of an `sm->var_…`/`sm->slot_…` zeroes it
+  (`generate_drop`), every consuming read of a temp zeroes it
+  (`_sm_consuming_read`), and the dispose drops a shared RC slot once. Pattern
+  bindings (they borrow the scrutinee), both sides of
+  `is_owning_the_same_rc_value_as`, and NAMED RC locals (next item) never
   share. Two RC locals of ONE scope always overlap (both live to its end);
   sibling scopes are what share.
-- **A consuming read of a slot takes the value and zeroes the slot**
-  (`_sm_consuming_read`): the evaluator's `consumed_at_token` is that atom.
+- **A moved-from name still reads its value.** `(cur : T) = t` moves `t`
+  without a dup, and `t` may still be read while `cur` holds the value (sync
+  code keeps the C local as it is). So a named local's slot is NOT emptied by
+  a move: its `uint8_t __yo_mv_<field>` flag (`sm_move_flag_of`) is set, the
+  abort dispose empties a flagged slot before its drops, and every store into
+  the slot (binding, destructuring, reassignment) clears the flag
+  (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+- **A consuming read of a slot takes the value where the consuming line
+  runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
+  `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
+  temp's slot is zeroed; a named local's slot sets its move flag.
   A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
   set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
   drop's operand as the consuming read, and the drop is emitted again on
@@ -247,6 +257,14 @@ source order.
     ASan (`__YO_SM_POOLS`).
   - Since the test runner builds with ASan, pool behavior is tested by the
     CLI case `async-state-machine-pools`.
+  - **A pooled block is always untagged and belongs to the global allocator.**
+    `_sm_alloc_call` takes from the pool only when no explicit allocator is
+    current (`sc.vtable == NULL`, the same test as `__yo_rc_tag_of`), and
+    `__yo_sm_give` refuses a block with `ref_count & __YO_RC_TAG`, which
+    `__yo_rc_free` returns to its owner. `__yo_sm_pools_drain` can then free
+    with `__yo_free`. Keep this invariant if a pool ever accepts a give from
+    another thread (`tests/explicit_allocators.test.yo`, "never to the task
+    pool" and "never takes a pooled global block").
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
@@ -302,8 +320,9 @@ some expression, so the bare-atom arm position had never been exercised.
 
 ## Memory allocator options
 
-- `--allocator mimalloc` (default) — high-performance allocation
-- `--allocator system` — the platform system allocator (default; `libc` is a deprecated alias)
+- `--allocator system` (default) — the platform system allocator
+- `--allocator mimalloc` — high-performance allocation (the process-wide
+  global allocator `std/allocator` builds on when present)
 - `--allocator fixed` — hand-written TLSF over ONE static `.bss` region
   (`plans/reference/FIXED_REGION_ALLOCATOR.md`). The implementation is emitted
   by `src/codegen/c/allocator_fixed.yo`: defines + external prototypes in the
@@ -350,6 +369,20 @@ piped run keeps the terminal's order.
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
 Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `rc()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.
+
+**Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
+
+- The TOP BIT of `ref_count` is `__YO_RC_TAG` — every count read masks with
+  `__YO_RC_COUNT` (`(ref_count & __YO_RC_COUNT)`), never the raw field.
+- A tagged block carries a 16-byte `__yo_alloc_prefix_t` owner prefix
+  AHEAD of the RC header: free through `__yo_rc_free` (which reads the
+  prefix and routes the release back to the owning allocator), never a
+  bare `__yo_free` — a bare free silently breaks every placed block.
+- User-visible constructors allocate via `__yo_rc_alloc_scoped`, reading
+  the thread-local `__yo_current_allocator` that `with_allocator(a, ...)`
+  sets (the ONLY setter; `new_in(a)` instead hands the `Allocator` value
+  straight to the container's own buffer allocation). The runtime's OWN
+  blocks keep `__yo_rc_alloc` and are never placed.
 
 ## Memory leak detection
 
@@ -616,7 +649,7 @@ When an `io.await` detects a Future abort (state == -2), the behavior depends on
 
 - **Propagation** — The function receives the effect via an evidence parameter (e.g. `raise : Raise` in its own signature). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
-The helper `is_await_unwind_handler_installation` in `src/codegen/exprs/await.yo` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's evidence params. If an effect's key is missing from evidence params, it must be locally installed.
+The helper `_call_is_handler_installation` (`src/codegen/exprs/other_fn_call.yo`) determines this by locating the handler binding locally — a direct control/effect-record callee (or its name) bound in a begin-block frame of the enclosing function, or a fn-typed/ctl-bound parameter whose threaded argument resolves to one — and `emit_effect_unwind_check`'s `is_handler_installation` parameter (`src/codegen/exprs/return.yo`) carries the verdict into the emitted check.
 
 ### Effect member return types
 
@@ -692,7 +725,7 @@ Future interface, and the raw I/O future `__yo_io_future_t` — starts with the
 same prefix, the `__YO_FUTURE_PREFIX` macro (`src/codegen/types/generation.yo`):
 
 ```c
-__yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*, int prev_state); void (*continuation_fn)(void*); void* continuation_sm;
+__yo_ref_header_t header; int state; const __yo_future_vtable_t* vt; void (*continuation_fn)(void*); void* continuation_sm;
 ```
 
 `result` comes AFTER the prefix, because its type and therefore its size
@@ -712,8 +745,9 @@ The protocol on that prefix lives in `src/codegen/async/runtime_core.yo`:
   `__yo_future_wake_waiters(fut)`, which wakes every waiter in registration
   order.
 - **Abort.** `__yo_future_abort(fut)` marks a non-terminal future -2 and calls
-  `cancel_pending_fn(fut, prev_state)` with the state it was suspended in.
-  Each async block emits that hook beside its resume function
+  `fut->vt->cancel_pending(fut, prev_state)` with the state it was suspended
+  in (a future with no vtable — the raw I/O future — just wakes its
+  waiters). Each async block emits that hook beside its resume function
   (`generate_async_block_cancel_pending_function`). It switches on
   `prev_state`: an I/O await cancels the operation (`__yo_async_io_cancel` →
   the backend's `cancel_fn`, `issues/fixed/timeout-deadline-timer-future-leak.md`),

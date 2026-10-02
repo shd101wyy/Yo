@@ -51,7 +51,7 @@ An explicit local annotation (`(r : T) = cb();`) fixes the non-spawn case but
 not the spawn case.
 
 Root cause is the same family as
-`issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md`: the
+`issues/fixed/impl-method-self-receiver-hollows-forwarded-spawn-closures.md`: the
 closure handed to the spawn primitive is never re-specialized for the enclosing
 generic instantiation, because nothing *calls* it on the Yo side, so the
 capture struct registered at first evaluation (with `T` unresolved) is what

@@ -2,7 +2,7 @@
 
 **Severity:** S3 — about 550 extra instructions per spawn of a leaf future (691 → 1239 with 100k live handles); no wrong result
 
-**Status: OPEN.** Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
+**Status: OPEN** (the owning handle is std's again since 2026-09-30, so this cost is live). Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
 
 ## Symptom
 
@@ -17,7 +17,7 @@ Half of the `spawn` profile is glibc `malloc`/`free`, on its slow path (`_int_ma
 
 ## Cause
 
-Phase 2 made `JoinHandle(T)` a `ref(struct(__future : *(T)))` so that it owns a reference to the future. That fixed the statement-level spawn leak (`issues/statement-level-io-spawn-leaks-the-state-machine.md`). But the handle is now a second heap object per spawn, a 16-byte box around the future pointer, with its own RC header and its own `Dispose`.
+Phase 2 made `JoinHandle(T)` a `ref(struct(__future : *(T)))` so that it owns a reference to the future. That fixed the statement-level spawn leak (`issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md`). But the handle is now a second heap object per spawn, a 16-byte box around the future pointer, with its own RC header and its own `Dispose`.
 
 ## Fix direction
 
@@ -41,7 +41,7 @@ This belongs with phase 7 (allocation per await). Regression test: the `spawn` r
 
   There is no box and no second header.
 - **Why it waits.** It is the same change as step 2 of
-  `issues/join-handle-ownership-waits-for-the-seed.md`. The seed lowers
+  `issues/fixed/join-handle-ownership-waits-for-the-seed.md`. The seed lowers
   `io.spawn` and `JoinHandle.await` with its own codegen, which hard-codes
   today's value handle: `.__future = (void*)…` at the spawn, and a release
   after reading the result. With a counted field it would release the

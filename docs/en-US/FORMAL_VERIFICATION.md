@@ -25,7 +25,7 @@ is named by the label in `-> (name : T)` — there is no magic `result`
 identifier.
 
 ```rust
-abs_i32 :: (fn(x : i32, ensures(r >= i32(0))) -> (r : i32))(
+abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
   if(x < i32(0), i32(0) - x, x)
 );
 
@@ -33,6 +33,11 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
   x / y
 );
 ```
+
+`abs_i32` needs its `requires`: `i32(0) - x` has no non-negative result at
+`x = i32(-2147483648)`, and the verifier models the emitted C exactly. Drop
+the precondition and `yo verify` refutes the `ensures` with
+`counter-example: x = #x80000000`.
 
 Verification is **modular** (the Dafny model):
 
@@ -108,8 +113,9 @@ pick :: (
   fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
 )(if(flag, a, b));
 
-// The caller's own post-condition is provable only THROUGH the assumed
-// generic ensures — the verifier never opens the pick body.
+// The caller's own post-condition is proved THROUGH pick's ensures. The
+// pick body is verified once, abstractly (T is an opaque sort), in its own
+// task.
 caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
   pick(true, i32(1), i32(2))
 );
@@ -119,12 +125,33 @@ A caller that violates the generic's `requires` (passing `flag = false`
 to a `requires(flag)` callee) is refuted at the call site with a
 counter-example.
 
+### Lexicographic measures
+
+`decreases(M1, M2, ...)` is a lexicographic measure (ATS's `.<m, n>.`): each
+recursive call must lower `M1`, or keep `M1` and lower `M2`, and so on.
+Every component must be a non-negative integer on entry. It proves recursions
+no single measure can, such as a call that lowers `i` while it resets `j`:
+
+```rust
+walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
+  cond(
+    ((i == u32(0)) && (j == u32(0))) => u32(0),
+    (j == u32(0)) => walk(i - u32(1), u32(100)),
+    true => walk(i, j - u32(1))
+  )
+);
+```
+
+The verifier encodes the tuple as the bit-vector concatenation of its
+components, so the step obligation is a single unsigned comparison. A `while`
+loop's `decreases(M)` still takes one measure.
+
 ### Mutual recursion
 
 Mutually recursive functions terminate when every member carries
 `decreases(M)` and every call **between clique members** proves the
 callee's measure at the actuals strictly below the caller's current
-measure — one shared well-founded domain, no lexicographic tuples. The
+measure — one shared well-founded domain (lexicographic measures included, when every member's measure has the same components). The
 cliques are derived automatically from the task set's call graph, so an
 edge without a decrease (passing `n` unchanged) is refuted:
 
@@ -136,6 +163,138 @@ is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
   if(n == i32(0), false, is_even(n - i32(1)))
 );
 ```
+
+### Lemmas: proofs by induction
+
+Z3 does no induction. A property of a recursive `ghost_fn` that needs it, such
+as "two lists that agree on `[0, n)` have the same members there", stays
+`unknown` until you prove it once as a **lemma**: a `ghost_fn` that returns
+`unit` and carries an `ensures` (ATS's `prfun`).
+
+```rust
+member :: ghost_fn(
+  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+    cond(
+      (n == usize(0)) => false,
+      true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
+    )
+  )
+);
+
+member_frame :: ghost_fn(
+  (
+    fn(
+      a : ArrayList(i32),
+      b : ArrayList(i32),
+      n : usize,
+      v : i32,
+      requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
+      ensures(member(a, n, v) == member(b, n, v)),
+      decreases(n)
+    ) -> unit
+  )(
+    cond(
+      (n == usize(0)) => (),
+      true => member_frame(a, b, n - usize(1), v)
+    )
+  )
+);
+```
+
+The lemma's own report proves its body by induction over `decreases`. The
+recursive call proves that the measure drops and that its `requires` hold, then
+assumes its `ensures`; that assumption is the induction hypothesis.
+
+To use a lemma, call it as a ghost statement, `ghost(member_frame(xs, out,
+xs.len(), v));`. The call proves the lemma's `requires` at those arguments and
+assumes its `ensures` from then on. A false lemma is not proved, and a use
+whose `requires` does not hold is refuted.
+
+A `ghost_fn` that returns a value is still inlined, or axiomatized when it
+recurses. Its `requires` is not checked at a call: its SMT reading is total.
+
+### Sequences over lists: `seq_of`
+
+`seq_of(xs)` is an `ArrayList(T)`'s elements as a ghost Seq. `seq_append`,
+`seq_len` and `seq_nth` work on it, so ATS's `append` property is one line:
+
+```rust
+append :: (
+  fn(a : ArrayList(i32), b : ArrayList(i32), requires((a.len() + b.len()) >= a.len()),
+     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))) -> (r : ArrayList(i32))
+)({ ... });
+```
+
+A list-backed Seq stays in the list domain, a contents array plus a length.
+Equality between two lists, or two list-backed Seqs, is extensional: the
+lengths are equal and every element below the length is equal. Z3's own `Seq`
+theory leaves this goal `unknown`; over arrays it proves. Mixing a list-backed
+Seq with a literal one (`seq_append(seq_of(xs), seq_unit(x))`) is a subset
+error.
+
+A copy loop's `forall(k, (k < i) ==> (out(k) == xs(k)))` invariant needs a
+`push` that states the new element and keeps the old ones. Until the next
+release's seed, std's `ArrayList.push` states only its length (the released
+compiler would run a quantified `ensures` at runtime), so the fixtures use an
+`assumed()` wrapper that states the elements
+(`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+
+### Verified `for` loops: `produced`
+
+A `for` over an `ArrayList` variable verifies like a `while` over a ghost
+index. A leading `invariant(...)` in the body is the loop's, and
+`produced(xs)` in it names the elements consumed so far: `xs` cut at that
+index, as in Creusot. The copy loop needs no index of its own:
+
+```rust
+copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  for(xs, x => {
+    invariant(out == produced(xs));
+    out.push(x);
+  });
+  out
+});
+```
+
+`produced(xs).len() <= xs.len()` is an implicit invariant. `break` exits
+with the state at the break. `continue` still consumes the element, so the
+invariant is proved with one more element produced. A body that changes
+the list it walks, an `inout(x)` binding, and a `for` over anything other
+than a list variable are subset errors.
+
+### Two lists: `distinct`
+
+The list model gives each name its own list. `ArrayList` is a reference
+type, so a body that mutates one of two parameters of the same list type is
+a subset error: a caller could pass one list as both. `requires(distinct(a, b))`
+rules that out:
+
+```rust
+append_all :: (
+  fn(src : ArrayList(i32), dst : ArrayList(i32),
+     requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
+     ensures(dst.len() == (old(dst.len()) + src.len()))) -> unit
+)({ ... dst.push(src(i)) ... });
+```
+
+A call proves it from where its two arguments came from. They must be
+different names, and neither may be bound from an existing list. One of
+them must be a fresh `ArrayList(T).new()` local, or the caller's own
+requires must state `distinct` for the pair. `append_all(xs, xs)` refutes.
+`distinct` is legal only in a `requires`, and it is never checked at runtime.
+
+### Pure functions in specs
+
+A function with no contracts whose body the verifier can express, and which
+changes none of its arguments, is transparent: a spec may call it, and the
+call means its body. So `ensures(r == sq(x))` proves for `r = x * x` with
+`sq :: (fn(x : i32) -> i32)(x * x)`, without restating `sq` as a `ghost_fn`.
+A recursive one is transparent only with `decreases(...)`: its own task
+proves that the measure drops, so its definition terminates. Any other
+function stays opaque, and the subset error names the missing property
+("not spec-transparent: it changes an argument", "... its body is outside
+the verifier subset (...)", "... it calls itself without decreases(...)").
 
 ### Refinement types — `refine(T, p)`
 
@@ -348,7 +507,9 @@ obligations (`div-no-overflow`, `no-overflow`, `neg-no-overflow`), each with
 `"elision_only": true`; they never change a function's `outcome` or `vacuous`.
 
 `--explain <pattern>` narrows the report to functions whose id matches
-(substring — a bare name or a `file:line` both work) and forces the
+(a substring of the id — ids are `fn@<file>:<row>` / `law@<file>:<row>:<col>`,
+so match the file path or `file:line`; a bare function NAME matches nothing,
+the name is not part of the id) and forces the
 detailed rendering: every obligation lists its verdict AND its goal
 term, for `ok` functions too — the VC set of a verified function is
 inspectable, not just the failures:
@@ -424,12 +585,12 @@ runtime assert).
 | `decreases(M)` — loop statement variant + recursion measure | ✅ verified (V4) |
 | assignments inside `cond` arms (the phi merge); `continue` as the loop body's final statement | ✅ verified (V4.1) |
 | `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(runtime(true), ...)` | ✅ verified (V4.2) |
-| `for` loops (need the iterator/collection model) | later phases |
+| `for` over an `ArrayList` variable, with `produced(xs)` in a leading `invariant(...)` (§Verified `for` loops); `for` over other collections | ✅ verified (R2); others later phases |
 | `forall`/`exists`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
-| `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` relate `len()` to `old(len())`; a contract that never mentions `old(self)` promises the list unchanged): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `xs.get(i)` is the total read (`Some(select)` in bounds, `None` past the end — no obligation) and `xs.pop()` returns `Some(last)` and rebinds the receiver to length − 1 when non-empty, `None` and unchanged when empty; both are the call's own `Option(T)` datatype. `ArrayList` is a reference type but the model tracks each name as its own list, so a body that mutates a list is a subset error while a second name could be the same list: a list-typed local bound from anything but `ArrayList(T).new()`/`with_capacity(n)`, or a second parameter of the mutated parameter's list type (`issues/fixed/verifier-list-model-ignores-aliasing.md`). `for` over a list and nested lists stay outside | ✅ verified (R1 slices 1–3) |
+| `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` relate `len()` to `old(len())`; a contract that never mentions `old(self)` promises the list unchanged): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `xs.get(i)` is the total read (`Some(select)` in bounds, `None` past the end — no obligation) and `xs.pop()` returns `Some(last)` and rebinds the receiver to length − 1 when non-empty, `None` and unchanged when empty; both are the call's own `Option(T)` datatype. `ArrayList` is a reference type but the model tracks each name as its own list, so a body that mutates a list is a subset error while a second name could be the same list: a list-typed local bound from anything but `ArrayList(T).new()`/`with_capacity(n)`, or a second parameter of the mutated parameter's list type unless the requires states `distinct` for the pair (`issues/fixed/verifier-list-model-ignores-aliasing.md`, §Two lists). A contracted GENERIC fn is verified abstractly: its type parameter is an uninterpreted sort that supports only equality and pass-through. A `ghost_fn` with `decreases` may recurse: it becomes an uninterpreted function defined by a triggered axiom, and its own task proves the measure decreases (R2 slice 1). A unit-returning `ghost_fn` with an `ensures` is a lemma, proved by induction and used through `ghost(lemma(...))` (§Lemmas). List equality is extensional, and `seq_of(xs)` gives a list-backed Seq (§Sequences over lists). In `a ==> b`, and in a loop invariant's later conjuncts, the obligations that the walk of `b` (or of a later conjunct) emits are owed only where `a` (the earlier conjuncts) hold. Nested lists stay outside | ✅ verified (R1 slices 1–3, R2) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
 | Contracted GENERIC functions at call sites — `requires` discharged and `ensures` assumed per monomorphized call site (the generic body itself stays unwalked) | ✅ verified (V6 task 2) |
@@ -519,4 +680,7 @@ yo verify ./tests/spec/verify_straight_line.test.yo
 To make proofs part of a project's build rather than a command someone
 remembers to run, declare a verification step in `build.yo` — see
 [BUILD_SYSTEM.md § Verification steps](BUILD_SYSTEM.md#verification-steps).
-`yo check` never runs the solver; the build step is the project-level switch.
+`yo check` proves the ENTRY files whose own pragma puts them in
+verify/verify+ mode inline — a refuted obligation fails the check with its
+counter-example — but it applies no `--strict` deny set; the build step is
+the project-level switch.

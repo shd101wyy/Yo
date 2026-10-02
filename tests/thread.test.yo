@@ -109,7 +109,7 @@ test "Thread spawn and join with multiple boxed captures", {
 // it. The helper exists so the handle drops at a known point.
 _spawn_and_drop_handle :: (fn(out : Channel(i32)) -> unit)({
   t := Thread(unit).spawn(io => {
-    out.send(i32(7));
+    _ := out.send(i32(7));
     ()
   });
   assert(!t.is_joined(), "a fresh handle is not joined");
@@ -285,7 +285,7 @@ _spawn_zst_relay :: (
   chan := Channel(T).new(usize(1));
   sink := chan;
   t := Thread(unit).spawn((io : Io) => {
-    sink.send(cb(io));
+    _ := sink.send(cb(io));
     ()
   });
   t.join();
@@ -385,13 +385,13 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
   // would be flaky by construction.
   c := Channel(u64).new(usize(4));
   t1 := Thread(unit).spawn(io => {
-    c.send(rand_u64());
-    c.send(rand_u64());
+    _ := c.send(rand_u64());
+    _ := c.send(rand_u64());
   });
   t1.join();
   t2 := Thread(unit).spawn(io => {
-    c.send(rand_u64());
-    c.send(rand_u64());
+    _ := c.send(rand_u64());
+    _ := c.send(rand_u64());
   });
   t2.join();
   a1 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));

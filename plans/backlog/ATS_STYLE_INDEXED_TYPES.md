@@ -94,7 +94,7 @@ collection whose length is a runtime value — which is every collection ATS's
 examples are about. Structs, tuples, `ref` enums, slices, `ArrayList`,
 generic-length arrays and `for` loops are outside the subset (`_fail_subset`
 sites in `vc.yo`); contracted **generic bodies are not walked at all**
-(`issues/verifier-contracted-generic-fn-is-silently-unverified.md`).
+(`issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`).
 
 ### 2.4 Existential types — what Yo has
 
@@ -233,9 +233,15 @@ seed gate for `std/` and `src/` adoption.
 > under both `yo compile` and `yo test`, and every contracted mutator has
 > edge-case calls in `tests/collections/array_list.test.yo`. **`for` over a
 > list is deferred to R2** (decided 2026-09-30,
-> `issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`):
+> `issues/fixed/verified-for-loops-need-a-name-for-the-iteration-count.md`):
 > its invariants need a ghost of the elements consumed so far, which is
-> R2's sequence layer. Left: task 4 (generic bodies).
+> R2's sequence layer (landed in R2 slice 3).
+> **Task 4 (2026-10-01, `feat/verifier-recursive-ghost-fn`):** a contracted
+> generic fn is verified abstractly: its type parameter is an uninterpreted
+> sort, and equality and pass-through are the only operations over it
+> (`valid/generic_body_abstract.yo`). The registration gate had excluded
+> such fns since V6 task 2, silently. A generic array LENGTH stays a loud
+> subset error. **R1 is complete.**
 
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
@@ -273,7 +279,7 @@ Tasks:
    already does this for integers.
 4. **Generic `N` in the subset.** A parameter `Array(T, N)` with `generic(N :
    usize)` is verified per monomorphized call today (bodies of contracted
-   generic fns are not walked — `issues/verifier-contracted-generic-fn-is-silently-unverified.md`).
+   generic fns are not walked — `issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`).
    R1 does not fix that issue; it records that a generic-length body
    verifies at each concrete `N` only, and leaves the abstract walk to that
    issue.
@@ -291,6 +297,74 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 (`refine_nonzero_runtime.yo`'s pattern) so the assert form is also tested.
 
 ### R2 — the ATS lemma layer: recursive `ghost_fn` and user uninterpreted measures
+
+> **Slice 1 (2026-10-01, `feat/verifier-recursive-ghost-fn`):** a `ghost_fn`
+> carrying `decreases` is an uninterpreted SMT function (`VcFunDecl`)
+> defined by the triggered axiom `forall ps. f(ps) == body[ps]`, the
+> encoding task 1 measured. Its own task proves `decreases-step` at each
+> self call. A definition `f :: ghost_fn((fn ...)(body))` may name itself:
+> `publish_pending_phase_a` peels the wrapper. Fixture:
+> `valid/ghost_fn_recursive.yo`, where a list checker's loop invariant
+> `ok ==> all_pos(xs, i)` proves by one unfolding, and the non-decreasing
+> `spin` refutes. Not yet in slice 1:
+> - a call site does not check the ghost_fn's `requires`; the SMT reading is
+>   total, so the axiom stays consistent;
+> - a lemma's `ensures` is not yet turned into a triggered axiom;
+> - `seq_of`, `produced()` and the alias frame condition (tasks 2, 4, 5).
+>
+> **Slice 2 (2026-10-01, `feat/verifier-lemmas`): tasks 1–3 done.**
+> - **Lemmas.** A unit-returning `ghost_fn` with an `ensures` is a lemma (A1 of
+>   `ATS_LESSONS_BEYOND_INDEXED_TYPES.md`). Its own task proves the body by
+>   induction, with the recursive call's `ensures` as the hypothesis.
+>   `ghost(lemma(args))` proves its `requires` and assumes its `ensures`.
+>   Fixture: `lemma_member_frame`.
+> - **`seq_of(xs)`** is a list-backed Seq kept in the list domain:
+>   `seq_append` builds the contents with a triggered `__yo_lapp_<elem>` axiom,
+>   and `==` on lists is extensional. The SMT-`Seq` encoding was measured
+>   `unknown` on the append goal; the array encoding proves it.
+> - **Fixtures.** `dml_append_seq`, `dml_member` and `dml_sorted_insert` prove,
+>   and their `_false` twins fail.
+> - **What the fixtures needed:**
+>   - `push` states its elements inside a `forall`, which is proof-only and
+>     never spliced. The released seed still splices it, so std waits for the
+>     next seed and the fixtures use an `assumed()` wrapper meanwhile
+>     (`SEED_VERSION_AUTOMATION.md`, Generation B).
+>   - A contract clause that quantifies or calls a `ghost_fn` is no longer
+>     spliced as a runtime assert.
+>   - `old(xs)(k)` reads a list.
+>   - `a ==> b` and a loop invariant's later conjuncts walk under their
+>     antecedents.
+> - **Value `ghost_fn` requires:** checking them at every call was tried and
+>   dropped. It fires inside specifications whose guards are not on the path,
+>   which would need Dafny-style well-formedness. Their SMT reading stays total;
+>   a lemma's `requires` is always proved.
+> - **Left: tasks 4 (`produced()`) and 5 (the alias frame condition).**
+>
+> **Slice 3 (2026-10-01, `feat/verifier-for-produced`): task 4 done.**
+> - `for(xs, x => { invariant(...); body })` over an `ArrayList` variable is
+>   the `while` rule over a ghost index (`_loop_core`, shared with `while`).
+>   The condition is `idx < len(xs)`, `x` is `xs[idx]`, and `idx <= len(xs)`
+>   is an implicit invariant. `produced(xs)` is `xs` cut at the index.
+> - The `for` macro hoists a leading `invariant(...)` to the front of the
+>   generated `while` body, where the placement rule wants it.
+> - The walk reads the macro expansion: the source-form call is not typed.
+> - `continue` consumes the element, so the continue site proves the
+>   invariant at `idx + 1`. A body that changes `xs`, an `inout(x)` binding,
+>   and a non-list collection are subset errors.
+> - Fixtures: `valid/for_produced` (copy, `index_of` with `break`,
+>   `count_positive` with `continue`) and its `_false` twin.
+> - **Left: task 5 (the alias frame condition).**
+>
+> **Slice 4 (2026-10-01, `feat/verifier-distinct`): task 5 done. R2 is complete.**
+> - `requires(distinct(a, b))` says two list parameters are different lists,
+>   which lifts R1's rejection of a body that mutates one of them.
+> - A call proves it from where its arguments came from: two different names,
+>   neither bound from an existing list, one a fresh `new()` local or the
+>   pair stated by the caller's own `distinct`. It is a syntactic judgment,
+>   as R1's alias rule is; the model still has no object identity.
+> - `distinct` is proof-only (never spliced) and legal only in a `requires`.
+> - Fixtures: `valid/list_distinct` and its `_false` twin (one list passed as
+>   both refutes; the same body without `distinct` is a subset error).
 
 **Goal:** what ATS does with `prfun` over `dataprop` (sortedness, permutation,
 "element `k` occurs in `xs`") for runtime collections. Today `ghost_fn` is
@@ -347,7 +421,7 @@ literals and fixed arrays (`ms_of`).
 4. A verified `for` over a list: a ghost `produced()` (Creusot's name) for
    the elements consumed so far, usable in the loop's invariant, which the
    `for` expansion must also place first
-   (`issues/questions/verified-for-loops-need-a-name-for-the-iteration-count.md`).
+   (`issues/fixed/verified-for-loops-need-a-name-for-the-iteration-count.md`).
 5. An alias-aware frame condition (e.g. a `distinct(a, b)` requires) to
    lift R1's conservative "no mutation beside a possible alias" rule.
 

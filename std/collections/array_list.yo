@@ -121,32 +121,49 @@ impl(
   ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
-  /// Declare that the first `new_len` slots of the buffer are live — Rust's
-  /// `Vec::set_len`, and just as unsafe.
+  /// A pointer to the first uninitialized slot, `ptr() + len()`: the start of
+  /// the `capacity() - len()` slots a reader fills before `assume_init`
+  /// commits them. `.None` when nothing is allocated yet (`reserve` first).
   ///
-  /// Nothing is initialized and nothing is dropped: growing the length exposes
-  /// whatever bytes the buffer already held, and shrinking it leaks the
-  /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
-  /// Reach for it only after filling the buffer through `ptr()` or
-  /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
-  /// The capacity clause is a true fact, and it is also what tells the
-  /// verifier this call changes `self`: a contract that never mentions
-  /// `old(self)` promises `self` unchanged at every call site
-  /// (issues/questions/modifies-clause-for-callee-side-effects.md).
-  set_len : (
+  /// The result is a raw pointer VALUE, so the safe-mode gate keeps it out of
+  /// safe code exactly as it keeps out `ptr()`. Claiming memory initialized
+  /// needs this token, which safe code cannot obtain (ATS's view of the region;
+  /// issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
+  /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
+  /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
+  /// until the next reallocation, like `ptr()`.
+  spare_capacity : (fn(self : Self) -> Option(*(T)))(
+    match(
+      self._ptr,
+      .Some(p) => Option(*(T)).Some(p.add(self._length)),
+      .None => Option(*(T)).None
+    )
+  ),
+  /// Commit the first `n` spare slots (`spare` is the token from
+  /// `spare_capacity`) as live elements: the length grows by `n`. Nothing is
+  /// initialized or dropped; the caller has written those `n` slots. PANICS
+  /// unless `spare` is this list's current end and `n <= capacity() - len()`.
+  assume_init : (
     fn(
       self : Self,
-      new_len : usize,
-      requires(new_len <= self.capacity()),
-      ensures(self.len() == new_len, self.capacity() == old(self.capacity())),
+      n : usize,
+      spare : *(T),
+      requires(n <= (self.capacity() - self.len())),
+      ensures(self.len() == (old(self.len()) + n)),
       assumed()
     ) -> unit
   )({
+    at_end := match(
+      self._ptr,
+      .Some(p) => (p.add(self._length) == spare),
+      .None => false
+    );
     cond(
-      (new_len <= self._cap()) => {
-        self._length = new_len;
-      },
-      true => __yo_panic("set_len: new length exceeds capacity")
+      !(at_end) => __yo_panic("assume_init: the pointer is not this list's spare capacity"),
+      (n > (self._cap() - self._length)) => __yo_panic("assume_init: n exceeds the spare capacity"),
+      true => {
+        self._length = (self._length + n);
+      }
     );
   }),
   /// Empty list. Allocates nothing — the first `push` buys the buffer (four
@@ -370,6 +387,10 @@ impl(
     fn(
       self : Self,
       value : T,
+      // The element clause (`forall(k, ... self(k) == ...)`) joins once
+      // SEED_VERSION carries the proof-only ensures filter: the seed splices
+      // every ensures as a runtime assert, and a quantifier there fails every
+      // caller (plans/backlog/SEED_VERSION_AUTOMATION.md, Generation B).
       ensures(self.len() == (old(self.len()) + usize(1))),
       assumed()
     ) -> unit

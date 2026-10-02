@@ -220,7 +220,7 @@ _try_eval_receiver_node :: (
 )({
   rcv_exn := Exception(
     throw : (
-      (_e) -> {
+      _e -> {
         // Capture-free swallow; YO_DEBUG_CTFE surfaces the error (the same
         // pattern as _trial_eval_fn_body's [swallow] hook).
         if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
@@ -506,7 +506,7 @@ _try_find_receiver_method :: (
   ) -> Option(ReceiverMethodResult)
 )({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
-  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(ReceiverMethodResult).None);
   });
   prop_args := match(
@@ -616,7 +616,7 @@ _try_find_receiver_method :: (
   // (or a hollow) today, so order-correct programs never reach this branch.
   if(hits.len() == usize(0), {
     match(
-      force_pending_impls_for_type_name(type_head_name_for_impl_forcing(lookup_ty)),
+      force_pending_impls_for_type_name(type_head_name_for_impl_forcing(lookup_ty), Option(String).Some(method_name.clone())),
       .Forced => {
         hits = cond(
           is_static => get_type_trait_methods_by_name_from_env(env, method_name.clone(), lookup_ty),
@@ -691,7 +691,7 @@ _unwrap_trait_receiver :: (fn(t : TypeValue) -> TypeValue)(
 _static_dot_receiver_self_type :: (
   fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
 )({
-  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(TypeValue).None);
   });
   pargs := match(
@@ -733,7 +733,7 @@ _static_dot_receiver_self_type :: (
 _instance_dot_receiver_self_type :: (
   fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
 )({
-  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(TypeValue).None);
   });
   pargs := match(
@@ -799,7 +799,7 @@ _rre_dot_receiver_type :: (
     },
     .None => ()
   );
-  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(TypeValue).None);
   });
   pargs := match(
@@ -921,7 +921,7 @@ _run_overload_trial :: (
     ok_out : ArrayList(bool)
   ) -> unit
 )({
-  trial_exn := Exception(throw : ((_err) -> unwind(())));
+  trial_exn := Exception(throw : (_err -> unwind(())));
   try_to_call_function_with_arguments(
     Option(EvalValue).Some(fn_val),
     fn_ty,
@@ -947,7 +947,7 @@ _build_receiver_call_args :: (
   fn(is_static : bool, needs_ptr_conv : bool, receiver_expr : AstExpr, args : ArrayList(AstExpr)) -> ArrayList(AstExpr)
 )({
   all_args := ArrayList(AstExpr).new();
-  if(!(is_static), {
+  if(!is_static, {
     if(needs_ptr_conv, {
       recv_tok := ast_expr_token(receiver_expr);
       amp_atom := AstExpr.Atom(
@@ -1092,12 +1092,12 @@ _select_matching_overload :: (
   if((aw_ids.len() > usize(0)) && (matching.len() > usize(1)), {
     (aw_mi : usize) = usize(0);
     (aw_done : bool) = false;
-    while((aw_mi < matching.len()) && !(aw_done), {
+    while((aw_mi < matching.len()) && !aw_done, {
       aw_idx := match(matching.get(aw_mi), .Some(i) => i, .None => usize(0));
       aw_src := match(base.all_hits.get(aw_idx), .Some(c) => c.source_trait_id, .None => String.from(""));
       if(aw_src != "", {
         (aw_wi : usize) = usize(0);
-        while((aw_wi < aw_ids.len()) && !(aw_done), {
+        while((aw_wi < aw_ids.len()) && !aw_done, {
           if(match(aw_ids.get(aw_wi), .Some(w) => (w == aw_src), .None => false), {
             winner_hi = aw_idx;
             aw_done = true;
@@ -1118,7 +1118,7 @@ _select_matching_overload :: (
   // in enum_ne_dispatch / nested_generic_trait_eq / 2 more corpus files).
   (recv_concrete : bool) = match(
     base.receiver_value,
-    .Some(rv) => !(is_unknown_val(rv)),
+    .Some(rv) => !is_unknown_val(rv),
     .None => false
   );
   ct_matches := ArrayList(usize).new();
@@ -1143,7 +1143,7 @@ _select_matching_overload :: (
         });
         mdi = (mdi + usize(1));
       });
-      if(m_ct && !(m_dup), {
+      if(m_ct && !m_dup, {
         ct_matches.push(m_idx);
       });
       mi = (mi + usize(1));
@@ -1162,7 +1162,7 @@ _select_matching_overload :: (
   // (issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md).
   // A comptime-only candidate counts only for a concrete comptime receiver:
   // it cannot apply to a runtime one.
-  if((matching.len() > usize(1)) && !(aw_chosen) && !(ct_chosen), {
+  if((matching.len() > usize(1)) && !aw_chosen && !ct_chosen, {
     (inh_hi : Option(usize)) = Option(usize).None;
     amb_traits := ArrayList(String).new();
     (ami : usize) = usize(0);
@@ -1176,7 +1176,7 @@ _select_matching_overload :: (
             (amc.source_trait_id == "") => if(inh_hi.is_none(), {
               inh_hi = Option(usize).Some(am_idx);
             }),
-            (am_ct && !(recv_concrete)) => (),
+            (am_ct && !recv_concrete) => (),
             true => {
               (seen_t : bool) = false;
               (ti2 : usize) = usize(0);
@@ -1186,7 +1186,7 @@ _select_matching_overload :: (
                 });
                 ti2 = (ti2 + usize(1));
               });
-              if(!(seen_t), {
+              if(!seen_t, {
                 amb_traits.push(amc.source_trait_id.clone());
               });
             }
@@ -1485,9 +1485,9 @@ ${ast_expr_to_string(call_expr)}`
         .Func({ param_types : s_pts }) => {
           (found_ct : bool) = false;
           (pi2 : usize) = usize(0);
-          while((pi2 < s_pts.len()) && !(found_ct), {
+          while((pi2 < s_pts.len()) && !found_ct, {
             pt2 := match(s_pts.get(pi2), .Some(p) => p, .None => t_unit());
-            if((is_comptime_int_type(pt2) || is_comptime_float_type(pt2)) || is_comptime_string_type(pt2), {
+            if(is_comptime_int_type(pt2) || is_comptime_float_type(pt2) || is_comptime_string_type(pt2), {
               found_ct = true;
             });
             pi2 = (pi2 + usize(1));
@@ -1567,7 +1567,7 @@ _try_rewrite_range_index_to_slice_copy :: (
   // all 49 tests in the file's batch dispatch.
   recv_has_comptime_slice_value := match(
     recv_val,
-    .Some(rv) => (!(is_unknown_val(rv)) && !(is_type_val(rv))),
+    .Some(rv) => (!is_unknown_val(rv) && !is_type_val(rv)),
     .None => false
   );
   recv_is_type_val := match(recv_val, .Some(rv2) => is_type_val(rv2), .None => false);
@@ -1708,7 +1708,7 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
 _adopt_deep_resolution :: (fn(original : TypeValue, resolved : TypeValue) -> bool)(
   cond(
     is_unit_type(resolved) => false,
-    !(is_some_type(resolved)) => true,
+    !is_some_type(resolved) => true,
     true => (collect_wrapper_trait_somes(resolved).len() < collect_wrapper_trait_somes(original).len())
   )
 );
@@ -1855,17 +1855,15 @@ _gc_collect_binder_sites :: (
                 .Some(fn_nm) => if(fn_nm == snm, {
                   (seen : bool) = false;
                   (oi : usize) = usize(0);
-                  while((oi < out_names.len()) && !(seen), {
-                    if((
-                      (match(out_names.get(oi), .Some(x) => x, .None => String.new()) == snm)
-                      && (match(out_levels.get(oi), .Some(l) => l, .None => usize(0)) == slvl)
-                    )
+                  while((oi < out_names.len()) && !seen, {
+                    if((match(out_names.get(oi), .Some(x) => x, .None => String.new()) == snm)
+                    && (match(out_levels.get(oi), .Some(l) => l, .None => usize(0)) == slvl)
                     && (match(out_ids.get(oi), .Some(d) => d, .None => String.new()) == sid), {
                       seen = true;
                     });
                     oi = (oi + usize(1));
                   });
-                  if(!(seen), {
+                  if(!seen, {
                     out_names.push(snm.clone());
                     out_levels.push(slvl);
                     out_ids.push(sid.clone());
@@ -1949,13 +1947,13 @@ _gc_freshen_all_sites :: (
     g_id := match(site_ids.get(gi), .Some(x) => x, .None => String.new());
     (g_have : bool) = false;
     (gf : usize) = usize(0);
-    while((gf < fresh_ids.len()) && !(g_have), {
+    while((gf < fresh_ids.len()) && !g_have, {
       if(match(fresh_ids.get(gf), .Some(x) => x, .None => String.new()) == g_id, {
         g_have = true;
       });
       gf = (gf + usize(1));
     });
-    if(!(g_have), {
+    if(!g_have, {
       // Copy EVERY attribute of the binder but its id and its resolution.
       // Dropping `required_trait_types` would silently discard a
       // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
@@ -2055,7 +2053,7 @@ _freshen_generic_closure_callee :: (
       // `chain.collect(io)` fails with "No matching call found with arguments"
       // (tests/async/channel.test.yo, measured 2026-09-13). Their binder is
       // carried by ordinary per-call substitution and needs no id at all.
-      if(!(type_implements_future(gc_res)), {
+      if(!type_implements_future(gc_res), {
         return(ft);
       });
       // The read-back side: which of this callee's binders survive into the
@@ -2073,7 +2071,7 @@ _freshen_generic_closure_callee :: (
       // is untouched.
       (gc_hit : bool) = false;
       (gc_i : usize) = usize(0);
-      while((gc_i < gc_pts.len()) && !(gc_hit), {
+      while((gc_i < gc_pts.len()) && !gc_hit, {
         match(
           gc_pts.get(gc_i),
           .Some(gc_pt) => match(
@@ -2081,10 +2079,10 @@ _freshen_generic_closure_callee :: (
             .Some(_) => {
               gc_p_ids := _rre_binder_ids(gc_pt, forall_names);
               (gc_pi : usize) = usize(0);
-              while((gc_pi < gc_p_ids.len()) && !(gc_hit), {
+              while((gc_pi < gc_p_ids.len()) && !gc_hit, {
                 gc_pid := match(gc_p_ids.get(gc_pi), .Some(x) => x, .None => String.new());
                 (gc_ri : usize) = usize(0);
-                while((gc_ri < gc_ret_ids.len()) && !(gc_hit), {
+                while((gc_ri < gc_ret_ids.len()) && !gc_hit, {
                   if(gc_pid == match(gc_ret_ids.get(gc_ri), .Some(y) => y, .None => String.new()), {
                     gc_hit = true;
                   });
@@ -2099,7 +2097,7 @@ _freshen_generic_closure_callee :: (
         );
         gc_i = (gc_i + usize(1));
       });
-      if(!(gc_hit), {
+      if(!gc_hit, {
         return(ft);
       });
       gc_out := _gc_freshen_all_sites(ft, forall_names);
@@ -2128,7 +2126,7 @@ _func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           param_types.get(i),
           .Some(pt) => if(is_some_type(pt.clone()), {
@@ -2163,7 +2161,7 @@ _funcval_try_synthesize_param :: (
     arg_env : Environment
   ) -> unit
 )({
-  local_exn := Exception(throw : ((_err) -> unwind(())));
+  local_exn := Exception(throw : (_err -> unwind(())));
   checked := ArrayList(TypePair).new();
   (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   _r := synthesize_types(declared_pt, scratch_env, arg_ty, arg_env, checked, synth_opts, local_exn);
@@ -2175,7 +2173,7 @@ _fv_fn_trait_with_result :: (fn(ftt : TypeValue, result : TypeValue) -> TypeValu
   match(
     ftt,
     .FnTraitT(bn, cpl, cpt, cr, il, it, is, cpr) => if(
-      (is_some_type(cr) || (get_all_some_types(cr).len() > usize(0))),
+      is_some_type(cr) || (get_all_some_types(cr).len() > usize(0)),
       TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, is, cpr),
       ftt
     ),
@@ -2210,7 +2208,7 @@ _fv_closure_arg_synth_type :: (fn(info : ExprInfo) -> TypeValue)({
           result : cb_res,
           meta : cb_meta
         }) => if(
-          (is_some_type(cb_res) || (get_all_some_types(cb_res).len() > usize(0))),
+          is_some_type(cb_res) || (get_all_some_types(cb_res).len() > usize(0)),
           TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new()),
           info.ty
         ),
@@ -2281,8 +2279,8 @@ _fv_synthesize_arg_into :: (fn(declared_pt : TypeValue, scratch_env : Environmen
 _funcval_infer_forall_ty :: (fn(arg_ty : TypeValue, exp_pt : TypeValue, param_is_ct : bool, env : Environment) -> TypeValue)(
   cond(
     is_comptime_string_type(arg_ty) => TypeValue.Str,
-    ((!(param_is_ct)) && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
-    (((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) || is_unit_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
+    (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
+    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty) || is_unit_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
     true => arg_ty
   )
 );
@@ -2293,7 +2291,7 @@ _funcval_infer_forall_ty :: (fn(arg_ty : TypeValue, exp_pt : TypeValue, param_is
 _forall_types_conflict :: (fn(a : TypeValue, b : TypeValue) -> bool)(
   cond(
     ((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0))) => false,
-    true => (!(are_types_compatible(a, b)) && !(are_types_compatible(b, a)))
+    true => (!are_types_compatible(a, b) && !are_types_compatible(b, a))
   )
 );
 /// The E0601 text for a binder two arguments bind to different types.
@@ -2326,6 +2324,49 @@ _scratch_len_binding :: (fn(se : Environment, name : String) -> Option(String))(
     ),
     .None => Option(String).None
   )
+});
+/// Is every type variable still unresolved in `t` (in the
+/// `type_contains_some_type` sense) a `generic(...)` binder the CALLER has in
+/// scope and has not bound: its name is a variable of `env` whose value is
+/// that very SomeT (same id)? Inside a generic caller's definition-time trial
+/// such a binder is rigid. Binding the callee's binder to it is what the
+/// name-match arm already does for a whole-type parameter (`v : U` with a `T`
+/// argument binds `U := T`). A fresh placeholder (a `.None` literal's
+/// payload variable, a callee's own binder) is not a caller binder, so it is
+/// still left to the later fallbacks.
+_fv_type_vars_are_callers_binders :: (fn(env : Environment, t : TypeValue) -> bool)({
+  somes := get_all_some_types(t);
+  match(t, .SomeT({ id : _ }) => somes.push(t), _ => ());
+  (any_open : bool) = false;
+  (si : usize) = usize(0);
+  while(si < somes.len(), {
+    st := match(somes.get(si), .Some(s) => s, .None => t_unit());
+    si = (si + usize(1));
+    if(!type_contains_some_type(st), {
+      continue;
+    });
+    any_open = true;
+    (is_caller_binder : bool) = match(
+      st,
+      .SomeT({ id : st_id, name : st_name }) => {
+        vars := get_variables_from_env(env, st_name);
+        match(
+          vars.last(),
+          .Some(v) => match(
+            v.value.get(usize(0)),
+            .Some(.TypeVal(.SomeT({ id : bound_id, resolution : bound_res }))) => ((bound_id == st_id) && bound_res.is_none()),
+            _ => false
+          ),
+          .None => false
+        )
+      },
+      _ => false
+    );
+    if(!is_caller_binder, {
+      return(false);
+    });
+  });
+  any_open
 });
 /// A binder's CONCRETE binding in a structural-inference scratch env, or
 /// `.None` while it is unbound or still a type variable.
@@ -2422,13 +2463,13 @@ _fv_where_assoc_binding :: (fn(name : String, where_exprs : ArrayList(AstExpr), 
   while(w < where_exprs.len(), {
     we := match(where_exprs.get(w), .Some(e) => e, .None => make_err_expr());
     w = (w + usize(1));
-    if(!(ast_expr_is_fn_call_of(we, "<:", Option(usize).Some(usize(2)))), {
+    if(!ast_expr_is_fn_call_of(we, "<:", Option(usize).Some(usize(2))), {
       continue;
     });
     we_args := match(we, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     lhs := match(we_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs := match(we_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-    if(!(ast_expr_is_atom(lhs)), {
+    if(!ast_expr_is_atom(lhs), {
       continue;
     });
     match(
@@ -2455,10 +2496,10 @@ _fv_where_assoc_binding :: (fn(name : String, where_exprs : ArrayList(AstExpr), 
               pair := match(ta, .FnCall(_, _, p, _, _) => p, _ => ArrayList(AstExpr).new());
               al := match(pair.get(usize(0)), .Some(e) => e, .None => make_err_expr());
               av := match(pair.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-              if((ast_expr_is_atom(al) && ast_expr_is_atom(av)) && (ast_expr_token(av).value == name), {
+              if(ast_expr_is_atom(al) && ast_expr_is_atom(av) && (ast_expr_token(av).value == name), {
                 match(
                   resolve_assoc_type_for_target(target, ast_expr_token(al).value, env),
-                  .Some(r) => if((get_all_some_types(r).len() == usize(0)) && !(is_some_type(r)), {
+                  .Some(r) => if((get_all_some_types(r).len() == usize(0)) && !is_some_type(r), {
                     return(Option(TypeValue).Some(r));
                   }),
                   .None => ()
@@ -2512,7 +2553,7 @@ _fv_refine_closure_expected :: (
           if(match(info_arg_idx.get(q), .Some(ix) => (ix == p), .None => false), {
             q_info := match(infos.get(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             q_ty := _funcval_infer_forall_ty(q_info.ty, t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), env);
-            if((get_all_some_types(q_ty).len() == usize(0)) && !(is_some_type(q_ty)), {
+            if((get_all_some_types(q_ty).len() == usize(0)) && !is_some_type(q_ty), {
               f_ty = Option(TypeValue).Some(q_ty);
             });
           });
@@ -2534,7 +2575,7 @@ _fv_refine_closure_expected :: (
             s_dpt := match(declared_param_types.get(sp), .Some(t) => t, .None => t_unit());
             // Function-typed arguments are provisional here (see the
             // composite cross-check); only value arguments inform.
-            if(!((is_function_type(s_info.ty) || is_fn_trait_type(s_info.ty)) || is_some_type(s_info.ty)), {
+            if(!(is_function_type(s_info.ty) || is_fn_trait_type(s_info.ty) || is_some_type(s_info.ty)), {
               _funcval_try_synthesize_param(s_dpt, se_new, s_info.ty, env);
             });
             sq = (sq + usize(1));
@@ -2660,7 +2701,7 @@ _fv_bind_unbound_forall_placeholders :: (
     fi = (fi + usize(1));
     (already : bool) = false;
     (bi : usize) = usize(0);
-    while((bi < bound_names.len()) && !(already), {
+    while((bi < bound_names.len()) && !already, {
       if(match(bound_names.get(bi), .Some(n) => (n == fname), .None => false), {
         already = true;
       });
@@ -2777,7 +2818,7 @@ _funcval_bind_foralls :: (
     // fallbacks are skipped for this binder.
     {
       (pfa_i : usize) = usize(0);
-      while((pfa_i < pre_forall_names.len()) && !(fa_bound), {
+      while((pfa_i < pre_forall_names.len()) && !fa_bound, {
         pf_name := match(pre_forall_names.get(pfa_i), .Some(n) => n, .None => String.from(""));
         if(pf_name == fa_name, {
           pf_val := match(pre_forall_vals.get(pfa_i), .Some(v) => v, .None => EvalValue.UnitVal);
@@ -2835,7 +2876,7 @@ _funcval_bind_foralls :: (
           .None => ()
         );
       });
-      if((ptn == fa_name) && !(fa_bound), {
+      if((ptn == fa_name) && !fa_bound, {
         arg_info := match(
           evaled_arg_infos.get(ptn_i),
           .Some(i) => i,
@@ -2878,7 +2919,7 @@ _funcval_bind_foralls :: (
     // type against its arg type into a lazy scratch env (swallowing
     // mismatches — best-effort like the arms around this) and bind the
     // generic from that env when the inference is CONCRETE.
-    if(!(fa_bound), {
+    if(!fa_bound, {
       se := match(
         fa_synth_env,
         .Some(e) => e,
@@ -2915,7 +2956,7 @@ _funcval_bind_foralls :: (
               sn_now := match(sn_ty, .Some(t) => t, .None => t_usize());
               (sn_k : usize) = usize(0);
               (sn_found : bool) = false;
-              while((sn_k < se_seen_names.len()) && !(sn_found), {
+              while((sn_k < se_seen_names.len()) && !sn_found, {
                 if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
                   sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
@@ -2932,7 +2973,7 @@ _funcval_bind_foralls :: (
                 });
                 sn_k = (sn_k + usize(1));
               });
-              if(!(sn_found), {
+              if(!sn_found, {
                 se_seen_names.push(sn_name);
                 se_seen_tys.push(sn_now);
                 se_seen_args.push(sp_i);
@@ -2958,8 +2999,13 @@ _funcval_bind_foralls :: (
                 // (`T_inner := T_outer` when a generic caller forwards its
                 // `f : Impl(Fn() -> T_outer)`) is read through the caller's env:
                 // inside the caller's specialization it has a value there. In a
-                // definition-time trial it is unbound, resolves to itself, and
-                // is rejected below as before.
+                // definition-time trial it is unbound and resolves to itself;
+                // it still binds (`_fv_type_vars_are_callers_binders`), as the
+                // name-match arm binds `v : U` from a `T` argument. Leaving
+                // `U` unbound only because it sat under a pointer (`a : *U`
+                // given `*T`) failed the caller's trial of a `-> *U` callee
+                // with E0613
+                // (issues/fixed/a-generic-fn-with-a-nested-binder-fails-its-generic-callers-trial.md).
                 se_tb := get_value_of_some_type_from_env(env, se_tb_raw);
                 // Concrete the way codegen means it: a type variable carrying
                 // an `io.async` body's `Future` or a closure's `Fn` lowers to its
@@ -2968,7 +3014,7 @@ _funcval_bind_foralls :: (
                 // `call_it(() => io.async(...))` with
                 // `fn(generic(T), f : Impl(Fn() -> T)) -> T` reported E0613
                 // (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
-                if(!(type_contains_some_type_deep(se_tb)), {
+                if(!type_contains_some_type_deep(se_tb) || _fv_type_vars_are_callers_binders(env, se_tb), {
                   fa_bound_names.push(fa_name.clone());
                   fa_bound_types.push(se_tb.clone());
                   _add_forall_sy := add_variable_to_env(
@@ -3053,10 +3099,10 @@ _funcval_bind_foralls :: (
     // `HashMap(String, i32).from_json` value decode to String's impl
     // ("expected a string"). See
     // issues/fixed/generic-impl-fromjson-container-decode-failures.md.
-    if(!(fa_bound), {
+    if(!fa_bound, {
       (fcap_i : usize) = usize(0);
       (n_fcap : usize) = fv_source_count(cap_src, cap_vals);
-      while((fcap_i < n_fcap) && !(fa_bound), {
+      while((fcap_i < n_fcap) && !fa_bound, {
         if(fv_source_name(cap_src, fcap_i) == fa_name, {
           match(
             fv_source_val(cap_src, cap_vals, fcap_i),
@@ -3090,7 +3136,7 @@ _funcval_bind_foralls :: (
                 // _bytes ... Got: Type(1)" when captures ran first
                 // unconditionally); an unresolved capture falls through to
                 // the positional receiver-type-args fallback below.
-                if(!(type_contains_some_type_deep(cap_ty.clone())), {
+                if(!type_contains_some_type_deep(cap_ty.clone()), {
                   fa_bound_names.push(fa_name.clone());
                   fa_bound_types.push(cap_ty.clone());
                   _add_forall_cap := add_variable_to_env(
@@ -3123,7 +3169,7 @@ _funcval_bind_foralls :: (
     // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
     // (the imm_list/imm_vec hollow batch main).
     fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(k), .None => true);
-    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
+    if(!fa_bound && fa_kind_is_type && (fa_i < recv_type_args.len()), {
       match(
         recv_type_args.get(fa_i),
         .Some(rta) => {
@@ -3164,7 +3210,7 @@ _funcval_bind_foralls :: (
       cx_p = (cx_p + usize(1));
       (cx_is_bare : bool) = false;
       (cx_k : usize) = usize(0);
-      while((cx_k < forall_names.len()) && !(cx_is_bare), {
+      while((cx_k < forall_names.len()) && !cx_is_bare, {
         if(match(forall_names.get(cx_k), .Some(n) => (n == cx_ptn), .None => false), {
           cx_is_bare = true;
         });
@@ -3178,7 +3224,7 @@ _funcval_bind_foralls :: (
       // solved signature ("closure arguments last" in the arg loop); its
       // type as first synthesized is provisional (a def-time trial types an
       // un-typeable body `unit`), so it is not compared here.
-      if((is_function_type(cx_info.ty) || is_fn_trait_type(cx_info.ty)) || is_some_type(cx_info.ty), {
+      if(is_function_type(cx_info.ty) || is_fn_trait_type(cx_info.ty) || is_some_type(cx_info.ty), {
         continue;
       });
       cx_env := Environment.new(env.module_path);
@@ -3382,7 +3428,7 @@ _rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
 _is_concrete_nominal_operand :: (fn(t : TypeValue) -> bool)(
   (get_all_some_types(t).len() == usize(0)) && match(
     t,
-    .Struct({ is_source_namespace : ns }) => !(ns),
+    .Struct({ is_source_namespace : ns }) => !ns,
     .EnumT(_, _, _, _, _, _, _, _, _) => true,
     .Union(_, _, _) => true,
     .Array(_, _, alv) => (alv.len() == usize(0)),
@@ -3472,19 +3518,19 @@ _evaluate_funcval_runtime_call :: (
                   // then wrongly rejected `Tuple(T,Y)` vs `Tuple(i32,bool)`
                   // — tests/fn.test.yo arm 9, generic tuple_func).
                   _ac_p_generic := (
-                    (is_some_type(_ac_pty) || type_contains_some_type_deep(_ac_pty))
+                    is_some_type(_ac_pty) || type_contains_some_type_deep(_ac_pty)
                     || is_function_type(_ac_pty)
                   );
                   _ac_a_generic := (
-                    (is_some_type(_ac_aty) || type_contains_some_type_deep(_ac_aty))
+                    is_some_type(_ac_aty) || type_contains_some_type_deep(_ac_aty)
                     || is_function_type(_ac_aty)
                   );
                   _ac_a_comptime := (
-                    (is_comptime_int_type(_ac_aty) || is_comptime_float_type(_ac_aty))
+                    is_comptime_int_type(_ac_aty) || is_comptime_float_type(_ac_aty)
                     || is_comptime_string_type(_ac_aty)
                   );
-                  if(((!(_ac_p_generic) && !(_ac_a_generic)) && !(_ac_a_comptime))
-                  && !(are_types_compatible(_ac_aty, _ac_pty)), {
+                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime
+                  && !are_types_compatible(_ac_aty, _ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
                     // Flag the flow-violation channel so an async-closure-body
@@ -3577,7 +3623,7 @@ _evaluate_funcval_runtime_call :: (
   {
     hkt_somes := get_all_some_types(ret_type);
     (hkt_i : usize) = usize(0);
-    while((hkt_i < hkt_somes.len()) && !(hkt_ret_binder), {
+    while((hkt_i < hkt_somes.len()) && !hkt_ret_binder, {
       match(
         hkt_somes.get(hkt_i),
         .Some(hkt_st) => match(
@@ -3639,7 +3685,7 @@ _evaluate_funcval_runtime_call :: (
   rre_decl_tyarg_somes := ArrayList(TypeValue).new();
   _collect_type_arg_somes(ret_type, rre_decl_tyarg_somes, ArrayList(String).new());
   rre_era_suspect := ((rre_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(resolved_ret).len() == usize(0)));
-  rre_old_wanted := (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !(type_somes_all_resolve_concrete(resolved_ret))));
+  rre_old_wanted := (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !type_somes_all_resolve_concrete(resolved_ret)));
   (rre_wanted : bool) = (rre_old_wanted || rre_era_suspect);
   if(rre_wanted, {
     match(
@@ -3717,7 +3763,7 @@ _evaluate_funcval_runtime_call :: (
           // the one CI leg running clang 22. Bisected to THIS line (#619; its
           // parent #611 emits 3 Box structs and no warning, it emits 5 and 2).
           // issues/a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md
-          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || (is_some_type(hkt_ty) && !(_rre_mentions_binder(hkt_ty, rre_binder_ids)))))) && !(is_unit_type(hkt_ty)), {
+          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || (is_some_type(hkt_ty) && !_rre_mentions_binder(hkt_ty, rre_binder_ids))))) && !is_unit_type(hkt_ty), {
             resolved_ret = hkt_ty;
           }),
           .None => ()
@@ -3853,7 +3899,7 @@ _evaluate_funcval_runtime_call :: (
   ou_spec_soft_generic := match(
     callee_func_type_opt,
     .Some(spec_ft) => cond(
-      !(is_function_type_generic(spec_ft)) => false,
+      !is_function_type_generic(spec_ft) => false,
       is_control_fn(func_id_fv.clone()) => false,
       _func_type_has_closure_param(spec_ft) => true,
       true => {
@@ -3884,7 +3930,12 @@ _evaluate_funcval_runtime_call :: (
   // family, issues/retired/yo-self-69-red-list-map.md). Fire when the callee has a
   // comptime-flagged param and every flagged arg's value is compile-time
   // KNOWN with no unresolved SomeT (a validation-pass SomeT TypeVal must not
-  // mint — it would cache-key junk); control fns stay excluded.
+  // mint — it would cache-key junk); control fns stay excluded. A SomeT whose
+  // resolution chain ends in a concrete type is KNOWN: `IoFuture ::
+  // Impl(Concrete(__yo_io_future_t), Future(i32))` (and every struct holding
+  // one, e.g. std/async/waker's `Park`) never specialized, so the call kept
+  // the unspecialized original and codegen dropped it
+  // (issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md).
   ou_ct_flags := get_func_param_comptime(func_id_fv.clone());
   (ou_spec_comptime_params : bool) = false;
   {
@@ -3899,7 +3950,7 @@ _evaluate_funcval_runtime_call :: (
           evaled_arg_infos.get(ou_cti),
           .Some(ou_ainfo) => match(
             ou_ainfo.value,
-            .Some(.TypeVal(ou_tv)) => if(get_all_some_types(ou_tv).len() > usize(0), {
+            .Some(.TypeVal(ou_tv)) => if((get_all_some_types(ou_tv).len() > usize(0)) && !type_somes_all_resolve_concrete(ou_tv), {
               ou_all_known = false;
             }),
             .Some(.UnknownVal(_, _)) => {
@@ -3917,11 +3968,11 @@ _evaluate_funcval_runtime_call :: (
       });
       ou_cti = (ou_cti + usize(1));
     });
-    ou_spec_comptime_params = ((ou_any_ct && ou_all_known) && !(is_control_fn(func_id_fv.clone())));
+    ou_spec_comptime_params = (ou_any_ct && ou_all_known && !is_control_fn(func_id_fv.clone()));
   };
   // Supersession counting — see expr_info.yo g_fid_rtcalls/g_fid_specs.
   record_fid_rtcall(func_id_fv.clone());
-  if(((forall_names.len() > usize(0)) || ou_spec_soft_generic) || ou_spec_comptime_params, {
+  if((forall_names.len() > usize(0)) || ou_spec_soft_generic || ou_spec_comptime_params, {
     // Bind `Self` to the concrete static dot-receiver around the
     // specialization so a STATIC generic-impl method's body (e.g.
     // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
@@ -4064,7 +4115,7 @@ _evaluate_funcval_runtime_call :: (
       // type (`*(char)` vs `__yo_str`); blanket-converting them crashed
       // fs/walker at startup (r5 round).
       sra_is_ct := match(rt_param_ct.get(sra_i), .Some(f) => f, .None => false);
-      if(!(sra_is_ct) && (is_comptime_int_type(arg_ty_spec) || is_comptime_float_type(arg_ty_spec)), {
+      if(!sra_is_ct && (is_comptime_int_type(arg_ty_spec) || is_comptime_float_type(arg_ty_spec)), {
         arg_ty_spec = convert_comptime_type_to_runtime_type(arg_ty_spec, env);
       });
       spec_reg_args.push(
@@ -4120,11 +4171,11 @@ _evaluate_funcval_runtime_call :: (
           },
           _ => ()
         );
-        ((mcr_somes.len() > usize(0)) && _somes_are_closure_forall_args(mcr_somes, spec_forall_args))
+        (mcr_somes.len() > usize(0)) && _somes_are_closure_forall_args(mcr_somes, spec_forall_args)
       },
       _ => false
     );
-    if((ou_spec_comptime_params || ou_ret_lenvar) || ou_mint_closure_ret, {
+    if(ou_spec_comptime_params || ou_ret_lenvar || ou_mint_closure_ret, {
       // COMPTIME-PARAM callee: this arm's `resolved_ret` came from the
       // DECLARED return (no foralls to substitute), which is the DEF-ERA
       // instantiation instance (e.g. the module-eval MapNode enum id) —
@@ -4139,7 +4190,7 @@ _evaluate_funcval_runtime_call :: (
       match(
         get_func_type(spec_fid.clone()),
         .Func({ result : mint_ret_ct }) => {
-          if((ou_mint_closure_ret || (get_all_some_types(mint_ret_ct).len() == usize(0))) && !(is_unit_type(mint_ret_ct)), {
+          if((ou_mint_closure_ret || (get_all_some_types(mint_ret_ct).len() == usize(0))) && !is_unit_type(mint_ret_ct), {
             resolved_ret = mint_ret_ct.clone();
             out_rt.ty = resolved_ret;
             out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
@@ -4194,7 +4245,7 @@ _evaluate_funcval_runtime_call :: (
     // return either (the value-generic counterpart of the SomeT rule).
     is_ret_regression := (((cand_ret_somes > usize(0)) && (base_ret_somes == usize(0))) || _type_has_array_len_var(resolved_ret));
     spec_ty_fixed := if(is_ret_regression, base_spec_ty, spec_ty_candidate);
-    if(!(is_ret_regression), {
+    if(!is_ret_regression, {
       register_func_type(spec_fid.clone(), spec_ty_fixed);
     });
     // YO_DEBUG_SWALLOW: announce a spec minted with SomeTs in its signature
@@ -4228,7 +4279,7 @@ _evaluate_funcval_runtime_call :: (
               },
               .None => ()
             );
-            if(!(is_unit_type(rb_conc)), {
+            if(!is_unit_type(rb_conc), {
               resolved_ret = t_with_resolution(resolved_ret, rb_conc);
               out_rt.ty = resolved_ret;
               out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
@@ -4311,11 +4362,11 @@ _evaluate_funcval_runtime_call :: (
       .None => ()
     );
     (rt_s1_elided : bool) = false;
-    if(!(is_control_fn(rt_s1_fid.clone())), {
+    if(!is_control_fn(rt_s1_fid.clone()), {
       match(
         rt_s1_body,
         .Some(rt_s1_b) => {
-          if(!(function_may_mutate_rc_storage(rt_s1_fid.clone(), rt_s1_b, ctx)), {
+          if(!function_may_mutate_rc_storage(rt_s1_fid.clone(), rt_s1_b, ctx), {
             rt_s1_elided = true;
           });
         },
@@ -4362,7 +4413,7 @@ _evaluate_funcval_runtime_call :: (
 _try_eval_operand_type :: (
   fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
 )({
-  oe_exn := Exception(throw : ((_e) -> unwind(())));
+  oe_exn := Exception(throw : (_e -> unwind(())));
   oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(oe_evaled)),
@@ -4432,7 +4483,7 @@ STD_RAISE_NOTE :: "raised here, inside the standard library";
 /// rather than the error this frame sees.
 _reported_at_user_call :: (fn(err : AnyError, call_tok : Token, ctx : EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(ep, ctx.std_path.clone()), .None => false);
-  if(!(err_in_std), {
+  if(!err_in_std, {
     return(err);
   });
   match(
@@ -4464,7 +4515,7 @@ _evaluate_function_call_trapped :: (
     out : ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
-  trap := Exception(throw : ((e) -> unwind(Option(AnyError).Some(e))));
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
   out.push(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, trap));
   Option(AnyError).None
 });
@@ -4501,7 +4552,7 @@ _instantiate_struct_over_closure_args :: (
                     ic_fts.get(lj),
                     .Some(ic_decl) => match(
                       ic_decl,
-                      .SomeT({ id : ic_sid, resolution : ic_res }) => if((ic_res.is_none() && (ic_sid.len() > usize(0))) && extract_fn_trait_from_type(ic_decl).is_some(), {
+                      .SomeT({ id : ic_sid, resolution : ic_res }) => if(ic_res.is_none() && (ic_sid.len() > usize(0)) && extract_fn_trait_from_type(ic_decl).is_some(), {
                         rep_ids.push(ic_sid.clone());
                         rep_tys.push(ic_arg.clone());
                       }),
@@ -4676,7 +4727,7 @@ _evaluate_function_call_unanchored :: (
   is_infix_call := match(expr, .FnCall(_, _, _, inf, _) => inf, .Atom(_, _) => false);
   op_name := match(func_expr, .Atom(_, ftok) => ftok.value, _ => String.new());
   op_is_operator := string_is_operator(op_name.clone());
-  if((is_infix_call && op_is_operator) && (args.len() >= usize(1)), {
+  if(is_infix_call && op_is_operator && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     // Evaluate the first operand with `expected_type` cleared — the
     // operand type must come from the operand itself, not from the
@@ -4717,7 +4768,7 @@ _evaluate_function_call_unanchored :: (
     // on `a(i) != b(i)` (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
     if(op_methods.len() == usize(0), {
       match(
-        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty)),
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(receiver_ty), Option(String).Some(op_name.clone())),
         .Forced => {
           op_methods = get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
         },
@@ -4767,7 +4818,7 @@ _evaluate_function_call_unanchored :: (
     // placeholder an unevaluated operand leaves), a type still carrying a
     // SomeT, and a source-namespace struct (an `impl({...})` operator module,
     // resolved by the call-overload expansion).
-    if((op_methods.len() == usize(0)) && (((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)) || _is_concrete_nominal_operand(receiver_ty)), {
+    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !is_unit_type(receiver_ty)) || is_type_hierarchy_type(receiver_ty) || _is_concrete_nominal_operand(receiver_ty)), {
       exn.throw(
         dyn(
           format_error_message(
@@ -4808,7 +4859,7 @@ _evaluate_function_call_unanchored :: (
           .Some(snd_ty) => {
             (osi : usize) = usize(0);
             (osel : bool) = false;
-            while((osi < op_methods.len()) && !(osel), {
+            while((osi < op_methods.len()) && !osel, {
               ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
               ocand_p1 := match(
                 ocand.ty,
@@ -4888,7 +4939,7 @@ _evaluate_function_call_unanchored :: (
           (agreed : Option(TypeValue)) = Option(TypeValue).None;
           (diverged : bool) = false;
           (ai : usize) = usize(0);
-          while((ai < assoc_entries.len()) && !(diverged), {
+          while((ai < assoc_entries.len()) && !diverged, {
             match(
               assoc_entries.get(ai),
               .Some(ae) => match(
@@ -4917,7 +4968,7 @@ _evaluate_function_call_unanchored :: (
             );
             ai = (ai + usize(1));
           });
-          if(!(diverged), {
+          if(!diverged, {
             match(
               agreed,
               .Some(a) => {
@@ -5109,7 +5160,7 @@ _evaluate_function_call_unanchored :: (
   // unify(ArrayList(u8), u8).
   callee_is_dot := ast_expr_is_fn_call_of(func_expr, ".", Option(usize).None);
   callee_saved_expected := ctx.expected_type;
-  if(!(callee_is_dot), {
+  if(!callee_is_dot, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   });
   // When the caller supplies the function value directly (`given_value`,
@@ -5178,10 +5229,8 @@ _evaluate_function_call_unanchored :: (
         iob_ci.ty,
         .Func({ meta : iob_m }) => match(
           iob_m.*.extern_name,
-          .Some(iob_en) => if((
-            ((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await"))
-            || ((iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn"))
-          )
+          .Some(iob_en) => if((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await")
+          || ((iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn"))
           || (iob_en == "__yo_join_handle_await"), {
             iob_marker = iob_en.clone();
           }),
@@ -5298,7 +5347,7 @@ _evaluate_function_call_unanchored :: (
     .Func({ meta : __fm_d6 }) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
-  if(((gate_is_extern_runtime && _d6_callee_is_by_name(func_expr, ctx)) && !(gate_in_autogen)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+  if(gate_is_extern_runtime && _d6_callee_is_by_name(func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -5308,7 +5357,7 @@ _evaluate_function_call_unanchored :: (
       )
     );
   });
-  if((gate_is_extern_c && !(ctx.unsafe_context)) && !(gate_in_autogen), {
+  if(gate_is_extern_c && !ctx.unsafe_context && !gate_in_autogen, {
     callee_name := match(
       callee_ty_for_gate,
       .Func({ meta : __fm4 }) => match(__fm4.*.extern_name, .Some(n) => n, .None => ast_expr_to_string(func_expr)),
@@ -5567,7 +5616,7 @@ Fix: wrap the call:
                   (subst_ty : TypeValue) = fld_m.ty;
                   (sl_i : usize) = usize(0);
                   (found_sl : bool) = false;
-                  while((sl_i < struct_field_labels.len()) && !(found_sl), {
+                  while((sl_i < struct_field_labels.len()) && !found_sl, {
                     if(match(struct_field_labels.get(sl_i), .Some(l) => (l == fld_m.label), .None => false), {
                       subst_ty = match(struct_field_types.get(sl_i), .Some(t) => t, .None => subst_ty);
                       found_sl = true;
@@ -5621,10 +5670,8 @@ Fix: wrap the call:
                   iobp_ty,
                   .Func({ meta : iobp_m }) => match(
                     iobp_m.*.extern_name,
-                    .Some(iobp_en) => if((
-                      ((iobp_en == "__yo_io_async") || (iobp_en == "__yo_io_await"))
-                      || ((iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn"))
-                    )
+                    .Some(iobp_en) => if((iobp_en == "__yo_io_async") || (iobp_en == "__yo_io_await")
+                    || ((iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn"))
                     || (iobp_en == "__yo_join_handle_await"), {
                       iobp_lbl := match(fields.get(iobp_i), .Some(f) => f.label.clone(), .None => String.new());
                       if(iobp_lbl.len() > usize(0), {
@@ -5663,7 +5710,7 @@ Fix: wrap the call:
               );
               ki_s = (ki_s + usize(1));
             });
-            struct_val := if(all_known_s && !(is_ref), {
+            struct_val := if(all_known_s && !is_ref, {
               fnames_s := ArrayList(String).new();
               fvals_s := ArrayList(EvalValue).new();
               (bi_s : usize) = usize(0);
@@ -5729,7 +5776,7 @@ Fix: wrap the call:
             (variant_idx : usize) = usize(0);
             (found_variant : bool) = false;
             (vs_i : usize) = usize(0);
-            while((vs_i < variant_names.len()) && !(found_variant), {
+            while((vs_i < variant_names.len()) && !found_variant, {
               match(
                 variant_names.get(vs_i),
                 .Some(vn) => {
@@ -5742,7 +5789,7 @@ Fix: wrap the call:
               );
               vs_i = (vs_i + usize(1));
             });
-            if(!(found_variant), {
+            if(!found_variant, {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -5865,7 +5912,7 @@ Fix: wrap the call:
           .TraitT(_, _, _, _, _, _, _, _, _, _) => {
             (has_spec : bool) = false;
             (spec_i : usize) = usize(0);
-            while((spec_i < args.len()) && !(has_spec), {
+            while((spec_i < args.len()) && !has_spec, {
               match(
                 args.get(spec_i),
                 .Some(a) => {
@@ -6234,7 +6281,7 @@ Fix: wrap the call:
             while(gi < fv_g_args.len(), {
               if(gi < forall_names.len(), {
                 fv_g_arg := match(fv_g_args.get(gi), .Some(x) => x, .None => make_err_expr());
-                if(!(ast_expr_is_atom_of(fv_g_arg, "_")), {
+                if(!ast_expr_is_atom_of(fv_g_arg, "_"), {
                   fv_g_evaled := evaluate_expression_raw(fv_g_arg, env, ctx, exn);
                   match(
                     expr_info_table_get(ctx.expr_info_table, ast_expr_id(fv_g_evaled)),
@@ -6362,7 +6409,7 @@ Fix: wrap the call:
             fv_variadic_label = vpe.label;
             fv_variadic_ty = vpe.ty;
             fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
-            fv_variadic_is_comptime = (!(fv_variadic_is_quote) && is_comptime_list_type(fv_variadic_ty.clone()));
+            fv_variadic_is_comptime = (!fv_variadic_is_quote && is_comptime_list_type(fv_variadic_ty.clone()));
           },
           .None => ()
         );
@@ -6370,7 +6417,7 @@ Fix: wrap the call:
         // parameter: variadics accept any number of trailing args, so a strict
         // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
         // e.g. `array_list(a, b)` (n_p=0).
-        if((!(fv_has_variadic)) && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
+        if(!fv_has_variadic && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
             fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
@@ -6411,7 +6458,7 @@ Fix: wrap the call:
         // argument binds them).
         fv_exp_forall_names := ArrayList(String).new();
         fv_exp_forall_types := ArrayList(TypeValue).new();
-        if(((forall_names.len() > usize(0)) && !(fv_has_explicit_forall)) && ctx.expected_type.is_some(), {
+        if((forall_names.len() > usize(0)) && !fv_has_explicit_forall && ctx.expected_type.is_some(), {
           match(
             ctx.expected_type,
             .Some(fv_exp) => {
@@ -6612,7 +6659,7 @@ Fix: wrap the call:
                 vs_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (vs_has_ct_type : bool) = false;
                 (vs_ci : usize) = usize(0);
-                while((vs_ci < vs_ct_flags.len()) && !(vs_has_ct_type), {
+                while((vs_ci < vs_ct_flags.len()) && !vs_has_ct_type, {
                   vs_is_ct := match(vs_ct_flags.get(vs_ci), .Some(b) => b, .None => false);
                   vs_pt := match(fv_param_types.get(vs_ci), .Some(t) => t, .None => t_unit());
                   if(vs_is_ct && is_type_hierarchy_type(vs_pt), {
@@ -6621,7 +6668,7 @@ Fix: wrap the call:
                   vs_ci = (vs_ci + usize(1));
                 });
                 vs_decl_pt := match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit());
-                if(vs_has_ct_type && !(extract_fn_trait_from_type(vs_decl_pt).is_some()), {
+                if(vs_has_ct_type && !extract_fn_trait_from_type(vs_decl_pt).is_some(), {
                   vs_exprs := get_func_param_type_exprs(func_id_fv.clone());
                   match(
                     vs_exprs.get(ai),
@@ -6635,7 +6682,7 @@ Fix: wrap the call:
                         ctx.is_evaluating_function_type = vs_prev_fnty;
                         match(
                           vs_out.get(usize(0)),
-                          .Some(vs_t) => if(((get_all_some_types(vs_t).len() == usize(0)) && !(is_unit_type(vs_t))) && !(_type_has_array_len_var(vs_t)), {
+                          .Some(vs_t) => if((get_all_some_types(vs_t).len() == usize(0)) && !is_unit_type(vs_t) && !_type_has_array_len_var(vs_t), {
                             vs_override = Option(TypeValue).Some(vs_t);
                           }),
                           .None => ()
@@ -6683,7 +6730,7 @@ Fix: wrap the call:
             if(vs_override.is_none() && (ai < n_p), {
               lp_decl := match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit());
               lp_go := (
-                (is_function_boundary_arrow(arg_expr_eff) && is_function_type(lp_decl))
+                is_function_boundary_arrow(arg_expr_eff) && is_function_type(lp_decl)
                 && (get_all_some_types(lp_decl).len() > usize(0))
               );
               if(lp_go, {
@@ -6705,7 +6752,7 @@ Fix: wrap the call:
                       // `fn(v : comptime_int) -> comptime_int`.
                       (lp_aty : TypeValue) = lp_info.ty;
                       lp_j_ct := match(lp_ct_flags.get(lp_j), .Some(f) => f, .None => false);
-                      if((!(lp_j_ct)) && (is_comptime_int_type(lp_aty) || is_comptime_float_type(lp_aty)), {
+                      if(!lp_j_ct && (is_comptime_int_type(lp_aty) || is_comptime_float_type(lp_aty)), {
                         lp_aty = convert_comptime_type_to_runtime_type(lp_aty, env);
                       });
                       _funcval_try_synthesize_param(lp_dpt, lp_se, lp_aty, env);
@@ -6725,7 +6772,7 @@ Fix: wrap the call:
                         lp_v.value.get(usize(0)),
                         .Some(lp_val) => match(
                           lp_val,
-                          .TypeVal(lp_tb) => if(!(is_some_type(lp_tb)), {
+                          .TypeVal(lp_tb) => if(!is_some_type(lp_tb), {
                             add_variable_to_env(
                               env,
                               lp_fn.clone(),
@@ -6766,7 +6813,7 @@ Fix: wrap the call:
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
               .None => match(
                 cond(
-                  (!(fv_keeps_source_order) && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
+                  (!fv_keeps_source_order && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
                     resolved_param_types.get(ai),
                     .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, fv_param_types, evaled_arg_infos, fv_eai_idx, fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
@@ -6836,7 +6883,7 @@ Fix: wrap the call:
               (fv_variadic_is_comptime && (ai >= n_p)) => true,
               true => match(rt_ct_flags_args.get(ai), .Some(f) => f, .None => false)
             );
-            if(!(rt_arg_is_ct), {
+            if(!rt_arg_is_ct, {
               runtime_arg_exprs.push(evaled_arg);
               fv_rt_idx.push(ai);
             });
@@ -6856,7 +6903,7 @@ Fix: wrap the call:
             // here, decided after the callee body is known (twin of
             // helper.yo's record; this inline loop bypasses
             // try_to_call_function_with_arguments).
-            if(fv_p_is_ref && !(fv_p_is_ct), {
+            if(fv_p_is_ref && !fv_p_is_ct, {
               fv_p_label := match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new());
               d3_record_inout_place(fv_d3_pending, ai, fv_p_label, arg_expr_eff, env);
             });
@@ -6873,7 +6920,7 @@ Fix: wrap the call:
             // evaluated in a frame binding the earlier arguments (popped
             // above): it is not a caller expression, so no caller variable is
             // moved or projected by it.
-            if(!(du_frame_pushed), {
+            if(!du_frame_pushed, {
               match(
                 consume_argument_for_parameter(
                   evaled_arg,
@@ -6955,7 +7002,7 @@ Fix: wrap the call:
           };
           (dpi : usize) = n_supplied_reg;
           (def_stop : bool) = false;
-          while((dpi < n_p) && !(def_stop), {
+          while((dpi < n_p) && !def_stop, {
             (def_expr : Option(AstExpr)) = Option(AstExpr).None;
             match(
               fv_default_exprs.get(dpi),
@@ -7015,7 +7062,7 @@ Fix: wrap the call:
                 def_stop = true;
               }
             );
-            if(!(def_stop), {
+            if(!def_stop, {
               dpi = (dpi + usize(1));
             });
           });
@@ -7201,13 +7248,13 @@ Fix: wrap the call:
           fve_i = (fve_i + usize(1));
           (fve_bound : bool) = false;
           (fve_j : usize) = usize(0);
-          while((fve_j < fa_bound_names.len()) && !(fve_bound), {
+          while((fve_j < fa_bound_names.len()) && !fve_bound, {
             if(match(fa_bound_names.get(fve_j), .Some(n) => (n == fve_name), .None => false), {
               fve_bound = true;
             });
             fve_j = (fve_j + usize(1));
           });
-          if(!(fve_bound), {
+          if(!fve_bound, {
             _add_forall_exp := add_variable_to_env(
               fresh_env,
               fve_name.clone(),
@@ -7356,7 +7403,7 @@ Fix: wrap the call:
               exn
             );
           });
-          if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
+          if(is_comptime_string_type(arg_info.ty) && !is_some_type(resolved_decl_pt) && !is_comptime_string_type(resolved_decl_pt), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
             is_ct = false;
@@ -7372,10 +7419,10 @@ Fix: wrap the call:
           // Narrowly scoped to the explicit-generic case; guarded off
           // degenerate/def-eval shapes (unit args, fn-typed args, params
           // that still carry a SomeT after resolution).
-          if((fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg)) && !(type_contains_some_type_deep(resolved_decl_pt)), {
+          if(fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg) && !type_contains_some_type_deep(resolved_decl_pt), {
             etc_arg_ty := arg_info.ty;
-            etc_skip := ((is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty)) || (is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty)));
-            if((!(etc_skip)) && !(are_types_compatible(etc_arg_ty, resolved_decl_pt)), {
+            etc_skip := (is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty) || (is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty)));
+            if(!etc_skip && !are_types_compatible(etc_arg_ty, resolved_decl_pt), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -7611,7 +7658,7 @@ Fix: wrap the call:
                 evaled_arg_infos.get(tai),
                 .Some(tinfo) => match(
                   tinfo.value,
-                  .Some(v) => if(!(is_type_val(v)), {
+                  .Some(v) => if(!is_type_val(v), {
                     ok = false;
                   }),
                   .None => {
@@ -7653,7 +7700,7 @@ Fix: wrap the call:
           .Func({ result : d_result, meta : __fmd }) => (is_type_hierarchy_type(d_result) || __fmd.*.result_is_comptime_only),
           _ => false
         );
-        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || (all_args_are_types && declared_ret_is_type)) || fv_is_macro, {
+        if(is_type_hierarchy_type(ret_type) || callee_result_is_comptime || (all_args_are_types && declared_ret_is_type) || fv_is_macro, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(ct_ai < evaled_arg_infos.len(), {
@@ -7936,7 +7983,7 @@ Fix: wrap the call:
           // TypeVals and never runtime-marked, so this only fires for the
           // value-returning comptime-fn shape.
           (ct_out_val : EvalValue) = ct_result.value;
-          if(is_runtime_only_unknown_val(ct_out_val) && !(is_type_hierarchy_type(resolved_ret_ct)), {
+          if(is_runtime_only_unknown_val(ct_out_val) && !is_type_hierarchy_type(resolved_ret_ct), {
             ct_out_val = create_unknown_val(resolved_ret_ct);
           });
           out_ct.value = Option(EvalValue).Some(ct_out_val);
@@ -7962,7 +8009,7 @@ Fix: wrap the call:
         // suppress the comptime-expectation errors `comptime_expect_error` tests
         // rely on — verified: compiler tests 53->57, std 150->151, tests 154->155, 0
         // regressions across 560 files.
-        if((!(is_type_hierarchy_type(ret_type))) && (!(callee_result_is_comptime)), {
+        if(!is_type_hierarchy_type(ret_type) && !callee_result_is_comptime, {
           return(
             _evaluate_funcval_runtime_call(
               expr,
@@ -8051,8 +8098,8 @@ Fix: wrap the call:
         d3_check_pending(fv_d3_pending, func_id_fv.clone(), body_box, ctx, exn);
         (fv_s1_elided : bool) = false;
         if(fv_s0_drops.len() > usize(0), {
-          if(!(is_control_fn(func_id_fv.clone())), {
-            if(!(function_may_mutate_rc_storage(func_id_fv.clone(), body_box, ctx)), {
+          if(!is_control_fn(func_id_fv.clone()), {
+            if(!function_may_mutate_rc_storage(func_id_fv.clone(), body_box, ctx), {
               fv_s1_elided = true;
             });
           });
@@ -8074,7 +8121,7 @@ Fix: wrap the call:
             });
           });
         });
-        if((fv_s0_drops.len() > usize(0)) && !(fv_s1_elided), {
+        if((fv_s0_drops.len() > usize(0)) && !fv_s1_elided, {
           out.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
         });
         // control_flow is intentionally NOT propagated (Return is consumed here).
@@ -8202,7 +8249,7 @@ Fix: wrap the call:
                     cfv,
                     .FuncVal(__fvd2, _) => match(
                       get_func_type(__fvd2.*.func_id),
-                      .Func({ result : rr }) => if(!(is_some_type(rr)), {
+                      .Func({ result : rr }) => if(!is_some_type(rr), {
                         ret_type_rt = _with_future_output_resolution(ret_type_rt, rr.clone());
                       }),
                       _ => ()
@@ -8264,7 +8311,7 @@ Fix: wrap the call:
           .Func({ meta : __fm_rt_as }) => match(__fm_rt_as.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
           _ => false
         );
-        attach_temp_variable_to_expr(expr, !(rt_is_yo_as), ctx);
+        attach_temp_variable_to_expr(expr, !rt_is_yo_as, ctx);
         return(expr);
       }
     ),
@@ -8320,7 +8367,7 @@ Fix: wrap the call:
             match(method_info.method_ty, .Func({ meta : __mfm }) => __mfm.*.forall_labels, _ => ArrayList(String).new())
           );
           all_args := ArrayList(AstExpr).new();
-          if(!(method_info.is_static), {
+          if(!method_info.is_static, {
             // When the method's self param is `*(T)` and the receiver is a
             // compatible value, wrap the receiver in `&(...)` so the self
             // argument type-checks (and codegen inserts the address-of).
@@ -8329,7 +8376,7 @@ Fix: wrap the call:
               .Some(rap_i) => is_pointer_type(rap_i.ty),
               .None => false
             );
-            if(method_info.needs_pointer_conversion && !(recv_already_ptr), {
+            if(method_info.needs_pointer_conversion && !recv_already_ptr, {
               recv_tok := ast_expr_token(method_info.receiver_expr);
               amp_atom := AstExpr.Atom(
                 alloc_global_expr_id(),
@@ -8459,7 +8506,7 @@ Fix: wrap the call:
                       rm_entries := get_type_trait_methods_by_name(rm_rid, rm_name);
                       (rm_ei : usize) = usize(0);
                       (rm_done : bool) = false;
-                      while((rm_ei < rm_entries.len()) && !(rm_done), {
+                      while((rm_ei < rm_entries.len()) && !rm_done, {
                         match(
                           rm_entries.get(rm_ei),
                           .Some(rm_e) => match(
@@ -8525,10 +8572,10 @@ Fix: wrap the call:
             // and pointer-converted receivers (the arg is `&(recv)`, not the
             // bare value) — arg values are expected to survive the checking
             // pass.
-            if(!(method_info.is_static) && !(method_info.needs_pointer_conversion), {
+            if(!method_info.is_static && !method_info.needs_pointer_conversion, {
               match(
                 method_info.receiver_value,
-                .Some(rcv_val) => if(!(is_unknown_val(rcv_val)), {
+                .Some(rcv_val) => if(!is_unknown_val(rcv_val), {
                   match(
                     call_result_m.arg_values.args.get(usize(0)),
                     .Some(self_ae) => {
@@ -8654,7 +8701,7 @@ Fix: wrap the call:
                       },
                       .None => ()
                     );
-                    if(!(is_unit_type(m_conc)), {
+                    if(!is_unit_type(m_conc), {
                       m_out_ty = t_with_resolution(m_out_ty, m_conc);
                     });
                   },
@@ -8779,14 +8826,14 @@ Fix: wrap the call:
           //     in a thin def-time env is an unresolved ctor reference, not
           //     a proven non-callable.
           (cvl_is_fnish : bool) = (is_function_type(callee_ty_none) || is_some_type(callee_ty_none));
-          if(!(cvl_is_fnish), {
+          if(!cvl_is_fnish, {
             cvl_is_fnish = is_type_hierarchy_type(callee_ty_none);
           });
-          if(!(cvl_is_fnish), {
+          if(!cvl_is_fnish, {
             cvl_ft := extract_fn_trait_from_type(callee_ty_none);
             cvl_is_fnish = cvl_ft.is_some();
           });
-          if(!(cvl_is_fnish), {
+          if(!cvl_is_fnish, {
             // Closure CAPTURE-STRUCT callee: a closure-valued field like the
             // prelude map adapter's `self._f` is statically typed as its
             // capture struct (`capture_<id>`, evaluator/utils/closure.yo:327)
@@ -8803,7 +8850,7 @@ Fix: wrap the call:
           //     other passes depend on. Dg-trial errors are discarded
           //     wholesale anyway, so skipping the throw is the
           //     same observable outcome.
-          if(((!(cvl_is_fnish)) && !(ctx.is_in_function_call_checking_phase)) && !(in_def_time_trial()), {
+          if(!cvl_is_fnish && !ctx.is_in_function_call_checking_phase && !in_def_time_trial(), {
             if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[vcall-throw] callee=${ast_expr_to_string(func_expr)} ty=${type_to_string(callee_ty_none)}`);
             });
@@ -8873,7 +8920,7 @@ Fix: wrap the call:
                       cfv_n,
                       .FuncVal(__fvdn, _) => match(
                         get_func_type(__fvdn.*.func_id),
-                        .Func({ result : rr_n }) => if(!(is_some_type(rr_n)), {
+                        .Func({ result : rr_n }) => if(!is_some_type(rr_n), {
                           ret_type_none = _with_future_output_resolution(ret_type_none, rr_n.clone());
                         }),
                         _ => ()
@@ -8935,7 +8982,7 @@ Fix: wrap the call:
             .Func({ meta : __fm_none }) => match(__fm_none.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
             _ => false
           );
-          attach_temp_variable_to_expr(expr, !(none_is_yo_as), ctx);
+          attach_temp_variable_to_expr(expr, !none_is_yo_as, ctx);
           return(expr);
         }
       )

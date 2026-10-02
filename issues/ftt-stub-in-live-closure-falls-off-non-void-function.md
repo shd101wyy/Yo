@@ -2,7 +2,22 @@
 
 **Severity:** S1 — failed-transpile statements are silently dropped from live closures — programs run with missing side effects
 
-**Status: PARTIALLY FIXED — still OPEN for the `unit`-returning case.**
+**Status: the compile half is FIXED; `yo check` still passes.** Re-verified 2026-10-01 on develop
+`29bf728b4` and the v0.2.46 seed, using the committed repro and unit-returning variants, with and
+without an await, spawned or inline:
+- `yo compile` fails on every one of them. Develop reports the swallowed error itself
+  (`error[E0610]: No method "no_such_method_at_all" on HashSet(usize)`); the seed reports the
+  generic E0905.
+- The unit-returning case is closed. `src/codegen/functions/generation.yo`'s "untranspilable body in
+  a unit fn" gate (#724) aborts there too.
+
+What stays open: `yo check` exits 0 on the `io.async` variants. Their error is swallowed by the
+definition-time trial and reported only when codegen finds the body hollow
+(`lookup_hollow_body_error`). Making `check` report it needs a way to tell a body that no later
+evaluation reaches from one that codegen-prep evaluates again. Reporting every recorded error at
+the end of `check` would reject bodies that a later evaluation completes.
+
+The original history follows.
 
 The half described below, where the enclosing C function RETURNS A VALUE, is
 closed by PR #275 (`dd4dbbf5a`): codegen rewrites such a body to `abort()`

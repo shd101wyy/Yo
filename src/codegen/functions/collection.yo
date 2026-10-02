@@ -122,7 +122,7 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
               .Some(aei) => is_unit_type(aei.ty),
               .None => false
             );
-            if((!(arg_is_unit)) && recur(arg, info), {
+            if(!arg_is_unit && recur(arg, info), {
               return(true);
             });
           },
@@ -220,9 +220,9 @@ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, i
         match(
           field_values.get(i),
           .Some(fv) => cond(
-            (is_func_val(fv) && !(is_module_namespace)) => {
+            (is_func_val(fv) && !is_module_namespace) => {
               func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-              if(!(context.has_function(func_id.clone())), {
+              if(!context.has_function(func_id.clone()), {
                 mark_as_effect_record_member(func_id.clone());
                 context.register_function(func_id.clone(), fv, function_c_name(func_id));
                 body := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
@@ -270,7 +270,7 @@ _register_extern_fn_callee :: (
       __fm4.*.is_extern,
       .Some(lang) => {
         is_internal := match(__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
-        if((lang == "c") || (!(is_internal)), {
+        if((lang == "c") || !is_internal, {
           c_name := match(
             __fm4.*.extern_name,
             .Some(en) => if(lang == "c", en.clone(), sanitize_for_c_identifier(en.clone(), false)),
@@ -372,7 +372,7 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
   n := tys.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       tys.get(i),
       .Some(t) => if(is_expr_type(t), {
@@ -442,7 +442,7 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
       // resolution is exactly what must not count as concrete here
       // (issues/fixed/forwarded-closure-param-shares-specialization.md).
       has_raw_some := (fn_has_specializations(_func_val_id(v)) && func_params_have_raw_some_type(get_func_type(_func_val_id(v))));
-      ((has_type_param || has_raw_some) || (__fm2.*.forall_labels.len() > usize(0))) || _any_expr_param(param_types)
+      has_type_param || has_raw_some || (__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)
     },
     _ => false
   )
@@ -463,7 +463,7 @@ _func_has_some_param :: (fn(fid : String) -> bool)(
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           param_types.get(i),
           // type_contains_some_type, NOT a raw get_all_some_types scan: a
@@ -493,7 +493,7 @@ _canonical_module_path :: (fn(p : String) -> String)(canonical_module_path(p));
 /// typed on the command line (`src/lib.yo`) so diagnostics stay relative,
 /// while `env.module_path` is always the `file://<abs>` key.
 _is_entry_module_path :: (fn(token_path : String, entry_path : String) -> bool)(
-  (_canonical_module_path(token_path) == _canonical_module_path(entry_path))
+  _canonical_module_path(token_path) == _canonical_module_path(entry_path)
 );
 /// Register one module field as a reachable function if it is a FuncVal,
 /// applying the main / library / executable C-naming rules, then collect the
@@ -501,7 +501,7 @@ _is_entry_module_path :: (fn(token_path : String, entry_path : String) -> bool)(
 _collect_required_function_field :: (
   fn(label : String, value : EvalValue, context : CodeGenContext, info : ExprInfoTable, is_top_level_export : bool) -> unit
 )({
-  if(!(is_func_val(value)), {
+  if(!is_func_val(value), {
     return(());
   });
   if(_is_generic_unspecialized_func(value), {
@@ -527,7 +527,7 @@ _collect_required_function_field :: (
       // back to the mangled one.
       wants_plain_exports := (context.is_library || is_target_wasm(context.target_info));
       from_current_module := (
-        (is_top_level_export && wants_plain_exports)
+        is_top_level_export && wants_plain_exports
         && match(
           context.current_module_path,
           .Some(entry_path) => _is_entry_module_path(ast_expr_token(_func_val_body(value)).module_path, entry_path),
@@ -538,7 +538,7 @@ _collect_required_function_field :: (
         from_current_module => {
           plain := sanitize_for_c_identifier(label.clone(), false);
           cond(
-            (!(context.has_function_with_c_name(plain.clone()))) => {
+            !context.has_function_with_c_name(plain.clone()) => {
               context.register_function(func_id.clone(), value, plain.clone());
               context.set_exported_function_label(func_id.clone(), label.clone());
             },
@@ -689,7 +689,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         expr_info_closure_function_value(ei),
         .Some(cfv) => if(is_func_val(cfv), {
           cid := _func_val_id(cfv);
-          if(!(context.has_function(cid.clone())), {
+          if(!context.has_function(cid.clone()), {
             context.register_function(cid.clone(), cfv, function_c_name(cid));
             recur(_func_val_body(cfv), context, info);
           });
@@ -701,7 +701,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .Some(imv) => if(is_func_val(imv), {
           iid := _func_val_id(imv);
           mark_as_index_entry_method(iid.clone());
-          if(!(context.has_function(iid.clone())), {
+          if(!context.has_function(iid.clone()), {
             context.register_function(iid.clone(), imv, function_c_name(iid));
             recur(_func_val_body(imv), context, info);
           });
@@ -761,7 +761,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
                 me.value,
                 .Some(mv) => if(is_func_val(mv), {
                   mfid := _func_val_id(mv);
-                  if(!(context.has_function(mfid.clone())), {
+                  if(!context.has_function(mfid.clone()), {
                     context.register_function(mfid.clone(), mv, function_c_name(mfid));
                     recur(_func_val_body(mv), context, info);
                   });
@@ -797,9 +797,9 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
                   if(rm_hit, {
                     match(
                       rm_vals.get(rmi),
-                      .Some(rmv2) => if(is_func_val(rmv2) && !(_is_generic_unspecialized_func(rmv2)), {
+                      .Some(rmv2) => if(is_func_val(rmv2) && !_is_generic_unspecialized_func(rmv2), {
                         rm_fid := _func_val_id(rmv2);
-                        if((!(context.has_function(rm_fid.clone()))) && !(is_control_fn(rm_fid.clone())), {
+                        if(!context.has_function(rm_fid.clone()) && !is_control_fn(rm_fid.clone()), {
                           context.register_function(rm_fid.clone(), rmv2, function_c_name(rm_fid));
                           recur(_func_val_body(rmv2), context, info);
                         });
@@ -832,7 +832,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         lookup_method_callee_value(ast_expr_id(expr)),
         .Some(scv) => if(is_func_val(scv), {
           sfid := _func_val_id(scv);
-          if(!(context.has_function(sfid.clone())), {
+          if(!context.has_function(sfid.clone()), {
             context.register_function(sfid.clone(), scv, function_c_name(sfid));
             recur(_func_val_body(scv), context, info);
           });
@@ -904,7 +904,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         cond(
           v_is_control => {
             mark_as_effect_record_member(_func_val_id(v));
-            if(!(context.has_function(_func_val_id(v))), {
+            if(!context.has_function(_func_val_id(v)), {
               context.register_function(_func_val_id(v), v, sanitize_for_c_identifier(_func_val_id(v), false));
             });
             recur(_func_val_body(v), context, info);
@@ -1128,7 +1128,7 @@ _specialize_and_register_trace :: (
     .FuncVal(__sfvd, _) => {
       spec_fid := __sfvd.*.func_id;
       spec_body := __sfvd.*.body;
-      if(!(base.has_function(spec_fid.clone())), {
+      if(!base.has_function(spec_fid.clone()), {
         base.register_function(spec_fid.clone(), spec, function_c_name(spec_fid));
         // Collect the types in the trace signature — notably GcTracer, which
         // appears nowhere in the module's own type graph (only in this method),
@@ -1162,7 +1162,8 @@ _specialize_and_register_trace :: (
           value : Option(EvalValue).Some(spec),
           source_trait_id : String.from("Trace"),
           needs_pointer_conversion : false,
-          self_type : Option(TypeValue).None
+          self_type : Option(TypeValue).None,
+          owner : String.new()
         )
       );
     },
@@ -1266,7 +1267,7 @@ _is_valid_yo_identifier :: (fn(s : String) -> bool)({
     is_alpha := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))));
     is_digit := ((b >= u8(48)) && (b <= u8(57)));
     is_us := (b == u8(95));
-    if(!((is_alpha || is_digit) || is_us), {
+    if(!(is_alpha || is_digit || is_us), {
       ok = false;
     });
     i = (i + usize(1));
@@ -1306,7 +1307,7 @@ _eval_and_register_rc_method :: (
         .FuncVal(__dfvd, _) => {
           fid := __dfvd.*.func_id;
           fbody := __dfvd.*.body;
-          if(!(base.has_function(fid.clone())), {
+          if(!base.has_function(fid.clone()), {
             base.register_function(fid.clone(), fv, function_c_name(fid));
             find_function_calls_in_expr(fbody, base, info);
           });
@@ -1325,7 +1326,8 @@ _eval_and_register_rc_method :: (
               value : Option(EvalValue).Some(fv),
               source_trait_id : String.from(""),
               needs_pointer_conversion : false,
-              self_type : Option(TypeValue).None
+              self_type : Option(TypeValue).None,
+              owner : String.new()
             )
           );
         },
@@ -1376,7 +1378,7 @@ _synthesize_and_register_dispose :: (
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id;
                 fbody := __dfvd.*.body;
-                if(!(base.has_function(fid.clone())), {
+                if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), mfv, function_c_name(fid));
                   find_function_calls_in_expr(fbody, base, info);
                 });
@@ -1437,7 +1439,7 @@ _synthesize_and_register_dispose :: (
     fi = (fi + usize(1));
   });
   // Nothing to drop AND no user destructor → no ___dispose needed.
-  if(!(any) && !(has_user_dispose), {
+  if(!any && !has_user_dispose, {
     return(());
   });
   // Synthesize the ___dispose body: call the user destructor first (if any),
@@ -1486,7 +1488,7 @@ _synthesize_and_register_enum_dispose :: (
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id;
                 fbody := __dfvd.*.body;
-                if(!(base.has_function(fid.clone())), {
+                if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), mfv, function_c_name(fid));
                   find_function_calls_in_expr(fbody, base, info);
                 });
@@ -1570,7 +1572,7 @@ _synthesize_and_register_enum_dispose :: (
     vi = (vi + usize(1));
   });
   // Nothing to drop AND no user destructor → no ___dispose needed.
-  if((rc_variants == usize(0)) && !(has_user_dispose), {
+  if((rc_variants == usize(0)) && !has_user_dispose, {
     return(());
   });
   body := String.from("");
@@ -1625,7 +1627,7 @@ collect_dispose_methods :: (
       // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
       // predicate here so no `___dispose` is registered for a body that will
       // never be emitted.
-      .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !(type_contains_some_type_deep(entry.ty)), {
+      .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !type_contains_some_type_deep(entry.ty), {
         type_list.push(entry.ty);
       }),
       .None => {

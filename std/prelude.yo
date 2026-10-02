@@ -10012,19 +10012,72 @@ for :: (
               true => {
                 iter_var :: gensym("for_iter_var");
                 temp_var :: gensym("for_temp_var");
-                quote({
-                  unquote(iter_var) := unquote(coll).into_iter();
-                  while(runtime(true), {
-                    unquote(temp_var) := unquote(iter_var).next();
-                    match(
-                      unquote(temp_var),
-                      .Some(unquote(variable)) => unquote(body),
-                      .None => {
-                        break;
-                      }
+                // A leading `invariant(...)` in the body is the LOOP's
+                // (R2 task 4: a verified `for` over a list, with
+                // `produced(xs)` naming the elements consumed so far). It is
+                // hoisted to the front of the generated `while` body, where
+                // an invariant must stand; the rest of the body stays in the
+                // element arm.
+                has_inv :: cond(
+                  body.is_fn_call() => {
+                    b_callee :: body.get_callee();
+                    cond(
+                      (b_callee.is_atom() && (b_callee == quote(begin))) => {
+                        b_args :: body.get_args();
+                        cond(
+                          (b_args.len() > 1) => {
+                            b_first :: b_args.car();
+                            cond(
+                              b_first.is_fn_call() => {
+                                bf_callee :: b_first.get_callee();
+                                (bf_callee.is_atom() && (bf_callee == quote(invariant)))
+                              },
+                              true => false
+                            )
+                          },
+                          true => false
+                        )
+                      },
+                      true => false
                     )
-                  });
-                })
+                  },
+                  true => false
+                );
+                cond(
+                  has_inv => {
+                    inv_stmt :: body.get_args().car();
+                    rest_stmts :: body.get_args().cdr();
+                    quote({
+                      unquote(iter_var) := unquote(coll).into_iter();
+                      while(runtime(true), {
+                        unquote(inv_stmt);
+                        unquote(temp_var) := unquote(iter_var).next();
+                        match(
+                          unquote(temp_var),
+                          .Some(unquote(variable)) => {
+                            unquote_splicing(rest_stmts);
+                          },
+                          .None => {
+                            break;
+                          }
+                        )
+                      });
+                    })
+                  },
+                  true => quote({
+                    unquote(iter_var) := unquote(coll).into_iter();
+                    while(runtime(true), {
+                      unquote(temp_var) := unquote(iter_var).next();
+                      match(
+                        unquote(temp_var),
+                        .Some(unquote(variable)) => unquote(body),
+                        .None => {
+                          break;
+                        }
+                      )
+                    });
+                  })
+                )
               }
             )
           },
@@ -12005,17 +12058,20 @@ export(FutureState);
 /// JoinHandle — a handle to a spawned async task.
 /// Generic over `T`, the return type of the spawned task.
 ///
-/// A bound handle holds a reference to the task's future, taken at
-/// `io.spawn` and released by `await`, so a handle is awaited AT MOST ONCE.
-/// This is the value form the seed compiler can lower. The OWNING form — a
-/// `ref` struct whose Dispose releases the future, so a dropped handle
-/// detaches its task and a statement-level spawn does not leak — is in the
-/// compiler's codegen and becomes std's once SEED_VERSION carries it
-/// (issues/join-handle-ownership-waits-for-the-seed.md).
+/// The handle OWNS a reference to the task's future: the task (and its
+/// result) stay alive for as long as some copy of the handle does, and
+/// dropping the last copy releases it. A handle that is dropped without being
+/// awaited DETACHES the task — it keeps running and frees itself when it
+/// finishes — which is what makes a fire-and-forget `io.spawn(…)` statement
+/// correct (it used to leak the whole state machine,
+/// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md). Awaiting
+/// does not consume the handle; awaiting it twice reads the same result.
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
-    __future : *(T)
+  ref(
+    struct(
+      /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
+      __future : *(T)
+    )
   )
 );
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
@@ -12075,7 +12131,18 @@ impl(
 extern(
   "Yo",
   __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
-  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit)
+  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit),
+  __yo_join_handle_release_raw : (fn(fut : *(void)) -> unit)
+);
+impl(
+  generic(T : Type),
+  JoinHandle(T),
+  /// Dropping the last copy of the handle releases the task's future.
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(
+      __yo_join_handle_release_raw((*void)(self.__future))
+    )
+  )
 );
 impl(
   generic(T : Type),

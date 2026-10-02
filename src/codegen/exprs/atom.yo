@@ -28,7 +28,7 @@
   fresh_local_name
 } :: import("../utils/index.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_storage_id, sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
@@ -346,8 +346,22 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(var_name) => {
                   c_name := get_variable_name_for_codegen(var_name.clone(), exit_env_opt);
+                  // A local with a task slot is never declared as a C
+                  // variable (its binding writes `sm->…`), so the scope stack
+                  // cannot vouch for it. The slot always exists and is zero
+                  // while it owns nothing, so only the liveness test applies
+                  // (issues/fixed/a-break-or-continue-in-an-io-async-loop-never-releases-its-slot-locals.md).
+                  in_slot := match(
+                    exit_env_opt,
+                    .Some(slot_env) => match(
+                      context.state_machine_variables,
+                      .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some()),
+                      .None => false
+                    ),
+                    .None => false
+                  );
                   (sk : bool) = false;
-                  if(!scope_stack_contains(context.base.declared_scopes, c_name), {
+                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes, c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -730,12 +744,38 @@ _sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, conte
   if(!is_move || !type_contains_rc_type(ei.ty), {
     return(sm_code);
   });
-  tmp := fresh_local_name(String.from("__yo_moved"), context.base.current_function_name.clone());
+  // The value leaves the slot where the line holding this read runs (the
+  // consuming call, binding or store), not here: a later argument of the same
+  // call may still read the slot (`S(a : xs, n : xs.len())`), and an await in
+  // a later argument suspends before that line runs, so until then the slot
+  // still owns the value (an abort there releases it). The read renders the
+  // slot and a unique marker; the emitter updates the slot right after the
+  // line that carries the marker
+  // (issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md).
+  // A named local's slot keeps the value and sets its move flag: the name may
+  // still read it while the new owner holds it (`current := manifest; …
+  // f(manifest)`), and the abort dispose empties a flagged slot
+  // (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+  // A temporary's slot, read once, is emptied.
+  marker := `/*yo_mv:${fresh_local_name(String.from("m"), context.base.current_function_name.clone())}*/`;
+  stmts := match(
+    sm_move_flag_of(sm_code.clone()),
+    .Some(flag) => `${flag} = 1;  // moved out: the slot's value is its new owner's`,
+    .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved out: the slot no longer owns it`
+  );
+  // A pattern binding aliases its scrutinee's payload: the value leaves that
+  // place too (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
+  match(
+    low.binding_sources.get(sm_code.clone()),
+    .Some(src) => {
+      stmts.push_string(`\nmemset(&(${src}), 0, sizeof(${src}));  // moved out of the scrutinee it was bound from`);
+    },
+    .None => ()
+  );
   em := context.base.emitter;
-  em.emit_string_line(`${get_type_string(ei.ty, context.base)} ${tmp} = ${sm_code};`);
-  em.emit_string_line(`memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved out: the slot no longer owns it`);
-  context.base.declared_c_var_names.insert(tmp.clone());
-  low.moved_reads.insert(eid, tmp.clone());
-  tmp
+  em.defer_move_zero(marker.clone(), stmts);
+  out := `${sm_code} ${marker}`;
+  low.moved_reads.insert(eid, out.clone());
+  out
 });
 export(generate_atom, _generate_sm_atom);

@@ -24,11 +24,11 @@
   is_module_type,
   is_some_type,
   is_struct_type,
-  is_unit_type,
-  is_reference_struct_type
+  is_unit_type
 } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
+{ sm_slot_of } :: import("../async/state_machine_naming.yo");
 { some_resolution } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
@@ -641,12 +641,8 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(handle_arg, indent.clone(), context);
-  // An OWNING (`ref`) JoinHandle keeps its reference until its Dispose; the
-  // VALUE form std uses until the seed carries the owning lowering releases
-  // the reference its io.spawn took here, after the result is read
-  // (issues/join-handle-ownership-waits-for-the-seed.md).
-  jh_owning := match(context.base.get_expr_info(handle_arg), .Some(hi) => is_reference_struct_type(hi.ty), .None => false);
-  jh_member := if(jh_owning, String.from("->__future"), String.from(".__future"));
+  // The handle (a `ref` struct) keeps its reference until its Dispose.
+  jh_member := String.from("->__future");
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
   if(!is_enum_type(option_type), {
@@ -723,15 +719,28 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // An owning handle keeps the future referenced (its Dispose releases it),
-  // so awaiting neither consumes the handle nor releases the task: a handle
-  // awaited twice reads the same result. The value form releases the
-  // reference its spawn took — AFTER the result is read and dup'd above, since
-  // this may be the last reference — so it must be awaited at most once.
-  if(!jh_owning, {
-    em.emit_string_line(`${indent.clone()}  __yo_decr_rc(${fut_var.clone()});  // release the JoinHandle's reference`);
-  });
+  // The handle keeps the future referenced (its Dispose releases it), so
+  // awaiting neither consumes the handle nor releases the task: a handle
+  // awaited twice reads the same result.
   em.emit_string_line(`${indent.clone()}}`);
+  // Rule 1: a result temp with a task slot is dropped through the slot, so
+  // the owned result goes there too
+  // (issues/fixed/a-join-handle-await-used-inline-in-a-task-never-releases-its-result.md).
+  if(context.in_async_state_machine.is_some(), {
+    match(
+      expr_ei.variable_name,
+      .Some(rvn) => match(
+        context.state_machine_variables,
+        .Some(smv) => match(
+          sm_slot_of(expr_ei.env, rvn, smv, context.variable_id_remapping, context.state_machine_field_aliases),
+          .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   result_var
 });
 export(

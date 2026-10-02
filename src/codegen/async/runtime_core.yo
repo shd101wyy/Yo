@@ -268,6 +268,16 @@ static void __yo_async_scheduler_init(void) {
 // thread-exit hook by __yo_async_arm_thread_exit (a state machine given to its
 // pool arms it too).
 static void __yo_async_free_cont_pool(void) {
+  // A yield still parked when its thread exits is completed by no drain: the
+  // list holds a reference to each future, released here like the timer
+  // heap's in __yo_io_cleanup. An aborted yield is such a one — abort has no
+  // cancel path for it, and nothing drives the loop again.
+  while (__yo_yield_pending) {
+    __yo_yield_node_t* yn = __yo_yield_pending;
+    __yo_yield_pending = yn->next;
+    __yo_decr_rc((void*)yn->future);
+    __yo_free(yn);
+  }
   while (__yo_cont_free_list) {
     __yo_continuation_t* node = __yo_cont_free_list;
     __yo_cont_free_list = node->next;
@@ -1012,6 +1022,8 @@ static __yo_io_future_t* __yo_async_yield_start(void) {
   n->future = (__yo_io_future_t*)__yo_incr_rc((void*)f);
   n->next = __yo_yield_pending;
   __yo_yield_pending = n;
+  // The pending list is per-thread state the thread-exit hook releases.
+  __yo_async_arm_thread_exit();
   return f;
 }
 

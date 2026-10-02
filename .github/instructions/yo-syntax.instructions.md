@@ -89,8 +89,12 @@ Fmt elides these — write the bare form:
   (not `?(*(T))`), `**T`, `-p.a`, `-f(x)`.
 - **Atom-like operands of any operator**: `x + y` (not `(x) + (y)`),
   `y := -x` (not `y := (-x)`).
-- **Left same-operator chains**: `a + b + c` (not `(a + b) + c`) —
-  same-op chains left-associate.
+- **Left same-operator chains (any length)**: `a + b + c` (not
+  `(a + b) + c`), `20 - 5 - 4 - 3` — same-operator chains left-associate
+  at every operand count (fixed 2026-10-01,
+  `issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`;
+  before the fix four or more operands spliced one level too high, and fmt
+  refused to flatten the redundant parens).
 - **Whole call arguments**: `f(a + b)` (not `f((a + b))`), and the
   classic comma-delimiter rule: `if(x == y, { ... })`, `assert(a == b, "m")`,
   `while(i < n, { ... })` — never wrap a comma-delimited argument again.
@@ -144,9 +148,15 @@ Use `cond` when there are more than two branches or when the branches are large.
   compile-time type parameters/returns, and reflect source-module namespaces as
   ordinary `TypeInfo.Struct(...)` values.
 
-## Anonymous function (`=>`) parameters cannot have type annotations
+## Anonymous function (`=>`) parameters MAY carry type annotations
 
-The `=>` arrow form is for anonymous functions whose parameter types are inferred from the expected `Fn(...)` signature at the call site. **You cannot annotate `=>` parameters with `: Type`** — parameter types come from the expected `Fn` signature.
+The `=>` arrow form infers parameter types from the expected `Fn(...)`
+signature at the call site, and it also accepts an explicit `: Type` on a
+parameter — the annotation is documentation only: the adopted signature's
+type always wins and a mismatching annotation is NOT diagnosed. Both
+spellings are correct; the annotated form is the idiom inside `io.async`
+(`io.async((io : Io) => ...)`) and wherever the expected signature is not
+obvious.
 
 ```rust
 // CORRECT — types inferred from expected Fn signature:
@@ -155,14 +165,15 @@ filtered := iter.filter((x) => (x.* > i32(2)));
 // CORRECT — single parameter, parens optional:
 filtered := iter.filter(x => (x.* > i32(2)));
 
-// WRONG — `=>` parameters cannot have type annotations:
+// CORRECT — annotated `=>` parameter (annotation is documentation only):
 filtered := iter.filter((x : *(i32)) => (x.* > i32(2)));
 ```
 
-If you need to specify parameter types explicitly, use the full `fn(...)` form or `Impl(Fn(...))(...)`:
+Use the full `fn(...)` form when the closure needs a standalone signature
+for a typed slot:
 
 ```rust
-// Use fn(...) form when types must be explicit:
+// Use fn(...) form when the value needs a standalone signature:
 pred :: (fn(x : *(i32)) -> bool)(x.* > i32(2));
 filtered := iter.filter(pred);
 
@@ -536,19 +547,6 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 ```
 
-## `short`, `long`, `int`, `char` are not usable as variable names
-
-They are builtin type names. `short := io.await(...)` fails with:
-
-```
-Error: Failed to define variable "short":
-```
-
-The diagnostic points at the binding and never mentions keywords, so it reads
-like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
-`short`, `long`, `int` and `char` are rejected; `float`, `double`, `signed`,
-`unsigned`, `register` and `volatile` are accepted. Rename the local.
-
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
@@ -560,6 +558,7 @@ like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
 - **Do NOT wrap the `while` condition in `runtime(...)`** — `while(runtime(cond), body)` is redundant because the condition is already evaluated at runtime by default. Write `while(cond, body)`. (`runtime(...)` only matters in a `::`/comptime context to force runtime evaluation; a `while` condition is never that context.)
 - **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
+- **A compile-time function body declares its locals with compile-time forms** (E1104, 2026-10-01): in the body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) write `x :: v`, `(comptime(x) : T) = v`, `comptime(x) := v` or `comptime(x) : T`, never `x := v`, `(x : T) = v`, `x : T` or `inout(y) := x`. Compile-time locals are still mutable (`x = (x + 1)` in a `while(comptime(...), ...)` loop). A runtime fn literal nested in such a body (a method of the struct a `-> comptime(Type)` fn returns, a closure) and a runtime fn evaluated at compile time (`comptime_fn(f)`) keep their runtime locals. `yo fix` applies the rewrite.
 - `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
 - Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). Comparisons are safe; arithmetic methods require `unsafe(...)`.
 - **Associated-type binding syntax works only on BARE trait names, not parameterized trait constructors.** `where(Self <: Iterator(Item := A))` is fine (`Iterator` is a bare trait); `where(T <: Add(T, Output := T))` is REJECTED ("Argument count mismatch: expected 1, got 2") because `Add` is a trait CONSTRUCTOR (`Add(Rhs)`) and the binding parses as a second argument. Use the plain bound (`where(T <: (Add(T), Default))`) and let per-call specialization resolve `Output` — measured working end-to-end (prelude `Iterator.sum`).
@@ -819,6 +818,7 @@ for(chain.map(f), (y) => println(y));            // combinator chain: pass as th
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place).
 - **The borrowed form `for(coll, inout(x) => body)`** (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is bound to a hidden local (pinned) and its RUNTIME borrow flag is held for the whole loop; `x` is an `inout` local into the element's storage — struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same pointer. `break`/`continue`/`return`/`unwind` release the flag. Growing, shrinking or removing from the collection inside the body — through the same variable or ANY alias — PANICS (`container operation while an interior reference … borrows from it`); collect changes and apply them after the loop — the compiler emits that assert at the entry of every RC-object method whose body may mutate the object, so third-party collections need no annotation. Maps: use `for(map, (k, inout(v)) => body)` (key by value, value borrowed); plain `inout(e)` yields the whole entry. Works on every collection with a pointer `iter()` (ArrayList, Deque, LinkedList, PriorityQueue, HashMap, HashSet, OrderedMap, BTreeMap); `Array(T, N)` and combinator chains take the value form. Available inside an `io.async` body, with awaits in the loop body (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). The old spelling `ref(x) =>` is gone.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/fixed/eval-for-loop-3arg-vs-2arg.md`.)
+- **Async iteration is `for_await(stream, io, x => body)`** (`std/async/stream.yo`, #1018): consumes a `Stream` item by item; the body is ordinary loop code (`break`/`continue`/`return`), and each item's await suspends the enclosing task. `src/` and `std/` are built by the seed, so they may use it only once `SEED_VERSION` carries it.
 
 ## Function call syntax — required immediate `(`
 
@@ -921,9 +921,11 @@ Rules that follow:
 - **Inside an `io.async` arm that awaits, every pattern form is lowered**
   (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Box`;
   `tests/match_async_arms.test.yo` is the spec). Bindings an arm reads after
-  an await are routed through the state machine's fields. One adjacent shape
-  is still rejected — an `io.await(...)` in a cond CONDITION inside an arm
-  (`issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`).
+  an await are routed through the state machine's fields. Since #1018's
+  single-pass lowering, `io.await(...)` may appear anywhere in an arm —
+  including a cond condition (the old rejection,
+  `issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`,
+  is fixed).
 - Struct/tuple scrutinees and patterns through `Box(...)` payloads are
   supported (P4 landed; `tests/match_{tuples,structs,nested}.test.yo`).
 
@@ -971,7 +973,14 @@ Curly destructuring rules:
   need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
   `tests/match_bind_nothing.test.yo` is the spec.
 - Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
-- Nested curly `.Foo({a: {b}})` inside a VARIANT curly slot is rejected — but a nested VARIANT pattern in a curly slot is fine: `.Foo({ a : .Some(x) })`, and so are tuple sub-patterns (`.V((0, y))`) and named struct sub-patterns (`.V(Point(x : 0, y))`).
+- In a VARIANT payload the struct sub-pattern takes the NAMED form:
+  `.Holding(Outer(inner : { a, b }, tag))` — an anonymous curly directly in
+  a variant payload slot (`.Holding({ inner : { a, b } })`) is E0406 (its
+  labels are read against the variant, and available labels lists the
+  variant's own). Anonymous curlies belong to struct SCRUTINEES
+  (`match(p, { x, y } => ...)`). Nested sub-patterns otherwise compose
+  freely: `.Foo({ a : .Some(x) })` (variant in a curly slot),
+  `.V((0, y))` (tuple), `.V(Point(x : 0, y))` (named struct).
 - A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A `Box(T)` payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches through `tail : Box(Self)` (a binding at a Box position still binds the box; use `b.*` on it).
 
 The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
@@ -1032,20 +1041,25 @@ impl(MyType,
 );
 ```
 
-## Reserved keywords cannot be used as variable or field names
+## What actually rejects as a binding name
 
-The word `type` is a reserved keyword in Yo. Never use it as a parameter name, field name, or variable name:
+Grammar words (`type`, `trait`, `match`, `fn`, ...) are NOT reserved as
+binding names — `type` works as a field or local (verified 2026-10-01;
+probes in the tree's audit trail). What rejects is:
 
-```rust
-// WRONG — `type` is reserved:
-Variable :: ref(struct(name : String, type : TypeValue));
-define :: (fn(ty : TypeValue) -> unit)(...)  // CORRECT, use `ty`
+- the **builtin-dispatch names** the evaluator treats as calls, not
+  identifiers: `unwind`, `recur`, `consume`, `dyn`, ... — binding one
+  rejects with the clear "names a builtin: every call with this name
+  dispatches to the builtin ... Choose a different name" error. `panic`
+  and `assert` are NOT in the set — they bind cleanly as locals (verified
+  2026-10-01);
+- **`for`** (the live std macro) — still the old opaque "Failed to define
+  variable" that points at the binding and never mentions keywords, so it
+  reads like the RHS failed to type (the wrong place to look).
 
-// CORRECT — rename to `ty`:
-Variable :: ref(struct(name : String, ty : TypeValue));
-```
-
-Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `ref`, `atomic`, `inout`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `unwind`, `recur`, `export`, `import`, `using`, `given`, `generic`, `where`.
+When a name collides, rename the local (`ty` for `type` reads better
+anyway). `short`/`long`/`int`/`char` were once rejected as locals; they no
+longer are.
 
 ## `___` (discard) cannot be used twice in the same scope
 
@@ -1168,10 +1182,12 @@ Two traps measured 2026-09-24 while auditing the docs' code blocks:
 
 ## Design-by-contract clauses (`requires` / `ensures` / `invariant` / `ghost`)
 
-Phase 0 of `plans/backlog/FORMAL_VERIFICATION.md` adds a contract surface. The
-SMT verifier is NOT built yet — in Phase 0 these lower to runtime
-`assert(...)` (runtime functions) or `comptime_assert(...)` (comptime
-functions, i.e. those returning `comptime(T)`).
+The contract surface (`plans/backlog/FORMAL_VERIFICATION.md`, V1–V7 landed)
+is backed by the Z3 verifier. Without a verify pragma, contracts lower to
+runtime `assert(...)` (or `comptime_assert(...)` in comptime fns);
+`pragma(Pragma.Verify);` puts the file in proof mode and `yo verify <path>`
+discharges obligations with counter-examples on refutation. See the
+yo-verification skill for the loop, outcomes and `--strict` gating.
 
 ### `requires` / `ensures` go in the function signature
 
@@ -1183,8 +1199,9 @@ A clause out of order — `ensures` before `requires`, `where` after
 error ("X appears after Y in the function signature").
 
 ```rust
-// requires = precondition, ensures = postcondition.
-divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+// requires = precondition, ensures = postcondition. Name the return to use
+// it in `ensures` (labeled return type):
+divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32))(
   x / y
 );
 ```
@@ -1194,11 +1211,12 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
   `requires(a, b, c)`. Two `requires(...)` clauses is a syntax error.
 - **Zero-argument** `requires()` / `ensures()` is a syntax error — omit
   the clause instead.
-- Inside `ensures(...)`: `result` is the return value, and `old(expr)`
-  is the value of `expr` on function entry (correct for mutated
-  `inout(name) : T` params). `result` is NOT a reserved word — it is a
-  local the ensures-wrapper binds, so it does not clash with `result`
-  used as an ordinary variable elsewhere.
+- Inside `ensures(...)`: the return value is the name the LABELED return
+  type binds, `-> (result : i32)`. There is no magic `result` identifier:
+  with a plain `-> i32` the name `result` in `ensures` is E0401 with the
+  hint "to name the return value in 'ensures(...)', label the return".
+  `old(expr)` is the value of `expr` on function entry (correct for
+  mutated `inout(name) : T` params).
 
 ```rust
 increment :: (fn(inout(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
@@ -1238,12 +1256,15 @@ permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)(/* 
 
 - `pragma(Pragma.NoContracts);` erases all contract clauses (no asserts
   emitted) — for release/benchmark builds.
-- `pragma(Pragma.Verify);` / `pragma(Pragma.VerifyOrAssert);` parse but
-  warn "verify mode not implemented" — the SMT backend is a later phase.
+- `pragma(Pragma.Verify);` puts the file in verify mode: proofs replace
+  the `ensures` asserts and a refutation is a compile error.
+- `pragma(Pragma.VerifyOrAssert);` is verify+ — prove, fall back to the
+  runtime assert when the solver budget is exhausted.
 
 Refinement-type aliases live in `std/spec/` (`NonZero`, `Bounded`,
-`Positive`, …); in Phase 0 they are plain aliases for the underlying
-type (the predicate is enforced once the verifier lands).
+`Positive`, …) and carry their predicate into every verified caller;
+runtime gates (`check_non_zero`, `check_bounded`) construct them from
+unrefined values.
 
 ## "Frame level N has different number of values for different cases"
 

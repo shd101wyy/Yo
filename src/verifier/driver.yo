@@ -482,7 +482,7 @@ VerifyFnObligation :: ref(
     /// The obligation's goal term rendered as SMT-LIB (`--explain`'s VC
     /// display; the JSON report's `goal` field). Empty only if the
     /// rendering was never requested.
-    (goal : String) ?= String.new(),
+    goal : String,
     /// The runtime guard this obligation discharges (`vc.yo`'s `GuardSite`);
     /// `.None` for contract, loop and assert obligations.
     (site : Option(GuardSite)) ?= Option(GuardSite).None,
@@ -881,7 +881,8 @@ verify_and_strip_tasks :: (
           return_label : t.return_label.clone(),
           table : t.table,
           requires_enforced : t.requires_enforced.clone(),
-          elision_obligations : cfg.elision_obligations
+          elision_obligations : cfg.elision_obligations,
+          body_abstract : t.body_abstract
         );
         body_res := verify_function_body(input);
         match(

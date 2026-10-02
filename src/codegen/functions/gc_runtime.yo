@@ -254,6 +254,16 @@ emit_task_abort_registry :: (fn(context : FunctionGenerationContext) -> unit)({
   __yo_task_aborts.items[__yo_task_aborts.len++] = e;
   __yo_unwind_target = 0;
 }
+// Release the (empty) registry's array. The registry is per-thread state that
+// nothing else frees on a thread whose async runtime never armed the exit hook
+// (a task that unwound synchronously, awaited in place, with the state-machine
+// pools off): the array outlived the thread. Freeing it once the last entry is
+// gone ties its lifetime to the aborts it records.
+static void __yo_task_abort_registry_free(void) {
+  __yo_free(__yo_task_aborts.items);
+  __yo_task_aborts.items = NULL;
+  __yo_task_aborts.cap = 0;
+}
 // Remove fut's entry. With restore, its unwind becomes the in-flight one
 // again (target 0 when the task was cancelled rather than unwound).
 static int __yo_task_abort_take_entry(void* fut, int restore) {
@@ -269,6 +279,7 @@ static int __yo_task_abort_take_entry(void* fut, int restore) {
         __yo_free(e->value);
       }
       *e = __yo_task_aborts.items[--__yo_task_aborts.len];
+      if (__yo_task_aborts.len == 0) __yo_task_abort_registry_free();
       return 1;
     }
   }
@@ -302,6 +313,7 @@ static void __yo_task_abort_report_unobserved(void) {
     if (__yo_task_aborts.items[i].value) __yo_free(__yo_task_aborts.items[i].value);
   }
   __yo_task_aborts.len = 0;
+  __yo_task_abort_registry_free();
 }`
   );
 });

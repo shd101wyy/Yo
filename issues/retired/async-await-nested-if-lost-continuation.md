@@ -1,5 +1,11 @@
 # Await nested in if-branches inside io.async lost its continuation (observed once, not yet minimized)
 
+**Status: RETIRED** (2026-09-30), because it cannot be reproduced. Re-verified 2026-09-30 against develop `29bf728b4` and the v0.2.46 seed:
+- `probe1` and a corrected `probe2` print steps 1–6 on both.
+- A fuller reconstruction of #213's `compile_artifact` shape also runs correctly on both. It has awaits around the outer `if`, a helper that awaits through a recursive helper with a per-call Exception handler and an early `return` in a while, and a nested `if(stamp.len() > 0)` that awaits.
+
+The failing version existed only on a squash-merged branch, and #1018 replaced the lowering it ran through.
+
 **Severity:** S1 — a nested-if await compiled silently wrong — branch statements never executed, no diagnostic
 
 **Found:** 2026-08-22, implementing the build-artifact cache in

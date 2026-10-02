@@ -514,6 +514,14 @@ manifest/cli cases; internal test for the manifest→store walk.
 > green. Re-recorded goldens: cache-gc (gc summary line), init-*/skills-*
 > (recipe + pointers), lsp-member-definition + build-stamp-dotted-dir
 > (prelude/tree moved).
+>
+> **Correction (audit, 2026-10-01):** task 1 landed WITHOUT its last line —
+> the scaffolded `AGENTS.md` (`src/init.yo`) carries context/build/test/
+> check/fmt but NOT `yo verify --strict ./spec` (confirmed by `git log -S`;
+> the line never existed). It is filed as
+> `issues/init-agentsmd-template-omits-the-verify-recipe.md`, and the
+> `spec/` convention it teaches is blocked anyway by
+> `issues/law-over-an-imported-callee-cannot-verify.md`.
 
 1. `yo init`'s `AGENTS.md` template (`src/init.yo` ~L186): the four-line
    recipe — `yo context` to learn, `yo check` after every edit, `yo test`

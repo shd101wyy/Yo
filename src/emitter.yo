@@ -10,6 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
 { open_sync, close_sync, write_sync } :: import("std/sys/file");
 { panic } :: import("std/assert");
@@ -324,7 +325,20 @@ Emitter :: ref(
     /// row. `.None` = honest C numbering (no user directive active). Adjacent
     /// statements from one `.yo` line pay zero directives.
     line_last_path : Option(String),
-    line_last_row : usize
+    line_last_row : usize,
+    /// Deferred moves out of a task slot, marker → the statements that empty
+    /// the slot. A consuming read of a slot renders the slot itself plus a
+    /// unique `/*yo_mv:…*/` marker; the move happens where the line holding
+    /// that marker runs (the consuming call, binding or store), so the slot is
+    /// emptied right after that line. Emptied at the read, a later argument
+    /// of the same call read the empty slot (`S(a : xs, n : xs.len())`), and
+    /// a C temp holding the value did not survive an await in a later
+    /// argument (issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md).
+    move_zeroes : HashMap(String, String),
+    /// The code-section text written since the last newline, while a move is
+    /// pending: a line assembled from `emit`/`emit_string` pieces is checked
+    /// whole when its newline arrives.
+    partial_line : String
   )
 );
 /// The code buffer is spilled once it holds this much (8 MiB).
@@ -346,9 +360,54 @@ impl(
       line_directives : false,
       line_c_name : String.new(),
       line_last_path : Option(String).None,
-      line_last_row : usize(0)
+      line_last_row : usize(0),
+      move_zeroes : HashMap(String, String).new(),
+      partial_line : String.new()
     )
   ),
+  /// Empty a slot right after the line holding `marker` is emitted.
+  defer_move_zero : (fn(inout(self) : Self, marker : String, stmts : String) -> unit)({
+    self.move_zeroes.insert(marker, stmts);
+  }),
+  /// After a code line: the pending moves whose marker it holds.
+  _flush_move_zeroes : (fn(inout(self) : Self, line : String) -> unit)({
+    whole := self.partial_line.clone();
+    whole.push_string(line);
+    self.partial_line = String.new();
+    if(!whole.contains(String.from("/*yo_mv:")), {
+      return(());
+    });
+    hits := ArrayList(String).new();
+    ks := self.move_zeroes.keys();
+    (more : bool) = true;
+    while(more, {
+      match(
+        ks.next(),
+        .Some(k) => if(whole.contains(k.clone()), {
+          hits.push(k);
+        }),
+        .None => {
+          more = false;
+        }
+      );
+    });
+    (hi : usize) = usize(0);
+    while(hi < hits.len(), {
+      match(
+        hits.get(hi),
+        .Some(k) => match(
+          self.move_zeroes.remove(k),
+          .Some(stmts) => {
+            self.code.push_string(stmts);
+            self.code.push_str("\n");
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      hi = (hi + usize(1));
+    });
+  }),
   /// Spill finished code to `path` from now on. The file is created at the
   /// first spill, so a program whose code never reaches the threshold (and a
   /// compile that fails before it does) leaves no file behind.
@@ -358,7 +417,7 @@ impl(
   }),
   _open_code_spill : (fn(inout(self) : Self) -> bool)({
     cpath := self.code_spill_path.to_cstr();
-    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));
     if(fd < i32(0), {
       // Unopenable: stop trying; the code stays in memory.
       self.code_spill_path = String.new();
@@ -397,7 +456,7 @@ impl(
   rewrite_code_spill : (fn(inout(self) : Self, bytes : ArrayList(u8)) -> unit)({
     close_sync(self.code_spill_fd);
     cpath := self.code_spill_path.to_cstr();
-    fd := open_sync(cpath.ptr().unwrap(), (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC), i32(DEFAULT_FILE_MODE));
+    fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));
     if(fd < i32(0), {
       panic(`yo: reopening the C code spill file failed (${fd.to_string()})`);
     });
@@ -424,15 +483,21 @@ impl(
     })
   ),
   /// Append text to the code section (no trailing newline).
-  emit : (fn(inout(self) : Self, c : str) -> unit)(
-    self.code.push_str(c)
-  ),
+  emit : (fn(inout(self) : Self, c : str) -> unit)({
+    self.code.push_str(c);
+    if(self.move_zeroes.len() > usize(0), {
+      self.partial_line.push_str(c);
+    });
+  }),
   /// Append text + newline to the code section.
   emit_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
     match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s, String.from(c)), .None => ());
     match(self.scope_ref, .Some(st) => _emitter_track_scope(st, String.from(c)), .None => ());
+    if(self.move_zeroes.len() > usize(0), {
+      self._flush_move_zeroes(String.from(c));
+    });
   }),
   /// Append text + newline to the headers section.
   emit_header_line : (fn(inout(self) : Self, c : str) -> unit)({
@@ -467,15 +532,21 @@ impl(
     self.declarations.push_str("\n");
   }),
   /// Append a raw `String` value to the code section.
-  emit_string : (fn(inout(self) : Self, c : String) -> unit)(
-    self.code.push_string(c)
-  ),
+  emit_string : (fn(inout(self) : Self, c : String) -> unit)({
+    if(self.move_zeroes.len() > usize(0), {
+      self.partial_line.push_string(c.clone());
+    });
+    self.code.push_string(c);
+  }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(inout(self) : Self, c : String) -> unit)({
     match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s, c.clone()), .None => ());
     match(self.scope_ref, .Some(st) => _emitter_track_scope(st, c.clone()), .None => ());
-    self.code.push_string(c);
+    self.code.push_string(c.clone());
     self.code.push_str("\n");
+    if(self.move_zeroes.len() > usize(0), {
+      self._flush_move_zeroes(c);
+    });
   }),
   /// Record `name` in the CURRENT C block of the block-scope stack. For a
   /// declaration the line scan cannot see: a result temp declared bare
@@ -509,7 +580,7 @@ impl(
     // and macro/derive expansions carry `auto-generated://` pseudo-paths
     // (which embed the expansion TEXT, newlines included — unusable in a
     // directive, and the position is not a real source location anyway).
-    if((path.len() == usize(0)) || (((path == String.from("_")) || (path == String.from("drop"))) || path.starts_with(String.from("auto-generated://"))), {
+    if((path.len() == usize(0)) || ((path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://"))), {
       return(());
     });
     if(path.contains(String.from("\n")), {
@@ -571,7 +642,7 @@ impl(
     if(!self.line_directives, {
       return(());
     });
-    base := ((_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations)) + usize(2));
+    base := (_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations) + usize(2));
     bytes := self.code.as_bytes();
     n := bytes.len();
     marker := line_restore_marker();
@@ -596,7 +667,7 @@ impl(
           }
         );
       });
-      if(((le - ls) >= mlen), {
+      if((le - ls) >= mlen, {
         (mi : usize) = usize(0);
         (all_eq : bool) = true;
         while((mi < mlen) && all_eq, {
@@ -613,15 +684,15 @@ impl(
           // LEFT-aligned over the 8 placeholder digits, space-filled: a
           // zero-padded number reads as OCTAL to a pre-C99-conforming
           // preprocessor and clang warns about it.
-          value := ((base + c_nl) + usize(2));
+          value := (base + c_nl + usize(2));
           if(value > usize(99999999), {
             value = usize(99999999);
           });
           digits := value.to_string();
           (wi : usize) = usize(0);
           while(wi < usize(8), {
-            b := if((wi < digits.len()), digits.byte_at(wi), u8(32));
-            _emitter_set_byte(bytes, (ls + usize(6)) + wi, b);
+            b := if(wi < digits.len(), digits.byte_at(wi), u8(32));
+            _emitter_set_byte(bytes, ls + usize(6) + wi, b);
             wi = (wi + usize(1));
           });
         });

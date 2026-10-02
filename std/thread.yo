@@ -94,7 +94,7 @@ impl(
     chan := Channel(T).new(usize(1));
     sink := chan;
     raw := __yo_thread_spawn((io : Io) => {
-      sink.send(cb(io));
+      _ := sink.send(cb(io));
       ()
     });
     Self(handle : raw, _joined : false, _result : chan)
@@ -267,7 +267,7 @@ impl(
 // one program, every shape after the first is emitted as a
 // `// Failed to transpile` comment, so those tasks silently do nothing.
 // Static impl methods (`Thread.spawn`) and free functions are unaffected.
-// See issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
+// See issues/fixed/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
 // do not "tidy" this into a method until that is fixed.
 /// Take the process-wide submission lock unless THIS thread already holds it,
 /// and say whether it was taken. The runtime's inline fallback (no worker
@@ -397,7 +397,7 @@ spawn_blocking :: (
   owner := unsafe(__yo_async_loop_self_ptr());
   unsafe(__yo_async_blocking_begin());
   worker := Thread(unit).spawn((tio : Io) => {
-    sink.send(cb());
+    _ := sink.send(cb());
     // Wake BEFORE ending the bracket. The wake is what keeps the loop alive
     // across the hand-off; ending the bracket first leaves a window in which
     // the loop sees no runnable task, no I/O and no inbox entry, and is

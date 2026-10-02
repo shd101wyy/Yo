@@ -1528,7 +1528,8 @@ try_match_generic_impl :: (
                         value : Option(EvalValue).Some(create_type_value(dar_res)),
                         source_trait_id : get_base_trait_key(entry.trait_type),
                         needs_pointer_conversion : false,
-                        self_type : Option(TypeValue).None
+                        self_type : Option(TypeValue).None,
+                        owner : String.new()
                       )
                     );
                   });
@@ -1646,7 +1647,7 @@ _trait_instances_agree :: (fn(entry : GenericImplEntry, bindings : ArrayList(Typ
         c_ty := match(c_types.get(ci), .Some(t) => t, .None => t_unit());
         match(
           _trait_field_type_by_label(Option(TypeValue).Some(g_tr), c_lbl),
-          .Some(g_ty) => if(!(are_types_compatible(c_ty, g_ty)) && !(are_types_compatible(g_ty, c_ty)), {
+          .Some(g_ty) => if(!are_types_compatible(c_ty, g_ty) && !are_types_compatible(g_ty, c_ty), {
             ok = false;
           }),
           .None => {
@@ -1738,7 +1739,7 @@ _check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment
     cn_i = (cn_i + usize(1));
   });
   shown_receiver := type_to_string(substitute(shown, entry.receiver_type_pattern));
-  if(!(match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)), {
+  if(!match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false), {
     // An INHERENT generic impl: the duplicate-inherent-method rule
     // (plans/reference/FUNCTION_OVERLOADING_POLICY.md) for a generic
     // receiver. Keyed on the receiver pattern AND the where-clause, so
@@ -2014,7 +2015,7 @@ _inject_forall_captures :: (
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
-            while((!(ifc_aligned)) && (ci < fv_capture_count(__fvm9.*, cvs)), {
+            while(!ifc_aligned && (ci < fv_capture_count(__fvm9.*, cvs)), {
               new_cns.push(fv_source_name(csrc, ci));
               new_cts.push(fv_source_ty(csrc, ci));
               new_cvs.push(match(fv_capture_val(__fvm9.*, cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
@@ -2026,7 +2027,7 @@ _inject_forall_captures :: (
             while(fi2 < n_fa, {
               fa_n := match(forall_names.get(fi2), .Some(n) => n, .None => String.from(""));
               fa_t := match(bindings.get(fi2), .Some(t) => t, .None => t_unit());
-              if(!(ifc_aligned), {
+              if(!ifc_aligned, {
                 new_cns.push(fa_n.clone());
               });
               // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
@@ -2037,7 +2038,7 @@ _inject_forall_captures :: (
                 binding_vals.get(fi2),
                 .Some(.IntLit(bv_raw)) => {
                   fa_is_val = true;
-                  if(!(ifc_aligned), {
+                  if(!ifc_aligned, {
                     new_cts.push(t_usize());
                     new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
                   });
@@ -2049,7 +2050,7 @@ _inject_forall_captures :: (
                 .None => ()
               );
               if(!fa_is_val, {
-                if(!(ifc_aligned), {
+                if(!ifc_aligned, {
                   new_cts.push(t_type());
                   new_cvs.push(EvalValue.TypeVal(fa_t));
                 });
@@ -2075,7 +2076,7 @@ _inject_forall_captures :: (
             match(
               self_receiver,
               .Some(sr) => {
-                if(!(ifc_aligned), {
+                if(!ifc_aligned, {
                   new_cns.push(String.from("Self"));
                   new_cts.push(t_type());
                   new_cvs.push(EvalValue.TypeVal(sr.clone()));
@@ -3242,7 +3243,7 @@ _with_receiver_mode_of :: (fn(actual : TypeValue, expected : TypeValue) -> TypeV
     .Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts }) => match(
       expected,
       .Func({ meta : emeta }) => cond(
-        ((match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) && (match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false))) => {
+        (match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
           m := ameta.*.clone();
           refs := ArrayList(bool).new();
           owns := ArrayList(bool).new();
@@ -3390,7 +3391,7 @@ _c3_eval_colon_pair :: (
         .Some(conf_tt) => match(
           expected_method_ty_resolved,
           .None => (),
-          .Some(conf_exp) => if((((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0))) && !(is_type_hierarchy_type(conf_exp))) && !(are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp)), {
+          .Some(conf_exp) => if((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0)) && !is_type_hierarchy_type(conf_exp) && !are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -3528,7 +3529,8 @@ _c3_eval_colon_pair :: (
               // SelfType either (only the
               // SomeT / Dyn / TypeApp paths do, via
               // env.yo:get_receiver_methods_by_name_from_env).
-              self_type : Option(TypeValue).None
+              self_type : Option(TypeValue).None,
+              owner : String.new()
             )
           );
         });
@@ -3621,7 +3623,8 @@ _c2_register_member :: (
         value : Option(EvalValue).Some(value),
         source_trait_id : src_tid,
         needs_pointer_conversion : false,
-        self_type : Option(TypeValue).None
+        self_type : Option(TypeValue).None,
+        owner : String.new()
       )
     );
   });
@@ -3851,7 +3854,8 @@ force_in_flight_field :: (
           value : Option(EvalValue).Some(pa_v),
           source_trait_id : pa_src,
           needs_pointer_conversion : false,
-          self_type : Option(TypeValue).None
+          self_type : Option(TypeValue).None,
+          owner : String.new()
         );
         if(rec.is_generic, {
           register_provisional_trait_method(rec.recv_id.clone(), pa_entry);
@@ -4699,7 +4703,7 @@ evaluate_module_value :: (
     // transpile` (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
     match(
       args.get(c3_pi),
-      .Some(c3_te_outer) => if((ast_expr_is_fn_call(c3_te_outer) && !ast_expr_is_fn_call_of(c3_te_outer, BK_COLON, .Some(usize(2)))) && (!ast_expr_is_fn_call_of(c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c3_te_outer, "!", .Some(usize(1)))), {
+      .Some(c3_te_outer) => if(ast_expr_is_fn_call(c3_te_outer) && !ast_expr_is_fn_call_of(c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c3_te_outer, "!", .Some(usize(1)))), {
         c3_ta := match(
           c3_te_outer,
           .FnCall(_, _, ta, _, _) => ta,
@@ -4955,7 +4959,8 @@ evaluate_module_value :: (
                       value : Option(EvalValue).None,
                       source_trait_id : pv_trait_id.clone(),
                       needs_pointer_conversion : false,
-                      self_type : Option(TypeValue).Some(receiver_ty)
+                      self_type : Option(TypeValue).Some(receiver_ty),
+                      owner : String.new()
                     )
                   );
                 });
@@ -5080,7 +5085,7 @@ evaluate_module_value :: (
                 // An associated type (`Output : Type`) has no default form,
                 // so it must always be provided.
                 if(!d_provided && (is_function_type(d_ty) || is_type_hierarchy_type(d_ty)), {
-                  if(!(is_function_type(d_ty)) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
+                  if(!is_function_type(d_ty) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
                     exn.throw(
                       dyn(
                         format_error_message(
@@ -5210,12 +5215,10 @@ evaluate_module_value :: (
                           // abort() stub). A comptime result still waits for
                           // its call's values.
                           d_concrete := (
-                            ((get_all_some_types(receiver_ty).len() == usize(0)) && (get_all_some_types(d_sub_ty).len() == usize(0)))
-                            && !(
-                              match(d_sub_ty, .Func({ meta : d_cm }) => d_cm.*.result_is_comptime_only, _ => false)
-                            )
+                            (get_all_some_types(receiver_ty).len() == usize(0)) && (get_all_some_types(d_sub_ty).len() == usize(0))
+                            && !match(d_sub_ty, .Func({ meta : d_cm }) => d_cm.*.result_is_comptime_only, _ => false)
                           );
-                          if(((d_out.len() == usize(0)) && d_concrete) && !(propagate_def_time_errors()), {
+                          if((d_out.len() == usize(0)) && d_concrete && !propagate_def_time_errors(), {
                             match(
                               g_mat_default_err.get(usize(0)),
                               .Some(d_err) => {
@@ -5267,7 +5270,8 @@ evaluate_module_value :: (
                           value : Option(EvalValue).Some(d_reg_val),
                           source_trait_id : type_id_or_empty(ctt2),
                           needs_pointer_conversion : false,
-                          self_type : Option(TypeValue).None
+                          self_type : Option(TypeValue).None,
+                          owner : String.new()
                         )
                       );
                     },

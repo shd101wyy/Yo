@@ -321,7 +321,7 @@ impl(
     ch := Channel(T).new(usize(1));
     sink := ch;
     run_it(() => {
-      sink.send(v);
+      _ := sink.send(v);
       ()
     });
     Self(_slot : ch)
@@ -506,4 +506,14 @@ test("a closure captured by a Dyn closure field releases its captures", {
     assert(_cap_boxed((x : i32) => (x + p.n)) == i32(8), "the boxed closure calls through");
   };
   assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+});
+// issues/fixed/a-unit-call-through-a-fn-typed-field-never-drops-its-argument-temporaries.md
+_CapSink :: (fn(p : CapPayload) -> unit);
+_CapSinkBundle :: struct(sink : _CapSink);
+_cap_send :: (fn(b : _CapSinkBundle) -> unit)(b.sink(CapPayload(n : i32(3))));
+test("a unit call through a fn-typed field releases its argument temporary", {
+  before := g_cap_disposed;
+  (s : _CapSink) = (p -> ());
+  _cap_send(_CapSinkBundle(sink : s));
+  assert((g_cap_disposed - before) == i32(1), `the argument was released once, released ${g_cap_disposed - before}`);
 });

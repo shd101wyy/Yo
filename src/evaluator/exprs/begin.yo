@@ -19,10 +19,12 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
+  BK_BREAK,
   BF_DUP,
   BF_UNWIND,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
+  BK_CONST,
   BF_DOT,
   BK_COND,
   BK_MATCH,
@@ -66,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
   ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -83,8 +85,9 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
-{ Severity, Diagnostic, Span, warnings_enabled, emit_warning } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ Severity, Diagnostic, Span, warnings_enabled, emit_warning, E_DISCARDED_MUST_USE } :: import("../../diagnostics.yo");
+{ extract_future_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
@@ -1687,6 +1690,76 @@ _variant_local_hint :: (
     true => Option(ExpectedTypeCtx).None
   )
 });
+/// What a must-use expression statement would drop ("a Result", "a
+/// future"), else `.None`: bindings (`:=`, `=`, `::`) bind the value, and a
+/// statement the compiler generated from a string (`auto-generated://`) is no
+/// user's discard.
+/// Does every path through `e` leave it (`return`, `unwind`, `break`,
+/// `continue`)? Such a statement produces no value, so it drops nothing, even
+/// though its type is the type of what it returns: a `cond` whose every arm
+/// is `return(Result(...).Err(v))` types as a `Result`.
+_stmt_always_exits :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => ((tok.value == BK_BREAK) || (tok.value == "continue")),
+    .FnCall(_, _, args, _, _) => cond(
+      (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None)) => true,
+      (ast_expr_is_fn_call_of(e, BK_BREAK, .None) || ast_expr_is_fn_call_of(e, "continue", .None)) => true,
+      ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
+        // `{ a; return(x); }` parses with a trailing `tuple()` after the last
+        // `;`: the block's last STATEMENT is what decides.
+        (k : usize) = args.len();
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+          k = (k - usize(1));
+        });
+        (k > usize(0)) && _stmt_always_exits(args(k - usize(1)))
+      },
+      (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)) => {
+        // Every ARM's body exits; a match's scrutinee (no `=>`) is skipped.
+        (arms : usize) = usize(0);
+        (all_exit : bool) = true;
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          a := args(i);
+          if(ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))), {
+            arms = (arms + usize(1));
+            match(
+              a,
+              .FnCall(_, _, aargs, _, _) => if(!_stmt_always_exits(aargs(usize(1))), {
+                all_exit = false;
+              }),
+              .Atom(_, _) => ()
+            );
+          });
+          i = (i + usize(1));
+        });
+        all_exit && (arms > usize(0))
+      },
+      true => false
+    )
+  )
+);
+_must_use_kind :: (fn(stmt : AstExpr, ty : TypeValue) -> Option(String))({
+  if(ast_expr_is_fn_call_of(stmt, BK_ASSIGN, .None) || (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_CONST, .None)), {
+    return(Option(String).None);
+  });
+
+  if(ast_expr_token(stmt).module_path.starts_with("auto-generated://"), {
+    return(Option(String).None);
+  });
+  inner := t_refine_inner(ty);
+  is_result := match(
+    inner,
+    .EnumT({ id : _mu_eid }) => type_to_string(inner).starts_with("Result("),
+    _ => false
+  );
+  cond(
+    is_result => Option(String).Some(String.from("a Result")),
+    extract_future_trait_from_type(ty).is_some() => Option(String).Some(String.from("a future")),
+    true => Option(String).None
+  )
+});
+
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
@@ -2184,6 +2257,33 @@ evaluate_begin_expression :: (
           },
           .None => ()
         );
+        // A2 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a non-final
+        // expression STATEMENT may not drop a Result or a future.
+        // A statement every path of which leaves produces no value: judged
+        // on the SOURCE form, which still has its `cond` / `=>` arms.
+        if(!is_last_in_loop && !_stmt_always_exits(expr_to_eval), {
+          match(
+            ev_info_opt,
+            .Some(mu_info) => match(
+              _must_use_kind(evaluated, mu_info.ty),
+              .Some(mu_kind) => {
+                exn.throw(
+                  dyn(
+                    with_code(
+                      format_error_message(
+                        ast_expr_token(evaluated),
+                        `This statement drops ${mu_kind}: its value is never used. Handle it (match, ?), await a future with io.await(...), or discard it on purpose with \`_ := ...;\`.`
+                      ),
+                      E_DISCARDED_MUST_USE
+                    )
+                  )
+                );
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
         // folded to a compile-time value.

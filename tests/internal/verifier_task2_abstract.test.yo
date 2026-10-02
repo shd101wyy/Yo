@@ -111,12 +111,11 @@ test("a generic fn's body verifies ABSTRACTLY: identity's ensures proves over th
     io,
     true
   );
-  // ONE fn reports: the generic identity itself — its ensures proves
-  // over the uninterpreted sort with NO monomorphization (one abstract
-  // proof covers all instantiations). use_id carries no contracts, so it
-  // registers nothing (the task-5 rule).
+  // The generic identity's ensures proves over the uninterpreted sort with
+  // NO monomorphization (one abstract proof covers all instantiations).
+  // use_id carries no contracts: it reports a vacuous ok (no obligation).
   assert(
-    (reports.len() == usize(1)) && (reports.get(usize(0)).unwrap().outcome == "ok"),
+    (reports.len() == usize(2)) && (reports.get(usize(0)).unwrap().outcome == "ok") && (reports.get(usize(0)).unwrap().obligations.len() == usize(1)) && (reports.get(usize(1)).unwrap().outcome == "ok") && (reports.get(usize(1)).unwrap().obligations.len() == usize(0)),
     `identity must verify abstractly, got: [${_reports_dump(reports)}]`
   );
 });

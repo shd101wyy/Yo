@@ -10,6 +10,21 @@ content" port under the Linux/ASan internal-tests arm (PR #93). macOS does
 not reproduce (AMFI blocks the test-runner's ASan dylib there, and without
 ASan the double-free is silent).
 
+One shape was still live on develop `29bf728b4`: the binding crosses an await inside the arm and
+is then moved into the thrown `dyn`. The binding's slot and the scrutinee's `Err` payload hold the
+same value without a dup, and the move zeroed only the binding's slot, so the abort dispose
+released the payload again (valgrind: invalid read and invalid free in `_state_dispose_locals`).
+The crash in front of it was
+`issues/fixed/a-pattern-binding-moved-after-an-await-in-its-arm-reads-an-uninitialized-local.md`.
+
+**Fix:** `_bind_pattern_name` (`src/codegen/exprs/match.yo`) records the place a binding was
+initialized from when it lies in another slot (`InlineSmLowering.binding_sources`). A consuming
+read of the binding (`_sm_consuming_read`, `src/codegen/exprs/atom.yo`) then zeroes that place
+too, so the dispose and the scrutinee's scope-end drop see an empty payload. The zero invariant
+now covers a value two slots hold. Test in `tests/async/sm_ownership.test.yo`: "a pattern binding
+moved after an await in its arm is released once".
+
+**History (TS era):**
 The same throw path produced TWO distinct double-drop pairs, uncovered one
 at a time:
 

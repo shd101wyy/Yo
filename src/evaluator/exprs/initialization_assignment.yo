@@ -20,6 +20,7 @@
   BK_CONST,
   BK_INIT_ASSIGN,
   BK_GIVEN,
+  BK_COMPTIME,
   BK_INOUT,
   BK_THREAD_LOCAL,
   BF_DOT,
@@ -58,7 +59,7 @@
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, type_value_tag } :: import("../../types/creators.yo");
+{ t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -72,14 +73,15 @@
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
-{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -465,37 +467,6 @@ evaluate_initialization_assignment :: (
       )
     );
   });
-  // During CTFE (force_compile_time_bindings), `:=` is treated as `::`.
-  is_compile_time_only := (is_const || ctx.force_compile_time_bindings);
-  // For type conversion purposes, only `::` suppresses comptime→runtime
-  // conversion; `:=` with forceCompileTimeBindings still converts.
-  should_convert_to_runtime_type := !is_const;
-  // Reject runtime `:=` inside a compile-time-only function body.
-  // Phase 2w: `is_function_type_and_returns_comptime_value` is a stub (always false).
-  if(!is_compile_time_only, {
-    is_ctfe_body := match(
-      ctx.is_evaluating_function_body_or_async_block,
-      .Some(fctx) => (
-        match(fctx.kind, .FunctionBody => true, _ => false) &&
-          match(
-            fctx.func_type,
-            .Some(ft) => is_function_type_and_returns_comptime_value(ft),
-            .None => false
-          )
-      ),
-      .None => false
-    );
-    if(is_ctfe_body, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Unexpected runtime variable declaration in a compile-time only function body.")
-          )
-        )
-      );
-    });
-  });
   // Extract lhs and rhs from args.
   (lhs : AstExpr) = match(
     expr,
@@ -507,9 +478,68 @@ evaluate_initialization_assignment :: (
     .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
+  // `name := rhs` and `inout(name) := place` declare RUNTIME storage, so
+  // neither can appear in a compile-time context: the body of a function
+  // declared to return a compile-time value (E1104,
+  // issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
+  // `comptime(name) := rhs` and `given(name) := rhs` are compile-time forms
+  // and stay legal. Checked before `force_compile_time_bindings` is consulted:
+  // that flag is set for every compile-time body evaluation and used to turn
+  // the `:=` into a `::` silently.
+  is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
+  if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
+    if(ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("`inout(name) := ...` binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
+            ),
+            E_COMPTIME_RUNTIME_BINDING
+          )
+        )
+      );
+    });
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_repair(
+            ast_expr_token(expr),
+            String.from("`:=` declares a runtime variable, but this is the body of a function that returns a compile-time value; declare the local with `::` (it is still mutable)."),
+            Option(String).Some(String.from("replace `:=` with `::`")),
+            String.from("::"),
+            String.from("declare the local with `::`")
+          ),
+          E_COMPTIME_RUNTIME_BINDING
+        )
+      )
+    );
+  });
+  // A RUNTIME function evaluated at compile time (a `comptime_fn` clone, CTFE
+  // capability analysis) runs under `force_compile_time_bindings`; its `:=`
+  // locals are stored as compile-time values there.
+  is_compile_time_only := (is_const || ctx.force_compile_time_bindings);
+  // For type conversion purposes, only `::` suppresses comptime→runtime
+  // conversion; `:=` with forceCompileTimeBindings still converts.
+  should_convert_to_runtime_type := !is_const;
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
+  // `comptime(name) := rhs` is the compile-time spelling of `:=` (DESIGN.md
+  // "Variables"): it binds `name` exactly like `name :: rhs`. It used to fall
+  // through to the destructuring branch and fail with "Destructuring
+  // assignment not supported for the right-hand type"
+  // (issues/fixed/comptime-name-colon-equals-is-parsed-as-destructuring.md).
+  if(is_comptime_wrapped, {
+    is_compile_time_only = true;
+    should_convert_to_runtime_type = false;
+    actual_lhs = match(
+      lhs,
+      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+  });
   // `inout(name) := place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
@@ -947,6 +977,7 @@ ${rhs_str}`
             .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
               (st_name.len() == usize(0)) => {
                 register_type_display_name(st_id.clone(), binding_name.clone());
+                register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
                   TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
                 )
@@ -957,6 +988,8 @@ ${rhs_str}`
               (en_name.len() == usize(0)) => {
                 register_type_display_name(en_id.clone(), binding_name.clone());
                 register_type_display_name(`${en_id}__self_shell`, binding_name.clone());
+                register_type_binding_name(en_id.clone(), binding_name.clone());
+                register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
                   TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar)
                 )
@@ -1233,8 +1266,8 @@ Use \`::\` for compile-time definitions inside impl.`
     );
     ali_final.env = env;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), ali_final);
-    // If name := handler, set ExprInfo on the outer given(...) wrapper.
-    if(is_implicit, {
+    // Set ExprInfo on the outer given(...) / comptime(...) wrapper.
+    if(is_implicit || is_comptime_wrapped, {
       lhs_info := new_expr_info(env, t_unit());
       lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);

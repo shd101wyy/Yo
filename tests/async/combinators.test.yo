@@ -608,3 +608,29 @@ test("Test for_await suspends its task between items", {
   // ticks once, and record 0 0 0.
   assert(seen(usize(2)) > seen(usize(0)), "main ran between the task's items");
 });
+// issues/fixed/an-io-async-body-never-releases-a-closure-parameter-bound-by-a-type-variable.md
+(g_fe_disposed : i32) = i32(0);
+_FeThing :: ref(struct(n : i32));
+impl(
+  _FeThing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_fe_disposed = (g_fe_disposed + i32(1));
+    })
+  )
+);
+test("Stream.for_each releases what its body closure captures", {
+  before := g_fe_disposed;
+  {
+    t := _FeThing(n : i32(2));
+    total := Box(i32)(0);
+    io.await(
+      Countdown(_n : i32(3)).for_each(x => {
+        total.* = (total.* + (x * t.n));
+      }, io),
+      io
+    );
+    assert(total.* > i32(0), "the body ran");
+  };
+  assert((g_fe_disposed - before) == i32(1), `the captured value was released once, released ${g_fe_disposed - before}`);
+});

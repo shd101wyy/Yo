@@ -87,6 +87,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [混合 GADT 和普通变体](#混合-gadt-和普通变体)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
+- [类型状态（Typestate）](#类型状态typestate)
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Traits](#traits)
@@ -1912,6 +1913,44 @@ UserId :: newtype(value : i32);
 // 对应 C 代码：就是一个 i32，运行时没有结构体包装
 ```
 
+## 类型状态（Typestate）
+
+协议状态可以放进类型里，就像 ATS 的带索引资源（`FILEptr(mode)`）：用一个没有
+字段引用的幻影 comptime 参数，再让函数只接受它需要的状态。状态不对的调用是类型
+错误（E0601）。
+
+```rust
+Open :: struct();
+Closed :: struct();
+Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
+
+open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
+read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
+close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+
+main :: (fn() -> unit)({
+  h := open_h(i32(3));
+  c := close_h(h);
+  // read_h(c);   // E0601：期望 Handle(Open)，实际为 Handle(Closed)
+  // read_h(h);   // E0901：使用已移动的值 `h`
+});
+export(main);
+```
+
+只有当状态转换之后旧状态**无法**再被使用时，这个模式才是可靠的，因此有两条规则：
+
+- **句柄是 `ref` 类型，状态转换用 `own(...)` 接收它。** 移动使旧名字不可再用
+  （E0901）。普通值结构体会被**复制**进调用，于是已关闭的句柄和它的 `Open`
+  副本都仍然可用。
+- **没有其他别名保留旧状态。** 在转换之前被复制到另一个名字的 `ref` 句柄仍然
+  带着旧类型。把类型状态句柄只保存在一个名字里，就像 `Iso(T)` 保持唯一所有权
+  的值一样。
+
+幻影参数目前必须放在 `ref(struct(...))` 上。幻影泛型**枚举**上的方法目前还无法
+通过 `comptime(K) : Type` 参数找到
+（`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
+std 的 `File` 与套接字则在运行时保存状态：它们按设计是共享的 RC 句柄。
+
 ## C union
 
 ```rust
@@ -3113,6 +3152,11 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 result := safe_divide(6, 3); // result = 2
 safe_divide(10, 0, exn); // 处理器触发，unwind — 之后的代码不会执行
 ```
+
+`Exception` 的处理器不能带着值恢复 throw。`throw` 的恢复类型是一个由每个
+throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散，或以 `()` 结束。
+返回固定类型值的处理器（例如 `err -> { return(i32(7)); }`）是编译错误，
+错误信息会指向 `ResumableException`：
 
 ### ResumableException
 

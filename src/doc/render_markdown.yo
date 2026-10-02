@@ -380,7 +380,7 @@ render_type_md :: (fn(t : DocType) -> String)({
   });
   has_impls := match(t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
   has_methods := (t.methods.len() > usize(0));
-  if((has_impls) || (has_methods), {
+  if(has_impls || has_methods, {
     claimed := ArrayList(String).new();
     match(
       t.impls,
@@ -489,7 +489,7 @@ render_type_md :: (fn(t : DocType) -> String)({
           break;
         }
       );
-      if(!(is_in_list_(claimed, m.name)), {
+      if(!is_in_list_(claimed, m.name), {
         unclaimed_methods.push(m);
       });
       umi = (umi + usize(1));
@@ -668,7 +668,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(``);
     }
   );
-  has_content := (((mod.functions.len() > usize(0)) || (mod.types.len() > usize(0))) || ((mod.traits.len() > usize(0)) || (mod.constants.len() > usize(0))));
+  has_content := ((mod.functions.len() > usize(0)) || (mod.types.len() > usize(0)) || ((mod.traits.len() > usize(0)) || (mod.constants.len() > usize(0))));
   if(has_content, {
     lines.push(`## Contents`);
     lines.push(``);
@@ -836,7 +836,7 @@ render_index_md :: (fn(model : DocModel) -> String)({
         break;
       }
     );
-    item_count := (((mod.functions.len() + mod.types.len()) + mod.traits.len()) + mod.constants.len());
+    item_count := (mod.functions.len() + mod.types.len() + mod.traits.len() + mod.constants.len());
     summary := match(
       mod.doc,
       .None => ``,

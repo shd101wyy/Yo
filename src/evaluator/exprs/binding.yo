@@ -27,15 +27,14 @@ import("std/fmt");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
+{ EvalContext, in_def_time_trial } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 {
   is_array_type,
   is_function_type,
-  is_function_type_generic,
-  is_function_type_and_returns_comptime_value
+  is_function_type_generic
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
@@ -45,11 +44,12 @@ import("std/fmt");
   type_contains_rc_type,
   get_all_some_types
 } :: import("../../types/utils.yo");
-{ format_error_message, format_error_messages, TokenAndError, YoError, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, YoError, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body } :: import("../utils.yo");
 /// Deferred-check flag for the generic-fn-type rule (see the gate below and
 /// exprs/assignment.yo). Module-global because EvalContext field additions
 /// ripple through every explicit constructor; evaluation is single-threaded.
@@ -225,34 +225,36 @@ evaluate_binding :: (
       .Atom(_, _) => make_err_expr()
     );
   });
-  // context.forceCompileTimeBindings forces all bindings to be compile-time.
+  // `name : T` and `(name : T) = rhs` declare a RUNTIME variable, so neither
+  // can appear in a compile-time context: the body of a function declared to
+  // return a compile-time value (E1104,
+  // issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md). The
+  // compile-time spelling wraps the name: `comptime(name) : T`. Checked before
+  // `force_compile_time_bindings` is consulted, which turns every binding of a
+  // body evaluated at compile time into a compile-time one.
+  if(!is_compile_time_only && in_compile_time_fn_body(ctx), {
+    b_name := ast_expr_token(lhs).value;
+    b_ty := ast_expr_to_string(rhs);
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_repair(
+            ast_expr_token(lhs),
+            `"(${b_name} : ${b_ty})" declares a runtime variable, but this is the body of a function that returns a compile-time value; write "(comptime(${b_name}) : ${b_ty})" (it is still mutable).`,
+            Option(String).Some(`replace "${b_name}" with "comptime(${b_name})"`),
+            `comptime(${b_name})`,
+            String.from("declare the local as `comptime(name)`")
+          ),
+          E_COMPTIME_RUNTIME_BINDING
+        )
+      )
+    );
+  });
+  // A RUNTIME function evaluated at compile time (a `comptime_fn` clone, CTFE
+  // capability analysis) runs under `force_compile_time_bindings`; its typed
+  // locals are stored as compile-time values there.
   if(ctx.force_compile_time_bindings, {
     is_compile_time_only = true;
-  });
-  // Reject runtime bindings inside a compile-time-only function body.
-  if(!is_compile_time_only, {
-    is_ctfe_body := match(
-      ctx.is_evaluating_function_body_or_async_block,
-      .Some(fctx) => (
-        match(fctx.kind, .FunctionBody => true, _ => false) &&
-          match(
-            fctx.func_type,
-            .Some(ft) => is_function_type_and_returns_comptime_value(ft),
-            .None => false
-          )
-      ),
-      .None => false
-    );
-    if(is_ctfe_body, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `Unexpected runtime variable binding in a compile-time only function body.`
-          )
-        )
-      );
-    });
   });
   // Validate lhs is a valid variable name (identifier or operator).
   if(!is_valid_variable_name(lhs), {
