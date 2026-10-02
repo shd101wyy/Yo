@@ -395,11 +395,13 @@ impl(
     fn(
       self : Self,
       value : T,
-      // The element clause (`forall(k, ... self(k) == ...)`) joins once
-      // SEED_VERSION carries the proof-only ensures filter: the seed splices
-      // every ensures as a runtime assert, and a quantifier there fails every
-      // caller (plans/backlog/SEED_VERSION_AUTOMATION.md, Generation B).
-      ensures(self.len() == (old(self.len()) + usize(1))),
+      // The element clause is proof-only (it quantifies), so it is never
+      // spliced as a runtime assert; the verifier uses it to prove what a
+      // loop of pushes built.
+      ensures(
+        self.len() == (old(self.len()) + usize(1)),
+        forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))
+      ),
       assumed()
     ) -> unit
   )(

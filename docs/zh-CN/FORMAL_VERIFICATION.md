@@ -251,7 +251,7 @@ append :: (
 
 以列表为载体的 Seq 留在列表域中，即 contents 数组加长度。两个列表（或两个以列表为载体的 Seq）之间的相等是外延的：长度相等，且长度以内的每个元素相等。Z3 自带的 `Seq` 理论对这个目标给出 `unknown`，换到数组上就能证出。把以列表为载体的 Seq 与字面 Seq 混用（`seq_append(seq_of(xs), seq_unit(x))`）是子集错误。
 
-复制循环的 `forall(k, (k < i) ==> (out(k) == xs(k)))` 不变式需要一个写明新元素、并保持旧元素不变的 `push`。在下一个版本成为种子之前，std 的 `ArrayList.push` 只写明长度（已发布的编译器会在运行时执行带量词的 `ensures`），因此测试夹具使用一个写明元素的 `assumed()` 包装函数（`plans/backlog/SEED_VERSION_AUTOMATION.md`）。
+`ArrayList.push` 的契约写明新元素，并保持旧元素不变。该子句带量词，因此只用于证明，从不作为断言运行。正因如此，复制循环的 `forall(k, (k < i) ==> (out(k) == xs(k)))` 不变式才能证出。
 
 ### 可验证的 `for` 循环：`produced`
 
@@ -261,33 +261,18 @@ append :: (
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-// std 的 `push` 只写明新长度；这个包装函数还写明了元素，
-// 复制循环的不变式需要这一点。
-push_at_end :: (
-  fn(
-    xs : ArrayList(i32),
-    v : i32,
-    ensures(
-      xs.len() == (old(xs.len()) + usize(1)),
-      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
-    ),
-    assumed()
-  ) -> unit
-)(xs.push(v));
-
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));
-    push_at_end(out, x);
+    out.push(x);
   });
   out
 });
 ```
 
-`copy` 可以证出；`push_at_end` 报告 `assumed`。若换成 `out.push(x)`，
-`loop-invariant-iterate` 的结果是 `unproven`：std 的 `push` 没有说明追加的是
-哪个元素（§列表上的序列）。
+`copy` 可以证出：std 的 `push` 写明了追加的元素，并保持旧元素不变
+（§列表上的序列），这正是不变式所需要的。
 
 `produced(xs).len() <= xs.len()` 是隐式不变式。`break` 以 break 处的状态退出。`continue` 仍会消费当前元素，因此不变式在多产出一个元素的状态上证明。改变所遍历列表的循环体、`inout(x)` 绑定，以及对列表变量以外之物的 `for` 都是子集错误。
 
