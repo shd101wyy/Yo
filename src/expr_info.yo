@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Frame, Variable, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, husk_binding_counts, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
+{ Environment, Frame, Variable, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -977,13 +977,16 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_extern_c_globals : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+/// `YO_SCOPE_RELEASE`: `release` (the default) releases each outermost
+/// function body's recorded envs at scope exit; `shadow` keeps them, answers
+/// codegen from the envs and counts where the records would differ (the
+/// `[scope-release]` line `compile` prints); `off` never records.
 (g_scope_mode : usize) = match(
   debug_knob(`YO_SCOPE_RELEASE`),
-  .Some(v) => cond((v == "shadow") => usize(1), (v == "release") => usize(2), true => usize(0)),
-  .None => usize(0)
+  .Some(v) => cond((v == "shadow") => usize(1), (v == "off") => usize(0), true => usize(2)),
+  .None => usize(2)
 );
 (g_scope_mode_wanted : usize) = g_scope_mode;
-(g_scope_debug : String) = match(debug_knob(`YO_SCOPE_DEBUG`), .Some(v) => v, .None => String.new());
 (g_scope_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
 (g_scope_depth : usize) = usize(0);
 (g_scope_log_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
@@ -1002,8 +1005,8 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_prefix_bad : usize) = usize(0);
 /// A released info whose env shares only its first `k` frames with the husk.
 (g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
-(g_scope_kept_live : usize) = usize(0);
 (g_scope_rereleased : usize) = usize(0);
+(g_scope_stale_key : usize) = usize(0);
 /// Shadow mode: the info object each id was released with (release mode
 /// tells a re-logged object by its husk env).
 (g_scope_shadow_objs : HashMap(ExprId, ExprInfo)) = HashMap(ExprId, ExprInfo).new();
@@ -1042,13 +1045,6 @@ scope_release_note_hard :: (fn(kind : String, key : ExprId) -> unit)(
     g_scope_mm_kinds.insert(k, (mp + usize(1)));
   })
 );
-/// `YO_SCOPE_DEBUG=<module substring>`: print `msg` for that module.
-scope_release_debug :: (fn(module_path : String, msg : String) -> unit)(
-  if((g_scope_debug.len() > usize(0)) && module_path.contains(g_scope_debug.clone()), {
-    eprintln(`[scope-debug] ${msg}`);
-  })
-);
-scope_env_is_husk :: (fn(env : Environment) -> bool)(_is_scope_husk(env));
 /// Codegen looks a property atom's own token up through it (an extern C
 /// global read as `c.stdout`, the state-machine liveness walk over every
 /// atom), and its info names nothing, so the release records that name.
@@ -1164,19 +1160,11 @@ _scope_keeps_env :: (fn(id : ExprId, info : ExprInfo) -> bool)(
   (_scope_type_installs(info.ty) || _scope_value_installs(info.value)) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
-  if((g_scope_debug.len() > usize(0)) && entry.module_path.contains(g_scope_debug.clone()), {
-    eprintln(`[scope-debug] body mark=${mark.to_string()} logged=${(g_scope_log_ids.len() - mark).to_string()} entry_frames=${entry.frames.len().to_string()}`);
-  });
   husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
     info := g_scope_log_infos.get(i).unwrap();
-    // Counted, not kept: a live env (`frozen == false`: `ali_final.env = env`,
-    // an adopted env) is the common case.
-    if(!(info.env.frozen), {
-      g_scope_kept_live = (g_scope_kept_live + usize(1));
-    });
     // An env that shares no frame with the husk (a module-level binding
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
@@ -1204,9 +1192,6 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     }, if((!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, info)) || !(shares_husk), {
       if(!(shares_husk), {
         g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
-        if((g_scope_debug == "prefix") && (g_scope_prefix_bad < usize(25)), {
-          eprintln(`[scope-prefix] id=${id.to_string()} mod=${info.env.module_path} env=${_scope_frames_str(info.env)} husk=${_scope_frames_str(husk)} fdfl=${match(info.env.function_declaration_frame_level, .Some(l) => l.to_string(), .None => String.from("-"))} vn=${match(info.variable_name, .Some(v) => v, .None => String.from("-"))}`);
-        });
       });
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
@@ -1285,25 +1270,12 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       }, {
         g_scope_husks.insert(id, info_husk);
       });
-      if((g_scope_debug.len() > usize(0)) && entry.module_path.contains(g_scope_debug.clone()), {
-        eprintln(`[scope-debug] release id=${id.to_string()} mark=${mark.to_string()} vn=${match(info.variable_name, .Some(v) => v, .None => String.from("-"))} sv=${match(info.source_variable, .Some(v) => v.name, .None => String.from("-"))} recs=${match(g_scope_names.get(id), .Some(rs) => rs.len().to_string(), .None => String.from("0"))}`);
-      });
       g_scope_released = (g_scope_released + usize(1));
     }));
     i = (i + usize(1));
   });
   g_scope_log_infos.truncate(mark);
   g_scope_log_ids.truncate(mark);
-});
-_scope_frames_str :: (fn(e : Environment) -> String)({
-  out := String.new();
-  (i : usize) = usize(0);
-  while(i < e.frames.len(), {
-    f := e.frames.get(i).unwrap();
-    out.push_string(`${f.id.to_string()}/${f.variables.len().to_string()}${if(f.is_begin_block, "b", "")},`);
-    i = (i + usize(1));
-  });
-  out
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
@@ -1404,6 +1376,19 @@ type_to_string_short :: (fn(ki : Option(ExprInfo)) -> String)(
 _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> ArrayList(Variable))({
   truth := get_variables_from_env(env, name);
   g_scope_calls = (g_scope_calls + usize(1));
+  // Released only while the table still holds the object that was released:
+  // a later unlogged write replaces it with an info that keeps its env (as
+  // release mode would read it).
+  cur_info := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
+  still_released := match(
+    g_scope_shadow_objs.get(key),
+    .Some(o) => match(cur_info, .Some(ci) => unsafe(__yo_ptr_eq(o, ci)), .None => false),
+    .None => false
+  );
+  if(!(still_released), {
+    g_scope_stale_key = (g_scope_stale_key + usize(1));
+    return(truth);
+  });
   if(!(g_scope_husks.contains_key(key)), {
     if(g_scope_logged.contains_key(key), {
       g_scope_logged_unreleased = (g_scope_logged_unreleased + usize(1));
@@ -1421,7 +1406,6 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> A
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
         kinfo := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
-        has_sv := match(kinfo, .Some(ki) => ki.source_variable.is_some(), .None => false);
         has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow), .None => false);
         has_vn := match(kinfo, .Some(ki) => ki.variable_name.is_some(), .None => false);
         has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
@@ -1440,12 +1424,8 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> A
   truth
 });
 scope_release_report :: (fn() -> unit)(
-  if(g_scope_mode_wanted != usize(0), {
-    hbi := husk_binding_counts().into_iter();
-    while(runtime(true), {
-      match(hbi.next(), .Some(hkv) => eprintln(`[scope-husk-binding] ${hkv.value.to_string()} ${hkv.key}`), .None => break);
-    });
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} kept_live=${g_scope_kept_live.to_string()} rereleased=${g_scope_rereleased.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
+  if(g_scope_mode_wanted == usize(1), {
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} rereleased=${g_scope_rereleased.to_string()} stale_key=${g_scope_stale_key.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
     kit := g_scope_mm_kinds.into_iter();
     while(runtime(true), {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
@@ -1457,7 +1437,7 @@ scope_release_report :: (fn() -> unit)(
     });
   })
 );
-export(scope_release_note_query, scope_release_debug, scope_env_is_husk, scope_release_mode, scope_release_note_mismatch, scope_release_note_hard, scope_release_note_binding, scope_release_set_table, scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, scope_release_report);
+export(scope_release_note_query, scope_release_mode, scope_release_note_mismatch, scope_release_note_hard, scope_release_note_binding, scope_release_set_table, scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, scope_release_report);
 /// Create a new empty ExprInfoTable.
 expr_info_table_new :: (fn() -> ExprInfoTable)(
   ExprInfoTable(data : HashMap(ExprId, ExprInfo).new())
@@ -2462,20 +2442,8 @@ scope_variables :: (fn(key : ExprId, env : Environment, name : String) -> ArrayL
   cond(
     (g_scope_mode == usize(0)) => get_variables_from_env(env, name),
     (g_scope_mode == usize(1)) => _scope_shadow_lookup(key, env, name),
-    _is_scope_husk(env) => {
-      ans := _scope_record_answer(key, env, name);
-      if((g_scope_debug.len() > usize(0)) && env.module_path.contains(g_scope_debug.clone()), {
-        eprintln(`[scope-debug] query key=${key.to_string()} name=${name} path=${g_scope_path.to_string()} ans=${ans.len().to_string()}`);
-      });
-      ans
-    },
-    true => {
-      ans2 := get_variables_from_env(env, name);
-      if((g_scope_debug.len() > usize(0)) && env.module_path.contains(g_scope_debug.clone()), {
-        eprintln(`[scope-debug] live-query key=${key.to_string()} name=${name} ans=${ans2.len().to_string()}`);
-      });
-      ans2
-    }
+    _is_scope_husk(env) => _scope_record_answer(key, env, name),
+    true => get_variables_from_env(env, name)
   )
 );
 export(scope_variables);

@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
-{ expr_info_table_set, scope_env_is_husk, scope_release_debug, scope_release_depth, scope_release_note_mismatch } :: import("../expr_info.yo");
+{ expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -152,10 +152,6 @@ attach_temp_variable_to_expr :: (
       is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
       var_value := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
-      if(scope_env_is_husk(info.env), {
-        scope_release_debug(info.env.module_path, `attach-on-husk id=${ast_expr_id(expr).to_string()} vn=${match(info.variable_name, .Some(v) => v, .None => String.from("-"))} depth=${scope_release_depth().to_string()}`);
-        scope_release_note_mismatch(String.from("attach-on-husk"));
-      });
       match(
         info.variable_name,
         .Some(existing_name) => {
