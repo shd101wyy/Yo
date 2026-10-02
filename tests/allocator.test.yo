@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { size_would_overflow, layout_of, GlobalAllocator } :: import("std/allocator");
 { Error } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ IoFuture } :: import("std/sys/future");
 { aligned_alloc, aligned_free } :: GlobalAllocator;
 { SIZE_MAX } :: import("std/libc/stdint");
 
@@ -177,4 +178,15 @@ test("sizeof of a C platform type is a runtime value", {
   y := sizeof(long);
   assert(x >= usize(2), "int is at least 16 bits");
   assert(y >= x, "long is at least as wide as int");
+});
+// `IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32))` is heap-backed:
+// its C type is `__yo_io_future_t*`. A runtime `sizeof` of it lowered its
+// type argument through the collected-type registry, which never holds a
+// SomeT, and emitted `sizeof(/* Error: no C type name … */)`
+// (issues/fixed/sizeof-of-a-resolved-impl-type-has-no-c-type-name.md).
+test("sizeof of a resolved Impl type is its lowered C type", {
+  f := sizeof(IoFuture);
+  assert(f == sizeof(*u8), "a heap-backed future is one pointer");
+  n :: sizeof(IoFuture);
+  assert(n == f, "the comptime binding agrees");
 });
