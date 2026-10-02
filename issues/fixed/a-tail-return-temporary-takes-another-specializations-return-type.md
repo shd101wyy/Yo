@@ -1,7 +1,7 @@
 # A tail-return temporary takes another specialization's return type
 
 **Severity:** S2 — a valid program fails in the C compiler. Nothing in `yo check` flags it.
-**Found:** 2026-09-30, compiling `tests/explicit_allocators.test.yo` for `plans/EXPLICIT_ALLOCATORS.md` P3. `with_allocator` is specialized once at a `ref` struct and once at an `io.async` future.
+**Found:** 2026-09-30, compiling `tests/explicit_allocators.test.yo` for `plans/archive/EXPLICIT_ALLOCATORS.md` P3. `with_allocator` is specialized once at a `ref` struct and once at an `io.async` future.
 
 ## Reproducer
 

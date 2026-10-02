@@ -1,7 +1,7 @@
 # A method on a phantom generic enum is not found through a `comptime(K) : Type` parameter
 
 **Severity:** S3 — a valid program is rejected with "No method". A module-level helper function that takes the enum is the other spelling, and no std type needs the shape today.
-**Found:** 2026-09-30, extending the regression test of `issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md` from structs to enums (`plans/EXPLICIT_ALLOCATORS.md` P3b).
+**Found:** 2026-09-30, extending the regression test of `issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md` from structs to enums (`plans/archive/EXPLICIT_ALLOCATORS.md` P3b).
 
 ## Reproducer
 

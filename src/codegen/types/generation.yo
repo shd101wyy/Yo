@@ -1056,7 +1056,7 @@ typedef struct __yo_ref_header_t {
 typedef __yo_ref_header_t __yo_rc_prefix_t;`
     );
   });
-  // Explicit allocators (plans/EXPLICIT_ALLOCATORS.md §3.4): the top bit of
+  // Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md §3.4): the top bit of
   // `ref_count` marks a block placed by an explicit `Allocator`; such a block
   // carries a 16-byte owner prefix (`std/allocator.yo`'s `_AllocPrefix`, the
   // same layout) and is released through its owner. Every reader that TESTS
@@ -1087,7 +1087,7 @@ static inline void __yo_rc_free(void* ptr) {
   }
 }`
   );
-  // The allocation scope (plans/EXPLICIT_ALLOCATORS.md §3.5): the allocator
+  // The allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5): the allocator
   // `with_allocator` made current on this thread, `{ctx, NULL}` for the
   // global one. Only the six user-visible constructor sites consult it
   // (`__yo_rc_alloc_scoped`); the runtime's own blocks keep `__yo_rc_alloc`.
@@ -1149,7 +1149,7 @@ static inline void __yo_scope_set(void* ctx, void* vtable) {
 }`
   );
   // std/arena.yo's hook: under --debug-heap every live or abandoned arena is
-  // listed in the exit report (plans/EXPLICIT_ALLOCATORS.md P4).
+  // listed in the exit report (plans/archive/EXPLICIT_ALLOCATORS.md P4).
   em.emit_declaration_line(
     cond(
       context.debug_heap => "static inline bool __yo_debug_heap_on(void) { return true; }",

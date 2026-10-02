@@ -1,11 +1,9 @@
 # Explicit Allocators — the landed decisions
 
-> **Status: LANDED (P0–P5), 2026-09-30** (#1015 … #1042). The one open item is P3c
-> (default mutable-container constructors follow the scope), parked behind
-> the seed and tracked in the active plan
-> [`plans/EXPLICIT_ALLOCATORS.md`](../EXPLICIT_ALLOCATORS.md), which holds
-> the phase-by-phase record, the measurements and the corrections. This page
-> is the short authoritative list of what was decided.
+> **Status: LANDED** (#1015 … #1042 on 2026-09-30; P3c #1034 on 2026-10-02, once v0.2.48 was the seed). The
+> phase-by-phase record, measurements and corrections are in the closed plan
+> [`plans/archive/EXPLICIT_ALLOCATORS.md`](../archive/EXPLICIT_ALLOCATORS.md).
+> This page is the short authoritative list of what was decided.
 
 ## The model
 
@@ -46,7 +44,9 @@ No container grew a field: the owner bit lives in a word each already had.
 - A task keeps the scope it was created in: its resume wrapper reinstates
   the scope from the state machine's own prefix. A spawned thread starts on
   the global allocator.
-- Containers take an allocator explicitly: `new_in` / `with_capacity_in`.
+- Containers follow the scope (P3c: `ArrayList.new()`, `HashMap.new()`,
+  `Deque.new()` and what is built on them) and take one explicitly with
+  `new_in` / `with_capacity_in`.
   The `imm` collections follow the scope.
 - `std/arena.yo` `Arena`: a bump region. `deinit` (and the handle's
   dispose) **panics** while a block is live; `abandon()` is the

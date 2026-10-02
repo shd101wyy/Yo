@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-29 (branch `explicit-allocators-fixes`)
 **Severity:** S2 — output written before a panic silently disappears whenever stdout is a pipe or a file (CI logs, `build run`, test harnesses), which hides exactly the context a failing run needs
-**Found:** 2026-09-29, recording `tests/cli-cases/arena-deinit-with-live-blocks-panics` for `plans/EXPLICIT_ALLOCATORS.md` P0.
+**Found:** 2026-09-29, recording `tests/cli-cases/arena-deinit-with-live-blocks-panics` for `plans/archive/EXPLICIT_ALLOCATORS.md` P0.
 
 ## Reproducer
 

@@ -1,7 +1,7 @@
 # A generic `T` bound only by a closure that returns an `io.async` future is not inferred (E0613)
 
 **Severity:** S2 — a valid program is rejected, and annotating the result binding does not help. This shape is `arena.scoped(() => io.async(...))`, a task created inside an allocation scope
-**Found:** 2026-09-30, writing `tests/explicit_allocators.test.yo` for `plans/EXPLICIT_ALLOCATORS.md` P3 (`arena.scoped(() => io.async(...))`: a task created inside an allocation scope).
+**Found:** 2026-09-30, writing `tests/explicit_allocators.test.yo` for `plans/archive/EXPLICIT_ALLOCATORS.md` P3 (`arena.scoped(() => io.async(...))`: a task created inside an allocation scope).
 
 ## Reproducer
 
