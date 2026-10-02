@@ -240,7 +240,9 @@ FieldAccess ::= Expression '.' PrimaryExpression
 
 ;; Infix Operator
 ;; Yo has no operator precedence. A chain of the SAME operator is
-;; left-associative; adjacent DIFFERENT operators require explicit parentheses.
+;; left-associative at ANY operand count; adjacent DIFFERENT operators
+;; require explicit parentheses. A parenthesized RIGHT operand keeps its
+;; grouping: 20 - (5 - 4) - 3 is (20 - (5 - 4)) - 3, never re-associated.
 InfixOperator ::=
   | Whitespace* Operator Whitespace* Expression       ;; Regular infix: a + b
 
@@ -332,7 +334,8 @@ Separator ::= ',' | ';'
    - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind exactly ONE postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-1`, `!ready`, `&x`, `?*T`, and `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`), and the parenthesized call form (`-(x)`) is unchanged
 
 3. **Infix operators**: no precedence
-   - A chain of the same operator is left-associative: `a + b + c` ⇒ `(a + b) + c`
+   - A chain of the same operator is left-associative at ANY operand count: `a + b + c` ⇒ `(a + b) + c`, `20 - 5 - 4 - 3` ⇒ `(((20 - 5) - 4) - 3)`
+   - A parenthesized right operand keeps its grouping: `20 - (5 - 4) - 3` is `(20 - (5 - 4)) - 3`
    - Adjacent different operators require explicit parentheses: `a + b * c` is an error; write `(a + b) * c` or `a + (b * c)`
    - Standard infix: `a + b`
 

@@ -7,6 +7,7 @@
 { parse, extract_source_line, make_parse_error, generate_expr_from_code } :: import("../../src/parser.yo");
 { render_diagnostics_human } :: import("../../src/diagnostics.yo");
 { Token, TokenKind } :: import("../../src/token.yo");
+{ YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
@@ -797,4 +798,28 @@ test("Peeling survives multibyte literal text around the interpolation", {
     `((("中".to_string)().(+))((名前.format)(">8")).(+))(("文".to_string)())`,
     "multibyte literal segments on both sides"
   );
+});
+test("Reject adjacent different operators without parentheses", {
+  // The parse-time rejection of `1 + 2 * 3` had NO test at all: the header
+  // of tests/operator_grouping.test.yo pointed at a parser-level test in
+  // src/tests/operator-grouping.test.ts — a file that never existed in any
+  // commit (the TS compiler's src/tests/ was deleted 2026-08-20). This is
+  // the reject-invalid direction that file's comptime tests cannot see.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Adjacent different operators need parentheses`),
+            "wrong error message"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x := 1 + 2 * 3;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
 });

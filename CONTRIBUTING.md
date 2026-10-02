@@ -104,7 +104,7 @@ Before you open a PR:
 
 **Yo is designed to be written by language models**, so contributions produced
 with an LLM are welcome here rather than merely tolerated. There is no
-separate review track.
+disclosure requirement and no separate review track.
 
 What we ask is the same thing we ask of any contributor: **understand the change
 you are proposing, and verify it.** A patch nobody can explain is a problem
@@ -114,12 +114,6 @@ whether a person or a model wrote it. Concretely, before opening a PR:
 - run the tests that cover what you touched (see below), not just the fast ones;
 - state what you actually ran in the PR description, including anything that
   failed or that you skipped.
-- **if an LLM helped produce the change, say which model** (and, if you used
-  one, the agent harness — e.g. the CLI or IDE harness driving it) in the PR
-  description. The [pull request template](.github/pull_request_template.md)
-  has a field for it. This is provenance for future bisects and for
-  interpreting benchmark results, not a gate: a PR that omits it will not be
-  rejected over it.
 
 The repository is set up for this. [`AGENTS.md`](./AGENTS.md) is the entry point
 an agent should read first; `.github/instructions/` holds per-area rules (C

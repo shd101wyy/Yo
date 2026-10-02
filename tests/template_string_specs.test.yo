@@ -116,3 +116,16 @@ test("an interpolation body is scanned as code, not template text", {
   assert(tab.len() == usize(4));
   assert(tab.byte_at(usize(1)) == u8(9));
 });
+test("a comment inside an interpolation body does not close it", {
+  // The shared body scanner had no comment mode: a `}` inside a comment
+  // ended the body early (the re-lex died on an "unterminated block
+  // comment"), and an apostrophe inside a line comment opened a phantom
+  // char literal that swallowed the real closing brace
+  // (issues/fixed/a-brace-or-quote-inside-a-comment-inside-an-interpolation-miscuts-the-body.md).
+  x := 1;
+  s := `a ${x /* } */} b`;
+  assert(s == `a 1 b`, "the commented brace is not the body's closing brace");
+  t := `c ${x // don't}
+} d`;
+  assert(t == `c 1 d`, "a line comment inside the body ends at the newline");
+});

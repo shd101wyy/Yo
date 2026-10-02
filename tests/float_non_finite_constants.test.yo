@@ -36,3 +36,17 @@ test("an f32 infinity constant survives codegen", {
   assert(f32.POS_INF > big, "positive infinity exceeds the largest finite float");
   assert(f32.NEG_INF < -big, "negative infinity is below its negation");
 });
+test("an underscore in a float literal is a digit separator", {
+  // `parse_raw_float` used to hand `1_000.5` straight to C `atof`, which
+  // stops at the first `_`: the literal silently parsed as `1.0` while the
+  // integer form `1_000` parsed correctly — the two number forms disagreed
+  // (issues/fixed/an-underscore-in-a-float-literal-silently-truncates-the-value.md).
+  (v : f64) = runtime(1_000.5);
+  (thousand : f64) = runtime(f64(1000));
+  assert(v == (thousand + f64(0.5)), "1_000.5 is one thousand and a half, not 1.0");
+  (e : f64) = runtime(1_0e5);
+  (million : f64) = runtime(f64(1000000));
+  assert(e == million, "1_0e5 is 10e5, not 1");
+  (i : i64) = runtime(1_000_000);
+  assert(i == i64(1000000), "integer separators keep parsing");
+});
