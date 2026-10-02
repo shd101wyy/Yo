@@ -985,3 +985,13 @@ test("soundness: a generic forwarding its binder to an operator generic", {
   assert(_p6_twice_via_let(i64(5)) == i64(10), "the declared intermediate keeps the binder");
   assert(_p6_twice_via(f64(1.5)) == f64(3.0), "the f64 instantiation adds");
 });
+// issues/fixed/an-operator-unit-does-not-implement-passes-check.md: `unit`
+// implements Eq and Ord but not Add, so `+` on it is an error in concrete
+// code, directly or through a specialization with `T = unit`. On develop
+// both passed `check` and reached codegen hollow.
+test("soundness: an operator unit does not implement is rejected", {
+  comptime_expect_error(_p6_twice(()), "No matching call found for operator");
+  u := ();
+  comptime_expect_error(u + u, "No matching call found for operator");
+  assert(u == (), "unit's Eq still dispatches");
+});

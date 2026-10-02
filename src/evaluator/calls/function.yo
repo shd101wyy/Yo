@@ -4816,7 +4816,22 @@ _evaluate_function_call_unanchored :: (
     // placeholder an unevaluated operand leaves), a type still carrying a
     // SomeT, and a source-namespace struct (an `impl({...})` operator module,
     // resolved by the call-overload expansion).
-    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !is_unit_type(receiver_ty)) || is_type_hierarchy_type(receiver_ty) || _is_concrete_nominal_operand(receiver_ty)), {
+    //
+    // `unit` implements the derivable operator traits (Eq, Ord), so an
+    // operator it has no impl for (`+`) leaves it here. The exemption is for
+    // the placeholder above, and only code that can hold one keeps it: a
+    // generic body's definition-time trial, or a specialization keyed on a
+    // type variable. Concrete code (a concrete fn, a specialization whose
+    // every type is concrete) evaluates its operands raw, so a failed one
+    // throws and a `unit` operand is a real `unit`. There `() + ()`, or
+    // `x + x` with `T = unit`, passed `check` and reached codegen hollow
+    // (issues/fixed/an-operator-unit-does-not-implement-passes-check.md).
+    op_unit_is_placeholder := match(
+      ctx.currently_specializing_function,
+      .Some(op_spec) => !op_spec.is_concrete,
+      .None => in_def_time_trial()
+    );
+    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && (!is_unit_type(receiver_ty) || !op_unit_is_placeholder)) || is_type_hierarchy_type(receiver_ty) || _is_concrete_nominal_operand(receiver_ty)), {
       exn.throw(
         dyn(
           format_error_message(

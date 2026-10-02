@@ -103,7 +103,8 @@ pragma(Pragma.AllowUnsafe);
   fn_argument_not_callable_message,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
-  judge_function_argument_markers
+  judge_function_argument_markers,
+  type_contains_some_type_for_codegen_param
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -2117,6 +2118,35 @@ _reeval_closure_body_swallow :: (
   rcb_out := evaluate_expression_raw(wrap_body_in_begin(body), benv, ctx, rcb_exn);
   rcb_out;
 });
+/// Does the call bind every type variable concretely: no forall binding and no
+/// runtime parameter type still mentions a type variable? (Not the whole
+/// cache key: it also carries the declared result, which stays abstract
+/// until the body is evaluated.)
+_spec_bindings_are_concrete :: (fn(forall_args : ArrayList(ArgEntry), runtime_param_tys : ArrayList(TypeValue)) -> bool)({
+  (fi : usize) = usize(0);
+  while(fi < forall_args.len(), {
+    match(
+      forall_args.get(fi),
+      .Some(fa) => match(
+        fa.value,
+        .Some(.TypeVal(ft)) => if(type_contains_some_type_for_codegen_param(ft, ArrayList(String).new()), {
+          return(false);
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (ri : usize) = usize(0);
+  while(ri < runtime_param_tys.len(), {
+    if(type_contains_some_type_for_codegen_param(match(runtime_param_tys.get(ri), .Some(t) => t, .None => t_unit()), ArrayList(String).new()), {
+      return(false);
+    });
+    ri = (ri + usize(1));
+  });
+  true
+});
 // ---------------------------------------------------------------------------
 /// Create (or retrieve from cache) a specialized version of a generic function
 /// with compile-time arguments bound.
@@ -2964,7 +2994,8 @@ create_specialized_function_inline :: (
               specialized_func_id : specialized_func_id,
               specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val,
-              impl_bindings_sig : push_bindings_sig
+              impl_bindings_sig : push_bindings_sig,
+              is_concrete : _spec_bindings_are_concrete(arg_values.forall_args, runtime_param_tys)
             )
           );
           // Build a function-body evaluation context so explicit `return(...)`
@@ -4610,10 +4641,17 @@ create_specialization_at_call :: (
 )({
   callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(ast_expr_token(fvd.*.body).module_path, ctx.std_path.clone()), _ => false);
   description := _instantiation_description(callee_name, names, av.forall_args);
+  // The mint restores the in-progress specialization on success only; a
+  // body that throws leaves it set, and a probe that catches the error goes
+  // on judging its own code as that specialization's.
+  prev_spec := ctx.currently_specializing_function;
+  prev_stack_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   out := ArrayList(EvalValue).new();
   match(
     _create_specialization_trapped(fv, ft, av, callee_env, caller_env, ctx, out),
     .Some(err) => {
+      ctx.currently_specializing_function = prev_spec;
+      match(ctx.currently_specializing_function_stack, .Some(st) => st.truncate(prev_stack_len), .None => ());
       exn.throw(_with_instantiation_note(err, call_tok, description, callee_in_std));
       EvalValue.UnitVal
     },
