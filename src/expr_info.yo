@@ -1169,10 +1169,11 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
     if(!(info.env.frozen), {
       g_scope_kept_live = (g_scope_kept_live + usize(1));
     });
-    // An env that does not extend the husk (a module-level binding forced
-    // inside the body, a nested evaluation's own env) has frames the husk
-    // cannot stand in for: kept.
-    shares_husk := (env_common_prefix_len(info.env, husk) == husk.frames.len());
+    // An env that shares no frame with the husk (a module-level binding
+    // forced inside the body, a nested evaluation's own env) has nothing the
+    // husk can stand in for: kept. A partial share records its length.
+    k := env_common_prefix_len(info.env, husk);
+    shares_husk := (k > usize(0));
     if(_is_scope_husk(info.env), {
       // This info object was released by an earlier body (logged again
       // there): its records stand.
@@ -1184,8 +1185,12 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       g_scope_kept = (g_scope_kept + usize(1));
     }, {
       // An id can be released again (a nested or repeated evaluation logged
-      // in a later body): this release replaces the earlier records.
-      _scope_clear_records(id);
+      // in a later body): its earlier variables stay, joined by this one's.
+      prev := _scope_take_inner(id);
+      _r_k := g_scope_klen.remove(id);
+      if(k < husk.frames.len(), {
+        g_scope_klen.insert(id, k);
+      });
       match(
         info.source_variable,
         .Some(sv) => {
@@ -1209,16 +1214,19 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).
-      k := husk.frames.len();
-      inner := ArrayList(Variable).new();
+      inner := prev;
       match(
         bound,
         .Some(br) => {
+          // The bound name's variables in the env's own frames first (an
+          // outer same-named binding added after this one), then the
+          // binding's own lookup.
+          _scope_push_new(inner, get_variables_from_env_after(info.env, k, br.name));
           shared := get_variables_from_env_before(husk, k, br.name);
           (bi : usize) = usize(0);
           while(bi < br.vars.len(), {
             bv := br.vars.get(bi).unwrap();
-            if(!(_scope_has_id(shared, bv.id)), {
+            if(!(_scope_has_id(shared, bv.id)) && !(_scope_has_id(inner, bv.id)), {
               inner.push(bv);
             });
             bi = (bi + usize(1));
@@ -1232,12 +1240,7 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
         nm := names.get(ni).unwrap();
         if(!(nm == sv_name) && (!(nm == bound_name) && !(seen.contains(nm.clone()))), {
           seen.push(nm.clone());
-          got := get_variables_from_env_after(info.env, k, nm);
-          (gi : usize) = usize(0);
-          while(gi < got.len(), {
-            inner.push(got.get(gi).unwrap());
-            gi = (gi + usize(1));
-          });
+          _scope_push_new(inner, get_variables_from_env_after(info.env, k, nm));
         });
         ni = (ni + usize(1));
       });
@@ -1265,12 +1268,22 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
   g_scope_log_infos.truncate(mark);
   g_scope_log_ids.truncate(mark);
 });
-_scope_clear_records :: (fn(id : ExprId) -> unit)({
-  _r1 := g_scope_one.remove(id);
-  _r2 := g_scope_inner.remove(id);
-  _r3 := g_scope_klen.remove(id);
-  _r4 := g_scope_atom_exc.remove(id);
-  _r5 := g_scope_husks.remove(id);
+/// Remove and return `id`'s recorded inner variables.
+_scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
+  out := match(g_scope_inner.remove(id), .Some(vs) => vs, .None => ArrayList(Variable).new());
+  match(g_scope_one.remove(id), .Some(v) => out.push(v), .None => ());
+  out
+});
+/// Append each of `vs` not already in `into` (by id).
+_scope_push_new :: (fn(into : ArrayList(Variable), vs : ArrayList(Variable)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < vs.len(), {
+    v := vs.get(i).unwrap();
+    if(!(_scope_has_id(into, v.id)), {
+      into.push(v);
+    });
+    i = (i + usize(1));
+  });
 });
 _scope_has_id :: (fn(vs : ArrayList(Variable), id : usize) -> bool)({
   (i : usize) = usize(0);
@@ -1325,7 +1338,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
   base := match(g_scope_klen.get(key), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
     g_scope_one.get(key),
-    .Some(v) => if(v.name == name, {
+    .Some(v) => if((v.name == name) && !(_scope_has_id(base, v.id)), {
       g_scope_path = usize(3);
       base.push(v);
     }),
@@ -1337,7 +1350,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
         v := vs.get(vi).unwrap();
-        if(v.name == name, {
+        if((v.name == name) && !(_scope_has_id(base, v.id)), {
           g_scope_path = usize(3);
           base.push(v);
         });
