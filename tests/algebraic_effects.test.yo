@@ -2174,3 +2174,25 @@ test("Test escape path does not drop the unwound call's result temp", {
   });
   assert(outcome() == i32(99), "the throwing call must unwind, not crash");
 });
+// A plain `Exception` handler's resume type is the throw site's choice, so it
+// cannot resume with a value of one fixed type
+// (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
+test("a plain Exception handler cannot resume the throw with a value", {
+  comptime_expect_error(
+    _returns := Exception(
+      throw : (
+        err -> {
+          return(i32(7));
+        }
+      )
+    ),
+    "resumes the throw with a value"
+  );
+  comptime_expect_error(
+    _tail := Exception(throw : (err -> i32(7))),
+    "resumes the throw with a value"
+  );
+  // Unwinding and falling through with `()` stay legal.
+  _unwinds := Exception(throw : (err -> unwind(())));
+  _falls := Exception(throw : (err -> ()));
+});

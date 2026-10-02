@@ -3271,6 +3271,12 @@ result := safe_divide(6, 3, exn); // result = 2
 safe_divide(10, 0, exn); // handler fires, unwinds — code after this is unreached
 ```
 
+An `Exception` handler cannot resume the throw with a value. `throw`'s
+resume type is a type variable that each throw site picks, so a handler
+must `unwind`, diverge, or fall through with `()`. A handler that
+returns a value of a fixed type, such as `err -> { return(i32(7)); }`,
+is a compile error that points at `ResumableException`:
+
 ### ResumableException
 
 `ResumableException(ResumeType)` is for resumable exception handling.

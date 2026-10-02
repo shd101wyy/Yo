@@ -2,7 +2,7 @@
 
 **Severity:** S1 — silently wrong value: the program compiles and the throw expression evaluates to 0, not the handler's value
 
-**Status:** open
+**Status:** FIXED (2026-10-01): such a handler is now a compile error.
 **Found:** 2026-09-30, writing `tests/async/fusion.test.yo` for the await-site
 fusion (`plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`).
 **Reproducer:** `issues/repros/a-plain-exception-handler-that-returns-a-value.yo`
@@ -51,7 +51,25 @@ From the docs and code, not measured:
   body's `return(i32(7))` has no concrete resume type to return into. The 0
   is plausibly that erased return being read at the throw site.
 
-## The decision this needs
+## Fix
+
+The rule is `issues/fixed/may-a-plain-exception-handler-resume-the-throw-with-a-value.md`, option 1.
+A `ctl` handler whose declared result is a type variable it inherits from the expected type
+(`ctl(generic(ResumeType), error : AnyError) -> ResumeType`) may only resume with `()`, diverge,
+or resume with a value typed by that variable. After the handler body is evaluated,
+`evaluate_anonymous_function_implementation` (`src/evaluator/values/anonymous_function.yo`) collects
+every `return(v)` argument outside nested functions (`_collect_resume_args`), plus the tail
+unless it unwinds. It rejects a concrete type with a help line that names `ResumableException(T)`.
+The repro now fails to compile at `return(i32(7))`. `ResumableException(i32)` is unaffected,
+because its resume type is fixed when the handler is built.
+
+The audit of `std/`, `src/` and `tests/`, with `check` and the fast suite under the new compiler,
+found no handler that relied on the silent 0.
+
+Test: `tests/algebraic_effects.test.yo`, "a plain Exception handler cannot resume the throw
+with a value". It fails under v0.2.48, where the expected error is never raised.
+
+## The decision this needed
 
 Either a plain `Exception` handler may resume with a value, and the lowering
 must carry the value to the throw site, or it may not, and `return(v)` in
