@@ -22,7 +22,9 @@ The duplicates are not two entries for one type. Each repeated
 X_vtable;` and one fat-pointer struct, and those come from a walk over a key
 snapshot (`generate_dyn_forward_declarations`). The second definitions form a
 tail after the full list: AsyncRead twice in a row, then
-`dyn(ToString + Error)`, `TestDyn`, `_OsGen`, `_OsOt` again.
+`dyn(ToString + Error)`, `TestDyn`, `_OsGen`, `_OsOt` again. Larger programs
+also redefine Future interface bodies (`redefinition of
+'__yo_t_<N>_struct'`), which come from the same walk's future-trait arm.
 
 ## Root cause
 
@@ -59,4 +61,6 @@ walk itself registers are still reached, as the live walk sometimes did.
 
 `tests/cli-cases/dyn-vtables-registering-futures-are-each-defined-once`
 compiles two such programs, one in each window (N = 36, N = 78). Before the
-fix both fail with the redefinitions. After it both compile.
+fix both fail with the redefinitions (the v0.2.48 seed scores the case
+GOLDEN-DIFF, rc=1). After it both compile, and `cd tests && yo test
+dyn.test.yo --std-path ../std`, which failed on every run, passes 31/31.
