@@ -999,6 +999,24 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
+  IndexUnchecked(
+    /// The output type is the element type `T`, the same as `Index(usize)`'s.
+    Output : T,
+    /// `index` minus the length test. Codegen calls this only at a subscript
+    /// the verifier proved in bounds
+    /// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+    index_unchecked : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+      match(
+        self._ptr,
+        .Some(_ptr) => _ptr.add(idx),
+        .None => __yo_panic("ArrayList: index on empty list")
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
   Dispose(
     /// Drops every live element and frees the buffer. Runs when the last
     /// reference to the list goes away, not at the end of the binding's

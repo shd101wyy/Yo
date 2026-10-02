@@ -130,9 +130,10 @@
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal } :: import("../utils/index.yo");
 { sm_temp_slot_of } :: import("../async/state_machine_naming.yo");
 { is_arg_temp_across_suspension } :: import("../../evaluator/shared/suspension_analysis.yo");
+{ guard_site_is_proved, index_unchecked_twin_of } :: import("../../evaluator/builtins/contracts.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
@@ -485,6 +486,27 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // dereferences it via the param's is_ref flag (`(*self)->field`). Always
   // pass `&callee` here.
   recv_arg := `&${callee_code.clone()}`;
+  // 5b container bounds elision
+  // (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md): a subscript
+  // with an `IndexUnchecked` twin (recorded only in verify-mode target
+  // files) calls the twin when the verifier proved its `index-in-bounds`
+  // site, and `index` otherwise. The trailing comment names the site so the
+  // C-diff oracle (scripts/check-guard-elision.py) can check each removed
+  // check against a proof, exactly as it checks `__yo_idx_chk`. Runtime-mode
+  // files have no twin and emit neither.
+  by_name_call := match(
+    index_unchecked_twin_of(ast_expr_id(expr)),
+    .Some(twin) => {
+      tok := ast_expr_token(expr);
+      site := `${_idx_c_string_literal(tok.module_path.clone())}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+      if(
+        guard_site_is_proved(expr, "index-in-bounds"),
+        `${_index_method_call_by_name(twin, recv_arg.clone(), index_code.clone(), context)} /* __yo_cidx_elided(${site}) */`,
+        `${_index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)} /* __yo_cidx_chk(${site}) */`
+      )
+    },
+    .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+  );
   // Inline builtin (`__yo_array_index` → `&((&recv)->data[idx])`) vs by-name call.
   call_code := match(
     is_function_value_with_only_builtin_yo_inline_function_call(method_value),
@@ -498,8 +520,8 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
         .None => index_code.clone()
       );
       `(&((&${callee_code.clone()})->data[${arr_idx}]))`
-    }, _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)),
-    .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+    }, by_name_call.clone()),
+    .None => by_name_call.clone()
   );
   // A zero-sized element (`Array(unit, N)`): the wrapper has no `data` member
   // to index, and the element VALUE is `unit`, which — like every unit

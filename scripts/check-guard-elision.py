@@ -34,12 +34,17 @@ import sys
 import tempfile
 
 # A guard helper call. Its last three arguments are the site: "file", row, col.
-HELPER = re.compile(r'\b(__yo_idx_chk|__yo_div_guard_u|__yo_div_guard|__yo_sh_chk|__yo_(?:add|sub|mul)_chk_(?:s64|s|u64|u)|__yo_neg_chk_(?:s64|s))\(')
+# `__yo_cidx_chk(...)` is not a call but a C comment marker: a container
+# subscript that still calls its checked `index` method. When the verifier
+# proved the site, the marker becomes `__yo_cidx_elided(...)` and the call
+# goes to the container's `IndexUnchecked` twin
+# (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+HELPER = re.compile(r'\b(__yo_idx_chk|__yo_cidx_chk|__yo_div_guard_u|__yo_div_guard|__yo_sh_chk|__yo_(?:add|sub|mul)_chk_(?:s64|s|u64|u)|__yo_neg_chk_(?:s64|s))\(')
 SITE_TAIL = re.compile(r'"([^"]*)", (\d+), (\d+)$')
 # The proofs each guard needs (obligation classes at its site). A signed
 # division's one guard covers two traps: divide by zero and MIN / -1.
 def needs(helper):
-    if helper == "__yo_idx_chk":
+    if helper in ("__yo_idx_chk", "__yo_cidx_chk"):
         return {"index-in-bounds"}
     if helper == "__yo_div_guard_u":
         return {"divisor-nonzero"}

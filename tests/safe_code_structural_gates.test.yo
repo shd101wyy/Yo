@@ -1,6 +1,7 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { unchecked_non_zero } :: import("std/spec/refine");
+{ ArrayList } :: import("std/collections/array_list");
 /// Phase C structural gates for safe code (per plans/reference/MEMORY_SAFETY.md).
 ///
 /// The previous gates required `unsafe(...)` to wrap pointer ops but
@@ -116,8 +117,7 @@ comptime_expect_error({
   impl(PlainStruct3, Acyclic());
 });
 
-// ============================================================================
-// Pointer-free APIs with unsafe semantics (the safe-mode handover §3.2
+// =====================================================================// Pointer-free APIs with unsafe semantics (the safe-mode handover §3.2
 // audit). Each of these compiled cleanly in safe code before its gate; the
 // tests pin the error the fix produces.
 // ============================================================================
@@ -164,3 +164,13 @@ comptime_expect_error({
   m.insert(i32(1), i32(2));
   assert(m.len() == usize(1), "a HashMap is safe to hold and use");
 }
+=======
+// `IndexUnchecked.index_unchecked` skips the bounds check; codegen calls it
+// only at a subscript the verifier proved in bounds. Its result is a raw
+// pointer, so safe code cannot call it directly, not even to dereference at
+// once (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+comptime_expect_error({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.index_unchecked(usize(5))
+});

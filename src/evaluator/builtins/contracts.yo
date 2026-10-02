@@ -141,8 +141,21 @@ _evaluate_contract_marker :: (
 /// (evaluate_ghost and friends) read `_is_verify_target`, and importers
 /// can force those lazily before line 900 evaluates.
 (g_verify_target_paths : ArrayList(String)) = ArrayList(String).new();
+/// Declared HERE, above `set_verify_target_paths`, which resets it (a runtime
+/// global must be bound before the first definition that reaches it).
+/// 5b container bounds elision
+/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md): a subscript node
+/// in a verify-mode target file → the specialized `IndexUnchecked`
+/// `index_unchecked` method of its receiver. Codegen calls it instead of
+/// `index` only when the node's `index-in-bounds` site is proved.
+(g_index_unchecked_twins : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 set_verify_target_paths :: (fn(paths : ArrayList(String)) -> unit)({
   g_verify_target_paths = paths;
+  // A new verification recording starts: forget the previous compile's
+  // container twins (watch rounds). Unlike the proved-site table, which
+  // `_run_contract_verification` clears AFTER evaluation, twins are recorded
+  // DURING evaluation, so they reset here.
+  g_index_unchecked_twins = HashMap(ExprId, EvalValue).new();
   ()
 });
 _is_verify_target :: (fn(module_path : String) -> bool)({
@@ -1434,6 +1447,13 @@ clear_proved_guard_sites :: (fn() -> unit)({
   g_elided_guard_nodes = HashSet(String).new();
   ()
 });
+record_index_unchecked_twin :: (fn(node_id : ExprId, twin : EvalValue) -> unit)({
+  g_index_unchecked_twins.insert(node_id, twin);
+  ()
+});
+index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
+  g_index_unchecked_twins.get(node_id)
+);
 /// How many distinct guards codegen elided since the last clear.
 elided_guard_count :: (fn() -> usize)(
   g_elided_guard_nodes.len()
@@ -3269,6 +3289,8 @@ export(
   elided_guard_count,
   guard_site_is_proved,
   guard_site_pair_is_proved,
+  record_index_unchecked_twin,
+  index_unchecked_twin_of,
   evaluate_seq_unit,
   evaluate_seq_of,
   evaluate_produced,
