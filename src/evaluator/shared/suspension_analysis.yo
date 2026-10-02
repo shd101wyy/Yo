@@ -400,6 +400,42 @@ _capture_pattern_bindings :: (
     }
   )
 );
+/// Capture the temp an argument's value is held in (a labeled argument
+/// `name : v` holds `v`'s): it is read when the call runs, after the later
+/// arguments, so a suspension in one of them makes it cross that suspension
+/// (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
+/// A named variable is captured by its atom; only a minted temp needs this.
+_capture_argument_temp :: (
+  fn(
+    arg : AstExpr,
+    call : AstExpr,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
+    captured_variables : HashMap(String, SuspensionCapturedVariable),
+    captured_variable_ids_in_order : ArrayList(String),
+    name_frame_to_original_id : HashMap(String, String),
+    variable_id_remapping : HashMap(String, String)
+  ) -> unit
+)({
+  value := match(
+    arg.clone(),
+    .FnCall(_, _, la, _, _) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
+    .Atom(_, _) => arg.clone()
+  );
+  match(
+    get_info(value),
+    .Some(vinfo) => match(
+      vinfo.variable_name,
+      .Some(tn) => {
+        // The temp is bound in the env the call was evaluated in.
+        tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
+        _capture_env_variable(tn.clone(), tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(tn, vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+});
 // ---------------------------------------------------------------------------
 // walk_expr_ (internal)
 // ---------------------------------------------------------------------------
@@ -862,6 +898,11 @@ walk_expr_ :: (
           recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai3 : usize) = usize(0);
           n_args3 := args.len();
+          // The suspension count after each argument: an earlier argument's
+          // value waits in its temp until the call runs, so a later argument
+          // that suspends puts a suspension between the temp's store and its
+          // read (`S(n : xs.len(), extra : e.await(f, e))`).
+          arg_marks := ArrayList(usize).new();
           while(ai3 < n_args3, {
             arg3 := match(
               args.get(ai3),
@@ -872,7 +913,19 @@ walk_expr_ :: (
               .Some(a) => a
             );
             recur(arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+            arg_marks.push(points.len());
             ai3 = (ai3 + usize(1));
+          });
+          last_mark := match(arg_marks.last(), .Some(m) => m, .None => usize(0));
+          (ti : usize) = usize(0);
+          while((ti + usize(1)) < arg_marks.len(), ti = (ti + usize(1)), {
+            if(match(arg_marks.get(ti), .Some(m) => (m < last_mark), .None => false), {
+              match(
+                args.get(ti),
+                .Some(ta) => _capture_argument_temp(ta, expr_cloned.clone(), get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                .None => ()
+              );
+            });
           });
           // Walk deferred drop expressions
           match(
