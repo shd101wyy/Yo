@@ -1,9 +1,34 @@
 # Safe mode: handover
 
+> **CLOSED 2026-10-02: every item this handover made actionable for an agent
+> is done.** It stays here as the record of the 2026-09-28 → 10-02 stretch.
+>
+> - **§3.1 `set_len` S1:** landed with #1075.
+> - **§3.2 the pointer-free unsafe-API audit:** landed with #1108 (`String.ptr()`,
+>   the `MaybeUninit.assume_init` witness, the `refine.unchecked*` witness).
+> - **§3.3 the capacity-overflow guard tests:** landed with #1101.
+> - **§3.7 the loop-variant signedness S2:** landed with #1114. The
+>   contracted-generic issue was already fixed by #1075.
+>
+> What is NOT done was never an agent's to finish here. Each item lives in its
+> authoritative plan:
+>
+> - **§3.4 5b Phase 3:** blocked on std bodies the verifier walks and on an
+>   ArrayList bounds-check elision hook. See the Phase 3 status note in
+>   [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](../backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+> - **§3.5 the known gaps:** deliberate, and recorded in the same plan.
+> - **§3.6 strict mode:** deferred until a user asks for it ([`SAFE_MODE.md`](../SAFE_MODE.md) §9).
+> - **§3.8 required check:** making "Verified guard elision oracle (pinned Z3)"
+>   a required check is a ruleset setting only the user can change.
+>
+> The §4 gating notes (the heavy lock, the local battery, the elision oracle,
+> the wrap-discovery and perf A/B techniques) still apply to the next
+> safe-mode change.
+
 **Status:** written 2026-10-01 by the session that landed 5b Phases 0–2 and the
 `usize` overflow guard, handing over to an agent on another machine. **§3.1–§3.3 are DONE** (2026-10-02 update: §3.1 with #1075, §3.2 and §3.3 by the takeover session — see §3.0 for the branches); what remains is §3.4 (blocked), §3.5, §3.6 (deferred), §3.7 and §3.8. The plan is
-[`SAFE_MODE.md`](SAFE_MODE.md) and the 5b design is
-[`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md);
+[`SAFE_MODE.md`](../SAFE_MODE.md) and the 5b design is
+[`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](../backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md);
 both stay authoritative for what each phase means. This doc says where the work
 stands and what to do next. Move it to `archive/` with a banner once §3 is empty.
 
