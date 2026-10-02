@@ -9,7 +9,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -20,7 +20,7 @@
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { sm_local_field_name, get_state_machine_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
@@ -44,14 +44,14 @@ _all_digits :: (fn(s : String) -> bool)({
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
 _last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
-  vars := scope_variables(key, env, name);
+  vars := scope_variables_site("init_assignment.yo:47", key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
-  vars := scope_variables(key, env, name);
+  vars := scope_variables_site("init_assignment.yo:54", key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : Environment, name : String, context 
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  vs := scope_variables(key, env, name);
+  vs := scope_variables_site("init_assignment.yo:94", key, env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
   id := sm_storage_id(v, smv, context.variable_id_remapping);
   if(!smv.get(id.clone()).is_some(), {
@@ -293,7 +293,7 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, bind_key : Ex
   ref_slot := match(
     bind_env,
     .Some(benv) => {
-      vs := scope_variables(bind_key, benv, var_name.clone());
+      vs := scope_variables_site("init_assignment.yo:273", bind_key, benv, var_name.clone());
       cond(
         (vs.len() == usize(0)) => Option(String).None,
         true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(rv, context), .None => Option(String).None)
@@ -439,7 +439,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
           .Some(rei) => match(
             rei.variable_name,
             .Some(tvn) => {
-              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
+              temp_var_name := get_variable_name_for_codegen_at_site("init_assignment.yo:417", ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
@@ -487,7 +487,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     }, {
       // Non-array scalar initialization.
       // The `:=` node's env: the lhs atom's predates the binding.
-      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(lhs), var_name.clone(), Option(Environment).Some(ei.env));
+      sanitized_var_name := get_variable_name_for_codegen_at_site("init_assignment.yo:464", ast_expr_id(lhs), var_name.clone(), Option(Environment).Some(ei.env));
       // A STATIC-dispatch call whose callee's prototype returns `void` has no
       // value, whatever this binding's own types say. They can disagree: a
       // generic `Impl(Fn(...) -> T)` callee specialised at `T = unit` emits a
@@ -511,9 +511,9 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         .Some(rei) => match(
           rei.variable_name,
           .Some(tvn) => {
-            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
+            temp_var_name := get_variable_name_for_codegen_at_site("init_assignment.yo:488", ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
             // Same name as the binding, or a bare atom already named — no temp.
-            rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(rhs), ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
+            rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen_at_site("init_assignment.yo:490", ast_expr_id(rhs), ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               effective_type := match(expr_info_converted_runtime_type(rei), .Some(crt) => crt, .None => rei.ty);

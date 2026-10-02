@@ -67,7 +67,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables, scope_set_site, scope_variables_site } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -1882,6 +1882,10 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
 /// `get_variable_name_for_codegen` through node `key`'s recorded scope: the
 /// form every caller holding a recorded env (an `ExprInfo.env`) uses, so the
 /// lookup goes through `scope_variables`.
+get_variable_name_for_codegen_at_site :: (fn(site : str, key : ExprId, variable_name : String, env : Option(Environment)) -> String)({
+  scope_set_site(site);
+  get_variable_name_for_codegen_at(key, variable_name, env)
+});
 get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : String, env : Option(Environment)) -> String)(
   match(
     env,
@@ -1980,7 +1984,7 @@ deferred_drop_target_variable :: (fn(drop_expr : AstExpr, base : CodeGenContext)
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
       base.get_expr_info(atom),
-      .Some(aei) => scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value).last(),
+      .Some(aei) => scope_variables_site("index.yo:1983", ast_expr_id(atom), aei.env, ast_expr_token(atom).value).last(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2219,7 +2223,7 @@ export(
   nullable_arm_payload_binder,
   can_optimize_as_simple_enum,
   get_variable_name_for_codegen,
-  get_variable_name_for_codegen_at,
+  get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture,

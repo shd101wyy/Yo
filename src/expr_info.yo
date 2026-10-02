@@ -1006,6 +1006,8 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_checked : usize) = usize(0);
 (g_scope_samples : ArrayList(String)) = ArrayList(String).new();
 (g_scope_calls : usize) = usize(0);
+(g_scope_site : String) = String.new();
+(g_scope_diag_sites : HashMap(String, usize)) = HashMap(String, usize).new();
 (g_scope_path : usize) = usize(0);
 (g_scope_mm_kinds : HashMap(String, usize)) = HashMap(String, usize).new();
 (g_scope_logged : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
@@ -1317,6 +1319,16 @@ _scope_has_id :: (fn(vs : ArrayList(Variable), id : usize) -> bool)({
   });
   false
 });
+_scope_ids_str :: (fn(vs : ArrayList(Variable)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < vs.len(), {
+    out.push_string(vs.get(i).unwrap().id.to_string());
+    out.push_str(",");
+    i = (i + usize(1));
+  });
+  out
+});
 /// What the records say for (`key`, `name`); `husk` is the body's entry env.
 _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> ArrayList(Variable))({
   info_opt := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
@@ -1403,6 +1415,15 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> A
       rec := _scope_record_answer(key, husk, name);
       if(!(_scope_same_ids(truth, rec)), {
         g_scope_mismatch = (g_scope_mismatch + usize(1));
+        dsn := match(g_scope_diag_sites.get(g_scope_site.clone()), .Some(c) => c, .None => usize(0));
+        if(dsn < usize(6), {
+          g_scope_diag_sites.insert(g_scope_site.clone(), (dsn + usize(1)));
+          dk := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
+          dprop := match(dk, .Some(ki) => match(ki.is_accessing_property, .Some(b) => b.to_string(), .None => String.from("none")), .None => String.from("noinfo"));
+          dval := match(dk, .Some(ki) => ki.value.is_some().to_string(), .None => String.from("-"));
+          tdesc := match(truth.last(), .Some(tv) => `ml=${tv.is_module_level.to_string()} ct=${tv.is_compile_time_only.to_string()} par=${tv.is_parameter.to_string()} imp=${tv.is_implicit.to_string()} id=${tv.id.to_string()}`, .None => String.from("none"));
+          eprintln(`[scope-diag] ${g_scope_site} key=${key.to_string()} name=${name} truth=${truth.len().to_string()} rec=${rec.len().to_string()} prop=${dprop} val=${dval} env_frames=${env.frames.len().to_string()} husk_frames=${husk.frames.len().to_string()} fdfl=${match(env.function_declaration_frame_level, .Some(l) => l.to_string(), .None => String.from("-"))} mod=${env.module_path} ${tdesc} truth_ids=${_scope_ids_str(truth)} rec_ids=${_scope_ids_str(rec)} klen=${match(g_scope_klen.get(key), .Some(k) => k.to_string(), .None => String.from("-"))}`);
+        });
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
         kinfo := match(g_scope_table, .Some(t) => t.data.get(key), .None => Option(ExprInfo).None);
@@ -1412,7 +1433,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> A
         has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
         has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions.is_some(), .None => false);
         tstr := type_to_string_short(kinfo);
-        mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
+        mk := `${g_scope_site}/${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
         mp := match(g_scope_mm_kinds.get(mk.clone()), .Some(c) => c, .None => usize(0));
         g_scope_mm_kinds.insert(mk, (mp + usize(1)));
         if((g_scope_samples.len() < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
@@ -2464,6 +2485,14 @@ scope_variables :: (fn(key : ExprId, env : Environment, name : String) -> ArrayL
   )
 );
 export(scope_variables);
+scope_variables_site :: (fn(site : str, key : ExprId, env : Environment, name : String) -> ArrayList(Variable))({
+  g_scope_site = String.from(site);
+  scope_variables(key, env, name)
+});
+scope_set_site :: (fn(site : str) -> unit)({
+  g_scope_site = String.from(site);
+});
+export(scope_variables_site, scope_set_site);
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);

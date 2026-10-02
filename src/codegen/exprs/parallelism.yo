@@ -24,7 +24,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function_value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("./drop_dup.yo");
@@ -316,7 +316,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(cb, indent.clone(), context);
-  cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(cb), vn, Option(Environment).Some(cei.env)), .None => cb_code);
+  cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at_site("parallelism.yo:319", ast_expr_id(cb), vn, Option(Environment).Some(cei.env)), .None => cb_code);
   em := context.base.emitter;
   heap_var := fresh_local_name(
     String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_")),

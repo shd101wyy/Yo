@@ -12,7 +12,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_variable_type_string, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site } :: import("../utils/index.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
@@ -73,7 +73,7 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
                     .Some(dup_ei) => match(
                       dup_ei.variable_name,
                       .Some(dup_vn) => {
-                        args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                        args_list.push_string(get_variable_name_for_codegen_at_site("tuple_fn.yo:76", ast_expr_id(dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
                         used_dup_temp = true;
                       },
                       .None => ()

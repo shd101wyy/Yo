@@ -7,10 +7,10 @@
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { emit_effect_unwind_check } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -51,7 +51,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
               .Some(aei) => match(
                 aei.variable_name,
                 .Some(vn) => {
-                  arg_vars := scope_variables(ast_expr_id(arg), aei.env, vn.clone());
+                  arg_vars := scope_variables_site("recur.yo:54", ast_expr_id(arg), aei.env, vn.clone());
                   if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
                     match(
                       arg_vars.last(),
@@ -84,7 +84,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                   match(
                     aei2.variable_name,
                     .Some(avn) => {
-                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(arg), avn.clone(), Option(Environment).Some(aei2.env));
+                      sanitized_arg_temp := get_variable_name_for_codegen_at_site("recur.yo:87", ast_expr_id(arg), avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
                         already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
@@ -123,7 +123,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                         .Some(dei) => match(
                           dei.variable_name,
                           .Some(dvn) => {
-                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(de), dvn.clone(), Option(Environment).Some(dei.env));
+                            arg_code = get_variable_name_for_codegen_at_site("recur.yo:126", ast_expr_id(de), dvn.clone(), Option(Environment).Some(dei.env));
                           },
                           .None => ()
                         ),
@@ -153,7 +153,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         ei.variable_name,
         .Some(temp_var) => if(!is_unit_type(ei.ty), {
           c_type := get_type_string(ei.ty, context.base);
-          temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
+          temp_var_name := get_variable_name_for_codegen_at_site("recur.yo:156", ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
           already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
             match(

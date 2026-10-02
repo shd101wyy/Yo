@@ -30,18 +30,18 @@
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_is_compile_time_only_assignment, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
-  vars := scope_variables(key, env, name);
+  vars := scope_variables_site("assignment.yo:37", key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
 _last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
-  vars := scope_variables(key, env, name);
+  vars := scope_variables_site("assignment.yo:44", key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });

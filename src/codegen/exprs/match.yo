@@ -25,7 +25,7 @@
   expr_info_primitive_pattern_values,
   expr_info_consumed_variable_drop_expressions,
   expr_info_deferred_dup_expressions,
-  scope_variables
+  scope_variables, scope_variables_site
 } :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
@@ -37,7 +37,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen_at, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -960,7 +960,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
             match(
               context.base.get_expr_info(dvar),
               .Some(smb_bei) => {
-                smb_vars := scope_variables(ast_expr_id(dvar), smb_bei.env, ast_expr_token(dvar).value.to_string());
+                smb_vars := scope_variables_site("match.yo:963", ast_expr_id(dvar), smb_bei.env, ast_expr_token(dvar).value.to_string());
                 if(smb_vars.len() > usize(0), {
                   match(
                     smb_vars.last(),
@@ -2288,7 +2288,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
   match(
     subject_ei.variable_name,
     .Some(svn) => {
-      subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(subject), svn, Option(Environment).Some(subject_ei.env));
+      subject_var_name := get_variable_name_for_codegen_at_site("match.yo:2291", ast_expr_id(subject), svn, Option(Environment).Some(subject_ei.env));
       if(!ast_expr_is_atom(subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,

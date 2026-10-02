@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { type_requires_comptime_modifier } :: import("../../types/utils.yo");
@@ -150,7 +150,7 @@ extract_target_variable_id :: (
   match(
     get_info(pe.clone()),
     .Some(pinfo) => {
-      pvars := scope_variables(ast_expr_id(var_expr), pinfo.env, var_name.clone());
+      pvars := scope_variables_site("suspension_analysis.yo:153", ast_expr_id(var_expr), pinfo.env, var_name.clone());
       pn := pvars.len();
       if(pn > usize(0), {
         match(
@@ -170,7 +170,7 @@ extract_target_variable_id :: (
     get_info(var_expr.clone()),
     .None => Option(String).None,
     .Some(info) => {
-      variables := scope_variables(ast_expr_id(var_expr), info.env, var_name.clone());
+      variables := scope_variables_site("suspension_analysis.yo:173", ast_expr_id(var_expr), info.env, var_name.clone());
       n := variables.len();
       if(n == usize(0), {
         return(Option(String).None);
@@ -233,7 +233,7 @@ _capture_env_variable :: (
   if(is_module_level_global(env.module_path, var_name.clone()), {
     return(());
   });
-  variables := scope_variables(key, env, var_name.clone());
+  variables := scope_variables_site("suspension_analysis.yo:236", key, env, var_name.clone());
   n_vars := variables.len();
   if(n_vars > usize(0), {
     variable := match(
@@ -374,7 +374,7 @@ _capture_pattern_bindings :: (
       match(
         get_info(pat),
         .Some(info) => {
-          vars := scope_variables(ast_expr_id(pat), info.env, tok.value.clone());
+          vars := scope_variables_site("suspension_analysis.yo:377", ast_expr_id(pat), info.env, tok.value.clone());
           at_decl := match(
             vars.last(),
             .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),

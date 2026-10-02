@@ -49,7 +49,7 @@
   expr_info_index_method_value,
   expr_info_is_anonymous_function_definition,
   expr_info_macro_expansion,
-  scope_variables
+  scope_variables, scope_variables_site
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_unknown_val, is_type_value } :: import("../../value.yo");
@@ -1052,7 +1052,7 @@ _msp_atom_root :: (fn(ctx : _MspCtx, atom : AstExpr) -> _MspRoot)({
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
   });
-  vars := scope_variables(ast_expr_id(atom), info.env, name.clone());
+  vars := scope_variables_site("mutation_summary.yo:1055", ast_expr_id(atom), info.env, name.clone());
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
@@ -1080,7 +1080,7 @@ _msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
     return(Option(String).None);
   });
   name := ast_expr_token(atom).value;
-  vars := scope_variables(ast_expr_id(atom), info.env, name.clone());
+  vars := scope_variables_site("mutation_summary.yo:1083", ast_expr_id(atom), info.env, name.clone());
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -2252,7 +2252,7 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(lhs), env, lt.value.clone());
+              vars := scope_variables_site("mutation_summary.yo:2255", ast_expr_id(lhs), env, lt.value.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
@@ -2874,7 +2874,7 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(lhs), env, lt.value.clone());
+              vars := scope_variables_site("mutation_summary.yo:2877", ast_expr_id(lhs), env, lt.value.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
@@ -3273,7 +3273,7 @@ _msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variabl
     .Some(ba) => match(
       expr_info_table_get(table, ast_expr_id(ba)),
       .Some(bi) => {
-        vars := scope_variables(ast_expr_id(ba), bi.env, ast_expr_token(ba).value);
+        vars := scope_variables_site("mutation_summary.yo:3276", ast_expr_id(ba), bi.env, ast_expr_token(ba).value);
         vars.last()
       },
       .None => Option(Variable).None
@@ -3493,7 +3493,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   // is the walk's own env.
   env_rec := _gr_env_of(e, ctx);
   env := match(env_rec, .Some(en) => en, .None => ctx.env);
-  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), env, name.clone()), .None => get_variables_from_env(env, name.clone()));
+  vars := match(env_rec, .Some(_) => scope_variables_site("mutation_summary.yo:3496", ast_expr_id(e), env, name.clone()), .None => get_variables_from_env(env, name.clone()));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -3533,7 +3533,7 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
   });
   env_rec := _gr_env_of(f, ctx);
   env := match(env_rec, .Some(en) => en, .None => ctx.env);
-  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), env, name), .None => get_variables_from_env(env, name));
+  vars := match(env_rec, .Some(_) => scope_variables_site("mutation_summary.yo:3536", ast_expr_id(f), env, name), .None => get_variables_from_env(env, name));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -3569,7 +3569,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   if(fv.is_none() && ast_expr_is_atom(e), {
     name := ast_expr_token(e).value.clone();
     if(!name.is_empty(), {
-      vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), en, name), .None => get_variables_from_env(ctx.env, name));
+      vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables_site("mutation_summary.yo:3572", ast_expr_id(e), en, name), .None => get_variables_from_env(ctx.env, name));
       if(vars.len() > usize(0), {
         fv = match(vars.last(), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
       });

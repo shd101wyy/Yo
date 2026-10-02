@@ -95,7 +95,7 @@
   ast_expr_id,
   ast_expr_is_atom
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -131,7 +131,7 @@
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen_at, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
@@ -318,7 +318,7 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
             expr_info_deferred_dup_expressions(aei),
             .Some(dups) => if(dups.len() > usize(0), {
               generate_deferred_dup_expressions(arg, indent.clone(), context);
-              match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn, Option(Environment).Some(dei.env)), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
+              match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen_at_site("generation.yo:321", ast_expr_id(dup_expr), dvn, Option(Environment).Some(dei.env)), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
             }, arg_code),
             .None => arg_code
           ),
@@ -481,7 +481,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     match(
       context.base.get_expr_info(callee),
       .Some(cei) => {
-        already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(callee), vn, Option(Environment).Some(cei.env))), .None => false);
+        already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at_site("generation.yo:484", ast_expr_id(callee), vn, Option(Environment).Some(cei.env))), .None => false);
         if(!already_var, {
           callee_type := get_type_string(cei.ty, context.base);
           temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
@@ -562,14 +562,14 @@ _materialize_owned_rc_comptime_value :: (
   // Only shapes that actually malloc need an owner (see the predicate's doc).
   if(!comptime_value_allocates_rc_object(value, ei.ty), return(comptime_code));
   if(!is_temp_variable_name(ei.env.module_path, var_name), return(comptime_code));
-  vars := scope_variables(key, ei.env, var_name.clone());
+  vars := scope_variables_site("generation.yo:565", key, ei.env, var_name.clone());
   is_owning := match(
     vars.last(),
     .Some(v) => v.is_owning_the_rc_value,
     .None => false
   );
   if(!is_owning, return(comptime_code));
-  c_name := get_variable_name_for_codegen_at(key, var_name.clone(), Option(Environment).Some(ei.env));
+  c_name := get_variable_name_for_codegen_at_site("generation.yo:572", key, var_name.clone(), Option(Environment).Some(ei.env));
   line := indent.clone();
   line.push_string(get_variable_type_string(ei.ty, c_name.clone(), context.base));
   line.push_str(" = ");
@@ -603,7 +603,7 @@ _generate_comptime_binding :: (fn(expr : AstExpr, indent : String, context : Fun
     return(String.new());
   });
   env_opt := match(context.base.get_expr_info(expr), .Some(bei) => Option(Environment).Some(bei.env), .None => Option(Environment).None);
-  name := get_variable_name_for_codegen_at(ast_expr_id(expr), ast_expr_token(lhs).value, env_opt);
+  name := get_variable_name_for_codegen_at_site("generation.yo:606", ast_expr_id(expr), ast_expr_token(lhs).value, env_opt);
   code := _call_generate_expr(rhs, indent.clone(), context);
   if(code.trim().len() == usize(0), {
     return(String.new());

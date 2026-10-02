@@ -6,8 +6,8 @@
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution, scope_variables } :: import("../../expr_info.yo");
-{ type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_variables_site } :: import("../../expr_info.yo");
+{ type_key, get_variable_name_for_codegen_at, get_variable_name_for_codegen_at_site, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
@@ -46,7 +46,7 @@ _resolve_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGen
 check_variable_is_closure_captured :: (
   fn(key : ExprId, variable_name : String, env : Environment, closure_capture_frame_level : usize) -> bool
 )({
-  variables := scope_variables(key, env, variable_name.clone());
+  variables := scope_variables_site("closures.yo:49", key, env, variable_name.clone());
   n := variables.len();
   cond(
     (n == usize(0)) => false,
@@ -231,7 +231,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
                 local_c := sanitize_for_c_identifier(label.clone(), false);
-                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
+                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at_site("closures.yo:234", ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
               }
             )
           )
@@ -246,7 +246,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // naming it is emitted.
     temp := match(
       ei.variable_name,
-      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), cvn, Option(Environment).Some(ei.env)),
+      .Some(cvn) => get_variable_name_for_codegen_at_site("closures.yo:249", ast_expr_id(expr), cvn, Option(Environment).Some(ei.env)),
       .None => {
         t := String.from("__capture_");
         t.push_string(fid.clone());
@@ -332,7 +332,7 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, name : String, env : Enviro
   if(!captured, {
     return(Option(String).None);
   });
-  field := get_variable_name_for_codegen_at(key, name, Option(Environment).Some(env));
+  field := get_variable_name_for_codegen_at_site("closures.yo:335", key, name, Option(Environment).Some(env));
   Option(String).Some(
     match(
       context.current_closure_capture_type_c_name,
