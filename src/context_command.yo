@@ -1495,7 +1495,8 @@ _run_context_doc :: (fn(query : String, as_json : bool, io : Io, exn : Exception
     o := JsonValue.object();
     o.insert(String.from("name"), _jstr(name.clone()));
     o.insert(String.from("title"), _jstr(_doc_title(content.clone())));
-    o.insert(String.from("version"), _jstr(String.from(CURRENT_YO_VERSION)));
+    // The same citation the text header carries (`yo X.Y.Z — doc: NAME`).
+    o.insert(String.from("citation"), _jstr(`yo ${String.from(CURRENT_YO_VERSION)} — doc: ${name}`));
     o.insert(String.from("content"), _jstr(content));
     println(json.stringify(o));
     return(());

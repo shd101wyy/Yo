@@ -59,7 +59,7 @@ yo 0.2.40 — pack-version: 1
 ```bash
 yo context --docs                  # 列出全部手册，每行一个：NAME — 标题
 yo context --doc MEMORY_SAFETY     # 输出某本手册（不区分大小写，.md 可省略）
-yo context --doc memory_safety.md --format json   # {"name", "title", "version", "content"}
+yo context --doc memory_safety.md --format json   # {"name", "title", "citation", "content"}
 ```
 
 `--doc` 的输出以引用头开始（`yo 0.2.49 — doc: MEMORY_SAFETY`），与上下文包相同。

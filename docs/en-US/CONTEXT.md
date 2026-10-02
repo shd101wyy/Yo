@@ -68,7 +68,7 @@ not whatever the repository's `develop` branch says today:
 ```bash
 yo context --docs                  # every manual, one line each: NAME — title
 yo context --doc MEMORY_SAFETY     # print one (case-insensitive, .md optional)
-yo context --doc memory_safety.md --format json   # {"name", "title", "version", "content"}
+yo context --doc memory_safety.md --format json   # {"name", "title", "citation", "content"}
 ```
 
 `--doc` output starts with a citation header (`yo 0.2.49 — doc: MEMORY_SAFETY`),
