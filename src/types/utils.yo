@@ -2246,6 +2246,9 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
 });
 _literally_same_at :: (fn(a : TypeValue, b : TypeValue, depth : usize) -> bool)(
   cond(
+    // The common case is one object: hash-consing shares equal subtrees, and
+    // substitution reuses a field's result for its twin argument.
+    __yo_ptr_eq(a, b) => true,
     (depth > usize(4)) => false,
     true => match(
       a,
@@ -2258,7 +2261,12 @@ _literally_same_at :: (fn(a : TypeValue, b : TypeValue, depth : usize) -> bool)(
       ),
       .EnumT({ id : aeid, type_arguments : aeta }) => match(
         b,
-        .EnumT({ id : beid, type_arguments : beta }) => ((aeid == beid) && _literally_same_args(aeta, beta, depth)),
+        // A recursive enum's SELF SHELL (`<id>__self_shell`, enum.yo) is
+        // the enum itself: `Option(Self)` inside `TypeValue` carries the
+        // shell as its argument and the final in its field. Missing that
+        // sent ~450k occurs checks through `TypeValue`'s whole variant
+        // list per self-emit (measured).
+        .EnumT({ id : beid, type_arguments : beta }) => ((aeid.replace(String.from("__self_shell"), String.from("")) == beid.replace(String.from("__self_shell"), String.from(""))) && _literally_same_args(aeta, beta, depth)),
         _ => false
       ),
       _ => false

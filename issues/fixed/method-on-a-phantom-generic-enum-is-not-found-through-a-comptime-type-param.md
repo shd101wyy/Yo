@@ -120,13 +120,20 @@ level. Fixes:
   difference is already in the fields.
 - `type_key`'s occurs check takes the same shortcut first.
 
+A second, smaller cost was in codegen: emit was 4% slower (67.8 s to
+70.5 s). `type_key`'s phantom check missed `Option(Self)` inside a recursive
+enum. The argument is the enum's self shell (`<id>__self_shell`), while the
+field holds the final type. So ~450k occurs checks per self-emit walked
+`TypeValue`'s whole variant list. `types_literally_same` now treats a shell and
+its final as one type, and compares by reference first.
+
 After, on the same machine and session as develop:
 
 | | develop | this fix |
 | --- | --- | --- |
 | `yo check ./src` | 136.4 s | 136.1 s |
 | `yo test tests/internal/verifier_match.test.yo` | 153.2 s | 153.7 s |
-| `yo compile src/main.yo --skip-c-compiler` | 208.0 s | 209.9 s |
+| `yo compile src/main.yo --skip-c-compiler`, by phase (mean of 3 interleaved pairs, rebased on #1113) | evaluation 124.2 s, collect 16.8 s, emit 68.1 s | evaluation 123.5 s, collect 16.9 s, emit 68.5 s |
 
 The emitted C for develop's `src/main.yo` is byte-identical.
 
