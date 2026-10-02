@@ -151,3 +151,12 @@ Phase 3 would later extend the proved-site table to std's own callers.
     callee's `ensures`;
   - the oracle passes 80/80, `valid/dml_list_get.yo` included;
   - the ASan run of the proved fixture prints the right values.
+- **Microbenchmark (design §4 step 3), measured 2026-10-03 on the shared WSL2
+  box:** a verified `sum_list` over a 1,000,000-element `ArrayList(u64)`,
+  400 passes (4×10^8 reads), `--optimize 2`. Both guards in the loop elide:
+  the `xs(i)` bounds check and the `i + 1` overflow check. The best of 7
+  interleaved runs is 0.172 s with `--no-guard-elision` and 0.174 s
+  elided, which is noise. That matches SAFE_MODE §8's 5a finding: clang
+  already proves the length test redundant with the loop condition
+  `i < xs.len()` once `index` is inlined. As 5b §1 says, the value here is
+  the proved/unproved census strict mode needs, not speed.
