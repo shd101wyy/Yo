@@ -400,7 +400,7 @@ cd npm && node -e "require('.').transform('hello').then(console.log)"
   和同名 `.wasm`，`-o out.wasm` 生成独立模块。不带扩展名时，Emscripten 构建写出
   `out.html` + `out.js` + `out.wasm`，WASI 构建写出 `out.wasm`。无法识别的扩展名
   （如 `-o out.bin`）即使在 `--target wasm32-wasip1` 下也会得到 JavaScript，并在很久之后
-  有程序试图执行它时才以 `permission denied` 失败。用 `file <artifact>` 检查。
+  有程序试图执行它时才以 `permission denied` 失败。用 `file <artifact>` 检查（`issues/a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`）。
 - **wasm 产物不是可执行文件。** WASI 模块在 `wasmtime` 下运行，它默认拒绝一切访问：
   用 `--dir` 逐个授权目录，用 `--env` 传入环境变量。Emscripten 胶水代码用 `node` 运行。
 - **WASI 与 POSIX 的 errno 值不同。** 使用 `std/libc/errno` 中的常量，或 `std/sys/errors`

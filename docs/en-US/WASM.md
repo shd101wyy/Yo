@@ -428,7 +428,8 @@ The native and the WASI build both print `HELLO_WASM`.
   `out.wasm` and a WASI build writes `out.wasm`. An unrecognized extension such
   as `-o out.bin` is JavaScript even under `--target wasm32-wasip1`, and fails
   much later as `permission denied` when something tries to execute it. Check
-  with `file <artifact>`.
+  with `file <artifact>`
+  (`issues/a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`).
 - **A wasm artifact is not an executable.** Run WASI under `wasmtime`, which
   denies everything by default: grant each directory with `--dir` and pass
   environment variables with `--env`. Run Emscripten glue with `node`.

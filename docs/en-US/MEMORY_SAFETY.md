@@ -119,7 +119,7 @@ Use cases:
 `ArrayList(T)`, `HashMap(K, V)`, `String`, and friends all carry raw pointers in their internal representation. They are safe to use because the implementation hides the pointer:
 
 1. **No public method has `*(T)` in its signature.** Methods take and return safe types only.
-2. **All indexing is bounds-checked.** `s(i)` on a `str`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
+2. **All indexing is bounds-checked.** `s.bytes(i)` on a `str`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on out-of-bounds. The pointer arithmetic that backs them lives inside `unsafe(...)` blocks with verified bounds invariants.
 3. **No raw construction.** You can't build an `ArrayList(T)` with an arbitrary pointer; the constructors are safe.
 
 The language also closes the **dangling-view hole** that other languages with raw-pointer abstractions have to manage by hand, by construction:
