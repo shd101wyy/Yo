@@ -6,7 +6,7 @@ bodies before the module's ExprInfo table is dropped.
 
 **Found:** 2026-10-02, bisecting why `check src/main.yo` takes ~135 s on
 develop when #951 measured 102.8 s. The larger step in that history is
-`issues/a-type-arguments-own-resolution-makes-every-return-type-re-substitute-and-re-intern.md`
+`issues/fixed/substitute-walks-a-shared-type-as-a-tree.md`
 (#975, +16%).
 
 #1113 is a correctness fix: without the summaries, Rule D1's reach walk and

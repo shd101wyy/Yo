@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 180 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 179 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 47 | 6 |
-| **Total** | **180** | **27** |
+| Other | 46 | 6 |
+| **Total** | **179** | **27** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 25 |
 | S2 | 83 |
-| S3 | 70 |
+| S3 | 69 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -330,7 +330,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (47)
+### Other (46)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -339,7 +339,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
-| [`a-type-arguments-own-resolution-makes-every-return-type-re-substitute-and-re-intern.md`](./a-type-arguments-own-resolution-makes-every-return-type-re-substitute-and-re-intern.md) | S3 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
