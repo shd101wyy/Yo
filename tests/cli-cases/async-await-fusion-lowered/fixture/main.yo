@@ -7,7 +7,7 @@ one_await :: (fn(io : Io, n : i32) -> Impl(Future(i32)))({
   m := (n + i32(1));
   io.async((e : Io) => {
     r := e.await(leaf(e, m), e);
-    (r + i32(1))
+    r + i32(1)
   })
 });
 // Two awaiting statements.
@@ -15,7 +15,7 @@ two_awaits :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   io.async((e : Io) => {
     a := e.await(leaf(e, n), e);
     b := e.await(leaf(e, a), e);
-    (a + b)
+    a + b
   })
 );
 // The await is an operand, not a statement.
@@ -72,7 +72,7 @@ driver :: (fn(io : Io) -> Impl(Future(i32)))(
     m := e.await(arm_mentions_bundle(e, i32(8)), e);
     f := leaf(e, i32(5));
     g := e.await(f, e);
-    ((((((((a + b) + c) + d) + g) + h) + k) + m) + h)
+    a + b + c + d + g + h + k + m + h
   })
 );
 main :: (fn(io : Io) -> unit)({
