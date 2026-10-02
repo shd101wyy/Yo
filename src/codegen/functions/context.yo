@@ -10,7 +10,7 @@
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
-{ CodeGenContext } :: import("../utils/index.yo");
+{ CodeGenContext, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { SmUnwindCatch } :: import("../exprs/async_completion.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
@@ -332,7 +332,7 @@ resolve_var_name_in_context :: (
               // See issues/fixed/fixpoint-linux-only-capture-field-numeric-name.md.
               result = match(
                 cv.kind,
-                .Outer => `sm->__capture.${cv.base.name.clone()}`,
+                .Outer => `sm->__capture.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
                 .Local => `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`
               );
             })

@@ -2515,6 +2515,19 @@ test("locals named after Windows macros survive codegen", {
   });
   assert(small == i32(5), "windows-macro-named locals must behave as plain locals");
 });
+// issues/fixed/emitted-c-identifiers-collide-with-header-macros.md: a Yo name is
+// emitted under a reserved prefix, so a macro any included header defines
+// (`<stdio.h>`'s `EOF`/`BUFSIZ`, which the runtime includes on every target)
+// cannot replace a local, a parameter or a field.
+HeaderMacroNamed :: struct(EOF : i32, BUFSIZ : i32);
+_header_macro_param :: (fn(EOF : i32, FILENAME_MAX : i32) -> i32)(EOF + FILENAME_MAX);
+test("locals, parameters and fields named after header macros are plain names", {
+  EOF := i32(1);
+  (BUFSIZ : i32) = i32(2);
+  h := HeaderMacroNamed(EOF : EOF, BUFSIZ : BUFSIZ);
+  assert((h.EOF + h.BUFSIZ) == i32(3), "fields named EOF and BUFSIZ hold their values");
+  assert(_header_macro_param(i32(3), i32(4)) == i32(7), "parameters named EOF and FILENAME_MAX hold their values");
+});
 LowAlignPayload :: enum(
   Small(a : u8, b : u8, c : u8, d : u8),
   Wide(segments : Array(u16, 8))

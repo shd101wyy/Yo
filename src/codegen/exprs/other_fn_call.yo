@@ -533,9 +533,10 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         // liveness signal (declared_c_var_names is monotonic across closed
         // sibling blocks — see scope_stack_contains); the in-scope
         // local/param holds the same value, so reuse it.
-        already_in_scope := scope_stack_contains(context.base.declared_scopes, vname.clone());
+        vname_c := sanitize_for_c_identifier(vname.clone(), false);
+        already_in_scope := scope_stack_contains(context.base.declared_scopes, vname_c.clone());
         (emitted : bool) = false;
-        if(!(arg_code == vname) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
+        if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
           if(!(arg_code == sanitized), {
             line := indent.clone();
             line.push_string(get_variable_type_string(arg_ei.ty, vname.clone(), context.base));

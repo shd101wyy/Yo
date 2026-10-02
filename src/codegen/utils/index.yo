@@ -1013,13 +1013,33 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
     });
     i = (i + usize(1));
   });
-  if(!is_extern_c && _c_reserved_words.contains(sanitized), {
+  if(is_extern_c, {
+    return(sanitized);
+  });
+  // A Yo-derived name is emitted under the reserved prefix `__yo_v_`, which no
+  // header defines: any header a program or the runtime includes may define a
+  // lower-case macro (`<openssl/asn1.h>`'s `ub_name`), and a deny-list of them
+  // was one macro short twice
+  // (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
+  // Compiler-generated shapes keep their spelling, which also makes this
+  // idempotent: they begin with `_` (temps, `__yo_*`, this prefix) or are
+  // `fn_yo_id_…`, `yo_id_…`, `closure_yo_id_…` or a state-machine `var_…`.
+  if(!_is_compiler_shaped_identifier(sanitized), {
+    prefixed := String.from("__yo_v_");
+    prefixed.push_string(sanitized);
+    return(prefixed);
+  });
+  if(_c_reserved_words.contains(sanitized), {
     prefixed := String.from("__yo_c_reserved_");
     prefixed.push_string(sanitized);
     return(prefixed);
   });
   sanitized
 });
+/// A name the compiler generated, emitted as is (see sanitize_for_c_identifier).
+_is_compiler_shaped_identifier :: (fn(s : String) -> bool)(
+  s.starts_with("_") || (s.starts_with("fn_yo_id_") || (s.starts_with("yo_id_") || (s.starts_with("closure_yo_id_") || s.starts_with("var_"))))
+);
 /// Check if a type should avoid the `const` qualifier even when not mutable.
 /// Object types need this so reference-counting operations remain legal.
 should_avoid_const :: (fn(t : TypeValue) -> bool)(

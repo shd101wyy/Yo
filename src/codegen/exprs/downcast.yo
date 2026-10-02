@@ -244,7 +244,9 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       out.push_string(option_c_name.clone());
       out.push_str("){ .tag = ");
       out.push_string(some_tag);
-      out.push_str(", .data = { .Some = { .value = ");
+      out.push_str(", .data = { .Some = { .");
+      out.push_string(sanitize_for_c_identifier(String.from("value"), false));
+      out.push_str(" = ");
       out.push_string(cast_expr);
       out.push_str(" } } } : (");
       out.push_string(option_c_name);

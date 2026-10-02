@@ -47,7 +47,8 @@
   get_enum_variant_c_name,
   can_optimize_as_nullable_pointer,
   get_deferred_drop_target_atom_name,
-  fresh_local_name
+  fresh_local_name,
+  sanitize_for_c_identifier
 } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -105,7 +106,7 @@ resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionG
             is_outer := match(cv.kind, .Outer => true, _ => false);
             if((cv.base.name == field_label) && is_outer, {
               o := String.from("sm->__capture.");
-              o.push_string(field_label.clone());
+              o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
               return(Option(String).Some(o));
             });
           },
@@ -200,7 +201,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_ty
                 is_outer := match(cv.kind, .Outer => true, _ => false);
                 if((cv.base.name == flbl) && is_outer, {
                   o := String.from("sm->__capture.");
-                  o.push_string(flbl.clone());
+                  o.push_string(sanitize_for_c_identifier(flbl.clone(), false));
                   member_code = Option(String).Some(o);
                   go = false;
                 });
@@ -531,7 +532,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
   if(!is_result_unit, {
-    result_var := match(expr_ei.variable_name, .Some(n) => n, .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
+    result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
     result_type_str := get_type_string(result_type, context.base);
     var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
     if(has_algebraic_effects, {
@@ -595,7 +596,7 @@ generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
   name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
-  result_var := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("__io_state_result"));
+  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
   em.emit_string_line(`${indent.clone()}${get_type_string(future_type, context.base)} ${fut_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
@@ -662,13 +663,13 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   // `Option(T)` of a pointer or reference handle is the bare pointer (NULL =
   // `.None`, `can_optimize_as_nullable_pointer`): `.Some(v)` is `v` itself.
   jh_nullable := can_optimize_as_nullable_pointer(option_type).is_some();
-  some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = `);
+  some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
   unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
-  result_var := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("__jh_result"));
+  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => String.from("__jh_result"));
   header_struct_name := `__yo_jh_header_${unique_suffix.clone()}`;
   em.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
   var_decl := get_variable_type_string(option_type, result_var.clone(), context.base);
