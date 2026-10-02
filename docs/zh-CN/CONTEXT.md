@@ -12,6 +12,8 @@ yo context collections/array_list            # 某个模块的条目
 yo context collections/array_list ArrayList.push   # 某个条目的完整说明
 yo context push                              # 在整个语料中查找一个名字
 yo context --search hash                     # 排序搜索
+yo context --docs                            # 随附的手册
+yo context --doc MEMORY_SAFETY               # 某本手册，本版本的副本
 ```
 
 ## 上下文包
@@ -47,6 +49,27 @@ yo 0.2.40 — pack-version: 1
    该源码树的 `pack/`。
 
 如果都没有找到，命令会列出查找过的位置并以退出码 2 退出。
+
+## 手册
+
+上下文包会指向更深入的手册（GRAMMAR、DESIGN、MEMORY_SAFETY、ASYNC_AWAIT 等）。
+发行包把它们作为 `docs/en-US/` 与 `std/`、`pack/` 并列附带，所以 `yo context`
+输出的是与已安装工具链版本一致的副本，而不是仓库 `develop` 分支当前的内容：
+
+```bash
+yo context --docs                  # 列出全部手册，每行一个：NAME — 标题
+yo context --doc MEMORY_SAFETY     # 输出某本手册（不区分大小写，.md 可省略）
+yo context --doc memory_safety.md --format json   # {"name", "title", "version", "content"}
+```
+
+`--doc` 的输出以引用头开始（`yo 0.2.49 — doc: MEMORY_SAFETY`），与上下文包相同。
+未知的名字以退出码 1 结束，并给出最接近的名字。`--docs` 和 `--doc` 不能与其他查询
+同时使用，唯一接受的选项是 `--format json`。
+
+手册的查找方式与上下文包相同：`$YO_CONTEXT_DOCS`（显式目录，设置时具有权威性），
+然后是可执行文件旁的 `docs/en-US/`，再然后是工作目录旁的。只有同时包含
+`GRAMMAR.md` 和 `DESIGN.md` 的 `docs/en-US/` 才算数，因此项目自己的
+`docs/en-US/` 不会被误认为手册。zh-CN 译文位于仓库的 `docs/zh-CN/` 下。
 
 ## 查询
 
