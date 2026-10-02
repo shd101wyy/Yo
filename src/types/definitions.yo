@@ -236,7 +236,12 @@ TypeValue :: ref(
       variant_field_labels : ArrayList(ArrayList(String)),
       variant_discriminants : ArrayList(i64),
       is_reference_semantics : bool,
-      is_atomic_rc : bool
+      is_atomic_rc : bool,
+      /// The arguments of the generic constructor call that minted this
+      /// enum (`Tag(i32)` -> `[i32]`); empty for a declaration. A phantom
+      /// parameter occurs in no variant field, so these are the only record
+      /// of it. `substitute` rewrites them like a Struct's `type_arguments`.
+      type_arguments : ArrayList(Self)
     ),
     Union(
       name : String,

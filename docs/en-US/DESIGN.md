@@ -2003,9 +2003,12 @@ transition, so two rules apply:
   name before the transition still has the old type. Keep a typestate handle
   in one name, the way `Iso(T)` keeps a uniquely owned value.
 
-The phantom parameter must currently be on a `ref(struct(...))`. A method on
-a phantom generic ENUM is not yet found through a `comptime(K) : Type`
-parameter (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+The phantom parameter can be on a `ref(struct(...))` or an `enum(...)`; a
+generic impl's methods are found on both, directly and through a
+`comptime(K) : Type` parameter
+(`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+A value enum is copied like a value struct, so the `own(...)` rule above
+needs the `ref` form.
 std's `File` and sockets keep their state at run time instead: they are
 shared RC handles by design.
 

@@ -555,7 +555,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Func({ result : _ }) => TypeTag.TFunction,
     // Source-namespace structs keep the TModule tag (TypeTag is internal).
     .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
-    .EnumT(_, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
     .SomeT(name : _) => TypeTag.TSomeType,
@@ -687,13 +687,12 @@ _patch_self_shell_guarded :: (
 )(
   match(
     t,
-    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => cond(
+    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments }) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
-      // too. Same as the `.Struct` branch below — EnumT has no separate
-      // type_arguments list, the instantiated element types live in the variant
-      // fields. Without this, the shell inside `Option(Self)` stays an empty
+      // too. Same as the `.Struct` branch below; the instantiation's
+      // `type_arguments` are carried over unchanged. Without this, the shell inside `Option(Self)` stays an empty
       // placeholder and `can_type_form_rc_cycle` never reaches back to the root.
       true => {
         tok := String.from("E:");
@@ -717,7 +716,7 @@ _patch_self_shell_guarded :: (
           new_vfs.push(new_inner);
           vi = (vi + usize(1));
         });
-        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc)
+        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments)
       }
     ),
     .Pointer(inner) => .Pointer(recur(inner, shell_id, final_ty, visited)),
@@ -786,7 +785,7 @@ register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
 resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .EnumT(eid, _, vns, _, _, _, _, _, _) => {
+    .EnumT(eid, _, vns, _, _, _, _, _, _, _) => {
       if(vns.len() > usize(0), {
         return(t);
       });
@@ -807,31 +806,6 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
     },
     _ => t
   )
-);
-// Enum instantiation type-argument side-table: `enum_id -> the type arguments
-// of the generic constructor call that minted it`, in constructor-parameter
-// order (`P(i32)` -> `[i32]`; a non-type argument records `unit`). The enum
-// analogue of `Struct.type_arguments`: `EnumT` has no such field, so — like
-// the enum cfid (value.yo) and the GADT tables — the fact lives beside the
-// type, keyed by id. CTFE mints a fresh enum id per instantiation
-// (enum.yo, `stable_type_id`), so the id names exactly one instantiation.
-// Without it, two instantiations whose variant payloads do not mention the
-// parameter (a phantom index, a GADT index that only `-> recur(...)` names)
-// are structurally identical and compared equal: `Value(i32)` flowed into a
-// `Value(bool)` binding
-// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-// The first registration wins: the innermost constructor that minted the
-// enum is the one whose parameters it is indexed by.
-(g_enum_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
-register_enum_type_arguments :: (fn(enum_id : String, args : ArrayList(TypeValue)) -> unit)({
-  if((enum_id.len() > usize(0)) && (args.len() > usize(0)) && !g_enum_type_args.contains_key(enum_id), {
-    _prev := g_enum_type_args.insert(enum_id, args);
-  });
-});
-/// The recorded type arguments of an enum instantiation (empty when the enum
-/// was not minted by a generic constructor call).
-lookup_enum_type_arguments :: (fn(enum_id : String) -> ArrayList(TypeValue))(
-  match(g_enum_type_args.get(enum_id), .Some(a) => a, .None => ArrayList(TypeValue).new())
 );
 // Struct finalization side-table: `struct_id -> finalized Struct`. During a
 // struct's own definition `Self` is bound to a PRELIMINARY empty-field shell
@@ -952,7 +926,6 @@ resolve_some_binder_kind :: (fn(name : String, lvl : usize) -> Option(TypeValue)
 );
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
-export(register_enum_type_arguments, lookup_enum_type_arguments);
 export(register_struct_final, resolve_struct_shell);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(

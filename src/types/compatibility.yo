@@ -12,9 +12,9 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type } :: import("./guards.yo");
-{ type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
+{ type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity, enum_arg_is_field_type } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -1110,13 +1110,13 @@ _compat_impl :: (
       }),
       _ => false
     ),
-    .EnumT(_, _, _, _, _, _, _, _, _) => match(
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => match(
       // Resolve empty-variant Self shells (enum.yo) to their finalized
       // forms before comparing — pointer/exact children otherwise see a
       // 0-variant shell vs the real enum (`*(JsonValue)` vs
       // `*(<enum:..__self_shell>)`, std/encoding/json.yo).
       resolve_enum_shell(actual),
-      .EnumT(aid, aname, avns, avfs, _, avls, _, _, _) => match(
+      .EnumT(aid, aname, avns, avfs, _, avls, _, _, _, a_eta) => match(
         resolve_enum_shell(expected),
         // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
         // ""-named reconstruction of the same enum). Under `require_exact`
@@ -1136,7 +1136,7 @@ _compat_impl :: (
         // batch residual). Shells are already resolved above
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
-        .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
+        .EnumT(eid, ename, evns, evfs, _, evls, _, _, _, e_eta) => cond(
         // Lenient mode: equal (or empty) names, EXCEPT when the variant
         // payloads disagree concretely — `Result(i32, AErr)` and
         // `Result(i32, BErr)` are both "Result" but carry different error
@@ -1149,19 +1149,13 @@ _compat_impl :: (
         // payload mentions the parameter — a phantom index, or a GADT
         // index named only by `-> recur(...)`: `Value(i32)` is not a
         // `Value(bool)` (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-        // The enum twin of the Struct arms' `type_arguments` checks, with
-        // one difference: the arguments live in a side table keyed by id
-        // (types/creators.yo), and substitution rewrites an instance's
-        // variant fields but keeps its id, so a substituted instance still
-        // reports its DEFINITION-era arguments (`*(T)` where the fields
-        // already say `*(u8)`). A position that mentions a SomeT anywhere
-        // (the deep scan — `*(T)` is not a top-level SomeT) is therefore a
-        // wildcard under both rules, as is a `Type`-kind position; the
-        // exact rule then compares the remaining positions exactly.
+        // The enum twin of the Struct arms' `type_arguments` checks. A
+        // position that mentions a SomeT anywhere (the deep scan — `*(T)`
+        // is not a top-level SomeT) is a wildcard under both rules, as is a
+        // `Type`-kind position; the exact rule then compares the remaining
+        // positions exactly.
         {
           (eta_differ : bool) = false;
-          a_eta := lookup_enum_type_arguments(aid);
-          e_eta := lookup_enum_type_arguments(eid);
           vkey_eta := (aid + String.from("=>eta") + eid);
           if((aid != eid) && (a_eta.len() > usize(0)) && (a_eta.len() == e_eta.len()) && !_visited_contains(visited, vkey_eta), {
             visited.push(vkey_eta);
@@ -1170,8 +1164,13 @@ _compat_impl :: (
               aet := match(a_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
               eet := match(e_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
               eta_kind := (match(aet, .TypeUni(_) => true, _ => false) || match(eet, .TypeUni(_) => true, _ => false));
-              eta_open := ((get_all_some_types(aet).len() > usize(0)) || (get_all_some_types(eet).len() > usize(0)));
-              if(!eta_kind && !eta_open && !recur(aet, eet, mode, visited), {
+              // An argument that is one of the variant field types is
+              // compared through that field already; only a phantom
+              // position needs the check (and the deep SomeT scan, which
+              // is expensive on a concrete argument).
+              eta_twin := (enum_arg_is_field_type(aet, avfs) && enum_arg_is_field_type(eet, evfs));
+              eta_open := (!eta_twin && ((get_all_some_types(aet).len() > usize(0)) || (get_all_some_types(eet).len() > usize(0))));
+              if(!eta_kind && !eta_twin && !eta_open && !recur(aet, eet, mode, visited), {
                 eta_differ = true;
               });
               etai = (etai + usize(1));

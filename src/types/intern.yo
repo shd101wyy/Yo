@@ -161,7 +161,7 @@ _ik_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
       o.push_str(")");
       o
     }, `S:${a_sid}`),
-    .EnumT(a_eid, _, _, _, _, _, _, _, _) => `E:${a_eid}`,
+    .EnumT(a_eid, _, _, _, _, _, _, _, _, _) => `E:${a_eid}`,
     .SomeT({ id : a_tid, resolution : a_res }) => match(
       a_res,
       .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(a_r, depth + usize(1))}`, `T:${a_tid}`),
@@ -336,7 +336,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
+      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, _) => {
         tok := String.from("E:");
         tok.push_string(eid);
         if(visited.contains(tok), {

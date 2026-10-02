@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
   type_implements_runtime_builtin,
   get_all_some_types,
   is_bound_closure_identity,
-  resolve_cell_chain
+  resolve_cell_chain,
+  enum_arg_is_field_type
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
@@ -1825,7 +1826,7 @@ type_contains_some_type_for_codegen_param :: (
   nominal_id := match(
     ty,
     .Struct({ id : sid }) => sid,
-    .EnumT(eid, _, _, _, _, _, _, _, _) => eid,
+    .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid,
     .Union(uname, _, _) => uname,
     _ => String.from("")
   );
@@ -1931,7 +1932,10 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    .EnumT(_, _, _, variant_fields, _, _, _, _, _) => {
+    // Enum: the variant fields, and the instantiation's type arguments, as
+    // for a Struct (a phantom `Tag(K)` mentions K in no field;
+    // issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+    .EnumT(_, _, _, variant_fields, _, _, _, _, _, en_targs) => {
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < variant_fields.len()) && !found, {
@@ -1945,6 +1949,20 @@ type_contains_some_type_for_codegen_param :: (
           vj = (vj + usize(1));
         });
         vi = (vi + usize(1));
+      });
+      (eti : usize) = usize(0);
+      while((eti < en_targs.len()) && !found, {
+        match(
+          en_targs.get(eti),
+          // An argument that is one of the variant field types was walked
+          // with the fields; walking it again doubled the work per nesting
+          // level. Only a phantom argument needs its own walk.
+          .Some(eta) => if(!enum_arg_is_field_type(eta, variant_fields) && recur(eta, checked_ids), {
+            found = true;
+          }),
+          .None => ()
+        );
+        eti = (eti + usize(1));
       });
       found
     },

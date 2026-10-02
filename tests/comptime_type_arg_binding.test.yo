@@ -86,3 +86,28 @@ test("A comptime type argument holding a resolved Impl specializes", {
   xs := ArrayList(Park).with_capacity_in(arena.allocator(), usize(0));
   assert(xs.len() == usize(0), "an ArrayList of Park in an explicit allocator");
 });
+
+// The enum twin: an enum's instantiation arguments live on `EnumT` itself
+// (they used to be in a side table that substitution left stale), so a
+// phantom `_PhantomTag(K)` defers its helper and specializes per instance.
+// issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md
+_PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+impl(generic(K : Type), _PhantomTag(K), code : (fn(self : Self) -> u8)(match(self, .A => u8(0), .B(n) => n)));
+_phantom_code :: (fn(comptime(K) : Type, t : _PhantomTag(K)) -> u8)(t.code());
+test("A method on a phantom generic enum resolves through a comptime type parameter", {
+  t := _PhantomTag(i32).B(n : u8(5));
+  assert(_phantom_code(i32, t) == u8(5), "enum");
+  u := _PhantomTag(bool).A;
+  assert(_phantom_code(bool, u) == u8(0), "a second instantiation");
+});
+// Each instantiation gets its own specialization, also when the method reads
+// the phantom parameter: the abstract and the concrete instances used to
+// share one key, and two concrete ones one structural C key.
+impl(generic(K : Type), _PhantomTag(K), width : (fn(self : Self) -> usize)(sizeof(K)));
+_phantom_width :: (fn(comptime(K) : Type, t : _PhantomTag(K)) -> usize)(t.width());
+test("A phantom generic enum's method that reads K specializes per instantiation", {
+  assert(_PhantomTag(i32).A.width() == usize(4), "direct, i32");
+  assert(_PhantomTag(u8).A.width() == usize(1), "direct, u8");
+  assert(_phantom_width(i64, _PhantomTag(i64).A) == usize(8), "through the helper, i64");
+  assert(_phantom_width(u16, _PhantomTag(u16).B(n : u8(1))) == usize(2), "through the helper, u16");
+});

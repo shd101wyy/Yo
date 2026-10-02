@@ -18,6 +18,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ type_to_string } :: import("../../types/string.yo");
 {
   has_any_control_flow,
   expr_info_case_executed,
@@ -2379,7 +2380,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
   if(!is_enum_type(enum_type), {
     return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
   });
-  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());
+  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(`"match" expression enum type ${type_to_string(enum_type)} has no C name (type key ${type_key(enum_type)})`)), .Some(_) => ());
   deref_star := if(is_ptr, String.from("*"), String.from(""));
   // Nullable-pointer optimization.
   match(can_optimize_as_nullable_pointer(enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, enum_type, nullable_inner, is_ptr, temp_var_opt, is_unit)), .None => ());

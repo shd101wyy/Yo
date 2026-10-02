@@ -12,7 +12,7 @@
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
-{ is_bound_closure_identity, resolve_cell_chain } :: import("./utils.yo");
+{ is_bound_closure_identity, resolve_cell_chain, enum_arg_is_field_type } :: import("./utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -177,7 +177,7 @@ _tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT(sh_eid, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
+    .EnumT(sh_eid, _, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
     .SomeT({ id : sh_tid }) => {
       sh_end := resolve_cell_chain(t);
       match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
@@ -185,6 +185,152 @@ _tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
     _ => type_to_string(t)
   )
 );
+/// Whether `needle` occurs in one of an enum's variant field types. The walk
+/// is structural and has no side effects. Rendering the argument's key to
+/// search the field keys instead touches the key walk's cycle guard, which
+/// made a key depend on the order types were keyed in. Nominal types and
+/// type variables compare by id, everything else by rendering.
+_tk_occurs_in_fields :: (fn(needle : TypeValue, vfs : ArrayList(ArrayList(TypeValue))) -> bool)({
+  // The common case first: the argument IS a field type (`Option(X)`).
+  if(enum_arg_is_field_type(needle, vfs), {
+    return(true);
+  });
+  (vi : usize) = usize(0);
+  while(vi < vfs.len(), {
+    row := match(vfs.get(vi), .Some(r) => r, .None => ArrayList(TypeValue).new());
+    (fi : usize) = usize(0);
+    while(fi < row.len(), {
+      match(
+        row.get(fi),
+        .Some(ft) => if(_tk_type_occurs(needle, ft, usize(0)), {
+          return(true);
+        }),
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    vi = (vi + usize(1));
+  });
+  false
+});
+_tk_same_node :: (fn(a : TypeValue, b : TypeValue) -> bool)(
+  match(
+    a,
+    .SomeT({ id : aid }) => match(b, .SomeT({ id : bid }) => (aid == bid), _ => false),
+    .Struct({ id : asid }) => match(b, .Struct({ id : bsid }) => (asid == bsid), _ => false),
+    .EnumT({ id : aeid }) => match(b, .EnumT({ id : beid }) => (aeid == beid), _ => false),
+    .Pointer(ap) => match(b, .Pointer(bp) => _tk_same_node(ap, bp), _ => false),
+    // A Dyn by its trait ids, as the key does: `type_to_string` spells a
+    // self-referential `Dyn(Error)` differently in different contexts.
+    .DynT({ required_trait_types : adr, negative_trait_types : adn }) => match(
+      b,
+      .DynT({ required_trait_types : bdr, negative_trait_types : bdn }) => ((_tk_trait_ids(adr) == _tk_trait_ids(bdr)) && (_tk_trait_ids(adn) == _tk_trait_ids(bdn))),
+      _ => false
+    ),
+    _ => match(
+      b,
+      .SomeT(_, _, _, _, _, _, _, _, _, _, _) => false,
+      .Struct(_, _, _, _, _, _, _, _, _, _) => false,
+      .EnumT(_, _, _, _, _, _, _, _, _, _) => false,
+      .Pointer(_) => false,
+      .DynT(_, _, _, _) => false,
+      _ => (type_to_string(a) == type_to_string(b))
+    )
+  )
+);
+_tk_trait_ids :: (fn(ts : ArrayList(TypeValue)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < ts.len(), {
+    match(
+      ts.get(i),
+      .Some(.TraitT({ id : tid })) => {
+        out.push_str("|");
+        out.push_string(tid);
+      },
+      .Some(other) => {
+        out.push_str("|");
+        out.push_string(type_to_string(other));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+_tk_type_occurs :: (fn(needle : TypeValue, hay : TypeValue, depth : usize) -> bool)({
+  if(_tk_same_node(needle, hay), {
+    return(true);
+  });
+  if(depth > usize(6), {
+    return(false);
+  });
+  children := ArrayList(TypeValue).new();
+  match(
+    hay,
+    .Pointer(p) => children.push(p),
+    .Array(el, _, _) => children.push(el),
+    .IsoT(c) => children.push(c),
+    .ComptimeListT(c) => children.push(c),
+    .Tuple(_, tfs) => {
+      (ti : usize) = usize(0);
+      while(ti < tfs.len(), {
+        match(tfs.get(ti), .Some(x) => children.push(x), .None => ());
+        ti = (ti + usize(1));
+      });
+    },
+    .Struct({ field_types : sfts, type_arguments : stas }) => {
+      (si : usize) = usize(0);
+      while(si < stas.len(), {
+        match(stas.get(si), .Some(x) => children.push(x), .None => ());
+        si = (si + usize(1));
+      });
+      (sj : usize) = usize(0);
+      while(sj < sfts.len(), {
+        match(sfts.get(sj), .Some(x) => children.push(x), .None => ());
+        sj = (sj + usize(1));
+      });
+    },
+    .EnumT({ variant_fields : evf, type_arguments : etas }) => {
+      (ei : usize) = usize(0);
+      while(ei < etas.len(), {
+        match(etas.get(ei), .Some(x) => children.push(x), .None => ());
+        ei = (ei + usize(1));
+      });
+      (er : usize) = usize(0);
+      while(er < evf.len(), {
+        erow := match(evf.get(er), .Some(r) => r, .None => ArrayList(TypeValue).new());
+        (ec : usize) = usize(0);
+        while(ec < erow.len(), {
+          match(erow.get(ec), .Some(x) => children.push(x), .None => ());
+          ec = (ec + usize(1));
+        });
+        er = (er + usize(1));
+      });
+    },
+    .Func({ param_types : fps, result : fres }) => {
+      (pi : usize) = usize(0);
+      while(pi < fps.len(), {
+        match(fps.get(pi), .Some(x) => children.push(x), .None => ());
+        pi = (pi + usize(1));
+      });
+      children.push(fres);
+    },
+    _ => ()
+  );
+  (ci : usize) = usize(0);
+  while(ci < children.len(), {
+    match(
+      children.get(ci),
+      .Some(c) => if(_tk_type_occurs(needle, c, depth + usize(1)), {
+        return(true);
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  false
+});
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
@@ -393,6 +539,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       evds := match(rs, .EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
       evfls := match(rs, .EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
+      etas := match(rs, .EnumT({ type_arguments : rtas }) => rtas, _ => ArrayList(TypeValue).new());
       // Cycle guard (see g_tk_visited): an enum id already on the expansion
       // path renders id-only rather than re-expanding its variant fields.
       if((eid.len() > usize(0)) && _tk_seen(eid), {
@@ -474,8 +621,34 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           );
           vi = (vi + usize(1));
         });
-        // Full key = id-based (UNCHANGED behavior). This is what a single,
-        // first-seen enum gets.
+        // A PHANTOM type argument joins the key and the structural signature:
+        // `Tag(i32)` and `Tag(bool)` of `Tag(K) :: enum(A, B(n : u8))` have
+        // identical variants, and so does the abstract `Tag(K)` a generic
+        // helper is checked against. Sharing one key gave a method one
+        // specialization for all of them, so a helper called the abstract
+        // instance's spec (never emitted) and a method reading `K` returned
+        // one instantiation's answer for all
+        // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+        // An argument that occurs in a variant field is already in the key
+        // through that field, so it is left out: every non-phantom enum keeps
+        // its key, and the structural dedup that unifies the synthetic
+        // `Option` (`rc_fns.yo`, no arguments) with real `Option(T)` instances
+        // still holds.
+        (eti : usize) = usize(0);
+        while(eti < etas.len(), {
+          match(
+            etas.get(eti),
+            // `unit` and `Type` slots are value-erased (a comptime VALUE
+            // argument), as in the Struct arm.
+            .Some(eta) => if(!(is_unit_type(eta) || is_type_hierarchy_type(eta)) && !_tk_occurs_in_fields(eta, evfs), {
+              field_part.push_str("_ta");
+              field_part.push_string(recur(eta, depth + usize(1)));
+            }),
+            .None => ()
+          );
+          eti = (eti + usize(1));
+        });
+        // Full key = id-based. This is what a single, first-seen enum gets.
         key := eid.clone();
         key.push_string(field_part);
         // Reference-semantics enums keep the id-based key verbatim (no structural
@@ -668,7 +841,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       match(
         t,
         .Struct({ id : cut_sid }) => cut_sid.clone(),
-        .EnumT(cut_eid, _, _, _, _, _, _, _, _) => cut_eid.clone(),
+        .EnumT(cut_eid, _, _, _, _, _, _, _, _, _) => cut_eid.clone(),
         _ => type_to_string(t)
       )
     );

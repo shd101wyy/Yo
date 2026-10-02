@@ -1659,7 +1659,9 @@ _find_specialization_cache :: (
                           // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
                           ck_tyargs := ArrayList(TypeValue).new();
                           _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
-                          ck_has_args := match(cached_ty, .Struct({ type_arguments : ck_tas }) => (ck_tas.len() > usize(0)), _ => false);
+                          // An enum instantiation too: a phantom `Tag(K)`'s
+                          // abstract instance is compat-equal to `Tag(i32)`.
+                          ck_has_args := match(cached_ty, .Struct({ type_arguments : ck_tas }) => (ck_tas.len() > usize(0)), .EnumT({ type_arguments : ck_etas }) => (ck_etas.len() > usize(0)), _ => false);
                           if((ck_tyargs.len() > usize(0)) || ck_has_args, {
                             if(!(type_key(cached_ty) == type_key(current_ty)), {
                               rt_match = false;

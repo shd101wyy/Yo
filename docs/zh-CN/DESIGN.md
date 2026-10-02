@@ -1946,9 +1946,10 @@ export(main);
   带着旧类型。把类型状态句柄只保存在一个名字里，就像 `Iso(T)` 保持唯一所有权
   的值一样。
 
-幻影参数目前必须放在 `ref(struct(...))` 上。幻影泛型**枚举**上的方法目前还无法
-通过 `comptime(K) : Type` 参数找到
-（`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
+幻影参数可以放在 `ref(struct(...))` 或 `enum(...)` 上；泛型 impl 的方法在两者上都能找到，
+无论直接调用还是经由 `comptime(K) : Type` 参数
+（`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
+值枚举会像值结构体一样被复制，所以上面的 `own(...)` 规则需要 `ref` 形式。
 std 的 `File` 与套接字则在运行时保存状态：它们按设计是共享的 RC 句柄。
 
 ## C union

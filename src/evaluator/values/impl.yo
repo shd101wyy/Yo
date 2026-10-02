@@ -738,7 +738,7 @@ _root_shape_class :: (fn(t : TypeValue) -> i32)(
       (name.len() == usize(0)) => i32(0),
       true => i32(1)
     ),
-    .EnumT(_, en_name, _, _, _, _, _, _, _) => cond(
+    .EnumT(_, en_name, _, _, _, _, _, _, _, _) => cond(
       (en_name.len() == usize(0)) => i32(0),
       true => i32(2)
     ),
@@ -758,7 +758,7 @@ _root_shape_name :: (fn(t : TypeValue) -> String)(
   match(
     t,
     .Struct({ name }) => name,
-    .EnumT(_, en_name, _, _, _, _, _, _, _) => en_name,
+    .EnumT(_, en_name, _, _, _, _, _, _, _, _) => en_name,
     _ => String.from("")
   )
 );
@@ -834,8 +834,10 @@ _bind_forall_from_type_args :: (
 )({
   fa_name := match(fa_some, .SomeT({ name }) => name, _ => return(Option(TypeValue).None));
   fa_lvl := match(fa_some, .SomeT({ frame_level }) => frame_level, _ => return(Option(TypeValue).None));
-  pat_ta := match(pattern, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
-  con_ta := match(concrete, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
+  // A struct's or an enum's instantiation arguments (a phantom `Tag(K)`
+  // mentions K in no variant field).
+  pat_ta := match(pattern, .Struct({ type_arguments : ta }) => ta, .EnumT({ type_arguments : eta }) => eta, _ => ArrayList(TypeValue).new());
+  con_ta := match(concrete, .Struct({ type_arguments : ta }) => ta, .EnumT({ type_arguments : eta }) => eta, _ => ArrayList(TypeValue).new());
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     (bfta_s : String) = String.from("");
     (bfta_i : usize) = usize(0);

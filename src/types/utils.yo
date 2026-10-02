@@ -1131,7 +1131,7 @@ _collect_some_types_into :: (
         i = (i + usize(1));
       });
     },
-    .EnumT(en_id, _, _, vfs, _, _, _, _, _) => {
+    .EnumT(en_id, _, _, vfs, _, _, _, _, _, _) => {
       // Cycle guard — see the Struct arm above.
       if(_id_already_visited(visited_ids, en_id), {
         return(());
@@ -2244,6 +2244,70 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _repr_memo_reset();
   _type_provides_slice_source(ty, usize(1024))
 });
+_literally_same_at :: (fn(a : TypeValue, b : TypeValue, depth : usize) -> bool)(
+  cond(
+    (depth > usize(4)) => false,
+    true => match(
+      a,
+      .SomeT({ id : aid }) => match(b, .SomeT({ id : bid }) => (aid == bid), _ => false),
+      .Pointer(ap) => match(b, .Pointer(bp) => _literally_same_at(ap, bp, depth + usize(1)), _ => false),
+      .Struct({ id : asid, type_arguments : ata }) => match(
+        b,
+        .Struct({ id : bsid, type_arguments : bta }) => ((asid == bsid) && _literally_same_args(ata, bta, depth)),
+        _ => false
+      ),
+      .EnumT({ id : aeid, type_arguments : aeta }) => match(
+        b,
+        .EnumT({ id : beid, type_arguments : beta }) => ((aeid == beid) && _literally_same_args(aeta, beta, depth)),
+        _ => false
+      ),
+      _ => false
+    )
+  )
+);
+_literally_same_args :: (fn(a : ArrayList(TypeValue), b : ArrayList(TypeValue), depth : usize) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    if(!_literally_same_at(match(a.get(i), .Some(x) => x, .None => TypeValue.Unit), match(b.get(i), .Some(y) => y, .None => TypeValue.Unit), depth + usize(1)), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// Whether `a` and `b` are literally one type: the same type variable (by
+/// id), or the same nominal instance (by id and, recursively, the same type
+/// arguments), through pointers. Cheap and shallow, with no structural
+/// compatibility; anything else answers false. Used to tell an enum's type
+/// argument that IS one of its variant field types from a phantom one
+/// (substitution.yo, compatibility.yo).
+types_literally_same :: (fn(a : TypeValue, b : TypeValue) -> bool)(_literally_same_at(a, b, usize(0)));
+/// Whether an enum's type argument is literally one of its variant field
+/// types (`Option(X)`'s `value : X`). Such an argument is compared and
+/// substituted through that field; only a phantom one needs its own walk.
+enum_arg_is_field_type :: (fn(arg : TypeValue, vfs : ArrayList(ArrayList(TypeValue))) -> bool)({
+  (vi : usize) = usize(0);
+  while(vi < vfs.len(), {
+    row := match(vfs.get(vi), .Some(r) => r, .None => ArrayList(TypeValue).new());
+    (fi : usize) = usize(0);
+    while(fi < row.len(), {
+      match(
+        row.get(fi),
+        .Some(ft) => if(_literally_same_at(arg, ft, usize(0)), {
+          return(true);
+        }),
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    vi = (vi + usize(1));
+  });
+  false
+});
+export(types_literally_same, enum_arg_is_field_type);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
@@ -2432,7 +2496,7 @@ _decl_id_of :: (fn(t : TypeValue) -> String)(
   match(
     t,
     .Struct({ id : sid }) => sid.clone(),
-    .EnumT(eid, _, _, _, _, _, _, _, _) => eid.clone(),
+    .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid.clone(),
     .Union(uname, _, _) => uname.clone(),
     _ => String.new()
   )

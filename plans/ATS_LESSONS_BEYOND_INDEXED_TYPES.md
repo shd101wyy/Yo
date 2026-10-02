@@ -15,7 +15,7 @@ the seed, or a cited file.
 | A3 spec-transparent pure fns | done: slice 1 (#1075); slice 2 (`feat/verifier-distinct`): a recursive callee is transparent only with `decreases` (without it, an S1: `issues/fixed/a-transparent-callee-that-recurses-without-decreases-proves-anything.md`), and the subset error names the missing property |
 | A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |
 | A5 lexicographic `decreases` | done (#1075) |
-| A6 typestate idiom | docs done (#1075); its S3 (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |
+| A6 typestate idiom | done: docs (#1075); its S3 fixed (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`, `fix/enum-type-arguments`) |
 
 ## 0. The verdict
 
@@ -182,8 +182,8 @@ sound when the handle is a `ref` type passed with `own(...)`. The move makes
 the old state unusable (E0901). A value-struct handle is copied, so the
 closed state is still readable. Document the idiom with that rule in
 `docs/*/DESIGN.md` (both languages). Fix the open phantom-enum method
-lookup (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`,
-S3), which is the one thing standing in its way. std adoption (`File`,
+lookup (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`,
+S3, fixed 2026-10-02), which is the one thing standing in its way. std adoption (`File`,
 sockets) is **not** proposed: those handles alias by design (RC), and
 runtime state already guards them.
 

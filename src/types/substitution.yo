@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
 { t_dyn } :: import("./creators.yo");
-{ resolve_cell_chain } :: import("./utils.yo");
+{ resolve_cell_chain, types_literally_same, type_contains_some_type } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
@@ -295,11 +295,11 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
     return(false);
   });
   from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => TypeValue.Unit);
-  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _) => fe, _ => String.new());
+  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _, _) => fe, _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -402,6 +402,42 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
     mli = (mli + usize(1));
   });
   masked
+});
+/// The substituted twin of `arg` when `arg` is literally one of the variant
+/// field types: the field at the same position in `new_vfs`. "Literally"
+/// means the same type variable (by id) or the same nominal instance (by id
+/// and, recursively, the same type arguments). Anything else returns `.None`
+/// and the caller substitutes the argument itself.
+_subst_field_twin :: (
+  fn(arg : TypeValue, vfs : ArrayList(ArrayList(TypeValue)), new_vfs : ArrayList(ArrayList(TypeValue))) -> Option(TypeValue)
+)({
+  (vi : usize) = usize(0);
+  while(vi < vfs.len(), {
+    row := match(vfs.get(vi), .Some(r) => r, .None => ArrayList(TypeValue).new());
+    (fi : usize) = usize(0);
+    while(fi < row.len(), {
+      match(
+        row.get(fi),
+        .Some(ft) => if(types_literally_same(arg, ft), {
+          match(
+            new_vfs.get(vi),
+            .Some(nrow) => match(
+              nrow.get(fi),
+              .Some(nft) => {
+                return(Option(TypeValue).Some(nft));
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    vi = (vi + usize(1));
+  });
+  Option(TypeValue).None
 });
 _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
@@ -612,7 +648,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
           .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
-        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
+        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etargs) => {
           // Nominal boundary — see _without_len_vars.
           s_nom_e := _without_len_vars(s);
           new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
@@ -633,7 +669,33 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             new_variant_fields.push(new_vf);
             i = (i + usize(1));
           });
-          .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar)
+          // The instantiation's type arguments, like a Struct's: a phantom
+          // parameter lives only here. An argument that IS one of the
+          // variant field types (`Option(X)`'s `value : X`) reuses that
+          // field's substituted result: walking it a second time doubled the
+          // work at every nesting level (`Option(Option(T))`), which made
+          // `yo check ./src` 4x slower (measured, 136 s -> 573 s).
+          new_etargs := ArrayList(TypeValue).new();
+          eti := usize(0);
+          while(eti < etargs.len(), {
+            etarg := match(etargs.get(eti), .Some(t) => t, .None => TypeValue.Unit);
+            new_etargs.push(
+              match(
+                _subst_field_twin(etarg, variant_fields, new_variant_fields),
+                .Some(done) => done,
+                // Not a field type: substitute it only when there is a type
+                // variable in it to rewrite. A concrete or value-erased
+                // argument comes back unchanged, and walking it anyway cost
+                // ~10% of `yo check` (measured).
+                .None => cond(
+                  type_contains_some_type(etarg) => recur(s_nom_e, etarg, false),
+                  true => etarg
+                )
+              )
+            );
+            eti = (eti + usize(1));
+          });
+          .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar, new_etargs)
         },
         .Union(name, labels, types) => {
           new_types := ArrayList(TypeValue).new();

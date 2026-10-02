@@ -398,7 +398,7 @@ evaluate_match :: (
     is_ptr_match => t_ptr(matched_type),
     true => matched_type
   );
-  en_id := match(matched_type, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  en_id := match(matched_type, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
   // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -646,7 +646,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar),
+            .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, eta) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, eta),
             _ => venum
           );
           cond(is_ptr_match => t_ptr(sel), true => sel)
