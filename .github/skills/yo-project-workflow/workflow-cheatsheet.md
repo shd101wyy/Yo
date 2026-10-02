@@ -187,7 +187,7 @@ yo fmt --check
 - Formatting must be idempotent: a second `yo fmt` run on the same files should report no changes and must not produce parser errors
 - The formatter removes redundant grouping parentheses, e.g. `return((1 + 2))` → `return(1 + 2)`
 - Infix-like separators keep spaces on both sides, including `{ x : value }` fields and `[T ; N]` array type sugar
-- It preserves delimiter syntax whose meaning is not just grouping: tuples, `{...}` struct/begin forms, `[T ; N]` arrays, `[T]` slices, call parentheses, function body calls, and prefix-operator operands
+- It preserves delimiter syntax whose meaning is not just grouping: tuples, `{...}` struct/begin forms, `[T ; N]` arrays, call parentheses, function body calls, and INFIX prefix-operator operands (`-(a + b)`); a bare-primary operand goes bare (`-(x)` → `-x`, `!(ok)` → `!ok`)
 - It preserves grouping or operator line breaks where removing them would expose ambiguous infix syntax, e.g. `{ x : (1 + 2), y : 3 }`, `true => (x / y)`, `(ptr.add(1)).*`, and line-leading `|` chains
 - When an operator ends a line, `yo fmt` indents the RHS one extra level as a continuation
 - `yo fmt` canonicalizes legacy deref spelling `ptr.(*)` to `ptr.*` and keeps single-line array/tuple literals compact
@@ -206,7 +206,7 @@ test("Compile-time check", {
 
 test("Async test", {
   { yield } :: import("std/async");
-  io.await(yield());
+  io.await(yield(io), io);
 });
 ```
 

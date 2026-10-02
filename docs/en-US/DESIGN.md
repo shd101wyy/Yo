@@ -954,33 +954,32 @@ Run `yo explain E0405` for the diagnostic.
 
 ### recur
 
-Use `recur` to call the function recursively.  
-This is useful for anonymous functions.  
-If `recur` is the last expression, tail-call optimization will be applied.
+A `::` function calls itself, or another function of its module, by name;
+this is ordinary recursion and needs no special form:
 
-- With tail-call optimization
+```rust
+fact :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * fact(n - i32(1)))
+  )
+);
+```
 
-  ```rust
-  (fn(x : u32, acc : u32) -> u32)(
-    if(x == 1,
-      then: acc,
-      else:
-        recur(x - 1, acc * x)
-    )
-  );
-  ```
+`recur` names the enclosing function literal itself. Use it in an anonymous
+function, which has no name to call. Inside an `io.async` lambda, `recur`
+names the lambda, not the outer function. `recur` is an ordinary call:
+no tail-call optimization is applied.
 
-- Without tail-call optimization
-
-  ```rust
-  (fn(x : u32) -> u32)(
-    if(x == 1,
-      then: 1,
-      else:
-        x * recur(x - 1)
-    )
-  );
-  ```
+```rust
+(fn(x : u32, acc : u32) -> u32)(
+  if(x == 1,
+    then: acc,
+    else:
+      recur(x - 1, acc * x)
+  )
+);
+```
 
 ### Reference-Semantics Types and Memory Management
 

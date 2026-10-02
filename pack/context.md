@@ -86,8 +86,10 @@ spaces around `:` and parenthesized infix values: `{ x : (a + b), y : c }`.
 
 ## Operators: no precedence, parenthesize
 
-There is NO operator precedence table. Parenthesize every compound
-expression; `yo fmt` preserves your parens:
+There is NO operator precedence table. Parenthesize wherever two different
+operators meet; `yo fmt` removes only redundant parens (a left
+same-operator group, a whole call argument, a bare prefix operand `-(x)`)
+and keeps the rest:
 
 ```rust
 y := ((a + b) * c); // never  a + b * c
@@ -330,7 +332,8 @@ reach for it to parallelize I/O; that's the event loop's job.
   imported callee reports `cannot verify: untyped expression`), so keep
   laws beside the contracted code for now.
 - `assumed()` marks a contract whose body is outside the verified subset —
-  a plain `yo verify` PASSES on `assumed`/`outside-subset`/`unproven`, so a
+  a plain `yo verify` PASSES on `assumed`/`outside-subset`, and on
+  `unproven` in a `verify+` file (in a `verify` file it fails), so a
   green run is not "everything proved". Gate specs with
   `yo verify ./spec --strict`, which fails on those outcomes and always
   prints the seven-outcome summary line.

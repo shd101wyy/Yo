@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 179 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 182 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -30,14 +30,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 6 | 0 |
-| Codegen / emitted C | 18 | 3 |
+| Codegen / emitted C | 19 | 3 |
 | Evaluator / types | 20 | 2 |
 | Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 46 | 6 |
-| **Total** | **179** | **27** |
+| Other | 48 | 6 |
+| **Total** | **182** | **27** |
 
 ## Counts by severity
 
@@ -46,8 +46,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 25 |
-| S2 | 83 |
-| S3 | 69 |
+| S2 | 85 |
+| S3 | 70 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -185,7 +185,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
 
-### Codegen / emitted C (18)
+### Codegen / emitted C (19)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -195,6 +195,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`c-include-rvalue-macro-constant-cannot-be-addressed.md`](./c-include-rvalue-macro-constant-cannot-be-addressed.md) | S2 | OPEN | — |
 | [`cinclude-int-comparison-fails-to-transpile.md`](./cinclude-int-comparison-fails-to-transpile.md) | S2 | — | — |
 | [`dead-yo-stat-accessor-family-emitted-into-every-program.md`](./dead-yo-stat-accessor-family-emitted-into-every-program.md) | S3 | OPEN | — |
+| [`derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`](./derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md) | S2 | — | — |
 | [`derive-tostring-on-a-generic-struct-emits-invalid-c.md`](./derive-tostring-on-a-generic-struct-emits-invalid-c.md) | S2 | OPEN | yes |
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | S1 | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | S3 | — | — |
@@ -330,7 +331,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (46)
+### Other (48)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -343,6 +344,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
+| [`an-io-await-with-the-wrong-effect-bundle-passes-check.md`](./an-io-await-with-the-wrong-effect-bundle-passes-check.md) | S3 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
@@ -372,6 +374,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
 | [`prelude-methods-have-no-visibility-owner.md`](./prelude-methods-have-no-visibility-owner.md) | S3 | OPEN | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
+| [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
 | [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |

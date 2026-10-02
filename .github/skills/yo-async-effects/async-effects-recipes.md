@@ -104,7 +104,7 @@ resume_example :: (fn() -> i32)({
   safe_divide(i32(8), i32(0), raise)
 });
 
-escape_example :: (fn() -> i32)({
+unwind_example :: (fn() -> i32)({
   (raise : Raise) = (msg -> {
     println(msg);
     unwind(i32(-1));
@@ -144,25 +144,38 @@ work :: (fn(ctx : TaskCtx) -> Impl(Future(i32, TaskCtx)))(
 - Build the bundle at the call site (`ctx := TaskCtx(io: io, raise: raise)`) and
   pass it to `io.await` / `io.spawn`.
 
-## Async recursion — use an iterative worklist instead
+## Async recursion — call the outer function by name
 
-`recur` does **not** work inside an `io.async` lambda — it refers to the lambda's own signature, not the outer function. Calling the outer function by name is also forbidden in Yo. Attempting either will produce a compile-time error.
+Inside an `io.async` lambda, `recur` names the LAMBDA (its own signature), not the
+outer function, so `recur(n, io)` there is an argument-count error. Call the outer
+`::` function by its name instead; each level is its own future:
 
-**Solution**: replace async recursion with an iterative worklist using `ArrayList` as a stack:
+```rust
+count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) =>
+    cond(
+      (n == i32(0)) => i32(0),
+      true => (io.await(count_down((n - i32(1)), io), io) + i32(1))
+    )
+  )
+);
+```
+
+An iterative worklist with an `ArrayList` as the stack avoids one future per level:
 
 ```rust
 { read_dir, DirEntry } :: import("std/fs/dir");
 
 WalkCtx :: struct(io : Io, exn : Exception);
 
-process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
+process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
 
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
-      entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
+      entries := ctx.io.await(read_dir(cur, ctx.io), { io : ctx.io, exn : ctx.exn });
       // process `entries`, push subdirectories to `stack`
       n := entries.len();
       i := usize(0);
@@ -192,7 +205,7 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 - `io.await(...)` on an already-aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`.
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
-- **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
+- **`recur` inside `io.async` calls the lambda, not the outer function** — call the outer function by name (or use an iterative worklist) for async recursion.
 - **`io.await` may appear anywhere in an `io.async` body**: a `match`
   scrutinee, nested inside a condition (`if(!io.await(…), …)`), a later `cond`
   branch, an operand (`add(io.await(a, io), io.await(b, io))`), a `while`
@@ -202,14 +215,6 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   reached). This replaced the segment lowering, whose unsupported shapes were
   rejected with E0904 or silently miscompiled
   (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
-
-  **Seed-gated in `src/` and `std/`.** Those are compiled by the seed, so
-  keep the old safe spellings there until `SEED_VERSION` carries the
-  single-pass lowering. Bind an await to a local before a scrutinee, a
-  compound condition or a later branch uses it; keep an await out of macro
-  expansions (so `src/` and `std/` do not call `for_await` yet; the macro
-  itself is in `std/async/stream.yo`).
-  Tests and user programs are compiled by the tree and may use any shape.
 - **`join_all` / `race` / `any` / `timeout` are TOP-LEVEL combinators — never
   call one from inside an `io.async` body.** They wait by looping
   `__yo_async_poll_step()`, and an `io.async` body always runs as a RESUMED
@@ -351,29 +356,31 @@ export(main);
 - Handler uses `unwind` to discard the continuation and exit the enclosing function.
 - Code after the escaped call is never reached.
 
-### Swallowing exceptions with a fallback value (return in Exception handler)
+### Swallowing exceptions with a fallback value (unwind out of a helper)
 
-When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `unwind`). The `ResumeType` is the return type of the operation that would have thrown.
+An `Exception` handler CANNOT resume the throw with a value: `throw`'s resume type
+is chosen by each throw site, so `err -> { return(ExitStatus(raw: i32(1))); }` is a
+compile error that points at `ResumableException`. It must `unwind`, diverge, or
+fall through with `()`. To turn a failing operation into a fallback value, install
+the handler in a small helper and `unwind` the fallback out of it:
 
 ```rust
-{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Command } :: import("std/process/command");
+{ Exception } :: import("std/error");
 
-// Check if a tool is available — returns false if it throws (e.g., not found)
-try_exn := Exception(throw: (err -> {
-  return(ExitStatus(raw: i32(1)));  // resume with "failed" exit status
-}));
-status := io.await(cmd.status(io, try_exn), io);
-available := status.success();  // false if exception was swallowed
-
-// For cmd.output(), resume with a failed Output:
-out_exn := Exception(throw: (err -> {
-  return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()));
-}));
-out := io.await(cmd.output(io, out_exn), io);
-if(!out.status.success(), { return(); });  // handle failure
+// `true` if the tool runs and exits 0; `false` if it fails or cannot be spawned.
+tool_ok :: (fn(cmd : Command, io : Io) -> bool)({
+  exn := Exception(throw: (err -> {
+    unwind(false);
+  }));
+  status := io.await(cmd.status(io), { io, exn });
+  status.success()
+});
 ```
 
-Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `unwind` only when the enclosing function returns `unit` (e.g., test bodies).
+`unwind(v)` exits the function that installed the handler (`tool_ok`) with `v`.
+To resume the throw site with a recovery value instead, the callee must take a
+`ResumableException(T)`:
 
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
