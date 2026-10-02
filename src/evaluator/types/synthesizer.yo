@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
-{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
+{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
 {
   is_some_type,
   is_function_type,
@@ -130,6 +130,41 @@ TypePair :: ref(
 // directly even though it is defined below them; this used to go through a
 // global function pointer.
 /// Public entry point.
+/// Unify the type arguments at a constructor's PHANTOM positions (`flags`):
+/// the ones no field or payload mentions. The field/payload walk binds every
+/// other position; a phantom one is reachable only here, so without it `T` in
+/// `p : _Phantom(T)` stayed unbound (a body reading it emitted no C type) and
+/// an argument `_Phantom(i32)` was never checked against `T := bool`
+/// (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md).
+_synthesize_phantom_type_args :: (
+  fn(
+    exp_tas : ArrayList(TypeValue),
+    giv_tas : ArrayList(TypeValue),
+    flags : ArrayList(bool),
+    ee : Environment,
+    ge : Environment,
+    checked : ArrayList(TypePair),
+    opts : Option(SynthesizeOptions),
+    exn : Exception
+  ) -> SynthesizeResult
+)({
+  (pe : Environment) = ee;
+  (pg : Environment) = ge;
+  if(exp_tas.len() == giv_tas.len(), {
+    (j : usize) = usize(0);
+    while(j < exp_tas.len(), {
+      if(match(flags.get(j), .Some(b) => b, .None => false), {
+        et := match(exp_tas.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        gt := match(giv_tas.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        r := _synthesize_types_impl(et, pe, gt, pg, checked, opts, exn);
+        pe = r.expected_env;
+        pg = r.given_env;
+      });
+      j = (j + usize(1));
+    });
+  });
+  SynthesizeResult(expected_env : pe, given_env : pg)
+});
 synthesize_types :: (
   fn(
     expected_ty : TypeValue,
@@ -1754,6 +1789,19 @@ _synthesize_types_impl :: (
         ge = res_sy.given_env;
         tci_sy = (tci_sy + usize(1));
       });
+      ep_flags := enum_phantom_positions(exp_enum_id);
+      ep_res := _synthesize_phantom_type_args(
+        match(exp_en_ty, .EnumT({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),
+        match(giv_en_ty, .EnumT({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),
+        if(ep_flags.len() > usize(0), ep_flags, enum_phantom_positions(giv_enum_id)),
+        ee,
+        ge,
+        checked,
+        opts,
+        exn
+      );
+      ee = ep_res.expected_env;
+      ge = ep_res.given_env;
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });

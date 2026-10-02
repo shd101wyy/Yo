@@ -159,7 +159,7 @@ field; every positional `.EnumT(...)` pattern and constructor in `src/` and
   era repair now re-evaluates it (see
   `issues/fixed/a-substituted-phantom-enum-instance-flows-into-any-instantiation.md`).
   Generic inference through phantom arguments is still open
-  (`issues/generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md`).
+  (`issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md`).
 - **Walking all arguments also changed abstract C types.** Keying any
   abstract argument renamed the C type of the abstract `?(*(T))`, which
   appears in emitted C. Only phantom positions are keyed now.

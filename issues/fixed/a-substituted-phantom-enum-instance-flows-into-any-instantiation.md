@@ -64,4 +64,4 @@ phantom argument (`_pid(_Phantom(i32)...)` returns something assignable to
 `_Phantom(bool)`), a phantom argument checked against a `T` another argument
 fixes, and a compound phantom argument in a generic return
 (`-> _Phantom(Option(T))`). They are open in
-`issues/generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md`.
+`issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md`.

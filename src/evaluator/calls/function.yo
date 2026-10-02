@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
@@ -2772,6 +2772,46 @@ _fv_bind_unbound_forall_placeholders :: (
 /// evaluate_function_call's -O0 frame on the deep recursion path. Fills
 /// fa_bound_names/fa_bound_types + binds generic type params into fresh_env. Pure
 /// code motion.
+/// The argument's type arguments at the declared type's PHANTOM positions
+/// that hold the binder `name` (`_Phantom(T)` against `_Phantom(i32)` gives
+/// `i32`), appended to `out`.
+_phantom_binder_args :: (fn(decl : TypeValue, arg : TypeValue, name : String, out : ArrayList(TypeValue)) -> unit)({
+  (flags : ArrayList(bool)) = ArrayList(bool).new();
+  (d_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  (a_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  match(
+    decl,
+    .EnumT({ id : d_id, type_arguments : dt }) => match(
+      arg,
+      .EnumT({ id : a_id, type_arguments : at }) => {
+        d_tas = dt;
+        a_tas = at;
+        flags = enum_phantom_positions(d_id);
+        if(flags.len() == usize(0), {
+          flags = enum_phantom_positions(a_id);
+        });
+      },
+      _ => ()
+    ),
+    _ => ()
+  );
+  if(d_tas.len() != a_tas.len(), {
+    return(());
+  });
+  (j : usize) = usize(0);
+  while(j < d_tas.len(), {
+    if(match(flags.get(j), .Some(b) => b, .None => false), {
+      match(
+        d_tas.get(j),
+        .Some(.SomeT({ name : sn })) => if(sn == name, {
+          match(a_tas.get(j), .Some(t) => out.push(t), .None => ());
+        }),
+        _ => ()
+      );
+    });
+    j = (j + usize(1));
+  });
+});
 _funcval_bind_foralls :: (
   fn(
     forall_names : ArrayList(String),
@@ -2907,6 +2947,37 @@ _funcval_bind_foralls :: (
         fa_first_arg = Option(usize).Some(ptn_i);
       });
       ptn_i = (ptn_i + usize(1));
+    });
+    // A binder the name-match fixed can also sit at a PHANTOM type-argument
+    // position of another parameter (`y : T, _p : _Phantom(T)`). No field or
+    // payload carries it there, so neither the later-parameter check above
+    // nor the parameter's own type check compares the two, and
+    // `_pick(true, _Phantom(i32).A(1))` bound `T := bool` without a word
+    // (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md).
+    if(fa_bound, {
+      match(
+        fa_first_ty,
+        .Some(fa_prev) => {
+          (pp_i : usize) = usize(0);
+          while(pp_i < declared_param_types.len(), {
+            pp_decl := match(declared_param_types.get(pp_i), .Some(t) => t, .None => t_unit());
+            pp_arg := match(evaled_arg_infos.get(pp_i), .Some(i) => i.ty, .None => t_unit());
+            pp_found := ArrayList(TypeValue).new();
+            _phantom_binder_args(pp_decl, pp_arg, fa_name.clone(), pp_found);
+            (pp_k : usize) = usize(0);
+            while(pp_k < pp_found.len(), {
+              pp_ty := match(pp_found.get(pp_k), .Some(t) => t, .None => t_unit());
+              if(_forall_types_conflict(fa_prev, pp_ty), {
+                fa_conflicts.push(_forall_conflict_message(fa_name.clone(), fa_prev, match(fa_first_arg, .Some(i) => _forall_arg_phrase(i), .None => String.from("the explicit generic(...) argument")), pp_ty, pp_i));
+                fa_conflict_args.push(pp_i);
+              });
+              pp_k = (pp_k + usize(1));
+            });
+            pp_i = (pp_i + usize(1));
+          });
+        },
+        .None => ()
+      );
     });
     // STRUCTURAL fallback: the name-match above only binds a generic used as
     // a WHOLE param type (`v : T`). A generic inside a composite param type —

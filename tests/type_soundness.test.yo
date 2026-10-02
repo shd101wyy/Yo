@@ -65,6 +65,33 @@ test("soundness: a substituted phantom enum instance keeps its type argument", {
   (q : _Phantom(bool)) = p;
   assert(match(q, .A(a) => (a == i32(1)), .B(_) => false), "the matching instantiation flows");
 });
+// Call-site inference binds a `generic` parameter through an enum's phantom
+// type argument too: no payload mentions it, so the payload walk alone left
+// `T` unbound — `_pid` turned `_Phantom(i32)` into anything, and an argument
+// was never checked against a `T` another argument fixed
+// (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md;
+// the struct half is issues/generic-inference-ignores-phantom-type-arguments-of-structs.md).
+_pid :: (fn(generic(T : Type), p : _Phantom(T)) -> _Phantom(T))(p);
+_pick :: (fn(generic(T : Type), y : T, _p : _Phantom(T)) -> T)(y);
+test("soundness: a phantom argument binds a generic parameter", {
+  comptime_expect_error({
+    x := _pid(_Phantom(i32).A(i32(1)));
+    (_y : _Phantom(bool)) = x;
+  }, "Incompatible types");
+  x := _pid(_Phantom(i32).A(i32(1)));
+  (y : _Phantom(i32)) = x;
+  assert(match(y, .A(a) => (a == i32(1)), .B(_) => false), "the bound instantiation flows");
+});
+test("soundness: a phantom argument is checked against a bound parameter", {
+  comptime_expect_error(_pick(true, _Phantom(i32).A(i32(1))), "Incompatible types for generic parameter");
+  assert(_pick(true, _Phantom(bool).A(i32(1))), "a matching phantom argument is accepted");
+});
+_PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+_ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(sizeof(K));
+test("soundness: a body reads a type parameter bound only by a phantom argument", {
+  assert(_ksize(_PhantomTag(u8).A) == usize(1), "u8");
+  assert(_ksize(_PhantomTag(i64).A) == usize(8), "i64");
+});
 test("soundness: a GADT variant cannot construct another index", {
   comptime_expect_error(_Value(i32).BoolVal(true), "GADT variant \"BoolVal\"");
   comptime_expect_error({

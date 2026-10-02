@@ -228,7 +228,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | S2 | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | S2 | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | S2 | OPEN | — |
-| [`generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md`](./generic-inference-ignores-phantom-type-arguments-of-structs-and-enums.md) | S2 | — | — |
+| [`generic-inference-ignores-phantom-type-arguments-of-structs.md`](./generic-inference-ignores-phantom-type-arguments-of-structs.md) | S2 | — | — |
 | [`generic-trial-degrades-a-failed-evaluation-to-unit.md`](./generic-trial-degrades-a-failed-evaluation-to-unit.md) | S2 | OPEN | — |
 | [`method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md`](./method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md) | S2 | OPEN | — |
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
