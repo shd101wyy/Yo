@@ -108,6 +108,68 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 帧才是决定因素。这正是为什么中间层函数可以保持为普通 `fn`，让一个
 顶层安装的处理器能够穿过任意多层转发。
 
+#### unwind 会跳过调用之后的代码
+
+`unwind` 在退出途中会释放它所离开的各帧持有的值（它们的 `Dispose` 实现会运行），除此之外
+不运行任何代码。在安装帧中，抛出效应的那次调用之后的每条语句都会被跳过，中间每个传播帧的
+剩余部分也一样。因此，围绕受保护调用对可变状态做的保存/恢复，在失败路径上永远不会恢复：
+
+```rust
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+Raise :: (ctl(msg : String) -> i32);
+Ctx :: ref(struct(depth : i32));
+
+parse :: (fn(n : i32, raise : Raise) -> i32)(
+  cond((n < i32(0)) => raise(`negative`), true => n)
+);
+
+// ✗ 处理器就安装在这里，所以它的 unwind 会退出 `try_parse`
+try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  saved := ctx.depth;
+  ctx.depth = (ctx.depth + i32(1));
+  r := parse(n, raise);
+  ctx.depth = saved; // parse 抛出时被跳过
+  r
+});
+
+main :: (fn() -> unit)({
+  ctx := Ctx(depth : i32(0));
+  a := try_parse(i32(5), ctx);
+  println(`ok: r=${a} depth=${ctx.depth}`); // ok: r=5 depth=0
+  b := try_parse(i32(-5), ctx);
+  println(`raised: r=${b} depth=${ctx.depth}`); // raised: r=-1 depth=1
+});
+export(main);
+```
+
+把保存/恢复挪到一个只通过参数拿到 `raise` 的函数里也无济于事：那一帧是传播点，unwind 同样
+会穿过它。应当把处理器放进一个单独的辅助函数，让 unwind 在这个辅助函数处结束，这样辅助函数
+调用之后的代码总会执行：
+
+```rust
+// ✓ unwind 只结束 `_parse_or`，永远不会结束负责恢复的那一帧
+_parse_or :: (fn(n : i32) -> i32)({
+  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  parse(n, raise)
+});
+
+try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+  saved := ctx.depth;
+  ctx.depth = (ctx.depth + i32(1));
+  r := _parse_or(n);
+  ctx.depth = saved; // 总会执行
+  r
+});
+// 现在 try_parse(i32(-5), ctx) 返回 -1，且 ctx.depth 保持为 0
+```
+
+这种失败在发生处是静默的：残留的状态只会在之后运行的代码里暴露出来。这也意味着，给已有代码
+加上一个吞掉错误的处理器是一种行为变化：错误一路传播到顶层时，它留下的状态从未被读取；一旦
+处理器把错误吞掉，程序就会带着这份状态继续运行。
+
 ### 效应行多态
 
 效应多态函数使用 `generic(E : Type.Struct)`。约束 `Type.Struct` 把
@@ -343,11 +405,24 @@ log_and_check :: (fn(x : i32, logger : Logger) -> i32)({
 result := log_and_check(42, my_logger);
 ```
 
+## 处理器函数不是闭包
+
+效应处理器函数 — 无论是结构体记录形式还是 `fn` 类型形式 — 都通过证据传递（evidence
+passing）编译为独立的 C 函数。它们**不是**闭包：不会生成捕获结构体，处理器体也无法读取
+安装它的那个作用域里的本地变量。这是有意为之的设计。
+
+如果处理器需要状态，请显式传入：
+
+- 把它作为效应函数的参数，由调用方在 `ctl` 调用处提供；或者
+- 在处理器之外分配一个 `Box`，把它的地址传进去。
+
+（`.github/instructions/c-codegen.instructions.md` 的 "Handler functions are
+standalone, not closures" 一节是同一条规则在实现层面的表述。）
+
 ## 语义
 
-- 处理器体在安装帧的栈上运行 — 可以直接访问外层帧的本地变量
-  （兄弟处理器、周围的变量）。代码生成通过内联处理器 / 状态机
-  线程化实现这一点。
+- 处理器体通过证据传递被编译为**独立的 C 函数**，因此**不能**引用外层作用域中的变量 —
+  不会生成闭包/捕获结构体。参见[处理器函数不是闭包](#处理器函数不是闭包)。
 - `return(value)` 是**一次性**的 — 捕获的续延最多恢复一次。
 - `unwind(value)` 退出**安装**该处理器的那一帧：处理器字面量所在的函数或 `io.async`
   块。中间的帧（包括异步任务）都会被展开穿过（中间的任务会被中止）。当安装者是一个
