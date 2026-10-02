@@ -53,7 +53,11 @@ When codegen lowers a subscript `xs(i)` whose receiver type implements
 
 - **Safety:** the method returns `*(Self.Output)`. A direct call from a safe
   file is rejected by the existing pointer-result value gate, the same
-  reason `ArrayList.ptr()` is safe to expose. No new gate.
+  reason `ArrayList.ptr()` is safe to expose. **To verify in step 1, not
+  assumed:** that the gate also stops an immediate dereference
+  (`xs.index_unchecked(i).*`), not just binding the pointer. If it does not,
+  the twin must be module-private (`_index_unchecked`, which codegen calls at
+  the C level regardless of visibility) instead of a public trait member.
 - **General, not hardcoded:** codegen keys on the trait, not on `ArrayList`.
   `Deque` and `String` can opt in the same way later.
 - **Runtime files unchanged:** no verify pragma means no proved sites, which
