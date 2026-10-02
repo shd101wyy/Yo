@@ -36,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
@@ -400,6 +401,14 @@ _capture_pattern_bindings :: (
     }
   )
 );
+/// The temps `_capture_argument_temp` captured: codegen reads such a temp
+/// through its task slot where the call reads it (`_sm_arg_temp_read`,
+/// codegen/exprs/generation.yo), since a later argument suspended after its
+/// C local was set. Names are unique in a program.
+(g_arg_temps_across_suspension : HashSet(String)) = HashSet(String).new();
+is_arg_temp_across_suspension :: (fn(name : String) -> bool)(
+  g_arg_temps_across_suspension.contains(name)
+);
 /// Capture the temp an argument's value is held in (a labeled argument
 /// `name : v` holds `v`'s): it is read when the call runs, after the later
 /// arguments, so a suspension in one of them makes it cross that suspension
@@ -427,6 +436,7 @@ _capture_argument_temp :: (
       vinfo.variable_name,
       .Some(tn) => {
         // The temp is bound in the env the call was evaluated in.
+        g_arg_temps_across_suspension.insert(tn.clone());
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
         _capture_env_variable(tn.clone(), tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
         _capture_env_variable(tn, vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
@@ -1061,4 +1071,4 @@ analyze_suspension_points :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-export(SuspensionPointDetector, extract_target_variable_id, analyze_suspension_points);
+export(SuspensionPointDetector, extract_target_variable_id, analyze_suspension_points, is_arg_temp_across_suspension);
