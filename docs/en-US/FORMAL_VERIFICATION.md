@@ -291,12 +291,10 @@ theory leaves this goal `unknown`; over arrays it proves. Mixing a list-backed
 Seq with a literal one (`seq_append(seq_of(xs), seq_unit(x))`) is a subset
 error.
 
-A copy loop's `forall(k, (k < i) ==> (out(k) == xs(k)))` invariant needs a
-`push` that states the new element and keeps the old ones. Until the next
-release's seed, std's `ArrayList.push` states only its length (the released
-compiler would run a quantified `ensures` at runtime), so the fixtures use an
-`assumed()` wrapper that states the elements
-(`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+`ArrayList.push`'s contract states the new element and keeps the old ones.
+The clause quantifies, so it is proof-only and never runs as an assert. That
+is what lets a copy loop's `forall(k, (k < i) ==> (out(k) == xs(k)))`
+invariant prove.
 
 ### Verified `for` loops: `produced`
 

@@ -5,29 +5,12 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-// std's `push` states only its length until the seed carries the
-// proof-only ensures filter (plans/backlog/SEED_VERSION_AUTOMATION.md,
-// Generation B); this assumed wrapper states its elements meanwhile.
-push_at_end :: (
-  fn(
-    xs : ArrayList(i32),
-    v : i32,
-    ensures(
-      xs.len() == (old(xs.len()) + usize(1)),
-      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
-    ),
-    assumed()
-  ) -> unit
-)({
-  xs.push(v);
-});
-
 // The copy is the elements produced so far, at every iteration.
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));
-    push_at_end(out, x);
+    out.push(x);
   });
   out
 });
