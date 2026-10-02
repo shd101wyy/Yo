@@ -184,4 +184,31 @@ sm_move_flag_of :: (fn(sm_code : String) -> Option(String))({
   });
   Option(String).Some(`sm->__yo_mv_${field}`)
 });
-export(sm_storage_id, sm_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);
+/// The task slot (`sm->…`) a minted temp named `temp_var` was stored into,
+/// found as `_store_temp_var_to_state_machine_if_needed` finds it: by id key,
+/// then by the captured variable's name.
+sm_temp_slot_of :: (fn(temp_var : String, smv : HashMap(String, CapturedVariable)) -> Option(String))({
+  (found : Option(CapturedVariable)) = smv.get(temp_var.clone());
+  if(found.is_none(), {
+    vals := smv.values();
+    (go : bool) = true;
+    while(go, {
+      match(
+        vals.next(),
+        .Some(cv) => if(cv.base.name == temp_var, {
+          found = Option(CapturedVariable).Some(cv);
+          go = false;
+        }),
+        .None => {
+          go = false;
+        }
+      );
+    });
+  });
+  match(
+    found,
+    .Some(cv) => match(cv.kind, .Local => Option(String).Some(`sm->${sm_local_field_name(cv.base.id.to_string())}`), .Outer => Option(String).None),
+    .None => Option(String).None
+  )
+});
+export(sm_storage_id, sm_slot_of, sm_temp_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);

@@ -131,6 +131,8 @@
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ sm_temp_slot_of } :: import("../async/state_machine_naming.yo");
+{ is_arg_temp_across_suspension } :: import("../../evaluator/shared/suspension_analysis.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
@@ -959,12 +961,24 @@ _generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             .None => String.new()
           )
         },
-        true => code
+        true => _sm_arg_temp_read(expr, code, context)
       )
     },
     .Atom(_, _) => generate_atom(expr, context, indent)
   )
 );
+/// A call whose value waits in its temp while a later argument of the
+/// enclosing call suspends: the enclosing call reads it after the task
+/// resumed, when the C local no longer holds it, so the read is the temp's
+/// task slot (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
+_sm_arg_temp_read :: (fn(expr : AstExpr, code : String, context : FunctionGenerationContext) -> String)({
+  if(context.in_async_state_machine.is_none(), return(code));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
+  tn := match(ei.variable_name, .Some(n) => n, .None => return(code));
+  if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
+  match(sm_temp_slot_of(tn, smv), .Some(slot) => slot, .None => code)
+});
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.
 register_generate_expr :: (fn() -> unit)({
