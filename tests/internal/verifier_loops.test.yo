@@ -207,6 +207,44 @@ test("a non-decreasing loop measure is REFUTED at the variant obligation", {
   assert(rp.outcome != "ok", `stuck_measure must not prove, got: [${_reports_dump(reports)}]`);
 });
 
+test("an unsigned loop measure that decreases verifies (count_up_usize proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_decreases_unsigned.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports(usize(0)).outcome == "ok", `count_up_usize proves, got: [${_reports_dump(reports)}]`);
+});
+
+/// True when the report carries a REFUTED obligation whose name ends in `suffix`.
+_refutes_at :: (fn(rp : VerifyFnReport, suffix : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    ob := rp.obligations(i);
+    if(ob.name.ends_with(suffix.clone()), {
+      match(
+        ob.verdict,
+        .Refuted(_) => {
+          return(true);
+        },
+        _ => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+
+test("an unsigned loop measure growing across the high bit is REFUTED at the step and the continue site", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/loop_measure_grows_unsigned.yo"), io);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(_refutes_at(reports(usize(0)), String.from("/loop-variant-decreases")), `grows_at_body_end must refute its step, got: [${_reports_dump(reports)}]`);
+  assert(_refutes_at(reports(usize(1)), String.from("/loop-variant-continue")), `grows_at_continue must refute at the continue, got: [${_reports_dump(reports)}]`);
+});
+
 test("a wrong loop invariant is REFUTED at the iterate obligation", {
   if(!_have_z3(), {
     return(());
