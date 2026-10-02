@@ -963,6 +963,10 @@ ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo));
 // Only while `compile`'s shared table is live (`scope_release_set_table`).
 // ---------------------------------------------------------------------------
 ScopeNameRecord :: struct(name : String, vars : ArrayList(Variable));
+/// A binding the evaluator made at an atom: the name, and the binding
+/// node's env (its frames shared, so a release-time lookup sees the scope as
+/// codegen will).
+ScopeBound :: struct(name : String, env : Environment);
 /// A released env: the body's entry frames, marked by this frame level so a
 /// lookup knows to answer from the records.
 SCOPE_HUSK_MARK :: usize(987654321);
@@ -987,7 +991,7 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_atom_exc : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
 (g_scope_names : HashMap(ExprId, ArrayList(ScopeNameRecord))) = HashMap(ExprId, ArrayList(ScopeNameRecord)).new();
 (g_scope_husks : HashMap(ExprId, Environment)) = HashMap(ExprId, Environment).new();
-(g_scope_bound : HashMap(ExprId, ScopeNameRecord)) = HashMap(ExprId, ScopeNameRecord).new();
+(g_scope_bound : HashMap(ExprId, ScopeBound)) = HashMap(ExprId, ScopeBound).new();
 /// Names codegen asks of an info that carries none of them itself.
 (g_scope_queried : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
 /// Compact records: the variables of a released info's names that live in
@@ -1022,10 +1026,11 @@ scope_release_set_table :: (fn(t : Option(ExprInfoTable)) -> unit)({
 scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
 /// The evaluator has just bound `name` in `env` at atom `key` (a `:=` lhs, a
 /// destructured field): the atom's info has no `source_variable` and its env
-/// predates the binding, so the post-binding lookup is recorded here.
+/// predates the binding, while codegen resolves the name in the binding
+/// node's env. That env is kept until the release records its lookup.
 scope_release_note_binding :: (fn(key : ExprId, env : Environment, name : String) -> unit)(
   if(g_scope_mode != usize(0), {
-    g_scope_bound.insert(key, ScopeNameRecord(name : name.clone(), vars : get_variables_from_env(env, name)));
+    g_scope_bound.insert(key, ScopeBound(name : name, env : expr_info_env_snapshot(env)));
   })
 );
 /// Shadow mode: a whole-env read (`kind`) keyed by `key`; counted apart
@@ -1243,14 +1248,11 @@ scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
       match(
         bound,
         .Some(br) => {
-          // The bound name's variables in the env's own frames first (an
-          // outer same-named binding added after this one), then the
-          // binding's own lookup.
-          _scope_push_new(inner, get_variables_from_env_after(info.env, inner_from, br.name));
           shared := if(capture_shaped, get_variables_from_env(husk, br.name), get_variables_from_env_before(husk, k, br.name));
+          bvars := get_variables_from_env(br.env, br.name);
           (bi : usize) = usize(0);
-          while(bi < br.vars.len(), {
-            bv := br.vars.get(bi).unwrap();
+          while(bi < bvars.len(), {
+            bv := bvars.get(bi).unwrap();
             if(!(_scope_has_id(shared, bv.id)) && !(_scope_has_id(inner, bv.id)), {
               inner.push(bv);
             });

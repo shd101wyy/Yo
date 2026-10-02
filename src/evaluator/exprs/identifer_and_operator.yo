@@ -13,7 +13,9 @@
   new_expr_info,
   expr_info_table_set,
   path_collection_of_name,
-  expr_info_set_origin_type
+  expr_info_set_origin_type,
+  is_extern_c_global,
+  scope_release_note_query
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
@@ -432,6 +434,13 @@ evaluate_identifier_and_operator :: (
   // path_collection = [[variable.name]], shared per name.
   info.path_collection = path_collection_of_name(variable.name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  // An extern C symbol's atom can be re-recorded by its call without a
+  // `source_variable`; codegen still resolves the symbol by name through
+  // the atom, so the scope release records the name (cheap gates first:
+  // this path runs for every identifier).
+  if(match(variable.ty, .Func({ meta : __xm }) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(variable.ty) && is_extern_c_global(variable.name.clone()))), {
+    scope_release_note_query(ast_expr_id(expr), variable.name.clone());
+  });
   // ------------------------------------------------------------------
   // Closure capture tracking — function body
   // ------------------------------------------------------------------
