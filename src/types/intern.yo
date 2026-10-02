@@ -161,7 +161,7 @@ _ik_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
       o.push_str(")");
       o
     }, `S:${a_sid}`),
-    .EnumT(a_eid, _, _, _, _, _, _, _, _) => `E:${a_eid}`,
+    .EnumT(a_eid, _, _, _, _, _, _, _, _, _) => `E:${a_eid}`,
     .SomeT({ id : a_tid, resolution : a_res }) => match(
       a_res,
       .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(a_r, depth + usize(1))}`, `T:${a_tid}`),
@@ -336,7 +336,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
+      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas) => {
         tok := String.from("E:");
         tok.push_string(eid);
         if(visited.contains(tok), {
@@ -378,6 +378,16 @@ _intern_key_into :: (
           sb.write_str("|");
           _append_b(sb, eirs);
           _append_b(sb, eiar);
+          // The type arguments, as the Struct arm: substitution keeps the id,
+          // so a phantom `Tag(K)` at `K := i32` differs from `Tag(K)` here only.
+          sb.write_str("|");
+          nta := etas.len();
+          (ita : usize) = usize(0);
+          while(ita < nta, {
+            match(etas.get(ita), .Some(x) => recur(x, sb, depth + usize(1), visited), .None => ());
+            sb.write_str(",");
+            ita = (ita + usize(1));
+          });
           sb.write_str("}");
         });
       },

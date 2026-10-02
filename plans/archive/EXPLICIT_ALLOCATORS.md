@@ -910,8 +910,8 @@ the arena, and each release routes back there. The compiler does not import
    not found through a `comptime(K) : Type` helper (imm/map's `MapBranch(K, V)`
    shape). Fixed where deferral is decided
    (`issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md`);
-   the enum twin is open
-   (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+   the enum twin is fixed too
+   (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
 4. Gates: the `imm` suites (map 25, set 21, threading 30, string 45, list 17,
    sorted map 21, sorted set 20, iterators 13; vec 50 plus its 4 develop
    leaks), `tests/explicit_allocators.test.yo`'s `imm` cases.

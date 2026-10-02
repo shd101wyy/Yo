@@ -555,7 +555,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Func({ result : _ }) => TypeTag.TFunction,
     // Source-namespace structs keep the TModule tag (TypeTag is internal).
     .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
-    .EnumT(_, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
     .SomeT(name : _) => TypeTag.TSomeType,
@@ -607,7 +607,7 @@ _contains_self_shell :: (
 )(
   match(
     t,
-    .EnumT({ id, variant_names, variant_fields }) => cond(
+    .EnumT({ id, variant_names, variant_fields, type_arguments }) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => true,
       true => {
         tok := String.from("E:");
@@ -627,6 +627,12 @@ _contains_self_shell :: (
             fi = (fi + usize(1));
           });
           vi = (vi + usize(1));
+        });
+        (ti : usize) = usize(0);
+        while((ti < type_arguments.len()) && !hit, {
+          ta := match(type_arguments.get(ti), .Some(x) => x, .None => t_unit());
+          hit = recur(ta, shell_id, visited);
+          ti = (ti + usize(1));
         });
         hit
       }
@@ -687,13 +693,12 @@ _patch_self_shell_guarded :: (
 )(
   match(
     t,
-    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => cond(
+    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments }) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
-      // too. Same as the `.Struct` branch below — EnumT has no separate
-      // type_arguments list, the instantiated element types live in the variant
-      // fields. Without this, the shell inside `Option(Self)` stays an empty
+      // too, and into the type arguments, same as the `.Struct` branch below.
+      // Without this, the shell inside `Option(Self)` stays an empty
       // placeholder and `can_type_form_rc_cycle` never reaches back to the root.
       true => {
         tok := String.from("E:");
@@ -717,7 +722,14 @@ _patch_self_shell_guarded :: (
           new_vfs.push(new_inner);
           vi = (vi + usize(1));
         });
-        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc)
+        new_etas := ArrayList(TypeValue).new();
+        (ti : usize) = usize(0);
+        while(ti < type_arguments.len(), {
+          ta := match(type_arguments.get(ti), .Some(x) => x, .None => t_unit());
+          new_etas.push(recur(ta, shell_id, final_ty, visited));
+          ti = (ti + usize(1));
+        });
+        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas)
       }
     ),
     .Pointer(inner) => .Pointer(recur(inner, shell_id, final_ty, visited)),
@@ -786,7 +798,7 @@ register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
 resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .EnumT(eid, _, vns, _, _, _, _, _, _) => {
+    .EnumT(eid, _, vns, _, _, _, _, _, _, _) => {
       if(vns.len() > usize(0), {
         return(t);
       });
@@ -808,31 +820,99 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
     _ => t
   )
 );
-// Enum instantiation type-argument side-table: `enum_id -> the type arguments
-// of the generic constructor call that minted it`, in constructor-parameter
-// order (`P(i32)` -> `[i32]`; a non-type argument records `unit`). The enum
-// analogue of `Struct.type_arguments`: `EnumT` has no such field, so — like
-// the enum cfid (value.yo) and the GADT tables — the fact lives beside the
-// type, keyed by id. CTFE mints a fresh enum id per instantiation
-// (enum.yo, `stable_type_id`), so the id names exactly one instantiation.
-// Without it, two instantiations whose variant payloads do not mention the
-// parameter (a phantom index, a GADT index that only `-> recur(...)` names)
-// are structurally identical and compared equal: `Value(i32)` flowed into a
-// `Value(bool)` binding
-// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-// The first registration wins: the innermost constructor that minted the
-// enum is the one whose parameters it is indexed by.
-(g_enum_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
-register_enum_type_arguments :: (fn(enum_id : String, args : ArrayList(TypeValue)) -> unit)({
-  if((enum_id.len() > usize(0)) && (args.len() > usize(0)) && !g_enum_type_args.contains_key(enum_id), {
-    _prev := g_enum_type_args.insert(enum_id, args);
+// Type-constructor phantom positions: `constructor func id -> one flag per
+// collected argument` (forall arguments, then parameters, the order of the
+// comptime-fn call site's `inst_type_args`), true where the enum the
+// constructor mints does not depend on that argument. Decided from the
+// constructor's DEFINITION-time trial, which evaluates its body with each
+// type binder bound to a SomeT: a position is phantom when its SomeT occurs in
+// none of the resulting enum's payloads (`K` of `Tag :: (fn(comptime(K) :
+// Type) -> comptime(Type))(enum(A, B(n : u8)))`, and also of a body that
+// names `K` without depending on it: `B(n : _Discard(K))`, `_k :: K`, a
+// variant labelled `K`). The trial runs before any call can (a call needs the
+// definition's value), so every instantiation reads the same record. Written
+// once per constructor (calls/function_type.yo), read at the stamp
+// (calls/comptime_fn.yo); a constructor with no record, or a position past
+// it (a variadic argument), counts as phantom
+// (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+(g_ctor_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+/// Record a type constructor's phantom positions (see
+/// `g_ctor_phantom_positions`); the first record wins.
+register_ctor_phantom_positions :: (fn(func_id : String, phantom : ArrayList(bool)) -> unit)({
+  if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.contains_key(func_id), {
+    _prev := g_ctor_phantom_positions.insert(func_id, phantom);
   });
 });
-/// The recorded type arguments of an enum instantiation (empty when the enum
-/// was not minted by a generic constructor call).
-lookup_enum_type_arguments :: (fn(enum_id : String) -> ArrayList(TypeValue))(
-  match(g_enum_type_args.get(enum_id), .Some(a) => a, .None => ArrayList(TypeValue).new())
+/// The phantom-position flags of a type constructor's `n_args` collected
+/// arguments: its record, and `true` wherever the record is silent. Keying a
+/// position the payloads already determine only adds a redundant key part;
+/// leaving a phantom one unkeyed makes two instantiations one C type.
+ctor_phantom_flags :: (fn(func_id : String, n_args : usize) -> ArrayList(bool))({
+  rec := g_ctor_phantom_positions.get(func_id);
+  out := ArrayList(bool).new();
+  (i : usize) = usize(0);
+  while(i < n_args, {
+    out.push(match(rec, .Some(m) => match(m.get(i), .Some(b) => b, .None => true), .None => true));
+    i = (i + usize(1));
+  });
+  out
+});
+// Enum phantom positions: `enum_id -> one flag per type argument`, the minting
+// constructor's `ctor_phantom_flags`. A concrete `Tag(i64)` cannot tell them
+// from its own payloads, and `type_key` must key exactly these arguments:
+// `Tag(u8)` and `Tag(i64)` have identical payloads, so without it they were
+// one C type and one specialization of every method whose body reads `K`
+// (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+// Keyed by id, not stored on `EnumT`: phantomness is a fact about the
+// constructor, which substitution keeps along with the id. Only an
+// instantiation with at least one phantom position is recorded.
+(g_enum_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+_register_enum_phantom_positions :: (fn(enum_id : String, phantom : ArrayList(bool)) -> unit)({
+  if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.contains_key(enum_id), {
+    _prev := g_enum_phantom_positions.insert(enum_id, phantom);
+  });
+});
+/// The phantom-position flags recorded for an enum instantiation (see
+/// `g_enum_phantom_positions`), or an empty list when it has none.
+enum_phantom_positions :: (fn(enum_id : String) -> ArrayList(bool))(
+  match(g_enum_phantom_positions.get(enum_id), .Some(m) => m, .None => ArrayList(bool).new())
 );
+/// Stamp an enum instantiation's type arguments onto its finalized form in the
+/// enum-final registry (keyed by the self-shell id), so a leaked self-shell
+/// resolves to an instance that reports them, like the instance the
+/// constructor returned. The comptime-fn call site stamps the returned
+/// `EnumT.type_arguments` and calls this for the same id; the first stamp
+/// wins, matching the "innermost constructor that minted the enum" rule there.
+/// `phantom` flags the arguments no payload depends on (`ctor_phantom_flags`);
+/// they are recorded for the instance's id and for its finalized form's id.
+stamp_enum_final_type_arguments :: (fn(enum_id : String, args : ArrayList(TypeValue), phantom : ArrayList(bool)) -> unit)({
+  if((enum_id.len() == usize(0)) || (args.len() == usize(0)), {
+    return(());
+  });
+  _register_enum_phantom_positions(enum_id.clone(), phantom.clone());
+  shell_key := `${enum_id}__self_shell`;
+  (i : usize) = usize(0);
+  n := g_enum_finals.len();
+  while(i < n, {
+    match(
+      g_enum_finals.get(i),
+      .Some(e) => if(e.enum_id == shell_key, {
+        match(
+          e.ty,
+          .EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas) => if(ftas.len() == usize(0), {
+            _register_enum_phantom_positions(fid.clone(), phantom.clone());
+            _old := g_enum_finals.remove(i);
+            g_enum_finals.insert(i, EnumFinalEntry(enum_id : shell_key, ty : TypeValue.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
+          }),
+          _ => ()
+        );
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 // Struct finalization side-table: `struct_id -> finalized Struct`. During a
 // struct's own definition `Self` is bound to a PRELIMINARY empty-field shell
 // (struct.yo) carrying the SAME `struct_id` as the final (UNLIKE enum.yo,
@@ -952,7 +1032,7 @@ resolve_some_binder_kind :: (fn(name : String, lvl : usize) -> Option(TypeValue)
 );
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(UNFRAMED_BINDER_LEVEL);
-export(register_enum_type_arguments, lookup_enum_type_arguments);
+export(stamp_enum_final_type_arguments, enum_phantom_positions, register_ctor_phantom_positions, ctor_phantom_flags);
 export(register_struct_final, resolve_struct_shell);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(

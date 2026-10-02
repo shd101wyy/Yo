@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
-{ t_dyn } :: import("./creators.yo");
+{ t_dyn, enum_phantom_positions } :: import("./creators.yo");
 { resolve_cell_chain } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
@@ -295,11 +295,11 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
     return(false);
   });
   from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => TypeValue.Unit);
-  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _) => fe, _ => String.new());
+  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _, _) => fe, _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -612,7 +612,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
           .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
-        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
+        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas) => {
           // Nominal boundary — see _without_len_vars.
           s_nom_e := _without_len_vars(s);
           new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
@@ -633,7 +633,28 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             new_variant_fields.push(new_vf);
             i = (i + usize(1));
           });
-          .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar)
+          // A type argument that IS a type variable is substituted, so a
+          // phantom `Tag(K)` at `K := i32` reports `[i32]`, and so is every
+          // argument at a PHANTOM position of the constructor
+          // (`enum_phantom_positions`), so `Tag(*(K))` reports `[*(i32)]` —
+          // `type_key` keys those positions, and a definition-era `*(K)` would
+          // key the substituted instance apart from a direct `Tag(*(i32))`.
+          // Any other compound argument keeps its definition-era spelling: it
+          // also occurs in a payload, which the walk above already rewrote,
+          // and walking it a second time doubles the work at every nested
+          // instantiation — measured as a stage-2 emit of `src/main.yo` that
+          // did not finish in 25 minutes (develop: 9 min 19 s). A phantom
+          // position occurs in no payload, so walking it is not a second walk.
+          new_etas := ArrayList(TypeValue).new();
+          e_mask := if(etas.len() > usize(0), enum_phantom_positions(id), ArrayList(bool).new());
+          ti := usize(0);
+          while(ti < etas.len(), {
+            etarg := match(etas.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+            et_phantom := match(e_mask.get(ti), .Some(b) => b, .None => false);
+            new_etas.push(if(_is_some_t(etarg) || et_phantom, recur(s_nom_e, etarg, false), etarg));
+            ti = (ti + usize(1));
+          });
+          .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar, new_etas)
         },
         .Union(name, labels, types) => {
           new_types := ArrayList(TypeValue).new();

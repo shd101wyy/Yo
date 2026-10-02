@@ -24,7 +24,7 @@ error[E0610]: No method "size" on Br(K): the type has no field or method with th
 of type `K`. The failure needs a phantom parameter (one no field uses) and a
 receiver typed through the helper's `comptime` type parameter. Enums fail the
 same way but for a deeper reason; that case is
-`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`.
+`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`.
 
 ## Cause
 

@@ -41,10 +41,11 @@ pragma(Pragma.AllowUnsafe);
   mint_funcval_env_key,
   register_funcval_cap_slices,
   CaptureSlice,
-  bind_parameter
+  bind_parameter,
+  find_variable_in_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -457,6 +458,93 @@ _type_binder_env_value :: (
       Option(EvalValue).Some(create_type_value(fresh_some))
     }
   )
+});
+/// The SomeT ids a type constructor's definition-time trial binds its type
+/// binders to, one per collected argument (forall labels, then parameter
+/// labels, the order of the comptime-fn call site's `inst_type_args`); an
+/// empty string where the binder is not a SomeT (a comptime value parameter).
+/// Read from the trial env BEFORE the body runs, so a body local cannot
+/// shadow a binder.
+_ctor_binder_some_ids :: (
+  fn(env : Environment, forall_labels : ArrayList(String), param_labels : ArrayList(String)) -> ArrayList(String)
+)({
+  labels := forall_labels.clone();
+  labels.append(param_labels.clone());
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    lbl := match(labels.get(i), .Some(l) => l, .None => String.from(""));
+    ids.push(
+      match(
+        find_variable_in_env(env, lbl),
+        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(.SomeT({ id : sid }))) => sid, _ => String.from("")),
+        .None => String.from("")
+      )
+    );
+    i = (i + usize(1));
+  });
+  ids
+});
+/// Record a type constructor's PHANTOM positions from its definition-time
+/// trial (types/creators.yo `g_ctor_phantom_positions`). The trial evaluated
+/// the body with each type binder bound to the SomeT in `binder_ids`; when the
+/// body is an enum, a position is phantom when its SomeT occurs in none of
+/// the enum's payloads. That is what the enum depends on, whatever the body
+/// spells: `enum(A, B(n : _Discard(K)))` (a constructor that ignores `K`),
+/// `{ _k :: K; enum(A, B(n : u8)) }` and `enum(A, K(n : u8))` all leave `K`
+/// phantom, and a concrete `Tag(u8)` and `Tag(i64)` of them must not share
+/// one C type. A payload that mentions the SomeT only through another
+/// instantiation's type arguments counts it as phantom here, which keys it
+/// redundantly (`ctor_phantom_flags`).
+_record_ctor_phantom_positions :: (
+  fn(fn_id : String, binder_ids : ArrayList(String), out : ArrayList(AstExpr), ctx : EvalContext) -> unit
+)({
+  body_ty := match(
+    out.get(usize(0)),
+    .Some(b) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(b)),
+      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(t), _ => TypeValue.Unit),
+      .None => TypeValue.Unit
+    ),
+    .None => TypeValue.Unit
+  );
+  match(
+    body_ty,
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => (),
+    _ => {
+      return(());
+    }
+  );
+  payload_somes := get_all_some_types(body_ty);
+  flags := ArrayList(bool).new();
+  (i : usize) = usize(0);
+  while(i < binder_ids.len(), {
+    bid := match(binder_ids.get(i), .Some(x) => x, .None => String.from(""));
+    (in_payload : bool) = false;
+    (j : usize) = usize(0);
+    while((j < payload_somes.len()) && !in_payload, {
+      match(
+        payload_somes.get(j),
+        .Some(.SomeT({ id : pid })) => if(pid == bid, {
+          in_payload = true;
+        }),
+        _ => ()
+      );
+      j = (j + usize(1));
+    });
+    flags.push((bid.len() > usize(0)) && !in_payload);
+    i = (i + usize(1));
+  });
+  if(debug_knob(`YO_DEBUG_PHANTOM`).is_some(), {
+    (fs : String) = String.from("");
+    (k : usize) = usize(0);
+    while(k < flags.len(), {
+      fs.push_str(if(match(flags.get(k), .Some(b) => b, .None => false), "1", "0"));
+      k = (k + usize(1));
+    });
+    eprintln(`[phantom] fid=${fn_id} flags=${fs}`);
+  });
+  register_ctor_phantom_positions(fn_id, flags);
 });
 /// Build a fresh definition-time evaluation env for a function body: captures
 /// (re-derived from `caller_env` so other top-level names resolve) + a frame
@@ -1660,10 +1748,14 @@ Result type: ${type_to_string(result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
+          flow_binders := if(is_type_hierarchy_type(result_box), _ctor_binder_some_ids(flow_env, forall_labels, param_labels), ArrayList(String).new());
           flow_depths := forcing_depths();
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
           truncate_forcing_depths(flow_depths);
           pop_active_where_trait_ids();
+          if(flow_binders.len() > usize(0), {
+            _record_ctor_phantom_positions(fn_val_id.clone(), flow_binders, flow_out, ctx);
+          });
           // V5 honest diagnostics: a verify-target body whose def-time trial
           // SWALLOWED reaches the verifier hollow (no ExprInfo on the body) —
           // its walk would mis-report "untyped expression". Record the real
@@ -2062,8 +2154,12 @@ Result type: ${type_to_string(result_box)}`
             // clone writes the trial's abstract-typed ExprInfos onto the real
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
+            dg_binders := if(is_type_hierarchy_type(result_box), _ctor_binder_some_ids(dg_env, forall_labels, param_labels), ArrayList(String).new());
             _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(body_expr)), dg_env, dg_ctx, dg_out);
             truncate_forcing_depths(dg_depths);
+            if(dg_binders.len() > usize(0), {
+              _record_ctor_phantom_positions(fn_val_id.clone(), dg_binders, dg_out, ctx);
+            });
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
             // A `:=` in a compile-time body (E1104) is wrong whatever the call's

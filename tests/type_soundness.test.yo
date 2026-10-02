@@ -50,6 +50,21 @@ test("soundness: a phantom enum parameter is part of the type", {
   }, "Incompatible types");
   assert(true, "rejected");
 });
+// A substituted instance reports its own type arguments: `_Phantom(T)` in a
+// generic return type, at `T := bool`, is `_Phantom(bool)`. The id-keyed side
+// table this replaced read back the definition-era `[T]`, a wildcard, so the
+// result flowed into any `_Phantom(...)`
+// (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+_phantom_of :: (fn(generic(T : Type), _t : T) -> _Phantom(T))(_Phantom(T).A(i32(1)));
+test("soundness: a substituted phantom enum instance keeps its type argument", {
+  comptime_expect_error({
+    x := _phantom_of(true);
+    (_y : _Phantom(i32)) = x;
+  }, "Incompatible types");
+  p := _phantom_of(true);
+  (q : _Phantom(bool)) = p;
+  assert(match(q, .A(a) => (a == i32(1)), .B(_) => false), "the matching instantiation flows");
+});
 test("soundness: a GADT variant cannot construct another index", {
   comptime_expect_error(_Value(i32).BoolVal(true), "GADT variant \"BoolVal\"");
   comptime_expect_error({
