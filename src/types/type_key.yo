@@ -784,13 +784,20 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
       e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
-      if((eid.len() > usize(0)) && _sti_seen(eid), {
+      // The path node carries the type arguments, as `_type_key_at`'s does:
+      // `wrap(wrap(x))` nests one `Option(U)` instance in another under one
+      // id, and an id-only node rendered `Option(Option(i32))` and
+      // `Option(Option(String))` alike, so collect_type aliased the second
+      // onto the first's C type
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node := _tk_node_id(eid, match(rs, .EnumT({ type_arguments : sti_tas }) => sti_tas, _ => ArrayList(TypeValue).new()));
+      if((eid.len() > usize(0)) && _sti_seen(e_node), {
         out_cyc := pfx.clone();
         out_cyc.push_string(eid);
         return(out_cyc);
       });
       if(eid.len() > usize(0), {
-        g_sti_visited.push(eid.clone());
+        g_sti_visited.push(e_node);
       });
       out := pfx;
       out.push_string(eid);
