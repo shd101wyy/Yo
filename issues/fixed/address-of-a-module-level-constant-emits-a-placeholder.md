@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-29 (branch `explicit-allocators-fixes`)
 **Severity:** S2 — a valid program fails at the C compiler with "expected expression"; binding the value with `:=` instead of `::` is the workaround
-**Found:** 2026-09-29, implementing `plans/EXPLICIT_ALLOCATORS.md` P0 (an immortal pointer to a std allocator vtable).
+**Found:** 2026-09-29, implementing `plans/archive/EXPLICIT_ALLOCATORS.md` P0 (an immortal pointer to a std allocator vtable).
 
 ## Reproducer
 

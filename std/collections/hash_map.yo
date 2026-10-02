@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 // `outside-subset`), and the internals stay parked with the heap model
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
@@ -125,7 +125,7 @@ HashMap :: (
       /// The top bit is not a count: set, both buffers came from an explicit
       /// `Allocator` and carry its owner prefix (`std/allocator.yo`), so they
       /// are resized and released through it. Keeping the bit in an existing
-      /// word keeps the map object's size (plans/EXPLICIT_ALLOCATORS.md §3.3).
+      /// word keeps the map object's size (plans/archive/EXPLICIT_ALLOCATORS.md §3.3).
       /// Read the count with `tombstones()`.
       _tombstones : usize,
       /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
@@ -141,7 +141,9 @@ impl(
   HashMap(K, V),
   /// Allocate memory for HashMap with given capacity
   /// Initializes all control bytes to EMPTY
-  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(.None, capacity)),
+  // The default constructors' tables: from the allocator `with_allocator`
+  // made current, or the global one.
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(current_allocator(), capacity)),
   // Allocate both buffers from `alloc` (the global allocator when `.None`).
   _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize) -> ?*void)(
     match(
@@ -243,15 +245,23 @@ impl(
   /// ~270 B per empty map, one per scope frame
   /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.4). The first insert grows it to
   /// `DEFAULT_CAPACITY` on the global allocator.
+  ///
+  /// Inside `with_allocator(a, ...)` it is `new_in(a)` instead: an empty map
+  /// records its allocator only in its buffers' owner prefix, so a lazy map
+  /// would grow on the global allocator.
   new : (fn() -> Self)(
-    Self(
-      ctrl : .None,
-      data : .None,
-      capacity : usize(0),
-      size : usize(0),
-      _tombstones : usize(0),
-      k0 : DEFAULT_KEY_0,
-      k1 : DEFAULT_KEY_1
+    match(
+      current_allocator(),
+      .Some(a) => Self.new_in(a),
+      .None => Self(
+        ctrl : .None,
+        data : .None,
+        capacity : usize(0),
+        size : usize(0),
+        _tombstones : usize(0),
+        k0 : DEFAULT_KEY_0,
+        k1 : DEFAULT_KEY_1
+      )
     )
   ),
   /// Empty map whose hashes are keyed by `k0`, `k1` (SipHash-1-3 keys).

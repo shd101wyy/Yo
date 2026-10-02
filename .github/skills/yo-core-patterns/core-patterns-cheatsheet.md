@@ -169,11 +169,17 @@ arena.deinit();   // PANICS while a block is still live; abandon() never frees
 
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
   route back automatically — never free an explicit allocator's block by hand.
+- Default container constructors follow the scope: `ArrayList(i32).new()`
+  inside `with_allocator(a, …)` keeps its buffer in `a` (also `HashMap`,
+  `Deque`, `HashSet`, `StringBuilder`, `String`); outside a scope use
+  `new_in(a)` / `with_capacity_in(a, n)`.
 - `Allocator` is `Send`; an `Arena` handle is not. Pass `arena.allocator()`
   into a spawn body and call `with_allocator` there — a thread does not
   inherit the scope.
 - Calling `Allocator.alloc`/`free` directly returns raw pointers, so it needs
   `pragma(Pragma.AllowUnsafe)`; `_in` constructors and scopes do not.
+- Full guide (Arena API, custom allocators, threads, `--debug-heap`):
+  `docs/en-US/EXPLICIT_ALLOCATORS.md`.
 
 ## Traits and associated types
 

@@ -181,6 +181,26 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   (host: a stage-1). Use it for debug-trace rounds; gate on a real
   `yo build --std-path ./std`.
 
+## `check`-only rejections from a body in another module (2026-10-01)
+
+- **`check` gives each module its own ExprInfo table and drops it when the module
+  finishes** (`compile` and `test` share one). A walk over a callee's evaluated
+  body (rule D1's reach walk, the StrictBorrow masks) therefore reads another
+  module's function through the memo `summarize_function_bodies`
+  (`src/evaluator/effects/mutation_summary.yo`) took at that module's end. A
+  `check`-only E0906 "never evaluated" or `Strict borrow: … may mutate` on code
+  `compile` accepts means a body was not summarized: `YO_DEBUG_BODY_SUMMARY=1`
+  prints `[body-summary] <module> offered=N summarized=M` per load
+  (`issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`).
+- **`Variable.is_module_level` means a RUNTIME global** (`g := …`), not "defined
+  at module level": a `::` function is compile-time and has it `false`. A
+  module's definitions are its finished walk's `PendingDef`s
+  (`finished_walk_for(module).defs`).
+- **A func id does not name one body.** Definition ids are
+  `stable_func_id(module, row, column)`; a `--watch` / LSP re-evaluation keeps
+  the id and mints a new body. Key anything memoized per function by the body's
+  `ExprId` too (`issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md`).
+
 ## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
 
 Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a

@@ -26,8 +26,13 @@ thread of the process. In a file without the pragma:
 - a closure bound to a `Send` closure type (a `Thread.spawn` body, a pool task, a
   `spawn_blocking` callback — anything coerced to `Impl(Fn(...), Send)`) may not REACH a
   module-level global whose type is not `Send`, directly or through any function it can call:
-  a walk over the evaluated closure body and its statically resolved callees (memoized,
-  cycle-safe); a body defined in a pragma'd file is the audited base and is not descended into.
+  a walk over the evaluated closure body and its statically resolved callees (memoized by
+  function id and body; a verdict taken under a recursive call to a function still being walked
+  is held until that walk finishes, `issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md`);
+  a body defined in a pragma'd file is the audited base and is not descended into. `check`,
+  which drops each module's ExprInfo table when the module finishes, takes these verdicts for a
+  module's functions before the table goes
+  (`issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`).
   A call through a local closure VALUE is followed into the closure's body (its binding keeps
   the `FuncVal`), and a `Dyn(Trait, Send)` value's vtable methods are walked at `dyn(...)`,
   where the concrete impl is known
@@ -45,7 +50,9 @@ thread of the process. In a file without the pragma:
   write alone is a single-threaded global and a reach alone is a shared constant; the pair is
   the race. Each side records itself in a registry keyed by the global's declaration token and
   consults the other's, so evaluation order does not matter and the diagnostic names both
-  sites. Rejected: "a written value global is always an error" — it rejected six flags in the
+  sites. The reach side consults the writes where a thread closure's reads are PUBLISHED, not
+  only where a body is walked: a memoized walk predates later writes
+  (`issues/fixed/d1-thread-reach-misses-a-write-recorded-after-a-memoized-walk.md`). Rejected: "a written value global is always an error" — it rejected six flags in the
   compiler's own tree (`g_warnings_enabled`, `g_prof_enabled`, …) that no other thread touches.
   Writes through an atomic-object global are governed by D3.
 

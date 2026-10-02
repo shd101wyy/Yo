@@ -427,12 +427,14 @@ _function_value_offense :: (
     )
   );
   // Judged Send: this code may run on another thread, so what it reads is
-  // thread-reached from here on (rule D1's read-then-write order).
-  d1_note_thread_reach(fid.clone());
+  // thread-reached from here on (rule D1's read-then-write order) — and a
+  // global it reads that is already written is a violation now (the
+  // write-then-read order, which a memoized verdict cannot see).
+  written := d1_note_thread_reach(fid.clone());
   match(
     reach,
     .Some(r) => Option(String).Some(`its code ${r}`),
-    .None => Option(String).None
+    .None => match(written, .Some(w) => Option(String).Some(`its code ${w}`), .None => Option(String).None)
   )
 });
 /// The marker judgement of a function-like type from its VALUES
@@ -617,8 +619,16 @@ validate_send_closure_global_reach :: (
     reach := function_reaches_non_send_global(closure_fid.clone(), closure_body, ctx.expr_info_table, env);
     // Only a closure that really runs on another thread publishes its reads
     // (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
+    // A global it reads that is already written is a violation now: the
+    // walk's verdict may be a memo taken before the write.
     if(wants_send, {
-      d1_note_thread_reach(closure_fid.clone());
+      match(
+        d1_note_thread_reach(closure_fid.clone()),
+        .Some(w) => if(reach.is_none(), {
+          reach = Option(String).Some(w);
+        }),
+        .None => ()
+      );
     });
     match(
       reach,

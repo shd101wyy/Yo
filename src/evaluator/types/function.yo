@@ -54,6 +54,7 @@ import("std/fmt");
   type_contains_some_type,
   type_representation_contains_raw_ptr,
   get_all_some_types,
+  enum_phantom_type_arg_somes,
   is_bound_closure_identity,
   resolve_cell_chain
 }
@@ -5146,12 +5147,36 @@ _collect_type_arg_somes :: (
         cta_f = (cta_f + usize(1));
       });
     },
-    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _) => {
+    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _, _) => {
       if(_cta_seen(visited_ids, cta_eid), {
         return(());
       });
       if(cta_eid.len() > usize(0), {
         visited_ids.push(cta_eid.clone());
+      });
+      // A PHANTOM type argument (`enum_phantom_type_arg_somes`): `T` of
+      // `Tag(T)` = `enum(A, B(n : u8))`, or `Option(T)` of `Tag(Option(T))`.
+      // Every SomeT in it lives in the type arguments alone, `Option(T)`'s
+      // `T` included, though `Option`'s own payload carries it: no payload
+      // of THIS enum does. An argument a payload carries (`Option(V)`'s `V`)
+      // is a substitution key already, and adopting a re-evaluated
+      // `-> Option(V)` is a recorded hazard (calls/function.yo, rre).
+      cta_phantoms := enum_phantom_type_arg_somes(ty);
+      (cta_pi : usize) = usize(0);
+      while(cta_pi < cta_phantoms.len(), {
+        match(
+          cta_phantoms.get(cta_pi),
+          .Some(cta_pt) => {
+            if(is_some_type(cta_pt), {
+              acc.push(cta_pt);
+            }, {
+              acc.append(get_all_some_types(cta_pt));
+            });
+            recur(cta_pt, acc, visited_ids);
+          },
+          .None => ()
+        );
+        cta_pi = (cta_pi + usize(1));
       });
       (cta_v : usize) = usize(0);
       while(cta_v < cta_vfs.len(), {

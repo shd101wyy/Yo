@@ -1,7 +1,7 @@
 # A method on a phantom generic struct is not found through a `comptime(K) : Type` parameter
 
 **Severity:** S2 — a valid program is rejected with "No method"; writing a module-level helper function instead of a method is the other spelling
-**Found:** 2026-09-29, making `std/imm/map.yo`'s node buffers follow the allocation scope (`plans/EXPLICIT_ALLOCATORS.md` P3b): `MapBranch(K, V)` is `ref(struct(bitmap : u32, _children_ptr : *void, _children_len : u8))`, which uses neither `K` nor `V`.
+**Found:** 2026-09-29, making `std/imm/map.yo`'s node buffers follow the allocation scope (`plans/archive/EXPLICIT_ALLOCATORS.md` P3b): `MapBranch(K, V)` is `ref(struct(bitmap : u32, _children_ptr : *void, _children_len : u8))`, which uses neither `K` nor `V`.
 
 ## Reproducer
 
@@ -24,7 +24,7 @@ error[E0610]: No method "size" on Br(K): the type has no field or method with th
 of type `K`. The failure needs a phantom parameter (one no field uses) and a
 receiver typed through the helper's `comptime` type parameter. Enums fail the
 same way but for a deeper reason; that case is
-`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`.
+`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`.
 
 ## Cause
 

@@ -1,7 +1,7 @@
 # An `io.async` future stored as an enum payload emits a nested `typedef`
 
 **Severity:** S2 — a valid program fails in the C compiler. `yo check` passes.
-**Found:** 2026-09-30, writing `with_allocator` (`plans/EXPLICIT_ALLOCATORS.md` P3), whose scope guard first held an `Option(*T)`. The same error reproduces on develop at `f7f1331fb`.
+**Found:** 2026-09-30, writing `with_allocator` (`plans/archive/EXPLICIT_ALLOCATORS.md` P3), whose scope guard first held an `Option(*T)`. The same error reproduces on develop at `f7f1331fb`.
 
 ## Reproducer
 

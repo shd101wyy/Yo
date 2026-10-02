@@ -261,10 +261,8 @@ read :: (fn(p : Path, io : Io) -> String)({
 - Parameters are read-only by default; `inout(self)` for mutation; methods
   take `self : Self` explicitly.
 - Allocation is placement, RC is lifetime: `with_allocator(a, () => ...)`
-  (`std/allocator`) puts every RC object created inside it in allocator
-  `a`; containers take one directly (`ArrayList(T).new_in(a)`). The release
-  always goes back to the allocator that made the block. `std/arena`'s
-  `Arena` panics at `deinit` while any block is still live.
+  (`std/allocator`) places every RC object and container buffer created
+  inside in `a`; a block is always released to the allocator that made it.
 
 ## Async (single-threaded) and effects
 
@@ -372,7 +370,8 @@ reach for it to parallelize I/O; that's the event loop's job.
 - The in-depth manuals live in the repository (an installed bundle ships
   no docs/ directory):
   https://github.com/shd101wyy/Yo/tree/develop/docs/en-US — GRAMMAR, DESIGN,
-  ASYNC_AWAIT, MEMORY_SAFETY, ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION
+  ASYNC_AWAIT, MEMORY_SAFETY, EXPLICIT_ALLOCATORS, ALGEBRAIC_EFFECTS,
+  FORMAL_VERIFICATION
   (zh-CN translations under `docs/zh-CN/`).
 - The LSP (`yo lsp`, VS Code extension) gives hover/completion/go-to-def in
   editors.

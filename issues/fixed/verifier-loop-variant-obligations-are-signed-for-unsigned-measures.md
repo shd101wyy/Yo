@@ -2,7 +2,7 @@
 
 **Severity:** S2 — loop-variant obligations hardcode signed comparisons — a sound program with an unsigned `decreases` measure is falsely refuted
 
-**Status:** open
+**Status:** fixed 2026-10-02 (safe-mode handover §3.7)
 **Found:** 2026-09-15, reviewing PR #695
 
 ## What
@@ -63,3 +63,31 @@ Reuse `_measure_is_signed(ctx, dm)` — already introduced by #695 at
   across `2^63` must REFUTE. Without this fixture the step direction is gated
   only by the nonneg obligation firing first, which is precisely the coupling
   that makes a partial fix dangerous.
+
+## Outcome (2026-10-02)
+
+All three sites now take their comparison from the measure's own type, through
+two helpers shared with the function-level `decreases` obligations in
+`src/verifier/vc.yo`:
+
+- `_emit_measure_nonneg` emits `decreases-nonneg` / `loop-variant-nonneg`. It
+  uses `bvsge` for a signed measure and `bvuge` for an unsigned one, and checks
+  each component of a lexicographic measure separately. The loop site used to
+  compare the concatenation signed.
+- `_measure_lt_op` gives `bvslt` / `bvult` for `decreases-step` and for
+  `loop-variant-decreases` / `loop-variant-continue`.
+
+Measured with the v0.2.48 seed before the fix:
+
+- `tests/spec/fixtures/valid/loop_decreases_unsigned.yo`: a usize `n - i`
+  measure was REFUTED at both `loop-variant-nonneg` and `loop-variant-decreases`.
+- `tests/spec/fixtures/negative/loop_measure_grows_unsigned.yo`: a u64 measure
+  going 2^63 - 1 → 2^63 VERIFIED, at the body-end step and at a continue site.
+
+That second result refines the analysis above. The old all-signed pair was
+still a sound termination argument: signed order over signed-non-negative
+values is well-founded. What it did not do was check the measure in the order
+of the type the user wrote. Both fixtures now give the expected verdicts, and
+`tests/internal/verifier_loops.test.yo` pins them (`YO_TEST_Z3=1`). The
+negative test asserts which obligation refutes: the body-end step in one
+function, the continue site in the other.

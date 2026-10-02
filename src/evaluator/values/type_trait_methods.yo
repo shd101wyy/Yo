@@ -92,7 +92,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
   match(
     t,
     .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
     // A union's `name` IS its unique id: evaluate_union_type mints
@@ -434,6 +434,39 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
       }
     );
   });
+});
+/// The method values the module `owner` registered (its impl members). The
+/// empty owner is what was registered outside any module load: the prelude's.
+type_trait_method_values_owned_by :: (fn(owner : String) -> ArrayList(EvalValue))({
+  out := ArrayList(EvalValue).new();
+  it := _type_trait_methods.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.get(key.clone()),
+        .Some(list) => match(
+          _type_trait_method_owners.get(key.clone()),
+          .Some(olist) => {
+            (i : usize) = usize(0);
+            while((i < olist.len()) && (i < list.len()), {
+              if(match(olist.get(i), .Some(o) => (o == owner), .None => false), {
+                match(list.get(i), .Some(m) => match(m.value, .Some(v) => out.push(v), .None => ()), .None => ());
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
 });
 /// Total registered method entries across all type ids (LSP leak gate).
 type_trait_methods_entry_count :: (fn() -> usize)({
@@ -960,7 +993,7 @@ assoc_type_registry_key :: (fn(t : TypeValue) -> String)({
   has_args := match(
     t,
     .Struct({ type_arguments : ta }) => (ta.len() > usize(0)),
-    .EnumT(_, _, _, _, _, _, _, _, _) => true,
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => true,
     _ => false
   );
   cond(
@@ -981,6 +1014,7 @@ get_assoc_type_entries :: (fn(t : TypeValue, label : String) -> ArrayList(Method
 });
 export(
   MethodEntry,
+  type_trait_method_values_owned_by,
   assoc_type_registry_key,
   get_assoc_type_entries,
   find_associated_const_usize,

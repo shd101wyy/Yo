@@ -1,0 +1,26 @@
+pragma(Pragma.StrictBorrow);
+{ ArrayList, ArrayListIterPtr } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(
+  Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  total : (fn(self : Self) -> i32)({
+    t := i32(0);
+    for(self.items, x => {
+      t = (t + x);
+    });
+    t
+  })
+);
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  bag := Bag(items : xs);
+  (seen : i32) = i32(0);
+  for(bag, inout(x) => {
+    seen = (seen + bag.total());
+  });
+  println(seen);
+});
+export(main);

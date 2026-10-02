@@ -88,12 +88,13 @@ env_mod :: import("std/env");
   file_exists_sync
 } :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
-{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by, type_trait_method_values_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ summarize_function_bodies, purge_mutation_summaries } :: import("./evaluator/effects/mutation_summary.yo");
 { purge_function_side_tables } :: import("./evaluator/types/function.yo");
 { purge_function_value_tables } :: import("./function_value.yo");
 { purge_generic_impls_owned_by, purge_concrete_trait_impls_owned_by, purge_ifc_memo_owned_by } :: import("./evaluator/values/impl.yo");
 { purge_type_intern_owned_by } :: import("./types/intern.yo");
-{ purge_specialization_caches_owned_by } :: import("./evaluator/calls/helper.yo");
+{ purge_specialization_caches_owned_by, specialization_recording_begin, specialization_recording_take } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
@@ -593,6 +594,10 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
         purge_specialization_caches_owned_by(owner.clone());
         owned_fids := take_owned_func_ids(owner.clone());
         purge_function_side_tables(owned_fids.clone());
+        // The D1 / StrictBorrow / RC-mutation memos: the re-evaluation
+        // re-summarizes these functions (bounded memo growth across rounds;
+        // a stale entry could not answer anyway — memos match by body).
+        purge_mutation_summaries(owned_fids.clone());
         purge_function_value_tables(owned_fids);
         owned_eids := take_owned_expr_ids(owner.clone());
         purge_match_arms(owned_eids.clone());
@@ -978,13 +983,14 @@ _reader_rebindable :: (fn(reader_module : String, names : ArrayList(String)) -> 
   true
 });
 /// Phase 3 (§6): the def keys of `module`'s own definitions whose source
-/// mentions any of `names`.
+/// mentions any of `names` — `impl` statements included, so a caller's
+/// admission sends their module to the file-level path (an impl cannot
+/// re-force per definition) instead of silently leaving it stale.
 ///
-/// These are the seeds a re-bound importer needs: its definitions resolve the
-/// name from its OWN module frame, so they carry no def-level edge to the
-/// changed definition and nothing else would pull them in. A definition that
-/// reaches the change only THROUGH a sibling is covered by the sibling's
-/// edges, which is why a syntactic mention is enough here — and why erring
+/// A module's definitions read each other through its own module frame: an
+/// in-order or forward reference from an in-order root records no def edge
+/// (`record_def_dependency` needs a non-empty forcing stack), so a syntactic
+/// mention is the only record that a sibling depends on a definition. Erring
 /// toward mentioning (a shadowed local of the same name, say) only
 /// re-evaluates one extra definition.
 _defs_mentioning :: (fn(module : String, names : ArrayList(String)) -> ArrayList(String))({
@@ -996,7 +1002,7 @@ _defs_mentioning :: (fn(module : String, names : ArrayList(String)) -> ArrayList
       while(i < w.defs.len(), {
         match(
           w.defs.get(i),
-          .Some(d) => if(!d.is_impl && _expr_mentions(d.expr, names), {
+          .Some(d) => if(_expr_mentions(d.expr, names), {
             out.push(def_key(module.clone(), d.index, d.name.clone()));
           }),
           .None => ()
@@ -1006,6 +1012,118 @@ _defs_mentioning :: (fn(module : String, names : ArrayList(String)) -> ArrayList
     },
     .None => ()
   );
+  out
+});
+/// Every definition a per-def round must re-force for `seeds`, seeds
+/// included: the recorded def edges (`def_dependents_closure`, cross-module
+/// member reads and forced lookups) closed under SAME-MODULE mentions
+/// (`_defs_mentioning`), to a fixpoint — a sibling that calls a re-forced
+/// definition has no edge to it, and neither does the sibling's own caller,
+/// nor that caller's importers' dependents. Missing any of them re-judges the
+/// changed body alone and keeps the old verdict of every caller whose type
+/// check, D1 reach or StrictBorrow mask depends on it, so a watch round would
+/// accept what a cold `check` rejects
+/// (issues/fixed/watch-per-def-round-skips-same-module-callers.md).
+_revalidation_closure :: (fn(seeds : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  seen := HashSet(String).new();
+  first := def_dependents_closure(seeds);
+  (fi : usize) = usize(0);
+  while(fi < first.len(), {
+    match(
+      first.get(fi),
+      .Some(k) => if(!seen.contains(k.clone()), {
+        seen.insert(k.clone());
+        out.push(k.clone());
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  // Members [0, scanned) have had their siblings scanned.
+  (scanned : usize) = usize(0);
+  while(scanned < out.len(), {
+    modules := ArrayList(String).new();
+    names_by_module := HashMap(String, ArrayList(String)).new();
+    while(scanned < out.len(), {
+      match(
+        out.get(scanned),
+        .Some(key) => {
+          module := def_key_module(key.clone());
+          match(
+            def_key_index(key.clone()),
+            .Some(ix) => match(
+              finished_walk_for(module.clone()),
+              .Some(w) => match(
+                w.by_index.get(ix),
+                .Some(d) => {
+                  names := match(
+                    names_by_module.get(module.clone()),
+                    .Some(ns) => ns,
+                    .None => {
+                      modules.push(module.clone());
+                      ArrayList(String).new()
+                    }
+                  );
+                  names.push(d.name.clone());
+                  _ := names_by_module.insert(module.clone(), names);
+                },
+                // Unresolvable keys are the admission's to send to the
+                // file-level path; they name no sibling to scan.
+                .None => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      scanned = (scanned + usize(1));
+    });
+    fresh := ArrayList(String).new();
+    (mi : usize) = usize(0);
+    while(mi < modules.len(), {
+      match(
+        modules.get(mi),
+        .Some(m) => match(
+          names_by_module.get(m.clone()),
+          .Some(names) => {
+            mentioning := _defs_mentioning(m.clone(), names);
+            (ki : usize) = usize(0);
+            while(ki < mentioning.len(), {
+              match(
+                mentioning.get(ki),
+                .Some(k) => if(!seen.contains(k.clone()), {
+                  fresh.push(k.clone());
+                }),
+                .None => ()
+              );
+              ki = (ki + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+    if(fresh.len() > usize(0), {
+      more := def_dependents_closure(fresh);
+      (xi : usize) = usize(0);
+      while(xi < more.len(), {
+        match(
+          more.get(xi),
+          .Some(k) => if(!seen.contains(k.clone()), {
+            seen.insert(k.clone());
+            out.push(k.clone());
+          }),
+          .None => ()
+        );
+        xi = (xi + usize(1));
+      });
+    });
+  });
   out
 });
 /// Compute the plan. `.None`: the edit is not per-def-able (structural, an
@@ -1079,7 +1197,7 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
     );
     si = (si + usize(1));
   });
-  closure := def_dependents_closure(seeds.clone());
+  closure := _revalidation_closure(seeds.clone());
   fallbacks := ArrayList(String).new();
   closure_keys := ArrayList(String).new();
   rebind_seeds := ArrayList(RebindEntry).new();
@@ -1212,15 +1330,17 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
             );
             ri = (ri + usize(1));
           });
-          if(module != diff.module_key, {
-            match(
-              finished_walk_for(module.clone()),
-              .Some(w) => if(_ordered_stmts_mention(w.begin_exprs.clone(), names.clone()), {
-                fallbacks.push(module);
-              }),
-              .None => ()
-            );
-          });
+          // The changed module too: its changed names were rejected above,
+          // but a same-module DEPENDENT a top-level statement reads (an
+          // ordered `x := mid();`, a `test(...)` calling it) cannot re-run
+          // per-def either.
+          match(
+            finished_walk_for(module.clone()),
+            .Some(w) => if(_ordered_stmts_mention(w.begin_exprs.clone(), names.clone()), {
+              fallbacks.push(module);
+            }),
+            .None => ()
+          );
         },
         .None => ()
       ),
@@ -1243,7 +1363,7 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
       rebind_seeds.get(rsi),
       .Some(entry) => {
         mentioning := _defs_mentioning(entry.reader_module.clone(), entry.names.clone());
-        extra := def_dependents_closure(mentioning.clone());
+        extra := _revalidation_closure(mentioning.clone());
         (ok : bool) = true;
         (xi : usize) = usize(0);
         while(xi < extra.len(), {
@@ -1565,8 +1685,30 @@ mm_revalidate_apply :: (
               );
               ri = (ri + usize(1));
             });
+            (reval_per_module_table : bool) = g_shared_expr_info_table.is_none();
+            (reval_mark : usize) = if(reval_per_module_table, specialization_recording_begin(), usize(0));
             mod_failures := revalidate_walk_defs(walk, defs);
             revalidated = (revalidated + defs.len());
+            // The re-forced bodies are new (fresh AST ids), so the memos other
+            // modules' walks read are re-taken against this module's table,
+            // exactly as at its load (`_summarize_module_bodies`).
+            if(reval_per_module_table, {
+              reval_minted := specialization_recording_take(reval_mark);
+              match(
+                walk.ctx,
+                .Some(wctx) => {
+                  reval_values := ArrayList(EvalValue).new();
+                  _push_non_generic_fn_values(_walk_def_values(defs), reval_values);
+                  (rmi : usize) = usize(0);
+                  while(rmi < reval_minted.len(), {
+                    match(reval_minted.get(rmi), .Some(v) => reval_values.push(v), .None => ());
+                    rmi = (rmi + usize(1));
+                  });
+                  summarize_function_bodies(reval_values, wctx.expr_info_table, walk.env);
+                },
+                .None => ()
+              );
+            });
             (fi : usize) = usize(0);
             while(fi < mod_failures.len(), {
               match(
@@ -2064,7 +2206,17 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   register_loading(abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
+  // check: this module's table dies with it, so the bodies evaluated into it
+  // are summarized for later modules' walks first (summarize_function_bodies).
+  (per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (mint_mark : usize) = if(per_module_table, specialization_recording_begin(), usize(0));
   _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
+  if(per_module_table, {
+    minted := specialization_recording_take(mint_mark);
+    if(out_vals.len() > usize(0), {
+      _summarize_module_bodies(abs.clone(), minted, env, ctx.expr_info_table);
+    });
+  });
   // ALWAYS unregister — a leaked currently-loading entry poisons every
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
@@ -2094,6 +2246,61 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
       )
     )
   )
+});
+/// The functions whose bodies module `abs`'s evaluation put in its table —
+/// its definitions (the finished walk's), the impl members it registered and
+/// the specializations it minted — summarized against that table. A generic
+/// definition is skipped: its body is evaluated per specialization, and those
+/// are in `minted` (or in the minting module's own load).
+_summarize_module_bodies :: (fn(abs : String, minted : ArrayList(EvalValue), env : Environment, table : ExprInfoTable) -> unit)({
+  values := ArrayList(EvalValue).new();
+  _push_non_generic_fn_values(type_trait_method_values_owned_by(abs.clone()), values);
+  match(
+    finished_walk_for(abs),
+    .Some(walk) => _push_non_generic_fn_values(_walk_def_values(walk.defs), values),
+    .None => ()
+  );
+  (mi : usize) = usize(0);
+  while(mi < minted.len(), {
+    match(minted.get(mi), .Some(v) => values.push(v), .None => ());
+    mi = (mi + usize(1));
+  });
+  summarize_function_bodies(values, table, env);
+});
+/// The values the definitions `defs` bound (each def's own Variable).
+_walk_def_values :: (fn(defs : ArrayList(PendingDef)) -> ArrayList(EvalValue))({
+  out := ArrayList(EvalValue).new();
+  (di : usize) = usize(0);
+  while(di < defs.len(), {
+    match(
+      defs.get(di),
+      .Some(d) => match(
+        d.variable,
+        .Some(var) => match(var.value.get(usize(0)), .Some(v) => out.push(v), .None => ()),
+        .None => ()
+      ),
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  out
+});
+_push_non_generic_fn_values :: (fn(src : ArrayList(EvalValue), dst : ArrayList(EvalValue)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    match(
+      src.get(i),
+      .Some(v) => match(
+        v,
+        .FuncVal(fvd, _) => if(fvd.*.forall_names.len() == usize(0), {
+          dst.push(v);
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
 /// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
@@ -2188,6 +2395,8 @@ mm_load_prelude_file :: (
   g_prof_child_load_ns = i64(0);
   // keep_frame_at_end=true so the prelude's bindings survive into the cached
   // env (see issues/yo-self-multi-file-prelude-bindings.md).
+  (prelude_per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (prelude_mint_mark : usize) = if(prelude_per_module_table, specialization_recording_begin(), usize(0));
   _rp := evaluate_anonymous_module_begin_exprs(
     exprs,
     prelude_env,
@@ -2197,6 +2406,26 @@ mm_load_prelude_file :: (
     true,
     local_exn
   );
+  // check: the prelude's table goes with this frame like any module's, and
+  // every module calls into it (its operators, its loop machinery).
+  if(prelude_per_module_table, {
+    // Its impl members are registered outside any module load (owner "");
+    // its definitions are its walk's.
+    prelude_minted := specialization_recording_take(prelude_mint_mark);
+    prelude_values := ArrayList(EvalValue).new();
+    _push_non_generic_fn_values(type_trait_method_values_owned_by(String.new()), prelude_values);
+    match(
+      finished_walk_for(input_path.clone()),
+      .Some(pw) => _push_non_generic_fn_values(_walk_def_values(pw.defs), prelude_values),
+      .None => ()
+    );
+    (pmi : usize) = usize(0);
+    while(pmi < prelude_minted.len(), {
+      match(prelude_minted.get(pmi), .Some(v) => prelude_values.push(v), .None => ());
+      pmi = (pmi + usize(1));
+    });
+    summarize_function_bodies(prelude_values, prelude_ctx.expr_info_table, prelude_env);
+  });
   profile_record_module(
     mm_resolve_entry_abs(input_path.clone(), std_path.clone()).replace(
       String.from("file://"),
@@ -2352,7 +2581,17 @@ mm_eval_entry_exprs :: (
   register_loading(entry_abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
+  // check: the specializations this entry mints are cached for every later
+  // file of a directory check, but their bodies live in this entry's table.
+  (entry_per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (entry_mint_mark : usize) = if(entry_per_module_table, specialization_recording_begin(), usize(0));
   _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  if(entry_per_module_table, {
+    entry_minted := specialization_recording_take(entry_mint_mark);
+    if(out_vals.len() > usize(0), {
+      _summarize_module_bodies(entry_abs.clone(), entry_minted, env, ctx.expr_info_table);
+    });
+  });
   profile_record_module(
     entry_abs.clone().replace(String.from("file://"), String.new()),
     i64(0),

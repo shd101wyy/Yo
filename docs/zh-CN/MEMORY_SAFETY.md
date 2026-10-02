@@ -57,6 +57,7 @@ main :: (fn() -> unit)({
 | 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
 | `&(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                                                               |
 | 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(coll, inout(x) => …)` 在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
+| 交出存储的 API 一律以原始指针形式交出（`s.ptr()`、`xs.ptr()`） | "Raw pointer values are not available in safe code"                 | 通过安全 API 读取或复制字节（`len()`、索引、`s(a..b)`）；原始视图是标准库内部管道 |
 | `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
 | `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
 | `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
@@ -145,14 +146,14 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
 xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
 ```
 
-- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`box`、`arc`、`dyn` 盒子、`Iso` 值、在其中创建的任务状态机，以及 `imm` 集合的缓冲区。运行时自己的簿记仍使用全局分配器。可变容器显式接收分配器：`ArrayList`、`HashMap`、`HashSet`、`Deque` 和 `StringBuilder` 提供 `new_in` / `with_capacity_in`。
+- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`box`、`arc`、`dyn` 盒子、`Iso` 值、在其中创建的任务状态机，以及 `imm` 集合的缓冲区。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
 - **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `arena.allocator()` 传进 spawn 体，并在那里调用 `with_allocator`。
 - **arena 不会在活跃块之下死亡。** 只要还有活跃块，`Arena.deinit()`（最后一个 `Arena` 句柄消失时也会调用）就会 **panic**：`Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。在 Zig 中这是释放后使用；在 Yo 中它是确定的、显式的失败。通过过期的 `Allocator` 副本从已 deinit 的 arena 分配同样会 panic。arena 的簿记从不释放，所以过期副本访问到的是一个带标记的状态，而不是已释放的内存。
 - **进程生命周期的 arena 调用 `abandon()`。** 它停止跟踪并且永不释放区域，此后 `deinit` 不做任何事。适用于启动表和字符串驻留表。
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`；arena 的每个操作都持有自己的锁，所以一个 arena 可以服务多个线程。`Arena` 句柄本身是引用计数的，不是 `Send`。
 - **泄漏检测能看到 arena。** 在 `--allocator fixed --debug-heap` 下，退出报告会列出每个从未 deinit 的 arena 和每个被 abandon 的 arena，以及它的活跃块数和已用字节数。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。设计文档：`plans/EXPLICIT_ALLOCATORS.md`。
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。完整指南（`Arena` API、编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 

@@ -236,7 +236,21 @@ TypeValue :: ref(
       variant_field_labels : ArrayList(ArrayList(String)),
       variant_discriminants : ArrayList(i64),
       is_reference_semantics : bool,
-      is_atomic_rc : bool
+      is_atomic_rc : bool,
+      /// Type arguments of the generic constructor call that minted this
+      /// instantiation, in constructor-parameter order (`P(i32)` -> `[i32]`;
+      /// a non-type argument records `Unit`). The enum twin of
+      /// `Struct.type_arguments`, stamped at the comptime-fn call site
+      /// (`evaluator/calls/comptime_fn.yo`). `substitute` rewrites an argument
+      /// that is a type variable, so a phantom `Tag(K)` at `K := i32` reports
+      /// `[i32]`; a compound argument (`*(T)`) keeps its definition-era
+      /// spelling, and the payloads are what say `*(u8)`. Empty for a
+      /// non-generic enum or a copy that predates the stamp. Without it, two
+      /// instantiations whose payloads do not mention a parameter (a phantom
+      /// index, a GADT index only `-> recur(...)` names) are structurally
+      /// identical
+      /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
+      type_arguments : ArrayList(Self)
     ),
     Union(
       name : String,

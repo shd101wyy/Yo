@@ -181,9 +181,10 @@ Measured: phantom comptime parameters give typestate today, but it is only
 sound when the handle is a `ref` type passed with `own(...)`. The move makes
 the old state unusable (E0901). A value-struct handle is copied, so the
 closed state is still readable. Document the idiom with that rule in
-`docs/*/DESIGN.md` (both languages). Fix the open phantom-enum method
-lookup (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`,
-S3), which is the one thing standing in its way. std adoption (`File`,
+`docs/*/DESIGN.md` (both languages). The phantom-enum method lookup that
+stood in its way is fixed
+(`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`,
+S3). std adoption (`File`,
 sockets) is **not** proposed: those handles alias by design (RC), and
 runtime state already guards them.
 

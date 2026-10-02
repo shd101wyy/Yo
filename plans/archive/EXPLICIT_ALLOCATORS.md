@@ -1,12 +1,14 @@
 # Explicit allocators (Zig-style) beside reference counting
 
-> **Status: ACTIVE — P0–P5 LANDED 2026-09-30** (#1015, #1021, #1023, #1027,
-> #1029, #1032, #1033, #1035, #1042). The one open phase is P3c (default
-> mutable-container constructors follow the scope, #1034), parked until
-> `SEED_VERSION` carries P3's runtime hooks. The async state-machine pools
-> of #1018 (not yet landed) are to pool only on the global allocator and
-> never recycle a tagged block, as agreed with its author.
-> Landed decisions: [`reference/EXPLICIT_ALLOCATORS.md`](reference/EXPLICIT_ALLOCATORS.md).** Design audited 2026-09-29 (two passes). Verdict:
+> **Status: CLOSED 2026-10-02 — every phase landed.** P0–P5 on 2026-09-30
+> (#1015, #1021, #1023, #1027, #1029, #1032, #1033, #1035, #1042); P3c
+> (default mutable-container constructors follow the scope, #1034) once
+> v0.2.48 was the seed (2026-10-02): it carries P3's runtime hooks (v0.2.47) and the three
+> codegen fixes the P3c std needs to compile (#1066). The async
+> state-machine pools (#1018) pool only on the global allocator and never
+> recycle a tagged block. Authoritative summary:
+> [`reference/EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md); this
+> document is the frozen phase-by-phase record.** Design audited 2026-09-29 (two passes). Verdict:
 > **feasible**. An explicit allocator in Yo selects *where* a block lives;
 > reference counting keeps *whether and when* it dies. Every allocation
 > falls back to the global allocator when no
@@ -18,7 +20,7 @@
 > freezing needs a second implementor — an arena or a counting allocator").
 > It is the per-object layer **on top of** — not a replacement for — the
 > compile-time global allocator choice of
-> [`FIXED_REGION_ALLOCATOR.md`](reference/FIXED_REGION_ALLOCATOR.md) §0
+> [`FIXED_REGION_ALLOCATOR.md`](../reference/FIXED_REGION_ALLOCATOR.md) §0
 > (which scoped itself to "Yo keeps one global allocator" and recorded the
 > Zig-style parameter as out of that plan's scope).
 >
@@ -908,16 +910,23 @@ the arena, and each release routes back there. The compiler does not import
    not found through a `comptime(K) : Type` helper (imm/map's `MapBranch(K, V)`
    shape). Fixed where deferral is decided
    (`issues/fixed/method-on-a-phantom-generic-struct-is-not-found-through-a-comptime-type-param.md`);
-   the enum twin is open
-   (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+   the enum twin is fixed too
+   (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
 4. Gates: the `imm` suites (map 25, set 21, threading 30, string 45, list 17,
    sorted map 21, sorted set 20, iterators 13; vec 50 plus its 4 develop
    leaks), `tests/explicit_allocators.test.yo`'s `imm` cases.
 
-### P3c — default mutable containers follow the scope (std; PARKED on the seed)
+### P3c — default mutable containers follow the scope (std; landed once v0.2.48 was the seed)
 
-**Status: written and tested, parked** (branch `explicit-allocators-p3c`,
-#1034) until `SEED_VERSION` carries P3.
+**Status: landed 2026-10-02** (#1034), after v0.2.48 became the seed. The
+merge kept develop's verification contract on `ArrayList.new`
+(`ensures(r.len() == usize(0))`, `assumed()`); both branches of the scoped body
+return an empty list. The rebase also met #1041's lazy `HashMap.new` (no
+buffers until the first insert). An empty map records its allocator only in
+its buffers' owner prefix, so the lazy map grew on the global allocator even
+inside a scope. The P3c test "A default HashMap and a String built in the
+scope are placed there" caught it. Inside a scope, `new` is now `new_in(a)`;
+outside one it stays lazy.
 
 `ArrayList.new()` / `with_capacity`, `HashMap.new()` / `with_capacity` (and
 through them `HashSet`, `StringBuilder`, `String`), and `Deque.new()` consult
@@ -929,7 +938,15 @@ so their calls into the scope hooks would reference runtime functions the
 seed's emitted runtime does not define, and the stage-1 build would not link.
 P3c therefore lands only once `SEED_VERSION` carries P3
 (`plans/backlog/SEED_VERSION_AUTOMATION.md`, the two-step rule in
-`.github/instructions/c-codegen.instructions.md`). It is testable before then:
+`.github/instructions/c-codegen.instructions.md`). v0.2.47 carried P3, but
+its codegen still could not compile the P3c std: `ArrayList(Dyn(ToString +
+Error)).with_capacity` reaches `size_would_overflow`, whose
+`type_size :: sizeof(T)` was an undeclared C identifier for a dyn `T`. Three
+bugs sat on that path —
+`issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md`,
+`issues/fixed/a-comptime-binding-with-an-unknown-value-emits-an-undeclared-identifier.md`,
+`issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md` — fixed on
+develop (#1066), so the gate moved to v0.2.48. It is testable before then:
 a P3 (or later) stage-1 runs the tests against the P3c std — measured with
 the top-of-stack stage-1: `tests/explicit_allocators.test.yo` 14/14 (its four
 P3c cases included), ArrayList 126, HashMap 86, Deque 41.
@@ -937,6 +954,34 @@ P3c cases included), ArrayList 126, HashMap 86, Deque 41.
 When it lands, the docs' "mutable containers take their allocator through
 `_in`" sentences (MEMORY_SAFETY, DESIGN, the cheatsheet) change with it, and a
 self-compile A/B measures the scope check on the compiler's own containers.
+
+**Self-compile A/B (2026-10-02, Linux x64, stage-2 binaries from the fixpoint
+of develop `2d9437775` and of P3c on it; both check develop's `./src` with
+develop's std, so only the compiler's own containers differ).** Five rounds,
+the first three baseline-first and the last two P3c-first, on a machine shared
+with other sessions' builds (load 5.5–8.4):
+
+| round | baseline user s | P3c user s | Δ |
+| --- | --- | --- | --- |
+| 1 | 473.0 | 485.2 | +2.6% |
+| 2 | 486.1 | 554.9 | +14.2% |
+| 3 | 550.6 | 561.9 | +2.0% |
+| 4 | 538.0 | 564.0 | +4.8% |
+| 5 | 443.4 | 445.8 | +0.5% |
+
+Peak RSS is identical on both sides: 1,016.8–1,017.8 MB in all ten runs. The
+baseline alone ranged 443–551 s with load, which is wider than any P3c-vs-baseline gap.
+The median paired difference is +2.6%, and the one load-matched pair (round 5,
+load 5.75 vs 5.52) is +0.5%. So the scope check is within noise, as the design
+predicts: the compiler never enters a scope, so `current_allocator()` is one
+relaxed load of `__yo_scopes_ever_entered` and a branch.
+
+**Bug found while landing.** P3c's scoped `ArrayList(Park).new()` routes
+through `with_capacity_in` and `size_would_overflow(T, …)`, which exposed an
+S1 on develop: a call whose `comptime(T) : Type` argument holds a resolved
+`Impl` (`IoFuture`, std/async/waker's `Park`) never specialized
+(`issues/fixed/a-comptime-type-argument-holding-a-resolved-impl-never-specializes.md`,
+fixed in #1109 before P3c merged).
 
 ### P4 — hardening and tooling
 

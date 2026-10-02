@@ -147,7 +147,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
 - **D2, `Iso`.** `^v` is the only safe constructor; it proves the whole graph unique at runtime (`__yo_iso_unique`), through the traversal functions. `T` must be a non-atomic reference object.
 - **D5 / D7, runtime.** `std/sync` primitives record their owner and trap on misuse. A thread that touches ANOTHER thread's event loop registers in the loop's `visitors` count while the loop is provably alive, and loop teardown waits for it (`__yo_async_loop_quiesce`). The loop's live-waker count drops only in the owner's drain.
 
-## Explicit allocators: placement, not lifetime (`plans/EXPLICIT_ALLOCATORS.md`)
+## Explicit allocators: placement, not lifetime (`plans/archive/EXPLICIT_ALLOCATORS.md`)
 
 - An `Allocator` (`std/allocator.yo`) is `{ctx, vtable}`: a two-word `Send`
   value, never reference counted. Every block it hands out carries a 16-byte
@@ -161,6 +161,15 @@ The guarantee is data-race freedom for every program that compiles without `prag
   the runtime's own blocks never do (`__yo_rc_alloc`). A task keeps the scope
   it was created in across suspensions (its resume wrapper reinstates it); a
   spawned thread starts on the global allocator.
+- The mutable containers' DEFAULT constructors follow the scope
+  (`ArrayList.new`/`with_capacity`, `HashMap.new`/`with_capacity`, `Deque.new`,
+  and `HashSet`/`StringBuilder`/`String` through them): they read
+  `current_allocator()` and behave as `new_in(a)` inside a scope, unchanged
+  outside one. A lazy constructor must not stay lazy under a scope — an empty
+  container records its allocator only in its buffer's prefix, so
+  `HashMap.new` is eager (`new_in(a)`) there. Because std is compiled into the
+  compiler by the seed, a std change that calls a new runtime hook is
+  seed-gated (P3c waited for v0.2.48).
 - Containers record their allocator in the top bit of a word they already
   have (ArrayList/Deque/imm capacity, HashMap's tombstone count, imm/map's
   node lengths), never in a new field — the object size is measured and
@@ -170,6 +179,9 @@ The guarantee is data-race freedom for every program that compiles without `prag
   so a stale `Allocator` copy panics instead of touching freed memory; the
   `Arena` handle itself is not `Send` — share the arena through its
   `Allocator` value.
+- User-facing guide: `docs/en-US/EXPLICIT_ALLOCATORS.md` (and zh-CN). Keep it,
+  `MEMORY_SAFETY.md`'s section and the core-patterns cheatsheet in step when
+  the surface changes.
 
 ## SomeType
 

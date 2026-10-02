@@ -1,0 +1,8 @@
+{ Thread } :: import("std/thread");
+{ gen, warm } :: import("./lib.yo");
+main :: (fn() -> unit)({
+  _w := warm();
+  t := Thread(usize).spawn((io : Io) => gen(i32(2)));
+  _r := t.join();
+});
+export(main);

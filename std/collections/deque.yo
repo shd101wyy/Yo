@@ -28,14 +28,14 @@
 //! wrap-around cases. Missing pieces such as `Debug` or a `retain` would be
 //! additive.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow } :: import("../allocator");
+{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator");
 { SIZE_MAX } :: import("../libc/stdint");
 { assert } :: import("../assert");
 { malloc, realloc, free } :: GlobalAllocator;
 // The top bit of `_capacity`: set when the ring came from an explicit
 // `Allocator` and carries its owner prefix (`std/allocator.yo`), so growth and
 // release go through it. Kept inside an existing word so the deque object does
-// not grow (plans/EXPLICIT_ALLOCATORS.md §3.3); every capacity read masks it.
+// not grow (plans/archive/EXPLICIT_ALLOCATORS.md §3.3); every capacity read masks it.
 _CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 /// Circular buffer supporting efficient push/pop at both front and back.
@@ -54,8 +54,13 @@ impl(
   generic(T : Type),
   Deque(T),
   /// Empty deque. Allocates nothing — the first push buys an 8-slot ring.
+  /// Inside `with_allocator(a, …)` it is `new_in(a)`.
   new : (fn() -> Self)(
-    Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
+    match(
+      current_allocator(),
+      .Some(a) => Self.new_in(a),
+      .None => Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
+    )
   ),
   /// Empty deque whose ring lives in `alloc`. Every growth and the final
   /// release go through `alloc`. Takes one allocation right away — a block

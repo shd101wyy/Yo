@@ -27,6 +27,7 @@
 { HashSet } :: import("std/collections/hash_set");
 {
   AstExpr,
+  ExprId,
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
@@ -73,14 +74,18 @@
   is_join_handle_await_call
 } :: import("../async/await_analysis.yo");
 { debug_knob } :: import("../../utils.yo");
-/// func_id → may-mutate verdict (true = may mutate).
+/// func_id → may-mutate verdict (true = may mutate), with the id of the body
+/// it was computed from.
 ///
-/// Process-global and never invalidated. This is safe because `random_id`
-/// (utils.yo) is a single process-global counter that only ever increments
-/// and has no reset — ids are unique for the life of the process, so no
-/// generation guard is needed. If that generator ever gains a reset, this
-/// cache must gain the guard.
-(g_ms_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
+/// A func id does NOT name one body for the life of the process: definition
+/// ids are `stable_func_id(module, row, column)`, so a definition that
+/// `check --watch` / the LSP re-evaluates after an edit keeps its id and gets
+/// a new body (fresh AST ids). Every memo in this file therefore answers only
+/// for the body it walked (the stored `body_id`); a different body is a
+/// miss and is walked afresh
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+_MsMemo :: struct(body_id : ExprId, mutates : bool);
+(g_ms_summary_by_fid : HashMap(String, _MsMemo)) = HashMap(String, _MsMemo).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Builtin heads that are pure structure/control flow: walk the arguments,
@@ -211,9 +216,9 @@ impl(
   )({
     match(
       g_ms_summary_by_fid.get(fid.clone()),
-      .Some(m) => {
-        return(m);
-      },
+      .Some(m) => if(m.body_id == ast_expr_id(body), {
+        return(m.mutates);
+      }),
       .None => ()
     );
     if(g_ms_in_progress.get(fid.clone()).is_some(), {
@@ -242,11 +247,8 @@ impl(
       );
       li = (li + usize(1));
     });
-    if(mutates, {
-      g_ms_summary_by_fid.insert(fid, true);
-    });
-    if(!mutates && (filtered_touched.len() == usize(0)), {
-      g_ms_summary_by_fid.insert(fid, false);
+    if(mutates || (filtered_touched.len() == usize(0)), {
+      g_ms_summary_by_fid.insert(fid, _MsMemo(body_id : ast_expr_id(body), mutates : mutates));
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {
@@ -858,7 +860,7 @@ _msp_extern_returns_fresh :: (fn(h : String) -> bool)(
   (h == "__yo_malloc") || (h == "__yo_calloc") || ((h == "malloc") || (h == "calloc"))
 );
 /// The allocator-family contract for EXPLICIT allocators
-/// (plans/EXPLICIT_ALLOCATORS.md): a call through a slot of std/allocator.yo's
+/// (plans/archive/EXPLICIT_ALLOCATORS.md): a call through a slot of std/allocator.yo's
 /// `AllocatorVTable` is the allocator primitive the slot names, as `__yo_malloc`
 /// / `realloc` / `free` are for the global allocator. `alloc(ctx, size)` returns
 /// a fresh block and touches nothing a caller can reach — `ctx` is
@@ -1257,7 +1259,10 @@ _msp_debug_all :: (fn(why : String, e : AstExpr) -> unit)({
 /// A function's analysis: its parameter mask and the root of what it returns
 /// (`PARAM(j)` = storage reachable from its j-th argument).
 _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
-(g_msp_by_fid : HashMap(String, _MspAnalysis)) = HashMap(String, _MspAnalysis).new();
+/// The memoized analysis and the body it was computed from (a func id can
+/// name a new body after a watch re-evaluation — see `_MsMemo`).
+_MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
+(g_msp_by_fid : HashMap(String, _MspMemo)) = HashMap(String, _MspMemo).new();
 (g_msp_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
 _MsP :: struct(_d : i32);
 impl(
@@ -1352,9 +1357,9 @@ impl(
   )({
     match(
       g_msp_by_fid.get(fid.clone()),
-      .Some(a) => {
-        return(a);
-      },
+      .Some(m) => if(m.body_id == ast_expr_id(body), {
+        return(m.analysis);
+      }),
       .None => ()
     );
     if(g_msp_in_progress.get(fid.clone()).is_some(), {
@@ -1470,7 +1475,7 @@ impl(
     });
     result := _MspAnalysis(mask : mask, ret : ret);
     if(mask.all || (filtered.len() == usize(0)), {
-      g_msp_by_fid.insert(fid, result);
+      g_msp_by_fid.insert(fid, _MspMemo(body_id : ast_expr_id(body), analysis : result));
     });
     (ti : usize) = usize(0);
     while(ti < filtered.len(), {
@@ -3357,8 +3362,55 @@ function_param_mutation_mask :: (
 // and are not descended into (std/log's globals are under a mutex, std's
 // html tables under a lock). `thread_local` globals are per-thread and fine.
 // ===========================================================================
-(g_gr_by_fid : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
-(g_gr_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+/// A memoized reach verdict and the body it was computed from (see `_MsMemo`).
+_GrMemo :: struct(body_id : ExprId, reach : Option(String));
+(g_gr_by_fid : HashMap(String, _GrMemo)) = HashMap(String, _GrMemo).new();
+// Cycle discipline. A recursive call to a function whose walk is in progress
+// answers `.None` optimistically, so a verdict computed under such an edge is
+// only CONDITIONAL: in `f → h → f`, `h` comes out clean although it reaches
+// whatever `f` reaches. Memoizing it unconditionally let a thread closure
+// calling `h` pass while one calling `f` was rejected
+// (issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md).
+// Each walk records its stack depth; a hit on an in-progress function lowers
+// `g_gr_low` to that depth, and a clean verdict whose walk reached an
+// in-progress ANCESTOR (low < own depth) is parked in `g_gr_pending` with that
+// low instead of being memoized. When the walk the cycle closes at finishes
+// clean with no ancestor of its own, every verdict parked under it is final:
+// a reach found anywhere under it returns up through it, so it would not be
+// clean. Finishing with a reach drops the parked verdicts (they are re-walked
+// on demand). A parked function hit again under the same walk answers its
+// parked verdict with its low, rather than being re-walked (a call graph's
+// strongly connected component would otherwise be walked exponentially).
+(g_gr_in_progress : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_gr_depth : usize) = usize(0);
+(g_gr_low : Option(usize)) = Option(usize).None;
+_GrPend :: struct(body_id : ExprId, low : usize);
+(g_gr_pending : HashMap(String, _GrPend)) = HashMap(String, _GrPend).new();
+(g_gr_pending_order : ArrayList(String)) = ArrayList(String).new();
+_gr_note_low :: (fn(d : usize) -> unit)({
+  g_gr_low = match(
+    g_gr_low,
+    .Some(l) => Option(usize).Some(if(d < l, d, l)),
+    .None => Option(usize).Some(d)
+  );
+});
+/// Retire the verdicts parked since `start`; `memoize` makes each final
+/// (clean), otherwise they are dropped.
+_gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
+  while(g_gr_pending_order.len() > start, {
+    match(
+      g_gr_pending_order.pop(),
+      .Some(pf) => match(
+        g_gr_pending.remove(pf.clone()),
+        .Some(pe) => if(memoize, {
+          g_gr_by_fid.insert(pf, _GrMemo(body_id : pe.body_id, reach : Option(String).None));
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
 // The mutable-static half of D1. A VALUE-typed global (a `Send` scalar or
 // struct) that is WRITTEN is fine on one thread, and one that is only READ is
 // a constant another thread may share; both at once is a data race. The
@@ -3418,7 +3470,17 @@ _gr_note_callee :: (fn(ctx : _GrCtx, callee : String) -> unit)({
 /// thread-reached, so a later write to one is a D1 violation. Transitive over
 /// the recorded call graph, which also covers the recursive calls the walk
 /// itself cuts short.
-d1_note_thread_reach :: (fn(fid : String) -> unit)({
+///
+/// Returns the violation when one of those globals is ALREADY written. The
+/// walk checks writes as it reads, but a memoized verdict was taken when it
+/// ran: a function walked before the write (by an earlier closure, or by
+/// `check`'s end-of-module summary) answers "clean" for a thread closure that
+/// reaches it after the write
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+/// Checking here, where the reads are published, makes the order the two
+/// sites are evaluated in irrelevant on this side too.
+d1_note_thread_reach :: (fn(fid : String) -> Option(String))({
+  (violation : Option(String)) = Option(String).None;
   seen := HashSet(String).new();
   todo := ArrayList(String).new();
   todo.push(fid);
@@ -3434,15 +3496,28 @@ d1_note_thread_reach :: (fn(fid : String) -> unit)({
           while(go, {
             match(
               it.next(),
-              .Some(k) => if(!g_d1_reached.contains_key(k.clone()), {
-                match(
-                  reads.get(k.clone()),
-                  .Some(loc) => {
-                    g_d1_reached.insert(k, loc);
-                  },
-                  .None => ()
-                );
-              }),
+              .Some(k) => {
+                if(violation.is_none(), {
+                  match(
+                    g_d1_written.get(k.clone()),
+                    .Some(wloc) => {
+                      rloc := match(reads.get(k.clone()), .Some(l) => l, .None => String.new());
+                      gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
+                      violation = Option(String).Some(`reads the module-level global '${gname}' (at ${rloc}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${gname}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state`);
+                    },
+                    .None => ()
+                  );
+                });
+                if(!g_d1_reached.contains_key(k.clone()), {
+                  match(
+                    reads.get(k.clone()),
+                    .Some(loc) => {
+                      g_d1_reached.insert(k, loc);
+                    },
+                    .None => ()
+                  );
+                });
+              },
               .None => {
                 go = false;
               }
@@ -3472,6 +3547,7 @@ d1_note_thread_reach :: (fn(fid : String) -> unit)({
       );
     });
   });
+  violation
 });
 _gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
   match(
@@ -3733,36 +3809,171 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
 function_reaches_non_send_global :: (
   fn(fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String)
 )({
+  body_id := ast_expr_id(body);
   match(
     g_gr_by_fid.get(fid.clone()),
-    .Some(r) => {
-      return(r);
+    .Some(m) => if(m.body_id == body_id, {
+      return(m.reach);
+    }),
+    .None => ()
+  );
+  match(
+    g_gr_in_progress.get(fid.clone()),
+    .Some(d) => {
+      _gr_note_low(d);
+      return(Option(String).None);
     },
     .None => ()
   );
-  if(g_gr_in_progress.get(fid.clone()).is_some(), {
-    return(Option(String).None);
-  });
+  match(
+    g_gr_pending.get(fid.clone()),
+    .Some(pe) => if(pe.body_id == body_id, {
+      _gr_note_low(pe.low);
+      return(Option(String).None);
+    }),
+    .None => ()
+  );
   // A body defined in a pragma'd file is the audited base.
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
-    g_gr_by_fid.insert(fid, Option(String).None);
+    g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
     return(Option(String).None);
   });
-  if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
+  if(expr_info_table_get(table, body_id).is_none(), {
     return(Option(String).Some(String.from("has a body that was never evaluated (a forward reference?) — a closure that runs on another thread may only call functions whose bodies are known")));
   });
-  g_gr_in_progress.insert(fid, true);
+  my_depth := g_gr_depth;
+  g_gr_depth = (my_depth + usize(1));
+  saved_low := g_gr_low;
+  g_gr_low = Option(usize).None;
+  pending_start := g_gr_pending_order.len();
+  g_gr_in_progress.insert(fid.clone(), my_depth);
+  // This walk records the function's reads and callees afresh.
+  _r0 := g_gr_reads_by_fid.remove(fid.clone());
+  _r1 := g_gr_callees_by_fid.remove(fid.clone());
   ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")), fid : fid.clone());
   r := _gr_walk(body, ctx);
   g_gr_in_progress.remove(fid.clone());
-  g_gr_by_fid.insert(fid, r);
+  g_gr_depth = my_depth;
+  // The lowest in-progress ANCESTOR this walk's subtree depended on.
+  (ancestor_low : Option(usize)) = match(
+    g_gr_low,
+    .Some(l) => if(l < my_depth, Option(usize).Some(l), Option(usize).None),
+    .None => Option(usize).None
+  );
+  g_gr_low = saved_low;
+  match(
+    ancestor_low,
+    .Some(al) => _gr_note_low(al),
+    .None => ()
+  );
+  cond(
+    r.is_some() => {
+      _gr_settle_pending(pending_start, false);
+      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : r.clone()));
+    },
+    ancestor_low.is_none() => {
+      _gr_settle_pending(pending_start, true);
+      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
+    },
+    true => {
+      al := match(ancestor_low, .Some(x) => x, .None => usize(0));
+      // What was parked under this walk was conditional on THIS walk (or
+      // deeper ones, all finished); it now hangs on this walk's ancestor.
+      (pi : usize) = pending_start;
+      while(pi < g_gr_pending_order.len(), {
+        match(
+          g_gr_pending_order.get(pi),
+          .Some(pf) => match(
+            g_gr_pending.get(pf.clone()),
+            .Some(pe) => if(pe.low >= my_depth, {
+              g_gr_pending.insert(pf.clone(), _GrPend(body_id : pe.body_id, low : al));
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      g_gr_pending.insert(fid.clone(), _GrPend(body_id : body_id, low : al));
+      g_gr_pending_order.push(fid);
+    }
+  );
   r
 });
+/// `check` gives each demand-loaded module its own ExprInfo table and drops it
+/// when the module is done, so a later module's walk found an imported
+/// function's body "never evaluated" and rejected valid code
+/// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
+/// While a module's table is still alive, the loader hands this the functions
+/// whose bodies were evaluated into it — the module's definitions and impl
+/// members, and the specializations its evaluation minted — and the two body
+/// summaries other modules' walks read are computed for each: the D1 reach
+/// verdict and the StrictBorrow mutation mask. Both are memoized by function
+/// id and body, which is all a later walk consults. A body with no ExprInfo in
+/// `table` (a generic body deferred to its specializations, a body evaluated
+/// into another module's table) is skipped, so no memo is written for it.
+/// Every module's own bodies are evaluated by the time it finishes, and the
+/// memos are sound to take early: a callee not yet evaluated keeps its caller
+/// unmemoized (or rejected), a call cycle parks its verdicts until the cycle
+/// closes, and the one order-dependent input — whether a Send global is
+/// written yet — is re-checked when a thread closure publishes its reads
+/// (`d1_note_thread_reach`). `compile` shares one table and never calls this.
+summarize_function_bodies :: (fn(values : ArrayList(EvalValue), table : ExprInfoTable, env : Environment) -> unit)({
+  (summarized : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < values.len(), {
+    match(
+      values.get(i),
+      .Some(v) => match(
+        v,
+        .FuncVal(fvd, _) => {
+          fid := fvd.*.func_id.clone();
+          (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : cm }) => cm.*.extern_name.is_some(), _ => false);
+          if(!is_extern && expr_info_table_get(table, ast_expr_id(fvd.*.body)).is_some(), {
+            _r := function_reaches_non_send_global(fid.clone(), fvd.*.body, table, env);
+            _m := function_param_mutation_mask(fid, fvd.*.body, table);
+            summarized = (summarized + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // `YO_DEBUG_BODY_SUMMARY=1`: per module, the functions offered and summarized.
+  if(match(debug_knob(`YO_DEBUG_BODY_SUMMARY`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[body-summary] ${env.module_path} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
+  });
+});
+/// Drop every memo keyed by one of `fids` (`mm_invalidate_document`: the
+/// functions of a module the LSP / `--watch` evaluates afresh).
+purge_mutation_summaries :: (fn(fids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < fids.len(), {
+    match(
+      fids.get(i),
+      .Some(f) => {
+        _a := g_ms_summary_by_fid.remove(f.clone());
+        _b := g_msp_by_fid.remove(f.clone());
+        _c := g_gr_by_fid.remove(f.clone());
+        _d := g_gr_reads_by_fid.remove(f.clone());
+        _e := g_gr_callees_by_fid.remove(f.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Total memo entries (the LSP plateau probe).
+mutation_summary_entry_count :: (fn() -> usize)(
+  g_ms_summary_by_fid.len() + g_msp_by_fid.len() + g_gr_by_fid.len() + g_gr_reads_by_fid.len() + g_gr_callees_by_fid.len()
+);
 /// The memoized reach verdict of function `fid`, if one was computed: the
 /// closure's own, taken with its DEFINING env (a closure literal is walked
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
 d1_reach_memo :: (fn(fid : String) -> Option(Option(String)))(
-  g_gr_by_fid.get(fid)
+  match(g_gr_by_fid.get(fid), .Some(m) => Option(Option(String)).Some(m.reach), .None => Option(Option(String)).None)
 );
-export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);
+export(summarize_function_bodies, purge_mutation_summaries, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

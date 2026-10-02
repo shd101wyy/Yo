@@ -39,7 +39,7 @@ import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
-{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_integer_type,
@@ -1131,7 +1131,7 @@ _collect_some_types_into :: (
         i = (i + usize(1));
       });
     },
-    .EnumT(en_id, _, _, vfs, _, _, _, _, _) => {
+    .EnumT(en_id, _, _, vfs, _, _, _, _, _, _) => {
       // Cycle guard — see the Struct arm above.
       if(_id_already_visited(visited_ids, en_id), {
         return(());
@@ -1167,6 +1167,63 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   visited_ids := ArrayList(String).new();
   _collect_some_types_into(ty, acc, visited_ids);
   acc
+});
+/// The PHANTOM type arguments of an enum instantiation: every argument at a
+/// position no payload depends on (`enum_phantom_positions`, compound
+/// or not: `Option(K)` of `Tag(Option(K))`), and each type-variable argument
+/// that occurs in no variant payload (`K` of `Tag(K)` = `enum(A, B(n : u8))`).
+/// Such an argument is recorded only in `type_arguments`, so a walk over the
+/// payloads misses it. Empty for anything else. The payload walk runs only
+/// when some argument is a SomeT, which keeps this cheap on concrete
+/// instantiations.
+enum_phantom_type_arg_somes :: (fn(ty : TypeValue) -> ArrayList(TypeValue))(
+  match(
+    ty,
+    .EnumT({ id : eid, type_arguments : ta }) => if(ta.len() == usize(0), ArrayList(TypeValue).new(), enum_phantom_type_args_masked(ty, enum_phantom_positions(eid))),
+    _ => ArrayList(TypeValue).new()
+  )
+);
+/// `enum_phantom_type_arg_somes` with the instantiation's phantom-position
+/// flags already looked up (`type_key` reads them itself).
+enum_phantom_type_args_masked :: (fn(ty : TypeValue, mask : ArrayList(bool)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  targs := match(ty, .EnumT({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
+  (field_somes : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+  (i : usize) = usize(0);
+  while(i < targs.len(), {
+    match(
+      targs.get(i),
+      .Some(ta) => cond(
+        match(mask.get(i), .Some(b) => b, .None => false) => out.push(ta),
+        is_some_type(ta) => {
+          if(field_somes.is_none(), {
+            field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
+          });
+          ta_id := match(ta, .SomeT({ id : x }) => x, _ => String.from(""));
+          fs := field_somes.unwrap();
+          (in_field : bool) = false;
+          (j : usize) = usize(0);
+          while((j < fs.len()) && !in_field, {
+            match(
+              fs.get(j),
+              .Some(.SomeT({ id : fid })) => if(fid == ta_id, {
+                in_field = true;
+              }),
+              _ => ()
+            );
+            j = (j + usize(1));
+          });
+          if(!in_field, {
+            out.push(ta);
+          });
+        },
+        true => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
 });
 /// True when a field-type list mixes a COMPTIME-ONLY member with a
 /// RUNTIME-ONLY member — the availability intersection is then empty and the
@@ -2244,6 +2301,7 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _repr_memo_reset();
   _type_provides_slice_source(ty, usize(1024))
 });
+export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
@@ -2432,7 +2490,7 @@ _decl_id_of :: (fn(t : TypeValue) -> String)(
   match(
     t,
     .Struct({ id : sid }) => sid.clone(),
-    .EnumT(eid, _, _, _, _, _, _, _, _) => eid.clone(),
+    .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid.clone(),
     .Union(uname, _, _) => uname.clone(),
     _ => String.new()
   )

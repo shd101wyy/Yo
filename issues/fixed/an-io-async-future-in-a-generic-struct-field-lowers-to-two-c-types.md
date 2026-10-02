@@ -3,7 +3,7 @@
 **Status: FIXED (2026-10-01).** Re-verified on develop `29bf728b4`: the pointer and value shapes failed the C compile. So did the non-generic `o := Option(typeof(f)).Some(f)` and `_Holder(typeof(f))`.
 
 **Severity:** S2 — a valid program fails in the C compiler, and `yo check` passes. It blocks any generic container or guard that holds its `T` when `T` is an `io.async` future.
-**Found:** 2026-09-30, writing `with_allocator` (`plans/EXPLICIT_ALLOCATORS.md` P3). It reproduces on develop at `f7f1331fb`, where the nested-typedef defect hid it (`issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`).
+**Found:** 2026-09-30, writing `with_allocator` (`plans/archive/EXPLICIT_ALLOCATORS.md` P3). It reproduces on develop at `f7f1331fb`, where the nested-typedef defect hid it (`issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md`).
 
 ## Reproducers
 

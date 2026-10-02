@@ -10,14 +10,14 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
-{ resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
-{ is_bound_closure_identity, resolve_cell_chain } :: import("./utils.yo");
+{ is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked } :: import("./utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
 // `Struct` carries a `constructor_func_id` + `type_arguments` that give every
-// generic instantiation a stable codegen key; `EnumT` has NO such field, so two
+// generic instantiation a stable codegen key; `EnumT` has no constructor id, so two
 // structurally-identical generic enum instantiations (e.g. `Option(i32)` reached
 // once via `ArrayList.get()` and once via the iterator `next()`'s `-> Option(T)`
 // return) get DISTINCT eval ids → distinct id-based type keys → two incompatible
@@ -130,6 +130,16 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
   // An unresolved chain keeps the ORIGINAL slot (bare-id keying as before).
   if(is_some_type(cur), t_in, cur)
 });
+/// True when `somes` holds a SomeT whose id is `id`.
+_tk_somes_have_id :: (fn(somes : ArrayList(TypeValue), id : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < somes.len()) && !found, {
+    found = match(somes.get(i), .Some(.SomeT({ id : sid })) => (sid == id), _ => false);
+    i = (i + usize(1));
+  });
+  found
+});
 _tk_seen :: (fn(id : String) -> bool)({
   n := g_tk_visited.len();
   (i : usize) = usize(0);
@@ -177,7 +187,7 @@ _tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT(sh_eid, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
+    .EnumT(sh_eid, _, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
     .SomeT({ id : sh_tid }) => {
       sh_end := resolve_cell_chain(t);
       match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
@@ -474,6 +484,40 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           );
           vi = (vi + usize(1));
         });
+        // A PHANTOM type argument keys too. The payloads record every
+        // argument they mention, but not a phantom one, so `Tag(u8)`,
+        // `Tag(i64)` and the abstract `Tag(K)` of `enum(A, B(n : u8))` had
+        // one key: one C type, and ONE specialization of every method on them
+        // (each rtparam is keyed by `type_key`), so a body reading `K`
+        // (`sizeof(K)`) answered for whichever instantiation came first, and
+        // a specialization a definition-time trial registered over the
+        // abstract `Tag(K)` (never emitted) was the one a concrete call reused
+        // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+        // Phantom positions are the constructor's (`enum_phantom_positions`:
+        // arguments its definition-time trial showed no payload depends on),
+        // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
+        // non-type argument (`Unit`) adds nothing; an enum with no phantom
+        // position keys exactly as before.
+        e_targs := match(rs, .EnumT({ type_arguments : rtas }) => rtas, _ => ArrayList(TypeValue).new());
+        if(e_targs.len() > usize(0), {
+          e_mask := enum_phantom_positions(eid);
+          e_some_phantoms := enum_phantom_type_args_masked(rs, e_mask);
+          (pti : usize) = usize(0);
+          while(pti < e_targs.len(), {
+            pt := match(e_targs.get(pti), .Some(x) => x, .None => TypeValue.Unit);
+            pt_masked := match(e_mask.get(pti), .Some(b) => b, .None => false);
+            pt_free_var := match(
+              pt,
+              .SomeT({ id : pt_id, resolution : pt_res }) => (pt_res.is_none() && _tk_somes_have_id(e_some_phantoms, pt_id)),
+              _ => false
+            );
+            if((pt_masked && !is_unit_type(pt)) || pt_free_var, {
+              field_part.push_str("_ph:");
+              field_part.push_string(recur(resolve_cell_chain(pt), depth + usize(1)));
+            });
+            pti = (pti + usize(1));
+          });
+        });
         // Full key = id-based (UNCHANGED behavior). This is what a single,
         // first-seen enum gets.
         key := eid.clone();
@@ -668,7 +712,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       match(
         t,
         .Struct({ id : cut_sid }) => cut_sid.clone(),
-        .EnumT(cut_eid, _, _, _, _, _, _, _, _) => cut_eid.clone(),
+        .EnumT(cut_eid, _, _, _, _, _, _, _, _, _) => cut_eid.clone(),
         _ => type_to_string(t)
       )
     );

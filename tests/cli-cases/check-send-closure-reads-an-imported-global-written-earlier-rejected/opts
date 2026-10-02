@@ -1,0 +1,13 @@
+# Rule D1's mutable-static half across modules: a Send global that one
+# thread writes and another reads is a data race. `read_counter` (lib.yo) is
+# judged from lib.yo's end-of-load summary, since `check` drops lib.yo's
+# table when it finishes; `bump` writes `counter` (recorded by its
+# definition-time trial and again by main's specialization). The spawned
+# closure reaching `read_counter` must be rejected as `compile` rejects it —
+# before the summary `check` said only "never evaluated"
+# (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md; the
+# write-after-the-memo order is pinned by
+# check-send-closure-reads-a-global-written-after-an-earlier-walk-rejected,
+# issues/fixed/d1-thread-reach-misses-a-write-recorded-after-a-memoized-walk.md).
+stdout_keep_match=global 'counter' [^,]*, which is assigned at
+timeout=120

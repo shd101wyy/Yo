@@ -8,6 +8,10 @@
 //! NOTE: this file runs under the seed's evaluator, so it needs a seed that
 //! dispatches the `refine` builtin (v0.2.36+); under older seeds the import
 //! E0401s (the generation split).
+//!
+//! The file is unsafe-capable because the trusted-cast tests pass the
+//! `&(x)` witness a safe file cannot produce.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 {
   Refine,
@@ -126,7 +130,7 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
   match(
     check_non_zero(i32(3)),
     .Some(nz3) => {
-      doubly := unchecked(odd_i32, nz3);
+      doubly := unchecked(odd_i32, nz3, &nz3);
       assert(gated(doubly) == i32(3), "the composed refinement carries the value through");
     },
     .None => assert(false, "3 is nonzero")
@@ -135,7 +139,8 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
 
 test("unchecked is the trusted cast (no gate, no proof)", {
   non_zero_i32 :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
-  blind := unchecked(non_zero_i32, i32(9));
+  v := i32(9);
+  blind := unchecked(non_zero_i32, v, &v);
   use :: (fn(x : NonZero(i32)) -> i32)(i32(81) / x);
   assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });
