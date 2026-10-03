@@ -1609,3 +1609,31 @@ test("a plain call with an own parameter still retains a field argument", {
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
+// The same method-dispatch emitters also dropped the Stage-0 +1 of a borrowed
+// field projection passed as the RECEIVER (`o.inner.poke(o)`): the plain call
+// `poke_f(o.inner, o)` holds the projected value for the call, the method call
+// did not, and a callee that replaced `o.inner` freed the receiver it was still
+// reading.
+_AlInner :: ref(struct(v : i32));
+_AlOuter :: ref(struct(inner : _AlInner));
+_al_replace :: (fn(o : _AlOuter) -> unit)({
+  o.inner = _AlInner(v : i32(0));
+});
+impl(
+  _AlInner,
+  poke : (fn(self : Self, o : _AlOuter) -> i32)({
+    _al_replace(o);
+    self.v
+  })
+);
+_al_poke_f :: (fn(i : _AlInner, o : _AlOuter) -> i32)({
+  _al_replace(o);
+  i.v
+});
+test("a receiver projection outlives a method that replaces it", {
+  o := _AlOuter(inner : _AlInner(v : i32(7)));
+  assert(_al_poke_f(o.inner, o) == i32(7), "plain call: the argument survived the replacement");
+  o2 := _AlOuter(inner : _AlInner(v : i32(8)));
+  assert(o2.inner.poke(o2) == i32(8), "method call: the receiver survived the replacement");
+  assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
+});
