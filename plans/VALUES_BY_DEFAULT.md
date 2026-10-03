@@ -142,6 +142,19 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   A `Box` whose payload is move-only (§3.4) is never copied, so it is a
   unique heap cell with a stable address: that is how resources keep an OS
   handle that must not move.
+- **`Box`'s count is invisible.** The cell is counted so that a copy is O(1)
+  and the first write clones (copy-on-write). The count is an implementation
+  detail, not a semantic. No safe program can tell whether two `Box` copies
+  share a cell: `ref_count` does not accept a `Box` in safe code, and nothing
+  else exposes the cell. Three cheaper designs were considered and rejected:
+  - an uncounted `Box` that deep-copies on every implicit copy (O(n) per
+    tree copy);
+  - a move-only `Box` (every recursive enum turns move-only, so V4 needs
+    explicit clones everywhere);
+  - Rust's model, which works because borrows cover most uses; safe Yo has
+    no first-class borrow (§3.10).
+
+  `Rc` is the one wrapper whose sharing a program can observe.
 - **`Rc`** is the one way to say "these copies are the same object" on one
   thread. Graph nodes, a shared context, an observer list, the compiler's
   `Environment`.
@@ -225,9 +238,12 @@ no `s[i] = b` either), which closes the UTF-8 hole.
     new. Being prelude exports, the three names cannot be bound by user
     code (no shadowing), as `box` already cannot.
   The builtin that reads a cell's count, `rc(x)` today, is renamed
-  **`ref_count(x)`**: it reads any cell (`Box`, `Rc`, `Arc`, a collection
-  buffer, a `Dyn`), so a name tied to `Rc` would mislead, and `ref_count` is
-  the header field it reads. Yo has no shadowing, so a prelude `rc` claims
+  **`ref_count(x)`**: it reads the count of the cell `x` holds, which is the
+  header field of that name. In safe code it accepts only `Rc` and `Arc`,
+  the wrappers whose sharing is the point. A `Box`, a collection or `String`
+  buffer and a `Dyn` are copy-on-write values whose sharing must stay
+  unobservable, so only std and `pragma(Pragma.AllowUnsafe)` code (tests of
+  copy-on-write) may read their counts. Yo has no shadowing, so a prelude `rc` claims
   the name in every module: today's 29 locals and parameters named `rc`
   (`rc := flock(...)`, exit codes) are renamed with it. V1 step 0 sequences
   the rename through the seed.
@@ -382,6 +398,12 @@ makes copy-on-write and the collector agree:
   `Rc(Node)` elements inside are counted once, not twice; if the buffer were
   traversed inline from each copy, trial deletion would over-subtract and
   free live cells.
+- **A unique cell skips the uniqueness check.** A write through a `Box`
+  (or a collection buffer) runs `make_unique` only when the cell may be
+  shared. A `Box` the compiler can prove unique is written in place with no
+  count test: one just built, one received `own`, or one past its last
+  copy. The dup/drop pair optimizer already removes the count traffic of
+  moves and last uses.
 - A cell is **tracked** (on the collector's list) only if its payload type
   can reach an `Rc`/`Arc` (`can_type_form_rc_cycle`, walking values inline
   and stopping at atomic cells as today). A `Box(i32)` or an
@@ -421,8 +443,8 @@ makes copy-on-write and the collector agree:
 - **Reflection** keeps its names and changes its reading: `Type.contains_rc_type`
   is "reaches a non-atomic cell", `Var.is_owning_the_rc_value` and
   `Var.has_other_aliases` are about the handle a value holds, `ref_count(x)` reads
-  the count of the cell `x` directly holds (a `Box`, an `Rc`, an `Arc`, a
-  collection's buffer) and is a compile error on a value with no cell.
+  the count of the cell `x` directly holds and is a compile error on a value
+  with no cell. Safe code may read an `Rc` or an `Arc` only (§3.2).
 
 ### 3.7 `Dyn`, closures, async
 
@@ -812,7 +834,7 @@ changes meaning:
    writes the body through it and every holder must see the write.
 3. In tests, a `Box` test that asserts sharing stays on `Rc`; `tests/rc.test.yo`
    gains the value-`Box` cases (independent copy, make-unique on write,
-   `ref_count(b)` before and after a write, a `Box` tree copied and edited on one
+   `ref_count(b)` before and after a write (the file is pragma'd, §3.2), a `Box` tree copied and edited on one
    side).
 
 Tests: auto-deref for field, method, nested wrapper, wrapper-member
@@ -1030,7 +1052,7 @@ Per type, in this order, each its own PR, measured:
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
-| `rc(x)` (the count) | `ref_count(x)` on a `Box`/`Rc`/`Arc`/collection/`Dyn`; a compile error on a value with no cell | V1 step 0 rename |
+| `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` in safe code; std and pragma'd code may also read a `Box`, collection or `Dyn` cell; a compile error on a value with no cell | V1 step 0 rename |
 | `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
 ## 8. Risks
