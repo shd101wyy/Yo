@@ -49,3 +49,20 @@ This belongs with phase 7 (allocation per await). Regression test: the `spawn` r
 - **Measured today**, with the seed-safe value handle, which has no box and
   also no ownership: `spawn` is 666 instructions per op, and `spawn_sm` 987
   on the phase 6 branch.
+
+## 2026-10-04: the `Impl(Future(T))` field does not work; the fix is V3's
+
+A value handle `struct(__future : Impl(Future(T)))` was built (branch
+`async-handle-genb`, compiled by a compiler carrying the value-handle
+lowering, `async-handle-gena`). It does not compile `src/`. An `Impl` field
+resolves to one concrete state-machine type per `JoinHandle(T)`, so a second
+spawn site with the same `T` and a different body emits C that clang rejects:
+
+```text
+error: incompatible pointer types initializing '__yo_t_10392448648281737682 *' with an expression of type '__yo_t_4216450330625629092 *'
+```
+
+The handle has to erase the future's type: `struct(__future : *(void))` with
+a `Dispose` that releases the count. A value struct with `Dispose` is only
+sound once it cannot be copied, which is the move-only rule of
+`plans/VALUES_BY_DEFAULT.md` V3. This issue closes there (§3.13 A3).

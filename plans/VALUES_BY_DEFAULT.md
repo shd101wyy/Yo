@@ -8,7 +8,10 @@ the maintainer confirmed the ten decisions of §4 as written on 2026-10-03
 constructors `box`/`rc`/`arc` and the count reader's rename to `ref_count`
 (§3.2, decision 11, V1 step 0), explicit allocators (§3.11, decision 12),
 and the constructors' `alloc` parameter in place of `new_in` (the types are
-not callable). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.**
+not callable). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.
+Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
+with decisions 13 (move-only futures) and 14 (second-class borrowing
+futures).**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -468,9 +471,9 @@ makes copy-on-write and the collector agree:
   change the enclosing variable, matching `for(xs, s => s.push_str("!"))`
   in the `String` plan. A closure capturing a move-only variable moves it
   and is itself move-only (the capture struct derives the marker).
-- **Async** tasks hold values in their slots; a `JoinHandle` is move-only
-  (owning `JoinHandle`, #1093 step 2, already heads that way); the
-  single-threaded runtime shares nothing across threads.
+- **Async** tasks hold values in their slots, and futures and
+  `JoinHandle`s are move-only. A future that borrows its receiver is
+  second-class. The runtime stays single-threaded. §3.13 has the design.
 
 ### 3.8 Threads: `Send` by move, `Sync` for sharing
 
@@ -654,6 +657,224 @@ changes is what a block is.
   type, and the vocabulary (`Box`, `Rc`, `Arc`, `Arc(Mutex(T))`) is the one
   models already know.
 
+### 3.13 Async: futures, handles, and borrowing across an await
+
+**Confirmed by the maintainer 2026-10-03** (PR #1169). The two
+language-level choices are decisions 13 and 14 (§4); the rest follows from
+§3.4 and §3.7.
+
+Today, async state sits in four shared shapes:
+
+- **A future** (`Impl(Future(T, E))`) is a heap state machine with a
+  non-atomic count (`docs/en-US/ASYNC_AWAIT.md`, "Refcount Lifecycle"). A
+  copy aliases the same task, and the docs promise that ("Multi-Await"): a
+  future can be awaited several times, each await dups the result, and
+  several tasks may await one pending future.
+- **A `JoinHandle(T)`** is `ref(struct(__future))` with a `Dispose` that
+  releases the future. Copies share it, and "awaiting does not consume the
+  handle". The combinators in `std/async/index.yo` rely on that:
+  - they copy handles out of a list (`h := handles(i)`);
+  - `race` and `any` hand back an index and leave every handle with the
+    caller;
+  - `timeout` promises the handle "can be joined again".
+- **`Waker`** is `atomic(ref(struct(_p)))`, documented as "cheap to copy".
+  **`Park`**, the async `Mutex`, `Channel`/`Sender`/`Receiver` and the five
+  stream adapters are `ref(struct(...))`.
+- **An effect bundle** is copied into a future bitwise:
+  `__yo_future_set_bundle` (`src/codegen/types/generation.yo`) is a `memcpy`
+  with no dup.
+
+One pattern runs through `std/async`: **a method returns a future whose
+body mutates the receiver.** Four methods do it:
+
+- `Stream.next(self, io)`: `StreamTake` decrements `self._remaining` inside
+  its `io.async` body;
+- the async `Mutex.lock(self, io)`, which sets `self._locked`;
+- `JoinHandle.join(self, io)`;
+- `Park.wait(self, io)`.
+
+That works only because `self` is a reference. Under values, the body would
+mutate its captured copy. The obvious fix is unavailable: an `inout` binding
+cannot be captured. Measured with `yo check` on v0.2.49:
+
+```text
+Cannot capture inout binding 'xs' in a closure. `inout(xs) : T` is a second-class
+reference to the caller's storage; a closure that captures it could outlive the call frame.
+```
+
+The design:
+
+- **A1. A future is a move-only value.**
+  - Every state-machine type and `IoFuture` carry the `MoveOnly` marker.
+  - `io.await(f, io)` and `io.spawn(f, io)` consume `f`; `io.state(f)`
+    borrows.
+  - `io.await` moves the result out of the finished future instead of
+    dupping it, so a move-only `T` works (a future resolving to a `File`).
+  - The task's cell keeps its count, because the event loop holds a second
+    reference as it does today. What goes away is user-visible copies.
+
+  That deletes the special cases built for shared futures:
+  - multi-await and the result dup per await;
+  - the rule that a second `io.spawn` of a running task keeps its bundle
+    (`plans/ASYNC_IO_API_AUDIT.md`, A3);
+  - re-awaiting an aborted future (A2's propagation stays, on the one
+    await).
+
+  The `__yo_started_child` flag tells a child the awaiting task started
+  from one it adopted. V3 re-checks it: with one owner per future,
+  `io.await` only ever awaits its own child.
+
+  Sharing a task's result is spelled out: spawn the task and share the
+  handle as `Rc(JoinHandle(T))` (the runtime is single-threaded, so `Rc`
+  suffices). Rust's futures and `JoinHandle` have this shape. Swift's
+  `Task` is a copyable shared handle, which is the hidden aliasing §1
+  removes. Decision 13.
+- **A2. A future may borrow, and then it is second-class.**
+  - **The rule.** A function may return a future whose body captures one of
+    its `inout` parameters, or one of its by-value parameters of move-only
+    type (which borrow, §3.4). The call's result then borrows those
+    arguments.
+  - **What the caller can do with it.** It may be:
+    - the direct operand of `io.await` (`io.await(s.next(io), io)`);
+    - the direct operand of a future-taking combinator (A4), whose own
+      future is then second-class under the same rule
+      (`io.await(timeout(rx.recv(io), d, io), io)`);
+    - returned to the function's own caller under the same rule.
+
+    It cannot be bound to a local, stored, captured or spawned.
+  - **No exclusive borrow through `Rc`/`Arc`.** An `inout` argument of a
+    borrowing future whose place passes through an `Rc` or `Arc` deref
+    (auto-dereference included) is a compile error.
+    - Why: the borrow is live across the suspension. Another task can then
+      write through the same `Rc`, which is §3.10's runtime exclusivity
+      panic. Code that compiles would panic in ordinary concurrent use.
+    - The fixes the error names: own the value in the task, or put it behind
+      a lock (`Rc(Mutex(S))`, then `with_lock`).
+    - Swift's exclusivity enforcement flags the same access.
+
+    A shared borrow is allowed: a move-only receiver taken by value, like
+    `shared.m.lock(io)` on an `Rc(Mutex(T))`. Those types keep their mutable
+    state in their own cell (§3.4), so their methods never write the
+    borrowed place. A concurrent write that replaces the borrowed field
+    through the `Rc` is §3.10's panic, the same rule `for` over an `Rc`'d
+    list follows.
+  - **Precedent.** This is the second-class rule `inout` already follows,
+    extended to the future that carries the borrow. It is also Swift's
+    shape: `mutating func next() async` holds the `inout` access across
+    the suspension.
+  - **What it enables.** `Stream.next(inout(self), io)`; the async
+    `Mutex.lock(self, io)` borrowing a move-only mutex;
+    `Receiver.recv(self, io)`.
+  - **The alternatives are worse.** Threading the state
+    (`next(own(self), io)` resolving to `Tuple(Option(Self.Item), Self)`) makes every
+    stream loop rebind its stream. Keeping the state in a private cell
+    captured by pointer makes every adapter a hidden shared handle again.
+    Decision 14.
+- **A3. `JoinHandle(T)` is a move-only value struct over a raw future
+  pointer**: `struct(__future : *(void))` with a `Dispose` that releases the
+  task's count, so it is move-only (§3.4) and one allocation per spawn goes
+  away (today's `ref` handle is a second cell around the future).
+  - **Not `struct(__future : Impl(Future(T)))`.** That shape was built and
+    measured (2026-10-04, branch `async-handle-genb` built by a compiler
+    carrying `async-handle-gena`). An `Impl` field resolves to ONE concrete
+    state-machine type per `JoinHandle(T)` instantiation, so two spawn
+    sites with the same `T` and different bodies produced C that clang
+    rejects (`incompatible pointer types initializing '__yo_t_…*' with an
+    expression of type '__yo_t_…*'`). A handle must erase the future's
+    type, so its field is a pointer, and a pointer needs `Dispose`, which
+    needs move-only. That is why the change waits for V3.
+  - A handle dropped without an await still detaches its task.
+  - Consuming: `join(own(self), io)` and `timeout(own(handle), …)`.
+  - Borrowing: `state`, `is_finished`, `abort` and `as_ptr`.
+  - The blocking `h.await(own(self), io)` consumes the handle too, so
+    both await paths have one owner and move the result out, and a
+    move-only `T` works with either. A caller that blocks on a list of
+    handles takes them out (`take`, `drain`), as `_execute_batch` would.
+
+  Generation A, the codegen that lowers a value handle at the spawn and
+  await sites, is written on branch `async-handle-gena`. It builds the
+  struct with a cast to the field's C type, so it serves the pointer field
+  unchanged. It lands with V3's compiler PR, and the prelude switch with
+  V3's std PR.
+- **A4. The combinators take handles by `own`, and two also take futures.**
+  - **Future operands.** `timeout` and a two-way race (`select`) also
+    accept futures, so a deadline or a race can wrap a borrowing future
+    (A2): `s.next(io)`, `rx.recv(io)`, `m.lock(io)`. This is the
+    select-with-timeout loop most servers need.
+  - **Scoped children.** Such a combinator starts each operand as a child
+    of its own task. On a deadline or a loss it aborts the child and waits
+    for it to end before resolving, so no borrow outlives the combinator.
+  - **This reverses an earlier decision.** The async audit's Q3 said
+    "handles only" (`plans/ASYNC_IO_API_AUDIT.md`). The handle forms below
+    stay. Decision 14 records the reversal.
+  - `join_all`, `race_first` and `any_first` drain it.
+  - `race` and `any` leave the handles alive. They resolve to the index
+    together with the list handed back:
+    `Tuple(usize, ArrayList(JoinHandle(T)))` and
+    `Tuple(Option(usize), ArrayList(JoinHandle(T)))`, as Rust's `select_all`
+    returns the remaining futures.
+  - `_wait_any` takes the handles' raw pointers (`as_ptr`), so `any`'s
+    pending list holds indices, not copied handles.
+  - Element access uses §3.4's non-copying set (`take`, `with`, `pop`,
+    `drain`).
+- **A5. Wakers, parks, channels, mutexes, streams.**
+  - **`Waker`** is move-only with `Clone`, like `Sender` (decision 3). A
+    clone registers one more token, which is what a copy does today: the
+    runtime counts live tokens (`std/async/waker.yo`). Its cell keeps the
+    atomic count, because a cross-thread wake (`spawn_blocking`) releases it
+    on the worker thread.
+  - **Waiter lists** (`Mutex._waiters`, the channel queues) move wakers in
+    and `pop` them out to wake.
+  - **`Park`** is move-only. A park is waited on once, so `wait(own(self),
+    io)` consumes it. That also makes the documented rule "call `waker()`
+    before `wait`" static: a consumed park has no `waker()`.
+  - **The async `Channel(T)`** is single-threaded, so its state goes behind
+    `Rc` where the sync channel's goes behind `Arc` (V3). `Sender` and
+    `Receiver` are move-only, and `Sender` has `Clone`.
+  - **The async `Mutex(T)`** is move-only. Tasks share it as
+    `Rc(Mutex(T))`.
+  - **The five stream adapters** hold no resource. They become plain value
+    structs with `next(inout(self), io)` under A2, and are move-only only
+    when their inner stream is.
+- **A6. The bundle copy is a typed copy.** `io.spawn` and a cold `io.await`
+  copy the bundle into the future.
+  - Today a bundle holds `Io` and handler functions. A field holding a cell
+    (a `String`, a collection, an `Rc`) would be copied bitwise with no dup.
+  - The copy becomes the bundle type's generated dup, with the matching
+    drop in the future's dispose.
+  - A move-only bundle field is an error at the `io.spawn`/`io.await` site,
+    because one bundle starts many futures.
+
+**Unchanged:**
+
+- the single-threaded runtime;
+- the bundle model and `Future(T, E)`'s two parameters;
+- abort propagation;
+- `IoFuture` as a raw `i32` future (now move-only);
+- the join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`);
+- `JoinHandle` and `Io` stay `!Send`;
+- `spawn_blocking`'s result still crosses through a `Channel(T)`, where
+  §3.8's transfer isolation applies.
+
+§3.10 (the exclusivity assert at the write) and §3.11 (an async frame is a
+cell the allocator scope places) already cover async bodies.
+
+**Captures in async bodies (V2).** An `io.async` body is a closure and
+captures by copy (§3.7). After V2b, a body that writes a captured
+collection writes its own copy. `_execute_batch` (`src/build_runner.yo`)
+does exactly that: it takes `results : HashMap(String, StepResult)` by
+value, calls `results.insert(...)` inside its `io.async` body, and expects
+the caller to see the insert. Its only caller awaits the returned future
+directly (`execute_dag`, `src/build_runner.yo`), so under A2 the smallest
+fix is `inout(results)`. A2 is in place by then (V3 precedes V2). Returning
+the value from the future, or sharing an `Rc`, is the fix for a future that
+is bound or spawned.
+
+**Shared flags in async tests (V1).** The async tests share flags between a
+task and its spawner through `Box` (`ran := Box(bool)(false)`, then
+`ran.* = true` in the task). V1's mechanical rename of every `Box` to `Rc`
+keeps them aliasing, so they need nothing beyond V1.
+
 ## 4. Decisions (V0)
 
 The first draft's §7 questions, answered, plus three raised in review.
@@ -710,6 +931,36 @@ Added by amendment, 2026-10-03, with the maintainer:
    claims the name in every module.
 12. **Explicit allocators: the scope places cells; a copy-on-write clone
    inherits its source's owner** (§3.11).
+
+Added by amendment, 2026-10-03, with the maintainer (async, §3.13; PR
+#1169, after review):
+
+13. **A future is move-only** (§3.13 A1). `io.await` and `io.spawn`
+   consume it, the result moves out, and a shared result is
+   `Rc(JoinHandle(T))`. Rust has the same shape. Rejected: Swift's copyable
+   `Task` handle, awaitable any number of times. It would keep today's
+   multi-await, but also a type whose copies alias without saying so, and
+   the special cases that exist only because a future may be shared (the
+   result dup per await, the second-spawn rule, the started-child flag).
+14. **A future may borrow, and is then second-class** (§3.13 A2). A future
+   that captures an `inout` or a borrowed move-only argument may only be
+   the direct operand of `io.await` or of `timeout`/`select`, or be
+   returned under the same rule. It includes two parts:
+   - `timeout` and a two-way `select` take futures as well as handles, and
+     run a future operand as a scoped child (§3.13 A4). This reverses the
+     async audit's Q3 ("handles only", `plans/ASYNC_IO_API_AUDIT.md`) for
+     those two combinators.
+   - An `inout` argument reached through `Rc`/`Arc` is a compile error, not
+     a §3.10 panic at run time. Shared borrows of move-only receivers stay
+     allowed.
+
+   Rejected:
+   - threading the state (`next(own(self), io)` handing `Self` back),
+     which makes every stream loop rebind its stream;
+   - a private cell captured by pointer, which makes each adapter, mutex
+     and receiver an implicitly shared handle;
+   - per-type `recv_timeout`/`next_timeout`/`lock_timeout`, which
+     multiplies the timeout API.
 
 ## 5. Order and prerequisites
 
@@ -861,6 +1112,20 @@ Compiler, Generation A:
   value (there are none), and the "move into a struct field is not a
   consumption in the evaluator" rule (AGENTS.md pitfall) becomes a real
   consumption for move-only values. ASan + the leak canaries gate this.
+- Async (§3.13):
+  - the marker on every state-machine type and on `IoFuture` (A1);
+  - `io.await`/`io.spawn` consume their future, and `io.await` moves the
+    result out instead of dupping it;
+  - second-class borrowing futures (A2): the evaluator marks a call's
+    future as borrowing its `inout` and move-only arguments, and rejects
+    any use other than an `io.await` operand, a future-taking combinator
+    operand or a return; an `inout` argument reached through `Rc`/`Arc` is
+    an error;
+  - the scoped-child start, abort and drain that `timeout` and `select`
+    need for future operands (A4);
+  - the bundle's typed copy and drop, and the error for a move-only bundle
+    field (A6);
+  - a re-check of `__yo_started_child`.
 - `Iso(T)`'s bound (§3.6) widens from "reference object" to "reaches a
   non-atomic cell".
 - `Send`/`Sync` (§3.8): today's `Send` derivation becomes `Sync`; the new
@@ -882,8 +1147,18 @@ Generation B for any method that needs the compiler to enforce move-only):
   `_MutexState` implements `Dispose`; same for `RawMutex`, `RwLock`, `Cond`,
   `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `Arena`, `File`, `TempDir`,
   `TempFile`, `Watcher`, the sockets, `TlsStream`, `HttpClient`, `Child*`,
-  `Thread`, `JoinHandle`, `ThreadPool`, `Waker`, `Park`, the async stream
-  adapters, the RAII guards (which hold `*(_State)` into the cell).
+  `Thread`, `ThreadPool`, the RAII guards (which hold `*(_State)` into the
+  cell).
+- `std/async` follows §3.13 instead (Generation B: it needs A1 and A2
+  enforced by the seed):
+  - `JoinHandle` as a value struct around its future (A3);
+  - the combinators taking `own` lists, with `race`/`any` handing the list
+    back (A4);
+  - `Waker` move-only with `Clone`; `Park` move-only (A5);
+  - the async `Channel` over `Rc`, and the async `Mutex` move-only (A5);
+  - the stream adapters as plain values with `next(inout(self), io)` (A5);
+  - `docs/{en-US,zh-CN}/ASYNC_AWAIT.md`'s "Multi-Await" and handle sections
+    rewritten for consuming awaits.
 - Channels: `_ChannelState(T)` behind `Arc`; `Sender(T) :: struct(_ch :
   Arc(_ChannelState(T)))` move-only (Dispose decrements `_senders`) with
   `Clone`; `Receiver(T)` move-only without `Clone`; `Channel(T)` itself
@@ -903,6 +1178,12 @@ and the error text says which. Tests: `tests/sync*.test.yo`,
 `tests/http/*.test.yo`. New: a move-only test file (every move point, every
 rejected copy with `comptime_expect_error`, flow joins, closures, generic
 instantiation error text, `Dispose` runs exactly once under ASan).
+New for async:
+- a second `io.await` of one future and a copied `JoinHandle` are E0901;
+- a borrowing future bound to a local, spawned or captured is an error;
+- `Stream.next(inout(self), io)` advances the caller's stream;
+- a bundle with a `String` field survives its spawner's scope under ASan;
+- `race` hands back the losers and `race_first` aborts them.
 
 ### V2: the collections become values
 
@@ -936,6 +1217,15 @@ before and after the flip):
   teaches the mask analysis the collections' raw-pointer writes
   (`_ptr` stores through `unsafe(...)`), so that the audit is complete
   before the flip is trusted.
+- The audit also lists, as their own items:
+  - writes to a captured variable inside a closure or an `io.async` body
+    (§3.13, "Captures in async bodies");
+  - writes to a by-value parameter, `self` included, that a returned
+    `io.async` body captures (§3.13's `Stream.next` pattern).
+
+  The fix is `inout` when the caller awaits the future directly (A2).
+  Otherwise the future returns the value or shares an `Rc`. V3 runs the
+  same audit over the `std/async` types it turns into values, before V2.
 - `yo fmt` and the LSP learn nothing new here.
 
 V2b, the flip (Generation A for the compiler, the std shapes are plain
@@ -1053,6 +1343,13 @@ Per type, in this order, each its own PR, measured:
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
 | `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` in safe code; std and pragma'd code may also read a `Box`, collection or `Dyn` cell; a compile error on a value with no cell | V1 step 0 rename |
+| A future awaited twice, or awaited by two tasks | await once; share the result as `Rc(JoinHandle(T))` | E0901 at the second use |
+| A `JoinHandle` copied, or joined twice | one owner; `join(own(h), io)` consumes it | E0901 |
+| `race(handles, io)` then reusing `handles` | `match(io.await(race(handles, io), io), (w, rest) => …)` | E0901 at the reuse |
+| A method whose returned future mutates `self` | `inout(self)`, awaited at the call (§3.13 A2) | the capture audit (V2a, run from V3 on `std/async`) |
+| An `io.async` body writing a captured collection | `inout` if the future is awaited directly; otherwise return it from the future, or `Rc(...)` | V2a capture audit |
+| A borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Rc(Mutex(S))` | the A2 compile error |
+| A deadline on a borrowing future | `timeout(rx.recv(io), d, io)`, awaited directly | — |
 | `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
 ## 8. Risks
