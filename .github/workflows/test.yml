@@ -93,12 +93,13 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml, fixpoint-arm64.yml AND ubsan.yml (the
+  # Keep this pin in lockstep with release.yml, fixpoint-arm64.yml, ubsan.yml
+  # AND leak-verdict.yml (the
   # deliberate-pin rationale — chain auditability, bad-release containment,
   # reproducible re-runs — is recorded in plans/archive/P2_5_RETIRE_EXECUTION.md
   # step 24). This one had silently drifted to v0.2.4 while release.yml
   # advanced to v0.2.7. Since 2026-08-21 the lockstep is AUTOMATED: the
-  # `changes` job above guards the four pins against divergence, and
+  # `changes` job above guards the five pins against divergence, and
   # release.yml's publish-release pushes the bump for every published
   # release (plans/backlog/SEED_VERSION_AUTOMATION.md). Manual edits remain
   # for ROLLING BACK a bad seed.
@@ -239,14 +240,15 @@ jobs:
             .github/workflows/test.yml \
             .github/workflows/release.yml \
             .github/workflows/fixpoint-arm64.yml \
-            .github/workflows/ubsan.yml | awk '{print $2}')
+            .github/workflows/ubsan.yml \
+            .github/workflows/leak-verdict.yml | awk '{print $2}')
           count=$(printf '%s\n' "$pins" | wc -l)
           uniq_count=$(printf '%s\n' "$pins" | sort -u | wc -l)
-          if [ "$count" -ne 4 ] || [ "$uniq_count" -ne 1 ]; then
-            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the four workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
+          if [ "$count" -ne 5 ] || [ "$uniq_count" -ne 1 ]; then
+            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the five workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
             exit 1
           fi
-          echo "SEED_VERSION consistent across the four workflows: $(printf '%s' "$pins" | head -1)"
+          echo "SEED_VERSION consistent across the five workflows: $(printf '%s' "$pins" | head -1)"
       - id: classify
         env:
           GH_TOKEN: ${{ github.token }}

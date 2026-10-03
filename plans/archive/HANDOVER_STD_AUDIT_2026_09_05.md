@@ -160,7 +160,7 @@ written down.
 Worth calling out as a method, not just as bugs — each was invisible from the
 change itself and only appeared under independent measurement.
 
-1. **`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.**
+1. **`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.**
    The regression net added with #409 PASSES 3/3 under the compiler that still
    has the bug it was written for. It asserts only values; the leak verdict
    meant to fail it is disabled in every CI job (`YO_TEST_LEAK_VERDICT: "0"` ->

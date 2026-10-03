@@ -100,6 +100,15 @@ Pragma :: enum(
   /// runners — Schannel is the deferred Windows path). Mirrors the
   /// SkipWasm32* variants.
   SkipWindows,
+  /// Test-runner directive: this file's tests only have a failure mode when
+  /// the LeakSanitizer verdict is applied — they exercise a construct and
+  /// assert values that were never wrong, so a leak is the one defect they
+  /// can catch. When the run stages the verdict off (`YO_TEST_LEAK_VERDICT=0`)
+  /// or builds no ASan test binary (a wasm target, `--disable-sanitize`, a
+  /// non-address `YO_TEST_SANITIZE`), the runner SKIPS the file with a line
+  /// that says so instead of reporting a vacuous pass.
+  /// issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md
+  NeedsLeakVerdict,
   /// Formal verification: contracts in this file are proof obligations.
   /// Phase 0 only registers the pragma; later phases will hook in
   /// verification. See plans/backlog/FORMAL_VERIFICATION.md.

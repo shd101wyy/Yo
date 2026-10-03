@@ -5959,6 +5959,67 @@ run_test :: (
     });
     files = win_kept;
   });
+  // `Pragma.NeedsLeakVerdict` pre-scan: a test file whose ONLY failure mode is
+  // the LeakSanitizer verdict (it exercises a construct and asserts values
+  // that were never wrong) declares that dependence with the pragma. When
+  // THIS run cannot apply a leak verdict — `YO_TEST_LEAK_VERDICT=0` (the CI
+  // staging ratchet for the self-hosted-emit leak debt) or no ASan test
+  // binary (a wasm target, `--disable-sanitize`, a non-address
+  // `YO_TEST_SANITIZE`) — the file would pass vacuously, so it is SKIPPED
+  // with a line that says why and "N passed" stops overstating coverage.
+  // Same first-50-lines text scan as the wasm/Windows pre-scans above.
+  // issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md
+  nlv_leak_verdict := match(
+    proc_env.get(`YO_TEST_LEAK_VERDICT`),
+    .Some(lv) => (lv != "0"),
+    .None => true
+  );
+  nlv_san_choice := match(
+    proc_env.get(`YO_TEST_SANITIZE`),
+    .Some(sv) => sv,
+    .None => String.from("address")
+  );
+  // Same `run_is_wasi` correction as the batch site's `use_asan`: emcc/WASI
+  // legs link no ASan, so no leak verdict could ever fire there.
+  nlv_use_asan := (!no_sanitize && ((nlv_san_choice == "address") && ((test_cc != "emcc") && !run_is_wasi)));
+  if(!(nlv_leak_verdict && nlv_use_asan), {
+    nlv_reason := if(
+      !nlv_leak_verdict,
+      String.from("the leak verdict is off (YO_TEST_LEAK_VERDICT=0)"),
+      String.from("this run builds no AddressSanitizer test binary (wasm target, --disable-sanitize, or a non-address YO_TEST_SANITIZE)")
+    );
+    nlv_kept := ArrayList(String).new();
+    (nlv_skipped : usize) = usize(0);
+    (nfi : usize) = usize(0);
+    while(nfi < files.len(), {
+      nf := match(files.get(nfi), .Some(f) => f, .None => String.from(""));
+      nfi = (nfi + usize(1));
+      nf_bytes := io.await(read(Path.new(nf.clone()), io), IoExn(io : io, exn : exn));
+      nf_src := String.from_bytes(nf_bytes);
+      nf_lines := nf_src.split("\n");
+      (nlv_skip : bool) = false;
+      (nli : usize) = usize(0);
+      while((nli < nf_lines.len()) && ((nli < usize(50)) && !nlv_skip), {
+        nline := match(nf_lines.get(nli), .Some(l) => l, .None => String.from(""));
+        nli = (nli + usize(1));
+        nstripped := nline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(nstripped.contains("pragma(Pragma.NeedsLeakVerdict)"), {
+          nlv_skip = true;
+        });
+      });
+      if(nlv_skip, {
+        nlv_skipped = (nlv_skipped + usize(1));
+      }, {
+        nlv_kept.push(nf);
+      });
+    });
+    if(nlv_skipped > usize(0), {
+      if(human, {
+        println(`Skipping ${nlv_skipped.to_string()} test file(s) with pragma(Pragma.NeedsLeakVerdict): ${nlv_reason}, so these tests would pass vacuously`);
+      });
+    });
+    files = nlv_kept;
+  });
   if(files.len() == usize(0), {
     if(human, {
       println(String.from("No test files found."));
