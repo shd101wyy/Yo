@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 194 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 188 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -30,14 +30,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 6 | 0 |
-| Codegen / emitted C | 19 | 3 |
+| Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 21 | 2 |
 | Std library | 50 | 12 |
-| Tooling (fmt/doc/lsp) | 13 | 2 |
+| Tooling (fmt/doc/lsp) | 11 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 59 | 10 |
-| **Total** | **194** | **32** |
+| Other | 56 | 9 |
+| **Total** | **188** | **30** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 28 |
-| S2 | 88 |
-| S3 | 76 |
+| S1 | 27 |
+| S2 | 86 |
+| S3 | 73 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -185,11 +185,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
 
-### Codegen / emitted C (19)
+### Codegen / emitted C (18)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
-| [`a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`](./a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md) | S2 | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | S2 | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | S2 | — | yes |
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | S2 | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
@@ -290,16 +289,14 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (13)
+### Tooling (fmt/doc/lsp) (11)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
 | [`collection-test-names-still-use-pre-rename-method-spellings.md`](./collection-test-names-still-use-pre-rename-method-spellings.md) | S3 | OPEN | — |
-| [`fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md`](./fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md) | S3 | — | yes |
 | [`fmt-not-idempotent-call-wrapped-match-in-block.md`](./fmt-not-idempotent-call-wrapped-match-in-block.md) | S3 | — | yes |
 | [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | S3 | OPEN | — |
-| [`fmt-reformats-parse-invalid-files.md`](./fmt-reformats-parse-invalid-files.md) | S3 | — | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | S2 | — | — |
@@ -332,21 +329,18 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (59)
+### Other (56)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md`](./a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md) | S1 | — | yes |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
-| [`a-default-parameter-value-resolves-names-in-the-callers-module.md`](./a-default-parameter-value-resolves-names-in-the-callers-module.md) | S1 | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
-| [`a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md`](./a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md) | S2 | — | yes |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md`](./a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md) | S2 | — | yes |
-| [`a-string-byte-index-is-a-writable-place.md`](./a-string-byte-index-is-a-writable-place.md) | S1 | — | — |
 | [`a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md`](./a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md) | S2 | — | — |
 | [`a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`](./a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md) | S1 | — | yes |
 | [`a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`](./a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md) | S3 | — | — |
@@ -362,6 +356,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
+| [`collect-into-a-string-leaks-the-accumulated-buffer.md`](./collect-into-a-string-leaks-the-accumulated-buffer.md) | S1 | — | — |
 | [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
@@ -374,7 +369,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-hover-claims-markdown-without-the-capability.md`](./lsp-hover-claims-markdown-without-the-capability.md) | — | — | — |
 | [`lsp-jsonrpc-message-class-and-parse-error-handling.md`](./lsp-jsonrpc-message-class-and-parse-error-handling.md) | S3 | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
-| [`lsp-per-keystroke-full-reanalysis-limits-responsiveness.md`](./lsp-per-keystroke-full-reanalysis-limits-responsiveness.md) | S3 | — | — |
 | [`lsp-position-encoding-is-negotiated-against-the-clients-list.md`](./lsp-position-encoding-is-negotiated-against-the-clients-list.md) | S3 | — | — |
 | [`lsp-references-ignore-include-declaration-on-comptime-decl.md`](./lsp-references-ignore-include-declaration-on-comptime-decl.md) | S3 | — | — |
 | [`lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md`](./lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md) | S3 | — | — |
