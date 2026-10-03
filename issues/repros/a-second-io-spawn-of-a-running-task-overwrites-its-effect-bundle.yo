@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ String } :: import("std/string");
+Tell :: (fn(msg : String) -> i32);
+Ctx :: struct(io : Io, tell : Tell);
+tell_a :: (fn(msg : String) -> i32)(i32(1));
+tell_b :: (fn(msg : String) -> i32)(i32(2));
+main :: (fn(io : Io) -> unit)({
+  task := io.async((ctx : Ctx) => {
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.tell(`x`)
+  });
+  h1 := io.spawn(task, { io, tell : tell_a });
+  h2 := io.spawn(task, { io, tell : tell_b });
+  r1 := h1.await(io);
+  r2 := h2.await(io);
+  println(`first spawn bundle says 1, second says 2: r1=${r1.unwrap_or(i32(0))} r2=${r2.unwrap_or(i32(0))}`);
+});
+export(main);
