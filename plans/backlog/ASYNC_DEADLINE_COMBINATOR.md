@@ -1,6 +1,11 @@
 # A deadline combinator usable from INSIDE a task — and the HTTP server keep-alive it blocks
 
-**Status: BACKLOG.** Written 2026-09-11 while landing the client-side HTTP
+**Status: BACKLOG; superseded in part by `plans/ASYNC_IO_API_AUDIT.md` A1
+(2026-10-03), which makes `JoinHandle.await` suspend inside a task and turns
+`timeout` itself into a future — option A below becomes `timeout`. Two costs
+below are dated: `yield` has had no timer since v0.2.32, and the backends
+cancel timers, park futures and (Linux, macOS) parked descriptor operations.**
+Written 2026-09-11 while landing the client-side HTTP
 connection pool (`plans/archive/STD_API_STABILIZATION.md`, "HTTP keep-alive, the
 pooling client"). The client half needs no such thing; the SERVER half cannot
 be written without one, and this doc is the measured answer to "is it in

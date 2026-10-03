@@ -12173,10 +12173,16 @@ impl(
   /// any, releases the state machine instead of resuming it). Completed and
   /// already-aborted tasks are left untouched. `await` on an aborted handle
   /// returns `.None`. An operation the task is suspended in is cancelled too
-  /// where the I/O backend can take the registration back (timers today):
-  /// the task and what it was waiting on are then released at once instead
-  /// of when that operation would have completed. An operation with no
-  /// cancel path still runs to completion and releases the task then.
+  /// where the I/O backend can take the registration back (timers and park
+  /// futures on every backend; on Linux also the epoll and io_uring
+  /// descriptor and datagram operations, on macOS the kqueue-parked
+  /// descriptor operations): the task and what it was waiting on are then
+  /// released at once instead of when that operation would have completed.
+  /// An operation with no cancel path still runs to completion and releases
+  /// the task then. Only the future in the task's anonymous await slot is
+  /// under the hook; a NAMED awaited child is not cancelled yet, and a raw
+  /// `IoFuture` spawned directly has no hook at all
+  /// (issues/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md).
   abort : (fn(self : JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )

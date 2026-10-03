@@ -200,6 +200,8 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
 9. `io.await(future)` 可以对同一 Future **多次调用**——每次调用返回相同的结果
 10. 对被代数效应处理器**中止**的 Future 进行 await 会导致 **panic**
+11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
+12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
 
 ### 执行模型
 
@@ -312,7 +314,7 @@ export(main);
 Io :: struct(
   async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -1309,18 +1311,17 @@ io.await(
 
 ### `yield_now`：不带定时器的公平让出
 
-`std/async` 的 `yield` 会把一个轮次交还给事件循环，代价是一次 1 毫秒的 sleep ——
-这给建立在它之上的一切都加上了毫秒级的下限。`yield_now`（`std/async/waker`）
-免费给出同样的保证：它的 future 创建时处于 pending 状态，由下一次就绪任务批处理在
-测量完自己的配额之后完成它，于是被恢复的任务在下一个轮次运行，中间正好有一次
-I/O 轮询。
+`std/async` 的 `yield` 和 `std/async/waker` 的 `yield_now` 是同一个机制：
+它的 future 创建时处于 pending 状态，由下一次就绪任务批处理在测量完自己的配额
+之后完成它，于是被恢复的任务在下一个轮次运行，中间正好有一次 I/O 轮询。两者
+之下都没有定时器。
 
-在一个 spawn 出来的任务里跑 400 个轮次，`-O0` 和 `--optimize 2` 下的实测：
-`yield_now` 0 毫秒，`yield` 603 毫秒。
-
-`yield` 本身会在下一个版本变成它。今天做不到的原因是引导（bootstrap），而不是设计：
-`yield` 位于编译器自身的 import 路径上，而用来构建本仓库的 seed 编译器所生成的
-async 运行时里没有这个新原语 —— 把 `yield` 指向它会导致编译器**链接失败**。
+在 v0.2.32 之前，`yield` 停在一个 1 毫秒的定时器上，这给建立在它之上的一切都
+加上了毫秒级的下限（在一个 spawn 出来的任务里跑 400 个轮次的实测：`yield_now`
+0 毫秒，定时器版的 `yield` 603 毫秒）。推迟的原因是引导（bootstrap），而不是设计：
+`yield` 位于编译器自身的 import 路径上，而 seed 编译器生成的是它自己构建时的
+async 运行时，所以只有当某个已发布的 seed 带上新原语之后，`yield` 才能指向它。
+`yield_now` 作为 `std/async/waker` 导出的名字保留。
 
 ## 与其他语言的比较
 
@@ -1431,11 +1432,9 @@ handle.await(io);
 
 1. **效应处理器不是闭包** — 处理器函数是独立的 C 函数，无法捕获外部作用域的变量。请通过显式参数或 `Box` 传递状态。参见 `docs/en-US/ALGEBRAIC_EFFECTS.md`。
 
-2. **异步 unwind 的引用计数双重递减** — 当 Future 作为参数传递给在 `io.await` 期间 unwind 的函数时，Future 的引用计数会被递减两次（一次在 await 中止路径，一次在 unwind 清理中），导致释放后使用。解决方法：在 unwind 的函数内部创建 Future。参见 `issues/async-unwind-rc-double-decrement.md`。
+2. **在任务内部等待 `JoinHandle` 会嵌套事件循环** — 见上文"在任务内部等待已 spawn 的任务"。`plans/ASYNC_IO_API_AUDIT.md` 的 A1 阶段会移除这个限制。
 
-3. **异步中的三参数 while 循环** — 异步状态机代码生成仅处理两参数形式 `while condition, body`。三参数形式 `while condition, step, body` 会生成错误的 C 代码。解决方法：将步进表达式放在循环体内。参见 `issues/fixed/async-while-3arg-form.md`。
-
-4. **二元表达式作为异步返回值** — 当异步闭包的最后一个表达式是二元运算（如 `(a + b)`）时，状态机结构体得到的是 `void* result` 而非正确的类型。解决方法：先赋值给变量。参见 `issues/fixed/async-sm-result-type-binary-expr.md`。
+本文档早期版本列出的限制——异步中的三参数 `while`、二元表达式作为异步返回值，以及一个从未有过 issue 记录、也无法复现的"异步 unwind 引用计数双重递减"——都已不存在。参见 `issues/fixed/async-while-3arg-form.md` 和 `issues/fixed/async-sm-result-type-binary-expr.md`。
 
 ## 总结
 
@@ -1482,7 +1481,7 @@ r2 := handle2.await(io); // Option(T)
 5. **单线程** — 所有异步代码运行在调用线程上
 6. **`yield()` 让出** — 挂起任务，将控制权交给其他就绪任务
 7. **状态机** — 编译器将每个 `io.await` 变换为状态转换
-8. **无线程安全问题** — 无 Send trait，无数据竞争
+8. **每个事件循环一个线程** — `io.spawn` 不要求 `Send`；`Io` 和 `JoinHandle` 是 `!Send`，任务离不开它的循环
 9. **非原子引用计数** — 简单的引用计数（无同步）
 10. **事件循环** — 运行就绪任务，检查 Io 完成
 11. **零成本** — 编译为高效的 C 代码

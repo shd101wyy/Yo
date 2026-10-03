@@ -29,8 +29,8 @@ yo explain E0xxx          # offline diagnostic explanation
 yo fix file.yo            # apply structured repairs from diagnostics
 ```
 
-- `check` is evaluator-only: async state-machine rules fire in codegen, so
-  gate those with `yo compile main.yo --skip-c-compiler`. `--test-bodies`
+- `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) fires in
+  codegen, so gate it with `yo compile main.yo --skip-c-compiler`. `--test-bodies`
   makes `check` also type-check `test(...)` bodies (without it they are a
   no-op for `check`).
 - Fast iteration: `yo check <dir> --watch` (or `--watch-once`) re-checks only

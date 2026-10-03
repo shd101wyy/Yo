@@ -206,6 +206,8 @@ yield(io)                     // Create a pre-completed Future (yields control t
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
 9. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
 10. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
+11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
+12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
 
 ### Execution Model
 
@@ -1351,21 +1353,19 @@ for `Park` directly when a waiter list wants to hold the token itself.
 
 ### `yield_now`: a fairness yield with no timer
 
-`std/async`'s `yield` gives the loop one turn and pays a 1 ms sleep for it,
-which puts a millisecond floor under everything built on it. `yield_now`
-(`std/async/waker`) gives the same guarantee for free: its future is created
-pending and completed by the next ready-task drain, after that drain has
-measured its budget, so the resumed task runs on the following turn with
-exactly one I/O poll in between.
+`std/async`'s `yield` and `std/async/waker`'s `yield_now` are the same
+mechanism: the future is created pending and completed by the next ready-task
+drain, after that drain has measured its budget, so the resumed task runs on
+the following turn with exactly one I/O poll in between. There is no timer
+under either.
 
-Measured over 400 turns in a spawned task, at both `-O0` and `--optimize 2`:
-`yield_now` 0 ms, `yield` 603 ms.
-
-`yield` itself will become this, one release from now. It cannot today for a
-bootstrap reason rather than a design one: `yield` is on the compiler's own
-import path, and the seed compiler that builds the tree emits an async runtime
-without the new primitive in it, so pointing `yield` at it fails to LINK the
-compiler.
+Until v0.2.32 `yield` parked on a 1 ms timer, which put a millisecond floor
+under everything built on it (measured over 400 turns in a spawned task:
+`yield_now` 0 ms, the timer-backed `yield` 603 ms). The delay was a bootstrap
+constraint, not a design one: `yield` is on the compiler's own import path,
+and the seed compiler that builds the tree emits the async runtime it was
+built with, so `yield` could only point at the new primitive once a published
+seed carried it. `yield_now` stays as the name `std/async/waker` exports.
 
 ## Comparison with Other Languages
 
@@ -1497,18 +1497,14 @@ parameters via `e : E`, and callers inject handlers at `io.await` or
    functions and cannot capture variables from the enclosing scope. Pass state
    via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
-2. **Async unwind RC double-decrement** — reported as: a future passed as a
-   parameter to a function that escapes during `io.await` has its RC decremented
-   twice, causing use-after-free. **Status unverified** — the tracking issue this
-   used to cite (`issues/async-unwind-rc-double-decrement.md`) has never existed
-   in the repository, so there is no record to check it against. Several
-   neighbouring async RC defects WERE fixed in v0.2.17 (the never-dropped future
-   result and the stale `cond_branch` cleanup over-release), which may or may not
-   cover this.
+2. **Waiting on a `JoinHandle` inside a task nests the event loop** — see
+   "Waiting for spawned tasks from inside a task" above. Phase A1 of
+   `plans/ASYNC_IO_API_AUDIT.md` removes this.
 
-Limitations 3 and 4 in earlier revisions of this document — the 3-argument
-`while` in async, and a binary expression as an async return value — are FIXED.
-See `issues/fixed/async-while-3arg-form.md` and
+Limitations listed in earlier revisions of this document — the 3-argument
+`while` in async, a binary expression as an async return value, and an
+"async unwind RC double-decrement" that never had an issue record and does
+not reproduce — are gone. See `issues/fixed/async-while-3arg-form.md` and
 `issues/fixed/async-sm-result-type-binary-expr.md`.
 
 ## Summary
@@ -1556,7 +1552,7 @@ r2 := handle2.await(io); // Option(T)
 5. **Single-threaded** — all async code runs on the calling thread
 6. **`yield()` yields** — suspends task, gives control to other ready tasks
 7. **State machines** — compiler transforms each `io.await` into state transition
-8. **No thread safety** — no Send trait, no data races
+8. **One thread per loop** — `io.spawn` takes no `Send` bound; `Io` and `JoinHandle` are `!Send`, so a task cannot leave its loop
 9. **Non-atomic RC** — simple reference counting (no synchronization)
 10. **Event loop** — runs ready tasks, checks Io completion
 11. **Zero-cost** — compiled to efficient C code
