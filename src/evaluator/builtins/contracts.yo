@@ -2797,14 +2797,14 @@ wrap_function_body_with_contracts :: (
     returns_unit : bool,
     /// The literal is a `ghost_fn`'s: it never runs, so `verify` mode splices
     /// nothing into it.
-    (in_ghost_fn : bool) ?= false,
+    in_ghost_fn : bool,
     /// Per `requires_exprs` entry: whether its predicate can run
     /// (`requires_is_runtime_checkable`). `verify` mode splices only those.
-    (requires_checkable : ArrayList(bool)) ?= ArrayList(bool).new(),
+    requires_checkable : ArrayList(bool),
     /// Per `ensures_exprs` entry: whether its predicate can run
     /// (`ensures_is_runtime_checkable`). Only those are ever spliced: a
     /// quantified or ghost_fn clause is proof-only in every mode.
-    (ensures_checkable : ArrayList(bool)) ?= ArrayList(bool).new()
+    ensures_checkable : ArrayList(bool)
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {

@@ -173,6 +173,7 @@ pragma(Pragma.AllowUnsafe);
   evaluate_function_return_type_again,
   get_func_param_defaults,
   get_func_param_default_exprs,
+  default_param_eval_env,
   get_func_param_type_exprs,
   get_func_param_comptime,
   get_func_param_assigned_values,
@@ -5280,11 +5281,11 @@ resolve_param_types_from_expected :: (
     caller_env : Environment,
     ctx : EvalContext,
     out : ArrayList(TypeValue),
-    /// OUT (optional): each `generic(...)` binder the expected type binds to
-    /// a CONCRETE type, and that type — for a caller whose arguments cannot
-    /// bind a result-only binder.
-    (forall_out_names : ArrayList(String)) ?= ArrayList(String).new(),
-    (forall_out_types : ArrayList(TypeValue)) ?= ArrayList(TypeValue).new()
+    /// OUT: each `generic(...)` binder the expected type binds to a CONCRETE
+    /// type, and that type — for a caller whose arguments cannot bind a
+    /// result-only binder.
+    forall_out_names : ArrayList(String),
+    forall_out_types : ArrayList(TypeValue)
   ) -> unit
 )({
   default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
@@ -7226,6 +7227,15 @@ try_to_call_function_with_arguments :: (
             default_expr,
             .Some(de) => {
               cloned_de := clone_expr_fresh_ids(de);
+              // The default names things in the DEFINING module: evaluate it
+              // over the definition's scope, with the callee's captures,
+              // generic and earlier-parameter bindings layered on top — never
+              // in the caller's scope.
+              de_env := default_param_eval_env(
+                match(func_val, .Some(.FuncVal(__fvd15, _)) => __fvd15.*.func_id.clone(), _ => String.new()),
+                Option(Environment).Some(callee_env_m),
+                callee_env_m
+              );
               dpr := check_if_function_parameter_matches_argument(
                 plabel,
                 ptype,
@@ -7239,7 +7249,7 @@ try_to_call_function_with_arguments :: (
                 io_async_param_direct,
                 cloned_de,
                 callee_env_m,
-                callee_env_m,
+                de_env,
                 ctx,
                 rt_args,
                 exn
