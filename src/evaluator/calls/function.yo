@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
-{ is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
@@ -5372,6 +5372,25 @@ _evaluate_function_call_unanchored :: (
     });
     if(iob_marker.len() > usize(0), {
       record_io_builtin_call(ast_expr_id(expr), iob_marker);
+    }, {
+      // Spelled like an async builtin (`io.await(...)`, `h.await(...)`) but
+      // the callee is a Yo-defined function — a function value whose type
+      // names no extern: an ordinary method. Record that, so the spelling
+      // matchers (`is_io_await_call`, `is_join_handle_await_call`, …) do not
+      // lower it as the builtin
+      // (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+      iob_user_fn := match(
+        callee_info_opt,
+        .Some(iob_ci2) => match(
+          iob_ci2.value,
+          .Some(.FuncVal(_, _)) => match(iob_ci2.ty, .Func({ meta : iob_m2 }) => iob_m2.*.extern_name.is_none(), _ => false),
+          _ => false
+        ),
+        .None => false
+      );
+      if(iob_user_fn && (is_io_async_call(expr) || (is_io_await_call(expr) || (is_io_state_call(expr) || (is_io_spawn_call(expr) || is_join_handle_await_call(expr))))), {
+        record_io_builtin_call(ast_expr_id(expr), String.from(IO_BUILTIN_NONE));
+      });
     });
   };
   callee_value_raw := match(

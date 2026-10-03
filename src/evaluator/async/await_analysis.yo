@@ -144,39 +144,39 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
 // ---------------------------------------------------------------------------
 // Io builtin structural checks
 // ---------------------------------------------------------------------------
-/// SEMANTIC io-builtin check: true iff this call's recorded io-builtin marker
-/// equals `marker`. The marker is set from the extern field label
-/// (`__yo_io_await` etc.) and propagated onto the Io struct's field types at
-/// construction, so ANY receiver variable of type `Io`
-/// classifies, not just one literally named `io`. The marker is resolved
-/// once at evaluate_function_call's dispatch choke point (calls/function.yo)
-/// into the `g_io_builtin_calls` side-table read here. The name-based
-/// `_is_dot_access` checks below remain as the fast path (and cover
-/// pre-recording contexts); without this semantic path
-/// `my_io.await(task, ctx)` fell through to the JoinHandle-await shape and
-/// codegen emitted an error comment (async_await arm 72).
-_callee_io_builtin_is :: (fn(expr : AstExpr, marker : String) -> bool)(
+/// The marker evaluation records for a call SPELLED like an async builtin
+/// (`io.await(...)`, `x.await(...)`) whose callee resolved to a Yo-defined
+/// function instead: an ordinary method. Every `is_io_*_call` matcher reads it
+/// as "not a builtin", so a user type's `await` method — or a parameter named
+/// `io` of another type — is not lowered as one (two internal compiler
+/// errors: issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+IO_BUILTIN_NONE :: "-";
+/// A call is the builtin `marker` when evaluation recorded that marker for it;
+/// a call recorded as resolved to something else (any other marker,
+/// `IO_BUILTIN_NONE` included) is not; a call evaluation never saw (the
+/// pre-recording contexts) falls back to the spelling.
+_is_builtin_call :: (fn(expr : AstExpr, marker : str, spelled : bool) -> bool)(
   match(
     lookup_io_builtin_call(ast_expr_id(expr)),
-    .Some(cim_mk) => (cim_mk == marker),
-    .None => false
+    .Some(m) => (m == marker),
+    .None => spelled
   )
 );
 /// Checks if an expression is an io.async(closure) call.
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "async") || _callee_io_builtin_is(expr, String.from("__yo_io_async"))
+  _is_builtin_call(expr, "__yo_io_async", _is_dot_access(expr, "io", "async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "await") || _callee_io_builtin_is(expr, String.from("__yo_io_await"))
+  _is_builtin_call(expr, "__yo_io_await", _is_dot_access(expr, "io", "await"))
 );
 /// Checks if an expression is an io.state(future) call.
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "state") || _callee_io_builtin_is(expr, String.from("__yo_io_state"))
+  _is_builtin_call(expr, "__yo_io_state", _is_dot_access(expr, "io", "state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "spawn") || _callee_io_builtin_is(expr, String.from("__yo_io_spawn"))
+  _is_builtin_call(expr, "__yo_io_spawn", _is_dot_access(expr, "io", "spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".
@@ -216,7 +216,7 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
     return(false);
   });
   // Exclude io.await (that's handled by is_io_await_call)
-  !is_io_await_call(expr)
+  _is_builtin_call(expr, "__yo_join_handle_await", !_is_dot_access(expr, "io", "await"))
 });
 // ---------------------------------------------------------------------------
 // get_future_variable_id_ — extract the future variable ID from an await arg
@@ -694,6 +694,7 @@ export(
   is_io_state_call,
   is_io_spawn_call,
   is_join_handle_await_call,
+  IO_BUILTIN_NONE,
   // Named-future resolution (codegen's dispatch-mode cond awaits resolve each
   // BRANCH's future the same way the analysis resolved the representative's)
   get_future_variable_id_,

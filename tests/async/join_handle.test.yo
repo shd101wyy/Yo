@@ -233,3 +233,16 @@ test("aborting a task leaves a named future that someone else started running", 
   assert(match(r, .Some(v) => (v == i32(5)), .None => false), "the shared future completed");
   assert(ran.*, "its body ran to the end");
 });
+// ---------------------------------------------------------------------------
+// A user method named `await` is an ordinary method: codegen lowers
+// `x.await(...)` as JoinHandle.await only when the call resolved to it
+// (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+// ---------------------------------------------------------------------------
+_Awaitable :: struct(v : i32);
+impl(_Awaitable, await : (fn(self : Self, io : Io) -> i32)((self.v + i32(1))));
+test("a user method named await compiles and runs as a method", {
+  t := _Awaitable(v : i32(5));
+  assert(t.await(io) == i32(6), "the user's await ran");
+  h := io.spawn(io.async((io : Io) => i32(2)), io);
+  assert(match(h.await(io), .Some(v) => (v == i32(2)), .None => false), "JoinHandle.await is still the builtin");
+});

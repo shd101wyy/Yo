@@ -396,7 +396,23 @@ Windows socket paths map WSA codes to errno equivalents in
 await lowering starts a future only when `state == 0 && vt != NULL`, so raw
 futures are unaffected). `sleep` checks its result.
 
-### A5 — Representation (seed-gated, already designed)
+### A5 — Representation (seed-gated, already designed) — partly landed 2026-10-03
+
+As landed: the async-builtin matchers consult the call's recorded marker
+before the spelling, and evaluation records a "not a builtin" marker for a
+user function spelled like one, which fixes two internal compiler errors (a
+user method named `await`; a non-`Io` parameter named `io` with an `await`
+method — `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`);
+`io.state` takes `E : Type.Struct` like its siblings. Not done here, each for a
+reason: the value-struct `JoinHandle` waits for the seed
+(`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
+`...(E)` spread is one use of the effect-row feature, which function types and
+the synthesizer share, so it is filed as a decision
+(`issues/questions/effect-row-spreads-outlived-the-single-bundle-future.md`)
+rather than removed from `Future` alone; a zero-sized `Io` is a measurement
+for `ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
+the proposal.
+
 
 `JoinHandle` as a value struct over the counted `Impl(Future)` (the open
 issue), `io.state` to `E : Type.Struct`, drop the `...(E)` spread, the
