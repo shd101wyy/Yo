@@ -516,6 +516,14 @@ never given, and the caller-side drop silently vanishes with its undeclared temp
 A new argument loop is checked by comparing `f(x.field)` with `T.f(x.field)`
 and `x.field.g(...)` under `--sanitize address`.
 
+Constructor arguments follow the same rule: `set_expr_as_needs_to_call_dup`
+(`src/evaluator/calls/type.yo`) puts the dup on a struct's and a newtype's
+field arguments alike, so both arms of the value-struct constructor emitter
+(the compound literal and the newtype cast) use `emit_deferred_dup_or_code`.
+The newtype cast once emitted its argument bare, and `Self(b : self.b)` then
+returned a payload both owners released
+(`issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md`).
+
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 
 A minted temp the async capture analysis gave a `sm->var_<id>` slot has its
