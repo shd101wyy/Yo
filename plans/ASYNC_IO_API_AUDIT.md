@@ -1,10 +1,10 @@
 # Async I/O API audit: `io.async` / `io.await` / `io.spawn`, `Future`, `JoinHandle`, `IoFuture`
 
-**Status: AUDIT 2026-10-03, phases A0–A5 proposed, nothing started; four
-bugs filed (two S1, two S2, §4).** The
-verdict on the four questions in §6 is the user's; A0 (documentation
-repair) and A1 (the suspending `JoinHandle.await`) are recommended regardless
-of those answers. Measured on develop `bcb57bfe7` with a compiler built from
+**Status: APPROVED 2026-10-03, phases A0–A5 in order, A0 starting; four
+bugs filed (two S1, two S2, §4).** The four questions in §6 were decided by
+the user on 2026-10-03, taking the recommendation in each: aborts propagate,
+`IoFuture` stays a raw `i32`, the combinators take handles only,
+`FutureState.Pending` becomes `Cold`. Measured on develop `bcb57bfe7` with a compiler built from
 that tree by the v0.2.49 seed. Related plans:
 `ASYNC_STATE_MACHINE_GENERATION.md` (the lowering),
 `ASYNC_PERFORMANCE_HANDOVER.md` (throughput),
@@ -370,21 +370,19 @@ syntactic `x.await` routing replaced by the `__yo_join_handle_await` marker,
 and a zero-sized `Io` measured on the spawn and await rows of
 `ASYNC_STATE_MACHINE_GENERATION.md` §3.4.
 
-## 6. Questions for the user
+## 6. Decisions (2026-10-03, the user took each recommendation)
 
-- **Q1 (A2).** Should an `io.await` / `io.spawn` of an already-aborted future
-  propagate the abort (recommended: the state-machine behaviour becomes the
-  only behaviour) or keep panicking as a programming error?
-- **Q2 (A4).** Should `IoFuture` stay a raw `i32` with std normalising at the
-  wrapper (recommended, zero cost, no seed gate) or become a typed
-  `Result(i32, IoError)` channel at the extern boundary (the freeze condition
-  its docstring names; touches every backend's completion path and the seed)?
-- **Q3 (A1).** Should the combinators keep taking `JoinHandle`s only
-  (recommended: a future has no identity until started, and a handle is what
-  "a running task" means) or also accept futures and spawn them?
-- **Q4 (F8).** `FutureState.Pending` means "cold, not started", which reads
-  as Rust's "not ready". Rename to `Cold` (one grep-able rename, no
-  compatibility kept) or keep?
+- **Q1 (A2) — propagate.** An `io.await` / `io.spawn` of an already-aborted
+  future propagates the abort; the state-machine behaviour becomes the only
+  behaviour and both panics go.
+- **Q2 (A4) — raw `i32` stays.** std normalises at the wrapper (zero cost, no
+  seed gate); the typed `Result(i32, IoError)` channel at the extern boundary
+  is not pursued.
+- **Q3 (A1) — handles only.** A future has no identity until started, and a
+  handle is what "a running task" means; the combinators do not spawn.
+- **Q4 (F8) — rename.** `FutureState.Pending` becomes `FutureState.Cold`
+  (the word every doc already uses for a not-started future), in A4 with the
+  `Running` fix, no compatibility kept.
 
 ## 7. Exit criteria
 
