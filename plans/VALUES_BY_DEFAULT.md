@@ -2,9 +2,10 @@
 
 **Status: ACTIVE. Direction approved by the maintainer 2026-10-03. Reviewed
 2026-10-03 (PR #1153): the inventory was re-measured, the design gaps in §3
-were filled, §4 records the V0 decisions, and §6 is the implementation and
-migration plan. No phase has started; V1 starts once
-`plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.**
+were filled, and §6 is the implementation and migration plan. V0 is done:
+the maintainer confirmed the ten decisions of §4 as written on 2026-10-03
+(#1155 added §3.10). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3
+have landed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -475,7 +476,9 @@ Two changes under this plan:
 ## 4. Decisions (V0)
 
 The first draft's §7 questions, answered, plus three raised in review.
-Each is the position this plan is written to; the maintainer confirms or overrides them in V0 before V1 starts.
+**Confirmed by the maintainer 2026-10-03 as written (V0).** Changing one
+of them later is a plan amendment with a dated note here, not a silent
+edit.
 
 1. **Names: `Box` (value indirection), `Rc`, `Arc`.** Rust's `Box` is
    uniquely owned, which a copy-on-write `Box` matches observably. A new
@@ -543,9 +546,10 @@ Generation A.
 
 ## 6. Phases
 
-### V0: decisions
+### V0: decisions — DONE 2026-10-03
 
-Confirm §4. Amend this document. Nothing else.
+§4 confirmed as written by the maintainer; this document amended. Nothing
+else.
 
 ### V1: `Rc`, `Box`, `Arc`, auto-dereference, no `Rc` marker trait
 
