@@ -175,11 +175,28 @@ no `s[i] = b` either), which closes the UTF-8 hole.
     means the current `with_allocator` scope, else the global allocator;
     `.Some(a)` places the cell in `a` (§3.11). There is no `new_in` and no
     `box_in`: one function per wrapper.
-  - **The type is not callable.** `Box(T)(v)` compiles during V1–V4 only
-    because the wrapper is still a `ref` struct underneath, and the
-    constructors' bodies use it; docs, skills and tests teach `box(...)`.
-    After V5 the wrapper holds a private cell (§3.5), and constructing it
-    outside its module is E0405 like any type with a private field.
+  - **The type is not callable outside the prelude.** This is ordinary
+    member visibility (DESIGN §member visibility, the `Counter.new`
+    pattern), not a builtin: after V5 each wrapper's only field is private,
+    so only `std/prelude.yo`, which declares both the type and its
+    constructor, may build one:
+
+    ```rust
+    Box :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_cell : __yo_cell(V)));
+    box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(
+      match(alloc,
+        .Some(a) => with_allocator(a, () => Box(T)(_cell : __yo_cell(T)(v))),
+        .None => Box(T)(_cell : __yo_cell(T)(v))
+      )
+    );
+    ```
+
+    In user code `Box(T)(_cell : …)` is E0405 ("Cannot construct Box
+    outside its declaring module"); `__yo_cell` needs
+    `pragma(Pragma.AllowUnsafe)` (decision 6). During V1–V4 nothing enforces
+    it: the wrapper is still `ref(struct((*) : V))`, whose `*` field is
+    public because `b.*` reads it, so `Box(T)(v)` compiles anywhere and the
+    rule is documentation only (docs, skills and tests teach `box(...)`).
   - `box` and `arc` exist today without `alloc` (`std/prelude.yo`); `rc` is
     new. Being prelude exports, the three names cannot be bound by user
     code (no shadowing), as `box` already cannot.
@@ -199,6 +216,16 @@ write `b.*.x`. `.*` is not special for a struct: `Box :: ref(struct((*) : V))`
 declares a field whose label is `*`, and `b.*` is an ordinary field access
 (`src/evaluator/exprs/property_access.yo:1683`; `is_box_type` in
 `src/types/guards.yo` tests for that label).
+
+**`.*` becomes the payload of a `Deref` type, not a field.** Once V5 gives
+the wrappers a private `_cell` (§3.2), there is no field labelled `*` to
+read, and `w.*` must keep working in user code. So `w.*` on a type that
+implements `Deref` names its payload place (the cell's inline value,
+`w->value` in C), the same place auto-dereference forwards to; on a raw
+pointer it stays the pointer dereference. The rule lands in V1 next to the
+auto-dereference hooks, where it agrees with today's field reading, and V5
+is the point where it becomes the only reading. `is_box_type` and the
+`*`-label tests move to the `Deref` check then.
 
 - A `Deref` marker trait in the prelude, `Deref :: trait(Target : Type)`,
   implemented by `Box`, `Rc` and `Arc` with `Target := V`. It says "this
@@ -696,8 +723,10 @@ Compiler (`src/`), Generation A:
   `Dispose` is gated by "is a cell type" (today's `is_reference_struct_type`
   / `is_reference_enum_type`) at the impl site, so behaviour is unchanged.
 - `Deref`: the trait check plus the two hooks of §3.3 (field label-miss
-  rewrite; receiver retry). Codegen needs nothing new: the rewritten chain
-  is `w.*.field`, which already lowers to `w->value.field`.
+  rewrite; receiver retry) and the `.*` rule (`w.*` on a `Deref` type is
+  its payload place, decided by the trait rather than the `*` field label).
+  Codegen needs nothing new: the rewritten chain is `w.*.field`, which
+  already lowers to `w->value.field`.
 - The exclusivity assert moves from function entry to the write-through-`Rc`
   site (§3.10): `__yo_borrow_assert_unborrowed` is emitted where a field
   store, an `inout(self)` call or an index place goes through an `Rc`
@@ -926,7 +955,10 @@ Per type, in this order, each its own PR, measured:
   `Variable`, `ExprInfo`, `EvalContext`, `CodeGenContext`,
   `FunctionGenerationContext`, `Emitter`, the caches, `VcCtx`,
   `BuildRegistry`, …); the ~135 result records become plain structs; the
-  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`;
+  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
+  (each wrapper's only field becomes the private `_cell`, so `Box(T)(…)`
+  outside the prelude is E0405, and `w.*` resolves through the `Deref` rule
+  of §3.3);
   `std/imm` moves onto atomic cells. Tests migrate (~150 declarations in 68
   files; `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo`,
   `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files).
