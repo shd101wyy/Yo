@@ -1,5 +1,7 @@
 # `collect(String)` leaks the accumulated byte buffer
 
+**Status: FIXED 2026-10-03** (`plans/STRING_VALUE_SEMANTICS.md` S1). `FromIterator.from_iter_add` took its accumulator as a plain, borrowed parameter. `collect(String)` starts from `String.new()`, which has no buffer, so the first `push_string` into the borrowed copy allocated a buffer that copy did not own and nothing released. The trait and its seven implementations now take `own(acc)`: the accumulator is moved in, mutated and returned. Measured with ASan on the reproducer below: develop's `std` leaks 360 bytes in 20 allocations, and the fix leaks none. The extended E0908 now rejects the borrowed write that caused it. Tests: `tests/string/string.test.yo` ("collect(String) builds the string through an owned accumulator") and `tests/iterator_combinators.test.yo`, whose local leak verdict found it.
+
 **Severity:** S1 — every `iter.collect(String)` leaks one `ArrayList(u8)` header and its bytes (36 bytes for `a`, `b`, `c`), so a loop that collects strings grows without bound.
 **Found:** 2026-10-01, running `tests/iterator_combinators.test.yo` as a gate for `issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. Not caused by that change: the test fails the same way with the installed seed (yo 0.2.47) and with a compiler built from `origin/develop` at `5567a7796`, both against the tree's `std/`.
 
