@@ -16,10 +16,14 @@
 //!                         jobs' `yo test ./tests --exclude ...` invocation.
 build :: import("std/build");
 
-// ReleaseSmall maps to plain `-O2` — byte-for-byte the flags of today's
-// canonical `yo compile src/main.yo --optimize 2` build (release mode +
-// -O2; see the `optimize_num` mapping in src/build_runner.yo —
-// release-small → "2", and release-safe would instead drop the release flag).
+// ReleaseSafe maps to plain `-O2` — byte-for-byte the flags of today's
+// canonical `yo compile src/main.yo --optimize 2` build (see
+// optimize_level_for in src/build_runner.yo: release-safe → "2", and only
+// the Debug level forwards --debug-symbols). This file used ReleaseSmall
+// for exactly that -O2 identity while release-small ALSO mapped to "2";
+// release-small is the size-oriented -Os it always claimed to be
+// (issues/fixed/build-release-small-is-identical-to-release-safe.md), so
+// the plain -O2 build moved here.
 // NOT Debug: a -O0 compiler binary hits the 1 GiB main-stack ceiling on deep
 // comptime recursion (AGENTS.md "Common Pitfalls").
 // Allocator per HOST platform, matching the settled release-bundle decisions:
@@ -45,7 +49,7 @@ host_allocator :: cond(
 yo_exe :: build.executable({
   name : "yo",
   root : "./src/main.yo",
-  optimize : build.Optimize.ReleaseSmall,
+  optimize : build.Optimize.ReleaseSafe,
   allocator : host_allocator
 });
 

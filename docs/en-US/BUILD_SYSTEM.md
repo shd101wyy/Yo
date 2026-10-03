@@ -154,9 +154,9 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 | Value                   | Compiler Flags | Description                    |
 | ----------------------- | -------------- | ------------------------------ |
 | `Optimize.Debug`        | `-O0 -g`       | No optimization, debug symbols |
-| `Optimize.ReleaseSafe`  | `-O2 -g`       | Optimized with debug symbols   |
+| `Optimize.ReleaseSafe`  | `-O2`          | Optimized with safety checks   |
 | `Optimize.ReleaseFast`  | `-O3`          | Maximum performance            |
-| `Optimize.ReleaseSmall` | `-O2`          | Optimize for binary size       |
+| `Optimize.ReleaseSmall` | `-Os`          | Optimize for binary size       |
 
 ### Allocators
 

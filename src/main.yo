@@ -3706,7 +3706,7 @@ run_compile :: (
   // resolves N from the core count (no point minting more chunks than the
   // driver will compile at once).
   (jobs : usize) = usize(0);
-  (optimize : String) = String.from(""); // "" = unset; "0".."3"
+  (optimize : String) = String.from(""); // "" = unset; "0".."3", or "s" (-Os)
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
   (emit_c : bool) = false;
@@ -4108,8 +4108,11 @@ run_compile :: (
   if(debug_heap && (allocator != "fixed"), {
     exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
   });
-  if((optimize != "") && ((optimize != "0") && (optimize != "1") && ((optimize != "2") && (optimize != "3"))), {
-    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
+  // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
+  // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
+  // It is what the build system's release-small level forwards.
+  if((optimize != "") && ((optimize != "0") && (optimize != "1") && ((optimize != "2") && ((optimize != "3") && (optimize != "s")))), {
+    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3, s`));
   });
   if((sanitize != "") && ((sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined")), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
@@ -8452,10 +8455,10 @@ Compile a '.yo' source file to a native executable (via C11).
 
 Options:
   -o <path>                 Output binary path
-  --optimize <level>        C optimization level (0|1|2|3); default is -O0.
-                            Use 2 for real builds. Any level above 0 also
-                            enables the ThinLTO pairing that --emit-chunks
-                            requires.
+  --optimize <level>        C optimization level (0|1|2|3|s); default is -O0.
+                            Use 2 for real builds, s to optimize for size.
+                            Any level above 0 also enables the ThinLTO
+                            pairing that --emit-chunks requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
@@ -8507,9 +8510,9 @@ Examples:
 
 选项：
   -o <path>                 输出二进制路径
-  --optimize <level>        C 优化级别（0|1|2|3）；默认 -O0。
-                            真实构建请用 2。大于 0 的级别还会启用
-                            --emit-chunks 所依赖的 ThinLTO 配对。
+  --optimize <level>        C 优化级别（0|1|2|3|s）；默认 -O0。
+                            真实构建请用 2，s 为优化体积。大于 0 的级别
+                            还会启用 --emit-chunks 所依赖的 ThinLTO 配对。
   -g, --debug-symbols       生成调试符号
   -s, --strip               剥离输出二进制
   --cc, --c-compiler <cc>   使用的 C 编译器（clang|gcc|zig|emcc）

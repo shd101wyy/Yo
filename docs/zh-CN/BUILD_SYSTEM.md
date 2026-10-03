@@ -153,9 +153,9 @@ test_step.depend_on(tests);
 | 值                      | 编译器标志 | 描述                 |
 | ----------------------- | ---------- | -------------------- |
 | `Optimize.Debug`        | `-O0 -g`   | 无优化，包含调试符号 |
-| `Optimize.ReleaseSafe`  | `-O2 -g`   | 优化并包含调试符号   |
+| `Optimize.ReleaseSafe`  | `-O2`      | 优化并保留安全检查   |
 | `Optimize.ReleaseFast`  | `-O3`      | 最大性能             |
-| `Optimize.ReleaseSmall` | `-O2`      | 优化二进制体积       |
+| `Optimize.ReleaseSmall` | `-Os`      | 优化二进制体积       |
 
 ### 分配器
 
