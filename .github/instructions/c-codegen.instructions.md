@@ -113,9 +113,23 @@ target's C — far cheaper and stricter than rebuilding and eyeballing.
 x86_64-windows-gnu` (and `aarch64-windows-gnu`) compiles and links emitted
 Windows C against MinGW's Win32 headers, with the same warning flags
 `src/main.yo` passes. That turns a ~50 min CI round trip into ~40 s. MinGW's
-headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
-link step proves the import libraries you added to `src/main.yo` really export
+headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and
+the link step proves the import libraries you added to `src/main.yo` really export
 every symbol you call.
+
+**Windows reparse-point structs: spell them as the kernel writes them, not as
+the MSDN prose suggests.** `REPARSE_DATA_BUFFER` lives only in the driver-kit
+`<ntifs.h>`, so runtime code must define it: `DWORD ReparseTag; USHORT
+ReparseDataLength; USHORT Reserved;` then the name block at offset **8** —
+`ReparseDataLength` is a USHORT, and the commonly-quoted `DWORD` spelling
+shifts every name offset by 2 and makes the substitute name overrun the
+buffer (measured 2026-10-03 on a `mklink /J` junction AND a system junction:
+`ReparseDataLength == bytes - 8`). The symlink variant (`IO_REPARSE_TAG_SYMLINK`)
+carries a `ULONG Flags` between the four name ushorts and `PathBuffer`; the
+mount-point variant does not — compute `PathBuffer`'s base per tag. Winsock
+errors never reach `errno`: every socket-error site must translate
+(`__yo_wsa_error_to_errno` in `runtime_io_windows.yo`) or `IoError.from_errno`
+reports "unknown I/O error (os error 10048)"-style noise.
 
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
 

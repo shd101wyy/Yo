@@ -29,6 +29,7 @@ generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <direct.h>
+#include <winioctl.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <signal.h>
@@ -178,6 +179,8 @@ static int __yo_win_last_error_to_errno(void) {
       return EMFILE;
     case ERROR_PRIVILEGE_NOT_HELD:
       return EPERM;
+    case ERROR_NOT_A_REPARSE_POINT:
+      return EINVAL;
     default:
       return (int)err;
   }
@@ -186,6 +189,59 @@ static int __yo_win_last_error_to_errno(void) {
 static int __yo_win_error_to_errno(DWORD err) {
   SetLastError(err);
   return __yo_win_last_error_to_errno();
+}
+
+// Winsock APIs do not fail through errno: they report WSA* codes (10000+),
+// and the socket paths in this runtime return those codes as NEGATIVE
+// errnos — so IoError.from_errno cannot classify them (WSAEADDRINUSE came
+// back as "unknown I/O error (os error 10048)", not AddressInUse; the
+// socketpair validation returns were negated WSA codes too). Translate at
+// every socket-error site: the same-name errno where the UCRT defines one
+// (it carries the full POSIX socket set), EAGAIN for would-block, and the
+// raw WSA value for anything exotic — the historical behaviour for every
+// WSA code, unchanged for the codes below (issues/s3-fs-wrappers-windows-
+// semantics-audit.md).
+static int __yo_wsa_error_to_errno(int wsa_err) {
+  switch (wsa_err) {
+    case WSAEINTR: return EINTR;
+    case WSAEBADF: return EBADF;
+    case WSAEACCES: return EACCES;
+    case WSAEFAULT: return EFAULT;
+    case WSAEINVAL: return EINVAL;
+    case WSAEMFILE: return EMFILE;
+    case WSAEWOULDBLOCK: return EAGAIN;
+    case WSAEINPROGRESS: return EINPROGRESS;
+    case WSAEALREADY: return EALREADY;
+    case WSAENOTSOCK: return ENOTSOCK;
+    case WSAEDESTADDRREQ: return EDESTADDRREQ;
+    case WSAEMSGSIZE: return EMSGSIZE;
+    case WSAEPROTOTYPE: return EPROTOTYPE;
+    case WSAENOPROTOOPT: return ENOPROTOOPT;
+    case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
+    case WSAESOCKTNOSUPPORT: return ENOTSUP;
+    case WSAEOPNOTSUPP: return EOPNOTSUPP;
+    case WSAEPFNOSUPPORT: return EAFNOSUPPORT;
+    case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+    case WSAENETDOWN: return ENETDOWN;
+    case WSAENETUNREACH: return ENETUNREACH;
+    case WSAENETRESET: return ENETRESET;
+    case WSAECONNABORTED: return ECONNABORTED;
+    case WSAECONNRESET: return ECONNRESET;
+    case WSAENOBUFS: return ENOBUFS;
+    case WSAEISCONN: return EISCONN;
+    case WSAENOTCONN: return ENOTCONN;
+    case WSAESHUTDOWN: return ENOTCONN;
+    case WSAETIMEDOUT: return ETIMEDOUT;
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAEHOSTDOWN: return EHOSTUNREACH;
+    case WSAEHOSTUNREACH: return EHOSTUNREACH;
+    case WSAELOOP: return ELOOP;
+    case WSAENAMETOOLONG: return ENAMETOOLONG;
+    case WSAENOTEMPTY: return ENOTEMPTY;
+    default: return wsa_err;
+  }
 }
 
 static wchar_t* __yo_win_utf8_to_wide(const char* str) {
@@ -405,7 +461,7 @@ static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
   if (__yo_win_is_socket_fd(fd)) {
     u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
     int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   }
 
   intptr_t handle_value = _get_osfhandle(fd);
@@ -506,7 +562,7 @@ static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
     DWORD flags = 0;
     int result = WSARecv((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &recvd, &flags, NULL, NULL);
     __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)recvd;
+    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : (int32_t)recvd;
   }
 
   intptr_t hv = _get_osfhandle(fd);
@@ -598,7 +654,7 @@ static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
     DWORD sent = 0;
     int result = WSASend((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &sent, 0, NULL, NULL);
     __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)sent;
+    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : (int32_t)sent;
   }
 
   intptr_t whv = _get_osfhandle(fd);
@@ -873,23 +929,115 @@ static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid,
   return -ENOSYS;
 }
 
+// readlinkat: Windows has no readlink(2). A link is a REPARSE POINT, so the
+// target is read with FSCTL_GET_REPARSE_POINT on the
+// FILE_FLAG_OPEN_REPARSE_POINT handle. REPARSE_DATA_BUFFER's full layout
+// lives in the driver-kit <ntifs.h>, which user mode never sees, so it is
+// spelled here exactly as the kernel writes it (verified against a
+// mklink-made junction AND a system junction: Tag(4) + DataLength USHORT(2)
+// + Reserved USHORT(2), the name block at offset 8 — and the symlink
+// variant carries a ULONG Flags between the name ushorts and PathBuffer;
+// Rust's std spells the same two shapes). A path that is not a reparse
+// point makes DeviceIoControl fail with ERROR_NOT_A_REPARSE_POINT, which
+// maps to EINVAL — the readlink(2) contract for a non-link that
+// fs_dir.read_link documents. (The pre-2026-10 implementation called
+// GetFinalPathNameByHandleW on the reparse-point handle, which answers the
+// LINK'S OWN path — a junction read back its own name, and a regular file
+// did not throw at all; issues/s3-fs-wrappers-windows-semantics-audit.md.)
+#define __YO_REPARSE_MAX_DATA 16384
+typedef struct {
+  USHORT SubstituteNameOffset;
+  USHORT SubstituteNameLength;
+  USHORT PrintNameOffset;
+  USHORT PrintNameLength;
+  WCHAR PathBuffer[1];
+} __yo_reparse_mount_point_buffer_t;
+typedef struct {
+  USHORT SubstituteNameOffset;
+  USHORT SubstituteNameLength;
+  USHORT PrintNameOffset;
+  USHORT PrintNameLength;
+  ULONG Flags;
+  WCHAR PathBuffer[1];
+} __yo_reparse_symlink_buffer_t;
+typedef struct {
+  DWORD ReparseTag;
+  USHORT ReparseDataLength;
+  USHORT Reserved;
+  union {
+    __yo_reparse_symlink_buffer_t SymbolicLinkReparseBuffer;
+    __yo_reparse_mount_point_buffer_t MountPointReparseBuffer;
+  } Data;
+} __yo_reparse_data_buffer_t;
 static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
   if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
   wchar_t* wpath = __yo_win_utf8_to_wide(path);
   if (!wpath) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(wpath, 0,
+  HANDLE handle = CreateFileW(wpath, FILE_READ_ATTRIBUTES,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                               NULL, OPEN_EXISTING,
                               FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
                               NULL);
   __yo_free(wpath);
   if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  wchar_t wbuf[MAX_PATH];
-  DWORD len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED);
+  BYTE rspace[__YO_REPARSE_MAX_DATA];
+  DWORD bytes = 0;
+  BOOL ok = DeviceIoControl(handle, FSCTL_GET_REPARSE_POINT, NULL, 0,
+                            rspace, sizeof(rspace), &bytes, NULL);
   CloseHandle(handle);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-  int written = __yo_win_wide_to_utf8(wbuf, buf, bufsize);
-  return (written < 0) ? written : written;
+  if (!ok) return -__yo_win_last_error_to_errno();
+  __yo_reparse_data_buffer_t* db = (__yo_reparse_data_buffer_t*)rspace;
+  if (db->ReparseTag != IO_REPARSE_TAG_SYMLINK &&
+      db->ReparseTag != IO_REPARSE_TAG_MOUNT_POINT) {
+    return -EINVAL;
+  }
+  // The four name ushorts sit at the same place in both variants, but
+  // PathBuffer is 4 bytes later for a symlink (its Flags ULONG).
+  const __yo_reparse_mount_point_buffer_t* names = &db->Data.MountPointReparseBuffer;
+  DWORD path_base = (db->ReparseTag == IO_REPARSE_TAG_SYMLINK)
+      ? (DWORD)(offsetof(__yo_reparse_data_buffer_t, Data) +
+                offsetof(__yo_reparse_symlink_buffer_t, PathBuffer))
+      : (DWORD)(offsetof(__yo_reparse_data_buffer_t, Data) +
+                offsetof(__yo_reparse_mount_point_buffer_t, PathBuffer));
+  // In-bounds guard first: the tag, the four name ushorts and the symlink
+  // Flags must all be inside what DeviceIoControl reported.
+  if (bytes < path_base) return -EINVAL;
+  if ((names->SubstituteNameLength % 2) != 0) return -EINVAL;
+  DWORD sub_off = path_base + (DWORD)names->SubstituteNameOffset;
+  DWORD sub_end = sub_off + (DWORD)names->SubstituteNameLength;
+  if (sub_end > bytes) return -EINVAL;
+  const wchar_t* sub = (const wchar_t*)(rspace + sub_off);
+  DWORD sub_chars = (DWORD)names->SubstituteNameLength / 2;
+  // The substitute name is stored in the object-manager namespace: a
+  // 4-char local prefix (92 '?' '?' 92 — the NT form — or 92 92 '?' 92 —
+  // the Win32 form; 92 is '\', written numerically so this C template
+  // keeps every backslash single) in front of a drive path, an 8-char UNC
+  // marker in front of a server path, or nothing for a relative symlink
+  // target. readlink answers the plain path: strip the local prefix,
+  // rewrite the UNC marker as two leading backslashes, pass a relative
+  // target through unchanged.
+  wchar_t name_buf[__YO_REPARSE_MAX_DATA / 2];
+  DWORD out_chars = sub_chars;
+  bool has_prefix = (sub_chars >= 4 && sub[0] == 92 && sub[3] == 92 &&
+                     ((sub[1] == L'?' && sub[2] == L'?') ||
+                      (sub[1] == 92 && sub[2] == L'?')));
+  if (has_prefix && sub_chars >= 8 &&
+      (sub[4] == L'U' || sub[4] == L'u') && (sub[5] == L'N' || sub[5] == L'n') &&
+      (sub[6] == L'C' || sub[6] == L'c') && sub[7] == 92) {
+    name_buf[0] = 92;
+    name_buf[1] = 92;
+    if (sub_chars > 8) memcpy(&name_buf[2], sub + 8, (size_t)(sub_chars - 8) * sizeof(wchar_t));
+    out_chars = sub_chars - 6;
+  } else if (has_prefix) {
+    memcpy(name_buf, sub + 4, (size_t)(sub_chars - 4) * sizeof(wchar_t));
+    out_chars = sub_chars - 4;
+  } else {
+    memcpy(name_buf, sub, (size_t)sub_chars * sizeof(wchar_t));
+  }
+  int written = WideCharToMultiByte(CP_UTF8, 0, name_buf, (int)out_chars,
+                                    buf, (int)bufsize, NULL, NULL);
+  if (written <= 0) return -__yo_win_last_error_to_errno();
+  return written;
 }
 
 
@@ -981,7 +1129,7 @@ static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrl
   int len = (int)(*addrlen);
   int result = getsockname((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
+    return -__yo_wsa_error_to_errno(WSAGetLastError());
   }
 
   *addrlen = (uint32_t)len;
@@ -994,7 +1142,7 @@ static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrl
   int len = (int)(*addrlen);
   int result = getpeername((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
+    return -__yo_wsa_error_to_errno(WSAGetLastError());
   }
 
   *addrlen = (uint32_t)len;
@@ -1005,7 +1153,7 @@ static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optna
   __yo_wsa_init();
 
   int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
-  return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
 }
 
 static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
@@ -1014,7 +1162,7 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
   int len = (int)(*optlen);
   int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
+    return -__yo_wsa_error_to_errno(WSAGetLastError());
   }
 
   *optlen = (uint32_t)len;
@@ -1029,17 +1177,17 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
   }
 
   if (sock_type != SOCK_STREAM) {
-    return -WSAESOCKTNOSUPPORT;
+    return -ENOTSUP;
   }
 
   // Windows has no native socketpair(); emulate with loopback TCP.
   // Accept common caller domains used for socketpair APIs.
   if (!(domain == AF_UNIX || domain == AF_INET || domain == AF_UNSPEC)) {
-    return -WSAEAFNOSUPPORT;
+    return -EAFNOSUPPORT;
   }
 
   if (!(protocol == 0 || protocol == IPPROTO_TCP)) {
-    return -WSAEPROTONOSUPPORT;
+    return -EPROTONOSUPPORT;
   }
 
   SOCKET listener = INVALID_SOCKET;
@@ -1054,37 +1202,37 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 
   listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (listener == INVALID_SOCKET) {
-    return -(int32_t)WSAGetLastError();
+    return -__yo_wsa_error_to_errno(WSAGetLastError());
   }
 
   if (bind(listener, (const struct sockaddr*)&addr, (int)sizeof(addr)) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   if (listen(listener, 1) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   int addrlen = (int)sizeof(addr);
   if (getsockname(listener, (struct sockaddr*)&addr, &addrlen) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   client = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (client == INVALID_SOCKET) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   if (connect(client, (const struct sockaddr*)&addr, addrlen) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(client);
     closesocket(listener);
     return err;
@@ -1092,7 +1240,7 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 
   server = accept(listener, NULL, NULL);
   if (server == INVALID_SOCKET) {
-    int32_t err = -(int32_t)WSAGetLastError();
+    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(client);
     closesocket(listener);
     return err;
@@ -1245,7 +1393,7 @@ static int32_t __yo_sync_gethostname(char* name, size_t len) {
 
   int result = gethostname(name, (int)len);
   if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
+    return -__yo_wsa_error_to_errno(WSAGetLastError());
   }
   name[len - 1] = '\\0';
   return 0;
@@ -2217,7 +2365,7 @@ static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
     DWORD flags = 0;
     DWORD transferred = 0;
     BOOL got = WSAGetOverlappedResult(ov->listen_sock, &ov->overlapped, &transferred, FALSE, &flags);
-    ov->future->result = got ? -ECONNABORTED : -(int32_t)WSAGetLastError();
+    ov->future->result = got ? -ECONNABORTED : -__yo_wsa_error_to_errno(WSAGetLastError());
     closesocket(ov->accept_sock);
     return;
   }
@@ -2708,7 +2856,7 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
     DWORD transferred = bytes;
     BOOL ok = WSAGetOverlappedResult(ov->sock, &ov->overlapped, &transferred, FALSE, &flags);
     if (!ok) {
-      ov->future->result = -(int32_t)WSAGetLastError();
+      ov->future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
     } else {
       if (ov->out_fromlen) {
         *ov->out_fromlen = (uint32_t)ov->from_len;
@@ -3818,7 +3966,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
 
   SOCKET s = WSASocketW(domain, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (s == INVALID_SOCKET) {
-    future->result = -(int32_t)WSAGetLastError();
+    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   } else {
     if (__yo_io_iocp) {
       __yo_win_associate_handle((HANDLE)s);
@@ -3840,7 +3988,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   atomic_init(&future->continuation_sm, NULL);
 
   int result = bind((SOCKET)(uintptr_t)(uint32_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
-  future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -3855,7 +4003,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   atomic_init(&future->continuation_sm, NULL);
 
   int result = listen((SOCKET)(uintptr_t)(uint32_t)sockfd, backlog);
-  future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -3902,7 +4050,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     // IPPROTO_TCP is correct for exactly the two families gated above.
     SOCKET as = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (as == INVALID_SOCKET) {
-      future->result = -(int32_t)WSAGetLastError();
+      future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
       atomic_init(&future->state, -1);
       return future;
     }
@@ -3934,7 +4082,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
       return future;
     }
     closesocket(as);
-    future->result = -(int32_t)err;
+    future->result = -__yo_wsa_error_to_errno(err);
     atomic_init(&future->state, -1);
     __yo_win_free_overlapped(ov);
     return future;
@@ -3943,7 +4091,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   int len = (int)(*addrlen);
   SOCKET result = accept(ls, (struct sockaddr*)addr, &len);
   if (result == INVALID_SOCKET) {
-    future->result = -(int32_t)WSAGetLastError();
+    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   } else {
     *addrlen = (uint32_t)len;
     if (__yo_io_iocp) {
@@ -4039,7 +4187,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
       __yo_pending_io_count++;
       return future;
     }
-    future->result = -(int32_t)err;
+    future->result = -__yo_wsa_error_to_errno(err);
     atomic_init(&future->state, -1);
     __yo_win_free_overlapped(ov);
     return future;
@@ -4047,7 +4195,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
 
   // AF_UNIX (no ConnectEx) or a datagram socket: the historical plain call.
   int result = connect(s, (const struct sockaddr*)addr, (int)addrlen);
-  future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4100,7 +4248,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
     return future;
   }
 
-  future->result = -(int32_t)WSAGetLastError();
+  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4148,7 +4296,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     return future;
   }
 
-  future->result = -(int32_t)WSAGetLastError();
+  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4200,7 +4348,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
     return future;
   }
 
-  future->result = -(int32_t)WSAGetLastError();
+  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4259,7 +4407,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
     return future;
   }
 
-  future->result = -(int32_t)WSAGetLastError();
+  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4275,7 +4423,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   atomic_init(&future->continuation_sm, NULL);
 
   int result = shutdown((SOCKET)(uintptr_t)(uint32_t)sockfd, how);
-  future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4290,7 +4438,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   atomic_init(&future->continuation_sm, NULL);
 
   int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
-  future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4307,7 +4455,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   int len = (int)(*optlen);
   int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
-    future->result = -(int32_t)WSAGetLastError();
+    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
   } else {
     *optlen = (uint32_t)len;
     future->result = 0;
@@ -5381,7 +5529,7 @@ static int __yo_poll_and_fs_event_tick(void) {
             if (FD_ISSET(sock, &except_fds)) __yo_events |= 4;
           } else if (ret < 0) {
             if (ph->callback && ph->active) {
-              ph->callback(0, -(int)WSAGetLastError(), ph->user_data);
+              ph->callback(0, -__yo_wsa_error_to_errno(WSAGetLastError()), ph->user_data);
               count++;
             }
             ph = next;

@@ -37,7 +37,8 @@ getsockname :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
 /// Read the REMOTE address `sockfd` is connected to into `addr` — POSIX
 /// `getpeername(2)`. Same in/out `addrlen` contract as `getsockname`.
 /// Returns 0 on success, a negative errno on failure; an unconnected socket
-/// is `-ENOTCONN` (`-WSAENOTCONN` on Windows). wasm returns `-ENOSYS`.
+/// is `-ENOTCONN` on every platform (the Windows runtime translates the
+/// winsock code). wasm returns `-ENOSYS`.
 getpeername :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
   __yo_sync_getpeername(sockfd, addr, addrlen)
 );
