@@ -6,8 +6,7 @@
 (`DateTimeError`) landed with the `dyn()` bound check (C69,
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`), which
 turned item 1 from a style violation into a build break. **Item 3
-(`PercentError`) is still OPEN**: it needs a hand-written `ToString` as well as
-the marker, and nothing `dyn()`s one, so the new check does not reach it.
+(`PercentError`) was closed 2026-10-03** — see `## Fixed`.
 **Found:** 2026-09-04, measuring the `error`/`assert` row of the std API audit
 (auditing what `impl(_, Error())` is worth revealed which std types skip it).
 **Severity:** papercut today; it becomes a hard compile error in std the moment
@@ -70,14 +69,19 @@ Of the 18 `*Error` enums declared in `std/`, 9 carry `impl(_, Error())`
 2. ~~`std/time/datetime.yo`: add `impl(DateTimeError, Error());` at `:306`,
    between the `ToString` impl (`:294-305`) and `export(DateTimeError);`.~~
    **DONE 2026-09-05** (with a new `{ Error } :: import("../error")`).
-3. `std/encoding/percent.yo`: add the missing `ToString` (human prose, matching
+3. ~~`std/encoding/percent.yo`: add the missing `ToString` (human prose, matching
    the other std error enums — e.g. `truncated percent escape at byte N`,
    `invalid hex digit at byte N`, and for `InvalidUtf8(cause)` render the
    `Utf8Error` through its inherent `message()`/`index()`) and
    `impl(PercentError, Error());`, importing `{ Error }` from `../error` and
    `{ ToString }` from `../fmt/to_string.yo` the way `std/encoding/error.yo`
    does. Keep the imports NARROW — `std/error`'s blanket re-exports were
-   deliberately narrowed on 2026-09-04 (`std/error.yo:1-7`).
+   deliberately narrowed on 2026-09-04 (`std/error.yo:1-7`).~~ **DONE
+   2026-10-03**, via `derive(PercentError, Error(...))` rather than two
+   hand-written impls — the idiom #514 migrated items 1-2 to
+   (`.github/instructions/yo-design.instructions.md`: "Spell an error enum with
+   `derive(Error)`, not two hand-written impls"); the imports stayed narrow
+   (`{ Error } :: import("../error")` only).
 
 Do NOT reach for a blanket `impl(generic(T : Type), where(T <: ToString), T,
 Error())` as a shortcut: it compiles and would delete all ten explicit impls,
@@ -85,7 +89,7 @@ but it makes every `ToString` type (`i32`, `Path`, `Duration`, …) an error typ
 which erases the deliberate marker D1 exists for — and would have hidden exactly
 the two gaps recorded here.
 
-Item 3 remains. Items 1-2 were landed together with the `dyn()` bound check
+Item 3 closed 2026-10-03. Items 1-2 were landed together with the `dyn()` bound check
 (`issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`): that check turns
 item 1 from a style violation into a build break, and this is the std half of the
 same change.
@@ -106,3 +110,22 @@ the `std/error` layer.
 
 Additive only — new impls on existing types. Nothing that compiles today stops
 compiling.
+
+## Fixed
+
+Item 3 (the open remainder): `PercentError` had neither a `ToString` nor an
+`Error()` impl — it was the last of the three "oversights" the audit named, left
+behind because nothing `dyn()`s one so the C69 bound check never reached it, and
+unmigrated by #514's `derive(_, Error(...))` sweep. Fixed 2026-10-03 on branch
+`s3/batch-3-fixes` by adding `derive(PercentError, Error(...))` to
+`std/encoding/percent.yo` — one message per variant in declaration order
+(`truncated percent escape at byte ${index}`, `invalid hex digit ${byte} at byte
+${index}`, and `InvalidUtf8` rendered through its `Utf8Error` cause's inherent
+`message()`/`index()`) plus the single narrow import `{ Error } ::
+import("../error")`; `ToString` was already in scope. The derive supplies both
+impls together, and its declaration-order check turns future variant drift into
+a compile error. Regression test: `tests/encoding/percent.test.yo`'s
+"PercentError impls Error and renders each variant" (`comptime_assert(Type.impls(PercentError,
+Error))` plus one exact `to_string()` assertion per variant) — it failed before
+the fix with `error: PercentError must impl Error` (0 of 9 tests ran) and passes
+after (9/9); `yo check ./std` 178/178.
