@@ -5518,6 +5518,9 @@ run_test :: (
   // The positional path defaults to "." — a bare `yo test` runs the current
   // directory.
   (target_path : String) = String.from(".");
+  // `yo test` takes ONE path; a second used to replace the first silently
+  // (issues/yo-test-silently-drops-every-path-but-the-last.md).
+  (path_given : bool) = false;
   (bail : bool) = false;
   (name_pattern : String) = String.from("");
   (verbose : bool) = false;
@@ -5720,8 +5723,12 @@ run_test :: (
         // Strict parsing: an unknown option is an error, never a path.
         exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test [path] [--bail] [--test-name-pattern REGEX] [--exclude PATH] [--shard I/N] [--workspace] [--list] [--json] — see 'yo test --help'`));
       },
+      path_given => {
+        exn.throw(dyn(`test: one path per run, got '${target_path}' and '${a}'. Run each separately, or pass their common directory (with --exclude for what to skip)`));
+      },
       true => {
         target_path = a.clone();
+        path_given = true;
         ai = (ai + usize(1));
       }
     );
