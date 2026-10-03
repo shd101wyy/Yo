@@ -2,9 +2,9 @@
 
 **Status:** DONE (2026-10-02). A1–A6 have landed (table below). §4 is decided:
 std's bodies stay `assumed()` until a std bug is traced to a wrong clause
-(`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`). The
-seed-gated follow-up, `push`'s element clause, landed with SEED_VERSION
-v0.2.49 (Generation B in `backlog/SEED_VERSION_AUTOMATION.md`). Audit done 2026-09-30 (develop `c0c8ab6af`,
+(`issues/fixed/verified-unsafe-std-needs-a-raw-buffer-model.md`). One
+seed-gated follow-up remains: `push`'s element clause, Generation B in
+`backlog/SEED_VERSION_AUTOMATION.md`. Audit done 2026-09-30 (develop `c0c8ab6af`,
 seed `yo 0.2.46`). The companion of
 [`backlog/ATS_STYLE_INDEXED_TYPES.md`](backlog/ATS_STYLE_INDEXED_TYPES.md), which covered
 ATS's dependent (indexed) types and existentials; its R1 phase is complete.
@@ -266,10 +266,10 @@ Bugs found and fixed on the way, each with a regression test (`issues/fixed/`):
 - **S3:** `method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`
 
 Left, by design:
-- **Seed-gated, done after v0.2.49:** `push`'s element `forall` is in std.
-  The v0.2.48 seed spliced every `ensures` of std as a runtime assert, so it
-  waited for a seed carrying #1106's filter (`backlog/SEED_VERSION_AUTOMATION.md`,
-  Generation B).
+- **Seed-gated:** `push`'s element `forall` waits for the next seed, because
+  the released seed splices every `ensures` of std as a runtime assert.
+  Until then the fixtures state it through a local `assumed()` `push_at_end`
+  (`backlog/SEED_VERSION_AUTOMATION.md`, Generation B).
 - **Revisit trigger for §4:** a std bug traced to a wrong `assumed()` clause.
 - **#1112's follow-up:** impl matching must bind an enum parameter from type
   arguments only at a phantom position. Otherwise an `Option` of an io.async
