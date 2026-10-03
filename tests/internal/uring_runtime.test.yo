@@ -16,9 +16,9 @@
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
 { generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
 { generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
-{ generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
+{ generate_async_runtime_io_common, generate_sys_runtime } :: import("../../src/codegen/async/runtime_io_common.yo");
 { generate_async_runtime_io_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
-{ parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
+{ parse_target, host_target, is_target_linux, is_target_macos, is_target_wasm, is_target_windows } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
 /// carries the vendored ring layer).
@@ -247,4 +247,80 @@ test("the read_dir stream list is per-thread on wasm and on macOS", {
   assert(is_target_macos(mt), String.from("macos triple failed to parse as macos"));
   generate_async_runtime_io_common(mem, mt);
   assert(mem.print().contains(decl), String.from("the macOS read_dir stream list is shared by every thread"));
+});
+/// The sys runtime as dispatched for a Linux target: the shared POSIX helper
+/// block plus the Linux platform sys-runtime.
+emit_sys_runtime_linux :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-unknown-linux-gnu")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_linux(t), String.from("linux triple failed to parse as linux"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a macOS target.
+emit_sys_runtime_macos :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("aarch64-apple-darwin")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_macos(t), String.from("darwin triple failed to parse as macos"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a WASM target (which shares the POSIX
+/// helper block instead of early-returning the way Windows does).
+emit_sys_runtime_wasm :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("wasm32-wasip1")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_wasm(t), String.from("wasi triple failed to parse as wasm"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a Windows target: only the Windows
+/// platform sys-runtime, none of the POSIX helper block.
+emit_sys_runtime_windows :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-pc-windows-msvc")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_windows(t), String.from("msvc triple failed to parse as windows"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+test("sys runtime: the dead __yo_stat_* accessor family is gone from every POSIX target", {
+  // issues/fixed/dead-yo-stat-accessor-family-emitted-into-every-program.md
+  // The eleven struct-stat accessors predate the __yo_statx_* family and were
+  // never declared on the Yo side, so no program could call them — yet they
+  // were emitted into every Linux/macOS/WASM-target program. `__yo_stat_`
+  // (trailing underscore) names exactly that family: the live __yo_statfs_*
+  // and __yo_statx_* spellings do not contain it.
+  l := emit_sys_runtime_linux();
+  assert(!l.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the Linux sys runtime"));
+  m := emit_sys_runtime_macos();
+  assert(!m.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the macOS sys runtime"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the WASM sys runtime"));
+  // The neighbours must survive the deletion: the dirent pair is read_dir's
+  // live interface (std/sys/dir.yo), and <sys/stat.h> feeds the copyfile
+  // paths that use `struct stat` directly.
+  assert(l.contains(String.from("__yo_dirent_name")) && l.contains(String.from("__yo_dirent_type")), String.from("the live __yo_dirent_* pair was over-deleted"));
+  assert(l.contains(String.from("#include <sys/stat.h>")), String.from("the <sys/stat.h> include was over-deleted"));
+});
+test("sys runtime: Windows never emits the POSIX stat accessors", {
+  c := emit_sys_runtime_windows();
+  assert(!c.contains(String.from("__yo_stat_")), String.from("a __yo_stat_* accessor leaked into the Windows sys runtime"));
+  // The emission must be the Windows platform sys-runtime, not an empty one.
+  assert(c.contains(String.from("__yo_win_close_hook")), String.from("the Windows platform sys-runtime is missing"));
 });
