@@ -12,7 +12,7 @@
 //! (wired from calls/function_type.yo). The runtime assert callee is the
 //! dependency-free `cond(pred => (), true => __yo_panic(msg))` guard — see `_build_assert_call`.
 { String } :: import("std/string");
-{ StringBuilder } :: import("std/fmt");
+{ StringBuilder, eprintln } :: import("std/fmt");
 {
   AstExpr,
   ExprId,
@@ -71,7 +71,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ display_module_path, canonical_module_path } :: import("../../utils.yo");
+{ display_module_path, canonical_module_path, debug_knob } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
@@ -2092,18 +2092,54 @@ _stash_callsite_contracts :: (
     );
     ri = (ri + usize(1));
   });
+  // An ENSURES clause that does not evaluate for these concrete types is
+  // dropped for this call: `ArrayList.push`'s element clause compares
+  // elements with `==`, which an element type without `Eq` lacks. Assuming
+  // less about the callee's effect is sound; the clause's other conjuncts
+  // are separate clauses and survive. A REQUIRES clause is never dropped
+  // (that would skip a precondition), so it keeps the propagating `exn`
+  // above.
   ev_enss := ArrayList(AstExpr).new();
   (ei : usize) = usize(0);
   while(ei < raw_enss.len(), {
     match(
       raw_enss.get(ei),
-      .Some(p) => ev_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), site_env, ctx, exn)),
+      .Some(p) => {
+        prev_ghost := ctx.is_ghost_context;
+        depth := site_env.frames.len();
+        _callsite_ensures_or_drop(clone_expr_fresh_ids(p.clone()), site_env, ctx, ev_enss);
+        // An unwound evaluation leaves its flag and frames behind.
+        ctx.is_ghost_context = prev_ghost;
+        while(site_env.frames.len() > depth, {
+          site_env.pop_frame();
+        });
+      },
       .None => ()
     );
     ei = (ei + usize(1));
   });
   site_env.pop_frame();
   register_callsite_contracts(ast_expr_id(e).to_string(), ev_reqs, ev_enss);
+});
+/// Evaluate one callee ENSURES clause at a call site into `out`, or push
+/// nothing when it does not evaluate for the call's concrete types. The
+/// handler is capture-free and `unwind`s out of this function (the
+/// `_trial_eval_fn_body` pattern); `YO_DEBUG_SWALLOW=1` prints what was
+/// dropped.
+_callsite_ensures_or_drop :: (
+  fn(p : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  drop_exn := Exception(
+    throw : (
+      _err -> {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[callsite-ensures dropped] ${_err.to_string()}`);
+        });
+        unwind(());
+      }
+    )
+  );
+  out.push(evaluated_for_verify(p, env, ctx, drop_exn));
 });
 /// Conjoin a non-empty predicate list into ONE expression: nested `&&`
 /// (a single predicate passes through unwrapped). Fresh node ids.
