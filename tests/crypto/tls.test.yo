@@ -16,7 +16,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 { ArrayList } :: import("std/collections/array_list");
 { TlsStream, TlsError, tls_available } :: import("std/crypto/tls");
 { Exception, IoExn, AnyError } :: import("std/error");
-{ NetError } :: import("std/net/errors");
+{ NetError, DnsError } :: import("std/net/errors");
 { arch, Arch } :: import("std/process");
 { env } :: import("std/env");
 /// True where a TLS failure is a REAL failure rather than "this box has no
@@ -26,7 +26,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 /// a module-level binding (#396), which is why this is a module-level fn.
 _network_required :: (fn() -> bool)(env.get("CI").is_some());
 /// True when the throw is a name-RESOLUTION failure rather than anything the
-/// TLS backend did. `std/net/dns.yo` throws `dyn(NetError.DNSFailed(host))`, so
+/// TLS backend did. `std/net/dns.yo` throws `dyn(NetError.DNSFailed(host, reason))`, so
 /// the variant is recoverable through `downcast` — we do NOT read the rendered
 /// English, which D1 rules out for exactly this kind of decision.
 ///
@@ -75,7 +75,7 @@ test("a DNS failure is classified apart from a backend failure", {
   //
   // The positive case is the EXACT value std/net/dns.yo:76 throws.
   assert(
-    _is_dns_failure(dyn(NetError.DNSFailed(msg : `example.com`.to_string()))),
+    _is_dns_failure(dyn(NetError.DNSFailed(host : `example.com`.to_string(), reason : DnsError.TryAgain))),
     "a DNSFailed throw is a resolution failure"
   );
   assert(

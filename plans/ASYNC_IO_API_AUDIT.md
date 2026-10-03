@@ -272,11 +272,11 @@ Five programs under `tmp/` (gitignored), compiled with the tree binary
 
 | # | Probe | Result | Record |
 | --- | --- | --- | --- |
-| 1 | `io.spawn(IO_timer.sleep(30))`, `abort()`, sleep 80 ms, read state and await | `Aborted` right after the abort; `Completed` once the timer fired; `await` returns `.Some` | `issues/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md` (S2) |
+| 1 | `io.spawn(IO_timer.sleep(30))`, `abort()`, sleep 80 ms, read state and await | `Aborted` right after the abort; `Completed` once the timer fired; `await` returns `.Some` | `issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md` (S2) |
 | 2 | A user struct with a method named `await`, called as `t.await(io)` | `check` OK; `compile`: ICE "JoinHandle.await return type must be Option(T)" | `issues/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md` (S1) |
 | 3 | `JoinHandle.await` of an unwound task, then `io.await` of the same future in `main` | `.None`, then `panic: attempted to await an aborted Future` (rc 134) — as documented | §6 Q1, no issue |
-| 4 | Two `io.spawn` of one task with bundles `{ io, tell : tell_a }` then `{ io, tell : tell_b }`; the body yields twice then calls `ctx.tell` | `r1=2 r2=2`: the task ran under the second bundle | `issues/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md` (S2) |
-| 5 | A `Future(i32, Ctx)` passed as `Impl(Future(i32))` and awaited with `io`; the body calls `ctx.raise` | `check` OK; the binary dies with rc 139, `lldb`: `EXC_BAD_ACCESS address=0x0`, frame #0 at `0x0` (a call through the zeroed handler slot) | `issues/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md` (S1) |
+| 4 | Two `io.spawn` of one task with bundles `{ io, tell : tell_a }` then `{ io, tell : tell_b }`; the body yields twice then calls `ctx.tell` | `r1=2 r2=2`: the task ran under the second bundle | `issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md` (S2) |
+| 5 | A `Future(i32, Ctx)` passed as `Impl(Future(i32))` and awaited with `io`; the body calls `ctx.raise` | `check` OK; the binary dies with rc 139, `lldb`: `EXC_BAD_ACCESS address=0x0`, frame #0 at `0x0` (a call through the zeroed handler slot) | `issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md` (S1) |
 
 The reproducers are under `issues/repros/` with the same names.
 
@@ -334,7 +334,7 @@ awaits the futures and adds the in-task cases (`join`, `join_all`,
 `YO_ASYNC_STRICT=1`; aborting a joiner leaves the joined task running), the
 two `tests/net/tcp.test.yo` call sites, `fixpoint_only.sh`.
 
-### A2 — One abort semantics (after §6 Q1)
+### A2 — One abort semantics (after §6 Q1) — landed 2026-10-03
 
 Recommended: delete both panics. An `io.await` that meets an already-aborted
 future takes over the unwind exactly as a waiting await does; `io.spawn` of an
@@ -342,7 +342,16 @@ aborted future returns a handle that reads `.None`. The plain-`fn` "silent
 zero `T` + escaped flag" row becomes the documented escape rule it already
 is for a handler unwind. Tests for every cell of the F2 table.
 
-### A3 — Close the cancellation and injection gaps (F3, F5, F6)
+### A3 — Close the cancellation and injection gaps (F3, F5, F6) — landed 2026-10-03
+
+As landed: the raw-future abort detaches its waiters, calls the backend's
+`cancel_fn` and stays Aborted (every backend completion skips -2); `io.spawn`
+copies its bundle into a cold future only; a named child is cancelled when the
+await that waits on it cold-started it (`__yo_started_child`, non-owning), and
+a named future someone else started keeps running; a bundled future is
+compatible with `Future(T)` only when the bundle is `Io`, and the await-site
+bundle check compares field types. The plan text below is the proposal.
+
 
 - `_generate_io_spawn`: inject the bundle only on the cold start; a second
   spawn of a running future keeps the running bundle. Add the bundle field
@@ -358,7 +367,23 @@ is for a handler unwind. Tests for every cell of the F2 table.
   bundle the static type does not name`), keep `Future(T)` for raw futures.
 - The bundle check compares field TYPES.
 
-### A4 — `IoFuture` hygiene (after §6 Q2)
+### A4 — `IoFuture` hygiene (after §6 Q2) — landed 2026-10-03
+
+As landed: the Windows runtime maps every Winsock code to errno
+(`__yo_wsa_to_errno`); resolver failures resolve to one stable `DNS_ERR_*`
+code per kind and `NetError.DNSFailed` carries a `DnsError` (fixes
+`issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md`); `io.state`
+and `JoinHandle.state` read an in-flight raw future as `Running` (a mapping at
+the read, so no backend's state protocol changes); `FutureState.Pending` is
+`Cold`; the 16 hand-rolled checks of the exact `cond(r < 0 => throw
+from_errno(-r), true => ())` shape in `std/fs` and `std/process` are
+`IoError.check`, and the 14 that release resources before throwing keep their
+shape; `IoError.check` and `IoError.from_result` have unit tests
+(`tests/sys/constants.test.yo`). Not done: `sleep` has no error channel
+(`Future(unit)`, no `IoExn`), and its only failures are an allocation failure
+and its own cancellation, so it keeps discarding the `i32`. The plan text
+below is the proposal.
+
 
 Keep `IoFuture` a raw `i32` ABI at the `std/sys` layer. Normalise the two
 deviant families at the extern boundary so every negative value is an errno
@@ -371,7 +396,23 @@ Windows socket paths map WSA codes to errno equivalents in
 await lowering starts a future only when `state == 0 && vt != NULL`, so raw
 futures are unaffected). `sleep` checks its result.
 
-### A5 — Representation (seed-gated, already designed)
+### A5 — Representation (seed-gated, already designed) — partly landed 2026-10-03
+
+As landed: the async-builtin matchers consult the call's recorded marker
+before the spelling, and evaluation records a "not a builtin" marker for a
+user function spelled like one, which fixes two internal compiler errors (a
+user method named `await`; a non-`Io` parameter named `io` with an `await`
+method — `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`);
+`io.state` takes `E : Type.Struct` like its siblings. Not done here, each for a
+reason: the value-struct `JoinHandle` waits for the seed
+(`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
+`...(E)` spread was removed on 2026-10-03 (user decision) from `Future`,
+function types and the synthesizer, and effect-row polymorphism stays as a
+`generic(E : Type.Struct)` parameter
+(`issues/fixed/effect-row-spreads-outlived-the-single-bundle-future.md`); a zero-sized `Io` is a measurement
+for `ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
+the proposal.
+
 
 `JoinHandle` as a value struct over the counted `Impl(Future)` (the open
 issue), `io.state` to `E : Type.Struct`, drop the `...(E)` spread, the

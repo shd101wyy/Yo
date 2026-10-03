@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a task spawned twice with two bundles continues under the SECOND caller's handlers, so the first spawn's handlers are silently replaced mid-task; no error, no documented rule.
 
-**Status: OPEN.** Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F3, probe 4). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, `--optimize 2`.
+**Status: FIXED 2026-10-03** (phase A3 of `plans/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F3, probe 4). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, `--optimize 2`.
 
 ## Symptom
 
@@ -27,3 +27,9 @@ The bundle is injected once, at the cold start; a second spawn of a running (or 
 ## Fix direction
 
 Move the injection under the cold-start branch in `_generate_io_spawn`, matching `generate_await`. Regression test: the repro (`r1=1 r2=1`). Add the bundle-field rule (`Io`, handler types, value types) as an evaluator check or dup the fields. Plan: `plans/ASYNC_IO_API_AUDIT.md` A3.
+
+## Fix
+
+`emit_io_spawn_effect_injection` (`src/codegen/exprs/await.yo`) still evaluates the bundle argument where it stands, but copies it into the future only when the future is cold (`state == 0`), the rule `io.await` follows. The raw-`memcpy`-without-dup half is unchanged: today's bundles hold `Io` and handler function pointers only, and the field-type check at the await/spawn site (same phase) keeps a bundle's fields the future's own.
+
+Regression test: "a second io.spawn of a running task keeps the first bundle" in `tests/async_await.test.yo`.

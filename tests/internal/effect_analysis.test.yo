@@ -6,13 +6,10 @@
 { TokenKind, Token } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
-{ TypeValue, FuncMeta } :: import("../../src/types/definitions.yo");
-{ t_unit, t_bool } :: import("../../src/types/creators.yo");
-{ Environment } :: import("../../src/env.yo");
+{ t_unit } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
   is_effect_call_,
-  has_effect_in_spread_,
   is_transitive_effect_call_,
   analyze_effect_call_points
 } :: import("../../src/evaluator/effects/effect_analysis.yo");
@@ -81,52 +78,6 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : AstExpr) -> Ast
 /// get_info that always returns None (no type information).
 get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None
-);
-/// Build an EffectsRowT with a single function-type effect named `effect_name`.
-make_effects_row_with :: (fn(effect_name : String) -> TypeValue)({
-  labels := ArrayList(String).new();
-  labels.push(effect_name.clone());
-  types := ArrayList(TypeValue).new();
-  // Use a simple function type: fn() -> unit
-  forall_labels := ArrayList(String).new();
-  forall_types := ArrayList(TypeValue).new();
-  param_labels := ArrayList(String).new();
-  param_types := ArrayList(TypeValue).new();
-  implicit_labels := ArrayList(String).new();
-  implicit_types := ArrayList(TypeValue).new();
-  implicit_spreads := ArrayList(bool).new();
-  where_types := ArrayList(TypeValue).new();
-  meta := FuncMeta(
-    forall_labels : forall_labels,
-    param_labels : param_labels,
-    implicit_labels : implicit_labels,
-    implicit_spreads : implicit_spreads,
-    result_is_comptime_only : false,
-    param_is_ref : ArrayList(bool).new(),
-    param_is_owning : ArrayList(bool).new(),
-    result_is_ref : false,
-    has_variadic : false,
-    is_extern : Option(String).None,
-    extern_name : Option(String).None,
-    is_control : false,
-    variadic_label : Option(String).None,
-    variadic_comptime : false
-  );
-  fn_ty := TypeValue.Func(
-    forall_types,
-    param_types,
-    implicit_types,
-    where_types,
-    t_unit(),
-    box(meta),
-    ArrayList(TypeValue).new()
-  );
-  types.push(fn_ty);
-  TypeValue.EffectsRowT(labels, types)
-});
-/// Build an empty Environment (single top-level frame, no variables).
-make_empty_env :: (fn() -> Environment)(
-  Environment.new(String.from("test"))
 );
 // ---------------------------------------------------------------------------
 // is_effect_call_: direct call to effect param
@@ -206,81 +157,6 @@ test("is_effect_call_: dotted call with wrong field_path => false", {
     get_info_none
   );
   assert(!result, "ctl.other(x) should not match field_path=[raise]");
-});
-// ---------------------------------------------------------------------------
-// has_effect_in_spread_: EffectsRowT detection
-// ---------------------------------------------------------------------------
-test("has_effect_in_spread_: direct EffectsRowT with matching name => true", {
-  ert := make_effects_row_with(String.from("raise"));
-  env := make_empty_env();
-  result := has_effect_in_spread_(
-    String.from("effects"),
-    ert,
-    String.from("raise"),
-    env
-  );
-  assert(result, "EffectsRowT with 'raise' should return(true)");
-});
-test("has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
-  labels := ArrayList(String).new();
-  labels.push(String.from("raise"));
-  types := ArrayList(TypeValue).new();
-  struct_labels := ArrayList(String).new();
-  struct_types := ArrayList(TypeValue).new();
-  types.push(
-    TypeValue.Struct(
-      id : String.from("struct_raise"),
-      name : String.from("Raise"),
-      field_labels : struct_labels,
-      field_types : struct_types,
-      is_reference_semantics : false,
-      is_atomic_rc : false,
-      is_newtype : false,
-      constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
-      is_source_namespace : false
-    )
-  );
-  ert := TypeValue.EffectsRowT(labels, types);
-  env := make_empty_env();
-  result := has_effect_in_spread_(
-    String.from("effects"),
-    ert,
-    String.from("raise"),
-    env
-  );
-  assert(result, "EffectsRowT with struct(evidence should return(true))");
-});
-test("has_effect_in_spread_: direct EffectsRowT with non-matching name => false", {
-  ert := make_effects_row_with(String.from("other_effect"));
-  env := make_empty_env();
-  result := has_effect_in_spread_(
-    String.from("effects"),
-    ert,
-    String.from("raise"),
-    env
-  );
-  assert(!result, "EffectsRowT without 'raise' should return(false)");
-});
-test("has_effect_in_spread_: non-effects-row type (unit) => false", {
-  env := make_empty_env();
-  result := has_effect_in_spread_(
-    String.from("effects"),
-    t_unit(),
-    String.from("raise"),
-    env
-  );
-  assert(!result, "unit type should return(false for has_effect_in_spread_)");
-});
-test("has_effect_in_spread_: bool type => false", {
-  env := make_empty_env();
-  result := has_effect_in_spread_(
-    String.from("effects"),
-    t_bool(),
-    String.from("raise"),
-    env
-  );
-  assert(!result, "bool type should return(false for has_effect_in_spread_)");
 });
 // ---------------------------------------------------------------------------
 // is_transitive_effect_call_: basic structural tests

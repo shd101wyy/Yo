@@ -143,3 +143,106 @@ test("Test abort cancels the pending timer and releases the task", {
   // timer that will not fire for another 30 seconds.
   assert(g_abort_capture_disposed == i32(1), "abort must release the aborted task's captures at once");
 });
+// ---------------------------------------------------------------------------
+// One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2): an aborted future
+// propagates its abort to whoever awaits or spawns it, whether it was aborted
+// before or during the wait. Both "already aborted" cases used to panic
+// ("attempted to await an aborted Future" / "attempted to spawn an aborted
+// Future").
+// ---------------------------------------------------------------------------
+/// A task that would deliver 5 after a long sleep, aborted before it can.
+_aborted_task :: (fn(io : Io) -> Impl(Future(i32, Io)))({
+  t := io.async((io : Io) => {
+    io.await(sleep(u64(500)), io);
+    i32(5)
+  });
+  h := io.spawn(t, io);
+  h.abort();
+  t
+});
+test("io.spawn of an already-aborted future returns a handle that reads None", {
+  t := _aborted_task(io);
+  h2 := io.spawn(t, io);
+  assert(h2.state() == FutureState.Aborted, "the second handle sees the abort");
+  assert(h2.await(io).is_none(), "and reads .None instead of panicking");
+});
+test("io.await of an already-aborted future inside a task aborts the awaiting task", {
+  t := _aborted_task(io);
+  outer := io.async((io : Io) => {
+    v := io.await(t, io);
+    v + i32(1)
+  });
+  ho := io.spawn(outer, io);
+  assert(ho.await(io).is_none(), "the awaiting task was aborted in turn");
+});
+/// A PLAIN function awaiting a future: the sync await path.
+_plain_get :: (fn(t : Impl(Future(i32, Io)), io : Io) -> i32)(io.await(t, io));
+test("a plain function's io.await of an already-aborted future propagates to the calling task", {
+  t := _aborted_task(io);
+  caller := io.async((io : Io) => {
+    v := _plain_get(t, io);
+    v + i32(1)
+  });
+  hc := io.spawn(caller, io);
+  assert(hc.await(io).is_none(), "the abort escaped the plain function and aborted the calling task");
+});
+// ---------------------------------------------------------------------------
+// Cancellation gaps closed by plans/ASYNC_IO_API_AUDIT.md A3.
+// ---------------------------------------------------------------------------
+test("abort of a directly spawned raw IoFuture stays Aborted after the operation's time", {
+  // issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md
+  h := io.spawn(sleep(u64(30)), io);
+  h.abort();
+  assert(h.state() == FutureState.Aborted, "Aborted right after the abort");
+  io.await(sleep(u64(80)), io);
+  assert(h.state() == FutureState.Aborted, "still Aborted after the timer would have fired");
+  assert(h.await(io).is_none(), "await reads .None");
+});
+test("aborting a task aborts the named child future its await started", {
+  ran := Box(bool)(false);
+  child := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    ran.* = true;
+    i32(1)
+  });
+  parent := io.async((io : Io) => {
+    v := io.await(child, io);
+    v + i32(1)
+  });
+  hp := io.spawn(parent, io);
+  io.await(yield(io), io);
+  hp.abort();
+  assert(io.state(child) == FutureState.Aborted, "the child the parent started was aborted with it");
+  io.await(sleep(u64(80)), io);
+  assert(!(ran.*), "and its body never resumed past its sleep");
+  assert(hp.await(io).is_none(), "the parent reads .None");
+});
+test("aborting a task leaves a named future that someone else started running", {
+  ran := Box(bool)(false);
+  shared := io.async((io : Io) => {
+    io.await(sleep(u64(20)), io);
+    ran.* = true;
+    i32(5)
+  });
+  hs := io.spawn(shared, io);
+  waiter := io.async((io : Io) => io.await(shared, io));
+  hw := io.spawn(waiter, io);
+  io.await(yield(io), io);
+  hw.abort();
+  r := hs.await(io);
+  assert(match(r, .Some(v) => (v == i32(5)), .None => false), "the shared future completed");
+  assert(ran.*, "its body ran to the end");
+});
+// ---------------------------------------------------------------------------
+// A user method named `await` is an ordinary method: codegen lowers
+// `x.await(...)` as JoinHandle.await only when the call resolved to it
+// (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+// ---------------------------------------------------------------------------
+_Awaitable :: struct(v : i32);
+impl(_Awaitable, await : (fn(self : Self, io : Io) -> i32)(self.v + i32(1)));
+test("a user method named await compiles and runs as a method", {
+  t := _Awaitable(v : i32(5));
+  assert(t.await(io) == i32(6), "the user's await ran");
+  h := io.spawn(io.async((io : Io) => i32(2)), io);
+  assert(match(h.await(io), .Some(v) => (v == i32(2)), .None => false), "JoinHandle.await is still the builtin");
+});

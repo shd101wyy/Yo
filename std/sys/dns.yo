@@ -5,13 +5,17 @@
 //!
 //! All async operations return `IoFuture` which resolves to:
 //! - 0: success
-//! - Non-zero: raw `gai_error` code (`EAI_NONAME`, `EAI_AGAIN`, etc.)
+//! - a `DNS_ERR_*` code below: the runtime classifies the resolver's
+//!   `EAI_*` answer into one stable negative code per kind, the same on every
+//!   platform (`EAI_*` values differ per platform, and Linux's are negative
+//!   and collide with errno). The codes sit above every errno, so they never
+//!   read as one (plans/ASYNC_IO_API_AUDIT.md A4).
 //!
 //! ## Stability
 //!
 //! unstable — a raw wrapper over `getaddrinfo`/`getnameinfo` whose results
 //! are a linked list walked through accessor functions and whose errors are
-//! raw `gai_error` codes, not `IoError`. `std/net/dns`'s `lookup_host` is the
+//! `DNS_ERR_*` codes, not `IoError`. `std/net/dns`'s `lookup_host` is the
 //! typed face and is what callers want.
 //!
 //! It is also where a real open question lives rather than just a rough edge:
@@ -55,6 +59,16 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 { IoFuture } :: import("./future.yo");
 { __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start, __yo_freeaddrinfo, __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family, __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen, __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next } :: import("./externs.yo");
+/// A resolver failure: the name does not exist (`EAI_NONAME`, `EAI_NODATA`).
+DNS_ERR_NOT_FOUND :: i32(-4097);
+/// A temporary resolver failure; retrying may succeed (`EAI_AGAIN`).
+DNS_ERR_TRY_AGAIN :: i32(-4098);
+/// A permanent resolver failure (`EAI_FAIL`).
+DNS_ERR_FAIL :: i32(-4099);
+/// The resolver ran out of memory (`EAI_MEMORY`).
+DNS_ERR_NO_MEMORY :: i32(-4100);
+/// Any other resolver failure.
+DNS_ERR_OTHER :: i32(-4101);
 // ============================================================================
 // DNS Resolution (return IoFuture, use with await)
 // ============================================================================
@@ -63,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 // service: service name or port string (e.g. "http", "80"), or .None
 // hints: pointer to an addrinfo struct for filtering, or .None
 // result: pointer to a ?(*(u8)) that will receive the head of the result list
-// Returns 0 on success, non-zero gai_error on failure.
+// Returns 0 on success, a DNS_ERR_* code on failure.
 // Caller must call freeaddrinfo() on the result when done.
 getaddrinfo :: (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> IoFuture)(
   __yo_async_getaddrinfo_start(node, service, hints, result)
@@ -76,7 +90,7 @@ getaddrinfo :: (fn(node : *u8, service : ?*u8, hints : ?*u8, result : *?*u8) -> 
 // service: buffer to receive the service name
 // servlen: size of service buffer
 // flags: NI_NUMERICHOST, NI_NUMERICSERV, etc.
-// Returns 0 on success, -gai_error on failure.
+// Returns 0 on success, a DNS_ERR_* code on failure.
 getnameinfo :: (fn(addr : *u8, addrlen : u32, host : *u8, hostlen : usize, service : *u8, servlen : usize, flags : i32) -> IoFuture)(
   __yo_async_getnameinfo_start(addr, addrlen, host, hostlen, service, servlen, flags)
 );
@@ -163,6 +177,11 @@ free_hints :: (fn(hints : *u8) -> unit)(
   free(.Some((*void)(hints)))
 );
 export(
+  DNS_ERR_NOT_FOUND,
+  DNS_ERR_TRY_AGAIN,
+  DNS_ERR_FAIL,
+  DNS_ERR_NO_MEMORY,
+  DNS_ERR_OTHER,
   getaddrinfo,
   getnameinfo,
   freeaddrinfo,

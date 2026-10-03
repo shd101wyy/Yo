@@ -12,13 +12,15 @@
 //! the compiler's own runtime (`src/codegen/async/`) with a layout the await
 //! codegen indexes directly (`state`, `result`), so its shape is pinned to
 //! the async state-machine representation and moves with it, not with a
-//! library decision. It also cannot be frozen while the *value* convention it
-//! carries is still raw: a resolved `i32` that is a non-negative syscall
-//! result or a negative errno, with `sys/dns` and the Windows socket paths
-//! already carrying codes that are neither. What would have to be true to
-//! freeze it: a typed result channel (the `Result(i32, IoError)` that
-//! `IoError.from_result` reconstructs by hand today) and a state-machine
-//! layout that codegen promises to keep.
+//! library decision. Its *value* convention is one thing on every platform
+//! since 2026-10-03: a resolved `i32` that is a non-negative syscall result
+//! or a negative errno, with `sys/dns` alone resolving to its documented
+//! `DNS_ERR_*` codes (above every errno). The raw `i32` stays — a typed
+//! `Result(i32, IoError)` channel at the extern boundary was considered and
+//! declined (`plans/ASYNC_IO_API_AUDIT.md` Q2): `IoError.check` and
+//! `IoError.from_result` turn the answer into a value at the call site. What
+//! would still have to be true to freeze it: a state-machine layout that
+//! codegen promises to keep.
 // ============================================================================
 // Extern type for I/O Future
 // ============================================================================
@@ -37,11 +39,12 @@ extern(
 /// and `-2` aborted — see the effects model in AGENTS.md.
 ///
 /// It resolves to a raw `i32`: a non-negative syscall result (an fd, a byte
-/// count, or 0) or a NEGATIVE errno. Nothing here throws, so error handling
-/// is `IoError.from_result` / `IoError.check` at the call site. Two families
-/// break even that convention and say so at their own definitions —
-/// `sys/dns` resolves to a `getaddrinfo` code, and the Windows socket paths
-/// resolve to negated WSA codes.
+/// count, or 0) or a NEGATIVE errno, on every platform (the Windows runtime
+/// maps Winsock's codes to errno). Nothing here throws, so error handling is
+/// `IoError.from_result` / `IoError.check` at the call site. `sys/dns`
+/// resolves to its own `DNS_ERR_*` codes, which `std/net/dns` maps to
+/// `DnsError`. `io.state` reads an in-flight raw future as `Running`: it was
+/// submitted when it was created, so it is never `Cold`.
 IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
 export(
   __yo_io_future_t,

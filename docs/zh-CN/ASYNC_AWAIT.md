@@ -196,11 +196,11 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 3. `io.state(future)` 返回当前 `FutureState`，不会阻塞或启动 Future
 4. `io.spawn(future)` 启动冷 Future 但不等待——返回 `JoinHandle(T)` 以便后续 await
 5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
-6. 对已**中止**的 Future 进行 spawn 会导致 **panic**
+6. 对已**中止**的 Future 进行 spawn 不会启动任何东西：它的 `JoinHandle` 读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
 9. `io.await(future)` 可以对同一 Future **多次调用**——每次调用返回相同的结果
-10. 对被代数效应处理器**中止**的 Future 进行 await 会导致 **panic**
+10. await 一个**已中止**的 Future 会把中止传播给等待者（见"已中止的 Future"），无论它是在 await 开始之前还是等待期间被中止的
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
 12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
 
@@ -265,9 +265,13 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **按效应包类型相等。** 当 `E1` 与 `E2` 兼容时，`Future(T, E1)` 与
    `Future(T, E2)` 匹配。不再存在「顺序无关的集合匹配」——没有集合，
    只有一个效应包。
-2. **带注解与不带注解可以互通。** `Future(T)`（无效应包）与
-   `Future(T, E)`（任意效应包）兼容。当调用方不需要引用具体效应类型时
-   使用不带注解的形式。
+2. **无效应包的 future 适配任何效应包；带效应包的 future 只有在效应包是
+   `Io` 时才适配 `Future(T)`。** 类型中不带效应包的 future（原始
+   `IoFuture`、`yield`）与任意 `E` 的 `Future(T, E)` 兼容：它不读取效应包。
+   反方向更窄：通过 `Future(T)` 类型进行的 await 或 spawn 不会注入任何东西，
+   所以带效应包的 future 只有在效应包为 `Io` 时才能被视为 `Future(T)`——`Io`
+   的字段是编译器内建函数，函数体从不通过它们调用。效应包里带处理器的 future
+   在传递时必须保留其效应包；把它视为 `Future(T)` 是 `yo check` 错误。
 3. **使用 await 的异步体需要 Io。** 任何调用 `io.await` / `yield`
    的异步体都需要在效应包中包含 `Io`，因此效应包 struct 通常会有一个
    `io : Io` 字段。
@@ -315,7 +319,7 @@ export(main);
 Io :: struct(
   async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -373,7 +377,12 @@ rb := hb.await(io);
 
 当代数效应处理器在异步任务内调用 `unwind` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。
 
-**使用 `io.await`**：对已中止的 Future 调用 `io.await` 会导致 **panic**。
+**使用 `io.await`**：中止会传播给等待者。在 `io.async` 体内，正在等待的任务随之被中止，
+所以更上层的 `JoinHandle.await` 或 `join` 读出 `.None`。在普通 `fn` 中，正在等待的函数接管
+这次 unwind：若该函数自己安装了处理器则在此捕获，否则逃逸到调用方，一直到 `main`——逃逸到
+那里会打印 `unhandled effect unwind escaped to top level` 并终止。无论 Future 是在 await
+开始之前还是等待期间被中止，也无论它的类型是否带有效应包，规则都一样。（2026-10-03 之前，
+已中止的情形会 panic："attempted to await an aborted Future"。）
 
 **使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 unwind：
 
@@ -412,13 +421,19 @@ export(main);
 `handle.abort()` 取消一个已 spawn 的任务。任务被标记为中止（-2），而且取消是
 **结构化的**：任务当前挂起所等待的东西会随它一起被取消。
 
-- 挂起中的 I/O 操作或定时器会在操作系统层面被取消。
-- 任务正在 await 的子 Future 会被递归地中止。
+- 挂起中的 I/O 操作或定时器会在操作系统层面被取消，前提是后端有取消路径（所有
+  平台的定时器；Linux 上的 epoll 与 io_uring 描述符和数据报操作；macOS 上停在
+  kqueue 中的描述符操作）。没有取消路径的操作会运行到完成，而任务保持中止状态。
+- 任务正在 await 的子 Future 会被递归地中止，前提是它是由该任务启动的：匿名的
+  `io.await(child(io), io)`，或由这次 await 冷启动的具名 future。由别人启动的具名
+  future 可能被其他等待者共享，所以它会继续运行。
+- 直接 spawn 的原始 `IoFuture` 也以同样方式被取消，它的 handle 在操作本该完成的
+  时间之后仍读出 `.None`。
 - 停在 `Mutex` 或 `Channel` 上的任务会离开等待队列。下一次 `unlock` 或 `send`
   会跳过这个已死的等待者，把锁或消息交给一个存活的等待者，不会丢失任何东西。
 - 所有正在 await 这个被中止任务的任务都会被唤醒。中止发生时**正在等待**的
   `io.await` 会让它自己所在的任务也中止，因此更上层的 `JoinHandle.await` 读到
-  `.None`。（对一个**已经**中止的 Future 发起 `io.await` 仍然会 panic。）
+  `.None`。对一个**已经**中止的 Future 发起 `io.await` 的行为与此相同。
 
 被中止任务的局部变量会在它的最后一个引用消失时被 drop。
 
@@ -447,7 +462,7 @@ assert(hf.await(io).is_none(), "the aborted task reads .None");
 
 | 状态值 | 含义                                      | `FutureState` 枚举值    |
 | ------ | ----------------------------------------- | ----------------------- |
-| 0      | 冷——尚未启动                              | `FutureState.Pending`   |
+| 0      | 冷——尚未启动                              | `FutureState.Cold`      |
 | 1..N   | 中间状态——在 await/yield 点挂起           | `FutureState.Running`   |
 | -1     | 已完成——结果可用                          | `FutureState.Completed` |
 | -2     | 已中止——效应处理器调用了 `unwind`，无结果 | `FutureState.Aborted`   |
@@ -458,7 +473,7 @@ assert(hf.await(io).is_none(), "the aborted task reads .None");
 
 ```rust
 FutureState :: enum(
-  Pending = 0,
+  Cold = 0,
   // 冷——尚未启动
   Running = 1,
   // 执行中——在 await/yield 点挂起
@@ -478,8 +493,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(42));
   });
 
-  // 启动前：Pending
-  assert(io.state(task) == FutureState.Pending, "cold future is Pending");
+  // 启动前：Cold
+  assert(io.state(task) == FutureState.Cold, "cold future is Cold");
 
   io.await(task, io);
 

@@ -24,15 +24,14 @@
 //!
 //! ## Stability
 //!
-//! unstable, and it is the least finished module in `std/net`. Three things
+//! unstable, and it is the least finished module in `std/net`. Two things
 //! have to be decided before the two functions here can be frozen: the
 //! blocking-on-the-loop behaviour above (a fix changes no signature, but it
-//! is the reason this surface should not attract callers yet); the error,
-//! which discards the `EAI_*` code the sys layer resolves to, so a retryable
-//! `EAI_AGAIN` is indistinguishable from a permanent `EAI_NONAME`
-//! (`issues/stddoc-io-dns-lookup-discards-the-gai-error-code.md`); and the
+//! is the reason this surface should not attract callers yet); and the
 //! result list, which today repeats each address once per socket type
-//! (`issues/stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`).
+//! (`issues/stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`). The
+//! error carries its reason since 2026-10-03 (`NetError.DNSFailed(host,
+//! reason)`, `DnsError`).
 //! Reverse lookup is absent even though `getnameinfo` is plumbed one layer
 //! down in `std/sys/dns`.
 pragma(Pragma.AllowUnsafe);
@@ -41,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
 import("../fmt");
-{ NetError } :: import("./errors");
+{ NetError, DnsError } :: import("./errors");
 { IpAddr, SocketAddr } :: import("./addr");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_dns :: import("../sys/dns");
@@ -54,9 +53,9 @@ IO_dns :: import("../sys/dns");
 /// too (`::1` and `127.0.0.1` resolve without a query).
 ///
 /// BLOCKS the event loop for the duration of the lookup (see the module
-/// doc). Throws `NetError.DNSFailed(host)` on any resolver failure — the
-/// `EAI_*` code is not carried, so "no such host" and "try again later" are
-/// not distinguishable.
+/// doc). Throws `NetError.DNSFailed(host, reason)` on a resolver failure;
+/// `reason` tells a retryable `DnsError.TryAgain` from a permanent
+/// `DnsError.NotFound`.
 ///
 /// The list can REPEAT an address: `getaddrinfo` is called without hints, so
 /// each resolved address comes back once per supported socket type — two
@@ -64,6 +63,16 @@ IO_dns :: import("../sys/dns");
 /// that walks the list to connect will therefore try the same address twice
 /// before moving on. Both families are included, IPv6 first as the resolver
 /// orders them.
+/// The `DnsError` a `DNS_ERR_*` code (`std/sys/dns`) names.
+_dns_error_of :: (fn(code : i32) -> DnsError)(
+  cond(
+    (code == IO_dns.DNS_ERR_NOT_FOUND) => DnsError.NotFound,
+    (code == IO_dns.DNS_ERR_TRY_AGAIN) => DnsError.TryAgain,
+    (code == IO_dns.DNS_ERR_FAIL) => DnsError.Fail,
+    (code == IO_dns.DNS_ERR_NO_MEMORY) => DnsError.NoMemory,
+    true => DnsError.Other
+  )
+);
 lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
   io.async(e => {
     host_cstr_bytes := host.to_cstr();
@@ -73,7 +82,7 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
-        e.exn.throw(dyn(NetError.DNSFailed(host)));
+        e.exn.throw(dyn(NetError.DNSFailed(host : host, reason : _dns_error_of(ret))));
       },
       true => ()
     );

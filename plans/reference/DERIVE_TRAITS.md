@@ -1022,7 +1022,7 @@ TypeTag :: enum(
   Array, Tuple, Struct, Enum, Union, Function,
   SomeType, Slice, Module, Trait,
   Ptr, Iso, Arc, Dyn,
-  Expr, ComptimeList, EffectsRow, TypeApplication
+  Expr, ComptimeList, TypeApplication
 );
 ```
 

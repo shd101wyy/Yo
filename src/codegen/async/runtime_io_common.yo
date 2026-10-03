@@ -998,6 +998,31 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
 // ============================================================================
 #include <netdb.h>
 
+// A resolver failure resolves to one stable negative code, the same on every
+// platform: -(4096 + kind). EAI_* values differ per platform (Linux's are
+// negative and collide with errno; macOS's are small positives; Windows's are
+// WSA codes), so std could not classify the raw value it used to get. The
+// range sits above every errno, so it never reads as one. Kinds: 1 not found,
+// 2 try again, 3 permanent failure, 4 out of memory, 5 anything else.
+// std/sys/dns.yo names them (DNS_ERR_*); std/net/dns maps them to DnsError
+// (plans/ASYNC_IO_API_AUDIT.md A4,
+// issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md).
+static int32_t __yo_gai_to_result(int ret) {
+  if (ret == 0) return 0;
+  int kind = 5;
+  if (ret == EAI_NONAME) kind = 1;
+#ifdef EAI_NODATA
+  else if (ret == EAI_NODATA) kind = 1;
+#endif
+#ifdef EAI_ADDRFAMILY
+  else if (ret == EAI_ADDRFAMILY) kind = 1;
+#endif
+  else if (ret == EAI_AGAIN) kind = 2;
+  else if (ret == EAI_FAIL) kind = 3;
+  else if (ret == EAI_MEMORY) kind = 4;
+  return -(4096 + kind);
+}
+
 static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -1012,10 +1037,8 @@ static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const
   
   if (ret == 0) {
     *result = (uint8_t*)res;
-    future->result = 0;
-  } else {
-    future->result = ret;
   }
+  future->result = __yo_gai_to_result(ret);
   atomic_init(&future->state, -1);
   
   return future;
@@ -1033,7 +1056,7 @@ static __yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint3
   
   int ret = getnameinfo((const struct sockaddr*)addr, (socklen_t)addrlen,
                         (char*)host, (socklen_t)hostlen, (char*)service, (socklen_t)servlen, flags);
-  future->result = ret;
+  future->result = __yo_gai_to_result(ret);
   atomic_init(&future->state, -1);
   
   return future;
