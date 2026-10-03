@@ -600,6 +600,20 @@ offending source as a Yo string with the backslash DOUBLED
 (`String.from("s :: \"\\uZZZZ\";")`) — writing it in a backtick template
 would make the test file's own lexing the thing under test.
 
+A PARSE-level error may live in a fixture only if the fixture is already
+fmt-CANONICAL. `yo fmt` refuses to rewrite source the parser rejects
+(`issues/fixed/fmt-reformats-parse-invalid-files.md`): when the formatted
+output would differ from the input, the original must parse, else the bare
+diagnostic prints and fmt exits 1 — so a parse-error fixture that also needs
+formatting reds the tree-wide `fmt --check`. Byte-for-byte canonical
+parse-invalid source is left untouched (the gate only fires on a changed
+rendering), which is exactly the shape
+`tests/cli-cases/fix-says-what-it-cannot-repair/fixture/main.yo` keeps: its
+E0003 (`x := 1 && 2 && 3;`) is the case's whole point and it is
+canonical. A parse-refusal unit test lives in
+`tests/internal/formatter.test.yo` (the `format_yo_source` throw), not a
+cli-case.
+
 Evaluator-level rejections are different: `comptime_expect_error` handles
 those, including around an `impl(...)` inside a `test(...)` body.
 
