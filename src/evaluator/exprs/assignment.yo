@@ -320,10 +320,18 @@ require_no_inout_write_through_borrow :: (
     param_labels : ArrayList(String),
     param_is_ref : ArrayList(bool),
     args : ArrayList(AstExpr),
+    callee_returns_place : bool,
     env : Environment,
     ctx : EvalContext
   ) -> unit
 )({
+  // A callee that returns a pointer is a place projection (`s(i)` through
+  // `Index.index`): it hands the caller a place, and a write, if any, happens
+  // at the caller through that place, which the assignment rule judges. Its
+  // mutation mask is `all` only because the pointer escapes.
+  if(callee_returns_place, {
+    return(());
+  });
   (n : usize) = param_is_ref.len();
   if(args.len() < n, {
     n = args.len();
@@ -535,9 +543,8 @@ d3_check_pending :: (
   // E0908 for a borrowed value passed to an `inout` parameter the callee may
   // write. Not trusted by file: std's `String` mutators live in pragma'd
   // files and are exactly the writes this rejects. A mask the analysis cannot
-  // resolve (`all`) is not reported: a false rejection is worse than a miss,
-  // and copy-on-write (plans/STRING_VALUE_SEMANTICS.md S3) keeps the value
-  // semantics either way.
+  // resolve (`all`) counts as a write, as it does for D3: `push_str` writes
+  // through `ArrayList`'s raw pointers, which the analysis does not follow.
   (bi : usize) = usize(0);
   while(bi < pending.len(), {
     match(
@@ -545,11 +552,7 @@ d3_check_pending :: (
       .Some(entry) => match(
         entry.borrow_error,
         .Some(berr) => {
-          if(_g_audit_inout_borrow && match(borrow_mask, .Some(bm) => bm.all, .None => false), {
-            uat := ast_expr_token(entry.place);
-            eprintln(`[inout-borrow-unresolved] ${uat.module_path}:${(uat.row + u32(1)).to_string()}:${(uat.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid}`);
-          });
-          if(match(borrow_mask, .Some(bm) => (!bm.all && param_mutation_mask_hits(bm, entry.param_index)), .None => false), {
+          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(bm, entry.param_index), .None => false), {
             if(_g_audit_inout_borrow, {
               at := ast_expr_token(entry.place);
               eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
