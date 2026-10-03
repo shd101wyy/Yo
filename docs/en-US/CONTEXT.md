@@ -90,7 +90,7 @@ for the manuals. The zh-CN translations live in the repository under
 | `yo context <module>`         | The module's items, sorted by name: name, kind, signature     |
 | `yo context <module> <name>`  | One item's full entry: signature, complete doc, examples      |
 | `yo context <name>`           | The name across the corpus (see below)                        |
-| `yo context --search <query>` | Ranked hits over names, signatures and doc lines              |
+| `yo context --search <query>` | Ranked hits over names, modules, signatures and doc lines      |
 
 A **module** argument is the full path (`std/collections/array_list`), a
 unique last segment (`array_list`) or a unique suffix
@@ -108,11 +108,16 @@ print the full entries of the top three. A name a barrel module re-exports
 (`std/string` re-exports its submodules) counts once: the entry is described
 from the module that defines it, with a `re-exported from` note.
 
-**Search** is lexical and deterministic: an exact name match ranks first,
-then a name prefix, a name substring, a signature match and a doc match,
-with ties broken by module path. `--deep` also matches the text of each
-item's full documentation. The same query always returns the same hits for
-a given library version.
+**Search** is lexical and deterministic: the query is split into lowercase
+keywords and every keyword must match somewhere (AND), so a natural-language
+query works — `--search "hash string"` finds `String.hash` (`hash` names
+the method, `string` its module). An exact name match ranks first, then a
+name prefix, a name substring, a module match, a signature match and a doc
+match, with each hit scored by its weakest keyword; ties are broken by
+module path. Result rows that are byte-identical (the same method name on
+several types of one module, whose signatures all print `Self`) collapse to
+one row. `--deep` also matches the text of each item's full documentation.
+The same query always returns the same hits for a given library version.
 
 ### Misses and exit codes
 

@@ -4,8 +4,9 @@
 
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row,
 while looking for the binding an fd-based `File.metadata` would use.
-**Status**: OPEN. **Severity**: papercut — no wrong values, but it is a trap
-laid directly in the path of the next person doing the fd-stat work.
+**Status: FIXED (2026-10-03).** **Severity**: papercut — no wrong values, but
+it was a trap laid directly in the path of the next person doing the fd-stat
+work.
 
 ## Symptom
 
@@ -111,3 +112,7 @@ internal runtime helper. Running it today reports these eleven.
 ## Breaking change
 
 No. Nothing can reference them.
+
+## Fixed
+
+Fixed 2026-10-03 on branch `s3/batch-1-fixes`. Root cause as diagnosed above: the eleven `__yo_stat_*` definitions are vestigial C in the POSIX arm of `generate_sys_runtime` (`src/codegen/async/runtime_io_common.yo`, the block from the `// Get size of stat buffer` comment through `__yo_stat_nlink`'s closing brace) — carried across from the retired TypeScript compiler, never declared on the Yo side, unreachable from any program, yet emitted into the preamble of every Linux/macOS/WASM-target compilation (the Windows target early-returns before the POSIX block and never had them). The fix deletes exactly that block, keeping the live `__yo_dirent_name`/`__yo_dirent_type` pair, the `#include <sys/types.h>`/`<sys/stat.h>`/`<dirent.h>`/`<string.h>` lines (the copyfile paths use `struct stat` directly) and everything else: a before/after `--emit-c --skip-c-compiler` diff of a trivial no-fs program across all four targets is one contiguous 46-line deletion (the eleven definitions plus their comments and blank lines) on `aarch64-apple-darwin`, `x86_64-unknown-linux-musl` and `wasm32-wasip1`, zero `__yo_stat_` occurrences remaining, and a byte-identical emission on `x86_64-pc-windows-msvc`. The regression test is `tests/internal/uring_runtime.test.yo` — "sys runtime: the dead `__yo_stat_*` accessor family is gone from every POSIX target" plus its Windows twin "sys runtime: Windows never emits the POSIX stat accessors" — which call `generate_sys_runtime` directly for all four targets and assert the family's absence (the substring `__yo_stat_` matches exactly the dead eleven; `__yo_statfs_*` and `__yo_statx_*` do not contain it) and the neighbours' survival; the first of the two failed before the fix and both pass after.

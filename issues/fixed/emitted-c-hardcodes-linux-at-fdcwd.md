@@ -2,7 +2,7 @@
 
 **Severity:** S3 — emitted C hardcodes Linux's AT_FDCWD on every target — latent, correct today only by coincidence
 
-**Status: OPEN** (found 2026-08-15 while measuring cross-platform emission for
+**Status: FIXED (2026-10-03).** (found 2026-08-15 while measuring cross-platform emission for
 `plans/reference/PORTABLE_C_DISTRIBUTION.md`.)
 
 ## What
@@ -110,3 +110,14 @@ the shadow table.
 grep -c "dirfd == -100" /tmp/m.c      # 12 — Linux's value, in a macOS emit
 grep -o "statx((int32_t)(-[0-9]*)" /tmp/m.c   # -2 — macOS's value
 ```
+
+(2026-10-03 modernization, at fix time: `./yo-cli` is `yo`, `src/tests/fixme.yo`
+is `tmp/fixme.yo`, and the triple is `x86_64-apple-darwin` — the canonical
+Rust spelling; `x86_64-macos` is rejected. The `.ts` paths above are the
+retired TypeScript compiler; today's equivalents are the `src/codegen/async/
+runtime_io_*.yo` emitters. `yo-self/codegen/` is today's `src/codegen/`, so
+the "do both compilers" line needs no second half any more.)
+
+## Fixed
+
+Fixed 2026-10-03 on branch `s3/batch-1-fixes`. Root cause exactly as filed: the three per-platform constants were authored twice — `std/sys/constants.yo` folded `cond(platform…)` literals while the runtime templates compared against Linux's bare `-100` (and macOS's bare `0x80`, wasm's bare `0x100`/`0x200`), so the halves agreed only because one emitter run selected both for one target. Both halves were single-sourced onto the `<fcntl.h>` macro names in one commit. Yo half: `std/libc/fcntl.yo`'s `c_include` declares `AT_FDCWD`/`AT_REMOVEDIR`/`AT_SYMLINK_NOFOLLOW` (the existing `O_*` pattern), and `std/sys/constants.yo` drops its three `cond(platform…)` folds (and the now-orphaned `platform` import) in favour of importing them from `std/libc/fcntl`; a macOS emit's Yo call site now reads `statx((int32_t)(AT_FDCWD), …)` instead of the folded `-2`. C half: `src/codegen/async/runtime_io_{common,macos,wasm}.yo` spell `AT_FDCWD` (24 sites incl. the two-fd rename/linkat forms), `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` instead of the literals, the shared POSIX helper block gains `#include <fcntl.h>` (a program that never touches `std/fs` registers no header of its own), and `runtime_io_windows.yo`'s `__yo_is_at_fdcwd` tests `AT_FDCWD` too — resolved by the template's existing `#ifndef AT_FDCWD` fallback block, which stays as the one sanctioned literal (the Windows CRT defines none of these; verified by probe, as was their presence in glibc/musl/wasi-libc/emscripten/macOS headers). The regression tests are `tests/internal/uring_runtime.test.yo`'s "runtime: the *at() dirfd sentinel is the AT_FDCWD macro on every platform" and "runtime: AT_REMOVEDIR and AT_SYMLINK_NOFOLLOW are macros, not per-platform literals" — they call the emitters for every target and assert the macro spellings (and the Windows fallback's survival); both failed before the fix and pass after, and `tests/fs/{metadata,dir,file,fs_convenience}.test.yo` (10+18+29+16 cases) stay green, as does the whole pre-existing `uring_runtime` file (24/24).

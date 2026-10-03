@@ -115,7 +115,25 @@ Windows C against MinGW's Win32 headers, with the same warning flags
 `src/main.yo` passes. That turns a ~50 min CI round trip into ~40 s. MinGW's
 headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
 link step proves the import libraries you added to `src/main.yo` really export
-every symbol you call.
+every symbol you call. The same trick answers "does this libc's `<fcntl.h>`
+really define that macro?" before you rely on it: a five-line probe compiled
+with `zig cc -target wasm32-wasi` / `x86_64-linux-musl` / `x86_64-linux-gnu` /
+`aarch64-macos` (or `emcc`) settles AT_*-style questions per toolchain in
+seconds.
+
+**Platform constants in runtime C are macro names, never one platform's
+literal.** `AT_FDCWD`, `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` differ per
+kernel (`AT_FDCWD` is -2 on macOS, -100 on Linux and the BSDs), and the Yo
+half (`std/sys/constants.yo`, re-exporting `std/libc/fcntl`'s `c_include`)
+emits the macro name too — so a hardcoded `-100` in a runtime template
+resurrects a shadow constant table whose agreement with the Yo value is a
+per-target coincidence, and dead-codes the non-`*at()` fast path on macOS
+(issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md;
+`tests/internal/uring_runtime.test.yo` pins the macro spellings per target).
+The Windows CRT defines none of them: that template's `#ifndef AT_FDCWD`-style
+fallback block is the one sanctioned place a literal may appear, and it is
+what lets BOTH the runtime's comparison and the Yo call site's macro reference
+resolve in one translation unit.
 
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
 

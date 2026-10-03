@@ -2,12 +2,12 @@
 
 **Severity:** S3 — 62 parameterised prelude declarations (Option, Result, Box, Range, Eq, Ord, the operator traits) are silently missing from generated docs
 
-**Status: OPEN, but NARROWED — the emptiness is fixed and the remaining
-defect is different and sharper.** The prelude is no longer empty; 49 of its
-declarations now render. What is still missing is every PARAMETERISED
-declaration — 62 of them, including `Option`, `Result`, `Box`, `Range`, `Eq`,
-`Ord`, `Index`, `Arc` and the whole operator-trait family. Re-measured
-2026-09-15; see "Re-measured" at the end before working from the text above.
+**Status: FIXED 2026-10-04** (branch `s3/batch-1-fixes`) — see "Fixed" at the
+end. The 2026-09-15 re-measure below kept the issue open with the right
+question but the wrong blast radius: on the develop of 2026-10-04,
+non-prelude parameterised declarations rendered fine (`ArrayList` as a
+`type-function`), so the live defect was the prelude's special-cased loading,
+not the declaration form.
 
 **Was: OPEN.** Found 2026-09-11 while implementing trait-doc inheritance
 (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`). It is
@@ -136,3 +136,54 @@ the headline number going from 0 to 50. Checking the SPECIFIC names the doc
 named — rather than the count it led with — is what separated "fixed" from
 "half fixed", and the whole-file measurement is what turned the remaining half
 into a one-line root cause instead of a list of seven missing names.
+
+---
+
+## Fixed 2026-10-04, branch `s3/batch-1-fixes`
+
+Root cause (sharper than either earlier framing): the prelude's load outcome
+rebuilt its namespace from the cached env's BINDINGS
+(`_build_module_val_from_env`, `src/evaluator/exprs/import.yo` — names and
+values only) and derived the type from those VALUES (`type_of_eval_value`),
+whose catch-all maps a `.FuncVal` to `unit` (`src/value.yo`). A
+parameterised declaration is an fn-VALUED binding
+(`Option :: (fn(comptime(T) : Type) -> comptime(Type))(enum(...))`), so every
+one of them carried a `unit` namespace field type; `build_doc_module`'s
+`is_function_type(field_type)` gate never fired and the declaration fell to
+the constants branch as a `{"type": "unit", "value": "<fn(T)>"}` placeholder.
+Non-prelude modules never hit this because their outcome carries the export
+namespace their own evaluation recorded — per-field types read off the
+bindings (`the_var.ty`, `src/evaluator/values/anonymous_module.yo`) — which
+is exactly why `ArrayList`, declared with the identical form, rendered fine.
+
+The fix (`src/module_manager.yo`): the FIRST prelude evaluation already
+produces that export namespace — `mm_load_prelude_file` was discarding it.
+It now caches `AnonModuleResult.module_value`/`module_type` beside the cached
+prelude env (same block, cleared together in `mm_reset` and
+`mm_clear_prelude_env`), and `_prelude_load_outcome` answers with the
+recorded pair, keeping the env reconstruction only as a fallback. No
+re-evaluation happens, so the register-twice hazard that forbids re-evaluating
+the prelude is untouched. Side benefit: the prelude's doc set is now its real
+EXPORT list — the env reconstruction had been publishing 50+ unexported
+internals (`__derive_*`, `_i32`-style aliases, operator names) as API.
+
+Measured (`yo doc ./std --format json`, before → after): prelude entry types
+50 → 72, traits 32 → 63, functions 0 → 4, constants 89 → 6 (only real
+constants); `Option`/`Result`/`Box`/`Range`/`Arc` under types, `Eq`/`Ord`/
+`Index` and the operator-trait family under traits; documented methods across
+std 1833 → 1914 (+81, among them `Range.next`/`RangeInclusive.next`
+inheriting `Iterator`'s doc) with no new `///` in `std/`.
+
+What this fix deliberately does NOT deliver: variants on `Option` and
+declared methods on `Eq` — those are empty for EVERY parameterised
+enum/trait in the docs (`io/index`'s `Seek` included, before and after),
+a uniform doc-builder limitation in `_resolve_inner_type` now filed as
+`issues/yo-doc-type-function-entries-omit-variants-and-trait-methods.md`.
+
+Test: `tests/internal/module_prelude_outcome.test.yo` gained two cases — the
+outcome's field types (`Option` is a function type AND a type-function;
+`Eq`, `Ord` function types) and the doc consequence (`Option`/`Result`/`Box`
+under types, `Eq`/`Ord`/`Index` under traits, and no constant may hold a
+`<fn(` placeholder). Both failed before the fix
+(`Option's namespace field type is its comptime-fn type, not unit`) and pass
+after; the file's pre-existing case still passes.

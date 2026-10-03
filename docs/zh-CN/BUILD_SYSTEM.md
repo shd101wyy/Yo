@@ -144,7 +144,7 @@ test_step.depend_on(tests);
 | `root`     | `comptime_str` | _（必填）_    | 测试文件或目录路径                                             |
 | `target`   | `comptime_str` | `target_host` | 目标三元组                                                     |
 | `exclude`  | `comptime_str` | `""`          | 以逗号分隔、相对项目根的路径，遍历时跳过                       |
-| `verbose`  | `bool`         | `false`       | 逐个打印测试名（`yo test --verbose`）；`yo build --verbose` 会强制开启 |
+| `verbose`  | `bool`         | `false`       | 逐个打印测试名（`yo test --verbose`）；`yo build --verbose` 会强制开启。`--verbose` 下批量编译还会打印自己的 C 编译命令行（`Compiling with: …`），转发标志是否真正到达 C 编译器在日志里可见 |
 | `bail`     | `bool`         | `false`       | 遇到第一个失败的测试即停止（`yo test --bail`）                 |
 | `parallel` | `usize`        | `1`           | 一次编译的测试文件数（`yo test --parallel N`）——会传给子进程，但 v1 的 `yo test` 仍按顺序运行 |
 

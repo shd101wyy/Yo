@@ -44,6 +44,17 @@ c_include(
   // Fail if not a directory
   O_NOFOLLOW : i32,
   // Don't follow symlinks
+  // *at() flags (dirfd sentinels and per-call behaviour bits). These differ
+  // per platform (AT_FDCWD is -2 on macOS, -100 elsewhere), so the emitted C
+  // must carry the macro name and let the C compiler pick the value — the
+  // same single-sourcing the runtime scaffolding relies on
+  // (issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md).
+  AT_FDCWD : i32,
+  // The dirfd that resolves a relative path against the cwd
+  AT_REMOVEDIR : i32,
+  // unlinkat() flag: remove an empty directory, not a file
+  AT_SYMLINK_NOFOLLOW : i32,
+  // *at() flag: act on a symlink itself, not its target
   // File control function
   fcntl :
     (fn(fd : int, cmd : int, ...) -> int),
@@ -93,6 +104,10 @@ export(
   O_CLOEXEC,
   O_DIRECTORY,
   O_NOFOLLOW,
+  // *at() flags
+  AT_FDCWD,
+  AT_REMOVEDIR,
+  AT_SYMLINK_NOFOLLOW,
   // File control function
   fcntl,
   // fcntl commands
