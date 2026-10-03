@@ -7,23 +7,6 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-// std's `push` states only its length until the seed carries the
-// proof-only ensures filter (plans/backlog/SEED_VERSION_AUTOMATION.md,
-// Generation B); this assumed wrapper states its elements meanwhile.
-push_at_end :: (
-  fn(
-    xs : ArrayList(i32),
-    v : i32,
-    ensures(
-      xs.len() == (old(xs.len()) + usize(1)),
-      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
-    ),
-    assumed()
-  ) -> unit
-)({
-  xs.push(v);
-});
-
 // v occurs in xs[0..n).
 member :: ghost_fn(
   (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
@@ -68,7 +51,7 @@ copy_keeps_member :: (
   (i : usize) = usize(0);
   while(i < xs.len(), {
     invariant(i <= xs.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == xs(k))));
-    push_at_end(out, xs(i));
+    out.push(xs(i));
     i = (i + usize(1));
   });
   ghost(member_frame(xs, out, xs.len(), v));
