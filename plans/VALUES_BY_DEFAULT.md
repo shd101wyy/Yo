@@ -347,6 +347,17 @@ The primitive is `__yo_cell(V)` / `__yo_atomic_cell(V)`, a builtin usable
 only in a file with `pragma(Pragma.AllowUnsafe)` (§4 Q6); user code has no
 way to declare a reference type except by wrapping a value in `Rc`/`Arc`.
 
+There are two primitives, not one per wrapper: the split is the C count
+discipline, which codegen must know statically (today's `is_atomic_rc`).
+`__yo_cell` (plain `++`/`--`) backs `Box`, `Rc`, the collection and
+`String` buffers and `Dyn`; `__yo_atomic_cell` backs `Arc` and `std/imm`.
+`Box(V)` and `Rc(V)` are both `struct(_cell : __yo_cell(V))` and still
+distinct types, because structs are nominal (a `B(i32)` is E0601 where an
+`A(i32)` of the same shape is expected); their different behaviour, `Box`'s
+dup-`Clone` plus `make_unique` before a write versus `Rc`'s shared writes,
+is in their impls and the evaluator's write rules (§3.3, §3.10), not in the
+cell.
+
 **A cell is a cycle-collector node; a value is not.** This is the rule that
 makes copy-on-write and the collector agree:
 
