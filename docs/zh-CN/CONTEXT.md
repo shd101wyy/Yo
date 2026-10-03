@@ -79,7 +79,7 @@ yo context --doc memory_safety.md --format json   # {"name", "title", "citation"
 | `yo context <module>`         | 该模块的条目，按名字排序：名字、种类、签名             |
 | `yo context <module> <name>`  | 某个条目的完整说明：签名、完整文档、示例               |
 | `yo context <name>`           | 在整个语料中查找这个名字（见下文）                     |
-| `yo context --search <query>` | 在名字、签名和文档首行中进行排序搜索                   |
+| `yo context --search <query>` | 在名字、模块、签名和文档首行中进行排序搜索             |
 
 **模块**参数可以是完整路径（`std/collections/array_list`）、唯一的末段
 （`array_list`）或唯一的后缀（`collections/array_list`）。匹配多个模块的参数会
@@ -95,9 +95,13 @@ yo context --doc memory_safety.md --format json   # {"name", "title", "citation"
 会重新导出它的子模块）只计一次：说明取自定义它的模块，并附上
 `re-exported from` 注记。
 
-**搜索**是基于词法的、确定性的：精确的名字匹配排第一，其次是名字前缀、名字子串、
-签名匹配和文档匹配，同分时按模块路径排序。`--deep` 还会匹配每个条目完整文档的
-正文。对同一版本的库，同一个查询总是返回相同的结果。
+**搜索**是基于词法的、确定性的：查询会被拆成小写的关键词，且每个关键词都必须在
+某处命中（AND），因此自然语言式的查询是可行的——`--search "hash string"` 能找到
+`String.hash`（`hash` 是方法名，`string` 只出现在模块里）。精确的名字匹配排第一，
+其次是名字前缀、名字子串、模块匹配、签名匹配和文档匹配，每个命中按其最弱的关键词
+计分；同分时按模块路径排序。完全相同的结果行（同一模块中多个类型上的同名方法，其
+签名都打印为 `Self`）只保留一条。`--deep` 还会匹配每个条目完整文档的正文。对同一
+版本的库，同一个查询总是返回相同的结果。
 
 ### 未命中与退出码
 

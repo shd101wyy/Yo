@@ -1000,35 +1000,67 @@ SearchHit :: struct(
   entry : ContextIndexEntry,
   score : usize
 );
-/// Score one entry against the query (case-insensitive):
-/// exact name 400 > name prefix 300 > name substring 200 > signature
-/// substring 100 > doc substring 50. 0 = no match. Ties break by
-/// (module, name) in the caller's sort.
-search_score :: (fn(e : ContextIndexEntry, low_query : String) -> usize)({
+/// The query's match tokens: lowercased, whitespace-split, empty pieces
+/// dropped — "hash  string" (repeated spaces) or " hash " carry exactly the
+/// two tokens "hash" and "string", and no empty token that would trivially
+/// match everywhere.
+_query_tokens :: (fn(query : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  raw := query.split(String.from(" "));
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    t := raw(i).trim();
+    i = (i + usize(1));
+    if(t.len() > usize(0), {
+      out.push(t.to_lowercase());
+    });
+  });
+  out
+});
+/// Score one entry against the query (case-insensitive). The query is
+/// whitespace-tokenized and EVERY token must match somewhere (AND), so a
+/// natural-language recall query ("hash string") works instead of being
+/// matched as one literal substring. Per token: exact name 400 > name prefix
+/// 300 > name substring 200 > module substring 150 > signature substring 100
+/// > doc substring 50 — the module tier is what answers "which module do I
+/// import to …?". The entry scores its WEAKEST token's best tier, so a hit's
+/// score is still one rung of the ladder. 0 = no match (a token matched
+/// nowhere, or the query has no token at all). Ties break by (module, name)
+/// in the caller's sort.
+search_score :: (fn(e : ContextIndexEntry, query : String) -> usize)({
+  tokens := _query_tokens(query);
+  if(tokens.len() == usize(0), {
+    return(usize(0));
+  });
   low_name := e.name.to_lowercase();
-  if(low_name == low_query, {
-    return(usize(400));
+  low_module := e.module.to_lowercase();
+  low_signature := e.signature.to_lowercase();
+  low_doc := e.doc.to_lowercase();
+  (score : usize) = usize(400);
+  (i : usize) = usize(0);
+  while(i < tokens.len(), {
+    t := tokens(i);
+    i = (i + usize(1));
+    tier := cond(
+      (low_name == t) => usize(400),
+      low_name.starts_with(t.clone()) => usize(300),
+      low_name.contains(t.clone()) => usize(200),
+      low_module.contains(t.clone()) => usize(150),
+      low_signature.contains(t.clone()) => usize(100),
+      true => cond(low_doc.contains(t.clone()) => usize(50), true => usize(0))
+    );
+    if(tier < score, {
+      score = tier;
+    });
   });
-  if(low_name.starts_with(low_query.clone()), {
-    return(usize(300));
-  });
-  if(low_name.contains(low_query.clone()), {
-    return(usize(200));
-  });
-  if(e.signature.to_lowercase().contains(low_query.clone()), {
-    return(usize(100));
-  });
-  if((e.doc.len() > usize(0)) && e.doc.to_lowercase().contains(low_query), {
-    return(usize(50));
-  });
-  usize(0)
+  score
 });
 /// The deep-search score: 10 when the item's OWN rendered section (its
-/// defining entry's, for a barrel re-export) contains the query.
+/// defining entry's, for a barrel re-export) contains every query token.
 _deep_score :: (
   fn(
     e : ContextIndexEntry,
-    low_query : String,
+    query : String,
     world : LoadedWorld,
     cache : HashMap(String, ArrayList(PageSection)),
     io : Io,
@@ -1037,26 +1069,46 @@ _deep_score :: (
 )({
   d := _defining_entry(world.entries, e);
   text := _section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), d.name.clone());
-  cond(text.to_lowercase().contains(low_query) => usize(10), true => usize(0))
+  low := text.to_lowercase();
+  tokens := _query_tokens(query);
+  (i : usize) = usize(0);
+  while(i < tokens.len(), {
+    if(!low.contains(tokens(i).clone()), {
+      return(usize(0));
+    });
+    i = (i + usize(1));
+  });
+  cond((tokens.len() == usize(0)) => usize(0), true => usize(10))
 });
 /// The ranked hits for a query. Deterministic: score desc, then (module,
 /// name) — the entries arrive sorted, and the insertion sort is stable.
+/// Byte-identical entries collapse to ONE hit: a module can define the same
+/// method name on several types whose signatures all print `Self`
+/// (std/async/channel's `close` ×3), and those index lines are one row
+/// printed several times over — the first copy wins (identical entries score
+/// alike). Entries differing in signature stay: they are distinct rows.
 _search_entries :: (
   fn(query : String, deep : bool, world : LoadedWorld, io : Io, exn : Exception) -> ArrayList(SearchHit)
 )({
-  low_query := query.to_lowercase();
   cache := HashMap(String, ArrayList(PageSection)).new();
   hits := ArrayList(SearchHit).new();
+  seen := HashMap(String, bool).new();
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
     e := world.entries(i);
     i = (i + usize(1));
-    (score : usize) = search_score(e, low_query.clone());
-    if((score == usize(0)) && deep, {
-      score = _deep_score(e, low_query.clone(), world, cache, io, exn);
-    });
-    if(score > usize(0), {
-      hits.push(SearchHit(entry : e, score : score));
+    // A tab cannot occur in any field (paths, identifiers, and the
+    // whitespace-collapsed signature/doc), so it separates without aliasing.
+    key := `${e.module}\t${e.name}\t${e.kind}\t${e.signature}\t${e.doc}\t${e.origin}`;
+    if(!seen.contains_key(key.clone()), {
+      seen.insert(key, true);
+      (score : usize) = search_score(e, query.clone());
+      if((score == usize(0)) && deep, {
+        score = _deep_score(e, query.clone(), world, cache, io, exn);
+      });
+      if(score > usize(0), {
+        hits.push(SearchHit(entry : e, score : score));
+      });
     });
   });
   (k : usize) = usize(1);
@@ -1604,4 +1656,4 @@ run_context :: (
   println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
   println(content);
 });
-export(run_context, search_score);
+export(run_context, search_score, _search_entries, LoadedWorld);
