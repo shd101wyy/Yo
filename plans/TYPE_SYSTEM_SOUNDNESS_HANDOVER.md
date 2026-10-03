@@ -1,8 +1,8 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-03 (`wrap(wrap(x))` identity, §3.0/§3.3; Phase 6 step 3, §3.2). Earlier: 2026-10-01 (afternoon), picked up after the handover (§3.0). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-04, at the end of a stretch (yo-74/yo-e2). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
-to do next. Move it to `archive/` with a banner once §3 is empty.
+to do next (§3.0 is the ordered list). Move it to `archive/` with a banner once §3 is empty.
 
 ## 1. Where the plan stands
 
@@ -10,13 +10,26 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 | --- | --- |
 | 0 ratchet, 1 missing comparisons | Landed. |
 | 2 traits and generics | Landed, including 2.8 explicit Dyn upcast (#965). |
-| 3 type identity | Landed, including step 7 part 2, the SomeT registry retirement (#975). |
-| 4 diagnostics | 4.1, 4.3, 4.4, 4.5 landed. **4.2 open** (§3.2), best landed as Phase 6.4. |
+| 3 type identity | Landed through step 8. Step 9 (array lengths by identity) started: design in the plan, step 0 (census probe) landed (#1149); steps 1–5 open (§3.0). |
+| 4 diagnostics | 4.1, 4.3, 4.4, 4.5 landed. 4.2 lands as Phase 6 step 4. |
 | 5 ownership | Landed (3 and 4 via `archive/PARALLELISM_SOUNDNESS.md`). |
-| 6 swallow policy | Steps 1–2 landed (#968, #1062). Step 3 on `tss/phase6-reraise` (§3.2: census, instantiation notes, the recorded-error backstop). Open: site #8 (§3.3), step 4 (§3.2). |
+| 6 swallow policy | Steps 1–3 landed (#968, #1062, #1124). Site #8 landed (#1113). Step 4 is PR `tss/phase6-step4` (§3.0). |
 | 7 docs | Done; each phase updates its docs as it lands. |
 
-## 2. Landed in this stretch (2026-09-29 → 2026-10-01)
+## 2. Landed in this stretch
+
+**2026-10-01 → 2026-10-04:**
+
+- #1088 docs; #1094 impl forcing (recursive-type list elements, name-aware guard, declaring-only
+  named misses, never an importer parked on its import); #1105 develop's own runtime `?=` field
+  defaults (#1098 broke the self-compile); #1104 a generic callee's binder nested in a type binds
+  from the caller's binder in a trial (extern and Yo-fn routes); #1113 `check` sees other
+  modules' function bodies (Phase 6 site #8); #1112 `EnumT.type_arguments` (phantom enums;
+  its async regression fixed by #1121); #1124 Phase 6 step 3; #1135 `__yo_v_` C identifiers
+  (header-macro collisions); #1116 `wrap(wrap(x))` type identity + the step-9 design; #1149
+  step-9 step 0 (`YO_DEBUG_ARRAY_LEN`); #1144 (issue: no test run timeout).
+
+**2026-09-29 → 2026-10-01:**
 
 - **#996:** develop builds with the v0.2.45 seed again (the value `JoinHandle`, lowered by
   the handle's type). Released as v0.2.46. Fixed on the way: the escape-after-branch double drop,
@@ -45,43 +58,44 @@ to do next. Move it to `archive/` with a banner once §3 is empty.
 
 ## 3. Open work, in order
 
-### 3.0 The branches (2026-10-01, after the handover)
+### 3.0 Next, in order
 
-Develop is frozen until v0.2.48 is published (yo-88 cuts it). Until then nothing merges. New
-work goes up as stacked DRAFT PRs, which run no CI. The stack, bottom first:
+1. **Phase 6 step 4 / Phase 4.2** (branch `tss/phase6-step4`, PR against develop): a live
+   failed-to-transpile stub (not a superseded generic original) is a compile error, reporting
+   the trial's recorded error or the stub site with the `YO_DEBUG_SWALLOW` hint. Prerequisite
+   in the same PR: a function written inside a `comptime_expect_error(...)` argument is never
+   emitted (`should_skip_function_codegen` + `is_inside_cee_argument`; those were the only 14
+   live stubs in the fast suite). Red-before shown with a build that has the stub rule but not
+   the skip: `tests/type_soundness.test.yo`'s batch fails with the new error. If it has not
+   landed, finish its battery (fast suite included) and merge.
+2. **Phase 3 step 9, steps 1–5** (the plan's migration order): `ArrayLen` replaces the
+   `length_var` string (pure refactor, byte-identical), then ids, id-keyed substitution
+   (`_subst_lookup_by_name` deleted; the `tests/array.test.yo` `_Widthy` canary), symbolic
+   synthesis (exit test: `Array(u8, T.BYTES).fill(u8(0))` checks in a generic impl member's
+   trial), identity-mode comparison, then drop `mark_generic_independent`'s `unit` exclusion.
+   Step 0's census: `src`/`std` mint only `N`, `U` and `T.BYTES`. Still to do for step 0: the
+   fast-suite share and the re-kind-shadow confirmation.
+3. **The kept-swallow kinds** (§3.2 "What remains" 2): most are an operator on an
+   unconstrained binder typed as `unit` (`issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`).
+4. Smaller, each about a day or less:
+   - `issues/enum-type-arguments-made-check-about-4-percent-slower.md` (S3, #1112's cost; filed
+     by #1121 — read its suspects first).
+   - Make strict test-body checking the default (§3.3), after comparing the
+     `closure_param_forwarding` memory peak and the `imm_*` SIGBUS against develop.
+   - `issues/yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md` (S3).
+   - `issues/a-hung-test-binary-blocks-yo-test-forever.md` (S3): a per-batch run deadline.
 
-| branch | content | state |
-| --- | --- | --- |
-| `tss/docs` | this doc, the plan's Phase 3 step 9, and the type-system issue docs carried over from #1084 | merged (#1088) |
-| `tss/enum-final-name` | §3.4: both impl-ordering fixes, plus the fix for the branch's own `check ./std` regression and the parked-importer force | merged (#1094) |
-| `fix/check-foreign-bodies` | §3.3 #8: `check` summarizes D1 and StrictBorrow memos per module | being finished (build, goldens, soundness review) |
-| `tss/generic-extern-trial` | §3.3: the generic-extern trial failure, plus its Yo-fn twin found in review | fixed; both cli-cases red on the seed |
-| `tss/phantom-enum-type-args` | §3.3: `EnumT.type_arguments` | in progress; gated on byte identity |
-| `tss/option-of-generic-option-identity` (#1116) | §3.3: `wrap(wrap(x))` type identity; the Phase 3 step 9 design | rebased onto develop; local gates in its PR |
-| `fix/header-macro-prefix` | §3.5 | rebased onto develop after `async-triage` (#1093); fixed, draft PR on develop (fixpoint holds) |
-
-**#1084 is superseded.** Its JoinHandle step 2 and both state-machine leak fixes are also on
-yo-65's `async-triage` (an owning `ref` JoinHandle, the value-handle branches deleted, Rule 1's
-dup-temp slot store, the abort-registry free, and more), which lands after v0.2.48. Two
-`sm_protocol` tests from #1084 go there too. The type-system docs moved to `tss/docs`.
-`fix/sm-dup-temp-leak` and `fix/join-handle-owning` can be deleted once `async-triage` lands.
-
-**The `check ./std` failure is attributed and fixed.** It was `fix/enum-final-name` alone (built
-by itself, the E0906 and E0616 cascade reproduces). `YO_DEBUG_LAZY=1` (which now also prints
-each miss) showed `[force-miss] String.clone (forcing stack: impl(String) splitn)` forcing every
-pending `String` impl in every walk. That included `impl(String, ToString(…))` in
-`std/fmt/to_string.yo`, whose walk was still parked on `import("../string")`. A named miss now
-forces only the impls that declare the name. See
-`issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md`, which has a
-two-module test.
-
-### 3.1 The owning JoinHandle (step 2) and the state-machine leaks
-
-Moved to `async-triage` (yo-65), as described in §3.0.
+**How this stretch gated** (see §4): one worktree per branch under `~/Workspace/Yo-wt`; never two
+`yo test` runs in one worktree (batch files collide); long legs (`fixpoint_only.sh`,
+`gates_fast.sh`, the fast suite) run detached (`setsid nohup`) because a 2 h tool limit kills
+them; `YO_TEST_LEAK_VERDICT=0` as CI; format with the TREE's built `yo fmt` (#1092 changed the
+layout); after any rebase onto a develop that moved `src/`, re-run build, checks and the fixpoint
+before merging. Known local-only failures on the Linux WSL box: fast suite `temp_dir` and the
+Tokyo `TZ` test; cli goldens `doc-*` (fixed by #1126) and `compile-allocator-fixed-oom-shapes`.
 
 ### 3.2 Phase 6 steps 3–4 and Phase 4.2 (the FTT-stub backstop)
 
-**Step 3 is on branch `tss/phase6-reraise` (2026-10-02).** Census first, then what landed and
+**Step 3 landed (#1124, 2026-10-03).** Census first, then what landed and
 what it found.
 
 **Census (step 1 of this section).** `YO_DEBUG_SWALLOW=1` now prints a `[kept] site=… code=…
