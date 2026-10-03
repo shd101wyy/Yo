@@ -271,9 +271,15 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **Type equality on the bundle.** `Future(T, E1)` matches `Future(T, E2)` when
    `E1` and `E2` are compatible types. There is no order-independent set matching
    anymore — there is no set, just one bundle.
-2. **Unannotated and annotated mix freely.** `Future(T)` (no bundle) is
-   compatible with `Future(T, E)` (any bundle). Use the unannotated form when
-   the caller doesn't need to refer to the effect type.
+2. **A bundle-less future fits any bundle; a bundled one fits `Future(T)`
+   only with `Io`.** A future whose type names no bundle (a raw `IoFuture`,
+   `yield`) is compatible with `Future(T, E)` for any `E`: it reads no
+   bundle. The other direction is narrower. An await or spawn through a
+   `Future(T)` type injects nothing, so a bundled future may be viewed as
+   `Future(T)` only when its bundle is `Io`, whose fields are compiler
+   builtins the body never calls through. A future whose bundle carries
+   handlers keeps its bundle in every type it is passed as; viewing it as
+   `Future(T)` is a `yo check` error.
 3. **Io when the body awaits.** Any async body that calls `io.await` / `yield`
    needs an `Io` in its bundle, so the bundle struct typically has an `io : Io`
    field.
@@ -430,8 +436,17 @@ export(main);
 the cancellation is **structured**: whatever the task is suspended on is
 cancelled with it.
 
-- A pending I/O operation or timer is cancelled at the OS level.
-- A child Future the task was awaiting is aborted in turn, recursively.
+- A pending I/O operation or timer is cancelled at the OS level, where the
+  backend has a cancel path (timers everywhere; on Linux the epoll and
+  io_uring descriptor and datagram operations; on macOS the kqueue-parked
+  descriptor operations). An operation without one runs to completion, and
+  the task stays aborted.
+- A child Future the task was awaiting is aborted in turn, recursively, when
+  the task started it: an anonymous `io.await(child(io), io)`, or a named
+  future this await cold-started. A named future someone else started may be
+  shared with other awaiters, so it keeps running.
+- A raw `IoFuture` spawned directly is cancelled the same way, and its handle
+  keeps reading `.None` after the operation's time.
 - A task parked on a `Mutex` or `Channel` leaves its queue. The next `unlock`
   or `send` skips the dead waiter and hands the lock or the message to a live
   one. Nothing is lost.

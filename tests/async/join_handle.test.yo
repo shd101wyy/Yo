@@ -186,3 +186,50 @@ test("a plain function's io.await of an already-aborted future propagates to the
   hc := io.spawn(caller, io);
   assert(hc.await(io).is_none(), "the abort escaped the plain function and aborted the calling task");
 });
+// ---------------------------------------------------------------------------
+// Cancellation gaps closed by plans/ASYNC_IO_API_AUDIT.md A3.
+// ---------------------------------------------------------------------------
+test("abort of a directly spawned raw IoFuture stays Aborted after the operation's time", {
+  // issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md
+  h := io.spawn(sleep(u64(30)), io);
+  h.abort();
+  assert(h.state() == FutureState.Aborted, "Aborted right after the abort");
+  io.await(sleep(u64(80)), io);
+  assert(h.state() == FutureState.Aborted, "still Aborted after the timer would have fired");
+  assert(h.await(io).is_none(), "await reads .None");
+});
+test("aborting a task aborts the named child future its await started", {
+  ran := Box(bool)(false);
+  child := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    ran.* = true;
+    i32(1)
+  });
+  parent := io.async((io : Io) => {
+    v := io.await(child, io);
+    (v + i32(1))
+  });
+  hp := io.spawn(parent, io);
+  io.await(yield(io), io);
+  hp.abort();
+  assert(io.state(child) == FutureState.Aborted, "the child the parent started was aborted with it");
+  io.await(sleep(u64(80)), io);
+  assert(!(ran.*), "and its body never resumed past its sleep");
+  assert(hp.await(io).is_none(), "the parent reads .None");
+});
+test("aborting a task leaves a named future that someone else started running", {
+  ran := Box(bool)(false);
+  shared := io.async((io : Io) => {
+    io.await(sleep(u64(20)), io);
+    ran.* = true;
+    i32(5)
+  });
+  hs := io.spawn(shared, io);
+  waiter := io.async((io : Io) => io.await(shared, io));
+  hw := io.spawn(waiter, io);
+  io.await(yield(io), io);
+  hw.abort();
+  r := hs.await(io);
+  assert(match(r, .Some(v) => (v == i32(5)), .None => false), "the shared future completed");
+  assert(ran.*, "its body ran to the end");
+});

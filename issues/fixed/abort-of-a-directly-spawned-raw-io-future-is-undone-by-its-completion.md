@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `JoinHandle.abort()` on a handle to a raw `IoFuture` is a no-op with a lie in the middle: `state()` reads `Aborted` until the operation completes, then `Completed`, and `await` returns `.Some`; the documented contract ("`await` on an aborted handle returns `.None`") does not hold for this shape.
 
-**Status: OPEN.** Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F5, probe 1). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, macOS arm64, `--optimize 2`.
+**Status: FIXED 2026-10-03** (phase A3 of `plans/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F5, probe 1). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, macOS arm64, `--optimize 2`.
 
 ## Symptom
 
@@ -33,3 +33,10 @@ The generated cancel hook that DOES cancel is the state machine's (`src/codegen/
 ## Fix direction
 
 `__yo_future_abort`: when `vt == NULL`, call `__yo_async_io_cancel(fut)` directly. Every backend's completion path: `if (state != -2) state = -1`. Regression test: the repro's three assertions, plus the same shape over a kqueue/epoll descriptor operation. Plan: `plans/ASYNC_IO_API_AUDIT.md` A3.
+
+## Fix
+
+- `__yo_future_abort` (`src/codegen/async/runtime_core.yo`): a future with no vtable (a raw I/O future) detaches its waiters, calls the backend's `cancel_fn` when it has one, marks the future Aborted and wakes the waiters.
+- Every backend completion (`runtime_io_linux.yo`, `runtime_io_macos.yo`, `runtime_io_windows.yo`, `runtime_io_wasm.yo`) writes Completed only over a non-Aborted state, so an operation with no cancel path no longer turns an aborted future back into a completed one.
+
+Regression test: "abort of a directly spawned raw IoFuture stays Aborted after the operation's time" in `tests/async/join_handle.test.yo`.
