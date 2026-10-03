@@ -2,9 +2,9 @@
 
 **Severity:** S3 — the C compile line is never printed and `--verbose` is not propagated — the TSan leg cannot assert its flag reached the log
 
-**Status: OPEN** (found 2026-08-15 implementing P2.5 step 21.) **Re-verified
-2026-09-14** against a tree-built binary: still no print, and NOT under `-v`
-either. Measurements that change the shape of the fix are at the end.
+**Status: FIXED 2026-10-03** (found 2026-08-15 implementing P2.5 step 21.)
+**Re-verified 2026-09-14** against a tree-built binary: still no print, and NOT
+under `-v` either. Measurements that change the shape of the fix are at the end.
 
 ## The gap
 
@@ -110,3 +110,41 @@ real bug, not recording residue.
 **Not implemented here.** It is a two-part change (compiler + test runner)
 whose acceptance test is a full 139-case cli-diff scorecard showing zero
 movement, which wants a quiet machine and no release in flight.
+
+## Fixed
+
+**2026-10-03, branch `s3/batch-1-fixes`.** Root cause, both halves as
+re-measured above: the self-hosted compiler assembled the cc argv
+(`CcPlan.argv`) but no path printed it, `run_compile` had no
+`-v/--verbose` arm to gate a print behind, and `run_test` consumed its own
+`--verbose` for failed-test diagnostics without forwarding it to the batch
+compile — so no log could prove a flag reached cc. Fix (`src/main.yo`):
+`_print_cc_argv` prints the verbose-gated `Compiling with: <cc> <argv…>`
+line from inside `_run_cc_plan` at every invocation site (the static-lib
+`cc -c` and its `ar rcs`, each non-cached chunk compile, the link, and the
+poisoned-cache retry link); `CcPlan` gained a `verbose` field, serialized in
+the `.ccplan` file so the Unix exec-handoff child (`__cc-plan`) prints too;
+`run_compile` parses `-v/--verbose` (help updated, en + zh-CN); `run_test`
+pushes `--verbose` onto the child-compile argv beside `--profile`; and the
+P2.5 step-21 assertion is re-added in `.github/workflows/test.yml` — the TSan
+step now `grep -q -- '-fsanitize=thread'`s the logged compile line under
+`set -o pipefail`, so the runner's own exit code stays the gate and an
+uninstrumented run can no longer report green. Test:
+`tests/cli-cases/compile-verbose-prints-cc-line` pins the line's stable
+prefix from BOTH `compile -v` and the propagated `test -v` batch compile
+(`stdout_keep_match`, so the golden carries no host-specific paths) — RED
+before the fix (`compile: unknown option '-v'`, zero "Compiling with" hits)
+and PASS after; `help-compile`'s golden was re-recorded for the three new
+help lines, the only intended movement — the full 358-case scorecard run with
+the fixed binary on Windows shows no failure diff containing the new output
+(`grep -c "Compiling with"` over the failure log = 0) and every
+compile/build/test-family failure reproduces identically under the develop
+baseline binary (the two pre-existing `-v` cases,
+`test-debug-heap-lists-live-and-abandoned-arenas` and
+`build-test-suite-flags`, keep byte-identical stdout goldens; their diffs are
+a Windows-only `asan_probe.c` tree leftover, identical under develop).
+RED-first per the original step 3, verified locally: with the flag absent
+(`--disable-sanitize`) the same grep fails (rc=1); under
+`YO_TEST_SANITIZE=thread` the printed batch-compile line carries
+`-fsanitize=thread` (this Windows host cannot link TSan — the leg stays
+Linux-only — but the assertion's subject, the logged line, is proven).

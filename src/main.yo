@@ -2591,6 +2591,16 @@ _cc_command :: (fn(program : String, argv : ArrayList(String)) -> Command)({
   });
   c
 });
+/// [`-v/--verbose`] The C compile line — the retired TS compiler printed this
+/// unconditionally (`Compiling with: ${compiler} ${args.join(" ")}`); the
+/// self-hosted one prints it per invocation, GATED, because the cli-cases
+/// goldens compare stdout and no recorded case asks for it
+/// (issues/fixed/yoself-missing-compiling-with-print.md). This is what makes
+/// a flag's arrival at the C compiler assertable from a log: a silently
+/// dropped `-fsanitize=…` is otherwise indistinguishable from a clean run.
+_print_cc_argv :: (fn(program : String, argv : ArrayList(String)) -> unit)(
+  println(`Compiling with: ${program} ${String.from(" ").join(argv)}`)
+);
 /// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
 /// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
 /// generated compile script must never let them reach the shell unquoted.
@@ -2654,6 +2664,7 @@ _compile_chunks_parallel :: (
     jobs : usize,
     force_recompile : bool,
     hits_out : ArrayList(usize),
+    verbose : bool,
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
@@ -2695,6 +2706,11 @@ _compile_chunks_parallel :: (
       cmdline.push_string(_sh_quote(cf.clone()));
       cmdline.push_str(" -o ");
       cmdline.push_string(_sh_quote(obj.clone()));
+      // [`-v/--verbose`] Print the UNQUOTED form (the other invocation sites'
+      // shape), not the `sh`-quoted `cmdline` below it.
+      if(verbose, {
+        println(`Compiling with: ${cc} ${flags_key} -c ${cf} -o ${obj}`);
+      });
       lines.push(cmdline);
       stamps.push(stamp);
       stamp_paths.push(stamp_path);
@@ -3105,6 +3121,12 @@ CcPlan :: struct(
   /// positions). Set for the whole plan because the exec handoff
   /// (`__cc-plan`) re-runs it in a fresh image.
   capture_cc : bool,
+  /// [`-v/--verbose`] Print every C-compiler invocation ("Compiling with: …")
+  /// before it runs, so a flag's presence in the argv (a sanitizer, an
+  /// include path) is assertable from any log. Serialized like `capture_cc`:
+  /// the exec-handoff child re-runs the plan in a fresh image where the CLI
+  /// flag is gone.
+  verbose : bool,
   /// STATIC_LIB: the object `argv` writes and the archive it goes into.
   obj_path : String,
   ar_out : String
@@ -3126,6 +3148,7 @@ _new_cc_plan :: (fn(mode : u8, cc : String, c_path : String, output : String) ->
     chunk_max_bytes : usize(0),
     jobs_memory_capped : false,
     capture_cc : false,
+    verbose : false,
     obj_path : String.new(),
     ar_out : String.new()
   )
@@ -3180,6 +3203,7 @@ _cc_plan_serialize :: (fn(plan : CcPlan) -> String)({
   out.push_string(`chunk_max_bytes ${plan.chunk_max_bytes.to_string()}\n`);
   out.push_string(`jobs_memory_capped ${if(plan.jobs_memory_capped, String.from("1"), String.from("0"))}\n`);
   out.push_string(`capture_cc ${if(plan.capture_cc, String.from("1"), String.from("0"))}\n`);
+  out.push_string(`verbose ${if(plan.verbose, String.from("1"), String.from("0"))}\n`);
   out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
   out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
   out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
@@ -3221,6 +3245,9 @@ _cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
           },
           (key == "capture_cc") => {
             plan.capture_cc = (val == "1");
+          },
+          (key == "verbose") => {
+            plan.verbose = (val == "1");
           },
           (key == "cc") => {
             plan.cc = val;
@@ -3527,6 +3554,9 @@ _report_captured_cc_stderr :: (fn(captured_err : ArrayList(u8)) -> unit)({
 _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
   cc := plan.cc;
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
+    if(plan.verbose, {
+      _print_cc_argv(cc.clone(), plan.argv);
+    });
     cst := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
       exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
@@ -3536,6 +3566,13 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
     arcmd.arg(String.from("rcs"));
     arcmd.arg(plan.ar_out.clone());
     arcmd.arg(plan.obj_path.clone());
+    if(plan.verbose, {
+      ar_argv := ArrayList(String).new();
+      ar_argv.push(String.from("rcs"));
+      ar_argv.push(plan.ar_out.clone());
+      ar_argv.push(plan.obj_path.clone());
+      _print_cc_argv(String.from("ar"), ar_argv);
+    });
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
       exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${plan.ar_out}`));
@@ -3559,6 +3596,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
       chunk_jobs,
       false,
       chunk_hits,
+      plan.verbose,
       io,
       exn
     );
@@ -3570,6 +3608,9 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
   // structured diagnostics (`_report_captured_cc_stderr`); a success keeps C
   // warnings visible by printing what was captured.
   (link_st : ExitStatus) = ExitStatus(raw : i32(0));
+  if(plan.verbose, {
+    _print_cc_argv(cc.clone(), plan.argv);
+  });
   if(plan.capture_cc, {
     cap := io.await(_cc_command(cc.clone(), plan.argv).output(io), IoExn(io : io, exn : exn));
     link_st = cap.status;
@@ -3608,9 +3649,13 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
         chunk_jobs,
         true,
         retry_hits,
+        plan.verbose,
         io,
         exn
       );
+      if(plan.verbose, {
+        _print_cc_argv(cc.clone(), plan.argv);
+      });
       st2 := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
         exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
@@ -3738,6 +3783,11 @@ run_compile :: (
   // batch compiles — a runtime harness; legs without Z3 could not compile
   // verify-pragma fixtures otherwise).
   (no_verify : bool) = false;
+  // `-v/--verbose`: print every C-compiler invocation ("Compiling with: …")
+  // as it is about to run (`_run_cc_plan`), so the assembled argv — sanitizer
+  // flags included — is assertable from any log. The test runner forwards its
+  // own --verbose here (issues/fixed/yoself-missing-compiling-with-print.md).
+  (verbose : bool) = false;
   (skip_cc : bool) = false;
   // 5b: keep every runtime guard even where a proof licenses its removal
   // (the C-diff oracle's reference build).
@@ -3837,6 +3887,10 @@ run_compile :: (
       (a_name == "--profile-json") => {
         profile_json = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
+      },
+      ((a_name == "-v") || (a_name == "--verbose")) => {
+        verbose = true;
+        ai = (ai + usize(1));
       },
       (a_name == "--allocator") => {
         allocator = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -4994,6 +5048,7 @@ run_compile :: (
     lib_plan.argv = cmd.recorded;
     lib_plan.obj_path = obj_path;
     lib_plan.ar_out = if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
+    lib_plan.verbose = verbose;
     _finish_cc_plan(lib_plan, profile_json.clone(), io, exn);
     return(())
   });
@@ -5122,6 +5177,7 @@ run_compile :: (
   plan.chunk_max_bytes = chunk_max_bytes;
   plan.jobs_memory_capped = jobs_defaulted;
   plan.capture_cc = line_directives;
+  plan.verbose = verbose;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -6233,6 +6289,15 @@ run_test :: (
         // per-phase table (stderr is inherited).
         if(test_profile, {
           cargv.push(String.from("--profile"));
+        });
+        // So does --verbose: the child prints its C compile line
+        // ("Compiling with: …"), which is what makes a sanitizer flag
+        // assertable from `yo test --verbose` logs — the TSan CI leg greps
+        // `-fsanitize=thread` out of exactly this line. Previously the flag
+        // died here, and a green run carried no evidence any flag reached cc
+        // (issues/fixed/yoself-missing-compiling-with-print.md).
+        if(verbose, {
+          cargv.push(String.from("--verbose"));
         });
         // The test runner is a RUNTIME harness: verification is a static
         // gate (yo check / yo compile / yo verify), and legs without Z3
@@ -8492,6 +8557,9 @@ Options:
   --compile-timeout-ms <ms> C compiler timeout
   --profile                 Print per-phase / per-module timing on stderr
   --profile-json <path>     Write the profile as JSON (module keys are absolute paths)
+  -v, --verbose             Print each C-compiler invocation ("Compiling with: …")
+                            as it is about to run — the line a sanitizer flag
+                            must appear in for the run to prove it was instrumented
   --emcc-environment <env>  Emscripten environment (node|web)
   --debug-gc / --debug-async-await / --debug-parallelism
                             Runtime debug logging in the emitted binary
@@ -8545,6 +8613,8 @@ Examples:
   --compile-timeout-ms <ms> C 编译器超时
   --profile                 在 stderr 上打印分阶段/分模块耗时
   --profile-json <path>     把耗时写成 JSON（模块键为绝对路径）
+  -v, --verbose             运行前打印每次 C 编译器调用（"Compiling with: …"），
+                            清理器标志必须出现在该行，运行才算证明已被插桩
   --emcc-environment <env>  Emscripten 环境（node|web）
   --debug-gc / --debug-async-await / --debug-parallelism
                             产出二进制内的运行时调试日志

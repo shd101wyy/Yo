@@ -1,0 +1,15 @@
+# issues/fixed/yoself-missing-compiling-with-print.md: `yo compile` prints each
+# assembled C-compiler invocation ("Compiling with: <cc> <argv…>") before it
+# runs, but ONLY under `-v/--verbose` — an unconditional print would put the
+# host's compiler path and absolute sandbox paths into every recorded golden.
+# The test runner forwards its own `--verbose` to the batch compile, so the
+# second command's line proves the propagation: without it a green run carries
+# zero evidence of any sanitizer flag (the TSan CI leg asserts
+# `-fsanitize=thread` on exactly this line).
+#
+# Only the stable PREFIX of the line is comparable across hosts: the rest is
+# environment-specific (paths, platform link libraries, `.exe` suffixes). The
+# pattern must keep matching after the print lands — a vacuous match is a
+# NO-GOLDEN, not a pass.
+stdout_keep_match=Compiling with: clang -std=c11
+timeout=300
