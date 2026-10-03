@@ -1345,7 +1345,7 @@ evaluate_comptime_fn_call :: (
       ce,
       .Atom(_, ca_tok) => ca_tok.value,
       .FnCall(_, ce_fn, ce_args, ce_infix, _) => cond(
-        (ce_infix && ((ce_args.len() == usize(2)) && ast_expr_is_atom_of(ce_fn, "."))) => match(
+        (ce_infix && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(ce_fn, ".")) => match(
           ce_args.get(usize(1)),
           .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value, .FnCall(_, _, _, _, _) => String.from("")),
           .None => String.from("")

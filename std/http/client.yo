@@ -432,7 +432,7 @@ _body_is_delimited :: (fn(resp : HttpResponse, kind : MessageKind) -> bool)({
   code := resp.status.as_u16();
   is_head := match(kind, .HeadResponse => true, _ => false);
   cond(
-    (is_head || ((code < u16(200)) || ((code == u16(204)) || (code == u16(304))))) => {
+    (is_head || (code < u16(200)) || (code == u16(204)) || (code == u16(304))) => {
       return(true);
     },
     true => ()
@@ -733,7 +733,7 @@ _fetch_once :: (
       // Not one byte: either the server closed an idle connection under us
       // (retryable, see above) or it hung up without answering.
       dead := raw.is_empty();
-      retry_now := (dead && (reused && idempotent));
+      retry_now := (dead && reused && idempotent);
       cond(
         retry_now => {
           conn.close_sync();

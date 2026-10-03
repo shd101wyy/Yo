@@ -913,10 +913,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // use-site type carrying `is_control`.
         v_is_control := (
           is_control_fn(_func_val_id(v)) ||
-            (
-              match(get_func_type(_func_val_id(v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
-                match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
-            )
+            match(get_func_type(_func_val_id(v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
+              match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {

@@ -292,7 +292,7 @@ _parse_context_query :: (
     // `--flag value` and `--flag=value` for the three valued flags.
     (valued : bool) = false;
     (flag : String) = a.clone();
-    if((a == "--search") || ((a == "--path") || ((a == "--format") || (a == "--doc"))), {
+    if((a == "--search") || (a == "--path") || (a == "--format") || (a == "--doc"), {
       valued = true;
       if((ai + usize(1)) >= argv.len(), {
         _usage_error(`${a} needs an argument`, `${a} 需要一个参数`, exn);
@@ -304,7 +304,7 @@ _parse_context_query :: (
         a.index_of(String.from("="), usize(0)),
         .Some(eq) => {
           head := a.substring(usize(0), eq);
-          if((head == "--search") || ((head == "--path") || ((head == "--format") || (head == "--doc"))), {
+          if((head == "--search") || (head == "--path") || (head == "--format") || (head == "--doc"), {
             valued = true;
             flag = head;
             value = a.substring(eq + usize(1), a.len());
@@ -804,7 +804,7 @@ PageSection :: struct(
 /// The anchor of a renderer ITEM heading (`` ### `anchor` ``), or `.None`.
 _item_heading_anchor :: (fn(line : String) -> Option(String))({
   open := String.from("### `");
-  if(line.starts_with(open.clone()) && (line.ends_with(String.from("`")) && (line.len() > (open.len() + usize(1)))), {
+  if(line.starts_with(open.clone()) && line.ends_with(String.from("`")) && (line.len() > (open.len() + usize(1))), {
     return(Option(String).Some(line.substring(open.len(), line.len() - usize(1))));
   });
   Option(String).None
@@ -945,7 +945,7 @@ _defining_entry :: (fn(entries : ArrayList(ContextIndexEntry), e : ContextIndexE
   (i : usize) = usize(0);
   while(i < entries.len(), {
     d := entries(i);
-    if((d.module == e.origin) && ((d.name == e.name) && (d.kind == e.kind)), {
+    if((d.module == e.origin) && (d.name == e.name) && (d.kind == e.kind), {
       return(d);
     });
     i = (i + usize(1));
@@ -1519,7 +1519,7 @@ run_context :: (
   // The manuals are their own mode: `--format` is the only flag that
   // qualifies them, and they do not mix with an API query.
   if(q.docs || (q.doc.len() > usize(0)), {
-    other := (q.list || ((q.search.len() > usize(0)) || ((q.subject.len() > usize(0)) || ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || q.verbose)))))));
+    other := (q.list || (q.search.len() > usize(0)) || (q.subject.len() > usize(0)) || (q.path.len() > usize(0)) || q.refresh || q.deps || q.deep || q.verbose);
     if(other || (q.docs && (q.doc.len() > usize(0))), {
       _usage_error(`--docs and --doc <name> take no other query or option except --format`, `--docs 和 --doc <name> 除 --format 外不能与其他查询或选项同时使用`, exn);
     });
@@ -1530,8 +1530,8 @@ run_context :: (
     });
     return(());
   });
-  has_query := (q.list || ((q.search.len() > usize(0)) || (q.subject.len() > usize(0))));
-  has_query_flag := ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || (q.verbose || q.as_json)))));
+  has_query := (q.list || (q.search.len() > usize(0)) || (q.subject.len() > usize(0)));
+  has_query_flag := ((q.path.len() > usize(0)) || q.refresh || q.deps || q.deep || q.verbose || q.as_json);
   if(!has_query && has_query_flag, {
     _usage_error(
       `--path, --refresh, --deps, --deep, --verbose and --format qualify a query: add --list, --search <query>, <module> or <name>`,

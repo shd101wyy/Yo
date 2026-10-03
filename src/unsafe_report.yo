@@ -209,7 +209,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
       if(boundary_ok && _bytes_at(src, i, "c_include("), {
         open_idx = Option(usize).Some(i + usize(9));
       });
-      if(open_idx.is_none() && (boundary_ok && _bytes_at(src, i, "extern(")), {
+      if(open_idx.is_none() && boundary_ok && _bytes_at(src, i, "extern("), {
         // Require `"c"` then `,` after optional whitespace.
         (k : usize) = (i + usize(7));
         while((k < n) && _is_ws_byte(src(k)), {
